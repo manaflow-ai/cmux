@@ -200,6 +200,26 @@ impl Default for HeartbeatConfig {
 }
 
 pub async fn run_with_heartbeat(opts: ServerOptions, heartbeat: HeartbeatConfig) -> Result<()> {
+    run_inner(opts, heartbeat, None).await
+}
+
+/// Run with a caller-owned WebSocket listener.
+///
+/// Tests use this to bind `127.0.0.1:0` once, keep the selected port reserved,
+/// and hand that exact listener to the server without a free-port race.
+pub async fn run_with_websocket_listener(
+    opts: ServerOptions,
+    heartbeat: HeartbeatConfig,
+    ws_listener: tokio::net::TcpListener,
+) -> Result<()> {
+    run_inner(opts, heartbeat, Some(ws_listener)).await
+}
+
+async fn run_inner(
+    opts: ServerOptions,
+    heartbeat: HeartbeatConfig,
+    prebound_ws_listener: Option<tokio::net::TcpListener>,
+) -> Result<()> {
     probe::log_event(
         "server",
         "run_start",
@@ -247,10 +267,19 @@ pub async fn run_with_heartbeat(opts: ServerOptions, heartbeat: HeartbeatConfig)
         .and_then(|p| spawn_settings_watcher(daemon.clone(), p));
 
     // Optionally start a WebSocket listener.
-    if let Some(addr) = opts.ws_bind {
-        let ws_listener = tokio::net::TcpListener::bind(addr)
-            .await
-            .with_context(|| format!("ws bind {addr}"))?;
+    let ws_listener = match (prebound_ws_listener, opts.ws_bind) {
+        (Some(listener), _) => Some(listener),
+        (None, Some(addr)) => Some(
+            tokio::net::TcpListener::bind(addr)
+                .await
+                .with_context(|| format!("ws bind {addr}"))?,
+        ),
+        (None, None) => None,
+    };
+    if let Some(ws_listener) = ws_listener {
+        let addr = ws_listener
+            .local_addr()
+            .context("read websocket listener local addr")?;
         tracing::info!(%addr, "cmx server ws listener up");
         let token = opts.auth_token.clone();
         let ws_daemon = daemon.clone();

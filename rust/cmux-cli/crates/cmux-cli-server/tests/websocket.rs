@@ -13,7 +13,7 @@ use cmux_cli_protocol::{
     AttachedClientKind, ClientMsg, Command, CommandResult, NativePanelNode, NativeSnapshot,
     NativeTerminalRenderer, PROTOCOL_VERSION, ServerMsg, SplitDropEdge, SplitPathStep, Viewport,
 };
-use cmux_cli_server::{HeartbeatConfig, ServerOptions, run, run_with_heartbeat};
+use cmux_cli_server::{HeartbeatConfig, ServerOptions, run_with_websocket_listener};
 use futures_util::{SinkExt, StreamExt};
 use tokio::time::timeout;
 use tokio_tungstenite::connect_async;
@@ -169,9 +169,10 @@ async fn recv_native_snapshot_with_client_count(ws: &mut TestWs, count: usize) -
     }
 }
 
-async fn pick_free_port() -> SocketAddr {
+async fn bind_ws_listener() -> (tokio::net::TcpListener, SocketAddr) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    listener.local_addr().unwrap()
+    let addr = listener.local_addr().unwrap();
+    (listener, addr)
 }
 
 type TestWs =
@@ -244,7 +245,7 @@ async fn recv_native_snapshot_with_leaf_count(
 async fn websocket_attach_with_token_works() {
     let dir = tempfile::tempdir().unwrap();
     let socket = dir.path().join("server.sock");
-    let ws_addr = pick_free_port().await;
+    let (ws_listener, ws_addr) = bind_ws_listener().await;
     let opts = ServerOptions {
         socket_path: socket.clone(),
         shell: "/bin/sh".into(),
@@ -252,11 +253,11 @@ async fn websocket_attach_with_token_works() {
         initial_viewport: (80, 24),
         snapshot_path: None,
         settings_path: None,
-        ws_bind: Some(ws_addr),
+        ws_bind: None,
         auth_token: Some("sekrit".into()),
     };
     let server = tokio::spawn(async move {
-        let _ = run(opts).await;
+        let _ = run_with_websocket_listener(opts, HeartbeatConfig::default(), ws_listener).await;
     });
 
     // Tiny wait for both listeners to be up.
@@ -312,7 +313,7 @@ async fn websocket_attach_with_token_works() {
 async fn websocket_native_mode_streams_structured_state_and_terminal_grid() {
     let dir = tempfile::tempdir().unwrap();
     let socket = dir.path().join("server.sock");
-    let ws_addr = pick_free_port().await;
+    let (ws_listener, ws_addr) = bind_ws_listener().await;
     let opts = ServerOptions {
         socket_path: socket.clone(),
         shell: "/bin/sh".into(),
@@ -320,11 +321,11 @@ async fn websocket_native_mode_streams_structured_state_and_terminal_grid() {
         initial_viewport: (80, 24),
         snapshot_path: None,
         settings_path: None,
-        ws_bind: Some(ws_addr),
+        ws_bind: None,
         auth_token: Some("sekrit".into()),
     };
     let server = tokio::spawn(async move {
-        let _ = run(opts).await;
+        let _ = run_with_websocket_listener(opts, HeartbeatConfig::default(), ws_listener).await;
     });
 
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -452,7 +453,7 @@ async fn websocket_native_mode_streams_structured_state_and_terminal_grid() {
 async fn websocket_native_libghostty_mode_streams_pty_bytes_instead_of_terminal_grid() {
     let dir = tempfile::tempdir().unwrap();
     let socket = dir.path().join("server.sock");
-    let ws_addr = pick_free_port().await;
+    let (ws_listener, ws_addr) = bind_ws_listener().await;
     let opts = ServerOptions {
         socket_path: socket.clone(),
         shell: "/bin/sh".into(),
@@ -460,11 +461,11 @@ async fn websocket_native_libghostty_mode_streams_pty_bytes_instead_of_terminal_
         initial_viewport: (80, 24),
         snapshot_path: None,
         settings_path: None,
-        ws_bind: Some(ws_addr),
+        ws_bind: None,
         auth_token: Some("sekrit".into()),
     };
     let server = tokio::spawn(async move {
-        let _ = run(opts).await;
+        let _ = run_with_websocket_listener(opts, HeartbeatConfig::default(), ws_listener).await;
     });
 
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -536,7 +537,7 @@ async fn websocket_native_libghostty_mode_streams_pty_bytes_instead_of_terminal_
 async fn websocket_native_libghostty_mode_broadcasts_pty_bytes_to_multiple_clients() {
     let dir = tempfile::tempdir().unwrap();
     let socket = dir.path().join("server.sock");
-    let ws_addr = pick_free_port().await;
+    let (ws_listener, ws_addr) = bind_ws_listener().await;
     let opts = ServerOptions {
         socket_path: socket.clone(),
         shell: "/bin/sh".into(),
@@ -544,11 +545,11 @@ async fn websocket_native_libghostty_mode_broadcasts_pty_bytes_to_multiple_clien
         initial_viewport: (80, 24),
         snapshot_path: None,
         settings_path: None,
-        ws_bind: Some(ws_addr),
+        ws_bind: None,
         auth_token: Some("sekrit".into()),
     };
     let server = tokio::spawn(async move {
-        let _ = run(opts).await;
+        let _ = run_with_websocket_listener(opts, HeartbeatConfig::default(), ws_listener).await;
     });
 
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -645,7 +646,7 @@ async fn websocket_native_libghostty_mode_broadcasts_pty_bytes_to_multiple_clien
 async fn websocket_native_layout_resizes_pty_to_visible_client_size() {
     let dir = tempfile::tempdir().unwrap();
     let socket = dir.path().join("server.sock");
-    let ws_addr = pick_free_port().await;
+    let (ws_listener, ws_addr) = bind_ws_listener().await;
     let opts = ServerOptions {
         socket_path: socket.clone(),
         shell: "/bin/sh".into(),
@@ -653,11 +654,11 @@ async fn websocket_native_layout_resizes_pty_to_visible_client_size() {
         initial_viewport: (80, 24),
         snapshot_path: None,
         settings_path: None,
-        ws_bind: Some(ws_addr),
+        ws_bind: None,
         auth_token: Some("sekrit".into()),
     };
     let server = tokio::spawn(async move {
-        let _ = run(opts).await;
+        let _ = run_with_websocket_listener(opts, HeartbeatConfig::default(), ws_listener).await;
     });
 
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -726,7 +727,7 @@ async fn websocket_native_layout_resizes_pty_to_visible_client_size() {
 async fn websocket_native_smallest_visible_client_size_wins_until_detach() {
     let dir = tempfile::tempdir().unwrap();
     let socket = dir.path().join("server.sock");
-    let ws_addr = pick_free_port().await;
+    let (ws_listener, ws_addr) = bind_ws_listener().await;
     let opts = ServerOptions {
         socket_path: socket.clone(),
         shell: "/bin/sh".into(),
@@ -734,11 +735,11 @@ async fn websocket_native_smallest_visible_client_size_wins_until_detach() {
         initial_viewport: (80, 24),
         snapshot_path: None,
         settings_path: None,
-        ws_bind: Some(ws_addr),
+        ws_bind: None,
         auth_token: Some("sekrit".into()),
     };
     let server = tokio::spawn(async move {
-        let _ = run(opts).await;
+        let _ = run_with_websocket_listener(opts, HeartbeatConfig::default(), ws_listener).await;
     });
 
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -843,7 +844,7 @@ async fn websocket_native_smallest_visible_client_size_wins_until_detach() {
 async fn websocket_native_snapshot_reports_attached_client_layouts() {
     let dir = tempfile::tempdir().unwrap();
     let socket = dir.path().join("server.sock");
-    let ws_addr = pick_free_port().await;
+    let (ws_listener, ws_addr) = bind_ws_listener().await;
     let opts = ServerOptions {
         socket_path: socket.clone(),
         shell: "/bin/sh".into(),
@@ -851,11 +852,11 @@ async fn websocket_native_snapshot_reports_attached_client_layouts() {
         initial_viewport: (80, 24),
         snapshot_path: None,
         settings_path: None,
-        ws_bind: Some(ws_addr),
+        ws_bind: None,
         auth_token: Some("sekrit".into()),
     };
     let server = tokio::spawn(async move {
-        let _ = run(opts).await;
+        let _ = run_with_websocket_listener(opts, HeartbeatConfig::default(), ws_listener).await;
     });
 
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -943,7 +944,7 @@ async fn websocket_native_snapshot_reports_attached_client_layouts() {
 async fn websocket_native_visible_client_times_out_without_heartbeat() {
     let dir = tempfile::tempdir().unwrap();
     let socket = dir.path().join("server.sock");
-    let ws_addr = pick_free_port().await;
+    let (ws_listener, ws_addr) = bind_ws_listener().await;
     let opts = ServerOptions {
         socket_path: socket.clone(),
         shell: "/bin/sh".into(),
@@ -951,7 +952,7 @@ async fn websocket_native_visible_client_times_out_without_heartbeat() {
         initial_viewport: (80, 24),
         snapshot_path: None,
         settings_path: None,
-        ws_bind: Some(ws_addr),
+        ws_bind: None,
         auth_token: Some("sekrit".into()),
     };
     let heartbeat = HeartbeatConfig {
@@ -961,7 +962,7 @@ async fn websocket_native_visible_client_times_out_without_heartbeat() {
         hidden_timeout: Duration::from_millis(500),
     };
     let server = tokio::spawn(async move {
-        let _ = run_with_heartbeat(opts, heartbeat).await;
+        let _ = run_with_websocket_listener(opts, heartbeat, ws_listener).await;
     });
 
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -1006,7 +1007,7 @@ async fn websocket_native_visible_client_times_out_without_heartbeat() {
 async fn websocket_native_ping_keeps_quiet_client_alive() {
     let dir = tempfile::tempdir().unwrap();
     let socket = dir.path().join("server.sock");
-    let ws_addr = pick_free_port().await;
+    let (ws_listener, ws_addr) = bind_ws_listener().await;
     let opts = ServerOptions {
         socket_path: socket.clone(),
         shell: "/bin/sh".into(),
@@ -1014,7 +1015,7 @@ async fn websocket_native_ping_keeps_quiet_client_alive() {
         initial_viewport: (80, 24),
         snapshot_path: None,
         settings_path: None,
-        ws_bind: Some(ws_addr),
+        ws_bind: None,
         auth_token: Some("sekrit".into()),
     };
     let heartbeat = HeartbeatConfig {
@@ -1024,7 +1025,7 @@ async fn websocket_native_ping_keeps_quiet_client_alive() {
         hidden_timeout: Duration::from_millis(500),
     };
     let server = tokio::spawn(async move {
-        let _ = run_with_heartbeat(opts, heartbeat).await;
+        let _ = run_with_websocket_listener(opts, heartbeat, ws_listener).await;
     });
 
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -1080,7 +1081,7 @@ async fn websocket_native_ping_keeps_quiet_client_alive() {
 async fn websocket_native_can_move_tabs_between_panels() {
     let dir = tempfile::tempdir().unwrap();
     let socket = dir.path().join("server.sock");
-    let ws_addr = pick_free_port().await;
+    let (ws_listener, ws_addr) = bind_ws_listener().await;
     let opts = ServerOptions {
         socket_path: socket.clone(),
         shell: "/bin/sh".into(),
@@ -1088,11 +1089,11 @@ async fn websocket_native_can_move_tabs_between_panels() {
         initial_viewport: (80, 24),
         snapshot_path: None,
         settings_path: None,
-        ws_bind: Some(ws_addr),
+        ws_bind: None,
         auth_token: Some("sekrit".into()),
     };
     let server = tokio::spawn(async move {
-        let _ = run(opts).await;
+        let _ = run_with_websocket_listener(opts, HeartbeatConfig::default(), ws_listener).await;
     });
 
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -1182,7 +1183,7 @@ async fn websocket_native_can_move_tabs_between_panels() {
 async fn websocket_native_split_exits_zoom_so_new_pane_is_visible() {
     let dir = tempfile::tempdir().unwrap();
     let socket = dir.path().join("server.sock");
-    let ws_addr = pick_free_port().await;
+    let (ws_listener, ws_addr) = bind_ws_listener().await;
     let opts = ServerOptions {
         socket_path: socket.clone(),
         shell: "/bin/sh".into(),
@@ -1190,11 +1191,11 @@ async fn websocket_native_split_exits_zoom_so_new_pane_is_visible() {
         initial_viewport: (80, 24),
         snapshot_path: None,
         settings_path: None,
-        ws_bind: Some(ws_addr),
+        ws_bind: None,
         auth_token: Some("sekrit".into()),
     };
     let server = tokio::spawn(async move {
-        let _ = run(opts).await;
+        let _ = run_with_websocket_listener(opts, HeartbeatConfig::default(), ws_listener).await;
     });
 
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -1242,7 +1243,7 @@ async fn websocket_native_split_exits_zoom_so_new_pane_is_visible() {
 async fn websocket_native_can_move_tab_into_new_split() {
     let dir = tempfile::tempdir().unwrap();
     let socket = dir.path().join("server.sock");
-    let ws_addr = pick_free_port().await;
+    let (ws_listener, ws_addr) = bind_ws_listener().await;
     let opts = ServerOptions {
         socket_path: socket.clone(),
         shell: "/bin/sh".into(),
@@ -1250,11 +1251,11 @@ async fn websocket_native_can_move_tab_into_new_split() {
         initial_viewport: (80, 24),
         snapshot_path: None,
         settings_path: None,
-        ws_bind: Some(ws_addr),
+        ws_bind: None,
         auth_token: Some("sekrit".into()),
     };
     let server = tokio::spawn(async move {
-        let _ = run(opts).await;
+        let _ = run_with_websocket_listener(opts, HeartbeatConfig::default(), ws_listener).await;
     });
 
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -1319,7 +1320,7 @@ async fn websocket_native_can_move_tab_into_new_split() {
 async fn websocket_native_can_split_single_tab_by_replacing_source_panel() {
     let dir = tempfile::tempdir().unwrap();
     let socket = dir.path().join("server.sock");
-    let ws_addr = pick_free_port().await;
+    let (ws_listener, ws_addr) = bind_ws_listener().await;
     let opts = ServerOptions {
         socket_path: socket.clone(),
         shell: "/bin/sh".into(),
@@ -1327,11 +1328,11 @@ async fn websocket_native_can_split_single_tab_by_replacing_source_panel() {
         initial_viewport: (80, 24),
         snapshot_path: None,
         settings_path: None,
-        ws_bind: Some(ws_addr),
+        ws_bind: None,
         auth_token: Some("sekrit".into()),
     };
     let server = tokio::spawn(async move {
-        let _ = run(opts).await;
+        let _ = run_with_websocket_listener(opts, HeartbeatConfig::default(), ws_listener).await;
     });
 
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -1392,7 +1393,7 @@ async fn websocket_native_can_split_single_tab_by_replacing_source_panel() {
 async fn websocket_native_can_resize_split_by_path() {
     let dir = tempfile::tempdir().unwrap();
     let socket = dir.path().join("server.sock");
-    let ws_addr = pick_free_port().await;
+    let (ws_listener, ws_addr) = bind_ws_listener().await;
     let opts = ServerOptions {
         socket_path: socket.clone(),
         shell: "/bin/sh".into(),
@@ -1400,11 +1401,11 @@ async fn websocket_native_can_resize_split_by_path() {
         initial_viewport: (120, 32),
         snapshot_path: None,
         settings_path: None,
-        ws_bind: Some(ws_addr),
+        ws_bind: None,
         auth_token: Some("sekrit".into()),
     };
     let server = tokio::spawn(async move {
-        let _ = run(opts).await;
+        let _ = run_with_websocket_listener(opts, HeartbeatConfig::default(), ws_listener).await;
     });
 
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -1482,7 +1483,7 @@ async fn websocket_native_can_resize_split_by_path() {
 async fn websocket_rejects_missing_token() {
     let dir = tempfile::tempdir().unwrap();
     let socket = dir.path().join("server.sock");
-    let ws_addr = pick_free_port().await;
+    let (ws_listener, ws_addr) = bind_ws_listener().await;
     let opts = ServerOptions {
         socket_path: socket.clone(),
         shell: "/bin/sh".into(),
@@ -1490,11 +1491,11 @@ async fn websocket_rejects_missing_token() {
         initial_viewport: (80, 24),
         snapshot_path: None,
         settings_path: None,
-        ws_bind: Some(ws_addr),
+        ws_bind: None,
         auth_token: Some("sekrit".into()),
     };
     let server = tokio::spawn(async move {
-        let _ = run(opts).await;
+        let _ = run_with_websocket_listener(opts, HeartbeatConfig::default(), ws_listener).await;
     });
 
     tokio::time::sleep(Duration::from_millis(100)).await;
