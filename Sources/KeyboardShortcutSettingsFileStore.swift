@@ -843,10 +843,12 @@ final class CmuxSettingsFileStore {
         }
 
         guard let shortcut else { return nil }
-        if let normalized = action.normalizedRecordedShortcut(shortcut) {
+        switch action.resolvedRecordedShortcutIgnoringConflicts(shortcut) {
+        case let .accepted(normalized):
             return normalized
+        case .rejected:
+            return action.usesNumberedDigitMatching ? nil : shortcut
         }
-        return action.usesNumberedDigitMatching ? nil : shortcut
     }
 
     private func parseNullableHex(
