@@ -10012,13 +10012,11 @@ struct VerticalTabsSidebar: View {
                     .frame(width: 0, height: 0)
                 )
                 .safeAreaInset(edge: .top, spacing: 0) {
-                    Color.clear
-                        .frame(height: workspaceScrollTopVisibilityInset)
+                    Color.clear.frame(height: workspaceScrollTopVisibilityInset)
                         .allowsHitTesting(false)
                 }
                 .safeAreaInset(edge: .bottom, spacing: 0) {
-                    Color.clear
-                        .frame(height: sidebarBottomScrimHeight)
+                    Color.clear.frame(height: sidebarBottomScrimHeight)
                         .allowsHitTesting(false)
                 }
                 .overlay(alignment: .top) {
@@ -12439,72 +12437,6 @@ private struct SidebarDevFooter: View {
     }
 }
 #endif
-
-private struct SidebarTopScrim: View {
-    let height: CGFloat
-
-    var body: some View {
-        SidebarEdgeScrim(height: height, edge: .top)
-    }
-}
-
-private struct SidebarBottomScrim: View {
-    let height: CGFloat
-
-    var body: some View {
-        SidebarEdgeScrim(height: height, edge: .bottom)
-    }
-}
-
-private struct SidebarEdgeScrim: View {
-    enum Edge {
-        case top
-        case bottom
-    }
-
-    let height: CGFloat
-    let edge: Edge
-
-    var body: some View {
-        SidebarEdgeBlurEffect()
-            .frame(height: height)
-            .mask(
-                LinearGradient(
-                    colors: gradientColors,
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            )
-    }
-
-    private var gradientColors: [Color] {
-        let colors = [
-            Color.black.opacity(0.95),
-            Color.black.opacity(0.75),
-            Color.black.opacity(0.35),
-            Color.clear,
-        ]
-        switch edge {
-        case .top:
-            return colors
-        case .bottom:
-            return Array(colors.reversed())
-        }
-    }
-}
-
-private struct SidebarEdgeBlurEffect: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.blendingMode = .withinWindow
-        view.material = .underWindowBackground
-        view.state = .active
-        view.isEmphasized = false
-        return view
-    }
-
-    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
-}
 
 private struct SidebarScrollViewResolver: NSViewRepresentable {
     let onResolve: (NSScrollView?) -> Void
