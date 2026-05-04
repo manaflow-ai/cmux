@@ -417,6 +417,91 @@ function normalizeResult(args: Args, ruleId: string, parsed: z.infer<typeof mode
   };
 }
 
+function isTestPath(file: string): boolean {
+  const normalized = file.toLowerCase();
+  return (
+    normalized.includes("/tests/") ||
+    normalized.includes("/test/") ||
+    normalized.includes("tests/") ||
+    normalized.endsWith("tests.swift") ||
+    normalized.endsWith("test.swift") ||
+    normalized.includes("uitests/")
+  );
+}
+
+function productionTimingPrimitiveTripwire(diff: string): Finding[] {
+  const findings: Finding[] = [];
+  let file = "";
+  let newLine: number | null = null;
+  for (const rawLine of diff.split(/\r?\n/)) {
+    const fileMatch = rawLine.match(/^diff --git a\/.*? b\/(.*)$/);
+    if (fileMatch) {
+      file = fileMatch[1] || "";
+      newLine = null;
+      continue;
+    }
+
+    const hunkMatch = rawLine.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+    if (hunkMatch) {
+      newLine = Number(hunkMatch[1]);
+      continue;
+    }
+
+    if (rawLine.startsWith("+++ ")) {
+      continue;
+    }
+
+    const currentLine = newLine;
+    if (rawLine.startsWith("+")) {
+      const added = rawLine.slice(1);
+      if (
+        file.endsWith(".swift") &&
+        !isTestPath(file) &&
+        /\b(?:Task\.sleep|Thread\.sleep|usleep|sleep)\s*\(|DispatchQueue\.[\w.]+\.asyncAfter\s*\(/.test(added)
+      ) {
+        findings.push({
+          file,
+          line: currentLine,
+          excerpt: added.trim(),
+          why: "Production Swift code introduced a timing primitive. Use a real signal, callback, timer abstraction, async sequence, notification, or state transition instead.",
+          confidence: "high",
+        });
+      }
+      if (newLine !== null) {
+        newLine += 1;
+      }
+      continue;
+    }
+
+    if (!rawLine.startsWith("-") && newLine !== null) {
+      newLine += 1;
+    }
+  }
+  return findings.slice(0, 5);
+}
+
+function applyDeterministicTripwires(ruleId: string, diff: string, result: LintResult): LintResult {
+  if (result.skipped || result.severity === "failure") {
+    return result;
+  }
+  if (ruleId !== "swift-blocking-runtime") {
+    return result;
+  }
+
+  const findings = productionTimingPrimitiveTripwire(diff);
+  if (findings.length === 0) {
+    return result;
+  }
+
+  return {
+    ...result,
+    violated: true,
+    severity: "failure",
+    summary: normalizeSummary("Production Swift code introduced sleep or delayed-dispatch timing primitives."),
+    findings,
+  };
+}
+
 function printAnnotations(result: LintResult): void {
   if (process.env.GITHUB_ACTIONS !== "true") {
     return;
@@ -733,6 +818,7 @@ async function main(argv: string[]): Promise<number> {
     return 2;
   }
 
+  result = applyDeterministicTripwires(ruleId, diff, result);
   emitResult(result, args, rulePath, diffBytes);
   if (result.severity === "failure") {
     return 1;

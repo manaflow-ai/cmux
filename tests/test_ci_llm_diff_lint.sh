@@ -46,6 +46,41 @@ if ! grep -Fq '"summary": "clean"' "$TMP_DIR/clean.json"; then
   exit 1
 fi
 
+BLOCKING_RULE=".github/llm-diff-lint/rules/swift-blocking-runtime.md"
+BLOCKING_DIFF="$TMP_DIR/blocking.diff"
+cat > "$BLOCKING_DIFF" <<'EOF'
+diff --git a/Sources/RuntimeLoop.swift b/Sources/RuntimeLoop.swift
+index 1111111..2222222 100644
+--- a/Sources/RuntimeLoop.swift
++++ b/Sources/RuntimeLoop.swift
+@@ -1,3 +1,6 @@
+ final class RuntimeLoop {
++    func waitForReady() async {
++        try? await Task.sleep(nanoseconds: 10_000_000)
++    }
+ }
+EOF
+
+if bun scripts/llm_diff_lint.ts \
+  --rule "$BLOCKING_RULE" \
+  --diff-file "$BLOCKING_DIFF" \
+  --mock-response "$CLEAN" > "$TMP_DIR/blocking-tripwire.out" 2>&1; then
+  echo "expected deterministic blocking-runtime tripwire to fail" >&2
+  exit 1
+fi
+
+if ! grep -Fq 'Production Swift code introduced sleep or delayed-dispatch timing primitives.' "$TMP_DIR/blocking-tripwire.out"; then
+  echo "expected deterministic blocking-runtime tripwire summary" >&2
+  cat "$TMP_DIR/blocking-tripwire.out" >&2
+  exit 1
+fi
+
+if ! grep -Fq '"line": 3' "$TMP_DIR/blocking-tripwire.out"; then
+  echo "expected deterministic blocking-runtime tripwire line" >&2
+  cat "$TMP_DIR/blocking-tripwire.out" >&2
+  exit 1
+fi
+
 printf -v LONG_SUMMARY '%*s' 360 ''
 LONG_SUMMARY="${LONG_SUMMARY// /x}"
 LONG_RESPONSE="$(printf '{"rule_id":"rule","violated":true,"severity":"failure","summary":"%s","findings":[]}' "$LONG_SUMMARY")"
