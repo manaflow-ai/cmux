@@ -196,6 +196,10 @@ def main() -> int:
     snapshot = _snapshot_path(bundle_id)
     previous_snapshot = _snapshot_path(bundle_id, suffix="-previous")
     codex_expected = "CMUX_FAKE_CODEX_RESUME:resume codex-session-relaunch-2923"
+    codex_title_expected = (
+        "CMUX_FAKE_CODEX_RESUME:resume --dangerously-bypass-approvals-and-sandbox "
+        "codex-019df0a1-6"
+    )
     claude_expected = (
         "CMUX_FAKE_CLAUDE_RESUME:--resume claude-session-relaunch-2923 "
         "--dangerously-skip-permissions"
@@ -300,6 +304,16 @@ def main() -> int:
                         },
                     )
 
+                codex_title_workspace_id = client.new_workspace()
+                time.sleep(0.4)
+                client.select_workspace(codex_title_workspace_id)
+                time.sleep(0.4)
+                if not client.list_surfaces():
+                    failures.append("expected a Codex title workspace surface during setup")
+                else:
+                    client.send("printf '\\033]0;codex-019df0a1-6\\007'\n")
+                    time.sleep(0.6)
+
                 client.select_workspace(codex_workspace_id)
                 time.sleep(0.4)
             finally:
@@ -315,8 +329,8 @@ def main() -> int:
             client = _connect(socket_path)
             try:
                 workspaces = client.list_workspaces()
-                if len(workspaces) < 3:
-                    failures.append(f"expected >=3 restored workspaces after relaunch, got {len(workspaces)}")
+                if len(workspaces) < 4:
+                    failures.append(f"expected >=4 restored workspaces after relaunch, got {len(workspaces)}")
 
                 def workspace_contains(index: int, expected: str) -> bool:
                     if len(client.list_workspaces()) <= index:
@@ -347,6 +361,14 @@ def main() -> int:
                         "normal relaunch did not resume the saved OpenCode session; "
                         f"tail:\n{scrollback_tail}"
                     )
+
+                if not _wait_for_condition(12.0, lambda: workspace_contains(3, codex_title_expected)):
+                    client.select_workspace(3)
+                    scrollback_tail = "\n".join(_read_scrollback(client).splitlines()[-20:])
+                    failures.append(
+                        "normal relaunch did not resume the Codex session from its title slug; "
+                        f"tail:\n{scrollback_tail}"
+                    )
             finally:
                 client.close()
             _quit(bundle_id, socket_path)
@@ -365,7 +387,7 @@ def main() -> int:
             print(f"- {failure}")
         return 1
 
-    print("PASS: normal relaunch resumes saved Claude, Codex, and OpenCode sessions")
+    print("PASS: normal relaunch resumes saved Claude, Codex, OpenCode, and Codex title sessions")
     return 0
 
 
