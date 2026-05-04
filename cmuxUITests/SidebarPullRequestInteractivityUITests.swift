@@ -2,6 +2,7 @@ import XCTest
 
 final class SidebarPullRequestInteractivityUITests: XCTestCase {
     private var socketPath = ""
+    private let defaultsDomain = "com.cmuxterm.app.debug"
     private let launchTag = "ui-tests-sidebar-pr-interactivity"
     private let pullRequestNumber = 123
     private var pullRequestURL: String {
@@ -13,6 +14,7 @@ final class SidebarPullRequestInteractivityUITests: XCTestCase {
         continueAfterFailure = false
         socketPath = "/tmp/cmux-ui-test-sidebar-pr-\(UUID().uuidString).sock"
         try? FileManager.default.removeItem(atPath: socketPath)
+        deleteSidebarClickabilityDefault()
     }
 
     override func tearDown() {
@@ -20,16 +22,33 @@ final class SidebarPullRequestInteractivityUITests: XCTestCase {
         super.tearDown()
     }
 
+    func testSidebarPullRequestClickFallsThroughByDefault() throws {
+        try assertSidebarPullRequestClickFallsThrough(clickabilityOverride: nil, expectsPlainText: true)
+    }
+
     func testSidebarPullRequestClickFallsThroughWhenClickabilityDisabled() throws {
+        try assertSidebarPullRequestClickFallsThrough(clickabilityOverride: false, expectsPlainText: true)
+    }
+
+    private func assertSidebarPullRequestClickFallsThrough(
+        clickabilityOverride: Bool?,
+        expectsPlainText: Bool
+    ) throws {
         let app = XCUIApplication()
+        defer { app.terminate() }
         app.launchArguments += [
             "-AppleLanguages", "(en)",
             "-AppleLocale", "en_US",
             "-sidebarHideAllDetails", "false",
             "-sidebarShowPullRequest", "true",
             "-browserOpenSidebarPullRequestLinksInCmuxBrowser", "true",
-            "-sidebarMakePullRequestClickable", "false",
         ]
+        if let clickabilityOverride {
+            app.launchArguments += [
+                "-sidebarMakePullRequestClickable",
+                clickabilityOverride ? "true" : "false",
+            ]
+        }
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_TAG"] = launchTag
         app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
@@ -74,6 +93,17 @@ final class SidebarPullRequestInteractivityUITests: XCTestCase {
         )
 
         let pullRequestElement = try requirePullRequestElement(app: app, labelToken: "PR #\(pullRequestNumber)")
+        if expectsPlainText {
+            XCTAssertNotEqual(
+                pullRequestElement.elementType,
+                .button,
+                "Default sidebar PR rendering should expose plain text, not a Button"
+            )
+            XCTAssertFalse(
+                app.buttons["SidebarPullRequestRow"].exists,
+                "Default sidebar PR rendering should not expose a Button with the PR row identifier"
+            )
+        }
         pullRequestElement.click()
 
         XCTAssertEqual(
@@ -89,6 +119,18 @@ final class SidebarPullRequestInteractivityUITests: XCTestCase {
             ),
             "Expected disabling sidebar PR clickability to prevent opening a browser surface"
         )
+    }
+
+    private func deleteSidebarClickabilityDefault() {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/defaults")
+        process.arguments = ["delete", defaultsDomain, "sidebarMakePullRequestClickable"]
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return
+        }
     }
 
     private func requirePullRequestElement(

@@ -3448,6 +3448,38 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
 }
 
 
+final class SidebarPullRequestClickabilitySettingsTests: XCTestCase {
+    private var suiteName: String!
+    private var defaults: UserDefaults!
+
+    override func setUp() {
+        super.setUp()
+        suiteName = "SidebarPullRequestClickabilitySettingsTests.\(UUID().uuidString)"
+        defaults = UserDefaults(suiteName: suiteName)
+        defaults.removePersistentDomain(forName: suiteName)
+    }
+
+    override func tearDown() {
+        defaults.removePersistentDomain(forName: suiteName)
+        defaults = nil
+        suiteName = nil
+        super.tearDown()
+    }
+
+    func testSidebarPullRequestClickabilityDefaultsToPlainText() {
+        XCTAssertFalse(SidebarPullRequestClickabilitySettings.isClickable(defaults: defaults))
+    }
+
+    func testSidebarPullRequestClickabilityPreferenceUsesStoredValue() {
+        defaults.set(true, forKey: SidebarPullRequestClickabilitySettings.key)
+        XCTAssertTrue(SidebarPullRequestClickabilitySettings.isClickable(defaults: defaults))
+
+        defaults.set(false, forKey: SidebarPullRequestClickabilitySettings.key)
+        XCTAssertFalse(SidebarPullRequestClickabilitySettings.isClickable(defaults: defaults))
+    }
+}
+
+
 final class BrowserNavigableURLResolutionTests: XCTestCase {
     func testResolvesFileSchemeAsNavigableURL() throws {
         let resolved = try XCTUnwrap(resolveBrowserNavigableURL("file:///tmp/cmux-local-test.html"))
