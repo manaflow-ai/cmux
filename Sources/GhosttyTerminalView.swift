@@ -2964,6 +2964,34 @@ class GhosttyApp {
         logThemeAction("reload end source=\(source) soft=\(soft) mode=full")
     }
 
+    func reloadSurfaceConfiguration(
+        _ surface: ghostty_surface_t,
+        soft: Bool = false,
+        source: String = "unspecified"
+    ) {
+        logThemeAction("surface reload begin source=\(source) soft=\(soft)")
+        if soft {
+            guard let config else {
+                logThemeAction("surface reload skipped source=\(source) soft=\(soft) reason=no_cached_config")
+                return
+            }
+            ghostty_surface_update_config(surface, config)
+            GhosttyConfig.invalidateLoadCache()
+            logThemeAction("surface reload end source=\(source) soft=\(soft) mode=soft")
+            return
+        }
+
+        guard let newConfig = ghostty_config_new() else {
+            logThemeAction("surface reload skipped source=\(source) soft=\(soft) reason=config_alloc_failed")
+            return
+        }
+        _ = loadDefaultConfigFilesWithLegacyFallback(newConfig)
+        ghostty_surface_update_config(surface, newConfig)
+        GhosttyConfig.invalidateLoadCache()
+        ghostty_config_free(newConfig)
+        logThemeAction("surface reload end source=\(source) soft=\(soft) mode=full")
+    }
+
     private func scheduleSurfaceRefreshAfterConfigurationReload(source: String) {
         DispatchQueue.main.async {
             AppDelegate.shared?.refreshTerminalSurfacesAfterGhosttyConfigReload(source: source)
@@ -3741,11 +3769,13 @@ class GhosttyApp {
                 "reload request target=surface tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil") soft=\(soft)"
             )
             return performOnMain {
-                // Keep all runtime theme/default-background state in the same path.
-                GhosttyApp.shared.reloadConfiguration(
+                GhosttyApp.shared.reloadSurfaceConfiguration(
+                    target.target.surface,
                     soft: soft,
                     source: "action.reload_config.surface tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil")"
                 )
+                surfaceView.terminalSurface?.hostedView.refreshHostBackgroundAfterGhosttyConfigReload()
+                surfaceView.terminalSurface?.forceRefresh(reason: "surface.reloadConfig")
                 return true
             }
         case GHOSTTY_ACTION_KEY_SEQUENCE:
