@@ -142,6 +142,7 @@ struct RightSidebarPanelView: View {
     @ObservedObject var fileExplorerStore: FileExplorerStore
     @ObservedObject var fileExplorerState: FileExplorerState
     @ObservedObject var sessionIndexStore: SessionIndexStore
+    @ObservedObject var dockStore: DockControlsStore
     let titlebarHeight: CGFloat
     let workspaceId: UUID?
     let onResumeSession: ((SessionEntry) -> Void)?
@@ -152,7 +153,6 @@ struct RightSidebarPanelView: View {
         return AppDelegate.shared?.isRightSidebarFocusResponder(responder, in: window) == true
     }
     @StateObject private var focusShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
-    @StateObject private var dockStore = DockControlsStore()
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey)
     private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints

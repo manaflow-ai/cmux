@@ -106001,6 +106001,23 @@
         }
       }
     },
+    "dock.action.openDocs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Dock Documentation"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dockドキュメントを開く"
+          }
+        }
+      }
+    },
     "dock.action.reload": {
       "extractionState": "manual",
       "localizations": {
@@ -106031,6 +106048,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "コントロールを再起動"
+          }
+        }
+      }
+    },
+    "dock.welcome.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This is a normal terminal pinned to the right side of cmux. Use it for notes, logs, long-running commands, or anything you want close by."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "これは cmux の右側に固定された通常のターミナルです。メモ、ログ、長時間実行するコマンドなど、手元に置きたい用途に使えます。"
+          }
+        }
+      }
+    },
+    "dock.welcome.customize": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Customize it with .cmux/dock.json in this project, or ~/.config/cmux/dock.json globally."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このプロジェクトでは .cmux/dock.json、グローバルには ~/.config/cmux/dock.json でカスタマイズできます。"
+          }
+        }
+      }
+    },
+    "dock.welcome.dismiss": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide this message with: cmux dock welcome dismiss"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このメッセージを非表示にするには: cmux dock welcome dismiss"
+          }
+        }
+      }
+    },
+    "dock.welcome.docs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run `cmux docs dock` or visit https://cmux.com/docs/dock for the Dock config format."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock設定フォーマットは `cmux docs dock` を実行するか、https://cmux.com/docs/dock にアクセスして確認できます。"
+          }
+        }
+      }
+    },
+    "dock.welcome.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Welcome to Dock"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dockへようこそ"
           }
         }
       }

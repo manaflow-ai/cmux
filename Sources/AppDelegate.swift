@@ -5505,6 +5505,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ?? contextForMainTerminalWindow(window)?.keyboardFocusCoordinator
     }
 
+    func captureMainWindowKeyboardFocusRestoreTarget(in window: NSWindow?) -> MainWindowFocusRestoreTarget? {
+        keyboardFocusCoordinator(for: window)?.captureFocusRestoreTarget()
+    }
+
+    func captureMainWindowKeyboardFocusRestoreTarget(
+        owning responder: NSResponder,
+        in window: NSWindow?
+    ) -> MainWindowFocusRestoreTarget? {
+        keyboardFocusCoordinator(for: window)?.captureFocusRestoreTarget(owning: responder)
+    }
+
+    func captureMainWindowKeyboardFocusRestoreTarget(
+        workspaceId: UUID,
+        panelId: UUID,
+        fallbackIntent: PanelFocusIntent,
+        in window: NSWindow?
+    ) -> MainWindowFocusRestoreTarget? {
+        keyboardFocusCoordinator(for: window)?.captureFocusRestoreTarget(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            fallbackIntent: fallbackIntent
+        )
+    }
+
+    @discardableResult
+    func restoreMainWindowKeyboardFocus(_ target: MainWindowFocusRestoreTarget, in window: NSWindow?) -> Bool {
+        keyboardFocusCoordinator(for: window)?.restoreFocus(target) == true
+    }
+
     func isRightSidebarFocusResponder(_ responder: NSResponder, in window: NSWindow?) -> Bool {
         keyboardFocusCoordinator(for: window)?.ownsRightSidebarFocus(responder) == true
     }

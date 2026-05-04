@@ -226,6 +226,160 @@ final class DockControlRuntime: ObservableObject, Identifiable {
 
 }
 
+@MainActor
+final class DockDefaultTerminalRuntime: ObservableObject {
+    let baseDirectory: String
+    let workspaceId: UUID
+    let paneId = PaneID(id: UUID())
+    @Published private(set) var panel: TerminalPanel
+
+    init(baseDirectory: String, workspaceId: UUID) {
+        self.baseDirectory = baseDirectory
+        self.workspaceId = workspaceId
+        self.panel = Self.makePanel(baseDirectory: baseDirectory, workspaceId: workspaceId)
+    }
+
+    fileprivate var terminalAttachment: DockTerminalAttachment {
+        .init(
+            paneId: paneId,
+            panelId: panel.id,
+            terminalSurface: panel.surface,
+            searchState: panel.searchState,
+            reattachToken: panel.viewReattachToken
+        )
+    }
+
+    func focus() {
+        panel.hostedView.ensureFocus(
+            for: panel.surface.tabId,
+            surfaceId: panel.id,
+            respectForeignFirstResponder: false
+        )
+    }
+
+    func close() {
+        panel.close()
+    }
+
+    func setVisibleInUI(_ visible: Bool) {
+        if visible {
+            panel.hostedView.setVisibleInUI(true)
+            TerminalWindowPortalRegistry.updateEntryVisibility(
+                for: panel.hostedView,
+                visibleInUI: true
+            )
+        } else {
+            panel.unfocus()
+            panel.hostedView.setVisibleInUI(false)
+            TerminalWindowPortalRegistry.hideHostedView(panel.hostedView)
+        }
+    }
+
+    func triggerFlash() {
+        panel.triggerFlash(reason: .debug)
+    }
+
+    private static func makePanel(baseDirectory: String, workspaceId: UUID) -> TerminalPanel {
+        TerminalPanel(
+            workspaceId: workspaceId,
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            workingDirectory: baseDirectory,
+            initialCommand: DockWelcomeMessage.shellStartupScriptIfNeeded(),
+            initialEnvironmentOverrides: [
+                "CMUX_DOCK_CONTROL_ID": "default",
+                "CMUX_DOCK_CONTROL_TITLE": "Dock"
+            ],
+            focusPlacement: .rightSidebarDock
+        )
+    }
+}
+
+private enum DockWelcomeMessage {
+    private static let markerFileName = "dock-welcome-dismissed"
+
+    static func isDismissed() -> Bool {
+        FileManager.default.fileExists(atPath: dismissedMarkerURL().path)
+    }
+
+    static func shellStartupScriptIfNeeded() -> String? {
+        guard !isDismissed() else { return nil }
+
+        let title = String(
+            localized: "dock.welcome.title",
+            defaultValue: "Welcome to Dock"
+        )
+        let intro = String(
+            localized: "dock.welcome.body",
+            defaultValue: "This is a normal terminal pinned to the right side of cmux. Use it for notes, logs, long-running commands, or anything you want close by."
+        )
+        let customize = String(
+            localized: "dock.welcome.customize",
+            defaultValue: "Customize it with .cmux/dock.json in this project, or ~/.config/cmux/dock.json globally."
+        )
+        let docs = String(
+            localized: "dock.welcome.docs",
+            defaultValue: "Run `cmux docs dock` or visit https://cmux.com/docs/dock for the Dock config format."
+        )
+        let dismiss = String(
+            localized: "dock.welcome.dismiss",
+            defaultValue: "Hide this message with: cmux dock welcome dismiss"
+        )
+
+        let lines = [title, "", intro, customize, docs, "", dismiss]
+        let encodedLines = lines
+            .map { Data($0.utf8).base64EncodedString() }
+            .map { "'\($0)'" }
+            .joined(separator: " ")
+        let scriptURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-dock-welcome-\(UUID().uuidString.lowercased()).sh")
+        let body = """
+        #!/bin/sh
+        cmux_dock_decode() { printf '%s' "$1" | base64 --decode 2>/dev/null || printf '%s' "$1" | base64 -D 2>/dev/null; }
+        cmux_dock_login_shell() {
+          cmux_dock_user="$(id -un 2>/dev/null || printf '%s' "${USER:-}")"
+          cmux_dock_ds_shell="$(dscl . -read "/Users/$cmux_dock_user" UserShell 2>/dev/null | awk '{print $2; exit}')"
+          if [ -n "$cmux_dock_ds_shell" ] && [ -x "$cmux_dock_ds_shell" ]; then printf '%s\\n' "$cmux_dock_ds_shell"
+          elif [ -n "${SHELL:-}" ] && [ -x "${SHELL:-}" ]; then printf '%s\\n' "$SHELL"
+          else printf '%s\\n' /bin/sh; fi
+        }
+        cmux_dock_bundle_bin=""
+        if [ -n "${CMUX_BUNDLED_CLI_PATH:-}" ]; then cmux_dock_bundle_bin="$(dirname "$CMUX_BUNDLED_CLI_PATH")"; fi
+        if [ -n "$cmux_dock_bundle_bin" ]; then case ":${PATH:-}:" in *":$cmux_dock_bundle_bin:"*) ;; *) PATH="$cmux_dock_bundle_bin${PATH:+:$PATH}"; export PATH ;; esac; fi
+        cmux_dock_first=1
+        for cmux_dock_line in \(encodedLines); do
+          cmux_dock_text="$(cmux_dock_decode "$cmux_dock_line")"
+          if [ "$cmux_dock_first" = "1" ]; then
+            printf '\\033[1m%s\\033[0m\\n' "$cmux_dock_text"
+            cmux_dock_first=0
+          else
+            printf '%s\\n' "$cmux_dock_text"
+          fi
+        done
+        printf '\\n'
+        rm -f -- "$0" 2>/dev/null || true
+        exec "$(cmux_dock_login_shell)" -l
+        """
+        do {
+            try body.write(to: scriptURL, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: scriptURL.path)
+            return scriptURL.path
+        } catch {
+            return nil
+        }
+    }
+
+    private static func dismissedMarkerURL() -> URL {
+        if let override = ProcessInfo.processInfo.environment["CMUX_DOCK_WELCOME_DISMISSED_PATH"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !override.isEmpty {
+            return URL(fileURLWithPath: (override as NSString).expandingTildeInPath)
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".cmuxterm", isDirectory: true)
+            .appendingPathComponent(markerFileName, isDirectory: false)
+    }
+}
+
 fileprivate struct DockControlSnapshot: Identifiable {
     let id: String
     let title: String
@@ -238,6 +392,7 @@ fileprivate struct DockTerminalAttachment { let paneId: PaneID; let panelId: UUI
 @MainActor
 final class DockControlsStore: ObservableObject {
     @Published private(set) var controls: [DockControlRuntime] = []
+    @Published private(set) var defaultTerminal: DockDefaultTerminalRuntime?
     @Published private(set) var sourceLabel = ""
     @Published private(set) var errorMessage: String?
     @Published private(set) var trustRequest: DockTrustRequest?
@@ -253,6 +408,22 @@ final class DockControlsStore: ObservableObject {
     }
 
     fileprivate func terminalAttachment(for controlID: String) -> DockTerminalAttachment? { controls.first { $0.id == controlID }?.terminalAttachment }
+
+    fileprivate var defaultTerminalAttachment: DockTerminalAttachment? {
+        defaultTerminal?.terminalAttachment
+    }
+
+    func focusSurface(id surfaceId: UUID) -> Bool {
+        if let control = controls.first(where: { $0.panel.id == surfaceId }) {
+            control.focus()
+            return true
+        }
+        guard let defaultTerminal, defaultTerminal.panel.id == surfaceId else {
+            return false
+        }
+        defaultTerminal.focus()
+        return true
+    }
 
     func activate(rootDirectory: String?, workspaceId: UUID?) {
         controlsVisibleInUI = true
@@ -279,7 +450,7 @@ final class DockControlsStore: ObservableObject {
         activeConfigURL = nil
 
         guard let workspaceId else {
-            replaceControls(with: [])
+            replaceContent(controls: [], defaultTerminal: nil)
             sourceLabel = String(localized: "dock.source.title", defaultValue: "Dock")
             return
         }
@@ -288,7 +459,7 @@ final class DockControlsStore: ObservableObject {
             let resolution = try Self.resolve(rootDirectory: rootDirectory)
             activeConfigURL = resolution.sourceURL
             if let request = trustRequestIfNeeded(for: resolution) {
-                replaceControls(with: [])
+                replaceContent(controls: [], defaultTerminal: nil)
                 sourceLabel = String(
                     localized: "dock.source.project",
                     defaultValue: "Project Dock"
@@ -299,10 +470,16 @@ final class DockControlsStore: ObservableObject {
             let resolvedControls = resolution.controls.map {
                 DockControlRuntime(definition: $0, baseDirectory: resolution.baseDirectory, workspaceId: workspaceId)
             }
-            replaceControls(with: resolvedControls)
+            let defaultTerminal = resolvedControls.isEmpty
+                ? DockDefaultTerminalRuntime(
+                    baseDirectory: resolution.baseDirectory,
+                    workspaceId: workspaceId
+                )
+                : nil
+            replaceContent(controls: resolvedControls, defaultTerminal: defaultTerminal)
             sourceLabel = Self.sourceLabel(for: resolution)
         } catch {
-            replaceControls(with: [])
+            replaceContent(controls: [], defaultTerminal: nil)
             sourceLabel = String(localized: "dock.source.error", defaultValue: "Dock")
             errorMessage = error.localizedDescription
         }
@@ -316,8 +493,12 @@ final class DockControlsStore: ObservableObject {
     }
 
     func focusFirstControl() -> Bool {
-        guard let first = controls.first else { return false }
-        first.focus()
+        if let first = controls.first {
+            first.focus()
+            return true
+        }
+        guard let defaultTerminal else { return false }
+        defaultTerminal.focus()
         return true
     }
 
@@ -364,15 +545,29 @@ final class DockControlsStore: ObservableObject {
         controls.first { $0.id == id }?.panel.triggerFlash(reason: .debug)
     }
 
-    private func replaceControls(with newControls: [DockControlRuntime]) {
+    func noteDefaultTerminalKeyboardFocusIntent(window: NSWindow?) {
+        guard defaultTerminal != nil else { return }
+        AppDelegate.shared?.noteRightSidebarKeyboardFocusIntent(mode: .dock, in: window)
+    }
+
+    func triggerDefaultTerminalFlash() {
+        defaultTerminal?.triggerFlash()
+    }
+
+    private func replaceContent(controls newControls: [DockControlRuntime], defaultTerminal newDefaultTerminal: DockDefaultTerminalRuntime?) {
         let oldControls = controls
+        let oldDefaultTerminal = defaultTerminal
         controls = newControls
+        defaultTerminal = newDefaultTerminal
         newControls.forEach { $0.setVisibleInUI(controlsVisibleInUI) }
+        newDefaultTerminal?.setVisibleInUI(controlsVisibleInUI)
         oldControls.forEach { $0.close() }
+        oldDefaultTerminal?.close()
     }
 
     private func setControlsVisibleInUI(_ visible: Bool) {
         controls.forEach { $0.setVisibleInUI(visible) }
+        defaultTerminal?.setVisibleInUI(visible)
     }
 
     private func trustRequestIfNeeded(for resolution: DockConfigResolution) -> DockTrustRequest? {
@@ -598,6 +793,16 @@ struct DockPanelView: View {
             .accessibilityLabel(String(localized: "dock.action.openConfig", defaultValue: "Open Dock Config"))
 
             Button {
+                openDockDocs()
+            } label: {
+                Image(systemName: "questionmark.circle")
+                    .font(.system(size: 11, weight: .medium))
+            }
+            .buttonStyle(.plain)
+            .help(String(localized: "dock.action.openDocs", defaultValue: "Open Dock Documentation"))
+            .accessibilityLabel(String(localized: "dock.action.openDocs", defaultValue: "Open Dock Documentation"))
+
+            Button {
                 store.reload(rootDirectory: rootDirectory, workspaceId: workspaceId)
             } label: {
                 Image(systemName: "arrow.clockwise")
@@ -612,6 +817,11 @@ struct DockPanelView: View {
         .frame(height: 29)
     }
 
+    private func openDockDocs() {
+        guard let url = URL(string: "https://cmux.com/docs/dock") else { return }
+        NSWorkspace.shared.open(url)
+    }
+
     @ViewBuilder
     private var content: some View {
         if let trustRequest = store.trustRequest {
@@ -620,6 +830,16 @@ struct DockPanelView: View {
             }
         } else if let error = store.errorMessage {
             DockErrorView(message: error)
+        } else if let attachment = store.defaultTerminalAttachment {
+            DockTerminalView(
+                attachment: attachment,
+                onKeyboardFocusIntent: { window in
+                    store.noteDefaultTerminalKeyboardFocusIntent(window: window)
+                },
+                onTriggerFlash: {
+                    store.triggerDefaultTerminalFlash()
+                }
+            )
         } else if store.controls.isEmpty {
             DockEmptyView()
         } else {
@@ -872,12 +1092,19 @@ private struct DockKeyboardFocusBridge: NSViewRepresentable {
         nsView.focusFirstControl = { [weak store] in
             store?.focusFirstControl() == true
         }
+        nsView.focusSurface = { [weak store] surfaceId in
+            store?.focusSurface(id: surfaceId) == true
+        }
         nsView.registerWithKeyboardFocusCoordinatorIfNeeded()
     }
 }
 
 final class DockKeyboardFocusView: NSView {
     var focusFirstControl: (() -> Bool)?
+    var focusSurface: ((UUID) -> Bool)?
+#if DEBUG
+    var debugFocusedSurfaceId: ((NSResponder) -> UUID?)?
+#endif
     override var acceptsFirstResponder: Bool { true }
     override var canBecomeKeyView: Bool { true }
 
@@ -887,14 +1114,34 @@ final class DockKeyboardFocusView: NSView {
 
     func ownsKeyboardFocus(_ responder: NSResponder) -> Bool {
         if responder === self { return true }
+        if focusedSurfaceIdFromCoordinator(for: responder) != nil {
+            return true
+        }
+        return false
+    }
+
+    func focusedSurfaceIdFromCoordinator(for responder: NSResponder) -> UUID? {
+#if DEBUG
+        if let debugFocusedSurfaceId,
+           let surfaceId = debugFocusedSurfaceId(responder) {
+            return surfaceId
+        }
+#endif
         guard let ghosttyView = cmuxOwningGhosttyView(for: responder),
               let surfaceId = ghosttyView.terminalSurface?.id else {
-            return false
+            return nil
         }
-        return TerminalSurfaceRegistry.shared.isRightSidebarDockSurface(id: surfaceId)
+        guard TerminalSurfaceRegistry.shared.isRightSidebarDockSurface(id: surfaceId) else {
+            return nil
+        }
+        return surfaceId
     }
 
     func focusFirstItemFromCoordinator() { _ = focusFirstControl?() }
+
+    func focusSurfaceFromCoordinator(_ surfaceId: UUID) -> Bool {
+        focusSurface?(surfaceId) == true
+    }
 
     func focusHostFromCoordinator() -> Bool {
         focusFirstControl?() == true || window?.makeFirstResponder(self) == true

@@ -2050,6 +2050,7 @@ struct CMUXCLI {
         if command == "remote-daemon-status" { try runRemoteDaemonStatus(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "vm-pty-connect" { try runVMPtyConnect(commandArgs: commandArgs); return }
         if command == "docs" { try runDocsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
+        if command == "dock" { try runDockNoSocketCommand(commandArgs: commandArgs); return }
         if command == "welcome" { printWelcome(); return }
 
         if command == "settings",
@@ -8400,6 +8401,19 @@ struct CMUXCLI {
             """
         case "docs":
             return docsUsage()
+        case "dock":
+            return """
+            Usage: cmux dock welcome dismiss
+                   cmux dock welcome show
+                   cmux dock welcome status
+
+            Manage the one-time welcome message printed by the default Dock terminal.
+
+            Commands:
+              welcome dismiss   Hide the message next time and clear the current terminal
+              welcome show      Show the message again for future default Dock terminals
+              welcome status    Print whether the message is visible or dismissed
+            """
         case "settings":
             return settingsUsage()
         case "welcome":
@@ -19047,6 +19061,80 @@ export default CMUXSessionRestore;
         return String(sanitized[..<end]) + suffix
     }
 
+    private func runDockNoSocketCommand(commandArgs: [String]) throws {
+        guard let subcommand = commandArgs.first?.lowercased(),
+              ["help", "--help", "-h"].contains(subcommand) == false else {
+            print(subcommandUsage("dock") ?? "Usage: cmux dock welcome <dismiss|show|status>")
+            return
+        }
+
+        guard subcommand == "welcome" else {
+            throw CLIError(message: "Unknown dock subcommand: \(subcommand)")
+        }
+
+        let action = commandArgs.dropFirst().first?.lowercased() ?? "help"
+        switch action {
+        case "dismiss", "hide", "clear", "off":
+            try dismissDockWelcomeMessage()
+            clearTerminalIfInteractive()
+            print("Dock welcome message dismissed.")
+        case "show", "reset", "on":
+            try showDockWelcomeMessage()
+            print("Dock welcome message will show in future default Dock terminals.")
+        case "status":
+            let state = FileManager.default.fileExists(atPath: dockWelcomeDismissedMarkerURL().path)
+                ? "dismissed"
+                : "visible"
+            print("Dock welcome message: \(state)")
+        case "help", "--help", "-h":
+            print(subcommandUsage("dock") ?? "Usage: cmux dock welcome <dismiss|show|status>")
+        default:
+            throw CLIError(message: "Unknown dock welcome action: \(action)")
+        }
+    }
+
+    private func dismissDockWelcomeMessage() throws {
+        let markerURL = dockWelcomeDismissedMarkerURL()
+        try FileManager.default.createDirectory(
+            at: markerURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try "dismissed\n".write(to: markerURL, atomically: true, encoding: .utf8)
+    }
+
+    private func showDockWelcomeMessage() throws {
+        let markerURL = dockWelcomeDismissedMarkerURL()
+        do {
+            try FileManager.default.removeItem(at: markerURL)
+        } catch {
+            let nsError = error as NSError
+            if nsError.domain == NSCocoaErrorDomain,
+               nsError.code == NSFileNoSuchFileError {
+                return
+            }
+            throw error
+        }
+    }
+
+    private func dockWelcomeDismissedMarkerURL() -> URL {
+        if let override = ProcessInfo.processInfo.environment["CMUX_DOCK_WELCOME_DISMISSED_PATH"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !override.isEmpty {
+            return URL(fileURLWithPath: (override as NSString).expandingTildeInPath)
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".cmuxterm", isDirectory: true)
+            .appendingPathComponent("dock-welcome-dismissed", isDirectory: false)
+    }
+
+    private func clearTerminalIfInteractive() {
+        guard isatty(STDOUT_FILENO) == 1 else { return }
+        let term = ProcessInfo.processInfo.environment["TERM"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !term.isEmpty, term.lowercased() != "dumb" else { return }
+        print("\u{001B}[2J\u{001B}[H", terminator: "")
+    }
+
     private func runFeedClear() throws {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let path = home
@@ -20349,6 +20437,7 @@ export default CMUXSessionRestore;
         Commands:
           welcome
           docs [settings|shortcuts|api|browser|agents|dock]
+          dock welcome <dismiss|show|status>
           settings [open|path|docs|target]
           shortcuts
           disable-browser | enable-browser | browser-status

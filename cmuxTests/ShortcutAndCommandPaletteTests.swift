@@ -1332,6 +1332,43 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
     }
 
     @MainActor
+    func testFocusRestoreTargetRestoresFocusedDockSurface() {
+        let fileExplorerState = FileExplorerState()
+        fileExplorerState.mode = .dock
+        let controller = MainWindowFocusController(
+            windowId: UUID(),
+            window: nil,
+            tabManager: TabManager(),
+            fileExplorerState: fileExplorerState
+        )
+
+        let dockHost = DockKeyboardFocusView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        let dockResponder = TestRightSidebarResponder(frame: NSRect(x: 0, y: 30, width: 24, height: 24))
+        let dockSurfaceId = UUID()
+        var restoredSurfaceId: UUID?
+        dockHost.debugFocusedSurfaceId = { responder in
+            responder === dockResponder ? dockSurfaceId : nil
+        }
+        dockHost.focusSurface = { surfaceId in
+            restoredSurfaceId = surfaceId
+            return true
+        }
+
+        controller.registerDockHost(dockHost)
+
+        guard let target = controller.captureFocusRestoreTarget(owning: dockResponder) else {
+            XCTFail("Expected Dock focus restore target")
+            return
+        }
+
+        XCTAssertTrue(controller.restoreFocus(target))
+
+        XCTAssertEqual(restoredSurfaceId, dockSurfaceId)
+        XCTAssertEqual(fileExplorerState.mode, .dock)
+        XCTAssertEqual(controller.intent, .rightSidebar(mode: .dock))
+    }
+
+    @MainActor
     func testFocusShortcutToggleClearsRightSidebarIntentWhenTerminalIsUnavailable() {
         let controller = MainWindowFocusController(
             windowId: UUID(),
