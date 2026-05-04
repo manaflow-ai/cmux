@@ -13,6 +13,9 @@ enum KeyboardShortcutSettings {
             notifySettingsFileDidChange()
         }
     }
+    #if DEBUG
+    static var shortcutLookupObserver: ((Action) -> Void)?
+    #endif
 
     enum ShortcutRecordingRejection: Equatable {
         case bareKeyNotAllowed
@@ -659,6 +662,9 @@ enum KeyboardShortcutSettings {
     }
 
     static func shortcut(for action: Action) -> StoredShortcut {
+        #if DEBUG
+        shortcutLookupObserver?(action)
+        #endif
         if let managedShortcut = settingsFileStore.override(for: action) {
             return managedShortcut
         }
