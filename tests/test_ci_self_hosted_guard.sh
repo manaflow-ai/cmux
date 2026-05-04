@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Regression test for https://github.com/manaflow-ai/cmux/issues/385.
-# Ensures PR CI jobs use assignable GitHub-hosted macOS runners instead of
-# custom labels that can make required checks finish as skipped.
+# Ensures paid CI jobs use WarpBuild runners.
+# Fork PRs are gated by GitHub's built-in "Require approval for outside
+# collaborators" setting, so workflow-level fork guards are not needed.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -24,26 +25,11 @@ check_warp_runner() {
   echo "PASS: $job WarpBuild runner is present"
 }
 
-check_github_macos_runner() {
-  local file="$1" job="$2" runner="$3"
-  if ! awk -v job="$job" -v runner="$runner" '
-    $0 ~ "^  "job":" { in_job=1; next }
-    in_job && /^  [^[:space:]]/ { in_job=0 }
-    in_job && $0 ~ "runs-on: "runner"$" { saw_runner=1 }
-    END { exit !(saw_runner) }
-  ' "$file"; then
-    echo "FAIL: $job in $(basename "$file") must use GitHub-hosted $runner"
-    exit 1
-  fi
-  echo "PASS: $job GitHub-hosted $runner runner is present"
-}
-
-# ci.yml PR jobs use GitHub-hosted runners so they execute instead of reporting
-# skipped when custom macOS labels are unavailable.
-check_github_macos_runner "$CI_FILE" "tests" "macos-15"
-check_github_macos_runner "$CI_FILE" "tests-build-and-lag" "macos-15"
-check_github_macos_runner "$CI_FILE" "release-build" "macos-26"
-check_github_macos_runner "$CI_FILE" "ui-regressions" "macos-15"
+# ci.yml jobs
+check_warp_runner "$CI_FILE" "tests"
+check_warp_runner "$CI_FILE" "tests-build-and-lag"
+check_warp_runner "$CI_FILE" "release-build"
+check_warp_runner "$CI_FILE" "ui-regressions"
 
 # build-ghosttykit.yml
 check_warp_runner "$GHOSTTYKIT_FILE" "build-ghosttykit"
