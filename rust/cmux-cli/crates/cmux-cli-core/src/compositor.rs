@@ -15,7 +15,7 @@ use libghostty_vt::Terminal;
 use libghostty_vt::render::{
     CellIteration, CellIterator, CursorVisualStyle, RenderState, RowIterator,
 };
-use libghostty_vt::screen::CellContentTag;
+use libghostty_vt::screen::{CellContentTag, CellWide};
 pub use libghostty_vt::style::{RgbColor, StyleColor};
 use unicode_width::UnicodeWidthStr;
 
@@ -32,6 +32,10 @@ pub struct Cell {
     /// Zero-or-more grapheme codepoints joined into a display string. Empty
     /// string means "blank, draw a space."
     pub grapheme: String,
+    /// Display columns occupied by this cell's grapheme. Wide-character tail
+    /// cells use width 0 and are not emitted as standalone spaces.
+    pub width: u8,
+    pub is_continuation: bool,
     pub fg: StyleColor,
     pub bg: StyleColor,
     pub bold: bool,
@@ -47,6 +51,8 @@ impl Default for Cell {
     fn default() -> Self {
         Self {
             grapheme: String::new(),
+            width: 1,
+            is_continuation: false,
             fg: StyleColor::None,
             bg: StyleColor::None,
             bold: false,
@@ -151,20 +157,37 @@ impl Frame {
         let bg = bg.map_or(StyleColor::None, StyleColor::Rgb);
         let mut x = col;
         for ch in text.chars() {
-            if x >= self.cols {
+            let grapheme = ch.to_string();
+            let width = cell_display_width(&grapheme);
+            let width_cols = u16::from(width);
+            if x >= self.cols || x.saturating_add(width_cols) > self.cols {
                 break;
             }
             self.put(
                 row,
                 x,
                 Cell {
-                    grapheme: ch.to_string(),
+                    grapheme,
+                    width,
                     fg,
                     bg,
                     ..Cell::default()
                 },
             );
-            x = x.saturating_add(1);
+            for tail in 1..width_cols {
+                self.put(
+                    row,
+                    x.saturating_add(tail),
+                    Cell {
+                        width: 0,
+                        is_continuation: true,
+                        fg,
+                        bg,
+                        ..Cell::default()
+                    },
+                );
+            }
+            x = x.saturating_add(width_cols);
         }
     }
 
@@ -261,7 +284,13 @@ fn grid_cell_from_iteration(
     default_fg: RgbColor,
     default_bg: RgbColor,
 ) -> anyhow::Result<TerminalGridCell> {
-    let grapheme = cell_grapheme(cell_iteration);
+    let wide = cell_wide(cell_iteration);
+    let is_continuation = is_wide_continuation(wide);
+    let grapheme = if is_continuation {
+        String::new()
+    } else {
+        cell_grapheme(cell_iteration)
+    };
     let style = cell_iteration.style().ok();
     let mut fg = cell_iteration.fg_color()?.unwrap_or(default_fg);
     let mut bg = cell_iteration.bg_color()?.unwrap_or(default_bg);
@@ -284,9 +313,13 @@ fn grid_cell_from_iteration(
             std::mem::swap(&mut fg, &mut bg);
         }
     }
-    let text = if invisible { " ".into() } else { grapheme };
+    let text = if invisible || is_continuation {
+        " ".into()
+    } else {
+        grapheme
+    };
     Ok(TerminalGridCell {
-        width: cell_display_width(&text),
+        width: grid_cell_width(wide, &text),
         text,
         fg,
         bg,
@@ -327,6 +360,25 @@ fn cell_grapheme(cell_iteration: &CellIteration<'_, '_>) -> String {
 
 fn cell_display_width(text: &str) -> u8 {
     u8::try_from(UnicodeWidthStr::width(text).max(1)).unwrap_or(u8::MAX)
+}
+
+fn cell_wide(cell_iteration: &CellIteration<'_, '_>) -> CellWide {
+    cell_iteration
+        .raw_cell()
+        .and_then(|cell| cell.wide())
+        .unwrap_or(CellWide::Narrow)
+}
+
+fn is_wide_continuation(wide: CellWide) -> bool {
+    matches!(wide, CellWide::SpacerTail)
+}
+
+fn grid_cell_width(wide: CellWide, text: &str) -> u8 {
+    match wide {
+        CellWide::Wide => 2,
+        CellWide::SpacerTail => 0,
+        CellWide::Narrow | CellWide::SpacerHead => cell_display_width(text),
+    }
 }
 
 fn terminal_cursor_style(style: CursorVisualStyle) -> TerminalCursorStyle {
@@ -387,6 +439,8 @@ pub fn paste_pane(
             if col_offset >= rect.cols {
                 break;
             }
+            let wide = cell_wide(&cell_iteration);
+            let is_continuation = is_wide_continuation(wide);
             let graphemes = cell_iteration.graphemes().unwrap_or_default();
             let style = cell_iteration.style().ok();
             let (fg, bg, bold, italic, underline, faint, strikethrough, reverse, blink) =
@@ -416,16 +470,25 @@ pub fn paste_pane(
                 };
 
             let mut grapheme = String::new();
-            for ch in graphemes {
-                if ch != '\0' {
-                    grapheme.push(ch);
+            if !is_continuation {
+                for ch in graphemes {
+                    if ch != '\0' {
+                        grapheme.push(ch);
+                    }
                 }
             }
+            let width = if is_continuation {
+                0
+            } else {
+                grid_cell_width(wide, &grapheme)
+            };
             frame.put(
                 rect.row + row_offset,
                 rect.col + col_offset,
                 Cell {
                     grapheme,
+                    width,
+                    is_continuation,
                     fg,
                     bg,
                     bold,
@@ -499,6 +562,9 @@ pub fn emit_ansi(frame: &Frame) -> Vec<u8> {
         out.extend_from_slice(format!("\x1b[{};1H", row_idx + 1).as_bytes());
 
         for cell in row {
+            if cell.is_continuation {
+                continue;
+            }
             if cell.fg != cur.fg {
                 emit_fg(&mut out, cell.fg);
                 cur.fg = cell.fg;
@@ -728,6 +794,42 @@ mod tests {
     }
 
     #[test]
+    fn emit_ansi_skips_wide_grapheme_tail_cell() {
+        let t = mk_terminal(4, 1, "界X".as_bytes());
+        let frame = composite(
+            (4, 1),
+            &[(
+                Rect {
+                    col: 0,
+                    row: 0,
+                    cols: 4,
+                    rows: 1,
+                },
+                &t,
+            )],
+        )
+        .unwrap();
+
+        assert_eq!(frame.cells[0][0].grapheme, "界");
+        assert_eq!(frame.cells[0][0].width, 2);
+        assert!(!frame.cells[0][0].is_continuation);
+        assert_eq!(frame.cells[0][1].width, 0);
+        assert!(frame.cells[0][1].is_continuation);
+        assert_eq!(frame.cells[0][2].grapheme, "X");
+
+        let bytes = emit_ansi(&frame);
+        let as_str = String::from_utf8_lossy(&bytes);
+        assert!(
+            as_str.contains("界X"),
+            "wide glyph tail inserted a column. output:\n{as_str}"
+        );
+        assert!(
+            !as_str.contains("界 X"),
+            "wide glyph tail was emitted as a space. output:\n{as_str}"
+        );
+    }
+
+    #[test]
     fn render_emits_sgr_color_on_red_text() {
         // Truecolor fg: red via RGB 255,0,0.
         let vt = b"\x1b[38;2;255;0;0mR\x1b[0m";
@@ -899,11 +1001,15 @@ mod tests {
 
     #[test]
     fn grid_snapshot_reports_wide_grapheme_width() {
-        let t = mk_terminal(4, 1, "界".as_bytes());
+        let t = mk_terminal(4, 1, "界X".as_bytes());
         let snapshot = terminal_grid_snapshot(&t).expect("grid snapshot");
 
         assert_eq!(snapshot.cells[0].text, "界");
         assert_eq!(snapshot.cells[0].width, 2);
+        assert_eq!(snapshot.cells[1].text, " ");
+        assert_eq!(snapshot.cells[1].width, 0);
+        assert_eq!(snapshot.cells[2].text, "X");
+        assert_eq!(snapshot.cells[2].width, 1);
     }
 
     #[test]
