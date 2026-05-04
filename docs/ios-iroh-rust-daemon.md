@@ -29,10 +29,10 @@ Current implementation status:
 - Connected mode supports both an explicit `cmx` WebSocket dev stream and the production iroh stream. iOS requests `HelloNative` with `terminal_renderer = libghostty`, applies Rust-owned `NativeSnapshot` state to the workspace UI, sends `NativeInput` scoped to the selected tab, and sends `NativeLayout` for the visible terminal.
 - Rust native mode now supports two renderer contracts: existing `server_grid` clients still receive `TerminalGridSnapshot`; iOS `libghostty` clients receive bounded PTY replay plus live `PtyBytes`, so actual libghostty/GhosttyKit owns terminal parsing, themes, colors, cursor state, and input echo.
 - The simulator dogfood path connects to `cmx server --ws-bind 0.0.0.0:8787 --auth-token dev` with a direct development ticket and verifies typed input renders back through Ghostty.
-- The home screen now uses an iMessage-style workspace inbox shell with node pins and full-width conversation rows. The data source is still demo state until Stack Auth and Rivet hive discovery land.
-- iOS can now replace that demo inbox with Stack-authenticated hive discovery from `CMUX_IOS_HIVE_ENDPOINT` or `--cmux-hive-endpoint`. The discovery response can carry nodes, nested workspaces, spaces, terminals, activity, and platform metadata, and the request uses the stored Stack Auth session headers.
+- The home screen now uses an iMessage-style workspace inbox shell with node pins and full-width conversation rows. iOS can replace demo state with Stack-authenticated hive discovery from `CMUX_IOS_HIVE_ENDPOINT` or `--cmux-hive-endpoint`.
+- The web app now exposes `/api/rivet` with a RivetKit `cmuxHive` actor plus Stack-authenticated `/api/hive` REST endpoints. The discovery response can carry nodes, nested workspaces, spaces, terminals, activity, and platform metadata, and the request uses the stored Stack Auth session headers.
 - The rail/resize bounds helper from the old iOS branch lives at `scripts/tui-terminal-bounds-check.sh`, and the Rust tmux dogfood suite verifies the helper tracks the maximum pane size after resize.
-- Iroh bridge tickets can now include non-secret node metadata (`id`, `name`, `subtitle`, `kind`). iOS uses that metadata for the connected node row, falling back to the endpoint id until Stack Auth and Rivet hive discovery are wired.
+- Iroh bridge tickets can now include non-secret node metadata (`id`, `name`, `subtitle`, `kind`). iOS uses that metadata for the connected node row, falling back to the endpoint id if signed-in hive discovery is unavailable.
 - iOS handles the existing web Stack Auth deep link (`cmux://auth-callback` / `cmux-dev://auth-callback`), stores the Stack tokens in Keychain, and refuses `rivet_stack` tickets until that session exists.
 - iOS fetches and validates the short-lived Rivet pairing secret with the stored Stack Auth session before a `rivet_stack` ticket is allowed to open its transport.
 - The iOS terminal detail now stays inside the iPad split-view detail column and resizes the actual Ghostty surface above the software keyboard/accessory bar. XcodeBuildMCP snapshot verification showed the iPad surface shrink from 1290 px high to 843 px while the keyboard was open, then restore to 1290 px after hiding the keyboard.
@@ -60,9 +60,9 @@ Stack Auth owns user identity. RivetKit carries the short-lived pairing control 
 
 The bridge does not put the pairing secret in the iroh ticket. The ticket advertises the pairing id, Rivet endpoint, Stack project id, and expiration. A client signed in with Stack asks Rivet for the pairing secret, connects over iroh, receives a nonce, and proves possession with an HMAC before the bridge opens the local `cmx` socket. Direct unauthenticated tickets are only for explicit local development.
 
-The iOS side now has native Stack Auth callback parsing, Keychain persistence, a Stack-authenticated Rivet pairing-secret client, signed-in hive discovery, and a Rust iroh client binding that receives the fetched secret. The Rivet actor/API still needs to be implemented server-side.
+The iOS side now has native Stack Auth callback parsing, Keychain persistence, a Stack-authenticated Rivet pairing-secret client, signed-in hive discovery, and a Rust iroh client binding that receives the fetched secret. The server side now has a RivetKit actor keyed by Stack user, a backend service-token guard on actor actions, `/api/hive` discovery, `/api/hive/nodes` upsert, `/api/hive/pairings` upsert, and `/api/hive/pairings/:id/secret` retrieval.
 
-RivetKit docs that matter for that future step:
+RivetKit docs used for this step:
 
 - https://rivet.dev/docs/actors/state
 - https://rivet.dev/docs/actors/connections
