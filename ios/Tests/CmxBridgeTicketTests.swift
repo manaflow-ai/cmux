@@ -385,6 +385,44 @@ final class CmxBridgeTicketTests: XCTestCase {
 
         XCTAssertTrue(session is CmxWebSocketTerminalSession)
     }
+
+    @MainActor
+    func testTransportCloseReconnectsActiveTicketOnceImmediately() throws {
+        let sessionFactory = RecordingTerminalSessionFactory()
+        let store = CmxConnectionStore(
+            authSessionStore: MemoryStackAuthSessionStore(),
+            pairingSecretClient: RecordingPairingSecretClient(),
+            terminalSessionFactory: sessionFactory
+        )
+        store.ticketText = """
+        {
+          "version": 1,
+          "alpn": "/cmux/cmx/3",
+          "endpoint": {
+            "id": "local",
+            "addrs": [
+              { "Custom": "ws://127.0.0.1:8787?token=sekrit" }
+            ]
+          },
+          "auth": { "mode": "direct" }
+        }
+        """
+
+        store.connect()
+        XCTAssertEqual(sessionFactory.session.startCount, 1)
+
+        sessionFactory.session.delegate?.terminalSessionDidClose(sessionFactory.session)
+
+        XCTAssertEqual(sessionFactory.session.startCount, 2)
+        XCTAssertTrue(store.isConnecting)
+        XCTAssertFalse(store.isConnected)
+
+        sessionFactory.session.delegate?.terminalSessionDidClose(sessionFactory.session)
+
+        XCTAssertEqual(sessionFactory.session.startCount, 2)
+        XCTAssertFalse(store.isConnecting)
+        XCTAssertFalse(store.isConnected)
+    }
 }
 
 private final class MemoryStackAuthSessionStore: CmxStackAuthSessionStore {
@@ -468,11 +506,13 @@ private final class RecordingTerminalSessionFactory: CmxTerminalSessionMaking {
 private final class RecordingTerminalSession: CmxTerminalSession {
     weak var delegate: CmxTerminalSessionDelegate?
     private(set) var didStart = false
+    private(set) var startCount = 0
     private(set) var sentLayouts: [[CmxWireTerminalViewport]] = []
     private(set) var sentCommands: [CmxClientCommand] = []
 
     func start(viewport: CmxWireViewport) {
         didStart = true
+        startCount += 1
     }
 
     func sendInput(_ data: Data, terminalID: UInt64) {}
