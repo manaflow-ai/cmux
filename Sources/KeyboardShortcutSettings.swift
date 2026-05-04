@@ -1192,8 +1192,7 @@ struct ShortcutStroke: Equatable, Hashable {
         switch key {
         case "\t":
             return String(localized: "shortcut.key.tab", defaultValue: "Tab")
-        case "space":
-            return String(localized: "shortcut.key.space", defaultValue: "Space")
+        case "space": return String(localized: "shortcut.key.space", defaultValue: "Space")
         case "\r":
             return "↩"
         case "media.brightnessDown":
@@ -1234,9 +1233,7 @@ struct ShortcutStroke: Equatable, Hashable {
     }
 
     var keyEquivalent: KeyEquivalent? {
-        if key == "space" {
-            return KeyEquivalent(Character(" "))
-        }
+        if key == "space" { return KeyEquivalent(Character(" ")) }
 
         if Self.usesDirectKeyCodeMatching(key) {
             return nil
@@ -1280,9 +1277,7 @@ struct ShortcutStroke: Equatable, Hashable {
     }
 
     var menuItemKeyEquivalent: String? {
-        if key == "space" {
-            return " "
-        }
+        if key == "space" { return " " }
 
         if Self.usesDirectKeyCodeMatching(key) {
             return nil
@@ -2097,7 +2092,7 @@ extension ShortcutStroke {
     private static func parseConfigKeyToken(_ rawValue: String) -> String? {
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
-            return rawValue.allSatisfy { $0 == " " } ? "space" : nil
+            return !rawValue.isEmpty && rawValue.allSatisfy { $0 == " " } ? "space" : nil
         }
 
         let lowered = trimmed.lowercased()
