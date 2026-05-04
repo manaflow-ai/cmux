@@ -16,6 +16,8 @@ import {
   upsertHivePairing,
 } from "./state";
 
+export const HIVE_PAIRING_MAX_TTL_SECONDS = 120;
+
 export const cmuxHive = actor({
   createState: createHiveState,
   actions: {
@@ -34,9 +36,7 @@ export const cmuxHive = actor({
       assertActorAuth(auth);
       const parsed = hivePairingInputSchema.parse(input);
       const nowUnix = currentUnixSeconds();
-      if (parsed.expires_at_unix <= nowUnix) {
-        throw new UserError("Pairing is expired", { code: "pairing_expired" });
-      }
+      validateHivePairingExpiry(parsed.expires_at_unix, nowUnix);
       if (parsed.node) {
         upsertHiveNode(c.state, parsed.node);
       }
@@ -58,6 +58,17 @@ export const cmuxHive = actor({
     },
   },
 });
+
+export function validateHivePairingExpiry(expiresAtUnix: number, nowUnix: number): void {
+  if (expiresAtUnix <= nowUnix) {
+    throw new UserError("Pairing is expired", { code: "pairing_expired" });
+  }
+  if (expiresAtUnix > nowUnix + HIVE_PAIRING_MAX_TTL_SECONDS) {
+    throw new UserError("Pairing expiration is too far in the future", {
+      code: "pairing_ttl_too_long",
+    });
+  }
+}
 
 function assertActorAuth(auth: HiveActorAuth): void {
   const expected = hiveActorServiceToken();
