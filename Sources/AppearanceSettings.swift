@@ -27,6 +27,26 @@ enum AppearanceMode: String, CaseIterable, Identifiable {
 }
 
 enum AppearanceSettings {
+    struct LiveApplyEnvironment {
+        let setApplicationAppearance: (NSAppearance?) -> Void
+        let synchronizeTerminalThemeWithAppearance: (NSAppearance?, String) -> Void
+        let systemAppearance: () -> NSAppearance?
+
+        static var live: LiveApplyEnvironment {
+            LiveApplyEnvironment(
+                setApplicationAppearance: { appearance in
+                    NSApplication.shared.appearance = appearance
+                },
+                synchronizeTerminalThemeWithAppearance: { appearance, source in
+                    GhosttyApp.shared.synchronizeThemeWithAppearance(appearance, source: source)
+                },
+                systemAppearance: {
+                    AppearanceSettings.systemNSAppearance()
+                }
+            )
+        }
+    }
+
     struct SystemAppearance {
         let interfaceStyle: String?
 
@@ -81,5 +101,17 @@ enum AppearanceSettings {
 
     static func systemNSAppearance(defaults: UserDefaults = .standard) -> NSAppearance? {
         NSAppearance(named: SystemAppearance.current(defaults: defaults).prefersDark ? .darkAqua : .aqua)
+    }
+
+    @discardableResult
+    static func selectMode(
+        _ mode: AppearanceMode,
+        defaults: UserDefaults = .standard,
+        source _: String,
+        environment _: LiveApplyEnvironment = .live
+    ) -> AppearanceMode {
+        let normalized = Self.mode(for: mode.rawValue)
+        defaults.set(normalized.rawValue, forKey: appearanceModeKey)
+        return normalized
     }
 }
