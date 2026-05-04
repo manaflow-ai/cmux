@@ -30,6 +30,8 @@ final class SimulatorListModel {
     @ObservationIgnored
     private var refreshTimer: Timer?
     @ObservationIgnored
+    private var refreshGeneration: UInt64 = 0
+    @ObservationIgnored
     private var isVisibleInUI: Bool = true
     @ObservationIgnored
     private let inputQueue = DispatchQueue(label: "cmux.simulator.input", qos: .userInteractive)
@@ -73,15 +75,16 @@ final class SimulatorListModel {
     }
 
     func refresh() {
-        do {
-            devices = try SimulatorService.shared.listDevices()
+        refreshGeneration &+= 1
+        let generation = refreshGeneration
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let result = Result {
+                try SimulatorService.shared.listDevices()
                 .sorted { ($0.runtime, $0.name) < ($1.runtime, $1.name) }
-            loadError = nil
-            reconcileSelectedDeviceState()
-        } catch {
-            loadError = error.localizedDescription
-            devices = []
-            stopStreaming()
+            }
+            await MainActor.run { [weak self] in
+                self?.applyRefreshResult(result, generation: generation)
+            }
         }
     }
 
@@ -92,7 +95,7 @@ final class SimulatorListModel {
             } catch {
                 await MainActor.run { self.loadError = error.localizedDescription }
             }
-            await MainActor.run { self.refresh() }
+            await MainActor.run { [weak self] in self?.refresh() }
         }
     }
 
@@ -106,7 +109,7 @@ final class SimulatorListModel {
             } catch {
                 await MainActor.run { self.loadError = error.localizedDescription }
             }
-            await MainActor.run { self.refresh() }
+            await MainActor.run { [weak self] in self?.refresh() }
         }
     }
 
@@ -189,6 +192,20 @@ final class SimulatorListModel {
             )
     }
 
+    private func applyRefreshResult(_ result: Result<[SimulatorDevice], Error>, generation: UInt64) {
+        guard generation == refreshGeneration else { return }
+        switch result {
+        case .success(let refreshedDevices):
+            devices = refreshedDevices
+            loadError = nil
+            reconcileSelectedDeviceState()
+        case .failure(let error):
+            loadError = error.localizedDescription
+            devices = []
+            stopStreaming()
+        }
+    }
+
     private func reconcileSelectedDeviceState() {
         guard let selectedUDID else {
             stopStreaming()
@@ -221,8 +238,15 @@ final class SimulatorListModel {
         self.streamingUDID = udid
         let input = IndigoHIDInput(udid: udid, queue: inputQueue)
         self.input = input
-        self.devicePointSize = SimulatorService.shared.deviceScreenSizeInPoints(udid: udid)
+        self.devicePointSize = nil
         self.lastInputError = nil
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let pointSize = SimulatorService.shared.deviceScreenSizeInPoints(udid: udid)
+            await MainActor.run { [weak self] in
+                guard self?.streamingUDID == udid else { return }
+                self?.devicePointSize = pointSize
+            }
+        }
         screen.start(
             onFrame: { [weak self] surface, size in
                 guard let self else { return }
