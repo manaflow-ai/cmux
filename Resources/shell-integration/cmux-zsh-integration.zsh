@@ -1128,14 +1128,22 @@ _cmux_agent_hook_agent_for_command() {
 
 _cmux_report_agent_hook_nudge() {
     _cmux_socket_is_unix || return 0
-    [[ -n "$CMUX_TAB_ID" && -n "$CMUX_PANEL_ID" ]] || return 0
+    local workspace_id="${CMUX_WORKSPACE_ID:-${CMUX_TAB_ID:-}}"
+    local surface_id="${CMUX_SURFACE_ID:-${CMUX_PANEL_ID:-}}"
+    [[ -n "$workspace_id" ]] || return 0
 
     local agent=""
     agent="$(_cmux_agent_hook_agent_for_command "$1")" || return 0
     [[ -n "$agent" ]] || return 0
-    local params="{\"agent\":\"$agent\",\"workspace_id\":\"$CMUX_TAB_ID\",\"surface_id\":\"$CMUX_PANEL_ID\"}"
+    local params="{\"agent\":\"$agent\",\"workspace_id\":\"$workspace_id\""
+    [[ -n "$surface_id" ]] && params+=",\"surface_id\":\"$surface_id\""
+    params+="}"
     _cmux_cli_rpc_bg "agent_hooks.nudge" "$params" && return 0
-    _cmux_send_bg "agent_hooks_nudge $agent --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+    if [[ -n "$surface_id" ]]; then
+        _cmux_send_bg "agent_hooks_nudge $agent --tab=$workspace_id --surface=$surface_id"
+    else
+        _cmux_send_bg "agent_hooks_nudge $agent --tab=$workspace_id"
+    fi
 }
 
 _cmux_preexec() {
