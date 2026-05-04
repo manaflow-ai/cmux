@@ -805,6 +805,7 @@ public final class GhosttyTerminalSurfaceView: UIView {
     private var currentFontSize = GhosttyTerminalSurfaceView.defaultMobileFontSize
     #if DEBUG
     var onOutputProcessedForTesting: (() -> Void)?
+    private var hasRunUITestingZoomStress = false
     #endif
     // Keep `ghostty_surface_process_output` off the main thread. This is
     // per surface so a slow free or render on one terminal cannot block input
@@ -914,6 +915,7 @@ public final class GhosttyTerminalSurfaceView: UIView {
                 self.accessibilityValue = self.accessibilityRenderedTextForTesting()
                 #if DEBUG
                 self.onOutputProcessedForTesting?()
+                self.runUITestingZoomStressIfNeeded()
                 #endif
             }
         }
@@ -985,6 +987,27 @@ public final class GhosttyTerminalSurfaceView: UIView {
             _ = applyMobileFontSize(target, reportResize: true)
         }
         pinchTargetFontSize = nil
+    }
+
+    private func runUITestingZoomStressIfNeeded() {
+        guard !hasRunUITestingZoomStress,
+              let value = ProcessInfo.processInfo.environment["CMUX_IOS_UI_TESTING_ZOOM_STRESS_CYCLES"],
+              let cycles = Int(value),
+              cycles > 0 else { return }
+        hasRunUITestingZoomStress = true
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            for index in 0..<cycles {
+                self.simulatePinchZoomCycleForTesting([.decrease])
+                self.simulatePinchZoomCycleForTesting([.increase])
+                if index.isMultiple(of: 20) {
+                    await Task.yield()
+                }
+            }
+            let renderedText = self.accessibilityRenderedTextForTesting() ?? ""
+            self.accessibilityValue = renderedText + "\nZOOM_STRESS_DONE"
+        }
     }
     #endif
 
