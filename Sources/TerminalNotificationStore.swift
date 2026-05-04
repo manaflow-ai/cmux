@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import Foundation
 import UserNotifications
 import Bonsplit
@@ -722,6 +723,7 @@ enum AgentHookIntegrationSettings {
     static let statusDidChangeNotification = Notification.Name("cmux.agentHookIntegration.statusDidChange")
 
     private static let promptCooldown: TimeInterval = 24 * 60 * 60
+    private static let configFileWatcher = ConfigFileWatcher()
 
     static let allAgents: [AgentHookIntegration] = [
         AgentHookIntegration(
@@ -845,6 +847,8 @@ enum AgentHookIntegrationSettings {
     }
 
     static func status(for agent: AgentHookIntegration, defaults: UserDefaults = .standard) -> AgentHookIntegrationStatus {
+        configFileWatcher.startIfNeeded()
+
         if agent.isClaudeWrapper {
             return ClaudeCodeIntegrationSettings.hooksEnabled(defaults: defaults) ? .enabled : .disabled
         }
@@ -954,6 +958,7 @@ enum AgentHookIntegrationSettings {
                 fallbackCommand: agent.installCommand
             )
             DispatchQueue.main.async {
+                configFileWatcher.refreshWatchedPaths()
                 NotificationCenter.default.post(name: statusDidChangeNotification, object: nil)
                 completion(result)
             }
@@ -978,18 +983,22 @@ enum AgentHookIntegrationSettings {
         }
     }
 
-    private static func configFilePath(for agent: AgentHookIntegration) -> String? {
-        guard let configDir = agent.configDir,
-              let configFile = agent.configFile else {
+    private static func configDirectoryPath(for agent: AgentHookIntegration) -> String? {
+        guard let configDir = agent.configDir else {
             return nil
         }
-        let directory: String
         if let envKey = agent.configDirEnvOverride,
            let envValue = ProcessInfo.processInfo.environment[envKey],
            !envValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            directory = NSString(string: envValue).expandingTildeInPath
-        } else {
-            directory = NSString(string: "~/\(configDir)").expandingTildeInPath
+            return NSString(string: envValue).expandingTildeInPath
+        }
+        return NSString(string: "~/\(configDir)").expandingTildeInPath
+    }
+
+    private static func configFilePath(for agent: AgentHookIntegration) -> String? {
+        guard let directory = configDirectoryPath(for: agent),
+              let configFile = agent.configFile else {
+            return nil
         }
         return (directory as NSString).appendingPathComponent(configFile)
     }
@@ -1124,6 +1133,108 @@ enum AgentHookIntegrationSettings {
         lines.append(contentsOf: oldLines.map { "-\($0)" })
         lines.append(contentsOf: newLines.map { "+\($0)" })
         return lines.joined(separator: "\n")
+    }
+
+    private static func watchedConfigFilePaths() -> Set<String> {
+        var paths: Set<String> = []
+        for agent in allAgents where !agent.isClaudeWrapper {
+            if let configFilePath = configFilePath(for: agent) {
+                paths.insert(configFilePath)
+            }
+            if agent.name == "codex",
+               let configDirectoryPath = configDirectoryPath(for: agent) {
+                paths.insert((configDirectoryPath as NSString).appendingPathComponent("config.toml"))
+            }
+        }
+        return paths
+    }
+
+    private static func watchedConfigPaths() -> Set<String> {
+        let fm = FileManager.default
+        var paths: Set<String> = []
+        for filePath in watchedConfigFilePaths() {
+            let fileURL = URL(fileURLWithPath: filePath).standardizedFileURL
+            if fm.fileExists(atPath: fileURL.path) {
+                paths.insert(fileURL.path)
+            }
+            if let parentURL = nearestExistingAncestor(for: fileURL.deletingLastPathComponent()) {
+                paths.insert(parentURL.path)
+            }
+        }
+        return paths
+    }
+
+    private static func nearestExistingAncestor(for url: URL) -> URL? {
+        let fm = FileManager.default
+        var current = url.standardizedFileURL
+        while true {
+            if fm.fileExists(atPath: current.path) {
+                return current
+            }
+            let parent = current.deletingLastPathComponent().standardizedFileURL
+            if parent.path == current.path {
+                return nil
+            }
+            current = parent
+        }
+    }
+
+    private final class ConfigFileWatcher {
+        private let queue = DispatchQueue(label: "com.cmuxterm.agent-hook-config-watcher", qos: .utility)
+        private var isStarted = false
+        private var watchedPaths: Set<String> = []
+        private var sources: [String: DispatchSourceFileSystemObject] = [:]
+
+        func startIfNeeded() {
+            queue.async { [weak self] in
+                guard let self, !isStarted else { return }
+                isStarted = true
+                rebuildWatchedPaths()
+            }
+        }
+
+        func refreshWatchedPaths() {
+            queue.async { [weak self] in
+                guard let self, isStarted else { return }
+                rebuildWatchedPaths()
+            }
+        }
+
+        private func rebuildWatchedPaths() {
+            let nextPaths = AgentHookIntegrationSettings.watchedConfigPaths()
+            for path in watchedPaths.subtracting(nextPaths) {
+                sources.removeValue(forKey: path)?.cancel()
+            }
+            for path in nextPaths.subtracting(watchedPaths) {
+                startWatching(path: path)
+            }
+            watchedPaths = Set(sources.keys)
+        }
+
+        private func startWatching(path: String) {
+            let descriptor = open(path, O_EVTONLY)
+            guard descriptor >= 0 else { return }
+            let source = DispatchSource.makeFileSystemObjectSource(
+                fileDescriptor: descriptor,
+                eventMask: [.write, .delete, .rename, .attrib, .extend, .link, .revoke],
+                queue: queue
+            )
+            source.setEventHandler { [weak self] in
+                self?.handleChange()
+            }
+            source.setCancelHandler {
+                close(descriptor)
+            }
+            sources[path] = source
+            source.resume()
+        }
+
+        private func handleChange() {
+            rebuildWatchedPaths()
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: AgentHookIntegrationSettings.statusDidChangeNotification, object: nil)
+            }
+        }
     }
 
     private static func runInstallCommand(
