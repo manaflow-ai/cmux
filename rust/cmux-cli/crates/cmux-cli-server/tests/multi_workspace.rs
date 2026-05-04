@@ -34,9 +34,7 @@ async fn workspace_switch_and_snapshot_roundtrip() {
         auth_token: None,
     };
 
-    let server = tokio::spawn(async move {
-        let _ = run(opts).await;
-    });
+    let server = tokio::spawn(async move { run(opts).await });
 
     wait_for(&socket).await;
 
@@ -105,7 +103,11 @@ async fn workspace_switch_and_snapshot_roundtrip() {
     expect_reply_ok(&mut r, 5).await;
 
     // Server shuts down once the last workspace's last tab's shell exits.
-    let _ = timeout(Duration::from_secs(10), server).await;
+    timeout(Duration::from_secs(10), server)
+        .await
+        .expect("server did not shut down after closing all workspaces")
+        .expect("server task panicked")
+        .expect("server returned error");
 
     // Snapshot written? Note: when last workspace died we saved. Load and
     // start a second server.
@@ -125,9 +127,7 @@ async fn workspace_switch_and_snapshot_roundtrip() {
         ws_bind: None,
         auth_token: None,
     };
-    let server2 = tokio::spawn(async move {
-        let _ = run(opts2).await;
-    });
+    let server2 = tokio::spawn(async move { run(opts2).await });
 
     wait_for(&socket).await;
 
@@ -147,12 +147,13 @@ async fn workspace_switch_and_snapshot_roundtrip() {
                 },
             ..
         } => {
-            // The snapshot we took had both workspaces at the moment of
-            // save. When each was closed sequentially, the snapshot was
-            // re-written at final shutdown with zero workspaces. Depending
-            // on close-ordering either 0 or 1 workspaces may have been in
-            // the final snapshot. What we can reliably assert: the
-            // workspace that was snapshotted (if any) preserved its title.
+            // The shutdown snapshot should preserve at least one known
+            // workspace title. This keeps the restore check from passing on an
+            // empty default state.
+            assert!(
+                !workspaces.is_empty(),
+                "restore check must observe at least one workspace"
+            );
             for ws in &workspaces {
                 assert!(
                     ws.title == "main" || ws.title == "sidebar",

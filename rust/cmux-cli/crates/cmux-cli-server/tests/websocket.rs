@@ -96,7 +96,10 @@ async fn recv_until_server_msg(
                     return Some(message);
                 }
             }
-            Message::Close(_) => return Some(ServerMsg::Bye),
+            Message::Close(_) => {
+                let bye = ServerMsg::Bye;
+                return predicate(&bye).then_some(bye);
+            }
             Message::Ping(_) | Message::Pong(_) | Message::Frame(_) => {}
             other => panic!("unexpected ws message: {other:?}"),
         }

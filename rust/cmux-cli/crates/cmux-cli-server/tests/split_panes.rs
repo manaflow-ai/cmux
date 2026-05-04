@@ -685,12 +685,6 @@ async fn resize_pane_accumulates_and_clamps() {
     )
     .await
     .unwrap();
-    // Drain in background to keep the socket flowing.
-    let drain =
-        tokio::spawn(
-            async move { while let Ok(Some(_)) = read_msg::<_, ServerMsg>(&mut r).await {} },
-        );
-
     write_msg(
         &mut w,
         &ClientMsg::Command {
@@ -700,6 +694,7 @@ async fn resize_pane_accumulates_and_clamps() {
     )
     .await
     .unwrap();
+    expect_ok(&mut r, 1).await;
 
     // Hammer grow (+50 permille each) 20 times — more than enough
     // to overshoot the 900 clamp. Then hammer shrink.
@@ -713,6 +708,7 @@ async fn resize_pane_accumulates_and_clamps() {
         )
         .await
         .unwrap();
+        expect_ok(&mut r, 100 + i).await;
     }
     for i in 0..20 {
         write_msg(
@@ -724,6 +720,7 @@ async fn resize_pane_accumulates_and_clamps() {
         )
         .await
         .unwrap();
+        expect_ok(&mut r, 200 + i).await;
     }
 
     // Unsplit + exit to tear down cleanly.
@@ -736,6 +733,7 @@ async fn resize_pane_accumulates_and_clamps() {
     )
     .await
     .unwrap();
+    expect_ok(&mut r, 999).await;
     write_msg(
         &mut w,
         &ClientMsg::Input {
@@ -744,7 +742,6 @@ async fn resize_pane_accumulates_and_clamps() {
     )
     .await
     .unwrap();
-    drain.abort();
     server.abort();
     let _ = timeout(Duration::from_millis(500), server).await;
 }

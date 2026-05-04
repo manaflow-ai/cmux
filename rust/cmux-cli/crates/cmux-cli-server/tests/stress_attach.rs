@@ -115,13 +115,14 @@ async fn rapid_mouse_events_do_not_desync_under_output_pressure() {
         // Finite burst: enough output pressure to exercise frame
         // coalescing and read cancel-safety, without leaving an
         // unbounded shell loop that can make test teardown hang.
-        let _ = write_msg(
+        write_msg(
             &mut w,
             &ClientMsg::Input {
                 data: b"for i in $(seq 1 3000); do printf '..........\\n'; done\n".to_vec(),
             },
         )
-        .await;
+        .await
+        .map_err(|e| format!("failed to start output burst: {e}"))?;
         for i in 0..1500u16 {
             let col = 20 + (i % 80);
             let row = 2 + (i % 20);
@@ -132,22 +133,28 @@ async fn rapid_mouse_events_do_not_desync_under_output_pressure() {
             } else {
                 cmux_cli_protocol::MouseKind::Wheel { lines: 1 }
             };
-            let _ = write_msg(&mut w, &ClientMsg::Mouse { col, row, event }).await;
+            write_msg(&mut w, &ClientMsg::Mouse { col, row, event })
+                .await
+                .map_err(|e| format!("failed to write mouse event {i}: {e}"))?;
         }
-        let _ = write_msg(
+        write_msg(
             &mut w,
             &ClientMsg::Input {
                 data: b"exit\n".to_vec(),
             },
         )
-        .await;
-        w
+        .await
+        .map_err(|e| format!("failed to write exit: {e}"))?;
+        Ok::<(), String>(())
     });
 
-    let _ = timeout(Duration::from_secs(10), writer_task)
+    let writer_result = timeout(Duration::from_secs(10), writer_task)
         .await
         .expect("writer timed out")
         .expect("writer panicked");
+    if let Err(msg) = writer_result {
+        panic!("{msg}");
+    }
     let reader_result = timeout(Duration::from_secs(20), reader_task)
         .await
         .expect("reader timed out")

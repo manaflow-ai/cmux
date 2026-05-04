@@ -126,23 +126,8 @@ async fn tab_stack_switches_output_on_select() {
         other => panic!("expected TabList, got {other:?}"),
     }
 
-    // Collect some output from tab 1 to let the echo run.
-    let mut buf2 = String::new();
-    let end = tokio::time::Instant::now() + Duration::from_millis(500);
-    while tokio::time::Instant::now() < end {
-        if let Ok(Ok(Some(msg))) = timeout(
-            end.saturating_duration_since(tokio::time::Instant::now()),
-            read_msg::<_, ServerMsg>(&mut r),
-        )
-        .await
-        {
-            if let ServerMsg::PtyBytes { data, .. } = msg {
-                buf2.push_str(&String::from_utf8_lossy(&data));
-            }
-        } else {
-            break;
-        }
-    }
+    // Collect output from tab 1 until the sentinel appears.
+    let buf2 = read_pty_until_contains(&mut r, TAB2_SENTINEL).await;
     assert!(
         buf2.contains(TAB2_SENTINEL),
         "expected tab2 sentinel in recent output. got:\n{buf2}"
@@ -173,22 +158,7 @@ async fn tab_stack_switches_output_on_select() {
     }
 
     send_input(&mut w, "echo TAB1_RETURN_MARKER_4F2\n".to_string()).await;
-    let mut buf1 = String::new();
-    let end = tokio::time::Instant::now() + Duration::from_millis(500);
-    while tokio::time::Instant::now() < end {
-        if let Ok(Ok(Some(msg))) = timeout(
-            end.saturating_duration_since(tokio::time::Instant::now()),
-            read_msg::<_, ServerMsg>(&mut r),
-        )
-        .await
-        {
-            if let ServerMsg::PtyBytes { data, .. } = msg {
-                buf1.push_str(&String::from_utf8_lossy(&data));
-            }
-        } else {
-            break;
-        }
-    }
+    let buf1 = read_pty_until_contains(&mut r, "TAB1_RETURN_MARKER_4F2").await;
     assert!(
         buf1.contains("TAB1_RETURN_MARKER_4F2"),
         "expected tab1 echo after switch back; got:\n{buf1}"
@@ -214,6 +184,28 @@ async fn send_command<W: tokio::io::AsyncWrite + Unpin>(w: &mut W, id: u32, cmd:
     write_msg(w, &ClientMsg::Command { id, command: cmd })
         .await
         .unwrap();
+}
+
+async fn read_pty_until_contains(
+    r: &mut (impl tokio::io::AsyncRead + Unpin),
+    needle: &str,
+) -> String {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    let mut output = String::new();
+    loop {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        let msg = timeout(remaining, read_msg::<_, ServerMsg>(r))
+            .await
+            .expect("read_pty_until_contains timeout")
+            .expect("read_pty_until_contains io")
+            .expect("read_pty_until_contains eof");
+        if let ServerMsg::PtyBytes { data, .. } = msg {
+            output.push_str(&String::from_utf8_lossy(&data));
+            if output.contains(needle) {
+                return output;
+            }
+        }
+    }
 }
 
 async fn read_until<T, F>(r: &mut (impl tokio::io::AsyncRead + Unpin), pred: F) -> T

@@ -57,47 +57,45 @@ async fn inactive_tab_with_new_output_reports_has_activity() {
     send_cmd(&mut w, 1, Command::NewTab).await;
     read_reply(&mut r, 1).await;
 
-    // Send output to the BACKGROUND tab by switching to it, typing,
-    // then switching away. This way we know tab 0 truly has stale
-    // output queued before we ask about activity.
+    // Arm delayed output in tab 0, then switch away before the shell emits it.
+    // That proves the activity flag is set by output that arrives while the tab
+    // is inactive, not by stale output generated while it was focused.
     send_cmd(&mut w, 2, Command::SelectTab { index: 0 }).await;
     read_reply(&mut r, 2).await;
-
-    // Wait briefly for SelectTab to have cleared the flag.
-    tokio::time::sleep(Duration::from_millis(150)).await;
-
-    // Switch to tab 1, then inject output into tab 0 via SendInput
-    // while tab 0 is inactive is the natural way; but SendInput
-    // always targets the active tab. Instead, we flip the order:
-    // emit output in tab 0, switch away, verify tab 0 is active=false
-    // but has_activity=true.
     write_msg(
         &mut w,
         &ClientMsg::Input {
-            data: b"echo ACTIVITY_MARKER_4B\n".to_vec(),
+            data: b"(sleep 0.2; echo ACTIVITY_MARKER_4B) &\n".to_vec(),
         },
     )
     .await
     .unwrap();
-    tokio::time::sleep(Duration::from_millis(200)).await;
 
     // Switch to tab 1 (makes tab 0 inactive). Tab 1's own PTY may
     // also have activity from spawn; we only care about tab 0.
     send_cmd(&mut w, 3, Command::SelectTab { index: 1 }).await;
     read_reply(&mut r, 3).await;
-    tokio::time::sleep(Duration::from_millis(100)).await;
 
-    // ListTabs and check tab 0's flag.
-    send_cmd(&mut w, 4, Command::ListTabs).await;
-    let reply = read_reply(&mut r, 4).await;
-    let tabs = match reply {
-        CommandResult::Ok {
+    let mut next_id = 4;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    let tabs = loop {
+        send_cmd(&mut w, next_id, Command::ListTabs).await;
+        let reply = read_reply(&mut r, next_id).await;
+        next_id += 1;
+        if let CommandResult::Ok {
             data: Some(CommandData::TabList { tabs, active }),
-        } => {
+        } = reply
+        {
             assert_eq!(active, 1, "tab 1 should be active after SelectTab(1)");
-            tabs
+            if tabs.first().is_some_and(|tab| tab.has_activity) {
+                break tabs;
+            }
         }
-        other => panic!("expected TabList, got {other:?}"),
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "tab 0 never reported has_activity after inactive output"
+        );
+        tokio::time::sleep(Duration::from_millis(25)).await;
     };
     assert_eq!(tabs.len(), 2, "two tabs expected");
     assert!(
@@ -110,22 +108,22 @@ async fn inactive_tab_with_new_output_reports_has_activity() {
     );
 
     // Now switch back to tab 0 and confirm the flag clears.
-    send_cmd(&mut w, 5, Command::SelectTab { index: 0 }).await;
-    read_reply(&mut r, 5).await;
-    tokio::time::sleep(Duration::from_millis(100)).await;
-    send_cmd(&mut w, 6, Command::ListTabs).await;
-    let reply = read_reply(&mut r, 6).await;
-    if let CommandResult::Ok {
+    send_cmd(&mut w, next_id, Command::SelectTab { index: 0 }).await;
+    read_reply(&mut r, next_id).await;
+    next_id += 1;
+    send_cmd(&mut w, next_id, Command::ListTabs).await;
+    let reply = read_reply(&mut r, next_id).await;
+    next_id += 1;
+    let CommandResult::Ok {
         data: Some(CommandData::TabList { tabs, .. }),
     } = reply
-    {
-        assert!(
-            !tabs[0].has_activity,
-            "tab 0 should have cleared has_activity after becoming active"
-        );
-    } else {
+    else {
         panic!("expected TabList");
-    }
+    };
+    assert!(
+        !tabs[0].has_activity,
+        "tab 0 should have cleared has_activity after becoming active"
+    );
 
     // Shutdown.
     write_msg(
@@ -136,7 +134,7 @@ async fn inactive_tab_with_new_output_reports_has_activity() {
     )
     .await
     .unwrap();
-    send_cmd(&mut w, 7, Command::CloseTab).await;
+    send_cmd(&mut w, next_id, Command::CloseTab).await;
     server.abort();
     let _ = timeout(Duration::from_millis(500), server).await;
 }

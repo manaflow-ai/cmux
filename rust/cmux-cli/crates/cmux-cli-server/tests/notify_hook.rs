@@ -112,8 +112,13 @@ async fn notify_command_fires_shell_hook_with_env_vars() {
         .filter(|l| l.starts_with("COUNT="))
         .collect();
     let msg_lines: Vec<_> = contents.lines().filter(|l| l.starts_with("MSG=")).collect();
+    let title_lines: Vec<_> = contents
+        .lines()
+        .filter(|l| l.starts_with("TITLE="))
+        .collect();
     assert_eq!(ws_lines.len(), 2, "expected two hook invocations");
     assert_eq!(tab_lines.len(), 2);
+    assert_eq!(title_lines.len(), 2);
     assert_eq!(count_lines.len(), 2);
     assert_eq!(msg_lines.len(), 2);
 
@@ -285,14 +290,13 @@ async fn notify_flash_only_draws_on_focused_panel() {
     )
     .await
     .unwrap();
+    drain_pending_messages(&mut r).await;
 
     send_command(&mut w, 1, Command::SplitHorizontal).await;
-    expect_reply(&mut r, 1).await;
-    let right_tab = read_active_tab(&mut r).await;
+    let right_tab = expect_reply_and_active_tab(&mut r, 1).await;
 
     send_command(&mut w, 2, Command::FocusLeft).await;
-    expect_reply(&mut r, 2).await;
-    let left_tab = read_active_tab(&mut r).await;
+    let left_tab = expect_reply_and_active_tab(&mut r, 2).await;
     assert_ne!(left_tab, right_tab);
 
     send_command(
@@ -307,8 +311,7 @@ async fn notify_flash_only_draws_on_focused_panel() {
     expect_reply(&mut r, 3).await;
 
     send_command(&mut w, 4, Command::FocusRight).await;
-    expect_reply(&mut r, 4).await;
-    let focused_right = read_active_tab(&mut r).await;
+    let focused_right = expect_reply_and_active_tab(&mut r, 4).await;
     assert_eq!(focused_right, right_tab);
     let right_frame = next_ansi_frame(&mut r).await;
     let flash_sgr = "\x1b[38;2;255;200;70m";
@@ -318,8 +321,7 @@ async fn notify_flash_only_draws_on_focused_panel() {
     );
 
     send_command(&mut w, 5, Command::FocusLeft).await;
-    expect_reply(&mut r, 5).await;
-    let focused_left = read_active_tab(&mut r).await;
+    let focused_left = expect_reply_and_active_tab(&mut r, 5).await;
     assert_eq!(focused_left, left_tab);
     let saw_flash = wait_for_ansi_containing(&mut r, flash_sgr, Duration::from_secs(2)).await;
     assert!(
@@ -358,8 +360,19 @@ async fn expect_reply(r: &mut (impl tokio::io::AsyncRead + Unpin), want_id: u32)
     }
 }
 
-async fn read_active_tab(r: &mut (impl tokio::io::AsyncRead + Unpin)) -> u64 {
+async fn drain_pending_messages(r: &mut (impl tokio::io::AsyncRead + Unpin)) {
+    while let Ok(Ok(Some(_))) =
+        timeout(Duration::from_millis(20), read_msg::<_, ServerMsg>(r)).await
+    {}
+}
+
+async fn expect_reply_and_active_tab(
+    r: &mut (impl tokio::io::AsyncRead + Unpin),
+    want_id: u32,
+) -> u64 {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    let mut saw_reply = false;
+    let mut active_tab = None;
     loop {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
         let msg = timeout(remaining, read_msg::<_, ServerMsg>(r))
@@ -367,7 +380,20 @@ async fn read_active_tab(r: &mut (impl tokio::io::AsyncRead + Unpin)) -> u64 {
             .expect("active tab timeout")
             .unwrap()
             .unwrap();
-        if let ServerMsg::ActiveTabChanged { tab_id, .. } = msg {
+        match msg {
+            ServerMsg::CommandReply { id, result } if id == want_id => {
+                assert!(
+                    matches!(result, cmux_cli_protocol::CommandResult::Ok { .. }),
+                    "command {want_id} failed: {result:?}"
+                );
+                saw_reply = true;
+            }
+            ServerMsg::ActiveTabChanged { tab_id, .. } => {
+                active_tab = Some(tab_id);
+            }
+            _ => {}
+        }
+        if saw_reply && let Some(tab_id) = active_tab {
             return tab_id;
         }
     }

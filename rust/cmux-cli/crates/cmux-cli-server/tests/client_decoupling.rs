@@ -302,9 +302,12 @@ async fn wait_for_reply(
 
 async fn wait_for_socket(socket: &std::path::Path) {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-    while !socket.exists() {
+    loop {
+        if UnixStream::connect(socket).await.is_ok() {
+            return;
+        }
         if tokio::time::Instant::now() > deadline {
-            panic!("socket did not appear");
+            panic!("socket did not become connectable");
         }
         tokio::time::sleep(Duration::from_millis(25)).await;
     }

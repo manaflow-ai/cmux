@@ -105,6 +105,16 @@ async fn dragged_selection_paints_pane_cells_blue() {
         "expected selection bg SGR {SEL_BG_SGR:?} in Drag repaint"
     );
 
+    // Clear any queued drag repaint so the post-MouseUp assertion only accepts
+    // a frame emitted after selection has been released.
+    let drain_end = tokio::time::Instant::now() + Duration::from_millis(200);
+    while tokio::time::Instant::now() < drain_end {
+        match timeout(Duration::from_millis(20), read_msg::<_, ServerMsg>(&mut r)).await {
+            Ok(Ok(Some(_))) => {}
+            _ => break,
+        }
+    }
+
     // Release → selection clears; a subsequent frame should not contain
     // the selection bg.
     write_msg(

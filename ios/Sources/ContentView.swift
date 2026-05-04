@@ -32,8 +32,16 @@ private struct WorkspaceListView: View {
     @State private var searchText = ""
     let navigationStyle: WorkspaceNavigationStyle
 
-    private var workspaces: [CmxWorkspace] {
-        store.visibleWorkspaces(matching: searchText)
+    private var rows: [WorkspaceListRowSnapshot] {
+        let selectedWorkspaceID = store.selectedWorkspaceID
+        let isSidebar = horizontalSizeClass == .regular
+        return store.visibleWorkspaces(matching: searchText).map { workspace in
+            WorkspaceListRowSnapshot(
+                workspace: workspace,
+                node: store.node(for: workspace),
+                isSelected: isSidebar && workspace.id == selectedWorkspaceID
+            )
+        }
     }
 
     var body: some View {
@@ -42,17 +50,16 @@ private struct WorkspaceListView: View {
                 .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 14, trailing: 16))
                 .listRowSeparator(.hidden)
 
-            if workspaces.isEmpty {
+            if rows.isEmpty {
                 EmptyWorkspaceSearch()
                     .listRowSeparator(.hidden)
                     .listRowInsets(EdgeInsets(top: 18, leading: 16, bottom: 18, trailing: 16))
             } else {
-                ForEach(workspaces) { workspace in
-                    let node = store.node(for: workspace)
+                ForEach(rows) { row in
                     WorkspaceNavigationRow(
-                        workspace: workspace,
-                        node: node,
-                        isSelected: horizontalSizeClass == .regular && workspace.id == store.selectedWorkspaceID,
+                        workspace: row.workspace,
+                        node: row.node,
+                        isSelected: row.isSelected,
                         navigationStyle: navigationStyle,
                         selectWorkspace: { store.select(workspace: $0) }
                     )
@@ -63,6 +70,16 @@ private struct WorkspaceListView: View {
         .listStyle(.plain)
         .navigationTitle(String(localized: "nav.workspaces", defaultValue: "Workspaces"))
         .navigationBarTitleDisplayMode(.large)
+    }
+}
+
+private struct WorkspaceListRowSnapshot: Identifiable {
+    let workspace: CmxWorkspace
+    let node: CmxHiveNode
+    let isSelected: Bool
+
+    var id: UInt64 {
+        workspace.id
     }
 }
 

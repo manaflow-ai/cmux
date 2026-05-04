@@ -22,6 +22,10 @@
 use std::io::{self, Write};
 use std::os::fd::AsRawFd;
 use std::path::PathBuf;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow};
@@ -259,7 +263,7 @@ where
     W: tokio::io::AsyncWrite + Unpin,
 {
     let (ev_tx, mut ev_rx) = mpsc::channel::<Event>(256);
-    let event_thread = spawn_event_reader(ev_tx);
+    let event_reader = spawn_event_reader(ev_tx);
 
     let (srv_tx, mut srv_rx) = mpsc::channel::<ServerMsg>(128);
     let (err_tx, err_rx) = tokio::sync::oneshot::channel::<Result<()>>();
@@ -381,7 +385,7 @@ where
 
     let _ = write_msg(write_half, &ClientMsg::Detach).await;
     let _ = write_half.shutdown().await;
-    event_thread.abort();
+    event_reader.shutdown().await;
     reader_handle.abort();
     outcome
 }
@@ -582,16 +586,38 @@ fn parse_u16_color_component(value: &str) -> Option<u8> {
     Some((raw / 257) as u8)
 }
 
-fn spawn_event_reader(tx: mpsc::Sender<Event>) -> JoinHandle<()> {
-    // Blocking reads live on a dedicated task so they don't steal a tokio
-    // worker slot. `JoinHandle::abort` cuts the loop when the client exits.
-    tokio::task::spawn_blocking(move || {
-        while let Ok(ev) = crossterm::event::read() {
-            if tx.blocking_send(ev).is_err() {
-                break;
+struct EventReaderHandle {
+    stop: Arc<AtomicBool>,
+    task: JoinHandle<()>,
+}
+
+impl EventReaderHandle {
+    async fn shutdown(self) {
+        self.stop.store(true, Ordering::Relaxed);
+        let _ = tokio::time::timeout(Duration::from_millis(250), self.task).await;
+    }
+}
+
+fn spawn_event_reader(tx: mpsc::Sender<Event>) -> EventReaderHandle {
+    let stop = Arc::new(AtomicBool::new(false));
+    let task_stop = Arc::clone(&stop);
+    let task = tokio::task::spawn_blocking(move || {
+        while !task_stop.load(Ordering::Relaxed) {
+            match crossterm::event::poll(Duration::from_millis(50)) {
+                Ok(true) => {
+                    let Ok(ev) = crossterm::event::read() else {
+                        break;
+                    };
+                    if tx.blocking_send(ev).is_err() {
+                        break;
+                    }
+                }
+                Ok(false) => {}
+                Err(_) => break,
             }
         }
-    })
+    });
+    EventReaderHandle { stop, task }
 }
 
 fn encode_mouse(m: MouseEvent) -> Option<ClientMsg> {
