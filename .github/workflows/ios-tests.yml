@@ -56,19 +56,25 @@ jobs:
         id: simulator
         run: |
           set -euo pipefail
-          SIMULATOR_NAME="$(
+          SIMULATOR_CHOICE="$(
             xcrun simctl list devices available |
-              sed -nE 's/^[[:space:]]+(iPhone[^()]*) \\([A-F0-9-]+\\) \\((Booted|Shutdown)\\).*$/\1/p' |
-              head -1 |
-              sed -E 's/[[:space:]]+$//'
+              sed -nE 's/^[[:space:]]+(iPhone[^()]*) \(([A-F0-9-]+)\) \((Booted|Shutdown)\).*$/\1	\2/p' |
+              head -1
           )"
-          if [ -z "$SIMULATOR_NAME" ]; then
+          if [ -z "$SIMULATOR_CHOICE" ]; then
             echo "No available iPhone simulator found" >&2
             xcrun simctl list devices available >&2
             exit 1
           fi
+          SIMULATOR_NAME="$(printf '%s' "$SIMULATOR_CHOICE" | cut -f1 | sed -E 's/[[:space:]]+$//')"
+          SIMULATOR_ID="$(printf '%s' "$SIMULATOR_CHOICE" | cut -f2)"
+          if [ -z "$SIMULATOR_NAME" ] || [ -z "$SIMULATOR_ID" ]; then
+            echo "Failed to parse simulator choice: $SIMULATOR_CHOICE" >&2
+            exit 1
+          fi
           echo "name=$SIMULATOR_NAME" >> "$GITHUB_OUTPUT"
-          echo "Using simulator: $SIMULATOR_NAME"
+          echo "id=$SIMULATOR_ID" >> "$GITHUB_OUTPUT"
+          echo "Using simulator: $SIMULATOR_NAME ($SIMULATOR_ID)"
 
       - name: Run iOS unit and UI tests
         run: |
@@ -77,6 +83,6 @@ jobs:
             -project ios/cmux-ios.xcodeproj \
             -scheme cmux-ios \
             -configuration Debug \
-            -destination "platform=iOS Simulator,name=${{ steps.simulator.outputs.name }}" \
+            -destination "platform=iOS Simulator,id=${{ steps.simulator.outputs.id }}" \
             -derivedDataPath build/ios-tests \
             test
