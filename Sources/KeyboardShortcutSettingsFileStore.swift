@@ -211,7 +211,7 @@ final class CmuxSettingsFileStore {
         }
 
         if previousShortcuts != resolved.shortcuts || previousActiveSourcePath != resolved.path {
-            KeyboardShortcutSettings.notifySettingsFileDidChange()
+            KeyboardShortcutSettings.notifySettingsFileDidChange(center: notificationCenter)
         }
     }
 
@@ -860,10 +860,7 @@ final class CmuxSettingsFileStore {
         }()
 
         guard let shortcut else { return nil }
-        if case let .accepted(normalized) = action.resolvedRecordedShortcutIgnoringConflicts(shortcut, checkingSystemWideConflicts: false) {
-            return normalized
-        }
-        return action.usesNumberedDigitMatching ? nil : shortcut
+        return action.normalizedSettingsFileShortcut(shortcut)
     }
 
     private func parseNullableHex(

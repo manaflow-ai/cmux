@@ -6,6 +6,14 @@ import XCTest
 @testable import cmux
 #endif
 
+private final class ShortcutSettingsNotificationCounter: @unchecked Sendable {
+    var count = 0
+}
+
+private final class ShortcutSettingsLookupRecorder: @unchecked Sendable {
+    var actions: [String] = []
+}
+
 final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
     func testBootstrapMigratesLegacySettingsIntoCanonicalConfig() throws {
         let directoryURL = try makeTemporaryDirectory()
@@ -98,10 +106,11 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
         XCTAssertEqual(store.activeSourcePath, primaryURL.path)
     }
 
-    func testManagedShortcutParsingDoesNotConsultLiveStore() throws {
+    func testLegacySettingsShortcutBindingsParseWithoutRuntimeConflictLookup() throws {
         let originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
         KeyboardShortcutSettings.resetAll()
         defer {
+            KeyboardShortcutSettings.shortcutLookupObserver = nil
             KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
             KeyboardShortcutSettings.resetAll()
         }
@@ -123,27 +132,60 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
         KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
             primaryPath: liveSettingsFileURL.path,
             fallbackPath: nil,
+            notificationCenter: NotificationCenter(),
             startWatching: false
         )
+        let lookupRecorder = ShortcutSettingsLookupRecorder()
+        KeyboardShortcutSettings.shortcutLookupObserver = { action in
+            lookupRecorder.actions.append(action.rawValue)
+        }
 
-        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        let primaryURL = directoryURL.appendingPathComponent("primary/cmux.json", isDirectory: false)
+        let legacySettingsURL = directoryURL.appendingPathComponent("fallback/settings.json", isDirectory: false)
+        let parsingNotificationCenter = NotificationCenter()
+        let defaultNotificationCounter = ShortcutSettingsNotificationCounter()
+        let parsingNotificationCounter = ShortcutSettingsNotificationCounter()
+        let defaultNotificationObserver = NotificationCenter.default.addObserver(
+            forName: KeyboardShortcutSettings.didChangeNotification,
+            object: nil,
+            queue: nil
+        ) { _ in
+            defaultNotificationCounter.count += 1
+        }
+        let parsingNotificationObserver = parsingNotificationCenter.addObserver(
+            forName: KeyboardShortcutSettings.didChangeNotification,
+            object: nil,
+            queue: nil
+        ) { _ in
+            parsingNotificationCounter.count += 1
+        }
+        defer {
+            NotificationCenter.default.removeObserver(defaultNotificationObserver)
+            parsingNotificationCenter.removeObserver(parsingNotificationObserver)
+        }
         try writeSettingsFile(
             """
             {
               "shortcuts": {
-                "selectWorkspaceByNumber": "cmd+2"
+                "bindings": {
+                  "selectWorkspaceByNumber": "cmd+2"
+                }
               }
             }
             """,
-            to: settingsFileURL
+            to: legacySettingsURL
         )
 
         let store = KeyboardShortcutSettingsFileStore(
-            primaryPath: settingsFileURL.path,
-            fallbackPath: nil,
+            primaryPath: primaryURL.path,
+            fallbackPath: legacySettingsURL.path,
+            notificationCenter: parsingNotificationCenter,
             startWatching: false
         )
 
+        XCTAssertEqual(lookupRecorder.actions, [])
+        XCTAssertEqual(defaultNotificationCounter.count, 0)
+        XCTAssertEqual(parsingNotificationCounter.count, 1)
         XCTAssertEqual(
             store.override(for: .selectWorkspaceByNumber),
             StoredShortcut(key: "1", command: true, shift: false, option: false, control: false)
