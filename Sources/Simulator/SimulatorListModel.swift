@@ -229,7 +229,7 @@ final class SimulatorListModel: ObservableObject {
             loadError = error.localizedDescription
             return
         }
-        Task.detached { _ = input.prewarm() }
+        inputQueue.async { _ = input.prewarm() }
     }
 
     private func stopStreaming() {
