@@ -4995,13 +4995,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    func tabManagerForLiveRegisteredMainWindow(windowId: UUID) -> TabManager? {
-        guard let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }) else {
-            return nil
-        }
-        return resolvedWindow(for: context) == nil ? nil : context.tabManager
-    }
-
 #if DEBUG
     func unregisterMainWindowContextForTesting(windowId: UUID) {
         mainWindowContexts.values.filter { $0.windowId == windowId }.forEach { discardOrphanedMainWindowContext($0, allowWindowlessFallback: true) }

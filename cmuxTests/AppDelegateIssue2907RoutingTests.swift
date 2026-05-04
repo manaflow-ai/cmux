@@ -314,6 +314,71 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertTrue(located.tabManager === manager)
     }
 
+    func testRecoveredRouteRequiresTerminalOwnedBySameTabManager() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let terminalWindowId = UUID()
+        let browserOnlyWindowId = UUID()
+        let terminalWindow = makeMainWindow(id: terminalWindowId)
+        let browserOnlyWindow = makeMainWindow(id: browserOnlyWindowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: terminalWindowId)
+            app.unregisterMainWindowContextForTesting(windowId: browserOnlyWindowId)
+            terminalWindow.orderOut(nil)
+            browserOnlyWindow.orderOut(nil)
+        }
+
+        let terminalManager = TabManager()
+        let browserOnlyManager = TabManager()
+        app.registerMainWindow(
+            terminalWindow,
+            windowId: terminalWindowId,
+            tabManager: terminalManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        app.registerMainWindow(
+            browserOnlyWindow,
+            windowId: browserOnlyWindowId,
+            tabManager: browserOnlyManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+
+        let terminalWorkspace = try XCTUnwrap(terminalManager.selectedWorkspace)
+        let terminalPanel = try XCTUnwrap(terminalWorkspace.focusedTerminalPanel)
+        XCTAssertTrue(TerminalSurfaceRegistry.shared.surface(id: terminalPanel.id) === terminalPanel.surface)
+
+        let browserOnlyWorkspace = try XCTUnwrap(browserOnlyManager.selectedWorkspace)
+        let browserOnlyTerminal = try XCTUnwrap(browserOnlyWorkspace.focusedTerminalPanel)
+        let browserPaneId = try XCTUnwrap(browserOnlyWorkspace.bonsplitController.allPaneIds.first)
+        let browserPanel = try XCTUnwrap(
+            browserOnlyWorkspace.newBrowserSurface(
+                inPane: browserPaneId,
+                url: URL(string: "https://example.com/browser-only"),
+                focus: true,
+                creationPolicy: .restoration
+            )
+        )
+        XCTAssertTrue(browserOnlyWorkspace.closePanel(browserOnlyTerminal.id, force: true))
+        XCTAssertNotNil(browserOnlyWorkspace.panels[browserPanel.id])
+        XCTAssertFalse(browserOnlyWorkspace.panels.values.contains { $0 is TerminalPanel })
+
+        app.unregisterMainWindowContextForTesting(windowId: browserOnlyWindowId)
+
+        XCTAssertNil(app.tabManagerFor(windowId: browserOnlyWindowId))
+        XCTAssertFalse(app.listMainWindowSummaries().contains { $0.windowId == browserOnlyWindowId })
+        XCTAssertTrue(app.tabManagerFor(windowId: terminalWindowId) === terminalManager)
+    }
+
     func testWorkspaceCreationContinuesAfterStaleActiveContextDiscard() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
