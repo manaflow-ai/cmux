@@ -3293,7 +3293,7 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
         XCTAssertTrue(BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowser(defaults: defaults))
     }
     func testSidebarPullRequestClickabilityDefaultAndStoredValues() {
-        XCTAssertFalse(SidebarPullRequestClickabilitySettings.isClickable(defaults: defaults))
+        XCTAssertTrue(SidebarPullRequestClickabilitySettings.isClickable(defaults: defaults))
         defaults.set(true, forKey: SidebarPullRequestClickabilitySettings.key); XCTAssertTrue(SidebarPullRequestClickabilitySettings.isClickable(defaults: defaults))
         defaults.set(false, forKey: SidebarPullRequestClickabilitySettings.key); XCTAssertFalse(SidebarPullRequestClickabilitySettings.isClickable(defaults: defaults))
     }
