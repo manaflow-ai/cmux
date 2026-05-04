@@ -1,10 +1,12 @@
 import AppKit
+import Observation
 import SwiftUI
 
 @MainActor
-final class SimulatorPreviewFrameStore: ObservableObject {
-    @Published var image: NSImage?
-    @Published var imageSize: CGSize = .zero
+@Observable
+final class SimulatorPreviewFrameStore {
+    var image: NSImage?
+    var imageSize: CGSize = .zero
 
     func update(image: NSImage, imageSize: CGSize) {
         self.image = image

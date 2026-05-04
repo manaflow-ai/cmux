@@ -132,44 +132,45 @@ final class IndigoHIDInput: @unchecked Sendable {
     // MARK: - warmup
 
     private func ensureWarm() -> AnyObject? {
-        lock.lock(); defer { lock.unlock() }
-        if let client { return client }
+        func failLocked(_ message: String) -> AnyObject? {
+            recordErrorLocked(message)
+            lock.unlock()
+            return nil
+        }
+
+        lock.lock()
+        if let client {
+            lock.unlock()
+            return client
+        }
 
         let report = SimulatorCapabilities.report()
         if case .unavailable(let reason) = report.input {
-            recordErrorLocked("input unavailable: \(reason)")
-            return nil
+            return failLocked("input unavailable: \(reason)")
         }
         guard let device = (try? SimulatorService.shared.resolveDevice(udid: udid)) ?? nil else {
-            recordErrorLocked("device not found for udid \(udid)")
-            return nil
+            return failLocked("device not found for udid \(udid)")
         }
         guard resolveSymbols() else {
-            recordErrorLocked("dlsym failed for IndigoHIDMessageForMouseNSEvent")
-            return nil
+            return failLocked("dlsym failed for IndigoHIDMessageForMouseNSEvent")
         }
         guard let cls = SimulatorCapabilities.resolveHIDClientClass() else {
-            recordErrorLocked("no HID client class in this SimulatorKit")
-            return nil
+            return failLocked("no HID client class in this SimulatorKit")
         }
         guard let metaCls = object_getClass(cls) else {
-            recordErrorLocked("HID client meta class missing")
-            return nil
+            return failLocked("HID client meta class missing")
         }
         let allocSel = NSSelectorFromString("alloc")
         guard let allocImp = class_getMethodImplementation(metaCls, allocSel) else {
-            recordErrorLocked("HID client +alloc missing")
-            return nil
+            return failLocked("HID client +alloc missing")
         }
         typealias AllocFn = @convention(c) (AnyClass, Selector) -> AnyObject?
         guard let allocated = unsafeBitCast(allocImp, to: AllocFn.self)(cls, allocSel) else {
-            recordErrorLocked("HID client +alloc returned nil")
-            return nil
+            return failLocked("HID client +alloc returned nil")
         }
         let initSel = NSSelectorFromString("initWithDevice:error:")
         guard let initImp = class_getMethodImplementation(cls, initSel) else {
-            recordErrorLocked("HID client -initWithDevice:error: missing")
-            return nil
+            return failLocked("HID client -initWithDevice:error: missing")
         }
         typealias InitFn = @convention(c) (
             AnyObject, Selector, AnyObject, AutoreleasingUnsafeMutablePointer<NSError?>
@@ -177,16 +178,18 @@ final class IndigoHIDInput: @unchecked Sendable {
         var initErr: NSError?
         guard let c = unsafeBitCast(initImp, to: InitFn.self)(allocated, initSel, device, &initErr) else {
             let detail = initErr?.localizedDescription ?? "unknown"
-            recordErrorLocked("HID client init failed: \(detail)")
-            return nil
+            return failLocked("HID client init failed: \(detail)")
         }
         client = c
+        let pointerMessage = createPointerSvc.flatMap { $0() }
+        let mouseMessage = createMouseSvc.flatMap { $0() }
+        lock.unlock()
 
-        if let create = createPointerSvc, let msg = create() {
+        if let msg = pointerMessage {
             send(message: msg, to: c)
             usleep(20_000)
         }
-        if let create = createMouseSvc, let msg = create() {
+        if let msg = mouseMessage {
             send(message: msg, to: c)
             usleep(20_000)
         }

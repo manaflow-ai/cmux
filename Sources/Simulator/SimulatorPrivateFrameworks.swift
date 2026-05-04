@@ -9,8 +9,10 @@ import ObjectiveC
 /// frameworks at build time so the Xcode path stays portable.
 enum SimulatorPrivateFrameworks {
     private static let lock = NSLock()
+    private static let developerDirLock = NSLock()
     private static var didLoad = false
     private static var lastError: String?
+    private static var cachedDeveloperDir: String?
 
     @discardableResult
     static func ensureLoaded() -> Bool {
@@ -41,19 +43,29 @@ enum SimulatorPrivateFrameworks {
     }
 
     static func developerDir() -> String {
+        developerDirLock.lock()
+        defer { developerDirLock.unlock() }
+        if let cachedDeveloperDir {
+            return cachedDeveloperDir
+        }
+
         let pipe = Pipe()
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/bin/xcode-select")
         task.arguments = ["-p"]
         task.standardOutput = pipe
         do { try task.run() } catch {
-            return "/Applications/Xcode.app/Contents/Developer"
+            let fallback = "/Applications/Xcode.app/Contents/Developer"
+            cachedDeveloperDir = fallback
+            return fallback
         }
         task.waitUntilExit()
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         let raw = String(data: data, encoding: .utf8) ?? ""
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "/Applications/Xcode.app/Contents/Developer" : trimmed
+        let resolved = trimmed.isEmpty ? "/Applications/Xcode.app/Contents/Developer" : trimmed
+        cachedDeveloperDir = resolved
+        return resolved
     }
 
     private static func dlerrorString() -> String {

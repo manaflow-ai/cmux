@@ -21,8 +21,7 @@ extension Workspace {
         guard let paneId = sourcePaneId else { return nil }
 
         let simulatorPanel = SimulatorPanel(workspaceId: id, preferredUDID: preferredUDID)
-        panels[simulatorPanel.id] = simulatorPanel
-        panelTitles[simulatorPanel.id] = simulatorPanel.displayTitle
+        registerPanelForSurfaceCreation(simulatorPanel)
 
         let newTab = Bonsplit.Tab(
             title: simulatorPanel.displayTitle,
@@ -43,9 +42,7 @@ extension Workspace {
             withTab: newTab,
             insertFirst: insertFirst
         ) != nil else {
-            surfaceIdToPanelId.removeValue(forKey: newTab.id)
-            panels.removeValue(forKey: simulatorPanel.id)
-            panelTitles.removeValue(forKey: simulatorPanel.id)
+            rollbackPanelSurfaceCreation(panelId: simulatorPanel.id, surfaceId: newTab.id)
             return nil
         }
 
@@ -53,7 +50,7 @@ extension Workspace {
         if focus {
             previousHostedView?.suppressReparentFocus()
             focusPanel(simulatorPanel.id)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            DispatchQueue.main.async {
                 previousHostedView?.clearSuppressReparentFocus()
             }
         } else {
@@ -77,8 +74,7 @@ extension Workspace {
         let previousHostedView = focusedTerminalPanel?.hostedView
 
         let simulatorPanel = SimulatorPanel(workspaceId: id, preferredUDID: preferredUDID)
-        panels[simulatorPanel.id] = simulatorPanel
-        panelTitles[simulatorPanel.id] = simulatorPanel.displayTitle
+        registerPanelForSurfaceCreation(simulatorPanel)
 
         guard let newTabId = bonsplitController.createTab(
             title: simulatorPanel.displayTitle,
@@ -89,8 +85,7 @@ extension Workspace {
             isPinned: false,
             inPane: paneId
         ) else {
-            panels.removeValue(forKey: simulatorPanel.id)
-            panelTitles.removeValue(forKey: simulatorPanel.id)
+            rollbackPanelSurfaceCreation(panelId: simulatorPanel.id)
             return nil
         }
 

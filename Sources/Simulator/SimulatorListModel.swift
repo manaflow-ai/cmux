@@ -1,29 +1,39 @@
 import AppKit
 import CoreImage
 import IOSurface
+import Observation
 import SwiftUI
 
 @MainActor
-final class SimulatorListModel: ObservableObject {
-    @Published var devices: [SimulatorDevice] = []
-    @Published var loadError: String?
-    @Published var selectedUDID: String?
-    @Published var lastInputError: String?
-    @Published var capabilityReport: SimulatorCapabilityReport = SimulatorCapabilities.report()
+@Observable
+final class SimulatorListModel {
+    var devices: [SimulatorDevice] = []
+    var loadError: String?
+    var selectedUDID: String?
+    var lastInputError: String?
+    var capabilityReport: SimulatorCapabilityReport = SimulatorCapabilities.report()
 
     /// Logical point size for the currently selected device, fetched from
     /// `SimDeviceType.mainScreenSize`. Used as the unit the HID dispatch
     /// path expects. Nil when the property isn't exposed; we then fall
     /// back to the IOSurface's pixel dimensions.
-    @Published var devicePointSize: CGSize?
+    var devicePointSize: CGSize?
 
+    @ObservationIgnored
     private var screen: SimulatorScreen?
+    @ObservationIgnored
     private var input: IndigoHIDInput?
+    @ObservationIgnored
     private var streamingUDID: String?
+    @ObservationIgnored
     private weak var frameStore: SimulatorPreviewFrameStore?
+    @ObservationIgnored
     private var refreshTimer: Timer?
+    @ObservationIgnored
     private var isVisibleInUI: Bool = true
+    @ObservationIgnored
     private let inputQueue = DispatchQueue(label: "cmux.simulator.input", qos: .userInteractive)
+    @ObservationIgnored
     nonisolated private let ciContext = CIContext()
 
     /// Touch dispatch unit. Prefers points (matches what

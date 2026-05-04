@@ -80,6 +80,10 @@ extension TerminalController {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
         let preferredUDID = v2String(params, "udid")?.trimmingCharacters(in: .whitespaces)
+        if let preferredUDID, !preferredUDID.isEmpty,
+           let validationError = v2SimulatorDeviceValidationError(udid: preferredUDID) {
+            return validationError
+        }
         let directionStr = v2String(params, "direction") ?? "right"
         guard let direction = parseSplitDirection(directionStr) else {
             return .err(

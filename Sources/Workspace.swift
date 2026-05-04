@@ -7153,7 +7153,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var surfaceTabBarButtonGlobalConfigPath: String?
 
     /// Mapping from bonsplit TabID to our Panel instances
-    @Published var panels: [UUID: any Panel] = [:]
+    @Published private(set) var panels: [UUID: any Panel] = [:]
 
     /// Subscriptions for panel updates (e.g., browser title changes)
     private var panelSubscriptions: [UUID: AnyCancellable] = [:]
@@ -7175,6 +7175,8 @@ final class Workspace: Identifiable, ObservableObject {
     var onClosedBrowserPanel: ((ClosedBrowserPanelRestoreSnapshot) -> Void)?
     weak var owningTabManager: TabManager?
 
+    func registerPanelForSurfaceCreation(_ panel: any Panel) { panels[panel.id] = panel; panelTitles[panel.id] = panel.displayTitle }
+    func rollbackPanelSurfaceCreation(panelId: UUID, surfaceId: TabID? = nil) { panels.removeValue(forKey: panelId); panelTitles.removeValue(forKey: panelId); if let surfaceId { surfaceIdToPanelId.removeValue(forKey: surfaceId) } }
     // Closing tabs mutates split layout immediately; terminal views handle their own AppKit
     // layout/size synchronization.
 

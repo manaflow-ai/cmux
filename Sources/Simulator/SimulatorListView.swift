@@ -4,8 +4,8 @@ import SwiftUI
 /// SwiftUI view used by both the Debug Window and the bonsplit panel.
 /// `initialUDID` selects a device automatically when the view appears.
 struct SimulatorListView: View {
-    @StateObject private var model = SimulatorListModel()
-    @StateObject private var frameStore = SimulatorPreviewFrameStore()
+    @State private var model = SimulatorListModel()
+    @State private var frameStore = SimulatorPreviewFrameStore()
     @State private var isTouchActive: Bool = false
     var initialUDID: String?
     var hidesDeviceList: Bool = false
