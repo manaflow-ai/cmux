@@ -180,7 +180,10 @@ struct GhosttyConfig {
         if startupPreviewProfile.loadsRealUserConfig {
             for path in configPaths {
                 if let contents = readConfigFile(at: path) {
-                    config.parse(contents)
+                    config.parse(
+                        contents,
+                        loadingThemesImmediatelyFor: preferredColorScheme
+                    )
                 }
             }
 
@@ -195,12 +198,18 @@ struct GhosttyConfig {
         } else if let contents = startupPreviewProfile.previewConfigContents(
             preferredColorScheme: preferredColorScheme
         ) {
-            config.parse(contents)
+            config.parse(
+                contents,
+                loadingThemesImmediatelyFor: preferredColorScheme
+            )
         }
         #else
         for path in configPaths {
             if let contents = readConfigFile(at: path) {
-                config.parse(contents)
+                config.parse(
+                    contents,
+                    loadingThemesImmediatelyFor: preferredColorScheme
+                )
             }
         }
 
@@ -213,16 +222,6 @@ struct GhosttyConfig {
             )
         }
         #endif
-
-        // Load theme if specified
-        if let themeName = config.theme {
-            config.loadTheme(
-                themeName,
-                environment: ProcessInfo.processInfo.environment,
-                bundleResourceURL: Bundle.main.resourceURL,
-                preferredColorScheme: preferredColorScheme
-            )
-        }
 
         config.resolveSidebarBackground(preferredColorScheme: preferredColorScheme)
         config.applySidebarAppearanceToUserDefaults()
@@ -345,7 +344,10 @@ struct GhosttyConfig {
         }
     }
 
-    mutating func parse(_ contents: String) {
+    mutating func parse(
+        _ contents: String,
+        loadingThemesImmediatelyFor preferredColorScheme: ColorSchemePreference? = nil
+    ) {
         let lines = contents.components(separatedBy: .newlines)
         for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
@@ -371,6 +373,14 @@ struct GhosttyConfig {
                     }
                 case "theme":
                     theme = value
+                    if let preferredColorScheme {
+                        loadTheme(
+                            value,
+                            environment: ProcessInfo.processInfo.environment,
+                            bundleResourceURL: Bundle.main.resourceURL,
+                            preferredColorScheme: preferredColorScheme
+                        )
+                    }
                 case "working-directory":
                     workingDirectory = value
                 case "scrollback-limit":

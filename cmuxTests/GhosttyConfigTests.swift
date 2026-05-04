@@ -162,6 +162,47 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertEqual(loaded.fontSize, CGFloat(15), accuracy: 0.0001)
     }
 
+    func testLoadAppliesThemeBeforeLaterCursorColorOverride() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ghostty-theme-order-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let resourcesDir = root.appendingPathComponent("resources", isDirectory: true)
+        let themesDir = resourcesDir.appendingPathComponent("themes", isDirectory: true)
+        let configDir = root.appendingPathComponent(".config/ghostty", isDirectory: true)
+        try fileManager.createDirectory(at: themesDir, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: configDir, withIntermediateDirectories: true)
+
+        let originalEnvironment = ["CFFIXED_USER_HOME", "GHOSTTY_RESOURCES_DIR"].map { key in
+            (key, getenv(key).map { String(cString: $0) })
+        }
+        setenv("CFFIXED_USER_HOME", root.path, 1)
+        setenv("GHOSTTY_RESOURCES_DIR", resourcesDir.path, 1)
+        defer {
+            for (key, value) in originalEnvironment {
+                if let value { setenv(key, value, 1) } else { unsetenv(key) }
+            }
+            GhosttyConfig.invalidateLoadCache()
+        }
+
+        try "cursor-color = #e0d000\ncursor-text = #000000\n".write(
+            to: themesDir.appendingPathComponent("Yellow Cursor"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "theme = Yellow Cursor\ncursor-color = #ffffff\ncursor-text = #111111\n".write(
+            to: configDir.appendingPathComponent("config.ghostty"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let loaded = GhosttyConfig.load(preferredColorScheme: .dark, useCache: false)
+        XCTAssertEqual(rgb255(loaded.cursorColor), RGB(red: 255, green: 255, blue: 255))
+        XCTAssertEqual(rgb255(loaded.cursorTextColor), RGB(red: 17, green: 17, blue: 17))
+    }
+
     func testLoadThemeResolvesPairedThemeValueByColorScheme() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ghostty-theme-pair-\(UUID().uuidString)")
@@ -534,109 +575,54 @@ final class GhosttyConfigTests: XCTestCase {
     }
 
     func testDefaultBackgroundUpdateScopePrioritizesSurfaceOverAppAndUnscoped() {
-        XCTAssertTrue(
-            GhosttyApp.shouldApplyDefaultBackgroundUpdate(
-                currentScope: .unscoped,
-                incomingScope: .app
+        let cases: [(GhosttyApp.DefaultBackgroundUpdateScope, GhosttyApp.DefaultBackgroundUpdateScope, Bool)] = [
+            (.unscoped, .app, true),
+            (.app, .surface, true),
+            (.surface, .surface, true),
+            (.surface, .app, false),
+            (.surface, .unscoped, false),
+        ]
+        for (currentScope, incomingScope, expected) in cases {
+            XCTAssertEqual(
+                GhosttyApp.shouldApplyDefaultBackgroundUpdate(
+                    currentScope: currentScope,
+                    incomingScope: incomingScope
+                ),
+                expected
             )
-        )
-        XCTAssertTrue(
-            GhosttyApp.shouldApplyDefaultBackgroundUpdate(
-                currentScope: .app,
-                incomingScope: .surface
-            )
-        )
-        XCTAssertTrue(
-            GhosttyApp.shouldApplyDefaultBackgroundUpdate(
-                currentScope: .surface,
-                incomingScope: .surface
-            )
-        )
-        XCTAssertFalse(
-            GhosttyApp.shouldApplyDefaultBackgroundUpdate(
-                currentScope: .surface,
-                incomingScope: .app
-            )
-        )
-        XCTAssertFalse(
-            GhosttyApp.shouldApplyDefaultBackgroundUpdate(
-                currentScope: .surface,
-                incomingScope: .unscoped
-            )
-        )
+        }
     }
 
     func testAppearanceChangeReloadsWhenColorSchemeChanges() {
-        XCTAssertTrue(
-            GhosttyApp.shouldReloadConfigurationForAppearanceChange(
-                previousColorScheme: .dark,
-                currentColorScheme: .light
-            )
-        )
-        XCTAssertTrue(
-            GhosttyApp.shouldReloadConfigurationForAppearanceChange(
-                previousColorScheme: nil,
-                currentColorScheme: .dark
-            )
-        )
+        XCTAssertTrue(GhosttyApp.shouldReloadConfigurationForAppearanceChange(previousColorScheme: .dark, currentColorScheme: .light))
+        XCTAssertTrue(GhosttyApp.shouldReloadConfigurationForAppearanceChange(previousColorScheme: nil, currentColorScheme: .dark))
     }
 
     func testAppearanceChangeSkipsReloadWhenColorSchemeUnchanged() {
-        XCTAssertFalse(
-            GhosttyApp.shouldReloadConfigurationForAppearanceChange(
-                previousColorScheme: .light,
-                currentColorScheme: .light
-            )
-        )
-        XCTAssertFalse(
-            GhosttyApp.shouldReloadConfigurationForAppearanceChange(
-                previousColorScheme: .dark,
-                currentColorScheme: .dark
-            )
-        )
+        XCTAssertFalse(GhosttyApp.shouldReloadConfigurationForAppearanceChange(previousColorScheme: .light, currentColorScheme: .light))
+        XCTAssertFalse(GhosttyApp.shouldReloadConfigurationForAppearanceChange(previousColorScheme: .dark, currentColorScheme: .dark))
     }
 
     func testScrollLagCaptureRequiresSustainedLag() {
-        XCTAssertFalse(
-            GhosttyApp.shouldCaptureScrollLagEvent(
-                samples: 4,
-                averageMs: 18,
-                maxMs: 85,
-                thresholdMs: 40,
-                nowUptime: 1000,
-                lastReportedUptime: nil
+        let cases: [(samples: Int, averageMs: Double, maxMs: Double, expected: Bool)] = [
+            (4, 18, 85, false),
+            (10, 6, 85, false),
+            (10, 18, 35, false),
+            (10, 18, 85, true),
+        ]
+        for testCase in cases {
+            XCTAssertEqual(
+                GhosttyApp.shouldCaptureScrollLagEvent(
+                    samples: testCase.samples,
+                    averageMs: testCase.averageMs,
+                    maxMs: testCase.maxMs,
+                    thresholdMs: 40,
+                    nowUptime: 1000,
+                    lastReportedUptime: nil
+                ),
+                testCase.expected
             )
-        )
-        XCTAssertFalse(
-            GhosttyApp.shouldCaptureScrollLagEvent(
-                samples: 10,
-                averageMs: 6,
-                maxMs: 85,
-                thresholdMs: 40,
-                nowUptime: 1000,
-                lastReportedUptime: nil
-            )
-        )
-        XCTAssertFalse(
-            GhosttyApp.shouldCaptureScrollLagEvent(
-                samples: 10,
-                averageMs: 18,
-                maxMs: 35,
-                thresholdMs: 40,
-                nowUptime: 1000,
-                lastReportedUptime: nil
-            )
-        )
-        XCTAssertTrue(
-            GhosttyApp.shouldCaptureScrollLagEvent(
-                samples: 10,
-                averageMs: 18,
-                maxMs: 85,
-                thresholdMs: 40,
-                nowUptime: 1000,
-                lastReportedUptime: nil
-            )
-        )
+        }
     }
 
     func testScrollLagCaptureRespectsCooldownWindow() {
