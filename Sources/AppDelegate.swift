@@ -10672,16 +10672,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        let shouldRouteConfiguredPaletteSelection = commandPaletteShortcutWindow != nil
-            && shouldRouteCommandPaletteSelectionNavigation(
-                delta: 1,
-                isInteractive: commandPaletteInteractiveInTargetWindow,
-                usesInlineTextHandling: paletteUsesInlineTextHandling
-            )
+        let shouldRouteConfiguredPaletteSelection = commandPaletteShortcutWindow != nil && shouldRouteCommandPaletteSelectionNavigation(
+            delta: 1,
+            isInteractive: commandPaletteInteractiveInTargetWindow,
+            usesInlineTextHandling: paletteUsesInlineTextHandling
+        )
 
-        if shouldRouteConfiguredPaletteSelection,
-           let paletteWindow = commandPaletteShortcutWindow {
-            if matchConfiguredShortcut(event: event, action: .commandPaletteNext) {
+        if shouldRouteConfiguredPaletteSelection, let paletteWindow = commandPaletteShortcutWindow {
+            if KeyboardShortcutSettings.shortcut(for: .commandPaletteNext).hasChord,
+               matchConfiguredShortcut(event: event, action: .commandPaletteNext) {
                 NotificationCenter.default.post(
                     name: .commandPaletteMoveSelection,
                     object: paletteWindow,
@@ -10690,7 +10689,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return true
             }
 
-            if matchConfiguredShortcut(event: event, action: .commandPalettePrevious) {
+            if KeyboardShortcutSettings.shortcut(for: .commandPalettePrevious).hasChord,
+               matchConfiguredShortcut(event: event, action: .commandPalettePrevious) {
                 NotificationCenter.default.post(
                     name: .commandPaletteMoveSelection,
                     object: paletteWindow,
