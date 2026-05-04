@@ -121,7 +121,7 @@ use cmux_cli_protocol::{
     CommandData, CommandResult, NativePanelNode, NativeSnapshot, NativeSplitDirection,
     NativeTerminalCursor, NativeTerminalFont, NativeTerminalRenderer, NativeTerminalThemeSet,
     NativeTerminalViewport, PROTOCOL_VERSION, ServerMsg, SpaceInfo, SplitDropEdge, SplitPathStep,
-    TabInfo, Viewport, WorkspaceInfo, read_msg, write_msg,
+    TabInfo, TerminalColorReport, Viewport, WorkspaceInfo, read_msg, write_msg,
 };
 use futures_util::{SinkExt, StreamExt};
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
@@ -134,8 +134,9 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{WebSocketStream, accept_async};
 
 use crate::native_terminal::{
-    native_terminal_grid_snapshot, terminal_default_colors_from_theme,
-    terminal_probe_colors_from_report,
+    native_terminal_grid_snapshot, terminal_default_colors_from_report,
+    terminal_default_colors_from_theme, terminal_probe_colors_from_report,
+    terminal_theme_set_from_report,
 };
 use crate::render::{
     BorderSpec, ChromeSpec, LineSelection, LogicalLineSelection, PaneChrome, RenderBroker,
@@ -2898,6 +2899,7 @@ pub struct Daemon {
     display_message: Mutex<Option<DisplayMessage>>,
     broker: Arc<RenderBroker>,
     terminal_theme: Option<NativeTerminalThemeSet>,
+    terminal_theme_override: Mutex<Option<NativeTerminalThemeSet>>,
     terminal_font: Option<NativeTerminalFont>,
     terminal_cursor: Option<NativeTerminalCursor>,
 }
@@ -3019,6 +3021,7 @@ impl Daemon {
             display_message: Mutex::new(None),
             broker,
             terminal_theme,
+            terminal_theme_override: Mutex::new(None),
             terminal_font,
             terminal_cursor,
         });
@@ -3207,6 +3210,32 @@ impl Daemon {
         if changed {
             self.wake_model();
         }
+    }
+
+    async fn update_terminal_colors(&self, colors: TerminalColorReport) {
+        self.broker
+            .set_terminal_probe_colors(terminal_probe_colors_from_report(&colors));
+        self.broker
+            .set_default_colors(terminal_default_colors_from_report(&colors));
+
+        let next_theme = terminal_theme_set_from_report(&colors);
+        let changed = {
+            let mut theme = self.terminal_theme_override.lock().await;
+            let changed = *theme != next_theme;
+            *theme = next_theme;
+            changed
+        };
+        if changed {
+            self.wake_model();
+        }
+    }
+
+    async fn native_terminal_theme(&self) -> Option<NativeTerminalThemeSet> {
+        self.terminal_theme_override
+            .lock()
+            .await
+            .clone()
+            .or_else(|| self.terminal_theme.clone())
     }
 
     async fn client_latency_ms(&self, client_id: &str) -> Option<u32> {
@@ -5707,9 +5736,7 @@ async fn run_session(
                         daemon.update_client_latency(&session_id, latency_ms).await;
                     }
                     Some(ClientMsg::TerminalColors { colors }) => {
-                        daemon
-                            .broker
-                            .set_terminal_probe_colors(terminal_probe_colors_from_report(colors));
+                        daemon.update_terminal_colors(colors).await;
                     }
                     Some(ClientMsg::Command { id, command }) => {
                         if matches!(command, Command::Detach) {
@@ -6123,9 +6150,7 @@ async fn run_native_session(
                         daemon.update_client_latency(&session_id, latency_ms).await;
                     }
                     Some(ClientMsg::TerminalColors { colors }) => {
-                        daemon
-                            .broker
-                            .set_terminal_probe_colors(terminal_probe_colors_from_report(colors));
+                        daemon.update_terminal_colors(colors).await;
                     }
                     Some(ClientMsg::Command { id, command }) => {
                         if matches!(command, Command::Detach) {
@@ -6469,6 +6494,7 @@ async fn build_native_snapshot(
     drop(tabs);
     let panels = native_panel_node_from_panel(&panel_tree, space.id, window, &by_id);
     let attached_clients = daemon.attached_client_infos().await;
+    let terminal_theme = daemon.native_terminal_theme().await;
     Ok(NativeSnapshot {
         workspaces,
         active_workspace,
@@ -6480,7 +6506,7 @@ async fn build_native_snapshot(
         focused_panel_id,
         focused_tab_id: focused_tab.id,
         attached_clients,
-        terminal_theme: daemon.terminal_theme.clone().map(Box::new),
+        terminal_theme: terminal_theme.map(Box::new),
         terminal_font: daemon.terminal_font.clone(),
         terminal_cursor: daemon.terminal_cursor.clone(),
     })

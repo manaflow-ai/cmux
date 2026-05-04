@@ -1188,6 +1188,10 @@ public final class GhosttyTerminalSurfaceView: UIView {
         registeredSurfaceViews = registeredSurfaceViews.filter { $0.value.value != nil }
         for view in registeredSurfaceViews.values.compactMap(\.value) {
             view.applyConfiguredBackground()
+            if let surface = view.surface {
+                ghostty_surface_refresh(surface)
+                view.needsDraw = true
+            }
         }
     }
 }

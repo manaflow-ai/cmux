@@ -6,12 +6,14 @@
 //!   Welcome + ActiveWorkspaceChanged/ActiveTabChanged as expected,
 //! - a missing-token client is rejected with `ServerMsg::Error`.
 
+use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::time::Duration;
 
 use cmux_cli_protocol::{
     AttachedClientKind, ClientMsg, Command, CommandResult, NativePanelNode, NativeSnapshot,
-    NativeTerminalRenderer, PROTOCOL_VERSION, ServerMsg, SplitDropEdge, SplitPathStep, Viewport,
+    NativeTerminalRenderer, PROTOCOL_VERSION, ServerMsg, SplitDropEdge, SplitPathStep,
+    TerminalColorReport, TerminalRgb, Viewport,
 };
 use cmux_cli_server::{HeartbeatConfig, ServerOptions, run_with_websocket_listener};
 use futures_util::{SinkExt, StreamExt};
@@ -877,6 +879,42 @@ async fn websocket_native_snapshot_reports_attached_client_layouts() {
         other => panic!("expected Welcome, got {other:?}"),
     };
     let tab_id = recv_native_snapshot(&mut wide).await.focused_tab_id;
+    let mut palette = BTreeMap::new();
+    palette.insert(
+        118,
+        TerminalRgb {
+            r: 95,
+            g: 215,
+            b: 0,
+        },
+    );
+    send_client_msg(
+        &mut wide,
+        &ClientMsg::TerminalColors {
+            colors: TerminalColorReport {
+                foreground: Some(TerminalRgb {
+                    r: 253,
+                    g: 255,
+                    b: 241,
+                }),
+                background: Some(TerminalRgb {
+                    r: 39,
+                    g: 40,
+                    b: 34,
+                }),
+                palette,
+            },
+        },
+    )
+    .await;
+    let theme_snapshot = recv_native_snapshot(&mut wide).await;
+    let theme = theme_snapshot
+        .terminal_theme
+        .as_ref()
+        .and_then(|theme| theme.default.as_ref())
+        .expect("reported terminal theme");
+    assert_eq!(theme.background.as_deref(), Some("#272822"));
+    assert_eq!(theme.palette.get(&118).map(String::as_str), Some("#5FD700"));
     send_client_msg(
         &mut wide,
         &ClientMsg::NativeLayout {

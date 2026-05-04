@@ -39,10 +39,12 @@ pub struct TerminalRgb {
     pub b: u8,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TerminalColorReport {
     pub foreground: Option<TerminalRgb>,
     pub background: Option<TerminalRgb>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub palette: BTreeMap<u8, TerminalRgb>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -536,7 +538,7 @@ pub struct NativeSnapshot {
     pub terminal_cursor: Option<NativeTerminalCursor>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NativeTerminalThemeSet {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default: Option<NativeTerminalTheme>,
@@ -546,7 +548,7 @@ pub struct NativeTerminalThemeSet {
     pub dark: Option<NativeTerminalTheme>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NativeTerminalTheme {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub palette: BTreeMap<u8, String>,
@@ -899,6 +901,15 @@ mod tests {
     #[tokio::test]
     async fn roundtrip_terminal_colors() {
         let (mut a, mut b) = duplex(64 * 1024);
+        let mut palette = BTreeMap::new();
+        palette.insert(
+            118,
+            TerminalRgb {
+                r: 95,
+                g: 215,
+                b: 0,
+            },
+        );
         let msg = ClientMsg::TerminalColors {
             colors: TerminalColorReport {
                 foreground: Some(TerminalRgb {
@@ -911,6 +922,7 @@ mod tests {
                     g: 11,
                     b: 12,
                 }),
+                palette,
             },
         };
         let sent = msg.clone();

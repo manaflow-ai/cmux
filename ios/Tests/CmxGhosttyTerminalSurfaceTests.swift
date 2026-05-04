@@ -1,4 +1,5 @@
 import QuartzCore
+import UIKit
 import XCTest
 @testable import cmux_ios
 
@@ -198,6 +199,15 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
         XCTAssertGreaterThan(delegate.lastSize?.rows ?? 0, 0)
     }
 
+    func testRemoteConfigOverrideRefreshesSurfaceBackground() throws {
+        let (surfaceView, _) = try makeSurfaceView()
+        defer { _ = GhosttyRuntime.applyRemoteConfigOverride(nil) }
+
+        XCTAssertTrue(GhosttyRuntime.applyRemoteConfigOverride("background = #010203\n"))
+
+        XCTAssertEqual(surfaceView.backgroundColor?.cmuxRGB255, [1, 2, 3])
+    }
+
     private func makeSurfaceView() throws -> (GhosttyTerminalSurfaceView, DelegateRecorder) {
         let delegate = DelegateRecorder()
         let runtime = try GhosttyRuntime.shared()
@@ -220,5 +230,18 @@ private final class DelegateRecorder: GhosttyTerminalSurfaceViewDelegate {
     func ghosttyTerminalSurfaceView(_ surfaceView: GhosttyTerminalSurfaceView, didResize size: TerminalGridSize) {
         lastSize = size
         resizeCount += 1
+    }
+}
+
+private extension UIColor {
+    var cmuxRGB255: [Int]? {
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+        guard getRed(&red, green: &green, blue: &blue, alpha: &alpha) else {
+            return nil
+        }
+        return [red, green, blue].map { Int(($0 * 255).rounded()) }
     }
 }

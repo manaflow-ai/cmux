@@ -14,11 +14,49 @@ use crate::render::TabId;
 use crate::render::TerminalProbeColors;
 
 pub(crate) fn terminal_probe_colors_from_report(
-    report: TerminalColorReport,
+    report: &TerminalColorReport,
 ) -> TerminalProbeColors {
     TerminalProbeColors {
         foreground: report.foreground.map(terminal_rgb_to_ghostty),
         background: report.background.map(terminal_rgb_to_ghostty),
+    }
+}
+
+pub(crate) fn terminal_theme_set_from_report(
+    report: &TerminalColorReport,
+) -> Option<NativeTerminalThemeSet> {
+    if report.foreground.is_none() && report.background.is_none() && report.palette.is_empty() {
+        return None;
+    }
+
+    Some(NativeTerminalThemeSet {
+        default: Some(NativeTerminalTheme {
+            palette: report
+                .palette
+                .iter()
+                .map(|(index, color)| (*index, terminal_rgb_label(*color)))
+                .collect(),
+            foreground: report.foreground.map(terminal_rgb_label),
+            background: report.background.map(terminal_rgb_label),
+            ..NativeTerminalTheme::default()
+        }),
+        ..NativeTerminalThemeSet::default()
+    })
+}
+
+pub(crate) fn terminal_default_colors_from_report(
+    report: &TerminalColorReport,
+) -> TerminalGridDefaultColors {
+    TerminalGridDefaultColors {
+        foreground: report.foreground.map(terminal_rgb_to_ghostty),
+        background: report.background.map(terminal_rgb_to_ghostty),
+        palette: (!report.palette.is_empty()).then(|| {
+            let mut palette = default_terminal_color_palette();
+            for (index, color) in &report.palette {
+                palette[usize::from(*index)] = terminal_rgb_to_ghostty(*color);
+            }
+            palette
+        }),
     }
 }
 
@@ -143,6 +181,10 @@ fn ghostty_rgb_to_terminal(color: GhosttyRgbColor) -> TerminalRgb {
         g: color.g,
         b: color.b,
     }
+}
+
+fn terminal_rgb_label(color: TerminalRgb) -> String {
+    format!("#{:02X}{:02X}{:02X}", color.r, color.g, color.b)
 }
 
 fn terminal_default_colors_summary(colors: TerminalGridDefaultColors) -> String {
@@ -333,6 +375,63 @@ mod tests {
                 b: 255,
             }
         );
+    }
+
+    #[test]
+    fn terminal_theme_set_uses_reported_host_palette() {
+        let mut palette = BTreeMap::new();
+        palette.insert(
+            118,
+            TerminalRgb {
+                r: 95,
+                g: 215,
+                b: 0,
+            },
+        );
+        palette.insert(
+            135,
+            TerminalRgb {
+                r: 175,
+                g: 95,
+                b: 255,
+            },
+        );
+        let report = TerminalColorReport {
+            foreground: Some(TerminalRgb {
+                r: 253,
+                g: 255,
+                b: 241,
+            }),
+            background: Some(TerminalRgb {
+                r: 39,
+                g: 40,
+                b: 34,
+            }),
+            palette,
+        };
+
+        let theme_set = terminal_theme_set_from_report(&report).expect("reported theme");
+        let theme = theme_set.default.expect("default theme");
+
+        assert_eq!(theme.foreground.as_deref(), Some("#FDFFF1"));
+        assert_eq!(theme.background.as_deref(), Some("#272822"));
+        assert_eq!(theme.palette.get(&118).map(String::as_str), Some("#5FD700"));
+        assert_eq!(theme.palette.get(&135).map(String::as_str), Some("#AF5FFF"));
+    }
+
+    #[test]
+    fn terminal_default_colors_do_not_invent_palette_for_old_reports() {
+        let report = TerminalColorReport {
+            foreground: Some(TerminalRgb { r: 1, g: 2, b: 3 }),
+            background: Some(TerminalRgb { r: 4, g: 5, b: 6 }),
+            palette: BTreeMap::new(),
+        };
+
+        let colors = terminal_default_colors_from_report(&report);
+
+        assert_eq!(colors.foreground, Some(RgbColor { r: 1, g: 2, b: 3 }));
+        assert_eq!(colors.background, Some(RgbColor { r: 4, g: 5, b: 6 }));
+        assert_eq!(colors.palette, None);
     }
 
     #[test]

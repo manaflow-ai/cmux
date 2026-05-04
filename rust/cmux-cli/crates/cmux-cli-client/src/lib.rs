@@ -19,6 +19,7 @@
 //!
 //! WebSocket transport lands in a later milestone.
 
+use std::collections::BTreeMap;
 use std::io::{self, Write};
 use std::os::fd::AsRawFd;
 use std::path::PathBuf;
@@ -433,21 +434,24 @@ fn query_host_terminal_colors_raw() -> Option<TerminalColorReport> {
     let mut stdout = io::stdout();
     let trace_palette = probe::color_enabled();
     let mut query = Vec::from(&b"\x1b]10;?\x1b\\\x1b]11;?\x1b\\"[..]);
-    if trace_palette {
-        for (index, _) in TRACE_PALETTE_PROBES {
-            query.extend_from_slice(format!("\x1b]4;{index};?\x1b\\").as_bytes());
-        }
+    // iOS renders raw PTY bytes with libghostty, so palette-indexed prompt
+    // colors must use the same palette as the attached TUI terminal.
+    for index in 0u8..=u8::MAX {
+        query.extend_from_slice(format!("\x1b]4;{index};?\x1b\\").as_bytes());
     }
     if stdout.write_all(&query).is_err() || stdout.flush().is_err() {
         return None;
     }
-    let bytes = read_available_stdin_bytes(Duration::from_millis(120), trace_palette).ok()?;
+    let bytes = read_available_stdin_bytes(Duration::from_millis(120), true).ok()?;
     let colors = TerminalColorReport {
         foreground: parse_osc_color(&bytes, 10),
         background: parse_osc_color(&bytes, 11),
+        palette: (0u8..=u8::MAX)
+            .filter_map(|index| parse_osc_palette_color(&bytes, index).map(|color| (index, color)))
+            .collect::<BTreeMap<_, _>>(),
     };
     if trace_palette {
-        log_host_terminal_color_probe(&bytes, colors);
+        log_host_terminal_color_probe(&bytes, &colors);
     }
     Some(colors)
 }
@@ -532,19 +536,18 @@ fn host_terminal_probe_complete(data: &[u8], trace_palette: bool) -> bool {
     parse_osc_color(data, 10).is_some()
         && parse_osc_color(data, 11).is_some()
         && (!trace_palette
-            || TRACE_PALETTE_PROBES
-                .iter()
-                .all(|(index, _)| parse_osc_palette_color(data, *index).is_some()))
+            || (0u8..=u8::MAX).all(|index| parse_osc_palette_color(data, index).is_some()))
 }
 
-fn log_host_terminal_color_probe(data: &[u8], colors: TerminalColorReport) {
+fn log_host_terminal_color_probe(data: &[u8], colors: &TerminalColorReport) {
     let mut fields = vec![
         ("foreground", format_rgb(colors.foreground)),
         ("background", format_rgb(colors.background)),
     ];
     for (index, field) in TRACE_PALETTE_PROBES {
-        fields.push((*field, format_rgb(parse_osc_palette_color(data, *index))));
+        fields.push((*field, format_rgb(colors.palette.get(index).copied())));
     }
+    fields.push(("palette_count", colors.palette.len().to_string()));
     fields.push(("response", probe::preview_bytes(data, 240)));
     probe::log_event("client", "host_terminal_color_probe", &fields);
 }
