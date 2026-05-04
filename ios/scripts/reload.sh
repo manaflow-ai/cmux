@@ -6,6 +6,29 @@ IOS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$IOS_DIR/.." && pwd)"
 cd "$IOS_DIR"
 
+run_with_timeout() {
+    local timeout_seconds="$1"
+    shift
+    "$@" &
+    local command_pid="$!"
+    (
+        sleep "$timeout_seconds"
+        if kill -0 "$command_pid" >/dev/null 2>&1; then
+            kill "$command_pid" >/dev/null 2>&1 || true
+            sleep 1
+            kill -9 "$command_pid" >/dev/null 2>&1 || true
+        fi
+    ) &
+    local watchdog_pid="$!"
+    set +e
+    wait "$command_pid"
+    local command_status="$?"
+    set -e
+    kill "$watchdog_pid" >/dev/null 2>&1 || true
+    wait "$watchdog_pid" >/dev/null 2>&1 || true
+    return "$command_status"
+}
+
 TAG=""
 SIMULATOR_ONLY=0
 while [ "$#" -gt 0 ]; do
@@ -76,9 +99,16 @@ if [ -n "$BOOTED_SIMS" ]; then
     SIMULATOR_STATUS="succeeded"
     while IFS= read -r SIM_ID; do
         [ -n "$SIM_ID" ] || continue
-        xcrun simctl terminate "$SIM_ID" "$BUNDLE_ID" >/dev/null 2>&1 || true
-        xcrun simctl install "$SIM_ID" "$SIM_APP_PATH"
-        xcrun simctl launch "$SIM_ID" "$BUNDLE_ID" >/dev/null
+        run_with_timeout 8 xcrun simctl terminate "$SIM_ID" "$BUNDLE_ID" >/dev/null 2>&1 || true
+        if ! run_with_timeout 30 xcrun simctl install "$SIM_ID" "$SIM_APP_PATH"; then
+            echo "Simulator install failed for $SIM_ID" >&2
+            SIMULATOR_STATUS="failed"
+            continue
+        fi
+        if ! run_with_timeout 15 xcrun simctl launch "$SIM_ID" "$BUNDLE_ID" >/dev/null; then
+            echo "Simulator launch failed for $SIM_ID" >&2
+            SIMULATOR_STATUS="failed"
+        fi
     done <<< "$BOOTED_SIMS"
 fi
 
