@@ -131,6 +131,9 @@ async fn notify_command_fires_shell_hook_with_env_vars() {
     assert!(msgs.contains(&"first ping"), "got messages {msgs:?}");
     assert!(msgs.contains(&"second ping"), "got messages {msgs:?}");
 
+    let titles: Vec<&str> = title_lines.iter().map(|l| &l[6..]).collect();
+    assert_eq!(titles, vec!["sh", "sh"], "got titles {titles:?}");
+
     drain.abort();
     server.abort();
     let _ = timeout(Duration::from_millis(500), server).await;
