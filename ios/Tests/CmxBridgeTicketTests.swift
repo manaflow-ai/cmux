@@ -423,6 +423,39 @@ final class CmxBridgeTicketTests: XCTestCase {
         XCTAssertFalse(store.isConnecting)
         XCTAssertFalse(store.isConnected)
     }
+
+    @MainActor
+    func testLifecycleSignalProbesConnectedTransport() throws {
+        let sessionFactory = RecordingTerminalSessionFactory()
+        let store = CmxConnectionStore(
+            authSessionStore: MemoryStackAuthSessionStore(),
+            pairingSecretClient: RecordingPairingSecretClient(),
+            terminalSessionFactory: sessionFactory
+        )
+        store.ticketText = """
+        {
+          "version": 1,
+          "alpn": "/cmux/cmx/3",
+          "endpoint": {
+            "id": "local",
+            "addrs": [
+              { "Custom": "ws://127.0.0.1:8787?token=sekrit" }
+            ]
+          },
+          "auth": { "mode": "direct" }
+        }
+        """
+
+        store.connect()
+        sessionFactory.session.delegate?.terminalSession(
+            sessionFactory.session,
+            didReceive: .welcome(serverVersion: "test", sessionID: "session")
+        )
+
+        store.refreshConnectionForLifecycleSignal()
+
+        XCTAssertEqual(sessionFactory.session.pingCount, 1)
+    }
 }
 
 private final class MemoryStackAuthSessionStore: CmxStackAuthSessionStore {
@@ -507,6 +540,7 @@ private final class RecordingTerminalSession: CmxTerminalSession {
     weak var delegate: CmxTerminalSessionDelegate?
     private(set) var didStart = false
     private(set) var startCount = 0
+    private(set) var pingCount = 0
     private(set) var sentLayouts: [[CmxWireTerminalViewport]] = []
     private(set) var sentCommands: [CmxClientCommand] = []
 
@@ -525,6 +559,10 @@ private final class RecordingTerminalSession: CmxTerminalSession {
 
     func sendCommand(_ command: CmxClientCommand) {
         sentCommands.append(command)
+    }
+
+    func sendPing() {
+        pingCount += 1
     }
 
     func disconnect() {}

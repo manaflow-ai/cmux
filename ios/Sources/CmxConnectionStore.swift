@@ -350,6 +350,16 @@ final class CmxConnectionStore: ObservableObject {
         connect(isAutomaticReconnect: true)
     }
 
+    func refreshConnectionForLifecycleSignal() {
+        guard reconnectAllowed, canAttemptReconnect else { return }
+        if reconnectPending || (!isConnected && !isConnecting) {
+            reconnectPending = true
+            resumePendingConnectionIfNeeded()
+            return
+        }
+        terminalSession?.sendPing()
+    }
+
     private func updateConnectedNode(for ticket: CmxBridgeTicket) {
         nodes = [
             CmxHiveNodeFactory.connectedNode(for: ticket),
@@ -496,7 +506,7 @@ final class CmxConnectionStore: ObservableObject {
                 Task { @MainActor in
                     self?.appIsActive = true
                     self?.didUseImmediateReconnectForCurrentLoss = false
-                    self?.resumePendingConnectionIfNeeded()
+                    self?.refreshConnectionForLifecycleSignal()
                 }
             }
         )
@@ -520,7 +530,7 @@ final class CmxConnectionStore: ObservableObject {
                 self.hasUsableNetworkPath = path.status == .satisfied
                 if self.hasUsableNetworkPath, !wasUsable {
                     self.didUseImmediateReconnectForCurrentLoss = false
-                    self.resumePendingConnectionIfNeeded()
+                    self.refreshConnectionForLifecycleSignal()
                 }
             }
         }

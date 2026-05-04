@@ -2,7 +2,7 @@ import Foundation
 
 @MainActor
 final class CmxWebSocketTerminalSession: CmxTerminalSession {
-    private static let heartbeatInterval: TimeInterval = 15
+    private static let heartbeatInterval: TimeInterval = 5
 
     enum Mode: Equatable {
         case tui
@@ -87,6 +87,10 @@ final class CmxWebSocketTerminalSession: CmxTerminalSession {
         send(.command(id: id, command))
     }
 
+    func sendPing() {
+        send(.ping)
+    }
+
     func disconnect() {
         closedByClient = true
         stopHeartbeat()
@@ -140,6 +144,7 @@ final class CmxWebSocketTerminalSession: CmxTerminalSession {
 
     private func startHeartbeat() {
         stopHeartbeat()
+        send(.ping)
         let timer = Timer(timeInterval: Self.heartbeatInterval, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self, self.task != nil, !self.closedByClient else { return }

@@ -4,12 +4,15 @@ private let cmxIrohRelayModeDefault: UInt32 = 0
 
 @MainActor
 final class CmxIrohTerminalSession: CmxTerminalSession {
+    private static let heartbeatInterval: TimeInterval = 5
+
     weak var delegate: CmxTerminalSessionDelegate?
 
     private let ticket: String
     private let pairingSecret: String?
     private var handle: OpaquePointer?
     private var retainedSelf: UnsafeMutableRawPointer?
+    private var heartbeatTimer: Timer?
     private var closedByClient = false
     private var nextCommandID: UInt32 = 1
 
@@ -19,6 +22,9 @@ final class CmxIrohTerminalSession: CmxTerminalSession {
     }
 
     deinit {
+        MainActor.assumeIsolated {
+            stopHeartbeat()
+        }
         if let handle {
             cmux_iroh_client_disconnect(handle)
         }
@@ -60,6 +66,7 @@ final class CmxIrohTerminalSession: CmxTerminalSession {
 
         handle = startedHandle
         send(.helloNative(viewport: viewport, token: nil))
+        startHeartbeat()
     }
 
     func sendInput(_ data: Data, terminalID: UInt64) {
@@ -82,8 +89,13 @@ final class CmxIrohTerminalSession: CmxTerminalSession {
         send(.command(id: id, command))
     }
 
+    func sendPing() {
+        send(.ping)
+    }
+
     func disconnect() {
         closedByClient = true
+        stopHeartbeat()
         send(.detach)
         disconnectTransport()
     }
@@ -118,17 +130,20 @@ final class CmxIrohTerminalSession: CmxTerminalSession {
                 delegate?.terminalSession(self, didFail: error)
             }
         case CmxIrohClientEventKindClosed.rawValue:
+            stopHeartbeat()
             disconnectTransport()
             if !closedByClient {
                 delegate?.terminalSessionDidClose(self)
             }
         case CmxIrohClientEventKindError.rawValue:
             let message = String(data: data, encoding: .utf8) ?? ""
+            stopHeartbeat()
             disconnectTransport()
             if !closedByClient {
                 delegate?.terminalSession(self, didFail: CmxIrohTerminalSessionError.remoteError(message))
             }
         default:
+            stopHeartbeat()
             disconnectTransport()
             if !closedByClient {
                 delegate?.terminalSession(self, didFail: CmxIrohTerminalSessionError.unknownEvent)
@@ -155,6 +170,24 @@ final class CmxIrohTerminalSession: CmxTerminalSession {
         guard let retainedSelf else { return }
         Unmanaged<CmxIrohTerminalSession>.fromOpaque(retainedSelf).release()
         self.retainedSelf = nil
+    }
+
+    private func startHeartbeat() {
+        stopHeartbeat()
+        sendPing()
+        let timer = Timer(timeInterval: Self.heartbeatInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.handle != nil, !self.closedByClient else { return }
+                self.sendPing()
+            }
+        }
+        heartbeatTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func stopHeartbeat() {
+        heartbeatTimer?.invalidate()
+        heartbeatTimer = nil
     }
 }
 
