@@ -47,6 +47,17 @@ The broader `swift-architectural-rethink` rule runs once on GPT-5.5 through cx g
 
 Use `LLM diff lint status` as the required branch-protection check.
 
+## Vendor Review Mirrors
+
+The source of truth for custom lint rules is this directory's `rules/*.md` files and the `LLM diff lint status` GitHub Action.
+
+The repo also mirrors the same rules into:
+
+- `.coderabbit.yaml`, using CodeRabbit code guidelines, path instructions, and warning-mode custom pre-merge checks
+- `.greptile/`, using Greptile structured rules plus `files.json` references back to the source rule files
+
+Keep those vendor configs advisory unless they are enforced through trusted organization-level settings. In an open source repo, PR-head config edits should not be treated as a required security gate.
+
 ## Local Development CLI
 
 Run the same rule set locally with:
