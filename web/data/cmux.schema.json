@@ -661,7 +661,7 @@
         },
         {
           "$ref": "#/$defs/shortcutStroke",
-          "description": "Single-stroke shortcut, for example cmd+n. Use an empty string, none, clear, or unbound to unbind."
+          "description": "Single-stroke shortcut, for example cmd+n or cmd+space."
         },
         {
           "type": "array",
