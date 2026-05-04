@@ -806,6 +806,7 @@ public final class GhosttyTerminalSurfaceView: UIView {
     #if DEBUG
     var onOutputProcessedForTesting: (() -> Void)?
     private var hasRunUITestingZoomStress = false
+    private var didCompleteUITestingZoomStress = false
     private var pendingUITestingZoomStressCycles = 0
     #endif
     // Keep `ghostty_surface_process_output` off the main thread. This is
@@ -913,7 +914,7 @@ public final class GhosttyTerminalSurfaceView: UIView {
                 self.hasFedInitialOutput = true
                 self.needsDraw = true
                 ghostty_surface_render_now(surface)
-                self.accessibilityValue = self.accessibilityRenderedTextForTesting()
+                self.updateAccessibilityRenderedTextForTesting()
                 #if DEBUG
                 self.onOutputProcessedForTesting?()
                 #endif
@@ -1286,8 +1287,8 @@ public final class GhosttyTerminalSurfaceView: UIView {
         simulatePinchZoomCycleForTesting([.increase])
         pendingUITestingZoomStressCycles -= 1
         guard pendingUITestingZoomStressCycles == 0 else { return }
-        let renderedText = accessibilityRenderedTextForTesting() ?? ""
-        accessibilityValue = renderedText + "\nZOOM_STRESS_DONE"
+        didCompleteUITestingZoomStress = true
+        updateAccessibilityRenderedTextForTesting()
     }
 
     private func scheduleUITestingZoomStressFallback() {
@@ -1299,6 +1300,16 @@ public final class GhosttyTerminalSurfaceView: UIView {
         }
     }
     #endif
+
+    private func updateAccessibilityRenderedTextForTesting() {
+        var renderedText = accessibilityRenderedTextForTesting() ?? ""
+        #if DEBUG
+        if didCompleteUITestingZoomStress {
+            renderedText += "\nZOOM_STRESS_DONE"
+        }
+        #endif
+        accessibilityValue = renderedText
+    }
 }
 
 private final class WeakGhosttySurfaceViewBox {
