@@ -8828,8 +8828,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let timer = DispatchSource.makeTimerSource(queue: .main)
         timer.schedule(deadline: .now(), repeating: .milliseconds(100))
         timer.setEventHandler { [weak self] in
-            guard let self, let workspace = self.tabManager?.selectedWorkspace else { return }
-            self.writeGotoSplitTestData(self.gotoSplitFindStateSnapshot(for: workspace))
+            Task { @MainActor [weak self] in
+                guard let self, let workspace = self.tabManager?.selectedWorkspace else { return }
+                self.writeGotoSplitTestData(self.gotoSplitFindStateSnapshot(for: workspace))
+            }
         }
         gotoSplitUITestRecorder = timer
         timer.resume()
@@ -8900,22 +8902,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self.recordGotoSplitUITestActiveElement(panelId: panelId, keyPrefix: "addressBarExit")
         })
 
-        gotoSplitUITestObservers.append(NotificationCenter.default.addObserver(
-            forName: .ghosttyDidBecomeFirstResponderSurface,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            guard let self else { return }
-            guard let surfaceId = notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID else {
-                return
-            }
-            guard let workspace = self.tabManager?.selectedWorkspace else { return }
-            var updates = self.gotoSplitFindStateSnapshot(for: workspace)
-            updates["terminalFirstResponderPanelId"] = surfaceId.uuidString
-            updates["terminalFirstResponderFocusedPanelMatches"] =
-                workspace.focusedPanelId == surfaceId ? "true" : "false"
-            self.writeGotoSplitTestData(updates)
-        })
     }
 
     private func recordGotoSplitUITestWebViewFocus(panelId: UUID, key: String) {
