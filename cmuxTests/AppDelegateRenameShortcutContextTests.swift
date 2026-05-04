@@ -15,8 +15,17 @@ private final class ShortcutContextMenuActionProbe: NSObject {
 }
 
 private final class ShortcutContextGhosttyCommandEquivalentProbeView: GhosttyNSView {
+    var afterMenuMissCallCount = 0
     var keyDownCallCount = 0
+    var lastAfterMenuMissCharactersIgnoringModifiers: String?
     var lastKeyDownCharactersIgnoringModifiers: String?
+    var performAfterMenuMissResult = true
+
+    override func performKeyEquivalentAfterMenuMiss(with event: NSEvent) -> Bool {
+        afterMenuMissCallCount += 1
+        lastAfterMenuMissCharactersIgnoringModifiers = event.charactersIgnoringModifiers
+        return performAfterMenuMissResult
+    }
 
     override func keyDown(with event: NSEvent) {
         keyDownCallCount += 1
@@ -381,8 +390,9 @@ final class AppDelegateRenameShortcutContextTests: XCTestCase {
         )
 
         XCTAssertEqual(menuProbe.callCount, 0, "Reload Page menu item must not consume terminal Cmd+R")
-        XCTAssertEqual(probeView.keyDownCallCount, 1, "Terminal Cmd+R should be forwarded into Ghostty")
-        XCTAssertEqual(probeView.lastKeyDownCharactersIgnoringModifiers, "r")
+        XCTAssertEqual(probeView.afterMenuMissCallCount, 1, "Terminal Cmd+R should enter Ghostty's command path")
+        XCTAssertEqual(probeView.lastAfterMenuMissCharactersIgnoringModifiers, "r")
+        XCTAssertEqual(probeView.keyDownCallCount, 0, "Handled Ghostty command equivalents should not fall through to keyDown")
     }
 
     private func makeKeyDownEvent(

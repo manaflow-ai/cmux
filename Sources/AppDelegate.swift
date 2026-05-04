@@ -11363,7 +11363,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             logDeveloperToolsShortcutSnapshot(phase: "toggle.pre", event: event)
 #endif
-            let didHandle = tabManager?.toggleDeveloperToolsFocusedBrowser() ?? false
+            let didHandle = shortcutEventFocusedBrowserPanel(event)?.toggleDeveloperTools() ?? false
 #if DEBUG
             logDeveloperToolsShortcutSnapshot(phase: "toggle.post", event: event, didHandle: didHandle)
             DispatchQueue.main.async { [weak self] in
@@ -11378,7 +11378,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             logDeveloperToolsShortcutSnapshot(phase: "console.pre", event: event)
 #endif
-            let didHandle = tabManager?.showJavaScriptConsoleFocusedBrowser() ?? false
+            let didHandle = shortcutEventFocusedBrowserPanel(event)?.showDeveloperToolsConsole() ?? false
 #if DEBUG
             logDeveloperToolsShortcutSnapshot(phase: "console.post", event: event, didHandle: didHandle)
             DispatchQueue.main.async { [weak self] in
@@ -11396,15 +11396,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .browserZoomIn) {
-            return tabManager?.zoomInFocusedBrowser() ?? false
+            return shortcutEventFocusedBrowserPanel(event)?.zoomIn() ?? false
         }
 
         if matchConfiguredShortcut(event: event, action: .browserZoomOut) {
-            return tabManager?.zoomOutFocusedBrowser() ?? false
+            return shortcutEventFocusedBrowserPanel(event)?.zoomOut() ?? false
         }
 
         if matchConfiguredShortcut(event: event, action: .browserZoomReset) {
-            return tabManager?.resetZoomFocusedBrowser() ?? false
+            return shortcutEventFocusedBrowserPanel(event)?.resetZoom() ?? false
         }
 
         if matchConfiguredShortcut(event: event, action: .findInDirectory) {
@@ -14165,6 +14165,7 @@ private extension NSWindow {
 
         if let firstResponderGhosttyView, shouldRouteCommandEquivalentDirectlyToMainMenu(event) {
             if AppDelegate.shared?.shouldForwardBrowserSurfaceShortcutToTerminal(event) == true {
+                if firstResponderGhosttyView.performKeyEquivalentAfterMenuMiss(with: event) { return true }
                 firstResponderGhosttyView.keyDown(with: event)
                 return true
             }

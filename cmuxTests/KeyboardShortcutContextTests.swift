@@ -20,6 +20,20 @@ final class KeyboardShortcutContextTests: XCTestCase {
                 configuredShortcut: renameTabShortcut
             )
         )
+        XCTAssertFalse(
+            KeyboardShortcutSettings.Action.browserReload.conflicts(
+                with: renameTabShortcut,
+                proposedAction: .renameTab,
+                configuredShortcut: KeyboardShortcutSettings.Action.browserReload.defaultShortcut
+            )
+        )
+        XCTAssertTrue(
+            KeyboardShortcutSettings.Action.renameTab.conflicts(
+                with: renameTabShortcut,
+                proposedAction: .renameWorkspace,
+                configuredShortcut: renameTabShortcut
+            )
+        )
     }
 
     func testRenameWorkspaceIsScopedOutsideBrowserPanels() {
