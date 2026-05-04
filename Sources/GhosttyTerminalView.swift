@@ -3019,21 +3019,22 @@ class GhosttyApp {
     ) {
         guard let config else { return }
 
-        let resolvedColor = ghosttyColorValue(from: config, key: "background", fallback: defaultBackgroundColor)
-        let resolvedForeground = ghosttyColorValue(from: config, key: "foreground", fallback: defaultForegroundColor)
-        let resolvedCursor = ghosttyColorValue(from: config, key: "cursor-color", fallback: defaultCursorColor)
-        let resolvedCursorText = ghosttyColorValue(from: config, key: "cursor-text", fallback: defaultCursorTextColor)
+        let baseline = Self.fallbackAppearanceConfig
+        let resolvedColor = ghosttyColorValue(from: config, key: "background", fallback: baseline.backgroundColor)
+        let resolvedForeground = ghosttyColorValue(from: config, key: "foreground", fallback: baseline.foregroundColor)
+        let resolvedCursor = ghosttyColorValue(from: config, key: "cursor-color", fallback: baseline.cursorColor)
+        let resolvedCursorText = ghosttyColorValue(from: config, key: "cursor-text", fallback: baseline.cursorTextColor)
         let resolvedSelectionBackground = ghosttyColorValue(
             from: config,
             key: "selection-background",
-            fallback: defaultSelectionBackground
+            fallback: baseline.selectionBackground
         )
         let resolvedSelectionForeground = ghosttyColorValue(
             from: config,
             key: "selection-foreground",
-            fallback: defaultSelectionForeground
+            fallback: baseline.selectionForeground
         )
-        var opacity = defaultBackgroundOpacity
+        var opacity = baseline.backgroundOpacity
         let opacityKey = "background-opacity"
         _ = ghostty_config_get(config, &opacity, opacityKey, UInt(opacityKey.lengthOfBytes(using: .utf8)))
         opacity = min(1.0, max(0.0, opacity))
@@ -3288,6 +3289,7 @@ class GhosttyApp {
         }
     }
 
+    @MainActor
     private func applyAppColorChange(
         _ change: ghostty_action_color_change_s,
         source: String
@@ -3502,7 +3504,9 @@ class GhosttyApp {
             }
 
             if action.tag == GHOSTTY_ACTION_COLOR_CHANGE {
-                applyAppColorChange(action.action.color_change, source: "action.color_change.app")
+                performOnMain {
+                    applyAppColorChange(action.action.color_change, source: "action.color_change.app")
+                }
                 return true
             }
 
