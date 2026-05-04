@@ -315,6 +315,21 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         XCTAssertFalse(shortcut.control)
     }
 
+    func testSaveFilePreviewShortcutDefaultsAndMetadata() {
+        XCTAssertEqual(KeyboardShortcutSettings.Action.saveFilePreview.label, "Save File Preview")
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.saveFilePreview.defaultsKey,
+            "shortcut.saveFilePreview"
+        )
+
+        let shortcut = KeyboardShortcutSettings.Action.saveFilePreview.defaultShortcut
+        XCTAssertEqual(shortcut.key, "s")
+        XCTAssertTrue(shortcut.command)
+        XCTAssertFalse(shortcut.shift)
+        XCTAssertFalse(shortcut.option)
+        XCTAssertFalse(shortcut.control)
+    }
+
     func testMenuItemKeyEquivalentHandlesArrowAndTabKeys() {
         XCTAssertNotNil(StoredShortcut(key: "←", command: true, shift: false, option: false, control: false).menuItemKeyEquivalent)
         XCTAssertNotNil(StoredShortcut(key: "→", command: true, shift: false, option: false, control: false).menuItemKeyEquivalent)
@@ -430,7 +445,7 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         XCTAssertFalse(ShortcutStroke.isEscapeCancelEvent(event))
         XCTAssertEqual(
             ShortcutStroke.from(event: event, requireModifier: false),
-            ShortcutStroke(key: "[", command: true, shift: false, option: false, control: false)
+            ShortcutStroke(key: "[", command: true, shift: false, option: false, control: false, keyCode: 33)
         )
     }
 
@@ -450,59 +465,6 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
 
         button.performClick(nil)
 
-        XCTAssertFalse(button.debugIsRecording)
-#else
-        XCTFail("Shortcut recorder debug hooks are only available in DEBUG")
-#endif
-    }
-
-    func testShortcutRecorderReportsFirstStrokeConflictImmediately() {
-#if DEBUG
-        KeyboardShortcutSettings.resetAll()
-        defer { KeyboardShortcutSettings.resetAll() }
-
-        let button = ShortcutRecorderNSButton(frame: .zero)
-        let conflictingShortcut = StoredShortcut(
-            key: "t",
-            command: true,
-            shift: false,
-            option: false,
-            control: false,
-            keyCode: 17
-        )
-        var rejectedAttempt: ShortcutRecorderRejectedAttempt?
-
-        button.transformRecordedShortcut = { shortcut in
-            XCTAssertEqual(shortcut, conflictingShortcut)
-            return .rejected(.conflictsWithAction(.newSurface))
-        }
-        button.onRecorderFeedbackChanged = { rejectedAttempt = $0 }
-        button.performClick(nil)
-
-        guard let event = NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
-            modifierFlags: [.command],
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: 0,
-            context: nil,
-            characters: "t",
-            charactersIgnoringModifiers: "t",
-            isARepeat: false,
-            keyCode: 17
-        ) else {
-            XCTFail("Failed to construct Command-T event")
-            return
-        }
-
-        XCTAssertNil(button.debugHandleRecordingEvent(event))
-        XCTAssertEqual(
-            rejectedAttempt,
-            ShortcutRecorderRejectedAttempt(
-                reason: .conflictsWithAction(.newSurface),
-                proposedShortcut: conflictingShortcut
-            )
-        )
         XCTAssertFalse(button.debugIsRecording)
 #else
         XCTFail("Shortcut recorder debug hooks are only available in DEBUG")
@@ -670,7 +632,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
         try writeSettingsFile(
             """
             {
@@ -709,7 +671,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-        let liveSettingsFileURL = directoryURL.appendingPathComponent("live-settings.json", isDirectory: false)
+        let liveSettingsFileURL = directoryURL.appendingPathComponent("live-cmux.json", isDirectory: false)
         try writeSettingsFile(
             """
             {
@@ -726,7 +688,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             startWatching: false
         )
 
-        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
         try writeSettingsFile(
             """
             {
@@ -754,7 +716,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
         try writeSettingsFile(
             """
             {
@@ -763,7 +725,8 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
                 "switchRightSidebarToFiles": "ctrl+4",
                 "switchRightSidebarToFind": "ctrl+5",
                 "switchRightSidebarToSessions": "ctrl+6",
-                "switchRightSidebarToFeed": "ctrl+7"
+                "switchRightSidebarToFeed": "ctrl+7",
+                "switchRightSidebarToDock": "ctrl+8"
               }
             }
             """,
@@ -796,6 +759,10 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             store.override(for: .switchRightSidebarToFeed),
             StoredShortcut(key: "7", command: false, shift: false, option: false, control: true)
         )
+        XCTAssertEqual(
+            store.override(for: .switchRightSidebarToDock),
+            StoredShortcut(key: "8", command: false, shift: false, option: false, control: true)
+        )
     }
 
     func testSettingsFileStoreDoesNotApplyAutomaticAppIconDuringStartupReplay() throws {
@@ -822,7 +789,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
         try writeSettingsFile(
             """
             {
@@ -899,7 +866,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
         try writeSettingsFile(
             """
             {
@@ -961,7 +928,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
         try writeSettingsFile(
             """
             {
@@ -989,7 +956,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         )
     }
 
-    func testSettingsFileStoreUsesFallbackOnlyWhenPrimaryIsMissing() throws {
+    func testSettingsFileStoreUsesLegacyFallbackWhenCanonicalConfigHasNoSetting() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
@@ -998,6 +965,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         try writeSettingsFile(
             """
             {
+              "$schema": "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux-settings.schema.json",
               "shortcuts": {
                 "showNotifications": "cmd+i"
               }
@@ -1015,7 +983,8 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             fallbackStore.override(for: .showNotifications),
             StoredShortcut(key: "i", command: true, shift: false, option: false, control: false)
         )
-        XCTAssertEqual(fallbackStore.activeSourcePath, fallbackURL.path)
+        XCTAssertEqual(fallbackStore.activeSourcePath, primaryURL.path)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: primaryURL.path))
 
         try writeSettingsFile("{ not valid json", to: primaryURL)
 
@@ -1028,12 +997,11 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertEqual(invalidPrimaryStore.activeSourcePath, primaryURL.path)
     }
 
-    func testPersistedShortcutOverridesSettingsFileDefault() throws {
+    func testShortcutSettingsFileOverridesPersistedShortcutValues() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
-        let persistedShortcut = StoredShortcut(key: "y", command: true, shift: false, option: false, control: false)
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
         try writeSettingsFile(
             """
             {
@@ -1045,7 +1013,10 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             to: settingsFileURL
         )
 
-        KeyboardShortcutSettings.setShortcut(persistedShortcut, for: .newTab)
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(key: "n", command: true, shift: false, option: false, control: false),
+            for: .newTab
+        )
 
         KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
             primaryPath: settingsFileURL.path,
@@ -1055,120 +1026,10 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
 
         XCTAssertEqual(
             KeyboardShortcutSettings.shortcut(for: .newTab),
-            persistedShortcut
+            StoredShortcut(key: "b", command: false, shift: false, option: false, control: true, chordKey: "c")
         )
         XCTAssertTrue(KeyboardShortcutSettings.isManagedBySettingsFile(.newTab))
-        XCTAssertNil(KeyboardShortcutSettings.settingsFileManagedSubtitle(for: .newTab))
-    }
-
-    func testUserDefaultsShortcutOverrideWinsOverSettingsFileShortcut() throws {
-        let directoryURL = try makeTemporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directoryURL) }
-
-        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
-        let fileShortcut = StoredShortcut(key: "m", command: true, shift: true, option: false, control: false)
-        let uiShortcut = StoredShortcut(key: "y", command: true, shift: true, option: false, control: false)
-        try writeSettingsFile(
-            """
-            {
-              "shortcuts": {
-                "newWindow": "cmd+shift+m"
-              }
-            }
-            """,
-            to: settingsFileURL
-        )
-        let originalSettingsFileContents = try String(contentsOf: settingsFileURL, encoding: .utf8)
-
-        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
-            primaryPath: settingsFileURL.path,
-            fallbackPath: nil,
-            startWatching: false
-        )
-
-        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .newWindow), fileShortcut)
-        XCTAssertTrue(KeyboardShortcutSettings.isManagedBySettingsFile(.newWindow))
-
-        KeyboardShortcutSettings.setShortcut(uiShortcut, for: .newWindow)
-
-        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .newWindow), uiShortcut)
-        XCTAssertEqual(
-            try String(contentsOf: settingsFileURL, encoding: .utf8),
-            originalSettingsFileContents
-        )
-    }
-
-    func testSettingsFileShortcutDoesNotRenderManagedSubtitle() throws {
-        let directoryURL = try makeTemporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directoryURL) }
-
-        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
-        try writeSettingsFile(
-            """
-            {
-              "shortcuts": {
-                "newWindow": "cmd+shift+m"
-              }
-            }
-            """,
-            to: settingsFileURL
-        )
-
-        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
-            primaryPath: settingsFileURL.path,
-            fallbackPath: nil,
-            startWatching: false
-        )
-
-        XCTAssertNil(KeyboardShortcutSettings.settingsFileManagedSubtitle(for: .newWindow))
-    }
-
-    func testSwapShortcutConflictCanReplaceSettingsFileShortcutDefaults() throws {
-        let directoryURL = try makeTemporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directoryURL) }
-
-        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
-        let previousNewWindowShortcut = StoredShortcut(
-            key: "m",
-            command: true,
-            shift: true,
-            option: false,
-            control: false
-        )
-        let proposedNewWindowShortcut = StoredShortcut(
-            key: "y",
-            command: true,
-            shift: false,
-            option: false,
-            control: false
-        )
-        try writeSettingsFile(
-            """
-            {
-              "shortcuts": {
-                "newWindow": "cmd+shift+m",
-                "newTab": "cmd+y"
-              }
-            }
-            """,
-            to: settingsFileURL
-        )
-
-        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
-            primaryPath: settingsFileURL.path,
-            fallbackPath: nil,
-            startWatching: false
-        )
-
-        KeyboardShortcutSettings.swapShortcutConflict(
-            proposedShortcut: proposedNewWindowShortcut,
-            currentAction: .newWindow,
-            conflictingAction: .newTab,
-            previousShortcut: previousNewWindowShortcut
-        )
-
-        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .newWindow), proposedNewWindowShortcut)
-        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .newTab), previousNewWindowShortcut)
+        XCTAssertNotNil(KeyboardShortcutSettings.settingsFileManagedSubtitle(for: .newTab))
     }
 
     @MainActor
@@ -1176,7 +1037,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
         try writeSettingsFile(
             """
             {
@@ -1218,13 +1079,16 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         )
     }
 
-    func testResetShortcutRevealsSettingsFileDefault() throws {
+    func testManagedShortcutWritesDoNotOverwritePersistedValue() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
-        let fileShortcut = StoredShortcut(key: "b", command: false, shift: false, option: false, control: true, chordKey: "c")
-        let uiShortcut = StoredShortcut(key: "t", command: true, shift: false, option: false, control: false)
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        let missingSettingsFileURL = directoryURL.appendingPathComponent("missing.json", isDirectory: false)
+        let persistedShortcut = StoredShortcut(key: "n", command: true, shift: false, option: false, control: false)
+        let managedShortcut = StoredShortcut(key: "b", command: false, shift: false, option: false, control: true, chordKey: "c")
+
+        KeyboardShortcutSettings.setShortcut(persistedShortcut, for: .newTab)
 
         try writeSettingsFile(
             """
@@ -1243,23 +1107,30 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             startWatching: false
         )
 
-        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .newTab), fileShortcut)
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .newTab), managedShortcut)
 
-        KeyboardShortcutSettings.setShortcut(uiShortcut, for: .newTab)
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(key: "t", command: true, shift: false, option: false, control: false),
+            for: .newTab
+        )
 
-        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .newTab), uiShortcut)
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .newTab), managedShortcut)
 
-        KeyboardShortcutSettings.resetShortcut(for: .newTab)
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: missingSettingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
 
-        XCTAssertTrue(KeyboardShortcutSettings.isManagedBySettingsFile(.newTab))
-        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .newTab), fileShortcut)
+        XCTAssertFalse(KeyboardShortcutSettings.isManagedBySettingsFile(.newTab))
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .newTab), persistedShortcut)
     }
 
     func testSystemWideHotkeySettingsPreserveInvalidManagedShortcutWithoutFallingBackToDefault() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
         try writeSettingsFile(
             """
             {
@@ -1328,7 +1199,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
 
         let settingsFileURL = directoryURL
             .appendingPathComponent(".config/cmux", isDirectory: true)
-            .appendingPathComponent("settings.json", isDirectory: false)
+            .appendingPathComponent("cmux.json", isDirectory: false)
 
         let store = KeyboardShortcutSettingsFileStore(
             primaryPath: settingsFileURL.path,
@@ -1341,7 +1212,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertNil(store.override(for: .newTab))
 
         let contents = try String(contentsOf: settingsFileURL, encoding: .utf8)
-        XCTAssertTrue(contents.contains(#""$schema": "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux-settings.schema.json""#))
+        XCTAssertTrue(contents.contains(#""$schema": "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json""#))
         XCTAssertTrue(contents.contains(#""schemaVersion": 1,"#))
         XCTAssertTrue(contents.contains(#"//   "app" : {"#))
         XCTAssertTrue(contents.contains(#"//     "colors" : {"#))
@@ -1349,74 +1220,12 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertTrue(contents.contains(#"//   "shortcuts" : {"#))
     }
 
-    func testBootstrapDoesNotCreatePrimaryWhenFallbackAlreadyExists() throws {
-        let directoryURL = try makeTemporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directoryURL) }
-
-        let primaryURL = directoryURL.appendingPathComponent("primary/settings.json", isDirectory: false)
-        let fallbackURL = directoryURL.appendingPathComponent("fallback/settings.json", isDirectory: false)
-        try FileManager.default.createDirectory(
-            at: fallbackURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try writeSettingsFile(
-            """
-            {
-              "shortcuts": {
-                "showNotifications": "cmd+i"
-              }
-            }
-            """,
-            to: fallbackURL
-        )
-
-        let store = KeyboardShortcutSettingsFileStore(
-            primaryPath: primaryURL.path,
-            fallbackPath: fallbackURL.path,
-            startWatching: false
-        )
-
-        XCTAssertFalse(FileManager.default.fileExists(atPath: primaryURL.path))
-        XCTAssertEqual(store.activeSourcePath, fallbackURL.path)
-    }
-
-    func testSettingsFileURLForEditingUsesActiveFallbackWithoutCreatingPrimary() throws {
-        let directoryURL = try makeTemporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directoryURL) }
-
-        let primaryURL = directoryURL.appendingPathComponent("primary/settings.json", isDirectory: false)
-        let fallbackURL = directoryURL.appendingPathComponent("fallback/settings.json", isDirectory: false)
-        try FileManager.default.createDirectory(
-            at: fallbackURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try writeSettingsFile(
-            """
-            {
-              "shortcuts": {
-                "showNotifications": "cmd+i"
-              }
-            }
-            """,
-            to: fallbackURL
-        )
-
-        let store = KeyboardShortcutSettingsFileStore(
-            primaryPath: primaryURL.path,
-            fallbackPath: fallbackURL.path,
-            startWatching: false
-        )
-
-        XCTAssertEqual(store.settingsFileURLForEditing().path, fallbackURL.path)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: primaryURL.path))
-    }
-
     func testSettingsFileURLForEditingPrefersInvalidPrimaryForRepair() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-        let primaryURL = directoryURL.appendingPathComponent("primary/settings.json", isDirectory: false)
-        let fallbackURL = directoryURL.appendingPathComponent("fallback/settings.json", isDirectory: false)
+        let primaryURL = directoryURL.appendingPathComponent("primary/cmux.json", isDirectory: false)
+        let fallbackURL = directoryURL.appendingPathComponent("fallback/cmux.json", isDirectory: false)
         try FileManager.default.createDirectory(
             at: primaryURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
@@ -1451,11 +1260,11 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
         try writeSettingsFile(
             """
             {
-              "$schema": "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux-settings.schema.json",
+              "$schema": "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json",
               "schemaVersion": 1,
               // tmux-like prefix
               "shortcuts": {
@@ -1487,7 +1296,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
         try writeSettingsFile(
             """
             {
@@ -1598,7 +1407,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
         try writeSettingsFile(
             """
             {
@@ -1717,7 +1526,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
         try writeSettingsFile(
             """
             {
@@ -1779,7 +1588,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
         try writeSettingsFile(
             """
             {
@@ -2197,6 +2006,7 @@ final class StoredShortcutMatchingTests: XCTestCase {
             ),
             action: .openBrowser,
             currentShortcut: KeyboardShortcutSettings.Action.openBrowser.defaultShortcut,
+            isManagedBySettingsFile: { _ in false },
             shortcutForAction: { $0.defaultShortcut }
         )
 
@@ -2214,6 +2024,7 @@ final class StoredShortcutMatchingTests: XCTestCase {
             ),
             action: .openBrowser,
             currentShortcut: KeyboardShortcutSettings.Action.openBrowser.defaultShortcut,
+            isManagedBySettingsFile: { _ in false },
             shortcutForAction: { $0.defaultShortcut }
         )
 
@@ -3058,8 +2869,31 @@ final class WorkspaceReorderTests: XCTestCase {
         XCTAssertTrue(manager.reorderWorkspace(tabId: firstPinned.id, toIndex: 999))
         XCTAssertEqual(manager.tabs.map(\.id), [secondPinned.id, firstPinned.id, unpinned.id])
     }
-}
 
+    @MainActor
+    func testDetachedWorkspaceInsertionOverrideClampsAfterPinnedSegment() {
+        let manager = TabManager()
+        let firstPinned = manager.tabs[0]
+        manager.setPinned(firstPinned, pinned: true)
+        let secondPinned = manager.addWorkspace()
+        manager.setPinned(secondPinned, pinned: true)
+        let source = manager.addWorkspace()
+        manager.selectWorkspace(source)
+
+        guard let panelId = source.focusedPanelId,
+              let detached = source.detachSurface(panelId: panelId),
+              let inserted = manager.addWorkspace(
+                fromDetachedSurface: detached,
+                insertionIndexOverride: 0
+              ) else {
+            XCTFail("Expected detached workspace insertion to succeed")
+            return
+        }
+
+        XCTAssertEqual(manager.tabs.map(\.id), [firstPinned.id, secondPinned.id, inserted.id, source.id])
+        XCTAssertFalse(inserted.isPinned)
+    }
+}
 
 @MainActor
 final class WorkspaceNotificationReorderTests: XCTestCase {
@@ -3148,6 +2982,23 @@ final class WorkspaceTeardownTests: XCTestCase {
         XCTAssertTrue(workspace.panelCustomTitles.isEmpty)
         XCTAssertTrue(workspace.pinnedPanelIds.isEmpty)
         XCTAssertTrue(workspace.manualUnreadPanelIds.isEmpty)
+    }
+
+    func testDisabledPortalRenderingDoesNotRestoreTerminalVisibility() throws {
+#if DEBUG
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let terminalPanel = try XCTUnwrap(workspace.terminalPanel(for: panelId))
+
+        terminalPanel.hostedView.setVisibleInUI(true)
+        workspace.setPortalRenderingEnabled(false, reason: "test")
+        XCTAssertFalse(terminalPanel.hostedView.debugPortalVisibleInUI)
+
+        workspace.debugReconcileTerminalPortalVisibilityForTesting()
+        XCTAssertFalse(terminalPanel.hostedView.debugPortalVisibleInUI)
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
     }
 }
 

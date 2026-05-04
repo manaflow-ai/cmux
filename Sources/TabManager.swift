@@ -898,7 +898,7 @@ class TabManager: ObservableObject {
 
     /// Global monotonically increasing counter for CMUX_PORT ordinal assignment.
     /// Static so port ranges don't overlap across multiple windows (each window has its own TabManager).
-    private static var nextPortOrdinal: Int = 0
+    static var nextPortOrdinal: Int = 0
     private nonisolated static let initialWorkspaceGitProbeDelays: [TimeInterval] = [0, 0.5, 1.5, 3.0, 6.0, 10.0]
     private nonisolated static let backgroundPollInterval: TimeInterval = 60
     private nonisolated static let selectedPollInterval: TimeInterval = 10
@@ -1021,24 +1021,6 @@ class TabManager: ObservableObject {
     private var currentWindowTabBarLeadingInset: CGFloat?
     private var closeConfirmationInFlight = false
     var confirmCloseHandler: ((String, String, Bool) -> Bool)?
-    private struct WorkspaceCreationTabSnapshot {
-        let id: UUID
-        let isPinned: Bool
-
-        @MainActor
-        init(workspace: Workspace) {
-            self.id = workspace.id
-            self.isPinned = workspace.isPinned
-        }
-    }
-
-    private struct WorkspaceCreationSnapshot {
-        let tabs: [WorkspaceCreationTabSnapshot]
-        let selectedTabId: UUID?
-        let selectedTabWasPinned: Bool
-        let preferredWorkingDirectory: String?
-        let inheritedTerminalFontPoints: Float?
-    }
     private var agentPIDSweepTimer: DispatchSourceTimer?
     private var workspaceGitMetadataPollTimer: DispatchSourceTimer?
     private var selectedWorkspaceGitMetadataPollTimer: DispatchSourceTimer?
@@ -1878,7 +1860,7 @@ class TabManager: ObservableObject {
         )
     }
 
-    private func wireClosedBrowserTracking(for workspace: Workspace) {
+    func wireClosedBrowserTracking(for workspace: Workspace) {
         workspace.onClosedBrowserPanel = { [weak self] snapshot in
             self?.recentlyClosedBrowsers.push(snapshot)
         }
@@ -1918,18 +1900,16 @@ class TabManager: ObservableObject {
 
     func startSearch() {
         if let panel = selectedTerminalPanel {
-            if panel.searchState == nil {
-                panel.searchState = TerminalSurface.SearchState()
-            }
-            NSLog("Find: startSearch workspace=%@ panel=%@", panel.workspaceId.uuidString, panel.id.uuidString)
-            NotificationCenter.default.post(name: .ghosttySearchFocus, object: panel.surface)
-            _ = panel.performBindingAction("start_search")
-            return
-        }
-        if let panel = selectedTerminalPanel {
             let hadExistingSearch = panel.searchState != nil
-            let handled = startOrFocusTerminalSearch(panel.surface)
-            NSLog("Find: startSearch workspace=%@ panel=%@", panel.workspaceId.uuidString, panel.id.uuidString)
+            panel.hostedView.preparePanelFocusIntentForActivation(.findField)
+            let recoveredNeedle = hadExistingSearch ? "" : panel.surface.lastSearchNeedle
+            let handled = startOrFocusTerminalSearch(panel.surface, initialNeedle: recoveredNeedle) { surface in
+                NotificationCenter.default.post(
+                    name: .ghosttySearchFocus,
+                    object: surface,
+                    userInfo: [FindFocusNotificationKey.selectAll: !hadExistingSearch && !recoveredNeedle.isEmpty]
+                )
+            }
 #if DEBUG
             cmuxDebugLog(
                 "find.startSearch workspace=\(panel.workspaceId.uuidString.prefix(5)) " +
@@ -1940,7 +1920,6 @@ class TabManager: ObservableObject {
 #endif
             return
         }
-
         focusedBrowserPanel?.startFind()
     }
 
@@ -2007,7 +1986,7 @@ class TabManager: ObservableObject {
         )
     }
 
-    private func applyCreationChromeInheritance(
+    func applyCreationChromeInheritance(
         to newWorkspace: Workspace,
         from sourceWorkspace: Workspace?
     ) {
@@ -2038,7 +2017,7 @@ class TabManager: ObservableObject {
     func didCaptureWorkspaceCreationSnapshot() {}
 
 #if DEBUG
-    private func maybeMutateSelectionDuringWorkspaceCreationForDev(
+    func maybeMutateSelectionDuringWorkspaceCreationForDev(
         snapshot: WorkspaceCreationSnapshot
     ) {
         let env = ProcessInfo.processInfo.environment
@@ -3588,7 +3567,7 @@ class TabManager: ObservableObject {
     /// for obtaining `preferredWorkingDirectory` and `inheritedTerminalFontPoints` through
     /// `self` (where `self.tabs` keeps all Workspace objects alive) so that no local
     /// Workspace references are needed here.
-    private func workspaceCreationSnapshotLite(
+    func workspaceCreationSnapshotLite(
         currentTabs: [Workspace],
         currentSelectedTabId: UUID?,
         preferredWorkingDirectory: String?,
@@ -3715,13 +3694,13 @@ class TabManager: ObservableObject {
         inheritedTerminalFontPointsForNewWorkspace(workspace: selectedWorkspace)
     }
 
-    private func inheritedTerminalFontPointsForNewWorkspace(
+    func inheritedTerminalFontPointsForNewWorkspace(
         workspace: Workspace?
     ) -> Float? {
         cachedInheritedTerminalFontPointsForNewWorkspace(workspace: workspace)
     }
 
-    private func workspaceCreationConfigTemplate(
+    func workspaceCreationConfigTemplate(
         inheritedTerminalFontPoints: Float?
     ) -> CmuxSurfaceConfigTemplate? {
         guard let inheritedTerminalFontPoints, inheritedTerminalFontPoints > 0 else {
@@ -3734,7 +3713,7 @@ class TabManager: ObservableObject {
         return config
     }
 
-    private func normalizedWorkingDirectory(_ directory: String?) -> String? {
+    func normalizedWorkingDirectory(_ directory: String?) -> String? {
         guard let directory else { return nil }
         let normalized = normalizeDirectory(directory)
         let trimmed = normalized.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -3745,7 +3724,7 @@ class TabManager: ObservableObject {
         newTabInsertIndex(snapshot: workspaceCreationSnapshot(), placementOverride: placementOverride)
     }
 
-    private func newTabInsertIndex(
+    func newTabInsertIndex(
         snapshot: WorkspaceCreationSnapshot,
         placementOverride: NewWorkspacePlacement? = nil
     ) -> Int {
@@ -3781,7 +3760,7 @@ class TabManager: ObservableObject {
         preferredWorkingDirectoryForNewTab(workspace: selectedWorkspace)
     }
 
-    private func preferredWorkingDirectoryForNewTab(
+    func preferredWorkingDirectoryForNewTab(
         workspace: Workspace?
     ) -> String? {
         guard let workspace else {
@@ -3881,6 +3860,17 @@ class TabManager: ObservableObject {
     func setTabColor(tabId: UUID, color: String?) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         tab.setCustomColor(color)
+    }
+
+    func applyWorkspaceColor(_ color: String?, toWorkspaceIds workspaceIds: [UUID]) {
+        for workspaceId in workspaceIds {
+            setTabColor(tabId: workspaceId, color: color)
+        }
+    }
+
+    func applyWorkspacePaletteColor(named name: String, toWorkspaceIds workspaceIds: [UUID]) {
+        guard let color = WorkspaceTabColorSettings.currentColorHex(named: name) else { return }
+        applyWorkspaceColor(color, toWorkspaceIds: workspaceIds)
     }
 
     func setWorkspaceTerminalScrollBarHidden(tabId: UUID, hidden: Bool) {
@@ -5049,7 +5039,12 @@ class TabManager: ObservableObject {
         return trimmedDirectory.isEmpty ? "cmux" : trimmedDirectory
     }
 
-    func focusTab(_ tabId: UUID, surfaceId: UUID? = nil, suppressFlash: Bool = false) {
+    func focusTab(
+        _ tabId: UUID,
+        surfaceId: UUID? = nil,
+        suppressFlash: Bool = false,
+        focusIntent: PanelFocusIntent? = nil
+    ) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         if let surfaceId, tab.panels[surfaceId] != nil {
             // Keep selected-surface intent stable across selectedTabId didSet async restore.
@@ -5082,7 +5077,7 @@ class TabManager: ObservableObject {
             if !suppressFlash {
                 focusSurface(tabId: tabId, surfaceId: surfaceId)
             } else {
-                tab.focusPanel(surfaceId)
+                tab.focusPanel(surfaceId, focusIntent: focusIntent)
             }
         }
     }
@@ -5220,7 +5215,7 @@ class TabManager: ObservableObject {
         return (debugWorkspaceSwitchId, debugWorkspaceSwitchStartTime)
     }
 
-    private func debugPrimeWorkspaceSwitchTrigger(_ trigger: String, to target: UUID?) {
+    func debugPrimeWorkspaceSwitchTrigger(_ trigger: String, to target: UUID?) {
         guard selectedTabId != target else {
             debugPendingWorkspaceSwitchTrigger = nil
             debugPendingWorkspaceSwitchTarget = nil
@@ -5513,21 +5508,6 @@ class TabManager: ObservableObject {
         return tab.bonsplitController.setDividerPosition(clamped, forSplit: candidate.splitId, fromExternal: true)
     }
 
-    /// Equalize splits - not directly supported by bonsplit
-    func equalizeSplits(tabId: UUID) -> Bool {
-        guard let tab = tabs.first(where: { $0.id == tabId }) else { return false }
-
-        var foundSplit = false
-        var allSucceeded = true
-        equalizeSplits(
-            in: tab.bonsplitController.treeSnapshot(),
-            controller: tab.bonsplitController,
-            foundSplit: &foundSplit,
-            allSucceeded: &allSucceeded
-        )
-        return foundSplit && allSucceeded
-    }
-
     /// Toggle zoom on a panel.
     func toggleSplitZoom(tabId: UUID, surfaceId: UUID) -> Bool {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return false }
@@ -5540,41 +5520,6 @@ class TabManager: ObservableObject {
         guard let tab = selectedWorkspace,
               let focusedPanelId = tab.focusedPanelId else { return false }
         return tab.toggleSplitZoom(panelId: focusedPanelId)
-    }
-
-    private func equalizeSplits(
-        in node: ExternalTreeNode,
-        controller: BonsplitController,
-        foundSplit: inout Bool,
-        allSucceeded: inout Bool
-    ) {
-        switch node {
-        case .pane:
-            return
-        case .split(let splitNode):
-            foundSplit = true
-            guard let splitId = UUID(uuidString: splitNode.id) else {
-                allSucceeded = false
-                return
-            }
-
-            if !controller.setDividerPosition(0.5, forSplit: splitId) {
-                allSucceeded = false
-            }
-
-            equalizeSplits(
-                in: splitNode.first,
-                controller: controller,
-                foundSplit: &foundSplit,
-                allSucceeded: &allSucceeded
-            )
-            equalizeSplits(
-                in: splitNode.second,
-                controller: controller,
-                foundSplit: &foundSplit,
-                allSucceeded: &allSucceeded
-            )
-        }
     }
 
     private struct ResizeSplitCandidate {
@@ -5651,8 +5596,6 @@ class TabManager: ObservableObject {
         return true
     }
 
-    // MARK: - Browser Panel Operations
-
     /// Create a new browser panel in a split
     func newBrowserSplit(
         tabId: UUID,
@@ -5663,6 +5606,7 @@ class TabManager: ObservableObject {
         preferredProfileID: UUID? = nil,
         focus: Bool = true
     ) -> UUID? {
+        guard BrowserAvailabilitySettings.isEnabled() else { return nil }
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
         return tab.newBrowserSplit(
             from: fromPanelId,
@@ -5681,6 +5625,7 @@ class TabManager: ObservableObject {
         url: URL? = nil,
         preferredProfileID: UUID? = nil
     ) -> UUID? {
+        guard BrowserAvailabilitySettings.isEnabled() else { return nil }
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
         return tab.newBrowserSurface(
             inPane: paneId,
@@ -5704,6 +5649,7 @@ class TabManager: ObservableObject {
         preferredProfileID: UUID? = nil,
         insertAtEnd: Bool = false
     ) -> UUID? {
+        guard BrowserAvailabilitySettings.isEnabled() else { return nil }
         guard let workspace = tabs.first(where: { $0.id == tabId }) else { return nil }
         if selectedTabId != tabId {
             selectedTabId = tabId
@@ -5785,6 +5731,8 @@ class TabManager: ObservableObject {
     /// No-op when no browser panel restore snapshot is available.
     @discardableResult
     func reopenMostRecentlyClosedBrowserPanel() -> Bool {
+        guard BrowserAvailabilitySettings.isEnabled() else { return false }
+
         while let snapshot = recentlyClosedBrowsers.pop() {
             guard let targetWorkspace =
                 tabs.first(where: { $0.id == snapshot.workspaceId })

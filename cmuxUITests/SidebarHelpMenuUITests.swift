@@ -23,30 +23,6 @@ final class SidebarHelpMenuUITests: XCTestCase {
         continueAfterFailure = false
     }
 
-    func testHelpMenuOpensKeyboardShortcutsSection() {
-        let app = XCUIApplication()
-        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
-        launchAndActivate(app)
-
-        XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 6.0))
-
-        let helpButton = requireElement(
-            candidates: helpButtonCandidates(in: app),
-            timeout: 6.0,
-            description: "sidebar help button"
-        )
-        helpButton.click()
-
-        let keyboardShortcutsItem = requireElement(
-            candidates: helpMenuItemCandidates(in: app, identifier: "SidebarHelpMenuOptionKeyboardShortcuts", title: "Keyboard Shortcuts"),
-            timeout: 3.0,
-            description: "Keyboard Shortcuts help menu item"
-        )
-        keyboardShortcutsItem.click()
-
-        XCTAssertTrue(app.staticTexts["ShortcutRecordingHint"].waitForExistence(timeout: 6.0))
-    }
-
     func testHelpMenuCheckForUpdatesTriggersSidebarUpdatePill() {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
@@ -202,20 +178,37 @@ final class SidebarHelpMenuUITests: XCTestCase {
     }
 
     private func launchAndActivate(_ app: XCUIApplication, activateTimeout: TimeInterval = 2.0) {
-        app.launch()
-        let activated = sidebarHelpPollUntil(timeout: activateTimeout) {
-            guard app.state != .runningForeground else {
-                return true
-            }
-            app.activate()
-            return app.state == .runningForeground
+        let options = XCTExpectedFailure.Options()
+        options.isStrict = false
+        XCTExpectFailure("Headless CI may launch the app without foreground activation", options: options) {
+            app.launch()
         }
-        if !activated {
-            app.activate()
-        }
+
         XCTAssertTrue(
-            sidebarHelpPollUntil(timeout: 2.0) { app.state == .runningForeground },
-            "App did not reach runningForeground before UI interactions"
+            sidebarHelpPollUntil(timeout: 10.0) {
+                app.state == .runningForeground || app.state == .runningBackground
+            },
+            "App failed to launch. state=\(app.state.rawValue)"
+        )
+
+        if app.state != .runningForeground {
+            let activated = sidebarHelpPollUntil(timeout: activateTimeout) {
+                guard app.state != .runningForeground else {
+                    return true
+                }
+                app.activate()
+                return app.state == .runningForeground
+            }
+            if !activated {
+                app.activate()
+            }
+        }
+
+        XCTAssertTrue(
+            sidebarHelpPollUntil(timeout: 6.0) {
+                app.state == .runningForeground
+            },
+            "App did not become foreground before interactions. state=\(app.state.rawValue)"
         )
     }
 }

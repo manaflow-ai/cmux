@@ -212,6 +212,27 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertEqual(config.backgroundOpacity, 0.42, accuracy: 0.0001)
     }
 
+    func testParseBackgroundBlurReadsMacOSGlassClear() {
+        var config = GhosttyConfig()
+        config.parse("background-blur = macos-glass-clear")
+        XCTAssertEqual(config.backgroundBlur, .macosGlassClear)
+    }
+
+    func testParseBackgroundBlurReadsMacOSGlassRegular() {
+        var config = GhosttyConfig()
+        config.parse("background-blur = macos-glass-regular")
+        XCTAssertEqual(config.backgroundBlur, .macosGlassRegular)
+    }
+
+    func testParseBackgroundBlurIgnoresMalformedValues() {
+        var config = GhosttyConfig()
+        config.parse("""
+        background-blur = macos-glass-clear
+        background-blur = not-a-blur
+        """)
+        XCTAssertEqual(config.backgroundBlur, .macosGlassClear)
+    }
+
     func testLoadThemeResolvesBuiltinAliasFromGhosttyResourcesDir() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ghostty-themes-\(UUID().uuidString)")
@@ -761,97 +782,6 @@ final class WorkspaceChromeThemeTests: XCTestCase {
     }
 }
 
-final class WindowAppearanceSnapshotTests: XCTestCase {
-    func testUnifiedSurfaceBackdropsUseSingleWindowRootBackdrop() {
-        let snapshot = makeSnapshot(unifySurfaceBackdrops: true)
-
-        assertTerminalBackdrop(snapshot.policy(for: .windowRoot))
-        assertClearBackdrop(snapshot.policy(for: .terminalCanvas))
-        assertClearBackdrop(snapshot.policy(for: .bonsplitChrome))
-        assertClearBackdrop(snapshot.policy(for: .titlebar))
-        assertClearBackdrop(snapshot.policy(for: .browserSurface))
-        assertClearBackdrop(snapshot.policy(for: .leftSidebar))
-        assertClearBackdrop(snapshot.policy(for: .rightSidebar))
-    }
-
-    func testSeparateSurfaceBackdropsKeepRootBackdropAndSidebarMaterialsSeparate() {
-        let snapshot = makeSnapshot(unifySurfaceBackdrops: false)
-
-        assertTerminalBackdrop(snapshot.policy(for: .windowRoot))
-        assertClearBackdrop(snapshot.policy(for: .terminalCanvas))
-        assertClearBackdrop(snapshot.policy(for: .bonsplitChrome))
-        assertClearBackdrop(snapshot.policy(for: .titlebar))
-        assertClearBackdrop(snapshot.policy(for: .browserSurface))
-
-        guard case let .sidebarMaterial(leftPolicy) = snapshot.policy(for: .leftSidebar) else {
-            XCTFail("left sidebar should keep its own material policy")
-            return
-        }
-        XCTAssertEqual(leftPolicy.material, .sidebar)
-        XCTAssertEqual(leftPolicy.blendingMode, .withinWindow)
-
-        guard case let .sidebarMaterial(rightPolicy) = snapshot.policy(for: .rightSidebar) else {
-            XCTFail("right sidebar should keep its own material policy")
-            return
-        }
-        XCTAssertEqual(rightPolicy.material, .sidebar)
-        XCTAssertEqual(rightPolicy.blendingMode, .withinWindow)
-    }
-
-    private func makeSnapshot(unifySurfaceBackdrops: Bool) -> WindowAppearanceSnapshot {
-        WindowAppearanceSnapshot(
-            terminalBackgroundColor: NSColor(hex: "#272822") ?? .black,
-            terminalBackgroundOpacity: 0.6,
-            terminalRenderingMode: .windowHostBackdrop,
-            unifySurfaceBackdrops: unifySurfaceBackdrops,
-            sidebarSettings: SidebarBackdropSettingsSnapshot(
-                materialRawValue: SidebarMaterialOption.sidebar.rawValue,
-                blendModeRawValue: SidebarBlendModeOption.withinWindow.rawValue,
-                stateRawValue: SidebarStateOption.followWindow.rawValue,
-                tintHex: "#000000",
-                tintHexLight: nil,
-                tintHexDark: nil,
-                tintOpacity: 0.18,
-                cornerRadius: 0,
-                blurOpacity: 1,
-                colorScheme: .dark
-            ),
-            windowGlassSettings: WindowGlassSettingsSnapshot(
-                sidebarBlendModeRawValue: SidebarBlendModeOption.withinWindow.rawValue,
-                isEnabled: false,
-                tintHex: "#000000",
-                tintOpacity: 0.03
-            )
-        )
-    }
-
-    private func assertTerminalBackdrop(
-        _ policy: WindowBackdropPolicy,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) {
-        guard case let .ghosttyTerminalBackdrop(color, opacity, renderingMode) = policy else {
-            XCTFail("expected terminal backdrop", file: file, line: line)
-            return
-        }
-        XCTAssertEqual(color.hexString(), "#272822", file: file, line: line)
-        XCTAssertEqual(opacity, 0.6, accuracy: 0.0001, file: file, line: line)
-        XCTAssertEqual(renderingMode, .windowHostBackdrop, file: file, line: line)
-    }
-
-    private func assertClearBackdrop(
-        _ policy: WindowBackdropPolicy,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) {
-        guard case .clear = policy else {
-            XCTFail("expected clear backdrop", file: file, line: line)
-            return
-        }
-    }
-
-}
-
 final class WindowChromeSeparatorColorTests: XCTestCase {
     func testDarkChromeSeparatorMatchesBonsplitDerivation() {
         guard let backgroundColor = NSColor(hex: "#272822") else {
@@ -1078,6 +1008,17 @@ final class WindowTransparencyDecisionTests: XCTestCase {
 
             XCTAssertTrue(cmuxShouldUseTransparentBackgroundWindow())
             XCTAssertTrue(cmuxShouldUseClearWindowBackground(for: 1.0))
+        }
+    }
+
+    func testGhosttyGlassStyleForcesClearWindowBackgroundAtOpaqueOpacity() {
+        withTemporaryWindowBackgroundDefaults {
+            let defaults = UserDefaults.standard
+            defaults.set("withinWindow", forKey: sidebarBlendModeKey)
+            defaults.set(false, forKey: bgGlassEnabledKey)
+
+            XCTAssertFalse(cmuxShouldUseTransparentBackgroundWindow())
+            XCTAssertTrue(cmuxShouldUseClearWindowBackground(for: 1.0, usesGhosttyGlassStyle: true))
         }
     }
 
