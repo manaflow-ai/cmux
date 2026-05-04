@@ -906,11 +906,11 @@ enum AgentHookIntegrationSettings {
         guard !currentStatus.isActive else {
             return
         }
-        guard shouldShowPrompt(for: agent) else {
+        guard shouldShowPrompt(for: agent, status: currentStatus) else {
             return
         }
 
-        markPromptShown(for: agent)
+        markPromptShown(for: agent, status: currentStatus)
         TerminalNotificationStore.shared.addNotification(
             tabId: tabId,
             surfaceId: surfaceId,
@@ -969,19 +969,28 @@ enum AgentHookIntegrationSettings {
         return (directory as NSString).appendingPathComponent(configFile)
     }
 
-    private static func shouldShowPrompt(for agent: AgentHookIntegration, defaults: UserDefaults = .standard) -> Bool {
-        let key = lastPromptKey(for: agent)
+    private static func shouldShowPrompt(
+        for agent: AgentHookIntegration,
+        status: AgentHookIntegrationStatus,
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        let key = lastPromptKey(for: agent, status: status)
         let lastShown = defaults.double(forKey: key)
         guard lastShown > 0 else { return true }
         return Date().timeIntervalSince1970 - lastShown >= promptCooldown
     }
 
-    private static func markPromptShown(for agent: AgentHookIntegration, defaults: UserDefaults = .standard) {
-        defaults.set(Date().timeIntervalSince1970, forKey: lastPromptKey(for: agent))
+    private static func markPromptShown(
+        for agent: AgentHookIntegration,
+        status: AgentHookIntegrationStatus,
+        defaults: UserDefaults = .standard
+    ) {
+        defaults.set(Date().timeIntervalSince1970, forKey: lastPromptKey(for: agent, status: status))
     }
 
-    private static func lastPromptKey(for agent: AgentHookIntegration) -> String {
-        "agentHookSetupPromptLastShown.\(agent.name)"
+    private static func lastPromptKey(for agent: AgentHookIntegration, status: AgentHookIntegrationStatus) -> String {
+        let kind = status.isUpdateAvailable ? "update" : "install"
+        return "agentHookSetupPromptLastShown.\(agent.name).\(kind)"
     }
 
     private static func hookInstallLaunch(for agent: AgentHookIntegration) -> (executableURL: URL, arguments: [String]) {
