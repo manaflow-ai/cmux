@@ -89,7 +89,7 @@ final class CmxIrohTerminalSession: CmxTerminalSession {
         send(.command(id: id, command))
     }
 
-    func sendPing() {
+    private func sendPing() {
         send(.ping)
     }
 

@@ -351,13 +351,10 @@ final class CmxConnectionStore: ObservableObject {
     }
 
     func refreshConnectionForLifecycleSignal() {
-        guard reconnectAllowed, canAttemptReconnect else { return }
-        if reconnectPending || (!isConnected && !isConnecting) {
-            reconnectPending = true
-            resumePendingConnectionIfNeeded()
-            return
-        }
-        terminalSession?.sendPing()
+        guard reconnectAllowed, canAttemptReconnect, !isConnecting else { return }
+        didUseImmediateReconnectForCurrentLoss = false
+        reconnectPending = true
+        resumePendingConnectionIfNeeded()
     }
 
     private func updateConnectedNode(for ticket: CmxBridgeTicket) {

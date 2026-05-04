@@ -425,7 +425,7 @@ final class CmxBridgeTicketTests: XCTestCase {
     }
 
     @MainActor
-    func testLifecycleSignalProbesConnectedTransport() throws {
+    func testLifecycleSignalReconnectsActiveTicket() throws {
         let sessionFactory = RecordingTerminalSessionFactory()
         let store = CmxConnectionStore(
             authSessionStore: MemoryStackAuthSessionStore(),
@@ -454,7 +454,9 @@ final class CmxBridgeTicketTests: XCTestCase {
 
         store.refreshConnectionForLifecycleSignal()
 
-        XCTAssertEqual(sessionFactory.session.pingCount, 1)
+        XCTAssertEqual(sessionFactory.session.startCount, 2)
+        XCTAssertTrue(store.isConnecting)
+        XCTAssertFalse(store.isConnected)
     }
 }
 
@@ -540,7 +542,6 @@ private final class RecordingTerminalSession: CmxTerminalSession {
     weak var delegate: CmxTerminalSessionDelegate?
     private(set) var didStart = false
     private(set) var startCount = 0
-    private(set) var pingCount = 0
     private(set) var sentLayouts: [[CmxWireTerminalViewport]] = []
     private(set) var sentCommands: [CmxClientCommand] = []
 
@@ -559,10 +560,6 @@ private final class RecordingTerminalSession: CmxTerminalSession {
 
     func sendCommand(_ command: CmxClientCommand) {
         sentCommands.append(command)
-    }
-
-    func sendPing() {
-        pingCount += 1
     }
 
     func disconnect() {}
