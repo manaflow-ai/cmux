@@ -31,6 +31,24 @@ final class RestorableCodexTitleTests: XCTestCase {
     }
 
     @MainActor
+    func testCodexTitleSlugStopsPersistingAfterPromptReturns() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
+        XCTAssertTrue(workspace.updatePanelTitle(panelId: panelId, title: "codex-019df0a1-6"))
+
+        XCTAssertEqual(
+            workspace.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.agent?.sessionId,
+            "codex-019df0a1-6"
+        )
+
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
+
+        XCTAssertNil(workspace.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.agent)
+    }
+
+    @MainActor
     func testRestoredCodexTitleResumeClearsAfterPromptReturns() throws {
         let source = Workspace()
         let sourcePanelId = try XCTUnwrap(source.focusedPanelId)

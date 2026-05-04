@@ -236,6 +236,7 @@ extension Workspace {
         restoredTerminalScrollbackByPanelId.removeAll(keepingCapacity: false)
         restoredAgentSnapshotsByPanelId.removeAll(keepingCapacity: false)
         restoredAgentAutoResumePendingPanelIds.removeAll(keepingCapacity: false)
+        restoredAgentAutoResumeRunningPanelIds.removeAll(keepingCapacity: false)
         invalidatedRestoredAgentFingerprintsByPanelId.removeAll(keepingCapacity: false)
 
         let normalizedCurrentDirectory = snapshot.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -370,10 +371,29 @@ extension Workspace {
                 invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
             }
         }
-        let effectiveRestorableAgent = restoredAgentSnapshotsByPanelId[panelId]
 
         let panelTitle = panelTitle(panelId: panelId)
         let customTitle = panelCustomTitles[panelId]
+        let shellActivityState = panelShellActivityStates[panelId] ?? .unknown
+        if restorableAgent == nil {
+            let currentSnapshot = restoredAgentSnapshotsByPanelId[panelId]
+            if shellActivityState == .promptIdle,
+               let currentSnapshot,
+               CodexSessionTitleParser.isSurfaceTitleSnapshot(currentSnapshot) {
+                restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
+                restoredAgentAutoResumePendingPanelIds.remove(panelId)
+                restoredAgentAutoResumeRunningPanelIds.remove(panelId)
+                invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
+            } else if shellActivityState != .promptIdle,
+                      let titleRestorableAgent = CodexSessionTitleParser.restorableSnapshot(
+                        fromTitle: panelTitles[panelId] ?? panel.displayTitle,
+                        workingDirectory: panelDirectories[panelId]
+                      ) {
+                restoredAgentSnapshotsByPanelId[panelId] = titleRestorableAgent
+                invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
+            }
+        }
+        let effectiveRestorableAgent = restoredAgentSnapshotsByPanelId[panelId]
         let directory = panelDirectories[panelId] ?? effectiveRestorableAgent?.workingDirectory
         let isPinned = pinnedPanelIds.contains(panelId)
         let isManuallyUnread = manualUnreadPanelIds.contains(panelId)
@@ -648,13 +668,16 @@ extension Workspace {
                 restoredAgentSnapshotsByPanelId[terminalPanel.id] = restorableAgent
                 if restoredAgentResumeInput != nil {
                     restoredAgentAutoResumePendingPanelIds.insert(terminalPanel.id)
+                    restoredAgentAutoResumeRunningPanelIds.remove(terminalPanel.id)
                 } else {
                     restoredAgentAutoResumePendingPanelIds.remove(terminalPanel.id)
+                    restoredAgentAutoResumeRunningPanelIds.remove(terminalPanel.id)
                 }
                 invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: terminalPanel.id)
             } else {
                 restoredAgentSnapshotsByPanelId.removeValue(forKey: terminalPanel.id)
                 restoredAgentAutoResumePendingPanelIds.remove(terminalPanel.id)
+                restoredAgentAutoResumeRunningPanelIds.remove(terminalPanel.id)
                 invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: terminalPanel.id)
             }
             applySessionPanelMetadata(snapshot, toPanelId: terminalPanel.id)
@@ -7267,6 +7290,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
     private var restoredAgentSnapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] = [:]
     private var restoredAgentAutoResumePendingPanelIds: Set<UUID> = []
+    private var restoredAgentAutoResumeRunningPanelIds: Set<UUID> = []
     private var invalidatedRestoredAgentFingerprintsByPanelId: [UUID: Int] = [:]
     private var pendingTerminalInputObserversByPanelId: [UUID: [WorkspacePendingTerminalInputObserver]] = [:]
 
@@ -8554,13 +8578,36 @@ final class Workspace: Identifiable, ObservableObject {
         guard previousState != state else { return }
         panelShellActivityStates[panelId] = state
         if state == .commandRunning, let restoredAgent = restoredAgentSnapshotsByPanelId[panelId] {
-            if restoredAgentAutoResumePendingPanelIds.remove(panelId) == nil {
+            if restoredAgentAutoResumePendingPanelIds.remove(panelId) != nil {
+                restoredAgentAutoResumeRunningPanelIds.insert(panelId)
+            } else if CodexSessionTitleParser.snapshot(
+                restoredAgent,
+                matchesTitle: panelTitles[panelId] ?? panels[panelId]?.displayTitle
+            ) {
+                restoredAgentAutoResumeRunningPanelIds.insert(panelId)
+                invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
+            } else {
                 let fingerprint = TabManager.restorableAgentSnapshotFingerprint(restoredAgent)
                 invalidatedRestoredAgentFingerprintsByPanelId[panelId] = fingerprint
                 restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
+                restoredAgentAutoResumeRunningPanelIds.remove(panelId)
 #if DEBUG
                 cmuxDebugLog(
                     "session.restore.agent.invalidate panel=\(panelId.uuidString.prefix(5)) " +
+                    "kind=\(restoredAgent.kind.rawValue) session=\(restoredAgent.sessionId.prefix(8))"
+                )
+#endif
+            }
+        } else if state == .promptIdle {
+            let wasAutoResume = restoredAgentAutoResumeRunningPanelIds.remove(panelId) != nil
+            let wasPendingAutoResume = restoredAgentAutoResumePendingPanelIds.remove(panelId) != nil
+            if let restoredAgent = restoredAgentSnapshotsByPanelId[panelId],
+               wasAutoResume || wasPendingAutoResume || CodexSessionTitleParser.isSurfaceTitleSnapshot(restoredAgent) {
+                restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
+                invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
+#if DEBUG
+                cmuxDebugLog(
+                    "session.restore.agent.clear panel=\(panelId.uuidString.prefix(5)) " +
                     "kind=\(restoredAgent.kind.rawValue) session=\(restoredAgent.sessionId.prefix(8))"
                 )
 #endif
@@ -8794,6 +8841,9 @@ final class Workspace: Identifiable, ObservableObject {
             validSurfaceIds.contains($0.key)
         }
         restoredAgentAutoResumePendingPanelIds = restoredAgentAutoResumePendingPanelIds.filter {
+            validSurfaceIds.contains($0)
+        }
+        restoredAgentAutoResumeRunningPanelIds = restoredAgentAutoResumeRunningPanelIds.filter {
             validSurfaceIds.contains($0)
         }
         invalidatedRestoredAgentFingerprintsByPanelId = invalidatedRestoredAgentFingerprintsByPanelId.filter {
@@ -10538,6 +10588,7 @@ final class Workspace: Identifiable, ObservableObject {
         pendingRemoteTerminalChildExitSurfaceIds.removeAll(keepingCapacity: false)
         pruneSurfaceMetadata(validSurfaceIds: [])
         restoredTerminalScrollbackByPanelId.removeAll(keepingCapacity: false)
+        restoredAgentAutoResumeRunningPanelIds.removeAll(keepingCapacity: false)
         pendingTerminalInputObserversByPanelId.removeAll(keepingCapacity: false)
         terminalInheritanceFontPointsByPanelId.removeAll(keepingCapacity: false)
         lastTerminalConfigInheritancePanelId = nil
@@ -13302,6 +13353,7 @@ extension Workspace: BonsplitDelegate {
         restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
         restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
         restoredAgentAutoResumePendingPanelIds.remove(panelId)
+        restoredAgentAutoResumeRunningPanelIds.remove(panelId)
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
         PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
         terminalInheritanceFontPointsByPanelId.removeValue(forKey: panelId)
