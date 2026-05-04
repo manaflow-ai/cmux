@@ -41,7 +41,7 @@ commands:
           name: Install Bun
           command: |
             BUN_VERSION="1.3.3"
-            npm install --global "bun@$BUN_VERSION"
+            sudo npm install --global "bun@$BUN_VERSION"
             test "$(bun --version)" = "$BUN_VERSION"
 
   install-zig:
