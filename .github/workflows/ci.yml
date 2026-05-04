@@ -44,6 +44,15 @@ jobs:
       - name: Validate Swift file length budget guard
         run: ./tests/test_ci_swift_file_length_budget.sh
 
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      - name: Install JavaScript dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Validate LLM diff lint guard
+        run: ./tests/test_ci_llm_diff_lint.sh
+
       - name: Validate Swift file length budget
         run: python3 scripts/swift_file_length_budget.py --budget .github/swift-file-length-budget.tsv
 

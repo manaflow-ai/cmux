@@ -1,0 +1,408 @@
+name: LLM Diff Lint
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Pull request number to lint"
+        required: true
+        type: string
+  pull_request_target:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+    paths:
+      - "**/*.swift"
+      - "Package.swift"
+      - "GhosttyTabs.xcodeproj/**"
+      - ".github/llm-diff-lint/**"
+      - ".github/workflows/llm-diff-lint.yml"
+      - "scripts/llm_diff_lint_all.ts"
+      - "scripts/llm_diff_lint.ts"
+      - "scripts/llm_diff_lint_comment.py"
+      - "package.json"
+      - "bun.lock"
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || inputs.pr_number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  deepseek-rule:
+    name: LLM rule (deepseek / ${{ matrix.rule }})
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        rule:
+          - swift-concurrency-modernization
+          - swift-blocking-runtime
+          - swift-logging
+          - swiftui-state-layout
+          - swift-actor-isolation
+          - swift-concurrent-annotation
+    steps:
+      - name: Checkout trusted workflow code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || github.event.repository.default_branch }}
+
+      - name: Resolve pull request
+        id: pr
+        env:
+          EVENT_PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          number="$EVENT_PR_NUMBER"
+          case "$number" in
+            ''|*[!0-9]*)
+              echo "invalid pull request number: $number" >&2
+              exit 2
+              ;;
+          esac
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+          echo "url=${{ github.server_url }}/${{ github.repository }}/pull/$number" >> "$GITHUB_OUTPUT"
+          echo "diff_url=${{ github.server_url }}/${{ github.repository }}/pull/$number.diff" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch complete pull request diff
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh pr diff "${{ steps.pr.outputs.number }}" \
+            --repo "${{ github.repository }}" > "$RUNNER_TEMP/pr.diff"
+          wc -c "$RUNNER_TEMP/pr.diff"
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      - name: Install JavaScript dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run LLM lint rule
+        id: lint
+        continue-on-error: true
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DEEPSEEK_BASE_URL: ${{ vars.DEEPSEEK_BASE_URL }}
+          LLM_DIFF_LINT_MAX_DIFF_BYTES: ${{ vars.LLM_DIFF_LINT_MAX_DIFF_BYTES || '5000000' }}
+          LLM_DIFF_LINT_MAX_TOKENS: ${{ vars.LLM_DIFF_LINT_MAX_TOKENS || vars.DEEPSEEK_MAX_TOKENS || '8192' }}
+          LLM_DIFF_LINT_PROVIDER: deepseek
+          LLM_DIFF_LINT_RETRIES: ${{ vars.LLM_DIFF_LINT_RETRIES || '0' }}
+          LLM_DIFF_LINT_THINKING: ${{ vars.LLM_DIFF_LINT_THINKING || vars.DEEPSEEK_THINKING || 'disabled' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun scripts/llm_diff_lint.ts \
+            --rule ".github/llm-diff-lint/rules/${{ matrix.rule }}.md" \
+            --diff-file "$RUNNER_TEMP/pr.diff" \
+            --source-label "pull request ${{ steps.pr.outputs.number }}" \
+            --provider "deepseek" \
+            --model "deepseek-v4-pro" \
+            --output "$RUNNER_TEMP/result.json"
+
+      - name: Upload lint result
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: llm-diff-lint-deepseek-${{ matrix.rule }}
+          path: ${{ runner.temp }}/result.json
+          if-no-files-found: warn
+
+      - name: Fail on rule violation
+        if: steps.lint.outcome == 'failure'
+        run: exit 1
+
+  google-vertex-rule:
+    name: LLM rule (google-vertex / ${{ matrix.rule }})
+    if: |
+      vars.LLM_DIFF_LINT_ENABLE_VERTEX == 'true' &&
+      (github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: read
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        rule:
+          - swift-concurrency-modernization
+          - swift-blocking-runtime
+          - swift-logging
+          - swiftui-state-layout
+          - swift-actor-isolation
+          - swift-concurrent-annotation
+    steps:
+      - name: Checkout trusted workflow code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || github.event.repository.default_branch }}
+
+      - name: Resolve pull request
+        id: pr
+        env:
+          EVENT_PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          number="$EVENT_PR_NUMBER"
+          case "$number" in
+            ''|*[!0-9]*)
+              echo "invalid pull request number: $number" >&2
+              exit 2
+              ;;
+          esac
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+          echo "url=${{ github.server_url }}/${{ github.repository }}/pull/$number" >> "$GITHUB_OUTPUT"
+          echo "diff_url=${{ github.server_url }}/${{ github.repository }}/pull/$number.diff" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch complete pull request diff
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh pr diff "${{ steps.pr.outputs.number }}" \
+            --repo "${{ github.repository }}" > "$RUNNER_TEMP/pr.diff"
+          wc -c "$RUNNER_TEMP/pr.diff"
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      - name: Install JavaScript dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER || 'projects/502905966334/locations/global/workloadIdentityPools/github-actions/providers/github-actions' }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT || 'cmux-vertex-ai@manaflow-437420.iam.gserviceaccount.com' }}
+
+      - name: Run LLM lint rule
+        id: lint
+        continue-on-error: true
+        env:
+          GOOGLE_VERTEX_LOCATION: ${{ vars.GOOGLE_VERTEX_LOCATION || 'global' }}
+          GOOGLE_VERTEX_PROJECT: ${{ vars.GOOGLE_VERTEX_PROJECT || 'manaflow-437420' }}
+          LLM_DIFF_LINT_MAX_DIFF_BYTES: ${{ vars.LLM_DIFF_LINT_MAX_DIFF_BYTES || '5000000' }}
+          LLM_DIFF_LINT_MAX_TOKENS: ${{ vars.LLM_DIFF_LINT_MAX_TOKENS || vars.DEEPSEEK_MAX_TOKENS || '8192' }}
+          LLM_DIFF_LINT_PROVIDER: google-vertex
+          LLM_DIFF_LINT_RETRIES: ${{ vars.LLM_DIFF_LINT_RETRIES || '0' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun scripts/llm_diff_lint.ts \
+            --rule ".github/llm-diff-lint/rules/${{ matrix.rule }}.md" \
+            --diff-file "$RUNNER_TEMP/pr.diff" \
+            --source-label "pull request ${{ steps.pr.outputs.number }}" \
+            --provider "google-vertex" \
+            --model "gemini-3-flash-preview" \
+            --output "$RUNNER_TEMP/result.json"
+
+      - name: Upload lint result
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: llm-diff-lint-google-vertex-${{ matrix.rule }}
+          path: ${{ runner.temp }}/result.json
+          if-no-files-found: warn
+
+      - name: Fail on rule violation
+        if: steps.lint.outcome == 'failure'
+        run: exit 1
+
+  gpt55-architecture-rule:
+    name: LLM rule (cx gateway gpt-5.5 / swift-architectural-rethink)
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Checkout trusted workflow code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || github.event.repository.default_branch }}
+
+      - name: Resolve pull request
+        id: pr
+        env:
+          EVENT_PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          number="$EVENT_PR_NUMBER"
+          case "$number" in
+            ''|*[!0-9]*)
+              echo "invalid pull request number: $number" >&2
+              exit 2
+              ;;
+          esac
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+          echo "url=${{ github.server_url }}/${{ github.repository }}/pull/$number" >> "$GITHUB_OUTPUT"
+          echo "diff_url=${{ github.server_url }}/${{ github.repository }}/pull/$number.diff" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch complete pull request diff
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh pr diff "${{ steps.pr.outputs.number }}" \
+            --repo "${{ github.repository }}" > "$RUNNER_TEMP/pr.diff"
+          wc -c "$RUNNER_TEMP/pr.diff"
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      - name: Install JavaScript dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run architecture lint rule
+        id: lint
+        continue-on-error: true
+        env:
+          CX_GATEWAY_API_KEY: ${{ secrets.CX_GATEWAY_API_KEY || secrets.AI_GATEWAY_API_KEY }}
+          CX_GATEWAY_BASE_URL: ${{ vars.CX_GATEWAY_BASE_URL || vars.AI_GATEWAY_BASE_URL }}
+          LLM_DIFF_LINT_ARCHITECTURE_MODEL: ${{ vars.LLM_DIFF_LINT_ARCHITECTURE_MODEL || vars.LLM_DIFF_LINT_CODEX_MODEL || 'openai/gpt-5.5' }}
+          LLM_DIFF_LINT_MAX_DIFF_BYTES: ${{ vars.LLM_DIFF_LINT_MAX_DIFF_BYTES || '5000000' }}
+          LLM_DIFF_LINT_MAX_TOKENS: ${{ vars.LLM_DIFF_LINT_CODEX_MAX_TOKENS || vars.LLM_DIFF_LINT_MAX_TOKENS || '8192' }}
+          LLM_DIFF_LINT_PROVIDER: gateway
+          LLM_DIFF_LINT_REASONING_EFFORT: ${{ vars.LLM_DIFF_LINT_CODEX_REASONING_EFFORT || 'medium' }}
+          LLM_DIFF_LINT_RETRIES: ${{ vars.LLM_DIFF_LINT_RETRIES || '0' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun scripts/llm_diff_lint.ts \
+            --rule ".github/llm-diff-lint/rules/swift-architectural-rethink.md" \
+            --diff-file "$RUNNER_TEMP/pr.diff" \
+            --source-label "pull request ${{ steps.pr.outputs.number }}" \
+            --provider "gateway" \
+            --model "$LLM_DIFF_LINT_ARCHITECTURE_MODEL" \
+            --reasoning-effort "$LLM_DIFF_LINT_REASONING_EFFORT" \
+            --skip-if-missing-key \
+            --output "$RUNNER_TEMP/result.json"
+
+      - name: Upload lint result
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: llm-diff-lint-gateway-swift-architectural-rethink
+          path: ${{ runner.temp }}/result.json
+          if-no-files-found: warn
+
+      - name: Fail on architecture violation
+        if: steps.lint.outcome == 'failure'
+        run: exit 1
+
+  status:
+    name: LLM diff lint status
+    needs:
+      - deepseek-rule
+      - google-vertex-rule
+      - gpt55-architecture-rule
+    if: |
+      always() &&
+      (github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require all provider rule checks to pass
+        env:
+          DEEPSEEK_RULE_RESULT: ${{ needs.deepseek-rule.result }}
+          GPT55_ARCHITECTURE_RESULT: ${{ needs.gpt55-architecture-rule.result }}
+          GOOGLE_VERTEX_RULE_RESULT: ${{ needs.google-vertex-rule.result }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$DEEPSEEK_RULE_RESULT" != "success" ] || { [ "$GOOGLE_VERTEX_RULE_RESULT" != "success" ] && [ "$GOOGLE_VERTEX_RULE_RESULT" != "skipped" ]; } || [ "$GPT55_ARCHITECTURE_RESULT" != "success" ]; then
+            echo "DeepSeek rule matrix result: $DEEPSEEK_RULE_RESULT" >&2
+            echo "Google Vertex rule matrix result: $GOOGLE_VERTEX_RULE_RESULT" >&2
+            echo "GPT-5.5 architecture rule result: $GPT55_ARCHITECTURE_RESULT" >&2
+            exit 1
+          fi
+
+  comment:
+    name: Post LLM diff lint comment
+    needs:
+      - deepseek-rule
+      - google-vertex-rule
+      - gpt55-architecture-rule
+    if: |
+      always() &&
+      (github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false)
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Checkout trusted workflow code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || github.event.repository.default_branch }}
+
+      - name: Resolve pull request
+        id: pr
+        env:
+          EVENT_PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          number="$EVENT_PR_NUMBER"
+          case "$number" in
+            ''|*[!0-9]*)
+              echo "invalid pull request number: $number" >&2
+              exit 2
+              ;;
+          esac
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+          echo "url=${{ github.server_url }}/${{ github.repository }}/pull/$number" >> "$GITHUB_OUTPUT"
+          echo "diff_url=${{ github.server_url }}/${{ github.repository }}/pull/$number.diff" >> "$GITHUB_OUTPUT"
+
+      - name: Download lint result artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/llm-results"
+          gh api "/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts?per_page=100" \
+            --paginate \
+            --jq '.artifacts[] | select(.name | startswith("llm-diff-lint-")) | [.name, .archive_download_url] | @tsv' \
+            > "$RUNNER_TEMP/artifacts.tsv"
+
+          while IFS=$'\t' read -r name url; do
+            [ -n "$name" ] || continue
+            mkdir -p "$RUNNER_TEMP/llm-results/$name"
+            gh api "$url" > "$RUNNER_TEMP/$name.zip"
+            unzip -q "$RUNNER_TEMP/$name.zip" -d "$RUNNER_TEMP/llm-results/$name"
+          done < "$RUNNER_TEMP/artifacts.tsv"
+
+          find "$RUNNER_TEMP/llm-results" -maxdepth 3 -type f -print
+
+      - name: Post pull request comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/llm_diff_lint_comment.py \
+            --results-dir "$RUNNER_TEMP/llm-results" \
+            --pr-number "${{ steps.pr.outputs.number }}" \
+            --pr-url "${{ steps.pr.outputs.url }}" \
+            --diff-url "${{ steps.pr.outputs.diff_url }}" \
+            --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

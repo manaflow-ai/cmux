@@ -1,10 +1,18 @@
 {
   "scripts": {
-    "feed-tui": "bun Resources/feed-tui/index.ts"
+    "feed-tui": "bun Resources/feed-tui/index.ts",
+    "llm-diff-lint": "bun scripts/llm_diff_lint_all.ts"
   },
   "dependencies": {
+    "@ai-sdk/deepseek": "^2.0.32",
+    "@ai-sdk/gateway": "^3.0.109",
+    "@ai-sdk/google-vertex": "^4.0.118",
+    "@ai-sdk/openai": "^3.0.58",
+    "@ai-sdk/openai-compatible": "^2.0.45",
     "@opentui/core": "^0.1.106",
-    "vercel": "^50.9.5"
+    "ai": "^6.0.174",
+    "vercel": "^50.9.5",
+    "zod": "^4.4.2"
   },
   "license": "GPL-3.0-or-later"
 }
