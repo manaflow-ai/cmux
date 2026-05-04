@@ -667,6 +667,56 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertEqual(store.activeSourcePath, settingsFileURL.path)
     }
 
+    func testSettingsFileStoreParsesNumberedShortcutWithoutConsultingActiveShortcutStore() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let activeSettingsFileURL = directoryURL.appendingPathComponent("active.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "openBrowser": "cmd+3"
+              }
+            }
+            """,
+            to: activeSettingsFileURL
+        )
+
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: activeSettingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+        XCTAssertEqual(
+            KeyboardShortcutSettings.shortcut(for: .openBrowser),
+            StoredShortcut(key: "3", command: true, shift: false, option: false, control: false)
+        )
+
+        let parsedSettingsFileURL = directoryURL.appendingPathComponent("parsed.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "selectWorkspaceByNumber": "cmd+7"
+              }
+            }
+            """,
+            to: parsedSettingsFileURL
+        )
+
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: parsedSettingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(
+            store.override(for: .selectWorkspaceByNumber),
+            StoredShortcut(key: "1", command: true, shift: false, option: false, control: false)
+        )
+    }
+
     func testSettingsFileStoreParsesRightSidebarShortcutBindings() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
