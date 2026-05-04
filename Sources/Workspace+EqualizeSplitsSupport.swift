@@ -1,6 +1,5 @@
 extension Workspace {
     func didProgrammaticallyChangeSplitGeometry() {
-        tmuxLayoutSnapshot = bonsplitController.layoutSnapshot()
-        scheduleTerminalGeometryReconcile()
+        splitTabBar(bonsplitController, didChangeGeometry: bonsplitController.layoutSnapshot())
     }
 }

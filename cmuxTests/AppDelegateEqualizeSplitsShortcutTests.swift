@@ -72,8 +72,9 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
 #else
         XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+        return
 #endif
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.2))
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.35))
 
         let equalizedSplits = shortcutRoutingSplitNodes(in: workspace.bonsplitController.treeSnapshot())
         XCTAssertEqual(equalizedSplits.count, seededSplits.count)
@@ -117,7 +118,10 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         XCTAssertEqual(Set(lhsFrames.keys), Set(rhsFrames.keys), file: file, line: line)
 
         for paneId in lhsFrames.keys {
-            guard let lhsFrame = lhsFrames[paneId], let rhsFrame = rhsFrames[paneId] else { continue }
+            guard let lhsFrame = lhsFrames[paneId], let rhsFrame = rhsFrames[paneId] else {
+                XCTFail("Expected pane \(paneId) in both layout snapshots", file: file, line: line)
+                continue
+            }
             XCTAssertEqual(lhsFrame.x, rhsFrame.x, accuracy: 0.000_1, file: file, line: line)
             XCTAssertEqual(lhsFrame.y, rhsFrame.y, accuracy: 0.000_1, file: file, line: line)
             XCTAssertEqual(lhsFrame.width, rhsFrame.width, accuracy: 0.000_1, file: file, line: line)

@@ -8223,8 +8223,10 @@ struct ContentView: View {
             }
         }
         registry.register(commandId: "palette.equalizeSplits") {
-            if let workspace = tabManager.selectedWorkspace {
-                _ = tabManager.equalizeSplits(tabId: workspace.id)
+            if let workspace = tabManager.selectedWorkspace, !tabManager.equalizeSplits(tabId: workspace.id) {
+#if DEBUG
+                cmuxDebugLog("palette.equalizeSplits result=noSplitOrFailed workspaceId=\(workspace.id)")
+#endif
             }
         }
 

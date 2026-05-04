@@ -390,7 +390,8 @@ enum KeyboardShortcutSettings {
         }
 
         func resolvedRecordedShortcutIgnoringConflicts(
-            _ shortcut: StoredShortcut
+            _ shortcut: StoredShortcut,
+            checkingSystemWideConflicts: Bool = true
         ) -> RecordedShortcutResolution {
             if shortcut.isUnbound {
                 return .accepted(.unbound)
@@ -398,7 +399,10 @@ enum KeyboardShortcutSettings {
 
             switch self {
             case .showHideAllWindows:
-                return KeyboardShortcutSettings.normalizedSystemWideHotkeyShortcutResult(shortcut)
+                return KeyboardShortcutSettings.normalizedSystemWideHotkeyShortcutResult(
+                    shortcut,
+                    checkingConflicts: checkingSystemWideConflicts
+                )
             case .selectSurfaceByNumber, .selectWorkspaceByNumber:
                 let digitSource = shortcut.secondStroke ?? shortcut.firstStroke
                 guard let digit = Int(digitSource.key), (1...9).contains(digit) else {
@@ -424,7 +428,10 @@ enum KeyboardShortcutSettings {
         }
     }
 
-    private static func normalizedSystemWideHotkeyShortcutResult(_ shortcut: StoredShortcut) -> RecordedShortcutResolution {
+    private static func normalizedSystemWideHotkeyShortcutResult(
+        _ shortcut: StoredShortcut,
+        checkingConflicts: Bool = true
+    ) -> RecordedShortcutResolution {
         guard !shortcut.hasChord else {
             return .rejected(.reservedBySystem)
         }
@@ -432,7 +439,7 @@ enum KeyboardShortcutSettings {
             return .rejected(.systemWideHotkeyRequiresModifier)
         }
         guard shortcut.carbonHotKeyRegistration != nil,
-              !systemWideHotkeyConflicts(with: shortcut) else {
+              !checkingConflicts || !systemWideHotkeyConflicts(with: shortcut) else {
             return .rejected(.reservedBySystem)
         }
         return .accepted(shortcut)

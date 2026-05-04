@@ -7,16 +7,16 @@ extension TabManager {
     func equalizeSplits(tabId: UUID) -> Bool {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return false }
 
-        let didEqualize = equalizeSplitsOnce(in: tab)
-        if didEqualize {
+        let result = equalizeSplitsOnce(in: tab)
+        if result.foundSplit {
             tab.didProgrammaticallyChangeSplitGeometry()
             scheduleEqualizeSplitsFollowUp(tabId: tabId)
         }
-        return didEqualize
+        return result.didFullyEqualize
     }
 
     @discardableResult
-    private func equalizeSplitsOnce(in tab: Workspace) -> Bool {
+    private func equalizeSplitsOnce(in tab: Workspace) -> EqualizeSplitsResult {
         var foundSplit = false
         var allSucceeded = true
         equalizeSplits(
@@ -25,7 +25,7 @@ extension TabManager {
             foundSplit: &foundSplit,
             allSucceeded: &allSucceeded
         )
-        return foundSplit && allSucceeded
+        return EqualizeSplitsResult(foundSplit: foundSplit, allSucceeded: allSucceeded)
     }
 
     private func scheduleEqualizeSplitsFollowUp(tabId: UUID) {
@@ -39,7 +39,7 @@ extension TabManager {
 
     private func runEqualizeSplitsFollowUp(tabId: UUID) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
-        if equalizeSplitsOnce(in: tab) {
+        if equalizeSplitsOnce(in: tab).foundSplit {
             tab.didProgrammaticallyChangeSplitGeometry()
         }
     }
@@ -55,12 +55,11 @@ extension TabManager {
             return
         case .split(let splitNode):
             foundSplit = true
-            guard let splitId = UUID(uuidString: splitNode.id) else {
-                allSucceeded = false
-                return
-            }
-
-            if !controller.setDividerPosition(0.5, forSplit: splitId) {
+            if let splitId = UUID(uuidString: splitNode.id) {
+                if !controller.setDividerPosition(0.5, forSplit: splitId, fromExternal: true) {
+                    allSucceeded = false
+                }
+            } else {
                 allSucceeded = false
             }
 
@@ -77,5 +76,12 @@ extension TabManager {
                 allSucceeded: &allSucceeded
             )
         }
+    }
+
+    private struct EqualizeSplitsResult {
+        let foundSplit: Bool
+        let allSucceeded: Bool
+
+        var didFullyEqualize: Bool { foundSplit && allSucceeded }
     }
 }
