@@ -48,6 +48,40 @@ final class CmxPairingAuthTests: XCTestCase {
         )
     }
 
+    func testPairingResponseAcceptsNativeALPN() throws {
+        let start = CmxPairingAuth.makeStart(pairingID: "pairing-1", clientNonce: "client-a")
+        let challenge = CmxPairingChallenge(
+            type: "pairing_challenge",
+            pairingID: "pairing-1",
+            serverNonce: "server-a",
+            alpn: "/cmux/native/1"
+        )
+
+        let response = try CmxPairingAuth.makeResponse(
+            secret: "secret-a",
+            start: start,
+            challenge: challenge
+        )
+        let nativeProof = CmxPairingAuth.proof(
+            secret: "secret-a",
+            alpn: "/cmux/native/1",
+            pairingID: "pairing-1",
+            clientNonce: "client-a",
+            serverNonce: "server-a"
+        )
+
+        XCTAssertEqual(response.proof, nativeProof)
+        XCTAssertNotEqual(
+            response.proof,
+            CmxPairingAuth.proof(
+                secret: "secret-a",
+                pairingID: "pairing-1",
+                clientNonce: "client-a",
+                serverNonce: "server-a"
+            )
+        )
+    }
+
     func testPairingFramesEncodeAsNewlineTerminatedJson() throws {
         let start = CmxPairingAuth.makeStart(pairingID: "pairing-1", clientNonce: "client-a")
 

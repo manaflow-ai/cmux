@@ -1,5 +1,7 @@
 import Foundation
 
+private let cmxSupportedBridgeALPNs: Set<String> = ["/cmux/cmx/3", "/cmux/native/1"]
+
 struct CmxBridgeTicket: Decodable, Equatable {
     let version: Int
     let alpn: String
@@ -204,7 +206,7 @@ enum CmxBridgeTicketParser {
         guard ticket.version == 1 else {
             throw CmxTicketError.unsupportedVersion(ticket.version)
         }
-        guard ticket.alpn == "/cmux/cmx/3" else {
+        guard cmxSupportedBridgeALPNs.contains(ticket.alpn) else {
             throw CmxTicketError.unsupportedALPN(ticket.alpn)
         }
         try validateAuth(ticket.auth, now: now)

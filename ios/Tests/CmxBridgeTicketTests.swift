@@ -24,6 +24,26 @@ final class CmxBridgeTicketTests: XCTestCase {
         XCTAssertEqual(ticket.webSocketToken, "sekrit")
     }
 
+    func testNativeBridgeALPNIsAccepted() throws {
+        let ticket = try CmxBridgeTicketParser.parse(
+            """
+            {
+              "version": 1,
+              "alpn": "/cmux/native/1",
+              "endpoint": {
+                "id": "local",
+                "addrs": [
+                  { "Custom": "ws://127.0.0.1:8787?token=sekrit" }
+                ]
+              },
+              "auth": { "mode": "direct" }
+            }
+            """
+        )
+
+        XCTAssertEqual(ticket.alpn, "/cmux/native/1")
+    }
+
     func testRouteLabelRedactsWebSocketToken() throws {
         let route = CmxTransportAddr.custom("ws://127.0.0.1:8787/attach?token=sekrit")
 

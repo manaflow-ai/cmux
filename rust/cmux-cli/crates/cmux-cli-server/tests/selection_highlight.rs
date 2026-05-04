@@ -57,12 +57,14 @@ async fn dragged_selection_paints_pane_cells_blue() {
     .await
     .unwrap();
 
-    // Drain the initial welcome + first frame.
+    // Drain handshake-era frames before starting the drag so post-drag
+    // assertions cannot be satisfied by stale startup repaints.
     let _welcome = timeout(Duration::from_secs(2), read_msg::<_, ServerMsg>(&mut r))
         .await
         .unwrap()
         .unwrap()
         .unwrap();
+    drain_pending(&mut r).await;
 
     // Drag inside the pane region (sidebar is 16 cols wide).
     write_msg(
@@ -107,13 +109,7 @@ async fn dragged_selection_paints_pane_cells_blue() {
 
     // Clear any queued drag repaint so the post-MouseUp assertion only accepts
     // a frame emitted after selection has been released.
-    let drain_end = tokio::time::Instant::now() + Duration::from_millis(200);
-    while tokio::time::Instant::now() < drain_end {
-        match timeout(Duration::from_millis(20), read_msg::<_, ServerMsg>(&mut r)).await {
-            Ok(Ok(Some(_))) => {}
-            _ => break,
-        }
-    }
+    drain_pending(&mut r).await;
 
     // Release → selection clears; a subsequent frame should not contain
     // the selection bg.

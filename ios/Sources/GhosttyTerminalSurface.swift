@@ -1,6 +1,15 @@
+import OSLog
 import QuartzCore
 import SwiftUI
 import UIKit
+
+#if DEBUG
+private let cmxGhosttySurfaceLogger = Logger(subsystem: "dev.cmux.ios", category: "ghostty-surface")
+
+private func cmuxDebugLog(_ message: String) {
+    cmxGhosttySurfaceLogger.debug("\(message, privacy: .public)")
+}
+#endif
 
 public struct TerminalGridSize: Equatable, Sendable {
     public var columns: Int
@@ -900,6 +909,9 @@ public final class GhosttyTerminalSurfaceView: UIView {
     }
 
     @objc public func focusInput() {
+        #if DEBUG
+        cmuxDebugLog("ios.ghostty.focusInput")
+        #endif
         inputProxy.becomeFirstResponder()
     }
 
@@ -1082,6 +1094,9 @@ public final class GhosttyTerminalSurfaceView: UIView {
     @objc private func handlePinch(_ gesture: UIPinchGestureRecognizer) {
         switch gesture.state {
         case .began:
+            #if DEBUG
+            cmuxDebugLog("ios.ghostty.pinch.begin font=\(currentFontSize)")
+            #endif
             pinchAccumulatedScale = 1
             pinchTargetFontSize = currentFontSize
         case .changed:
@@ -1089,12 +1104,18 @@ public final class GhosttyTerminalSurfaceView: UIView {
             guard abs(delta) >= 0.15 else { return }
             let baseFontSize = pinchTargetFontSize ?? currentFontSize
             pinchTargetFontSize = nextMobileFontSize(from: baseFontSize, after: delta > 0 ? .increase : .decrease)
+            #if DEBUG
+            cmuxDebugLog("ios.ghostty.pinch.changed target=\(pinchTargetFontSize ?? currentFontSize)")
+            #endif
             pinchAccumulatedScale = gesture.scale
         case .ended, .cancelled:
             if let target = pinchTargetFontSize,
                target != currentFontSize {
                 _ = applyMobileFontSize(target, reportResize: true)
             }
+            #if DEBUG
+            cmuxDebugLog("ios.ghostty.pinch.end font=\(currentFontSize)")
+            #endif
             pinchTargetFontSize = nil
         default:
             break
@@ -1108,6 +1129,9 @@ public final class GhosttyTerminalSurfaceView: UIView {
         synchronizeGeometry: Bool = true
     ) -> Bool {
         let nextFontSize = nextMobileFontSize(from: currentFontSize, after: direction)
+        #if DEBUG
+        cmuxDebugLog("ios.ghostty.zoom direction=\(String(describing: direction)) next=\(nextFontSize)")
+        #endif
         return applyMobileFontSize(
             nextFontSize,
             reportResize: reportResize,
@@ -1128,8 +1152,16 @@ public final class GhosttyTerminalSurfaceView: UIView {
         let handled = action.withCString { pointer in
             ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))
         }
-        guard handled else { return false }
+        guard handled else {
+            #if DEBUG
+            cmuxDebugLog("ios.ghostty.fontSize.failed target=\(nextFontSize)")
+            #endif
+            return false
+        }
         currentFontSize = nextFontSize
+        #if DEBUG
+        cmuxDebugLog("ios.ghostty.fontSize.applied target=\(nextFontSize) reportResize=\(reportResize ? 1 : 0)")
+        #endif
         if synchronizeGeometry {
             syncSurfaceGeometry(reportResize: reportResize, renderNow: false)
             needsDraw = true

@@ -65,14 +65,32 @@ async fn bursty_pty_output_coalesces_into_few_frames() {
         }
     }
 
-    // Trigger a bursty run. `printf` with 40 lines hits the PTY fast
-    // enough that many chunks arrive within the same tokio poll cycle.
-    const BURST_LINES: usize = 40;
-    let cmd = format!("for i in $(seq 1 {BURST_LINES}); do printf 'LINE_%03d_XYZ\\n' $i; done\n",);
+    // Trigger a bursty run with independent protocol writes. This keeps the
+    // test focused on server-side render coalescing instead of relying on the
+    // shell to split one loop command into many PTY chunks.
+    const NUM_WRITES: usize = 64;
     write_msg(
         &mut w,
         &ClientMsg::Input {
-            data: cmd.into_bytes(),
+            data: b"cat\n".to_vec(),
+        },
+    )
+    .await
+    .unwrap();
+    for i in 1..=NUM_WRITES {
+        write_msg(
+            &mut w,
+            &ClientMsg::Input {
+                data: format!("LINE_{i:03}_XYZ\n").into_bytes(),
+            },
+        )
+        .await
+        .unwrap();
+    }
+    write_msg(
+        &mut w,
+        &ClientMsg::Input {
+            data: b"\x04".to_vec(),
         },
     )
     .await
@@ -94,7 +112,7 @@ async fn bursty_pty_output_coalesces_into_few_frames() {
                 if s.contains("\x1b[H\x1b[2J") {
                     saw_2j = true;
                 }
-                if s.contains(&format!("LINE_{BURST_LINES:03}_XYZ")) {
+                if s.contains(&format!("LINE_{NUM_WRITES:03}_XYZ")) {
                     saw_last_line = true;
                 }
                 last_frame = s.into_owned();
@@ -111,15 +129,11 @@ async fn bursty_pty_output_coalesces_into_few_frames() {
         !saw_2j,
         "a composed frame still contained CSI H CSI 2J — flicker fix regressed",
     );
-    // Before the coalesce change, 40 printf's produced 40 rendered frames
-    // frames. Coalescing brings it WAY down (typically 2-5). Be
-    // generous here so we don't false-alarm on fast machines where
-    // coalescing is near-perfect, or slow CI where tokio picks up
-    // each chunk separately; anything under BURST_LINES proves the
-    // coalescer is doing useful work.
+    // Without coalescing, this tends toward one repaint per independent
+    // ClientMsg. The broker should collapse the burst by a large margin.
     assert!(
-        frames < BURST_LINES,
-        "coalescer didn't reduce frame count: got {frames} frames for {BURST_LINES} chunks"
+        frames <= NUM_WRITES / 2,
+        "coalescer didn't sufficiently reduce frame count: got {frames} frames for {NUM_WRITES} independent writes"
     );
 
     // Clean up.

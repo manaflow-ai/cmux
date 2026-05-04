@@ -5633,7 +5633,8 @@ async fn run_session(
                 }
             }
             _ = keybinds_rx.changed() => {
-                input.set_table((**keybinds_rx.borrow()).clone());
+                let pending = input.set_table((**keybinds_rx.borrow()).clone());
+                forward_pending_input_to_active_tab(&daemon, &mut window, pending, "keybind reload").await;
             }
             changed = model_rx.changed() => {
                 if changed.is_err() {
@@ -5888,6 +5889,32 @@ async fn run_session(
     }
 }
 
+async fn forward_pending_input_to_active_tab(
+    daemon: &Arc<Daemon>,
+    window: &mut WindowState,
+    pending: Vec<u8>,
+    reason: &'static str,
+) {
+    if pending.is_empty() {
+        return;
+    }
+    let byte_count = pending.len();
+    match window_parts(daemon, window).await {
+        Ok((_ws, _space, tab, _, _, _)) => {
+            if tab.pty_tx.send(PtyOp::Write(pending)).is_err() {
+                tracing::warn!(
+                    reason,
+                    byte_count,
+                    "dropping pending input with closed active tab"
+                );
+            }
+        }
+        Err(error) => {
+            tracing::warn!(%error, reason, byte_count, "dropping pending input with no active tab");
+        }
+    }
+}
+
 async fn run_native_session(
     daemon: Arc<Daemon>,
     mut session: Session,
@@ -5951,7 +5978,8 @@ async fn run_native_session(
                 }
             }
             _ = keybinds_rx.changed() => {
-                input.set_table((**keybinds_rx.borrow()).clone());
+                let pending = input.set_table((**keybinds_rx.borrow()).clone());
+                forward_pending_input_to_active_tab(&daemon, &mut window, pending, "native keybind reload").await;
             }
             changed = model_rx.changed() => {
                 if changed.is_err() {

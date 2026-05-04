@@ -544,8 +544,10 @@ impl InputHandler {
         }
     }
 
-    pub fn set_table(&mut self, table: KeybindTable) {
+    pub fn set_table(&mut self, table: KeybindTable) -> Vec<u8> {
+        let pending = std::mem::take(&mut self.buf);
         self.table = table;
+        pending
     }
 
     pub fn process(&mut self, bytes: &[u8]) -> (Vec<u8>, Vec<Command>) {
@@ -862,17 +864,18 @@ mod tests {
     }
 
     #[test]
-    fn input_handler_keeps_pending_prefix_across_table_reload() {
+    fn input_handler_returns_pending_prefix_on_table_reload() {
         let t = compile(&Settings::default());
         let mut h = InputHandler::new(t);
         let (pass, cmds) = h.process(b"\x02");
         assert!(pass.is_empty());
         assert!(cmds.is_empty());
 
-        h.set_table(KeybindTable { bindings: vec![] });
+        let pending = h.set_table(KeybindTable { bindings: vec![] });
         let (pass, cmds) = h.process(b"x");
 
-        assert_eq!(pass, b"\x02x");
+        assert_eq!(pending, b"\x02");
+        assert_eq!(pass, b"x");
         assert!(cmds.is_empty());
     }
 

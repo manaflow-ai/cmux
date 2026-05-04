@@ -43,16 +43,27 @@ merge_status() {
     fi
 }
 
+require_tag_value() {
+    local value="${1:-}"
+    if [ -z "$value" ] || [[ "$value" == -* ]]; then
+        echo "error: --tag requires a non-empty value" >&2
+        exit 1
+    fi
+}
+
 TAG=""
 SIMULATOR_ONLY=0
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --tag)
             TAG="${2:-}"
-            shift
+            require_tag_value "$TAG"
+            shift 2
+            continue
             ;;
         --tag=*)
             TAG="${1#--tag=}"
+            require_tag_value "$TAG"
             ;;
         --simulator-only|--sim-only)
             SIMULATOR_ONLY=1

@@ -1,6 +1,15 @@
 import Foundation
 import Network
+import OSLog
 import UIKit
+
+#if DEBUG
+private let cmxConnectionLogger = Logger(subsystem: "dev.cmux.ios", category: "connection")
+
+private func cmuxDebugLog(_ message: String) {
+    cmxConnectionLogger.debug("\(message, privacy: .public)")
+}
+#endif
 
 @MainActor
 final class CmxConnectionStore: ObservableObject {
@@ -135,6 +144,9 @@ final class CmxConnectionStore: ObservableObject {
     }
 
     private func connect(isAutomaticReconnect: Bool) {
+        #if DEBUG
+        cmuxDebugLog("ios.connection.connect automatic=\(isAutomaticReconnect ? 1 : 0)")
+        #endif
         do {
             let rawTicket = ticketText.trimmingCharacters(in: .whitespacesAndNewlines)
             let parsed = try CmxBridgeTicketParser.parse(rawTicket)
@@ -165,6 +177,9 @@ final class CmxConnectionStore: ObservableObject {
             }
             try startTerminalSession(rawTicket: rawTicket, ticket: parsed, pairingSecret: nil)
         } catch {
+            #if DEBUG
+            cmuxDebugLog("ios.connection.connect.failed error=\(error.localizedDescription)")
+            #endif
             reconnectAllowed = false
             reconnectPending = false
             terminalSession?.disconnect()
@@ -202,6 +217,9 @@ final class CmxConnectionStore: ObservableObject {
     }
 
     func disconnect() {
+        #if DEBUG
+        cmuxDebugLog("ios.connection.disconnect")
+        #endif
         reconnectAllowed = false
         reconnectPending = false
         connectTask?.cancel()
@@ -524,6 +542,9 @@ final class CmxConnectionStore: ObservableObject {
         isConnecting = true
         isConnected = false
         clearTerminal(selectedTerminal.id)
+        #if DEBUG
+        cmuxDebugLog("ios.connection.session.start alpn=\(parsed.alpn) terminal=\(selectedTerminal.id)")
+        #endif
         session.start(viewport: wireViewport(for: selectedTerminal.id))
     }
 
@@ -640,6 +661,13 @@ final class CmxConnectionStore: ObservableObject {
     }
 
     private func handleTransportLoss(error: Error? = nil) {
+        #if DEBUG
+        if let error {
+            cmuxDebugLog("ios.connection.transportLoss error=\(error.localizedDescription)")
+        } else {
+            cmuxDebugLog("ios.connection.transportLoss")
+        }
+        #endif
         if let error {
             errorText = error.localizedDescription
         }
@@ -660,16 +688,25 @@ extension CmxConnectionStore: CmxTerminalSessionDelegate {
         guard session === terminalSession else { return }
         switch message {
         case .welcome:
+            #if DEBUG
+            cmuxDebugLog("ios.connection.welcome")
+            #endif
             isConnecting = false
             isConnected = true
             errorText = nil
             reconnectPending = false
             didUseImmediateReconnectForCurrentLoss = false
         case .ptyBytes(let tabID, let data):
+            #if DEBUG
+            cmuxDebugLog("ios.connection.ptyBytes tab=\(tabID) bytes=\(data.count)")
+            #endif
             appendOutput(data, terminalID: tabID)
         case .hostControl, .commandReply:
             break
         case .nativeSnapshot(let snapshot):
+            #if DEBUG
+            cmuxDebugLog("ios.connection.nativeSnapshot workspaces=\(snapshot.workspaces.count)")
+            #endif
             applyNativeSnapshot(snapshot)
             syncNativeLayoutForVisibleTerminal()
         case .terminalGridSnapshot:
@@ -682,6 +719,9 @@ extension CmxConnectionStore: CmxTerminalSessionDelegate {
         case .bye:
             handleTransportLoss()
         case .error(let message):
+            #if DEBUG
+            cmuxDebugLog("ios.connection.serverError message=\(message)")
+            #endif
             reconnectAllowed = false
             reconnectPending = false
             latencyMilliseconds = nil
@@ -700,15 +740,24 @@ extension CmxConnectionStore: CmxTerminalSessionDelegate {
     func terminalSession(_ session: any CmxTerminalSession, didUpdateLatencyMilliseconds latencyMilliseconds: UInt32) {
         guard session === terminalSession else { return }
         self.latencyMilliseconds = latencyMilliseconds
+        #if DEBUG
+        cmuxDebugLog("ios.connection.latency ms=\(latencyMilliseconds)")
+        #endif
     }
 
     func terminalSession(_ session: any CmxTerminalSession, didFail error: Error) {
         guard session === terminalSession else { return }
+        #if DEBUG
+        cmuxDebugLog("ios.connection.session.fail error=\(error.localizedDescription)")
+        #endif
         handleTransportLoss(error: error)
     }
 
     func terminalSessionDidClose(_ session: any CmxTerminalSession) {
         guard session === terminalSession else { return }
+        #if DEBUG
+        cmuxDebugLog("ios.connection.session.close")
+        #endif
         handleTransportLoss()
     }
 }

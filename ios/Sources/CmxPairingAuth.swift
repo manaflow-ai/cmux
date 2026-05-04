@@ -2,7 +2,8 @@ import CryptoKit
 import Foundation
 import Security
 
-private let cmxIrohALPN = "/cmux/cmx/3"
+private let cmxDefaultIrohALPN = "/cmux/cmx/3"
+private let cmxSupportedIrohALPNs: Set<String> = [cmxDefaultIrohALPN, "/cmux/native/1"]
 
 struct CmxPairingStart: Codable, Equatable {
     let type: String
@@ -83,7 +84,7 @@ enum CmxPairingAuth {
         guard challenge.pairingID == start.pairingID else {
             throw CmxPairingAuthError.pairingIDMismatch
         }
-        guard challenge.alpn == cmxIrohALPN else {
+        guard cmxSupportedIrohALPNs.contains(challenge.alpn) else {
             throw CmxPairingAuthError.unsupportedALPN(challenge.alpn)
         }
         return CmxPairingResponse(
@@ -91,6 +92,7 @@ enum CmxPairingAuth {
             pairingID: start.pairingID,
             proof: proof(
                 secret: secret,
+                alpn: challenge.alpn,
                 pairingID: start.pairingID,
                 clientNonce: start.clientNonce,
                 serverNonce: challenge.serverNonce
@@ -100,11 +102,12 @@ enum CmxPairingAuth {
 
     static func proof(
         secret: String,
+        alpn: String = cmxDefaultIrohALPN,
         pairingID: String,
         clientNonce: String,
         serverNonce: String
     ) -> String {
-        let message = "\(cmxIrohALPN)\n\(pairingID)\n\(clientNonce)\n\(serverNonce)"
+        let message = "\(alpn)\n\(pairingID)\n\(clientNonce)\n\(serverNonce)"
         let key = SymmetricKey(data: Data(secret.utf8))
         let code = HMAC<SHA256>.authenticationCode(for: Data(message.utf8), using: key)
         return Data(code).base64URLEncodedString()

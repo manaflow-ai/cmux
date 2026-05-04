@@ -20,7 +20,10 @@ use cmux_cli_protocol::{ClientMsg, PROTOCOL_VERSION, ServerMsg, Viewport, read_m
 use cmux_cli_server::{ServerOptions, run};
 use tokio::io::BufReader;
 use tokio::net::UnixStream;
+use tokio::sync::oneshot;
 use tokio::time::timeout;
+
+const STRESS_DONE_MARKER: &str = "CMX_STRESS_DONE";
 
 async fn wait_for_socket(socket: &std::path::Path) {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
@@ -95,20 +98,32 @@ async fn rapid_mouse_events_do_not_desync_under_output_pressure() {
     // race on the socket the same way a real `cmx attach` client
     // does; if the server's recv branch is not cancel-safe this
     // reliably produces a ProtocolDesync within a few thousand events.
+    let (release_writer_tx, release_writer_rx) = oneshot::channel::<()>();
     let reader_task = tokio::spawn(async move {
         let end = tokio::time::Instant::now() + Duration::from_secs(15);
-        while tokio::time::Instant::now() < end {
+        let mut last_frame = String::new();
+        loop {
             let remaining = end.saturating_duration_since(tokio::time::Instant::now());
             match timeout(remaining, read_msg::<_, ServerMsg>(&mut r)).await {
+                Ok(Ok(Some(ServerMsg::PtyBytes { data, .. }))) => {
+                    let frame = String::from_utf8_lossy(&data);
+                    if frame.contains(STRESS_DONE_MARKER) {
+                        return Ok(());
+                    }
+                    last_frame = frame.into_owned();
+                }
                 Ok(Ok(Some(_))) => {}
-                Ok(Ok(None)) => break,
+                Ok(Ok(None)) => return Err("unexpected EOF during stress".into()),
                 Ok(Err(e)) => {
                     return Err(format!("codec error during stress: {e}"));
                 }
-                Err(_) => break,
+                Err(_) => {
+                    return Err(format!(
+                        "timed out waiting for stress marker {STRESS_DONE_MARKER}; last frame={last_frame:?}"
+                    ));
+                }
             }
         }
-        Ok(())
     });
 
     let writer_task = tokio::spawn(async move {
@@ -140,26 +155,28 @@ async fn rapid_mouse_events_do_not_desync_under_output_pressure() {
         write_msg(
             &mut w,
             &ClientMsg::Input {
-                data: b"exit\n".to_vec(),
+                data: format!("printf '{STRESS_DONE_MARKER}\\n'\n").into_bytes(),
             },
         )
         .await
-        .map_err(|e| format!("failed to write exit: {e}"))?;
+        .map_err(|e| format!("failed to write stress marker: {e}"))?;
+        let _ = release_writer_rx.await;
         Ok::<(), String>(())
     });
 
-    let writer_result = timeout(Duration::from_secs(10), writer_task)
-        .await
-        .expect("writer timed out")
-        .expect("writer panicked");
-    if let Err(msg) = writer_result {
-        panic!("{msg}");
-    }
     let reader_result = timeout(Duration::from_secs(20), reader_task)
         .await
         .expect("reader timed out")
         .expect("reader panicked");
     if let Err(msg) = reader_result {
+        panic!("{msg}");
+    }
+    let _ = release_writer_tx.send(());
+    let writer_result = timeout(Duration::from_secs(10), writer_task)
+        .await
+        .expect("writer timed out")
+        .expect("writer panicked");
+    if let Err(msg) = writer_result {
         panic!("{msg}");
     }
 
