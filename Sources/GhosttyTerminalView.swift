@@ -3672,7 +3672,8 @@ class GhosttyApp {
             performOnMain {
                 // Suppress OSC notifications for workspaces with active Claude hook sessions.
                 let owningManager = AppDelegate.shared?.tabManagerFor(tabId: tabId) ?? AppDelegate.shared?.tabManager
-                if let workspace = owningManager?.tabs.first(where: { $0.id == tabId }),
+                if ClaudeCodeIntegrationSettings.hooksEnabled(),
+                   let workspace = owningManager?.tabs.first(where: { $0.id == tabId }),
                    workspace.agentPIDs["claude_code"] != nil {
                     return
                 }
