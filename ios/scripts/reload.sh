@@ -58,6 +58,50 @@ classify_device_reload_failure() {
     fi
 }
 
+preflight_device_reload_failure() {
+    local device_id="$1"
+    local devices_json="${2:-}"
+    if [ -z "$devices_json" ] || [ ! -f "$devices_json" ] || ! command -v jq >/dev/null 2>&1; then
+        return 0
+    fi
+
+    local device
+    device="$(jq -c --arg id "$device_id" '
+        first(
+            .result.devices[]?
+            | select(.identifier == $id or .hardwareProperties.udid == $id)
+            | {
+                tunnelState: (.connectionProperties.tunnelState // ""),
+                ddiServicesAvailable: (.deviceProperties.ddiServicesAvailable // false),
+                developerMode: (.deviceProperties.developerModeStatus // ""),
+                pairingState: (.connectionProperties.pairingState // "")
+            }
+        ) // empty
+    ' "$devices_json" 2>/dev/null || true)"
+    [ -n "$device" ] || return 0
+
+    local developer_mode pairing_state tunnel_state ddi_services
+    developer_mode="$(jq -r '.developerMode' <<< "$device")"
+    pairing_state="$(jq -r '.pairingState' <<< "$device")"
+    tunnel_state="$(jq -r '.tunnelState' <<< "$device")"
+    ddi_services="$(jq -r '.ddiServicesAvailable' <<< "$device")"
+
+    if [ "$developer_mode" != "enabled" ]; then
+        echo "Developer Mode is not enabled"
+        return 0
+    fi
+    if [ "$pairing_state" != "paired" ]; then
+        echo "device is not paired"
+        return 0
+    fi
+    if [ "$tunnel_state" != "connected" ] || [ "$ddi_services" != "true" ]; then
+        echo "developer disk image services unavailable; unlock the device and keep it awake"
+        return 0
+    fi
+
+    return 0
+}
+
 require_tag_value() {
     local value="${1:-}"
     if [ -z "$value" ] || [[ "$value" == -* ]]; then
@@ -157,7 +201,13 @@ IPHONE_STATUS="unavailable"
 OTHER_IOS_STATUS="unavailable"
 DEVICE_RELOAD_DETAILS=()
 if [ "$SIMULATOR_ONLY" -eq 0 ]; then
+    DEVICELIST_JSON=""
     if command -v jq >/dev/null 2>&1; then
+        DEVICELIST_JSON="$(mktemp "${TMPDIR:-/tmp}/cmux-ios-reload-devices.XXXXXX.json")"
+        run_with_timeout 10 xcrun devicectl list devices --json-output "$DEVICELIST_JSON" >/dev/null 2>&1 || {
+            rm -f "$DEVICELIST_JSON"
+            DEVICELIST_JSON=""
+        }
         if ! IOS_DEVICES="$(xcrun xcdevice list --timeout 2 | jq -r '.[] | select(.simulator == false and .platform == "com.apple.platform.iphoneos" and .available == true) | [.name, .identifier] | @tsv')"; then
             IOS_DEVICES=""
         fi
@@ -168,10 +218,14 @@ if [ "$SIMULATOR_ONLY" -eq 0 ]; then
     if [ -n "$IOS_DEVICES" ]; then
         while IFS=$'\t' read -r DEVICE_NAME DEVICE_ID; do
             [ -n "$DEVICE_ID" ] || continue
-            echo "Building device app for $DEVICE_NAME..."
+            echo "Checking device app reload for $DEVICE_NAME..."
             DEVICE_STATUS="succeeded"
             DEVICE_LOG="$(mktemp "${TMPDIR:-/tmp}/cmux-ios-reload-device.XXXXXX.log")"
-            if ! xcodebuild \
+            PREFLIGHT_REASON="$(preflight_device_reload_failure "$DEVICE_ID" "$DEVICELIST_JSON" || true)"
+            if [ -n "$PREFLIGHT_REASON" ]; then
+                DEVICE_STATUS="failed"
+                DEVICE_RELOAD_DETAILS+=("$DEVICE_NAME reload reason: $PREFLIGHT_REASON")
+            elif ! xcodebuild \
                 -project cmux-ios.xcodeproj \
                 -scheme cmux-ios \
                 -configuration Debug \
@@ -202,6 +256,7 @@ if [ "$SIMULATOR_ONLY" -eq 0 ]; then
             fi
         done <<< "$IOS_DEVICES"
     fi
+    rm -f "$DEVICELIST_JSON"
 fi
 
 echo "iOS tag: $TAG"
