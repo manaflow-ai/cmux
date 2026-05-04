@@ -293,8 +293,8 @@ jobs:
             DIRECT_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
           command: |
             cd web
-            bunx drizzle-kit migrate --config drizzle.config.ts
-            bunx drizzle-kit migrate --config drizzle.config.ts
+            bun x drizzle-kit migrate --config drizzle.config.ts
+            bun x drizzle-kit migrate --config drizzle.config.ts
       - run:
           name: Run database behavior tests
           environment:
