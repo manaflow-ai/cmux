@@ -18,11 +18,11 @@ from cmux import cmux, cmuxError
 
 
 def _resolve_socket_path() -> str:
-    socket_path = os.environ.get("CMUX_SOCKET", "").strip()
+    socket_path = os.environ.get("CMUX_SOCKET_PATH", "").strip()
     if not socket_path:
-        raise cmuxError("CMUX_SOCKET is required (expected /tmp/cmux-debug-<tag>.sock)")
+        raise cmuxError("CMUX_SOCKET_PATH is required (expected /tmp/cmux-debug-<tag>.sock)")
     if not re.fullmatch(r"/tmp/cmux-debug-[^/]+\.sock", socket_path):
-        raise cmuxError(f"CMUX_SOCKET must be a tagged debug socket, got: {socket_path!r}")
+        raise cmuxError(f"CMUX_SOCKET_PATH must be a tagged debug socket, got: {socket_path!r}")
     return socket_path
 
 

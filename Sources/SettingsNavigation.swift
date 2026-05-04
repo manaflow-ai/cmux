@@ -27,7 +27,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         case .workspaceColors:
             return String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors")
         case .sidebarAppearance:
-            return String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar Appearance")
+            return String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar")
         case .automation:
             return String(localized: "settings.section.automation", defaultValue: "Automation")
         case .browser:
@@ -39,7 +39,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         case .keyboardShortcuts:
             return String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts")
         case .settingsJSON:
-            return String(localized: "settings.section.settingsJSON", defaultValue: "settings.json")
+            return String(localized: "settings.section.settingsJSON", defaultValue: "cmux.json")
         case .reset:
             return String(localized: "settings.section.reset", defaultValue: "Reset")
         }
@@ -85,7 +85,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         case .workspaceColors:
             return "\(title) palette tabs"
         case .sidebarAppearance:
-            return "\(title) sidebar tint details branches badges"
+            return "\(title) sidebar details branches badges material terminal background"
         case .automation:
             return "\(title) socket integrations hooks ports claude cursor gemini"
         case .browser:
@@ -276,7 +276,7 @@ enum SettingsSearchIndex {
             title: target.title,
             subtitle: nil,
             symbolName: target.symbolName,
-            searchText: target.searchText
+            searchText: "\(target.rawValue) \(target.searchText) \(SettingsSearchAliasIndex.sectionAliases(for: target))"
         )
     }
 
@@ -305,24 +305,20 @@ enum SettingsSearchIndex {
         setting(.app, "warn-before-quit", String(localized: "settings.app.warnBeforeQuit", defaultValue: "Warn Before Quit"), "cmd q confirmation"),
         setting(.app, "rename-selects-name", String(localized: "settings.app.renameSelectsName", defaultValue: "Rename Selects Existing Name"), "command palette rename text selection"),
         setting(.app, "palette-search-all", String(localized: "settings.app.commandPaletteSearchAllSurfaces", defaultValue: "Command Palette Searches All Surfaces"), "cmd p search terminal browser markdown"),
-        setting(.app, "hide-sidebar-details", String(localized: "settings.app.hideAllSidebarDetails", defaultValue: "Hide All Sidebar Details"), "workspace sidebar compact"),
-        setting(.app, "sidebar-branch-layout", String(localized: "settings.app.sidebarBranchLayout", defaultValue: "Sidebar Branch Layout"), "branch directory vertical inline"),
-        setting(.app, "show-notification-message", String(localized: "settings.app.showNotificationMessage", defaultValue: "Show Notification Message in Sidebar"), "workspace latest notification"),
-        setting(.app, "show-branch-directory", String(localized: "settings.app.showBranchDirectory", defaultValue: "Show Branch + Directory in Sidebar"), "git cwd path"),
-        setting(.app, "show-pull-requests", String(localized: "settings.app.showPullRequests", defaultValue: "Show Pull Requests in Sidebar"), "review pr mr link"),
-        setting(.app, "open-pr-links", String(localized: "settings.app.openSidebarPRLinks", defaultValue: "Open Sidebar PR Links in cmux Browser"), "pull request link browser"),
-        setting(.app, "open-port-links", String(localized: "settings.app.openSidebarPortLinks", defaultValue: "Open Sidebar Port Links in cmux Browser"), "port link browser"),
-        setting(.app, "show-ssh", String(localized: "settings.app.showSSH", defaultValue: "Show SSH in Sidebar"), "remote target"),
-        setting(.app, "show-ports", String(localized: "settings.app.showPorts", defaultValue: "Show Listening Ports in Sidebar"), "localhost port"),
-        setting(.app, "show-log", String(localized: "settings.app.showLog", defaultValue: "Show Latest Log in Sidebar"), "status message"),
-        setting(.app, "show-progress", String(localized: "settings.app.showProgress", defaultValue: "Show Progress in Sidebar"), "progress bar"),
-        setting(.app, "show-metadata", String(localized: "settings.app.showMetadata", defaultValue: "Show Custom Metadata in Sidebar"), "report meta status block"),
         setting(.terminal, "scrollbar", String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar"), "terminal shell scrollback"),
         setting(.sidebarAppearance, "match-terminal", String(localized: "settings.sidebarAppearance.matchTerminalBackground", defaultValue: "Match Terminal Background"), "sidebar material transparency"),
-        setting(.sidebarAppearance, "light-tint", String(localized: "settings.sidebarAppearance.tintColorLight", defaultValue: "Light Mode Tint"), "sidebar color light"),
-        setting(.sidebarAppearance, "dark-tint", String(localized: "settings.sidebarAppearance.tintColorDark", defaultValue: "Dark Mode Tint"), "sidebar color dark"),
-        setting(.sidebarAppearance, "tint-opacity", String(localized: "settings.sidebarAppearance.tintOpacity", defaultValue: "Tint Opacity"), "sidebar color opacity"),
-        setting(.sidebarAppearance, "reset-tint", String(localized: "settings.sidebarAppearance.reset", defaultValue: "Reset Sidebar Tint"), "restore default sidebar appearance"),
+        setting(.sidebarAppearance, "hide-sidebar-details", String(localized: "settings.app.hideAllSidebarDetails", defaultValue: "Hide All Sidebar Details"), "workspace sidebar compact"),
+        setting(.sidebarAppearance, "sidebar-branch-layout", String(localized: "settings.app.sidebarBranchLayout", defaultValue: "Sidebar Branch Layout"), "branch directory vertical inline"),
+        setting(.sidebarAppearance, "show-notification-message", String(localized: "settings.app.showNotificationMessage", defaultValue: "Show Notification Message in Sidebar"), "workspace latest notification"),
+        setting(.sidebarAppearance, "show-branch-directory", String(localized: "settings.app.showBranchDirectory", defaultValue: "Show Branch + Directory in Sidebar"), "git cwd path"),
+        setting(.sidebarAppearance, "show-pull-requests", String(localized: "settings.app.showPullRequests", defaultValue: "Show Pull Requests in Sidebar"), "review pr mr link"),
+        setting(.sidebarAppearance, "open-pr-links", String(localized: "settings.app.openSidebarPRLinks", defaultValue: "Open Sidebar PR Links in cmux Browser"), "pull request link browser"),
+        setting(.sidebarAppearance, "open-port-links", String(localized: "settings.app.openSidebarPortLinks", defaultValue: "Open Sidebar Port Links in cmux Browser"), "port link browser"),
+        setting(.sidebarAppearance, "show-ssh", String(localized: "settings.app.showSSH", defaultValue: "Show SSH in Sidebar"), "remote target"),
+        setting(.sidebarAppearance, "show-ports", String(localized: "settings.app.showPorts", defaultValue: "Show Listening Ports in Sidebar"), "localhost port"),
+        setting(.sidebarAppearance, "show-log", String(localized: "settings.app.showLog", defaultValue: "Show Latest Log in Sidebar"), "status message"),
+        setting(.sidebarAppearance, "show-progress", String(localized: "settings.app.showProgress", defaultValue: "Show Progress in Sidebar"), "progress bar"),
+        setting(.sidebarAppearance, "show-metadata", String(localized: "settings.app.showMetadata", defaultValue: "Show Custom Metadata in Sidebar"), "report meta status block"),
         setting(.automation, "socket-mode", String(localized: "settings.automation.socketMode", defaultValue: "Socket Control Mode"), "unix socket api access password auth"),
         setting(.automation, "socket-password", String(localized: "settings.automation.socketPassword", defaultValue: "Socket Password"), "socket auth credential"),
         setting(.automation, "claude-code", String(localized: "settings.automation.claudeCode", defaultValue: "Claude Code Integration"), "agent hooks notifications"),
@@ -332,6 +328,7 @@ enum SettingsSearchIndex {
         setting(.automation, "port-base", String(localized: "settings.automation.portBase", defaultValue: "Port Base"), "CMUX_PORT start"),
         setting(.automation, "port-range", String(localized: "settings.automation.portRange", defaultValue: "Port Range Size"), "CMUX_PORT_END workspace ports"),
         setting(.browser, "search-engine", String(localized: "settings.browser.searchEngine", defaultValue: "Default Search Engine"), "address bar query google duckduckgo"),
+        setting(.browser, "enable-browser", String(localized: "settings.browser.enabled", defaultValue: "Enable cmux Browser"), "webview tabs links"),
         setting(.browser, "search-suggestions", String(localized: "settings.browser.searchSuggestions", defaultValue: "Show Search Suggestions"), "browser address bar suggestions"),
         setting(.browser, "theme", String(localized: "settings.browser.theme", defaultValue: "Browser Theme"), "web appearance light dark system"),
         setting(.browser, "terminal-links", String(localized: "settings.browser.openTerminalLinks", defaultValue: "Open Terminal Links in cmux Browser"), "click links browser"),
@@ -352,8 +349,8 @@ enum SettingsSearchIndex {
         setting(.workspaceColors, "selection", String(localized: "settings.workspaceColors.selectionColor", defaultValue: "Selection Highlight"), "selected workspace background"),
         setting(.workspaceColors, "badge", String(localized: "settings.workspaceColors.notificationBadgeColor", defaultValue: "Notification Badge"), "unread notification color"),
         setting(.workspaceColors, "palette", String(localized: "settings.workspaceColors.resetPalette", defaultValue: "Reset Palette"), "named colors palette"),
-        setting(.settingsJSON, "open-file", String(localized: "settings.settingsJSON.openFile", defaultValue: "Open settings.json"), "config json file editor dotfiles"),
-        setting(.settingsJSON, "documentation", String(localized: "settings.settingsJSON.documentation", defaultValue: "Documentation"), "settings json schema reference docs"),
+        setting(.settingsJSON, "open-file", String(localized: "settings.settingsJSON.openFile", defaultValue: "Open cmux.json"), "config json file editor dotfiles"),
+        setting(.settingsJSON, "documentation", String(localized: "settings.settingsJSON.documentation", defaultValue: "Documentation"), "cmux json schema reference docs"),
         setting(.reset, "reset-all", String(localized: "settings.reset.resetAll", defaultValue: "Reset All Settings"), "restore defaults")
     ]
 
@@ -386,26 +383,23 @@ enum SettingsSearchIndex {
         "app.warnBeforeQuit": settingID(for: .app, idSuffix: "warn-before-quit"),
         "app.renameSelectsExistingName": settingID(for: .app, idSuffix: "rename-selects-name"),
         "app.commandPaletteSearchesAllSurfaces": settingID(for: .app, idSuffix: "palette-search-all"),
-        "sidebar.hideAllDetails": settingID(for: .app, idSuffix: "hide-sidebar-details"),
-        "sidebar.branchLayout": settingID(for: .app, idSuffix: "sidebar-branch-layout"),
-        "sidebar.showNotificationMessage": settingID(for: .app, idSuffix: "show-notification-message"),
-        "sidebar.showBranchDirectory": settingID(for: .app, idSuffix: "show-branch-directory"),
-        "sidebar.showPullRequests": settingID(for: .app, idSuffix: "show-pull-requests"),
-        "sidebar.openPullRequestLinksInCmuxBrowser": settingID(for: .app, idSuffix: "open-pr-links"),
-        "sidebar.openPortLinksInCmuxBrowser": settingID(for: .app, idSuffix: "open-port-links"),
-        "sidebar.showSSH": settingID(for: .app, idSuffix: "show-ssh"),
-        "sidebar.showPorts": settingID(for: .app, idSuffix: "show-ports"),
-        "sidebar.showLog": settingID(for: .app, idSuffix: "show-log"),
-        "sidebar.showProgress": settingID(for: .app, idSuffix: "show-progress"),
-        "sidebar.showCustomMetadata": settingID(for: .app, idSuffix: "show-metadata"),
+        "sidebar.hideAllDetails": settingID(for: .sidebarAppearance, idSuffix: "hide-sidebar-details"),
+        "sidebar.branchLayout": settingID(for: .sidebarAppearance, idSuffix: "sidebar-branch-layout"),
+        "sidebar.showNotificationMessage": settingID(for: .sidebarAppearance, idSuffix: "show-notification-message"),
+        "sidebar.showBranchDirectory": settingID(for: .sidebarAppearance, idSuffix: "show-branch-directory"),
+        "sidebar.showPullRequests": settingID(for: .sidebarAppearance, idSuffix: "show-pull-requests"),
+        "sidebar.openPullRequestLinksInCmuxBrowser": settingID(for: .sidebarAppearance, idSuffix: "open-pr-links"),
+        "sidebar.openPortLinksInCmuxBrowser": settingID(for: .sidebarAppearance, idSuffix: "open-port-links"),
+        "sidebar.showSSH": settingID(for: .sidebarAppearance, idSuffix: "show-ssh"),
+        "sidebar.showPorts": settingID(for: .sidebarAppearance, idSuffix: "show-ports"),
+        "sidebar.showLog": settingID(for: .sidebarAppearance, idSuffix: "show-log"),
+        "sidebar.showProgress": settingID(for: .sidebarAppearance, idSuffix: "show-progress"),
+        "sidebar.showCustomMetadata": settingID(for: .sidebarAppearance, idSuffix: "show-metadata"),
         "terminal.showScrollBar": settingID(for: .terminal, idSuffix: "scrollbar"),
         "workspaceColors.indicatorStyle": settingID(for: .workspaceColors, idSuffix: "indicator"),
         "workspaceColors.selectionColor": settingID(for: .workspaceColors, idSuffix: "selection"),
         "workspaceColors.notificationBadgeColor": settingID(for: .workspaceColors, idSuffix: "badge"),
         "sidebarAppearance.matchTerminalBackground": settingID(for: .sidebarAppearance, idSuffix: "match-terminal"),
-        "sidebarAppearance.lightModeTintColor": settingID(for: .sidebarAppearance, idSuffix: "light-tint"),
-        "sidebarAppearance.darkModeTintColor": settingID(for: .sidebarAppearance, idSuffix: "dark-tint"),
-        "sidebarAppearance.tintOpacity": settingID(for: .sidebarAppearance, idSuffix: "tint-opacity"),
         "automation.socketControlMode": settingID(for: .automation, idSuffix: "socket-mode"),
         "automation.socketPassword": settingID(for: .automation, idSuffix: "socket-password"),
         "automation.claudeCodeIntegration": settingID(for: .automation, idSuffix: "claude-code"),
@@ -414,6 +408,7 @@ enum SettingsSearchIndex {
         "automation.geminiIntegration": settingID(for: .automation, idSuffix: "gemini"),
         "automation.portBase": settingID(for: .automation, idSuffix: "port-base"),
         "automation.portRange": settingID(for: .automation, idSuffix: "port-range"),
+        "browser.enabled": settingID(for: .browser, idSuffix: "enable-browser"),
         "browser.defaultSearchEngine": settingID(for: .browser, idSuffix: "search-engine"),
         "browser.showSearchSuggestions": settingID(for: .browser, idSuffix: "search-suggestions"),
         "browser.theme": settingID(for: .browser, idSuffix: "theme"),
@@ -472,7 +467,7 @@ enum SettingsSearchIndex {
             title: title,
             subtitle: target.title,
             symbolName: target.symbolName,
-            searchText: "\(target.searchText) \(searchText)"
+            searchText: "\(target.rawValue) \(idSuffix) \(target.searchText) \(searchText) \(SettingsSearchAliasIndex.aliases(target: target, idSuffix: idSuffix))"
         )
     }
 

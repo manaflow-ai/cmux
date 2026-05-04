@@ -55,9 +55,7 @@ def _read_last_socket_path() -> Optional[str]:
 
 
 def _default_socket_path() -> str:
-    # Backwards/forward compatibility: some scripts export CMUX_SOCKET,
-    # while the client historically used CMUX_SOCKET_PATH.
-    override = os.environ.get("CMUX_SOCKET_PATH") or os.environ.get("CMUX_SOCKET")
+    override = os.environ.get("CMUX_SOCKET_PATH")
     if override:
         if os.path.exists(override):
             return override
