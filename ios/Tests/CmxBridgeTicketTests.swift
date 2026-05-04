@@ -339,6 +339,10 @@ final class CmxBridgeTicketTests: XCTestCase {
         sessionStore.session = CmxStackAuthSession(refreshToken: "refresh", accessToken: "access")
         let secretClient = RecordingPairingSecretClient()
         let sessionFactory = RecordingTerminalSessionFactory()
+        let fetchExpectation = expectation(description: "fetches Rivet pairing secret")
+        let makeExpectation = expectation(description: "opens terminal session")
+        secretClient.fetchExpectation = fetchExpectation
+        sessionFactory.makeExpectation = makeExpectation
         let store = CmxConnectionStore(
             authSessionStore: sessionStore,
             pairingSecretClient: secretClient,
@@ -360,8 +364,7 @@ final class CmxBridgeTicketTests: XCTestCase {
         """
 
         store.connect()
-        await secretClient.waitForFetch()
-        await sessionFactory.waitForMake()
+        await fulfillment(of: [fetchExpectation, makeExpectation], timeout: 3.0)
 
         XCTAssertEqual(secretClient.fetchCount, 1)
         XCTAssertEqual(secretClient.lastStackSession, sessionStore.session)
@@ -595,7 +598,7 @@ private final class MemoryStackAuthSessionStore: CmxStackAuthSessionStore {
 }
 
 private final class RecordingPairingSecretClient: CmxRivetPairingSecretFetching {
-    private var continuation: CheckedContinuation<Void, Never>?
+    var fetchExpectation: XCTestExpectation?
     private(set) var fetchCount = 0
     private(set) var lastStackSession: CmxStackAuthSession?
 
@@ -606,25 +609,16 @@ private final class RecordingPairingSecretClient: CmxRivetPairingSecretFetching 
     ) async throws -> CmxRivetPairingSecret {
         fetchCount += 1
         lastStackSession = stackSession
-        continuation?.resume()
-        continuation = nil
+        fetchExpectation?.fulfill()
+        fetchExpectation = nil
         return CmxRivetPairingSecret(pairingID: auth.pairingID ?? "", secret: "rivet-secret", expiresAtUnix: 4000000000)
-    }
-
-    func waitForFetch() async {
-        if fetchCount > 0 {
-            return
-        }
-        await withCheckedContinuation { continuation in
-            self.continuation = continuation
-        }
     }
 }
 
 @MainActor
 private final class RecordingTerminalSessionFactory: CmxTerminalSessionMaking {
     let session = RecordingTerminalSession()
-    private var continuation: CheckedContinuation<Void, Never>?
+    var makeExpectation: XCTestExpectation?
     private(set) var lastRawTicket: String?
     private(set) var lastTicket: CmxBridgeTicket?
     private(set) var lastPairingSecret: String?
@@ -640,18 +634,9 @@ private final class RecordingTerminalSessionFactory: CmxTerminalSessionMaking {
         lastTicket = ticket
         lastPairingSecret = pairingSecret
         lastStackAuthSession = stackAuthSession
-        continuation?.resume()
-        continuation = nil
+        makeExpectation?.fulfill()
+        makeExpectation = nil
         return session
-    }
-
-    func waitForMake() async {
-        if lastTicket != nil {
-            return
-        }
-        await withCheckedContinuation { continuation in
-            self.continuation = continuation
-        }
     }
 }
 
