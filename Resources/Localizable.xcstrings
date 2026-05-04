@@ -56023,13 +56023,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Off by default. Review items stay visible as plain text, and clicks in that area select the workspace row."
+            "value": "Review items stay visible as plain text, and clicks in that area select the workspace row."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "デフォルトではオフです。レビュー項目は通常のテキストとして表示され、その領域をクリックするとワークスペース行が選択されます。"
+            "value": "レビュー項目は通常のテキストとして表示され、その領域をクリックするとワークスペース行が選択されます。"
           }
         }
       }
