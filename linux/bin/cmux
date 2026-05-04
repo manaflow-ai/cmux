@@ -1,0 +1,16 @@
+#!/usr/bin/env sh
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+PREFIX=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+
+export PYTHONPATH="$PREFIX/lib${PYTHONPATH:+:$PYTHONPATH}"
+
+PYTHON_BIN="${CMUX_PYTHON:-python3}"
+if ! "$PYTHON_BIN" -c 'import cmux_linux.cli' >/dev/null 2>&1 \
+    && [ -x /usr/bin/python3 ] \
+    && PYTHONPATH="$PREFIX/lib${PYTHONPATH:+:$PYTHONPATH}" /usr/bin/python3 -c 'import cmux_linux.cli' >/dev/null 2>&1; then
+    PYTHON_BIN=/usr/bin/python3
+fi
+
+exec "$PYTHON_BIN" -m cmux_linux.cli "$@"

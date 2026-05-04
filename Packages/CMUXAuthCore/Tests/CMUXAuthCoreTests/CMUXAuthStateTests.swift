@@ -200,11 +200,15 @@ struct CMUXAuthStateTests {
     }
 }
 
-private final class TestKeyValueStore: CMUXAuthKeyValueStore {
+final class TestKeyValueStore: CMUXAuthKeyValueStore {
     private var storage: [String: Any] = [:]
 
     func bool(forKey defaultName: String) -> Bool {
         storage[defaultName] as? Bool ?? false
+    }
+
+    func string(forKey defaultName: String) -> String? {
+        storage[defaultName] as? String
     }
 
     func data(forKey defaultName: String) -> Data? {

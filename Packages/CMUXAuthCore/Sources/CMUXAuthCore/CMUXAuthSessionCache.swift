@@ -2,6 +2,7 @@ import Foundation
 
 public protocol CMUXAuthKeyValueStore: AnyObject {
     func bool(forKey defaultName: String) -> Bool
+    func string(forKey defaultName: String) -> String?
     func data(forKey defaultName: String) -> Data?
     func set(_ value: Any?, forKey defaultName: String)
     func removeObject(forKey defaultName: String)

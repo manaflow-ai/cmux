@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=cmux
+Comment=Composable terminal workspace
+Exec=cmux-linux
+TryExec=cmux-linux
+Icon=utilities-terminal
+Terminal=false
+Categories=System;TerminalEmulator;Development;
+StartupNotify=true

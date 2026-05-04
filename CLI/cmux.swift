@@ -1,6 +1,16 @@
 import Foundation
+import CMUXAuthCore
+import CMUXCore
+#if canImport(CryptoKit)
 import CryptoKit
+#elseif canImport(Crypto)
+import Crypto
+#endif
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 #if canImport(LocalAuthentication)
 import LocalAuthentication
 #endif
@@ -127,6 +137,12 @@ private final class CLISocketSentryTelemetry {
     }
 
     private static func currentExecutableURL() -> URL? {
+#if os(Linux)
+        if let path = try? FileManager.default.destinationOfSymbolicLink(atPath: "/proc/self/exe"),
+           !path.isEmpty {
+            return URL(fileURLWithPath: path).standardizedFileURL
+        }
+#else
         var size: UInt32 = 0
         _ = _NSGetExecutablePath(nil, &size)
         if size > 0 {
@@ -135,6 +151,7 @@ private final class CLISocketSentryTelemetry {
                 return URL(fileURLWithPath: String(cString: buffer)).standardizedFileURL
             }
         }
+#endif
 
         return Bundle.main.executableURL?.standardizedFileURL
     }
@@ -530,7 +547,7 @@ private final class ClaudeHookSessionStore {
         if fd < 0 {
             throw CLIError(message: "Failed to open Claude hook state lock: \(lockPath)")
         }
-        defer { Darwin.close(fd) }
+        defer { close(fd) }
 
         if flock(fd, LOCK_EX) != 0 {
             throw CLIError(message: "Failed to lock Claude hook state: \(lockPath)")
@@ -699,6 +716,7 @@ enum SocketPasswordResolver {
     }
 
     private static func loadFromKeychain(socketPath: String) -> String? {
+#if canImport(Security) && canImport(LocalAuthentication)
         for service in keychainServices(socketPath: socketPath) {
             let authContext = LAContext()
             authContext.interactionNotAllowed = true
@@ -725,6 +743,7 @@ enum SocketPasswordResolver {
             }
             return password
         }
+#endif
         return nil
     }
 }
@@ -736,8 +755,6 @@ private enum CLISocketPathSource {
 }
 
 private enum CLISocketPathResolver {
-    private static let appSupportDirectoryName = "cmux"
-    private static let stableSocketFileName = "cmux.sock"
     private static let lastSocketPathFileName = "last-socket-path"
     static let legacyDefaultSocketPath = "/tmp/cmux.sock"
     private static let fallbackSocketPath = "/tmp/cmux-debug.sock"
@@ -745,10 +762,11 @@ private enum CLISocketPathResolver {
     private static let legacyLastSocketPathFile = "/tmp/cmux-last-socket-path"
 
     static var defaultSocketPath: String {
-        let stablePath: String? = stableSocketDirectoryURL()?
-            .appendingPathComponent(stableSocketFileName, isDirectory: false)
-            .path
-        return stablePath ?? legacyDefaultSocketPath
+        do {
+            return try resolvedPaths().socketFilePath
+        } catch {
+            return legacyDefaultSocketPath
+        }
     }
 
     static func isImplicitDefaultPath(_ path: String) -> Bool {
@@ -834,7 +852,7 @@ private enum CLISocketPathResolver {
                 if path == defaultSocketPath || path == legacyDefaultSocketPath || path == fallbackSocketPath || path == stagingSocketPath {
                     continue
                 }
-                let modified = TimeInterval(st.st_mtimespec.tv_sec) + TimeInterval(st.st_mtimespec.tv_nsec) / 1_000_000_000
+                let modified = statModificationTime(st)
                 discovered.append((path: path, mtime: modified))
             }
         }
@@ -848,11 +866,19 @@ private enum CLISocketPathResolver {
         return lstat(path, &st) == 0 && (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK)
     }
 
+    private static func statModificationTime(_ value: stat) -> TimeInterval {
+#if os(Linux)
+        return TimeInterval(value.st_mtim.tv_sec) + TimeInterval(value.st_mtim.tv_nsec) / 1_000_000_000
+#else
+        return TimeInterval(value.st_mtimespec.tv_sec) + TimeInterval(value.st_mtimespec.tv_nsec) / 1_000_000_000
+#endif
+    }
+
     private static func canConnect(to path: String) -> Bool {
         guard isSocketFile(path) else { return false }
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { return false }
-        defer { Darwin.close(fd) }
+        defer { close(fd) }
 
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
@@ -866,7 +892,7 @@ private enum CLISocketPathResolver {
 
         let result = withUnsafePointer(to: &addr) { ptr in
             ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                Darwin.connect(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
+                connect(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
             }
         }
         return result == 0
@@ -888,18 +914,53 @@ private enum CLISocketPathResolver {
     }
 
     private static func stableSocketDirectoryURL() -> URL? {
-        guard let appSupportDirectory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+        guard let paths = try? resolvedPaths() else {
             return nil
         }
-        return appSupportDirectory.appendingPathComponent(appSupportDirectoryName, isDirectory: true)
+        return URL(fileURLWithPath: paths.socketDirectory, isDirectory: true)
     }
 
     private static func socketDiscoveryDirectories() -> [String] {
-        let appSupportSocketDirectory: String = stableSocketDirectoryURL()?.path ?? ""
+        let stableSocketDirectory: String = stableSocketDirectoryURL()?.path ?? ""
         return dedupe([
             "/tmp",
-            appSupportSocketDirectory,
+            stableSocketDirectory,
         ])
+    }
+
+    private static func resolvedPaths(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) throws -> CMUXResolvedPaths {
+        try CMUXPathPolicy.resolve(
+            platform: currentPlatform,
+            environment: CMUXPathEnvironment(
+                homeDirectory: environment["HOME"] ?? NSHomeDirectory(),
+                xdgConfigHome: normalized(environment["XDG_CONFIG_HOME"]),
+                xdgStateHome: normalized(environment["XDG_STATE_HOME"]),
+                xdgRuntimeDirectory: normalized(environment["XDG_RUNTIME_DIR"]),
+                macOSApplicationSupportDirectory: macOSApplicationSupportDirectory,
+                temporaryDirectory: NSTemporaryDirectory()
+            )
+        )
+    }
+
+    private static var currentPlatform: CMUXPlatform {
+#if os(Linux)
+        return .linux
+#else
+        return .macOS
+#endif
+    }
+
+    private static var macOSApplicationSupportDirectory: String? {
+#if os(Linux)
+        return nil
+#else
+        return FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first?.path
+#endif
     }
 
     private static func dedupe(_ paths: [String]) -> [String] {
@@ -1003,7 +1064,7 @@ final class SocketClient {
         )
         return timeval(
             tv_sec: Int(seconds),
-            tv_usec: __darwin_suseconds_t(microseconds)
+            tv_usec: suseconds_t(microseconds)
         )
     }
 
@@ -1018,7 +1079,7 @@ final class SocketClient {
 
     func close() {
         if socketFD >= 0 {
-            Darwin.close(socketFD)
+            close(socketFD)
             socketFD = -1
         }
     }
@@ -1064,7 +1125,7 @@ final class SocketClient {
             try configureReceiveTimeout(currentTimeout)
 
             var buffer = [UInt8](repeating: 0, count: 8192)
-            let count = Darwin.read(socketFD, &buffer, buffer.count)
+            let count = read(socketFD, &buffer, buffer.count)
             if count < 0 {
                 if errno == EINTR {
                     continue
@@ -1157,7 +1218,7 @@ final class SocketClient {
 
         let result = withUnsafePointer(to: &addr) { ptr in
             ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                Darwin.connect(socketFD, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
+                connect(socketFD, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
             }
         }
         if result == 0 {
@@ -1165,7 +1226,7 @@ final class SocketClient {
         }
 
         let connectErrno = errno
-        Darwin.close(socketFD)
+        close(socketFD)
         socketFD = -1
         throw CLIError(
             message: "Failed to connect to socket at \(path) (\(String(cString: strerror(connectErrno))), errno \(connectErrno))"
@@ -1252,7 +1313,9 @@ final class SocketClient {
         }
 
         var address = sockaddr_in()
+#if os(macOS)
         address.sin_len = UInt8(MemoryLayout<sockaddr_in>.stride)
+#endif
         address.sin_family = sa_family_t(AF_INET)
         address.sin_port = endpoint.port.bigEndian
         let parsedAddress = withUnsafeMutablePointer(to: &address.sin_addr) { pointer in
@@ -1267,7 +1330,7 @@ final class SocketClient {
 
         let result = withUnsafePointer(to: &address) { pointer in
             pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
-                Darwin.connect(socketFD, sockaddrPointer, socklen_t(MemoryLayout<sockaddr_in>.stride))
+                connect(socketFD, sockaddrPointer, socklen_t(MemoryLayout<sockaddr_in>.stride))
             }
         }
         if result != 0 {
@@ -1300,8 +1363,7 @@ final class SocketClient {
         }
 
         let authMessage = Data("relay_id=\(relayID)\nnonce=\(nonce)\nversion=\(version)".utf8)
-        let key = SymmetricKey(data: credentials.relayToken)
-        let mac = Data(HMAC<SHA256>.authenticationCode(for: authMessage, using: key))
+        let mac = try Self.relayAuthenticationMAC(message: authMessage, token: credentials.relayToken)
         let authPayload = try JSONSerialization.data(withJSONObject: [
             "relay_id": relayID,
             "mac": Self.hexString(from: mac),
@@ -1320,6 +1382,15 @@ final class SocketClient {
         }
     }
 
+    private static func relayAuthenticationMAC(message: Data, token: Data) throws -> Data {
+#if canImport(CryptoKit) || canImport(Crypto)
+        let key = SymmetricKey(data: token)
+        return Data(HMAC<SHA256>.authenticationCode(for: message, using: key))
+#else
+        throw CLIError(message: "Relay authentication requires CryptoKit or Swift Crypto")
+#endif
+    }
+
     private func writeAll(
         _ data: Data,
         timeoutMessage: String,
@@ -1331,7 +1402,7 @@ final class SocketClient {
             }
             var offset = 0
             while offset < data.count {
-                let written = Darwin.write(socketFD, baseAddress.advanced(by: offset), data.count - offset)
+                let written = write(socketFD, baseAddress.advanced(by: offset), data.count - offset)
                 if written < 0 {
                     let errorCode = errno
                     if errorCode == EINTR {
@@ -1394,7 +1465,7 @@ final class SocketClient {
             try configureReceiveTimeout(Self.responseTimeoutSeconds)
 
             var byte: UInt8 = 0
-            let count = Darwin.read(socketFD, &byte, 1)
+            let count = read(socketFD, &byte, 1)
             if count < 0 {
                 if errno == EINTR {
                     continue
@@ -1447,6 +1518,17 @@ final class SocketClient {
             return client
         }
 
+#if os(Linux)
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.05)
+            if (try? client.connect()) != nil {
+                return client
+            }
+        }
+        client.close()
+        throw CLIError(message: "cmux app did not start in time (socket not found at \(path))")
+#else
         guard let watchDirectory = existingWatchDirectory(forPath: path) else {
             throw CLIError(message: "cmux app did not start in time (socket not found at \(path))")
         }
@@ -1476,7 +1558,7 @@ final class SocketClient {
             attemptConnect()
         }
         source.setCancelHandler {
-            Darwin.close(watchFD)
+            close(watchFD)
         }
         source.resume()
         queue.async {
@@ -1491,6 +1573,7 @@ final class SocketClient {
 
         source.cancel()
         return client
+#endif
     }
 
     static func waitForFilesystemPath(_ path: String, timeout: TimeInterval) throws {
@@ -1498,6 +1581,16 @@ final class SocketClient {
             return
         }
 
+#if os(Linux)
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.05)
+            if FileManager.default.fileExists(atPath: path) {
+                return
+            }
+        }
+        throw CLIError(message: "Timed out waiting for \(path)")
+#else
         guard let watchDirectory = existingWatchDirectory(forPath: path) else {
             throw CLIError(message: "Timed out waiting for \(path)")
         }
@@ -1527,7 +1620,7 @@ final class SocketClient {
             checkPath()
         }
         source.setCancelHandler {
-            Darwin.close(watchFD)
+            close(watchFD)
         }
         source.resume()
         queue.async {
@@ -1540,6 +1633,7 @@ final class SocketClient {
         }
 
         source.cancel()
+#endif
     }
 
     private static func existingWatchDirectory(forPath path: String) -> String? {
@@ -1558,6 +1652,14 @@ final class SocketClient {
             candidate = parent
         }
         return nil
+    }
+
+    func sendV2(
+        method: SocketMethod,
+        params: [String: Any] = [:],
+        responseTimeout: TimeInterval? = nil
+    ) throws -> [String: Any] {
+        try sendV2(method: method.rawValue, params: params, responseTimeout: responseTimeout)
     }
 
     func sendV2(
@@ -2025,7 +2127,8 @@ struct CMUXCLI {
             throw CLIError(message: "Missing command")
         }
 
-        let command = args[index]
+        let rawCommand = args[index]
+        let command = CLICommandRegistry.canonicalName(for: rawCommand) ?? rawCommand
         let commandArgs = Array(args[(index + 1)...])
 
         if command == "version" {
@@ -2047,6 +2150,7 @@ struct CMUXCLI {
         }
 
         if command == "help" { print(usage()); return }
+        if command == "auth-bridge" { try runAuthBridge(); return }
         if command == "remote-daemon-status" { try runRemoteDaemonStatus(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "vm-pty-connect" { try runVMPtyConnect(commandArgs: commandArgs); return }
         if command == "docs" { try runDocsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
@@ -2277,7 +2381,7 @@ struct CMUXCLI {
         if let windowId {
             do {
                 let normalizedWindow = try normalizeWindowHandle(windowId, client: client) ?? windowId
-                _ = try client.sendV2(method: "window.focus", params: ["window_id": normalizedWindow])
+                _ = try client.sendV2(method: SocketMethod.windowFocus, params: ["window_id": normalizedWindow])
             } catch {
                 captureSocketTransportError(telemetry: cliTelemetry, stage: "socket_command_window_focus", error: error, client: client)
                 throw error
@@ -2293,14 +2397,14 @@ struct CMUXCLI {
             print(response)
 
         case "capabilities":
-            let response = try client.sendV2(method: "system.capabilities")
+            let response = try client.sendV2(method: SocketMethod.systemCapabilities)
             print(jsonString(formatIDs(response, mode: idFormat)))
 
         case "auth":
             let sub = commandArgs.first?.lowercased() ?? "status"
             switch sub {
             case "status":
-                let response = try client.sendV2(method: "auth.status")
+                let response = try client.sendV2(method: SocketMethod.authStatus)
                 if jsonOutput {
                     print(jsonString(response))
                     break
@@ -2324,7 +2428,7 @@ struct CMUXCLI {
                 }
 
             case "login":
-                let statusBefore = try client.sendV2(method: "auth.status")
+                let statusBefore = try client.sendV2(method: SocketMethod.authStatus)
                 if (statusBefore["signed_in"] as? Bool) == true {
                     let email = (statusBefore["user"] as? [String: Any])?["email"] as? String
                     print("Already signed in\(email.map { " as \($0)" } ?? ""). Use `cmux auth logout` to sign out first.")
@@ -2334,7 +2438,7 @@ struct CMUXCLI {
                 // auth.begin_sign_in blocks on the server side until the
                 // popup completes (or 5min timeout). The response is the
                 // callback — no polling.
-                let result = try client.sendV2(method: "auth.begin_sign_in", responseTimeout: 305)
+                let result = try client.sendV2(method: SocketMethod.authBeginSignIn, responseTimeout: 305)
                 if (result["signed_in"] as? Bool) == true {
                     let email = (result["user"] as? [String: Any])?["email"] as? String
                     print("Signed in\(email.map { " as \($0)" } ?? "").")
@@ -2345,13 +2449,13 @@ struct CMUXCLI {
                 }
 
             case "logout":
-                let statusBefore = try client.sendV2(method: "auth.status")
+                let statusBefore = try client.sendV2(method: SocketMethod.authStatus)
                 if (statusBefore["signed_in"] as? Bool) != true {
                     print("Already signed out.")
                     break
                 }
                 // auth.sign_out awaits the token clear before replying.
-                let result = try client.sendV2(method: "auth.sign_out")
+                let result = try client.sendV2(method: SocketMethod.authSignOut)
                 if (result["signed_in"] as? Bool) != true {
                     print("Signed out.")
                 } else {
@@ -2589,7 +2693,7 @@ struct CMUXCLI {
                     }
                 }
             }
-            let response = try client.sendV2(method: "system.identify", params: params)
+            let response = try client.sendV2(method: SocketMethod.systemIdentify, params: params)
             print(jsonString(formatIDs(response, mode: idFormat)))
 
         case "list-windows":
@@ -2649,7 +2753,7 @@ struct CMUXCLI {
             if let wsId { params["workspace_id"] = wsId }
             let winId = try normalizeWindowHandle(windowRaw, client: client)
             if let winId { params["window_id"] = winId }
-            let payload = try client.sendV2(method: "workspace.move_to_window", params: params)
+            let payload = try client.sendV2(method: SocketMethod.workspaceMoveToWindow, params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace", "window"]))
 
         case "move-surface":
@@ -2671,7 +2775,7 @@ struct CMUXCLI {
             try runRenameTab(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowId)
 
         case "list-workspaces":
-            let payload = try client.sendV2(method: "workspace.list")
+            let payload = try client.sendV2(method: SocketMethod.workspaceList)
             if jsonOutput {
                 print(jsonString(formatIDs(payload, mode: idFormat)))
             } else {
@@ -2738,13 +2842,13 @@ struct CMUXCLI {
                 }
                 params["layout"] = layoutObj
             }
-            let response = try client.sendV2(method: "workspace.create", params: params)
+            let response = try client.sendV2(method: SocketMethod.workspaceCreate, params: params)
             let wsId = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
             print("OK \(wsId)")
             if layoutOpt == nil, let commandText = commandOpt, !wsId.isEmpty {
                 let text = unescapeSendText(commandText + "\\n")
                 let sendParams: [String: Any] = ["text": text, "workspace_id": wsId]
-                _ = try client.sendV2(method: "surface.send_text", params: sendParams)
+                _ = try client.sendV2(method: SocketMethod.surfaceSendText, params: sendParams)
             }
 
         case "new-split":
@@ -2761,7 +2865,7 @@ struct CMUXCLI {
             if let wsId { params["workspace_id"] = wsId }
             let sfId = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: wsId)
             if let sfId { params["surface_id"] = sfId }
-            let payload = try client.sendV2(method: "surface.split", params: params)
+            let payload = try client.sendV2(method: SocketMethod.surfaceSplit, params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
 
         case "list-panes":
@@ -2769,7 +2873,7 @@ struct CMUXCLI {
             var params: [String: Any] = [:]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }
-            let payload = try client.sendV2(method: "pane.list", params: params)
+            let payload = try client.sendV2(method: SocketMethod.paneList, params: params)
             if jsonOutput {
                 print(jsonString(formatIDs(payload, mode: idFormat)))
             } else {
@@ -2796,7 +2900,7 @@ struct CMUXCLI {
             if let wsId { params["workspace_id"] = wsId }
             let paneId = try normalizePaneHandle(paneRaw, client: client, workspaceHandle: wsId)
             if let paneId { params["pane_id"] = paneId }
-            let payload = try client.sendV2(method: "pane.surfaces", params: params)
+            let payload = try client.sendV2(method: SocketMethod.paneSurfaces, params: params)
             if jsonOutput {
                 print(jsonString(formatIDs(payload, mode: idFormat)))
             } else {
@@ -2831,7 +2935,7 @@ struct CMUXCLI {
             if let wsId { params["workspace_id"] = wsId }
             let paneId = try normalizePaneHandle(paneRaw, client: client, workspaceHandle: wsId)
             if let paneId { params["pane_id"] = paneId }
-            let payload = try client.sendV2(method: "pane.focus", params: params)
+            let payload = try client.sendV2(method: SocketMethod.paneFocus, params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["pane", "workspace"]))
 
         case "new-pane":
@@ -2844,7 +2948,7 @@ struct CMUXCLI {
             if let wsId { params["workspace_id"] = wsId }
             if let type { params["type"] = type }
             if let url { params["url"] = url }
-            let payload = try client.sendV2(method: "pane.create", params: params)
+            let payload = try client.sendV2(method: SocketMethod.paneCreate, params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "workspace"]))
 
         case "new-surface":
@@ -2859,7 +2963,7 @@ struct CMUXCLI {
             if let paneId { params["pane_id"] = paneId }
             if let type { params["type"] = type }
             if let url { params["url"] = url }
-            let payload = try client.sendV2(method: "surface.create", params: params)
+            let payload = try client.sendV2(method: SocketMethod.surfaceCreate, params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "workspace"]))
 
         case "close-surface":
@@ -2871,7 +2975,7 @@ struct CMUXCLI {
             if let wsId { params["workspace_id"] = wsId }
             let sfId = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: wsId)
             if let sfId { params["surface_id"] = sfId }
-            let payload = try client.sendV2(method: "surface.close", params: params)
+            let payload = try client.sendV2(method: SocketMethod.surfaceClose, params: params)
             if let closedWorkspaceId = (payload["workspace_id"] as? String) ?? wsId,
                let closedSurfaceId = (payload["surface_id"] as? String) ?? sfId {
                 try? tmuxPruneCompatSurfaceState(
@@ -2910,7 +3014,7 @@ struct CMUXCLI {
             var params: [String: Any] = [:]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }
-            let payload = try client.sendV2(method: "surface.health", params: params)
+            let payload = try client.sendV2(method: SocketMethod.surfaceHealth, params: params)
             if jsonOutput {
                 print(jsonString(formatIDs(payload, mode: idFormat)))
             } else {
@@ -2938,7 +3042,7 @@ struct CMUXCLI {
             if let extra = unexpected.first {
                 throw CLIError(message: "debug-terminals: unexpected argument '\(extra)'")
             }
-            let payload = try client.sendV2(method: "debug.terminals")
+            let payload = try client.sendV2(method: SocketMethod.debugTerminals)
             if jsonOutput {
                 print(jsonString(formatIDs(payload, mode: idFormat)))
             } else {
@@ -2978,7 +3082,7 @@ struct CMUXCLI {
                 )
             }()
             if let sfId { params["surface_id"] = sfId }
-            let payload = try client.sendV2(method: "surface.trigger_flash", params: params)
+            let payload = try client.sendV2(method: SocketMethod.surfaceTriggerFlash, params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
 
         case "list-panels":
@@ -2986,7 +3090,7 @@ struct CMUXCLI {
             var params: [String: Any] = [:]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }
-            let payload = try client.sendV2(method: "surface.list", params: params)
+            let payload = try client.sendV2(method: SocketMethod.surfaceList, params: params)
             if jsonOutput {
                 print(jsonString(formatIDs(payload, mode: idFormat)))
             } else {
@@ -3017,7 +3121,7 @@ struct CMUXCLI {
             if let wsId { params["workspace_id"] = wsId }
             let sfId = try normalizeSurfaceHandle(panelRaw, client: client, workspaceHandle: wsId)
             if let sfId { params["surface_id"] = sfId }
-            let payload = try client.sendV2(method: "surface.focus", params: params)
+            let payload = try client.sendV2(method: SocketMethod.surfaceFocus, params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
 
         case "close-workspace":
@@ -3027,7 +3131,7 @@ struct CMUXCLI {
             var params: [String: Any] = [:]
             let wsId = try normalizeWorkspaceHandle(workspaceRaw, client: client)
             if let wsId { params["workspace_id"] = wsId }
-            let payload = try client.sendV2(method: "workspace.close", params: params)
+            let payload = try client.sendV2(method: SocketMethod.workspaceClose, params: params)
             if let closedWorkspaceId = (payload["workspace_id"] as? String) ?? wsId {
                 try? tmuxPruneCompatWorkspaceState(workspaceId: closedWorkspaceId)
             }
@@ -3040,7 +3144,7 @@ struct CMUXCLI {
             var params: [String: Any] = [:]
             let wsId = try normalizeWorkspaceHandle(workspaceRaw, client: client)
             if let wsId { params["workspace_id"] = wsId }
-            let payload = try client.sendV2(method: "workspace.select", params: params)
+            let payload = try client.sendV2(method: SocketMethod.workspaceSelect, params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
 
         case "rename-workspace", "rename-window":
@@ -3053,11 +3157,11 @@ struct CMUXCLI {
             }
             let wsId = try resolveWorkspaceId(workspaceArg, client: client)
             let params: [String: Any] = ["title": title, "workspace_id": wsId]
-            let payload = try client.sendV2(method: "workspace.rename", params: params)
+            let payload = try client.sendV2(method: SocketMethod.workspaceRename, params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
 
         case "current-workspace":
-            let response = try client.sendV2(method: "workspace.current")
+            let response = try client.sendV2(method: SocketMethod.workspaceCurrent)
             if jsonOutput {
                 print(jsonString(formatIDs(response, mode: idFormat)))
             } else {
@@ -3097,7 +3201,7 @@ struct CMUXCLI {
                 params["scrollback"] = true
             }
 
-            let payload = try client.sendV2(method: "surface.read_text", params: params)
+            let payload = try client.sendV2(method: SocketMethod.surfaceReadText, params: params)
             if jsonOutput {
                 print(jsonString(payload))
             } else {
@@ -3117,7 +3221,7 @@ struct CMUXCLI {
             if let wsId { params["workspace_id"] = wsId }
             let sfId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId)
             if let sfId { params["surface_id"] = sfId }
-            let payload = try client.sendV2(method: "surface.send_text", params: params)
+            let payload = try client.sendV2(method: SocketMethod.surfaceSendText, params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
 
         case "send-key":
@@ -3132,7 +3236,7 @@ struct CMUXCLI {
             if let wsId { params["workspace_id"] = wsId }
             let sfId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId)
             if let sfId { params["surface_id"] = sfId }
-            let payload = try client.sendV2(method: "surface.send_key", params: params)
+            let payload = try client.sendV2(method: SocketMethod.surfaceSendKey, params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
 
         case "send-panel":
@@ -3150,7 +3254,7 @@ struct CMUXCLI {
             if let wsId { params["workspace_id"] = wsId }
             let sfId = try normalizeSurfaceHandle(panelArg, client: client, workspaceHandle: wsId)
             if let sfId { params["surface_id"] = sfId }
-            let payload = try client.sendV2(method: "surface.send_text", params: params)
+            let payload = try client.sendV2(method: SocketMethod.surfaceSendText, params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
 
         case "send-key-panel":
@@ -3168,7 +3272,7 @@ struct CMUXCLI {
             if let wsId { params["workspace_id"] = wsId }
             let sfId = try normalizeSurfaceHandle(panelArg, client: client, workspaceHandle: wsId)
             if let sfId { params["surface_id"] = sfId }
-            let payload = try client.sendV2(method: "surface.send_key", params: params)
+            let payload = try client.sendV2(method: SocketMethod.surfaceSendKey, params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
 
         case "notify":
@@ -3442,7 +3546,29 @@ struct CMUXCLI {
         }
     }
 
-    func resolvePath(_ path: String) -> String {
+    private func runAuthBridge() throws {
+        let input = FileHandle.standardInput.readDataToEndOfFile()
+        guard !input.isEmpty else {
+            throw CLIError(message: "invalid_params:auth-bridge requires stdin JSON")
+        }
+
+        do {
+            let output = try CMUXAuthBridge().handleJSONRequest(input)
+            FileHandle.standardOutput.write(output)
+            FileHandle.standardOutput.write(Data("\n".utf8))
+        } catch let error as CMUXAuthBridgeError {
+            switch error {
+            case .backendUnavailable:
+                throw CLIError(message: "backend_unavailable")
+            case .invalidRequest(let reason):
+                throw CLIError(message: "invalid_params:\(reason)")
+            }
+        } catch is DecodingError {
+            throw CLIError(message: "invalid_params:invalid_json")
+        }
+    }
+
+    private func resolvePath(_ path: String) -> String {
         let expanded = NSString(string: path).expandingTildeInPath
         if expanded.hasPrefix("/") { return expanded }
         let cwd = FileManager.default.currentDirectoryPath
@@ -3568,7 +3694,7 @@ struct CMUXCLI {
             }
         }
 
-        let payload = try client.sendV2(method: "markdown.open", params: params)
+        let payload = try client.sendV2(method: SocketMethod.markdownOpen, params: params)
 
         if jsonOutput {
             print(jsonString(formatIDs(payload, mode: idFormat)))
@@ -3613,7 +3739,7 @@ struct CMUXCLI {
             let launchedClient = try SocketClient.waitForConnectableSocket(path: socketPath, timeout: 10)
             defer { launchedClient.close() }
             let params: [String: Any] = ["cwd": directory]
-            let response = try launchedClient.sendV2(method: "workspace.create", params: params)
+            let response = try launchedClient.sendV2(method: SocketMethod.workspaceCreate, params: params)
             let wsRef = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
             if !wsRef.isEmpty {
                 print("OK \(wsRef)")
@@ -3624,7 +3750,7 @@ struct CMUXCLI {
         defer { client.close() }
 
         let params: [String: Any] = ["cwd": directory]
-        let response = try client.sendV2(method: "workspace.create", params: params)
+        let response = try client.sendV2(method: SocketMethod.workspaceCreate, params: params)
         let wsRef = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
         if !wsRef.isEmpty {
             print("OK \(wsRef)")
@@ -3666,7 +3792,7 @@ struct CMUXCLI {
             } else {
                 params["activate"] = true
             }
-            let response = try client.sendV2(method: "feedback.open", params: params)
+            let response = try client.sendV2(method: SocketMethod.feedbackOpen, params: params)
             if jsonOutput {
                 print(jsonString(response))
             } else {
@@ -3684,10 +3810,39 @@ struct CMUXCLI {
         }
 
         let resolvedImages = imagePaths.map(resolvePath)
-        let response = try client.sendV2(method: "feedback.submit", params: [
+        let response = try client.sendV2(method: SocketMethod.feedbackSubmit, params: [
             "email": email,
             "body": body,
             "image_paths": resolvedImages,
+        ])
+        if jsonOutput {
+            print(jsonString(response))
+        } else {
+            print("OK")
+        }
+    }
+
+    private func runShortcuts(
+        commandArgs: [String],
+        socketPath: String,
+        explicitPassword: String?,
+        jsonOutput: Bool
+    ) throws {
+        let remaining = commandArgs.filter { $0 != "--" }
+        if let unknown = remaining.first {
+            throw CLIError(message: "shortcuts: unknown flag '\(unknown)'")
+        }
+
+        let client = try connectClient(
+            socketPath: socketPath,
+            explicitPassword: explicitPassword,
+            launchIfNeeded: true
+        )
+        defer { client.close() }
+
+        let response = try client.sendV2(method: SocketMethod.settingsOpen, params: [
+            "target": "keyboardShortcuts",
+            "activate": true,
         ])
         if jsonOutput {
             print(jsonString(response))
@@ -3727,7 +3882,7 @@ struct CMUXCLI {
             socketPath: socketPath
         )
 
-        let response = try client.sendV2(method: "session.restore_previous")
+        let response = try client.sendV2(method: SocketMethod.sessionRestorePrevious)
         if jsonOutput {
             var payload = response
             payload["launched"] = launched
@@ -3914,7 +4069,7 @@ struct CMUXCLI {
     func normalizeWindowHandle(_ raw: String?, client: SocketClient, allowCurrent: Bool = false) throws -> String? {
         guard let raw else {
             if !allowCurrent { return nil }
-            let current = try client.sendV2(method: "window.current")
+            let current = try client.sendV2(method: SocketMethod.windowCurrent)
             return (current["window_ref"] as? String) ?? (current["window_id"] as? String)
         }
 
@@ -3927,7 +4082,7 @@ struct CMUXCLI {
             throw CLIError(message: "Invalid window handle: \(trimmed) (expected UUID, ref like window:1, or index)")
         }
 
-        let listed = try client.sendV2(method: "window.list")
+        let listed = try client.sendV2(method: SocketMethod.windowList)
         let windows = listed["windows"] as? [[String: Any]] ?? []
         for item in windows where intFromAny(item["index"]) == wantedIndex {
             return (item["ref"] as? String) ?? (item["id"] as? String)
@@ -3943,7 +4098,7 @@ struct CMUXCLI {
     ) throws -> String? {
         guard let raw else {
             if !allowCurrent { return nil }
-            let current = try client.sendV2(method: "workspace.current")
+            let current = try client.sendV2(method: SocketMethod.workspaceCurrent)
             return (current["workspace_ref"] as? String) ?? (current["workspace_id"] as? String)
         }
 
@@ -3960,7 +4115,7 @@ struct CMUXCLI {
         if let windowHandle {
             params["window_id"] = windowHandle
         }
-        let listed = try client.sendV2(method: "workspace.list", params: params)
+        let listed = try client.sendV2(method: SocketMethod.workspaceList, params: params)
         let items = listed["workspaces"] as? [[String: Any]] ?? []
         for item in items where intFromAny(item["index"]) == wantedIndex {
             return (item["ref"] as? String) ?? (item["id"] as? String)
@@ -3976,7 +4131,7 @@ struct CMUXCLI {
     ) throws -> String? {
         guard let raw else {
             if !allowFocused { return nil }
-            let ident = try client.sendV2(method: "system.identify")
+            let ident = try client.sendV2(method: SocketMethod.systemIdentify)
             let focused = ident["focused"] as? [String: Any] ?? [:]
             return (focused["pane_ref"] as? String) ?? (focused["pane_id"] as? String)
         }
@@ -3994,7 +4149,7 @@ struct CMUXCLI {
         if let workspaceHandle {
             params["workspace_id"] = workspaceHandle
         }
-        let listed = try client.sendV2(method: "pane.list", params: params)
+        let listed = try client.sendV2(method: SocketMethod.paneList, params: params)
         let items = listed["panes"] as? [[String: Any]] ?? []
         for item in items where intFromAny(item["index"]) == wantedIndex {
             return (item["ref"] as? String) ?? (item["id"] as? String)
@@ -4010,7 +4165,7 @@ struct CMUXCLI {
     ) throws -> String? {
         guard let raw else {
             if !allowFocused { return nil }
-            let ident = try client.sendV2(method: "system.identify")
+            let ident = try client.sendV2(method: SocketMethod.systemIdentify)
             let focused = ident["focused"] as? [String: Any] ?? [:]
             return (focused["surface_ref"] as? String) ?? (focused["surface_id"] as? String)
         }
@@ -4028,7 +4183,7 @@ struct CMUXCLI {
         if let workspaceHandle {
             params["workspace_id"] = workspaceHandle
         }
-        let listed = try client.sendV2(method: "surface.list", params: params)
+        let listed = try client.sendV2(method: SocketMethod.surfaceList, params: params)
         let items = listed["surfaces"] as? [[String: Any]] ?? []
         for item in items where intFromAny(item["index"]) == wantedIndex {
             return (item["ref"] as? String) ?? (item["id"] as? String)
@@ -4345,7 +4500,7 @@ struct CMUXCLI {
             params["focus"] = focus
         }
 
-        let payload = try client.sendV2(method: "surface.move", params: params)
+        let payload = try client.sendV2(method: SocketMethod.surfaceMove, params: params)
         let summary = "OK surface=\(formatHandle(payload, kind: "surface", idFormat: idFormat) ?? "unknown") pane=\(formatHandle(payload, kind: "pane", idFormat: idFormat) ?? "unknown") workspace=\(formatHandle(payload, kind: "workspace", idFormat: idFormat) ?? "unknown") window=\(formatHandle(payload, kind: "window", idFormat: idFormat) ?? "unknown")"
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: summary)
     }
@@ -4381,7 +4536,7 @@ struct CMUXCLI {
             params["index"] = index
         }
 
-        let payload = try client.sendV2(method: "surface.reorder", params: params)
+        let payload = try client.sendV2(method: SocketMethod.surfaceReorder, params: params)
         let summary = "OK surface=\(formatHandle(payload, kind: "surface", idFormat: idFormat) ?? "unknown") pane=\(formatHandle(payload, kind: "pane", idFormat: idFormat) ?? "unknown") workspace=\(formatHandle(payload, kind: "workspace", idFormat: idFormat) ?? "unknown")"
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: summary)
     }
@@ -4420,7 +4575,7 @@ struct CMUXCLI {
             params["window_id"] = windowHandle
         }
 
-        let payload = try client.sendV2(method: "workspace.reorder", params: params)
+        let payload = try client.sendV2(method: SocketMethod.workspaceReorder, params: params)
         let summary = "OK workspace=\(formatHandle(payload, kind: "workspace", idFormat: idFormat) ?? "unknown") window=\(formatHandle(payload, kind: "window", idFormat: idFormat) ?? "unknown") index=\(payload["index"] ?? "?")"
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: summary)
     }
@@ -4493,7 +4648,7 @@ struct CMUXCLI {
             params["description"] = description
         }
 
-        let payload = try client.sendV2(method: "workspace.action", params: params)
+        let payload = try client.sendV2(method: SocketMethod.workspaceAction, params: params)
         var summaryParts = ["OK", "action=\(action)"]
         if let workspaceHandle = formatHandle(payload, kind: "workspace", idFormat: idFormat) {
             summaryParts.append("workspace=\(workspaceHandle)")
@@ -4583,7 +4738,7 @@ struct CMUXCLI {
             params["url"] = urlOpt.trimmingCharacters(in: .whitespacesAndNewlines)
         }
         try applyTabActionFocusOption(focusOpt, to: &params)
-        let payload = try client.sendV2(method: "tab.action", params: params)
+        let payload = try client.sendV2(method: SocketMethod.tabAction, params: params)
         var summaryParts = ["OK", "action=\(action)"]
         if let tabHandle = formatTabHandle(payload, idFormat: idFormat) { summaryParts.append("tab=\(tabHandle)") }
         if let workspaceHandle = formatHandle(payload, kind: "workspace", idFormat: idFormat) { summaryParts.append("workspace=\(workspaceHandle)") }
@@ -4740,10 +4895,33 @@ struct CMUXCLI {
 
     private func randomHex(byteCount: Int) throws -> String {
         var bytes = [UInt8](repeating: 0, count: byteCount)
+#if canImport(Security)
         let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
         guard status == errSecSuccess else {
             throw CLIError(message: "failed to generate SSH relay credential")
         }
+#else
+        let randomFD = open("/dev/urandom", O_RDONLY)
+        guard randomFD >= 0 else {
+            throw CLIError(message: "failed to open system random source")
+        }
+        defer { close(randomFD) }
+
+        var offset = 0
+        while offset < bytes.count {
+            let readCount = bytes.withUnsafeMutableBufferPointer { buffer in
+                read(randomFD, buffer.baseAddress!.advanced(by: offset), bytes.count - offset)
+            }
+            if readCount < 0 {
+                if errno == EINTR { continue }
+                throw CLIError(message: "failed to read system random source")
+            }
+            guard readCount > 0 else {
+                throw CLIError(message: "system random source returned EOF")
+            }
+            offset += readCount
+        }
+#endif
         return bytes.map { String(format: "%02x", $0) }.joined()
     }
 
@@ -4903,7 +5081,7 @@ struct CMUXCLI {
         ]
 
         let workspaceCreateStartedAt = Date()
-        let workspaceCreate = try client.sendV2(method: "workspace.create", params: workspaceCreateParams)
+        let workspaceCreate = try client.sendV2(method: SocketMethod.workspaceCreate, params: workspaceCreateParams)
         guard let workspaceId = workspaceCreate["workspace_id"] as? String, !workspaceId.isEmpty else {
             throw CLIError(message: "workspace.create did not return workspace_id")
         }
@@ -4921,7 +5099,7 @@ struct CMUXCLI {
         do {
             if let workspaceName = sshOptions.workspaceName?.trimmingCharacters(in: .whitespacesAndNewlines),
                !workspaceName.isEmpty {
-                _ = try client.sendV2(method: "workspace.rename", params: [
+                _ = try client.sendV2(method: SocketMethod.workspaceRename, params: [
                     "workspace_id": workspaceId,
                     "title": workspaceName,
                 ])
@@ -4963,7 +5141,7 @@ struct CMUXCLI {
                 "sshOptions=\(remoteSSHOptions.joined(separator: "|"))"
             )
             let configureStartedAt = Date()
-            configuredPayload = try client.sendV2(method: "workspace.remote.configure", params: configureParams)
+            configuredPayload = try client.sendV2(method: SocketMethod.workspaceRemoteConfigure, params: configureParams)
             var selectParams: [String: Any] = ["workspace_id": workspaceId]
             if let workspaceWindowId, !workspaceWindowId.isEmpty {
                 selectParams["window_id"] = workspaceWindowId
@@ -4973,7 +5151,7 @@ struct CMUXCLI {
             // up the remote connection — unless --no-focus is passed.
             if !sshOptions.noFocus {
                 let selectStartedAt = Date()
-                _ = try client.sendV2(method: "workspace.select", params: selectParams)
+                _ = try client.sendV2(method: SocketMethod.workspaceSelect, params: selectParams)
                 cliDebugLog(
                     "cli.ssh.timing target=\(sshOptions.displayDestination) relayPort=\(sshOptions.remoteRelayPort) " +
                     "workspace=\(String(workspaceId.prefix(8))) stage=workspace.select elapsedMs=\(Int(Date().timeIntervalSince(selectStartedAt) * 1000))"
@@ -4992,7 +5170,7 @@ struct CMUXCLI {
                 "cli.ssh.remote.configure.error workspace=\(String(workspaceId.prefix(8))) error=\(String(describing: error))"
             )
             do {
-                _ = try client.sendV2(method: "workspace.close", params: ["workspace_id": workspaceId])
+                _ = try client.sendV2(method: SocketMethod.workspaceClose, params: ["workspace_id": workspaceId])
             } catch {
                 let warning = "Warning: failed to rollback workspace \(workspaceId): \(error)\n"
                 FileHandle.standardError.write(Data(warning.utf8))
@@ -6526,7 +6704,7 @@ struct CMUXCLI {
               !surfaceId.isEmpty else {
             throw CLIError(message: "ssh-session-end requires --surface or CMUX_SURFACE_ID")
         }
-        _ = try client.sendV2(method: "workspace.remote.terminal_session_end", params: [
+        _ = try client.sendV2(method: SocketMethod.workspaceRemoteTerminalSessionEnd, params: [
             "workspace_id": workspaceId,
             "surface_id": surfaceId,
             "relay_port": relayPort,
@@ -6694,8 +6872,12 @@ struct CMUXCLI {
 
     private func sha256Hex(forFile url: URL) throws -> String {
         let data = try Data(contentsOf: url)
+#if canImport(CryptoKit) || canImport(Crypto)
         let digest = SHA256.hash(data: data)
         return digest.map { String(format: "%02x", $0) }.joined()
+#else
+        throw CLIError(message: "SHA-256 verification requires CryptoKit or Swift Crypto")
+#endif
     }
 
     private func hasSSHOptionKey(_ options: [String], key: String) -> Bool {
@@ -7061,10 +7243,10 @@ struct CMUXCLI {
 
         if subcommand == "identify" {
             let surface = try normalizeSurfaceHandle(surfaceRaw, client: client, allowFocused: true)
-            var payload = try client.sendV2(method: "system.identify")
+            var payload = try client.sendV2(method: SocketMethod.systemIdentify)
             if let surface {
-                let urlPayload = try client.sendV2(method: "browser.url.get", params: ["surface_id": surface])
-                let titlePayload = try client.sendV2(method: "browser.get.title", params: ["surface_id": surface])
+                let urlPayload = try client.sendV2(method: SocketMethod.browserURLGet, params: ["surface_id": surface])
+                let titlePayload = try client.sendV2(method: SocketMethod.browserGetTitle, params: ["surface_id": surface])
                 var browser: [String: Any] = [:]
                 browser["surface"] = surface
                 browser["url"] = urlPayload["url"] ?? ""
@@ -7098,7 +7280,7 @@ struct CMUXCLI {
                 guard !url.isEmpty else {
                     throw CLIError(message: "browser <surface> open requires a URL")
                 }
-                let payload = try client.sendV2(method: "browser.navigate", params: ["surface_id": sid, "url": url])
+                let payload = try client.sendV2(method: SocketMethod.browserNavigate, params: ["surface_id": sid, "url": url])
                 output(payload, fallback: "OK")
                 return
             }
@@ -7124,7 +7306,7 @@ struct CMUXCLI {
                     params["window_id"] = window
                 }
             }
-            let payload = try client.sendV2(method: "browser.open_split", params: params)
+            let payload = try client.sendV2(method: SocketMethod.browserOpenSplit, params: params)
             let surfaceText = formatHandle(payload, kind: "surface", idFormat: effectiveIDFormat) ?? "unknown"
             let paneText = formatHandle(payload, kind: "pane", idFormat: effectiveIDFormat) ?? "unknown"
             let placement = ((payload["created_split"] as? Bool) == true) ? "split" : "reuse"
@@ -7147,30 +7329,28 @@ struct CMUXCLI {
             if snapshotAfter {
                 params["snapshot_after"] = true
             }
-            let payload = try client.sendV2(method: "browser.navigate", params: params)
+            let payload = try client.sendV2(method: SocketMethod.browserNavigate, params: params)
             output(payload, fallback: "OK")
             return
         }
 
         if subcommand == "back" || subcommand == "forward" || subcommand == "reload" {
             let sid = try requireSurface()
-            let methodMap: [String: String] = [
-                "back": "browser.back",
-                "forward": "browser.forward",
-                "reload": "browser.reload",
-            ]
+            guard let method = BrowserCommandMethod.history(subcommand) else {
+                throw CLIError(message: "Unsupported browser history subcommand: \(subcommand)")
+            }
             var params: [String: Any] = ["surface_id": sid]
             if hasFlag(subArgs, name: "--snapshot-after") {
                 params["snapshot_after"] = true
             }
-            let payload = try client.sendV2(method: methodMap[subcommand]!, params: params)
+            let payload = try client.sendV2(method: method, params: params)
             output(payload, fallback: "OK")
             return
         }
 
         if subcommand == "url" || subcommand == "get-url" {
             let sid = try requireSurface()
-            let payload = try client.sendV2(method: "browser.url.get", params: ["surface_id": sid])
+            let payload = try client.sendV2(method: SocketMethod.browserURLGet, params: ["surface_id": sid])
             if effectiveJSONOutput {
                 print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
             } else {
@@ -7181,14 +7361,14 @@ struct CMUXCLI {
 
         if ["focus-webview", "focus_webview"].contains(subcommand) {
             let sid = try requireSurface()
-            let payload = try client.sendV2(method: "browser.focus_webview", params: ["surface_id": sid])
+            let payload = try client.sendV2(method: SocketMethod.browserFocusWebView, params: ["surface_id": sid])
             output(payload, fallback: "OK")
             return
         }
 
         if ["is-webview-focused", "is_webview_focused"].contains(subcommand) {
             let sid = try requireSurface()
-            let payload = try client.sendV2(method: "browser.is_webview_focused", params: ["surface_id": sid])
+            let payload = try client.sendV2(method: SocketMethod.browserIsWebViewFocused, params: ["surface_id": sid])
             if effectiveJSONOutput {
                 print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
             } else {
@@ -7222,7 +7402,7 @@ struct CMUXCLI {
                 params["max_depth"] = depth
             }
 
-            let payload = try client.sendV2(method: "browser.snapshot", params: params)
+            let payload = try client.sendV2(method: SocketMethod.browserSnapshot, params: params)
             if effectiveJSONOutput {
                 print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
             } else {
@@ -7238,7 +7418,7 @@ struct CMUXCLI {
             guard !trimmed.isEmpty else {
                 throw CLIError(message: "browser eval requires a script")
             }
-            let payload = try client.sendV2(method: "browser.eval", params: ["surface_id": sid, "script": trimmed])
+            let payload = try client.sendV2(method: SocketMethod.browserEval, params: ["surface_id": sid, "script": trimmed])
             let fallback: String
             if let value = payload["value"] {
                 fallback = displayBrowserValue(value)
@@ -7289,7 +7469,7 @@ struct CMUXCLI {
                 params["timeout_ms"] = max(1, Int(seconds * 1000.0))
             }
 
-            let payload = try client.sendV2(method: "browser.wait", params: params)
+            let payload = try client.sendV2(method: SocketMethod.browserWait, params: params)
             output(payload, fallback: "OK")
             return
         }
@@ -7301,22 +7481,14 @@ struct CMUXCLI {
             guard let selector else {
                 throw CLIError(message: "browser \(subcommand) requires a selector")
             }
-            let methodMap: [String: String] = [
-                "click": "browser.click",
-                "dblclick": "browser.dblclick",
-                "hover": "browser.hover",
-                "focus": "browser.focus",
-                "check": "browser.check",
-                "uncheck": "browser.uncheck",
-                "scrollintoview": "browser.scroll_into_view",
-                "scrollinto": "browser.scroll_into_view",
-                "scroll-into-view": "browser.scroll_into_view",
-            ]
+            guard let method = BrowserCommandMethod.elementAction(subcommand) else {
+                throw CLIError(message: "Unsupported browser element subcommand: \(subcommand)")
+            }
             var params: [String: Any] = ["surface_id": sid, "selector": selector]
             if hasFlag(subArgs, name: "--snapshot-after") {
                 params["snapshot_after"] = true
             }
-            let payload = try client.sendV2(method: methodMap[subcommand]!, params: params)
+            let payload = try client.sendV2(method: method, params: params)
             output(payload, fallback: "OK")
             return
         }
@@ -7344,7 +7516,7 @@ struct CMUXCLI {
                 }
             }
 
-            let method = (subcommand == "type") ? "browser.type" : "browser.fill"
+            let method: SocketMethod = (subcommand == "type") ? .browserType : .browserFill
             var params: [String: Any] = ["surface_id": sid, "selector": selector, "text": text]
             if hasFlag(subArgs, name: "--snapshot-after") {
                 params["snapshot_after"] = true
@@ -7361,17 +7533,14 @@ struct CMUXCLI {
             guard let key else {
                 throw CLIError(message: "browser \(subcommand) requires a key")
             }
-            let methodMap: [String: String] = [
-                "press": "browser.press",
-                "key": "browser.press",
-                "keydown": "browser.keydown",
-                "keyup": "browser.keyup",
-            ]
+            guard let method = BrowserCommandMethod.keyboardAction(subcommand) else {
+                throw CLIError(message: "Unsupported browser keyboard subcommand: \(subcommand)")
+            }
             var params: [String: Any] = ["surface_id": sid, "key": key]
             if hasFlag(subArgs, name: "--snapshot-after") {
                 params["snapshot_after"] = true
             }
-            let payload = try client.sendV2(method: methodMap[subcommand]!, params: params)
+            let payload = try client.sendV2(method: method, params: params)
             output(payload, fallback: "OK")
             return
         }
@@ -7392,7 +7561,7 @@ struct CMUXCLI {
             if hasFlag(subArgs, name: "--snapshot-after") {
                 params["snapshot_after"] = true
             }
-            let payload = try client.sendV2(method: "browser.select", params: params)
+            let payload = try client.sendV2(method: SocketMethod.browserSelect, params: params)
             output(payload, fallback: "OK")
             return
         }
@@ -7426,7 +7595,7 @@ struct CMUXCLI {
                 params["snapshot_after"] = true
             }
 
-            let payload = try client.sendV2(method: "browser.scroll", params: params)
+            let payload = try client.sendV2(method: SocketMethod.browserScroll, params: params)
             output(payload, fallback: "OK")
             return
         }
@@ -7436,7 +7605,7 @@ struct CMUXCLI {
             let (outPathOpt, _) = parseOption(subArgs, name: "--out")
             let localJSONOutput = hasFlag(subArgs, name: "--json")
             let outputAsJSON = effectiveJSONOutput || localJSONOutput
-            var payload = try client.sendV2(method: "browser.screenshot", params: ["surface_id": sid])
+            var payload = try client.sendV2(method: SocketMethod.browserScreenshot, params: ["surface_id": sid])
 
             func fileURL(fromPath rawPath: String) -> URL {
                 let resolvedPath = resolvePath(rawPath)
@@ -7582,10 +7751,10 @@ struct CMUXCLI {
 
             switch getVerb {
             case "url":
-                let payload = try client.sendV2(method: "browser.url.get", params: ["surface_id": sid])
+                let payload = try client.sendV2(method: SocketMethod.browserURLGet, params: ["surface_id": sid])
                 output(payload, fallback: (payload["url"] as? String) ?? "")
             case "title":
-                let payload = try client.sendV2(method: "browser.get.title", params: ["surface_id": sid])
+                let payload = try client.sendV2(method: SocketMethod.browserGetTitle, params: ["surface_id": sid])
                 output(payload, fallback: (payload["title"] as? String) ?? "")
             case "text", "html", "value", "count", "box", "styles", "attr":
                 let (selectorOpt, rem1) = parseOption(getArgs, name: "--selector")
@@ -7614,16 +7783,10 @@ struct CMUXCLI {
                     }
                 }
 
-                let methodMap: [String: String] = [
-                    "text": "browser.get.text",
-                    "html": "browser.get.html",
-                    "value": "browser.get.value",
-                    "attr": "browser.get.attr",
-                    "count": "browser.get.count",
-                    "box": "browser.get.box",
-                    "styles": "browser.get.styles",
-                ]
-                let payload = try client.sendV2(method: methodMap[getVerb]!, params: params)
+                guard let method = BrowserCommandMethod.getter(getVerb) else {
+                    throw CLIError(message: "Unsupported browser get subcommand: \(getVerb)")
+                }
+                let payload = try client.sendV2(method: method, params: params)
                 if effectiveJSONOutput {
                     print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
                 } else if let value = payload["value"] {
@@ -7655,12 +7818,7 @@ struct CMUXCLI {
                 throw CLIError(message: "browser is \(isVerb) requires a selector")
             }
 
-            let methodMap: [String: String] = [
-                "visible": "browser.is.visible",
-                "enabled": "browser.is.enabled",
-                "checked": "browser.is.checked",
-            ]
-            guard let method = methodMap[isVerb] else {
+            guard let method = BrowserCommandMethod.predicate(isVerb) else {
                 throw CLIError(message: "Unsupported browser is subcommand: \(isVerb)")
             }
             let payload = try client.sendV2(method: method, params: ["surface_id": sid, "selector": selector])
@@ -7683,7 +7841,7 @@ struct CMUXCLI {
             let locatorArgs = Array(subArgs.dropFirst())
 
             var params: [String: Any] = ["surface_id": sid]
-            let method: String
+            let method: SocketMethod
 
             switch locator {
             case "role":
@@ -7699,7 +7857,7 @@ struct CMUXCLI {
                 if hasFlag(locatorArgs, name: "--exact") {
                     params["exact"] = true
                 }
-                method = "browser.find.role"
+                method = .browserFindRole
             case "text", "label", "placeholder", "alt", "title", "testid":
                 let keyMap: [String: String] = [
                     "text": "text",
@@ -7741,7 +7899,7 @@ struct CMUXCLI {
                 }
                 params["index"] = index
                 params["selector"] = selector
-                method = "browser.find.nth"
+                method = .browserFindNth
             default:
                 throw CLIError(message: "Unsupported browser find locator: \(locator)")
             }
@@ -7757,7 +7915,7 @@ struct CMUXCLI {
                 throw CLIError(message: "browser frame requires <selector|main>")
             }
             if frameVerb == "main" {
-                let payload = try client.sendV2(method: "browser.frame.main", params: ["surface_id": sid])
+                let payload = try client.sendV2(method: SocketMethod.browserFrameMain, params: ["surface_id": sid])
                 output(payload, fallback: "OK")
                 return
             }
@@ -7766,7 +7924,7 @@ struct CMUXCLI {
             guard let selector else {
                 throw CLIError(message: "browser frame requires a selector or 'main'")
             }
-            let payload = try client.sendV2(method: "browser.frame.select", params: ["surface_id": sid, "selector": selector])
+            let payload = try client.sendV2(method: SocketMethod.browserFrameSelect, params: ["surface_id": sid, "selector": selector])
             output(payload, fallback: "OK")
             return
         }
@@ -7784,10 +7942,10 @@ struct CMUXCLI {
                 if !text.isEmpty {
                     params["text"] = text
                 }
-                let payload = try client.sendV2(method: "browser.dialog.accept", params: params)
+                let payload = try client.sendV2(method: SocketMethod.browserDialogAccept, params: params)
                 output(payload, fallback: "OK")
             case "dismiss":
-                let payload = try client.sendV2(method: "browser.dialog.dismiss", params: ["surface_id": sid])
+                let payload = try client.sendV2(method: SocketMethod.browserDialogDismiss, params: ["surface_id": sid])
                 output(payload, fallback: "OK")
             default:
                 throw CLIError(message: "Unsupported browser dialog subcommand: \(dialogVerb)")
@@ -7824,7 +7982,7 @@ struct CMUXCLI {
                 params["timeout_ms"] = max(1, Int(seconds * 1000.0))
             }
 
-            let payload = try client.sendV2(method: "browser.download.wait", params: params)
+            let payload = try client.sendV2(method: SocketMethod.browserDownloadWait, params: params)
             output(payload, fallback: "OK")
             return
         }
@@ -7862,7 +8020,7 @@ struct CMUXCLI {
 
             switch cookieVerb {
             case "get":
-                let payload = try client.sendV2(method: "browser.cookies.get", params: params)
+                let payload = try client.sendV2(method: SocketMethod.browserCookiesGet, params: params)
                 output(payload, fallback: "OK")
             case "set":
                 var setParams = params
@@ -7876,10 +8034,10 @@ struct CMUXCLI {
                 guard setParams["name"] != nil, setParams["value"] != nil else {
                     throw CLIError(message: "browser cookies set requires <name> <value> (or --name/--value)")
                 }
-                let payload = try client.sendV2(method: "browser.cookies.set", params: setParams)
+                let payload = try client.sendV2(method: SocketMethod.browserCookiesSet, params: setParams)
                 output(payload, fallback: "OK")
             case "clear":
-                let payload = try client.sendV2(method: "browser.cookies.clear", params: params)
+                let payload = try client.sendV2(method: SocketMethod.browserCookiesClear, params: params)
                 output(payload, fallback: "OK")
             default:
                 throw CLIError(message: "Unsupported browser cookies subcommand: \(cookieVerb)")
@@ -7904,7 +8062,7 @@ struct CMUXCLI {
                 if let key = positional.first {
                     params["key"] = key
                 }
-                let payload = try client.sendV2(method: "browser.storage.get", params: params)
+                let payload = try client.sendV2(method: SocketMethod.browserStorageGet, params: params)
                 output(payload, fallback: "OK")
             case "set":
                 guard positional.count >= 2 else {
@@ -7912,10 +8070,10 @@ struct CMUXCLI {
                 }
                 params["key"] = positional[0]
                 params["value"] = positional[1]
-                let payload = try client.sendV2(method: "browser.storage.set", params: params)
+                let payload = try client.sendV2(method: SocketMethod.browserStorageSet, params: params)
                 output(payload, fallback: "OK")
             case "clear":
-                let payload = try client.sendV2(method: "browser.storage.clear", params: params)
+                let payload = try client.sendV2(method: SocketMethod.browserStorageClear, params: params)
                 output(payload, fallback: "OK")
             default:
                 throw CLIError(message: "Unsupported browser storage subcommand: \(op)")
@@ -7941,7 +8099,7 @@ struct CMUXCLI {
 
             switch tabVerb {
             case "list":
-                let payload = try client.sendV2(method: "browser.tab.list", params: ["surface_id": sid])
+                let payload = try client.sendV2(method: SocketMethod.browserTabList, params: ["surface_id": sid])
                 output(payload, fallback: "OK")
             case "new":
                 var params: [String: Any] = ["surface_id": sid]
@@ -7949,10 +8107,10 @@ struct CMUXCLI {
                 if !url.isEmpty {
                     params["url"] = url
                 }
-                let payload = try client.sendV2(method: "browser.tab.new", params: params)
+                let payload = try client.sendV2(method: SocketMethod.browserTabNew, params: params)
                 output(payload, fallback: "OK")
             case "switch", "close":
-                let method = (tabVerb == "switch") ? "browser.tab.switch" : "browser.tab.close"
+                let method: SocketMethod = (tabVerb == "switch") ? .browserTabSwitch : .browserTabClose
                 var params: [String: Any] = ["surface_id": sid]
                 let target = tabArgs.first
                 if let target {
@@ -7973,7 +8131,7 @@ struct CMUXCLI {
         if subcommand == "console" {
             let sid = try requireSurface()
             let consoleVerb = subArgs.first?.lowercased() ?? "list"
-            let method = (consoleVerb == "clear") ? "browser.console.clear" : "browser.console.list"
+            let method = (consoleVerb == "clear") ? SocketMethod.browserConsoleClear : SocketMethod.browserConsoleList
             if consoleVerb != "list" && consoleVerb != "clear" {
                 throw CLIError(message: "Unsupported browser console subcommand: \(consoleVerb)")
             }
@@ -7995,7 +8153,7 @@ struct CMUXCLI {
             } else if errorsVerb != "list" {
                 throw CLIError(message: "Unsupported browser errors subcommand: \(errorsVerb)")
             }
-            let payload = try client.sendV2(method: "browser.errors.list", params: params)
+            let payload = try client.sendV2(method: SocketMethod.browserErrorsList, params: params)
             if effectiveJSONOutput || errorsVerb == "clear" {
                 output(payload, fallback: "OK")
             } else {
@@ -8011,7 +8169,7 @@ struct CMUXCLI {
             guard let selector else {
                 throw CLIError(message: "browser highlight requires a selector")
             }
-            let payload = try client.sendV2(method: "browser.highlight", params: ["surface_id": sid, "selector": selector])
+            let payload = try client.sendV2(method: SocketMethod.browserHighlight, params: ["surface_id": sid, "selector": selector])
             output(payload, fallback: "OK")
             return
         }
@@ -8025,12 +8183,12 @@ struct CMUXCLI {
                 throw CLIError(message: "browser state \(stateVerb) requires a file path")
             }
             let path = subArgs[1]
-            let method: String
+            let method: SocketMethod
             switch stateVerb {
             case "save":
-                method = "browser.state.save"
+                method = .browserStateSave
             case "load":
-                method = "browser.state.load"
+                method = .browserStateLoad
             default:
                 throw CLIError(message: "Unsupported browser state subcommand: \(stateVerb)")
             }
@@ -8060,7 +8218,7 @@ struct CMUXCLI {
                   let height = Int(subArgs[1]) else {
                 throw CLIError(message: "browser viewport requires: <width> <height>")
             }
-            let payload = try client.sendV2(method: "browser.viewport.set", params: ["surface_id": sid, "width": width, "height": height])
+            let payload = try client.sendV2(method: SocketMethod.browserViewportSet, params: ["surface_id": sid, "width": width, "height": height])
             output(payload, fallback: "OK")
             return
         }
@@ -8072,7 +8230,7 @@ struct CMUXCLI {
                   let longitude = Double(subArgs[1]) else {
                 throw CLIError(message: "browser geolocation requires: <latitude> <longitude>")
             }
-            let payload = try client.sendV2(method: "browser.geolocation.set", params: ["surface_id": sid, "latitude": latitude, "longitude": longitude])
+            let payload = try client.sendV2(method: SocketMethod.browserGeolocationSet, params: ["surface_id": sid, "latitude": latitude, "longitude": longitude])
             output(payload, fallback: "OK")
             return
         }
@@ -8083,7 +8241,7 @@ struct CMUXCLI {
                   let enabled = parseBoolString(raw) else {
                 throw CLIError(message: "browser offline requires true|false")
             }
-            let payload = try client.sendV2(method: "browser.offline.set", params: ["surface_id": sid, "enabled": enabled])
+            let payload = try client.sendV2(method: SocketMethod.browserOfflineSet, params: ["surface_id": sid, "enabled": enabled])
             output(payload, fallback: "OK")
             return
         }
@@ -8093,12 +8251,12 @@ struct CMUXCLI {
             guard let traceVerb = subArgs.first?.lowercased() else {
                 throw CLIError(message: "browser trace requires start|stop")
             }
-            let method: String
+            let method: SocketMethod
             switch traceVerb {
             case "start":
-                method = "browser.trace.start"
+                method = .browserTraceStart
             case "stop":
-                method = "browser.trace.stop"
+                method = .browserTraceStop
             default:
                 throw CLIError(message: "Unsupported browser trace subcommand: \(traceVerb)")
             }
@@ -8130,16 +8288,16 @@ struct CMUXCLI {
                 if let bodyOpt {
                     params["body"] = bodyOpt
                 }
-                let payload = try client.sendV2(method: "browser.network.route", params: params)
+                let payload = try client.sendV2(method: SocketMethod.browserNetworkRoute, params: params)
                 output(payload, fallback: "OK")
             case "unroute":
                 guard let pattern = networkArgs.first else {
                     throw CLIError(message: "browser network unroute requires a URL/pattern")
                 }
-                let payload = try client.sendV2(method: "browser.network.unroute", params: ["surface_id": sid, "url": pattern])
+                let payload = try client.sendV2(method: SocketMethod.browserNetworkUnroute, params: ["surface_id": sid, "url": pattern])
                 output(payload, fallback: "OK")
             case "requests":
-                let payload = try client.sendV2(method: "browser.network.requests", params: ["surface_id": sid])
+                let payload = try client.sendV2(method: SocketMethod.browserNetworkRequests, params: ["surface_id": sid])
                 output(payload, fallback: "OK")
             default:
                 throw CLIError(message: "Unsupported browser network subcommand: \(networkVerb)")
@@ -8152,12 +8310,12 @@ struct CMUXCLI {
             guard let castVerb = subArgs.first?.lowercased() else {
                 throw CLIError(message: "browser screencast requires start|stop")
             }
-            let method: String
+            let method: SocketMethod
             switch castVerb {
             case "start":
-                method = "browser.screencast.start"
+                method = .browserScreencastStart
             case "stop":
-                method = "browser.screencast.stop"
+                method = .browserScreencastStop
             default:
                 throw CLIError(message: "Unsupported browser screencast subcommand: \(castVerb)")
             }
@@ -8172,14 +8330,14 @@ struct CMUXCLI {
                 throw CLIError(message: "browser input requires mouse|keyboard|touch")
             }
             let remainder = Array(subArgs.dropFirst())
-            let method: String
+            let method: SocketMethod
             switch inputVerb {
             case "mouse":
-                method = "browser.input_mouse"
+                method = .browserInputMouse
             case "keyboard":
-                method = "browser.input_keyboard"
+                method = .browserInputKeyboard
             case "touch":
-                method = "browser.input_touch"
+                method = .browserInputTouch
             default:
                 throw CLIError(message: "Unsupported browser input subcommand: \(inputVerb)")
             }
@@ -8274,11 +8432,11 @@ struct CMUXCLI {
         }
         if let raw, isHandleRef(raw) {
             // Resolve ref to UUID — search across all windows
-            let windows = try client.sendV2(method: "window.list")
+            let windows = try client.sendV2(method: SocketMethod.windowList)
             let windowList = windows["windows"] as? [[String: Any]] ?? []
             for window in windowList {
                 guard let windowId = window["id"] as? String else { continue }
-                let listed = try client.sendV2(method: "workspace.list", params: ["window_id": windowId])
+                let listed = try client.sendV2(method: SocketMethod.workspaceList, params: ["window_id": windowId])
                 let items = listed["workspaces"] as? [[String: Any]] ?? []
                 for item in items where (item["ref"] as? String) == raw {
                     if let id = item["id"] as? String { return id }
@@ -8288,7 +8446,7 @@ struct CMUXCLI {
         }
 
         if let raw, let index = Int(raw) {
-            let listed = try client.sendV2(method: "workspace.list")
+            let listed = try client.sendV2(method: SocketMethod.workspaceList)
             let items = listed["workspaces"] as? [[String: Any]] ?? []
             for item in items where intFromAny(item["index"]) == index {
                 if let id = item["id"] as? String { return id }
@@ -8296,7 +8454,7 @@ struct CMUXCLI {
             throw CLIError(message: "Workspace index not found")
         }
 
-        let current = try client.sendV2(method: "workspace.current")
+        let current = try client.sendV2(method: SocketMethod.workspaceCurrent)
         if let wsId = current["workspace_id"] as? String { return wsId }
         throw CLIError(message: "No workspace selected")
     }
@@ -8306,7 +8464,7 @@ struct CMUXCLI {
             return raw
         }
         if let raw, isHandleRef(raw) {
-            let listed = try client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId])
+            let listed = try client.sendV2(method: SocketMethod.surfaceList, params: ["workspace_id": workspaceId])
             let items = listed["surfaces"] as? [[String: Any]] ?? []
             for item in items where (item["ref"] as? String) == raw {
                 if let id = item["id"] as? String { return id }
@@ -8314,7 +8472,7 @@ struct CMUXCLI {
             throw CLIError(message: "Surface ref not found: \(raw)")
         }
 
-        let listed = try client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId])
+        let listed = try client.sendV2(method: SocketMethod.surfaceList, params: ["workspace_id": workspaceId])
         let items = listed["surfaces"] as? [[String: Any]] ?? []
 
         if let raw, let index = Int(raw) {
@@ -10114,7 +10272,7 @@ struct CMUXCLI {
         }
 
         do {
-            let payload = try client.sendV2(method: "system.tree", params: params)
+            let payload = try client.sendV2(method: SocketMethod.systemTree, params: params)
             return treePayloadWithMarkers(payload)
         } catch let error as CLIError where error.message.hasPrefix("method_not_found:") {
             // Back-compat fallback for older servers that don't support system.tree.
@@ -10132,7 +10290,7 @@ struct CMUXCLI {
             identifyParams["caller"] = caller
         }
 
-        let identifyPayload = try client.sendV2(method: "system.identify", params: identifyParams)
+        let identifyPayload = try client.sendV2(method: SocketMethod.systemIdentify, params: identifyParams)
         let focused = identifyPayload["focused"] as? [String: Any] ?? [:]
         let caller = identifyPayload["caller"] as? [String: Any] ?? [:]
         let activePath = parseTreePath(payload: focused)
@@ -10150,7 +10308,7 @@ struct CMUXCLI {
         activePath: TreePath,
         client: SocketClient
     ) throws -> [[String: Any]] {
-        let windowsPayload = try client.sendV2(method: "window.list")
+        let windowsPayload = try client.sendV2(method: SocketMethod.windowList)
         let allWindows = windowsPayload["windows"] as? [[String: Any]] ?? []
 
         if let workspaceRaw = options.workspaceHandle {
@@ -10158,7 +10316,7 @@ struct CMUXCLI {
                 throw CLIError(message: "Invalid workspace handle")
             }
 
-            let workspaceListPayload = try client.sendV2(method: "workspace.list", params: ["workspace_id": workspaceHandle])
+            let workspaceListPayload = try client.sendV2(method: SocketMethod.workspaceList, params: ["workspace_id": workspaceHandle])
             let workspaceWindowHandle = (workspaceListPayload["window_ref"] as? String) ?? (workspaceListPayload["window_id"] as? String)
             let window = allWindows.first(where: { treeItemMatchesHandle($0, handle: workspaceWindowHandle) })
                 ?? treeFallbackWindow(from: workspaceListPayload)
@@ -10220,7 +10378,7 @@ struct CMUXCLI {
         if let windowHandle = treeItemHandle(window) {
             workspaceParams["window_id"] = windowHandle
         }
-        let workspacePayload = try client.sendV2(method: "workspace.list", params: workspaceParams)
+        let workspacePayload = try client.sendV2(method: SocketMethod.workspaceList, params: workspaceParams)
         let workspaces = workspacePayload["workspaces"] as? [[String: Any]] ?? []
         let workspaceNodes = try workspaces.map { try buildTreeWorkspaceNode(workspace: $0, activePath: activePath, client: client) }
         var windowNode = window
@@ -10243,8 +10401,8 @@ struct CMUXCLI {
             return workspaceNode
         }
 
-        let panePayload = try client.sendV2(method: "pane.list", params: ["workspace_id": workspaceHandle])
-        let surfacePayload = try client.sendV2(method: "surface.list", params: ["workspace_id": workspaceHandle])
+        let panePayload = try client.sendV2(method: SocketMethod.paneList, params: ["workspace_id": workspaceHandle])
+        let surfacePayload = try client.sendV2(method: SocketMethod.surfaceList, params: ["workspace_id": workspaceHandle])
         let panes = panePayload["panes"] as? [[String: Any]] ?? []
         let surfaces = surfacePayload["surfaces"] as? [[String: Any]] ?? []
         let browserURLsByHandle = fetchTreeBrowserURLs(
@@ -10411,7 +10569,7 @@ struct CMUXCLI {
         guard hasBrowserSurfaces else { return [:] }
 
         if let payload = try? client.sendV2(
-            method: "browser.tab.list",
+            method: SocketMethod.browserTabList,
             params: ["workspace_id": workspaceHandle]
         ) {
             let tabs = payload["tabs"] as? [[String: Any]] ?? []
@@ -10434,7 +10592,7 @@ struct CMUXCLI {
             guard ((surface["type"] as? String) ?? "").lowercased() == "browser" else { continue }
             guard let surfaceHandle = treeItemHandle(surface) else { continue }
             guard let payload = try? client.sendV2(
-                method: "browser.url.get",
+                method: SocketMethod.browserURLGet,
                 params: ["workspace_id": workspaceHandle, "surface_id": surfaceHandle]
             ),
             let url = payload["url"] as? String,
@@ -11035,7 +11193,7 @@ struct CMUXCLI {
     }
 
     private func tmuxWorkspaceItems(client: SocketClient) throws -> [[String: Any]] {
-        let payload = try client.sendV2(method: "workspace.list")
+        let payload = try client.sendV2(method: SocketMethod.workspaceList)
         return payload["workspaces"] as? [[String: Any]] ?? []
     }
 
@@ -11071,7 +11229,7 @@ struct CMUXCLI {
             return handle
         }
 
-        let payload = try client.sendV2(method: "pane.list", params: ["workspace_id": workspaceId])
+        let payload = try client.sendV2(method: SocketMethod.paneList, params: ["workspace_id": workspaceId])
         let panes = payload["panes"] as? [[String: Any]] ?? []
         for pane in panes {
             if (pane["ref"] as? String) == handle || (pane["id"] as? String) == handle {
@@ -11097,7 +11255,7 @@ struct CMUXCLI {
         workspaceId: String,
         client: SocketClient
     ) throws -> String {
-        let payload = try client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId])
+        let payload = try client.sendV2(method: SocketMethod.surfaceList, params: ["workspace_id": workspaceId])
         let surfaces = payload["surfaces"] as? [[String: Any]] ?? []
         for surface in surfaces {
             if (surface["ref"] as? String) == handle || (surface["id"] as? String) == handle {
@@ -11126,7 +11284,7 @@ struct CMUXCLI {
         let workspaces = try tmuxWorkspaceItems(client: client)
         for workspace in workspaces {
             guard let workspaceId = workspace["id"] as? String else { continue }
-            let payload = try client.sendV2(method: "pane.list", params: ["workspace_id": workspaceId])
+            let payload = try client.sendV2(method: SocketMethod.paneList, params: ["workspace_id": workspaceId])
             let panes = payload["panes"] as? [[String: Any]] ?? []
             if panes.contains(where: { ($0["id"] as? String) == handle || ($0["ref"] as? String) == handle }) {
                 return workspaceId
@@ -11137,7 +11295,7 @@ struct CMUXCLI {
     }
 
     private func tmuxFocusedPaneId(workspaceId: String, client: SocketClient) throws -> String {
-        let payload = try client.sendV2(method: "surface.current", params: ["workspace_id": workspaceId])
+        let payload = try client.sendV2(method: SocketMethod.surfaceCurrent, params: ["workspace_id": workspaceId])
         if let paneId = payload["pane_id"] as? String {
             return paneId
         }
@@ -11156,7 +11314,7 @@ struct CMUXCLI {
         }
 
         if token == "!" || token == "^" || token == "-" {
-            let payload = try client.sendV2(method: "workspace.last")
+            let payload = try client.sendV2(method: SocketMethod.workspaceLast)
             if let workspaceId = payload["workspace_id"] as? String {
                 return workspaceId
             }
@@ -11224,7 +11382,7 @@ struct CMUXCLI {
         client: SocketClient
     ) throws -> String {
         let payload = try client.sendV2(
-            method: "pane.surfaces",
+            method: SocketMethod.paneSurfaces,
             params: ["workspace_id": workspaceId, "pane_id": paneId]
         )
         let surfaces = payload["surfaces"] as? [[String: Any]] ?? []
@@ -11374,7 +11532,7 @@ struct CMUXCLI {
             }
         }
 
-        let currentPayload = try client.sendV2(method: "surface.current", params: ["workspace_id": canonicalWorkspaceId])
+        let currentPayload = try client.sendV2(method: SocketMethod.surfaceCurrent, params: ["workspace_id": canonicalWorkspaceId])
         let resolvedPaneId: String? = try {
             if let paneId {
                 return try tmuxCanonicalPaneId(paneId, workspaceId: canonicalWorkspaceId, client: client)
@@ -11404,7 +11562,7 @@ struct CMUXCLI {
         if let resolvedPaneId {
             context["pane_id"] = "%\(resolvedPaneId)"
             context["pane_uuid"] = resolvedPaneId
-            let panePayload = try client.sendV2(method: "pane.list", params: ["workspace_id": canonicalWorkspaceId])
+            let panePayload = try client.sendV2(method: SocketMethod.paneList, params: ["workspace_id": canonicalWorkspaceId])
             let panes = panePayload["panes"] as? [[String: Any]] ?? []
             if let pane = panes.first(where: { ($0["id"] as? String) == resolvedPaneId }),
                let index = intFromAny(pane["index"]) {
@@ -11414,7 +11572,7 @@ struct CMUXCLI {
 
         if let resolvedSurfaceId {
             context["surface_id"] = resolvedSurfaceId
-            let surfacePayload = try client.sendV2(method: "surface.list", params: ["workspace_id": canonicalWorkspaceId])
+            let surfacePayload = try client.sendV2(method: SocketMethod.surfaceList, params: ["workspace_id": canonicalWorkspaceId])
             let surfaces = surfacePayload["surfaces"] as? [[String: Any]] ?? []
             if let surface = surfaces.first(where: { ($0["id"] as? String) == resolvedSurfaceId }) {
                 let title = ((surface["title"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -11588,7 +11746,7 @@ struct CMUXCLI {
             )
             defer { client.close() }
 
-            let payload = try client.sendV2(method: "system.identify")
+            let payload = try client.sendV2(method: SocketMethod.systemIdentify)
             let focused = payload["focused"] as? [String: Any] ?? [:]
 
             let workspaceId = (focused["workspace_id"] as? String)
@@ -12128,14 +12286,16 @@ struct CMUXCLI {
         )
 
         var address = sockaddr_in()
+#if os(macOS)
         address.sin_len = UInt8(MemoryLayout<sockaddr_in>.stride)
+#endif
         address.sin_family = sa_family_t(AF_INET)
         address.sin_port = port.bigEndian
         address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
 
         let bindResult = withUnsafePointer(to: &address) {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                Darwin.bind(socketDescriptor, $0, socklen_t(MemoryLayout<sockaddr_in>.stride))
+                bind(socketDescriptor, $0, socklen_t(MemoryLayout<sockaddr_in>.stride))
             }
         }
         guard bindResult == 0 else { return nil }
@@ -12709,20 +12869,20 @@ struct CMUXCLI {
             if let cwd = parsed.value("-c") {
                 params["cwd"] = resolvePath(cwd)
             }
-            let created = try client.sendV2(method: "workspace.create", params: params)
+            let created = try client.sendV2(method: SocketMethod.workspaceCreate, params: params)
             guard let workspaceId = created["workspace_id"] as? String else {
                 throw CLIError(message: "workspace.create did not return workspace_id")
             }
             if let title = parsed.value("-n") ?? parsed.value("-s"),
                !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                _ = try client.sendV2(method: "workspace.rename", params: [
+                _ = try client.sendV2(method: SocketMethod.workspaceRename, params: [
                     "workspace_id": workspaceId,
                     "title": title
                 ])
             }
             if let text = tmuxShellCommandText(commandTokens: parsed.positional, cwd: parsed.value("-c")) {
                 let surfaceId = try resolveSurfaceId(nil, workspaceId: workspaceId, client: client)
-                _ = try client.sendV2(method: "surface.send_text", params: [
+                _ = try client.sendV2(method: SocketMethod.surfaceSendText, params: [
                     "workspace_id": workspaceId,
                     "surface_id": surfaceId,
                     "text": text
@@ -12746,20 +12906,20 @@ struct CMUXCLI {
             if let cwd = parsed.value("-c") {
                 params["cwd"] = resolvePath(cwd)
             }
-            let created = try client.sendV2(method: "workspace.create", params: params)
+            let created = try client.sendV2(method: SocketMethod.workspaceCreate, params: params)
             guard let workspaceId = created["workspace_id"] as? String else {
                 throw CLIError(message: "workspace.create did not return workspace_id")
             }
             if let title = parsed.value("-n"),
                !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                _ = try client.sendV2(method: "workspace.rename", params: [
+                _ = try client.sendV2(method: SocketMethod.workspaceRename, params: [
                     "workspace_id": workspaceId,
                     "title": title
                 ])
             }
             if let text = tmuxShellCommandText(commandTokens: parsed.positional, cwd: parsed.value("-c")) {
                 let surfaceId = try resolveSurfaceId(nil, workspaceId: workspaceId, client: client)
-                _ = try client.sendV2(method: "surface.send_text", params: [
+                _ = try client.sendV2(method: SocketMethod.surfaceSendText, params: [
                     "workspace_id": workspaceId,
                     "surface_id": surfaceId,
                     "text": text
@@ -12803,7 +12963,7 @@ struct CMUXCLI {
             // Keep the leader pane focused while agents spawn beside it.
             // -d explicitly means "don't focus the new pane".
             let focusNewPane = !parsed.hasFlag("-d")
-            let created = try client.sendV2(method: "surface.split", params: [
+            let created = try client.sendV2(method: SocketMethod.surfaceSplit, params: [
                 "workspace_id": target.workspaceId,
                 "surface_id": target.surfaceId,
                 "direction": direction,
@@ -12834,13 +12994,13 @@ struct CMUXCLI {
             // Equalize vertical splits so teammate panes are evenly distributed.
             // Use orientation: "vertical" to only equalize the agent column,
             // preserving the leader/column horizontal divider position.
-            _ = try? client.sendV2(method: "workspace.equalize_splits", params: [
+            _ = try? client.sendV2(method: SocketMethod.workspaceEqualizeSplits, params: [
                 "workspace_id": target.workspaceId,
                 "orientation": "vertical"
             ])
 
             if let text = tmuxShellCommandText(commandTokens: parsed.positional, cwd: parsed.value("-c")) {
-                _ = try client.sendV2(method: "surface.send_text", params: [
+                _ = try client.sendV2(method: SocketMethod.surfaceSendText, params: [
                     "workspace_id": target.workspaceId,
                     "surface_id": surfaceId,
                     "text": text
@@ -12860,7 +13020,7 @@ struct CMUXCLI {
         case "select-window", "selectw":
             let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t"], boolFlags: [])
             let workspaceId = try tmuxResolveWorkspaceTarget(parsed.value("-t"), client: client)
-            _ = try client.sendV2(method: "workspace.select", params: ["workspace_id": workspaceId])
+            _ = try client.sendV2(method: SocketMethod.workspaceSelect, params: ["workspace_id": workspaceId])
 
         case "select-pane", "selectp":
             let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-P", "-T", "-t"], boolFlags: [])
@@ -12868,7 +13028,7 @@ struct CMUXCLI {
                 return
             }
             let target = try tmuxResolvePaneTarget(parsed.value("-t"), client: client)
-            _ = try client.sendV2(method: "pane.focus", params: [
+            _ = try client.sendV2(method: SocketMethod.paneFocus, params: [
                 "workspace_id": target.workspaceId,
                 "pane_id": target.paneId
             ])
@@ -12876,13 +13036,13 @@ struct CMUXCLI {
         case "kill-window", "killw":
             let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t"], boolFlags: [])
             let workspaceId = try tmuxResolveWorkspaceTarget(parsed.value("-t"), client: client)
-            _ = try client.sendV2(method: "workspace.close", params: ["workspace_id": workspaceId])
+            _ = try client.sendV2(method: SocketMethod.workspaceClose, params: ["workspace_id": workspaceId])
             try? tmuxPruneCompatWorkspaceState(workspaceId: workspaceId)
 
         case "kill-pane", "killp":
             let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t"], boolFlags: [])
             let target = try tmuxResolveSurfaceTarget(parsed.value("-t"), client: client)
-            _ = try client.sendV2(method: "surface.close", params: [
+            _ = try client.sendV2(method: SocketMethod.surfaceClose, params: [
                 "workspace_id": target.workspaceId,
                 "surface_id": target.surfaceId
             ])
@@ -12892,7 +13052,7 @@ struct CMUXCLI {
                 client: client
             )
             // Re-equalize the agent column after removing a pane
-            _ = try? client.sendV2(method: "workspace.equalize_splits", params: [
+            _ = try? client.sendV2(method: SocketMethod.workspaceEqualizeSplits, params: [
                 "workspace_id": target.workspaceId,
                 "orientation": "vertical"
             ])
@@ -12902,7 +13062,7 @@ struct CMUXCLI {
             let target = try tmuxResolveSurfaceTarget(parsed.value("-t"), client: client)
             let text = tmuxSendKeysText(from: parsed.positional, literal: parsed.hasFlag("-l"))
             if !text.isEmpty {
-                _ = try client.sendV2(method: "surface.send_text", params: [
+                _ = try client.sendV2(method: SocketMethod.surfaceSendText, params: [
                     "workspace_id": target.workspaceId,
                     "surface_id": target.surfaceId,
                     "text": text
@@ -12924,7 +13084,7 @@ struct CMUXCLI {
             if let start = parsed.value("-S"), let lines = Int(start), lines < 0 {
                 params["lines"] = abs(lines)
             }
-            let payload = try client.sendV2(method: "surface.read_text", params: params)
+            let payload = try client.sendV2(method: SocketMethod.surfaceReadText, params: params)
             let text = (payload["text"] as? String) ?? ""
             if parsed.hasFlag("-p") {
                 print(text)
@@ -12944,7 +13104,7 @@ struct CMUXCLI {
                 client: client
             )
             // Enrich with geometry for format strings like #{pane_width},#{window_width}
-            let panePayload = try client.sendV2(method: "pane.list", params: ["workspace_id": target.workspaceId])
+            let panePayload = try client.sendV2(method: SocketMethod.paneList, params: ["workspace_id": target.workspaceId])
             let panesList = panePayload["panes"] as? [[String: Any]] ?? []
             let containerFrame = panePayload["container_frame"] as? [String: Any]
             if let targetPaneId = target.paneId,
@@ -12983,7 +13143,7 @@ struct CMUXCLI {
             } else {
                 workspaceId = try tmuxResolveWorkspaceTarget(parsed.value("-t"), client: client)
             }
-            let payload = try client.sendV2(method: "pane.list", params: ["workspace_id": workspaceId])
+            let payload = try client.sendV2(method: SocketMethod.paneList, params: ["workspace_id": workspaceId])
             let panes = payload["panes"] as? [[String: Any]] ?? []
             let containerFrame = payload["container_frame"] as? [String: Any]
             for pane in panes {
@@ -13001,7 +13161,7 @@ struct CMUXCLI {
                 throw CLIError(message: "rename-window requires a title")
             }
             let workspaceId = try tmuxResolveWorkspaceTarget(parsed.value("-t"), client: client)
-            _ = try client.sendV2(method: "workspace.rename", params: [
+            _ = try client.sendV2(method: SocketMethod.workspaceRename, params: [
                 "workspace_id": workspaceId,
                 "title": title
             ])
@@ -13021,14 +13181,14 @@ struct CMUXCLI {
             if !hasDirectionalFlags, let absWidth = parsed.value("-x").flatMap({ Int($0.replacingOccurrences(of: "%", with: "")) }) {
                 // Absolute width: resize-pane -t <pane> -x <columns>
                 // Compute pixel delta from current width to desired width.
-                let panePayload = try client.sendV2(method: "pane.list", params: ["workspace_id": target.workspaceId])
+                let panePayload = try client.sendV2(method: SocketMethod.paneList, params: ["workspace_id": target.workspaceId])
                 let panes = panePayload["panes"] as? [[String: Any]] ?? []
                 if let matchingPane = panes.first(where: { ($0["id"] as? String) == target.paneId }),
                    let cellW = matchingPane["cell_width_px"] as? Int, cellW > 0,
                    let currentCols = matchingPane["columns"] as? Int {
                     let delta = absWidth - currentCols
                     if delta != 0 {
-                        _ = try? client.sendV2(method: "pane.resize", params: [
+                        _ = try? client.sendV2(method: SocketMethod.paneResize, params: [
                             "workspace_id": target.workspaceId,
                             "pane_id": target.paneId,
                             "direction": delta > 0 ? "right" : "left",
@@ -13050,7 +13210,7 @@ struct CMUXCLI {
                 let rawAmount = (parsed.value("-x") ?? parsed.value("-y") ?? "5")
                     .replacingOccurrences(of: "%", with: "")
                 let amount = Int(rawAmount) ?? 5
-                _ = try client.sendV2(method: "pane.resize", params: [
+                _ = try client.sendV2(method: SocketMethod.paneResize, params: [
                     "workspace_id": target.workspaceId,
                     "pane_id": target.paneId,
                     "direction": direction,
@@ -13071,7 +13231,7 @@ struct CMUXCLI {
         case "last-pane":
             let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t"], boolFlags: [])
             let workspaceId = try tmuxResolveWorkspaceTarget(parsed.value("-t"), client: client)
-            _ = try client.sendV2(method: "pane.last", params: ["workspace_id": workspaceId])
+            _ = try client.sendV2(method: SocketMethod.paneLast, params: ["workspace_id": workspaceId])
 
         case "show-buffer", "showb":
             let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-b"], boolFlags: [])
@@ -13132,13 +13292,13 @@ struct CMUXCLI {
                 // For main-* layouts, only equalize the agent column (vertical splits),
                 // not the top-level horizontal split between main and agents.
                 let orientation = layoutName == "main-vertical" ? "vertical" : "horizontal"
-                _ = try? client.sendV2(method: "workspace.equalize_splits", params: [
+                _ = try? client.sendV2(method: SocketMethod.workspaceEqualizeSplits, params: [
                     "workspace_id": workspaceId,
                     "orientation": orientation
                 ])
             } else {
                 // For tiled/even-* layouts, equalize everything
-                _ = try? client.sendV2(method: "workspace.equalize_splits", params: ["workspace_id": workspaceId])
+                _ = try? client.sendV2(method: SocketMethod.workspaceEqualizeSplits, params: ["workspace_id": workspaceId])
             }
             if layoutName == "main-vertical" {
                 if let callerSurface = tmuxCallerSurfaceHandle() {
@@ -13257,7 +13417,7 @@ struct CMUXCLI {
         layout: MainVerticalState,
         client: SocketClient
     ) -> String? {
-        guard let payload = try? client.sendV2(method: "pane.list", params: ["workspace_id": workspaceId]) else {
+        guard let payload = try? client.sendV2(method: SocketMethod.paneList, params: ["workspace_id": workspaceId]) else {
             return nil
         }
         let panes = payload["panes"] as? [[String: Any]] ?? []
@@ -13414,7 +13574,7 @@ struct CMUXCLI {
                 params["scrollback"] = true
             }
 
-            let payload = try client.sendV2(method: "surface.read_text", params: params)
+            let payload = try client.sendV2(method: SocketMethod.surfaceReadText, params: params)
             if jsonOutput {
                 print(jsonString(payload))
             } else {
@@ -13443,7 +13603,7 @@ struct CMUXCLI {
             if let wsId { params["workspace_id"] = wsId }
             let paneId = try normalizePaneHandle(paneArg, client: client, workspaceHandle: wsId, allowFocused: true)
             if let paneId { params["pane_id"] = paneId }
-            let payload = try client.sendV2(method: "pane.resize", params: params)
+            let payload = try client.sendV2(method: SocketMethod.paneResize, params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["pane"]))
 
         case "pipe-pane":
@@ -13464,7 +13624,7 @@ struct CMUXCLI {
             if let wsId { params["workspace_id"] = wsId }
             let sfId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId, allowFocused: true)
             if let sfId { params["surface_id"] = sfId }
-            let payload = try client.sendV2(method: "surface.read_text", params: params)
+            let payload = try client.sendV2(method: SocketMethod.surfaceReadText, params: params)
             let text = (payload["text"] as? String) ?? ""
             let shell = try runShellCommand(commandText, stdinText: text)
             if shell.status != 0 {
@@ -13528,7 +13688,7 @@ struct CMUXCLI {
             let targetPane = try normalizePaneHandle(targetPaneRaw, client: client, workspaceHandle: wsId)
             if let sourcePane { params["pane_id"] = sourcePane }
             if let targetPane { params["target_pane_id"] = targetPane }
-            let payload = try client.sendV2(method: "pane.swap", params: params)
+            let payload = try client.sendV2(method: SocketMethod.paneSwap, params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
 
         case "break-pane":
@@ -13542,7 +13702,7 @@ struct CMUXCLI {
             if let paneId { params["pane_id"] = paneId }
             let surfaceId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId)
             if let surfaceId { params["surface_id"] = surfaceId }
-            let payload = try client.sendV2(method: "pane.break", params: params)
+            let payload = try client.sendV2(method: SocketMethod.paneBreak, params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
 
         case "join-pane":
@@ -13561,19 +13721,19 @@ struct CMUXCLI {
             if let targetPaneId { params["target_pane_id"] = targetPaneId }
             let surfaceId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId)
             if let surfaceId { params["surface_id"] = surfaceId }
-            let payload = try client.sendV2(method: "pane.join", params: params)
+            let payload = try client.sendV2(method: SocketMethod.paneJoin, params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
 
         case "last-window":
-            let payload = try client.sendV2(method: "workspace.last")
+            let payload = try client.sendV2(method: SocketMethod.workspaceLast)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
 
         case "next-window":
-            let payload = try client.sendV2(method: "workspace.next")
+            let payload = try client.sendV2(method: SocketMethod.workspaceNext)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
 
         case "previous-window":
-            let payload = try client.sendV2(method: "workspace.previous")
+            let payload = try client.sendV2(method: SocketMethod.workspacePrevious)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
 
         case "last-pane":
@@ -13581,7 +13741,7 @@ struct CMUXCLI {
             var params: [String: Any] = [:]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }
-            let payload = try client.sendV2(method: "pane.last", params: params)
+            let payload = try client.sendV2(method: SocketMethod.paneLast, params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["pane"]))
 
         case "find-window":
@@ -13592,7 +13752,7 @@ struct CMUXCLI {
                 .joined(separator: " ")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
 
-            let listPayload = try client.sendV2(method: "workspace.list")
+            let listPayload = try client.sendV2(method: SocketMethod.workspaceList)
             let workspaces = listPayload["workspaces"] as? [[String: Any]] ?? []
 
             var matches: [[String: Any]] = []
@@ -13601,7 +13761,7 @@ struct CMUXCLI {
                 let titleMatch = query.isEmpty || title.localizedCaseInsensitiveContains(query)
                 var contentMatch = false
                 if includeContent && !query.isEmpty, let wsId = ws["id"] as? String {
-                    let textPayload = try? client.sendV2(method: "surface.read_text", params: ["workspace_id": wsId])
+                    let textPayload = try? client.sendV2(method: SocketMethod.surfaceReadText, params: ["workspace_id": wsId])
                     let text = (textPayload?["text"] as? String) ?? ""
                     contentMatch = text.localizedCaseInsensitiveContains(query)
                 }
@@ -13611,7 +13771,7 @@ struct CMUXCLI {
             }
 
             if shouldSelect, let first = matches.first, let wsId = first["id"] as? String {
-                _ = try client.sendV2(method: "workspace.select", params: ["workspace_id": wsId])
+                _ = try client.sendV2(method: SocketMethod.workspaceSelect, params: ["workspace_id": wsId])
             }
 
             if jsonOutput {
@@ -13635,7 +13795,7 @@ struct CMUXCLI {
             if let wsId { params["workspace_id"] = wsId }
             let sfId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId, allowFocused: true)
             if let sfId { params["surface_id"] = sfId }
-            let payload = try client.sendV2(method: "surface.clear_history", params: params)
+            let payload = try client.sendV2(method: SocketMethod.surfaceClearHistory, params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
 
         case "set-hook":
@@ -13717,7 +13877,7 @@ struct CMUXCLI {
             if let wsId { params["workspace_id"] = wsId }
             let sfId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId, allowFocused: true)
             if let sfId { params["surface_id"] = sfId }
-            let payload = try client.sendV2(method: "surface.send_text", params: params)
+            let payload = try client.sendV2(method: SocketMethod.surfaceSendText, params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
 
         case "respawn-pane":
@@ -13731,7 +13891,7 @@ struct CMUXCLI {
             if let wsId { params["workspace_id"] = wsId }
             let sfId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId, allowFocused: true)
             if let sfId { params["surface_id"] = sfId }
-            let payload = try client.sendV2(method: "surface.send_text", params: params)
+            let payload = try client.sendV2(method: SocketMethod.surfaceSendText, params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
 
         case "display-message":
@@ -13747,7 +13907,7 @@ struct CMUXCLI {
                 print(message)
                 return
             }
-            let payload = try client.sendV2(method: "notification.create", params: ["title": "cmux", "body": message])
+            let payload = try client.sendV2(method: SocketMethod.notificationCreate, params: ["title": "cmux", "body": message])
             if jsonOutput {
                 print(jsonString(payload))
             } else {
@@ -14272,11 +14432,11 @@ struct CMUXCLI {
         if let raw,
            !raw.isEmpty,
            let candidate = try? resolveWorkspaceId(raw, client: client),
-           (try? client.sendV2(method: "surface.list", params: ["workspace_id": candidate])) != nil {
+           (try? client.sendV2(method: SocketMethod.surfaceList, params: ["workspace_id": candidate])) != nil {
             return candidate
         }
         if let callerWorkspaceId = resolveCallerWorkspaceIdByTTY(client: client),
-           (try? client.sendV2(method: "surface.list", params: ["workspace_id": callerWorkspaceId])) != nil {
+           (try? client.sendV2(method: SocketMethod.surfaceList, params: ["workspace_id": callerWorkspaceId])) != nil {
             return callerWorkspaceId
         }
         return try resolveWorkspaceId(nil, client: client)
@@ -14290,7 +14450,7 @@ struct CMUXCLI {
         if let raw,
            !raw.isEmpty,
            let candidate = try? resolveSurfaceId(raw, workspaceId: workspaceId, client: client),
-           let listed = try? client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId]) {
+           let listed = try? client.sendV2(method: SocketMethod.surfaceList, params: ["workspace_id": workspaceId]) {
             let items = listed["surfaces"] as? [[String: Any]] ?? []
             if items.contains(where: {
                 ($0["id"] as? String) == candidate || ($0["ref"] as? String) == candidate
@@ -14299,7 +14459,7 @@ struct CMUXCLI {
             }
         }
         if let callerSurfaceId = resolveCallerSurfaceIdByTTY(workspaceId: workspaceId, client: client),
-           let listed = try? client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId]) {
+           let listed = try? client.sendV2(method: SocketMethod.surfaceList, params: ["workspace_id": workspaceId]) {
             let items = listed["surfaces"] as? [[String: Any]] ?? []
             if items.contains(where: {
                 ($0["id"] as? String) == callerSurfaceId || ($0["ref"] as? String) == callerSurfaceId
@@ -14331,7 +14491,7 @@ struct CMUXCLI {
         guard let ttyName = resolveCallerTTYName() else {
             return nil
         }
-        guard let payload = try? client.sendV2(method: "debug.terminals") else {
+        guard let payload = try? client.sendV2(method: SocketMethod.debugTerminals) else {
             return nil
         }
         let terminals = payload["terminals"] as? [[String: Any]] ?? []
@@ -20297,6 +20457,12 @@ export default CMUXSessionRestore;
     }
 
     private func currentExecutablePath() -> String? {
+#if os(Linux)
+        if let path = try? FileManager.default.destinationOfSymbolicLink(atPath: "/proc/self/exe"),
+           !path.isEmpty {
+            return path
+        }
+#else
         var size: UInt32 = 0
         _ = _NSGetExecutablePath(nil, &size)
         if size > 0 {
@@ -20308,6 +20474,7 @@ export default CMUXSessionRestore;
                 }
             }
         }
+#endif
         return Bundle.main.executableURL?.path ?? args.first
     }
 
@@ -20495,8 +20662,8 @@ export default CMUXSessionRestore;
                               ALL commands (send, list-panels, new-split, notify, etc.).
           CMUX_TAB_ID         Optional alias used by `tab-action`/`rename-tab` as default --tab.
           CMUX_SURFACE_ID     Auto-set in cmux terminals. Used as default --surface.
-          CMUX_SOCKET_PATH    Override the Unix socket path. Without this, the CLI defaults
-                              to ~/Library/Application Support/cmux/cmux.sock and auto-discovers tagged/debug sockets.
+          CMUX_SOCKET_PATH    Override the Unix socket path. Without this, the CLI uses the
+                              platform cmux socket path and auto-discovers tagged/debug sockets.
         """
     }
 
