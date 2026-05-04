@@ -3,17 +3,17 @@
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 20530	CLI/cmux.swift
 17229	Sources/TerminalController.swift
-16034	Sources/ContentView.swift
-14475	Sources/AppDelegate.swift
-13922	Sources/Workspace.swift
-13409	Sources/GhosttyTerminalView.swift
+15965	Sources/ContentView.swift
+14510	Sources/AppDelegate.swift
+13899	Sources/Workspace.swift
+13408	Sources/GhosttyTerminalView.swift
 10597	Sources/Panels/BrowserPanel.swift
-8307	Sources/cmuxApp.swift
+8280	Sources/cmuxApp.swift
 7488	Sources/TabManager.swift
 6751	Sources/Panels/BrowserPanelView.swift
 5556	cmuxTests/AppDelegateShortcutRoutingTests.swift
-4639	cmuxTests/TerminalAndGhosttyTests.swift
-4547	cmuxTests/WorkspaceUnitTests.swift
+4590	cmuxTests/TerminalAndGhosttyTests.swift
+4588	cmuxTests/WorkspaceUnitTests.swift
 4444	cmuxTests/GhosttyConfigTests.swift
 4412	cmuxTests/WorkspaceRemoteConnectionTests.swift
 4305	Sources/BrowserWindowPortal.swift
@@ -21,7 +21,7 @@
 3840	Sources/Feed/FeedPanelView.swift
 3588	cmuxTests/BrowserConfigTests.swift
 3145	cmuxTests/BrowserPanelTests.swift
-2938	Sources/CmuxConfig.swift
+2917	Sources/CmuxConfig.swift
 2863	cmuxTests/WindowAndDragTests.swift
 2609	Sources/SessionIndexView.swift
 2491	Sources/Panels/CmuxWebView.swift
@@ -35,7 +35,7 @@
 1899	cmuxTests/CmuxConfigTests.swift
 1879	Sources/FileExplorerView.swift
 1826	Sources/SessionIndexStore.swift
-1784	cmuxTests/ShortcutAndCommandPaletteTests.swift
+1765	cmuxTests/ShortcutAndCommandPaletteTests.swift
 1591	Sources/KeyboardShortcutSettingsFileStore.swift
 1517	cmuxUITests/BrowserPaneNavigationKeybindUITests.swift
 1454	Sources/TerminalNotificationStore.swift
@@ -57,7 +57,7 @@
 829	cmuxUITests/TerminalCmdClickUITests.swift
 807	Sources/TerminalSSHSessionDetector.swift
 785	Sources/App/TerminalDirectoryOpenSupport.swift
-784	Sources/GhosttyConfig.swift
+781	Sources/GhosttyConfig.swift
 778	Sources/MainWindowFocusController.swift
 752	cmuxUITests/CloseWorkspaceCmdDUITests.swift
 718	Sources/App/MenuBarExtraController.swift
