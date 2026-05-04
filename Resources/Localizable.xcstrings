@@ -53088,6 +53088,23 @@
         }
       }
     },
+    "settings.app.openSidebarPRLinks.subtitleHidden": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable sidebar PR visibility to choose where PR links open."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PRリンクの開き先を選ぶには、サイドバーのPR表示を有効にしてください。"
+          }
+        }
+      }
+    },
     "settings.app.openSidebarPortLinks": {
       "extractionState": "manual",
       "localizations": {

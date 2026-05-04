@@ -13166,25 +13166,24 @@ private struct TabItemView: View, Equatable {
                 VStack(alignment: .leading, spacing: 1) {
                     ForEach(workspaceSnapshot.pullRequestRows) { pullRequest in
                         let pullRequestNumber = String(pullRequest.number)
-                        Button(action: { openPullRequestLink(pullRequest.url) }) {
-                            HStack(spacing: 4) {
-                                PullRequestStatusIcon(status: pullRequest.status, color: pullRequestForegroundColor)
-                                Text("\(pullRequest.label) #\(pullRequestNumber)")
-                                    .underline(settings.makesPullRequestsClickable)
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
-                                Text(pullRequestStatusLabel(pullRequest.status))
-                                    .lineLimit(1)
-                                Spacer(minLength: 0)
-                            }
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundColor(pullRequestForegroundColor)
-                            .opacity(pullRequest.isStale ? 0.5 : 1)
+                        let pullRequestTitle = "\(pullRequest.label) #\(pullRequestNumber)"
+                        let rowContent = HStack(spacing: 4) {
+                            PullRequestStatusIcon(status: pullRequest.status, color: pullRequestForegroundColor)
+                            Text(pullRequestTitle).underline(settings.makesPullRequestsClickable).lineLimit(1).truncationMode(.tail)
+                            Text(pullRequestStatusLabel(pullRequest.status)).lineLimit(1)
+                            Spacer(minLength: 0)
                         }
-                        .buttonStyle(.plain)
-                        .allowsHitTesting(settings.makesPullRequestsClickable)
-                        .accessibilityIdentifier("SidebarPullRequestRow")
-                        .safeHelp(settings.makesPullRequestsClickable ? String(localized: "sidebar.pullRequest.openTooltip", defaultValue: "Open \(pullRequest.label) #\(pullRequestNumber)") : "")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(pullRequestForegroundColor)
+                        .opacity(pullRequest.isStale ? 0.5 : 1)
+                        if settings.makesPullRequestsClickable {
+                            Button(action: { openPullRequestLink(pullRequest.url) }) { rowContent }
+                                .buttonStyle(.plain)
+                                .safeHelp(String(localized: "sidebar.pullRequest.openTooltip", defaultValue: "Open \(pullRequestTitle)"))
+                                .accessibilityIdentifier("SidebarPullRequestRow")
+                        } else {
+                            rowContent.accessibilityElement(children: .combine).accessibilityIdentifier("SidebarPullRequestRow")
+                        }
                     }
                 }
             }

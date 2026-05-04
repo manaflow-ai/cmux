@@ -182,7 +182,7 @@ final class SidebarPullRequestInteractivityUITests: XCTestCase {
             current = socketCommand("current_workspace")?.trimmingCharacters(in: .whitespacesAndNewlines)
             return current == expectedWorkspaceId
         }
-        return matched ? current : current
+        return matched ? current : nil
     }
 
     private func waitForSurfaceCountToStay(
