@@ -14110,15 +14110,12 @@ struct CMUXCLI {
         client: SocketClient
     ) throws -> String {
         if let preferred = nonEmptyClaudeHookIdentifier(preferred) {
-            if isUUID(preferred) {
-                return preferred
-            }
             return try resolveWorkspaceIdForClaudeHook(preferred, client: client)
         }
-        if let fallback = nonEmptyClaudeHookIdentifier(fallback), isUUID(fallback) {
-            return fallback
+        if let fallback = nonEmptyClaudeHookIdentifier(fallback) {
+            return try resolveWorkspaceIdForClaudeHook(fallback, client: client)
         }
-        return try resolveWorkspaceIdForClaudeHook(fallback, client: client)
+        return try resolveWorkspaceIdForClaudeHook(nil, client: client)
     }
 
     private func resolvePreferredSurfaceIdForClaudeHook(
@@ -14128,15 +14125,12 @@ struct CMUXCLI {
         client: SocketClient
     ) throws -> String {
         if let preferred = nonEmptyClaudeHookIdentifier(preferred) {
-            if isUUID(preferred) {
-                return preferred
-            }
             return try resolveSurfaceIdForClaudeHook(preferred, workspaceId: workspaceId, client: client)
         }
-        if let fallback = nonEmptyClaudeHookIdentifier(fallback), isUUID(fallback) {
-            return fallback
+        if let fallback = nonEmptyClaudeHookIdentifier(fallback) {
+            return try resolveSurfaceIdForClaudeHook(fallback, workspaceId: workspaceId, client: client)
         }
-        return try resolveSurfaceIdForClaudeHook(fallback, workspaceId: workspaceId, client: client)
+        return try resolveSurfaceIdForClaudeHook(nil, workspaceId: workspaceId, client: client)
     }
 
     private func nonEmptyClaudeHookIdentifier(_ value: String?) -> String? {
@@ -17066,7 +17060,13 @@ export default CMUXSessionRestore;
 
         case .promptSubmit:
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
-            let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(preferred: mapped?.workspaceId, fallback: workspaceArg, client: client)
+            let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(preferred: workspaceArg, fallback: mapped?.workspaceId, client: client)
+            let surfaceId = try? resolvePreferredSurfaceIdForClaudeHook(
+                preferred: surfaceArg,
+                fallback: mapped?.surfaceId,
+                workspaceId: workspaceId,
+                client: client
+            )
             sendAgentFeedTelemetry(workspaceId: workspaceId)
             let pid = mapped?.pid ?? inferredCodexAgentPID()
             let launchCommand = agentLaunchCommandFromEnvironment(
@@ -17079,7 +17079,7 @@ export default CMUXSessionRestore;
                 try? store.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
-                    surfaceId: mapped?.surfaceId ?? (surfaceArg ?? ""),
+                    surfaceId: surfaceId ?? surfaceArg ?? mapped?.surfaceId ?? "",
                     cwd: input.cwd ?? mapped?.cwd,
                     pid: pid,
                     launchCommand: launchCommand
@@ -17097,7 +17097,7 @@ export default CMUXSessionRestore;
                     transcriptPath: normalizedHookValue(input.transcriptPath),
                     cwd: input.cwd ?? mapped?.cwd,
                     workspaceId: workspaceId,
-                    surfaceId: mapped?.surfaceId ?? surfaceArg,
+                    surfaceId: surfaceId ?? surfaceArg ?? mapped?.surfaceId,
                     env: env
                 )
             }
@@ -17105,8 +17105,8 @@ export default CMUXSessionRestore;
         case .stop:
             do {
                 let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
-                let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(preferred: mapped?.workspaceId, fallback: workspaceArg, client: client)
-                let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(preferred: mapped?.surfaceId, fallback: surfaceArg, workspaceId: workspaceId, client: client)
+                let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(preferred: workspaceArg, fallback: mapped?.workspaceId, client: client)
+                let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(preferred: surfaceArg, fallback: mapped?.surfaceId, workspaceId: workspaceId, client: client)
                 sendAgentFeedTelemetry(workspaceId: workspaceId)
                 let pid = mapped?.pid ?? inferredCodexAgentPID()
                 let codexFailure: CodexHookFailureSummary?
