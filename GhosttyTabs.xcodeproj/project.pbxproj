@@ -16,6 +16,7 @@
 		3023A1013023A1013023A101 /* ConfigSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3023B1013023B1013023B101 /* ConfigSettingsView.swift */; };
 		3464A0023464A0023464A002 /* KeyboardShortcutSettingsFileStoreRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3464A0013464A0013464A001 /* KeyboardShortcutSettingsFileStoreRegressionTests.swift */; };
 		3464B0023464B0023464B002 /* ShellIntegrationTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3464B0013464B0013464B001 /* ShellIntegrationTestSupport.swift */; };
+		3464C0023464C0023464C002 /* TerminalWindowPortalVisibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3464C0013464C0013464C001 /* TerminalWindowPortalVisibilityTests.swift */; };
 		350DAC5EBD38642A3E81471A /* AuthManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 312DE7503B4658DD173121B8 /* AuthManager.swift */; };
 		36CE99ED050785B5E96B72BB /* AuthCallbackRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61A19A4145F034965110CF87 /* AuthCallbackRouter.swift */; };
 		4378399A7C0245EF8186F306 /* OmnibarAndToolsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B09C007F42697761B5F1A2AB /* OmnibarAndToolsTests.swift */; };
@@ -268,6 +269,7 @@
 		312DE7503B4658DD173121B8 /* AuthManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AuthManager.swift; sourceTree = "<group>"; };
 		3464A0013464A0013464A001 /* KeyboardShortcutSettingsFileStoreRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSettingsFileStoreRegressionTests.swift; sourceTree = "<group>"; };
 		3464B0013464B0013464B001 /* ShellIntegrationTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellIntegrationTestSupport.swift; sourceTree = "<group>"; };
+		3464C0013464C0013464C001 /* TerminalWindowPortalVisibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalWindowPortalVisibilityTests.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F001 /* FeedCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedCoordinator.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F004 /* FeedPanelView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedPanelView.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F00A /* FeedPreviewWindowController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedPreviewWindowController.swift; sourceTree = "<group>"; };
@@ -721,6 +723,7 @@
 				58C7B1B978620BE162CC057E /* BrowserPanelTests.swift */,
 				3464A0013464A0013464A001 /* KeyboardShortcutSettingsFileStoreRegressionTests.swift */,
 				3464B0013464B0013464B001 /* ShellIntegrationTestSupport.swift */,
+				3464C0013464C0013464C001 /* TerminalWindowPortalVisibilityTests.swift */,
 				02FC74F2C27127CC565B3E8C /* TerminalAndGhosttyTests.swift */,
 				71F8ED91A4B55D34BE6A0668 /* WorkspaceUnitTests.swift */,
 				BEE83F8394D90ACACD8E19DD /* WindowAndDragTests.swift */,
@@ -1145,6 +1148,7 @@
 				1F14445B9627DE9D3AF4FD2E /* BrowserPanelTests.swift in Sources */,
 				3464A0023464A0023464A002 /* KeyboardShortcutSettingsFileStoreRegressionTests.swift in Sources */,
 				3464B0023464B0023464B002 /* ShellIntegrationTestSupport.swift in Sources */,
+				3464C0023464C0023464C002 /* TerminalWindowPortalVisibilityTests.swift in Sources */,
 				46F6AC15863EC84DCD3770A2 /* TerminalAndGhosttyTests.swift in Sources */,
 				6B524A0BA34FD46A771335AB /* WorkspaceUnitTests.swift in Sources */,
 				063BC42CEE257D6213A2E30C /* WindowAndDragTests.swift in Sources */,
