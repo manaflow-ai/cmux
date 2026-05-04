@@ -7,33 +7,6 @@ import ObjectiveC
 import UniformTypeIdentifiers
 import WebKit
 
-struct CommandPaletteDismissFocusRestoreState<Target> {
-    private var pendingTarget: Target?
-    private var isApplying = false
-
-    var hasPendingTarget: Bool { pendingTarget != nil }
-    var isRestoreApplying: Bool { isApplying }
-
-    mutating func request(_ target: Target) {
-        pendingTarget = target
-    }
-
-    mutating func beginAttempt(isPalettePresented: Bool) -> Target? {
-        guard !isPalettePresented,
-              !isApplying,
-              let target = pendingTarget else {
-            return nil
-        }
-        pendingTarget = nil
-        isApplying = true
-        return target
-    }
-
-    mutating func finishAttempt() {
-        isApplying = false
-    }
-}
-
 // MARK: - File Drop Overlay
 
 enum DragOverlayRoutingPolicy {
@@ -1701,7 +1674,6 @@ struct ContentView: View {
     @State private var commandPaletteVisibleResultsFingerprint: Int?
     @State private var cachedCommandPaletteScope: CommandPaletteListScope?
     @State private var cachedCommandPaletteFingerprint: Int?
-    @State private var commandPaletteDismissFocusRestore = CommandPaletteDismissFocusRestoreState<MainWindowFocusRestoreTarget>()
     @State private var commandPalettePendingTextSelectionBehavior: CommandPaletteTextSelectionBehavior?
     @State private var commandPaletteSearchTask: Task<Void, Never>?
     @State private var commandPaletteSearchRequestID: UInt64 = 0
@@ -3375,7 +3347,6 @@ struct ContentView: View {
             guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
                   tabId == tabManager.selectedTabId else { return }
             completeWorkspaceHandoffIfNeeded(focusedTabId: tabId, reason: "focus")
-            attemptCommandPaletteFocusRestoreIfNeeded()
             scheduleTitlebarTextRefresh()
         })
 
@@ -3390,7 +3361,6 @@ struct ContentView: View {
             guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
                   tabId == tabManager.selectedTabId else { return }
             completeWorkspaceHandoffIfNeeded(focusedTabId: tabId, reason: "first_responder")
-            attemptCommandPaletteFocusRestoreIfNeeded()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .browserDidBecomeFirstResponderWebView)) { notification in
@@ -3406,7 +3376,6 @@ struct ContentView: View {
                 in: observedWindow ?? webView.window
             )
             completeWorkspaceHandoffIfNeeded(focusedTabId: selectedTabId, reason: "browser_first_responder")
-            attemptCommandPaletteFocusRestoreIfNeeded()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .webViewDidReceiveClick)) { notification in
@@ -3434,14 +3403,12 @@ struct ContentView: View {
                 in: observedWindow ?? focusedBrowser.webView.window
             )
             completeWorkspaceHandoffIfNeeded(focusedTabId: selectedTabId, reason: "browser_address_bar")
-            attemptCommandPaletteFocusRestoreIfNeeded()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(
             for: NSWindow.didBecomeKeyNotification,
             object: observedWindow
         )) { _ in
-            attemptCommandPaletteFocusRestoreIfNeeded()
             attemptCommandPaletteTextSelectionIfNeeded()
         })
 
@@ -8916,7 +8883,7 @@ struct ContentView: View {
         syncCommandPaletteDebugStateForObservedWindow()
 
         guard restoreFocus, let focusTarget else { return }
-        requestCommandPaletteFocusRestore(target: focusTarget)
+        _ = AppDelegate.shared?.restoreMainWindowKeyboardFocus(focusTarget, in: observedWindow)
     }
 
     private func handleCommandPaletteBackdropClick(atContentPoint contentPoint: CGPoint) {
@@ -9035,22 +9002,6 @@ struct ContentView: View {
             fallbackIntent: fallbackIntent,
             in: window
         )
-    }
-
-    private func requestCommandPaletteFocusRestore(target: MainWindowFocusRestoreTarget) {
-        commandPaletteDismissFocusRestore.request(target)
-        attemptCommandPaletteFocusRestoreIfNeeded()
-    }
-
-    private func attemptCommandPaletteFocusRestoreIfNeeded() {
-        guard let target = commandPaletteDismissFocusRestore.beginAttempt(
-            isPalettePresented: isCommandPalettePresented
-        ) else { return }
-        defer {
-            commandPaletteDismissFocusRestore.finishAttempt()
-        }
-
-        _ = AppDelegate.shared?.restoreMainWindowKeyboardFocus(target, in: observedWindow)
     }
 
 #if DEBUG
