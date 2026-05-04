@@ -2756,6 +2756,8 @@ class TerminalController {
             return v2Result(id: id, self.v2DebugSidebarVisible(params: params))
         case "debug.terminal.is_focused":
             return v2Result(id: id, self.v2DebugIsTerminalFocused(params: params))
+        case "debug.terminal.first_responder_focus":
+            return v2Result(id: id, self.v2DebugTerminalFirstResponderFocus(params: params))
         case "debug.terminal.read_text":
             return v2Result(id: id, self.v2DebugReadTerminalText(params: params))
         case "debug.terminal.render_stats":
@@ -2989,6 +2991,7 @@ class TerminalController {
             "debug.right_sidebar.focus",
             "debug.sidebar.visible",
             "debug.terminal.is_focused",
+            "debug.terminal.first_responder_focus",
             "debug.terminal.read_text",
             "debug.terminal.render_stats",
             "debug.layout",
@@ -12390,17 +12393,6 @@ class TerminalController {
         ])
     }
 
-    private func v2DebugIsTerminalFocused(params: [String: Any]) -> V2CallResult {
-        guard let surfaceId = v2String(params, "surface_id") else {
-            return .err(code: "invalid_params", message: "Missing surface_id", data: nil)
-        }
-        let resp = isTerminalFocused(surfaceId)
-        if resp.hasPrefix("ERROR") {
-            return .err(code: "internal_error", message: resp, data: nil)
-        }
-        return .ok(["focused": resp.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "true"])
-    }
-
     private func v2DebugReadTerminalText(params: [String: Any]) -> V2CallResult {
         let surfaceArg = v2String(params, "surface_id") ?? ""
         let resp = readTerminalText(surfaceArg)
@@ -12425,6 +12417,17 @@ class TerminalController {
         return .ok(["stats": obj])
     }
 
+    private func v2DebugIsTerminalFocused(params: [String: Any]) -> V2CallResult {
+        guard let surfaceId = v2String(params, "surface_id") else {
+            return .err(code: "invalid_params", message: "Missing surface_id", data: nil)
+        }
+        let resp = isTerminalFocused(surfaceId)
+        if resp.hasPrefix("ERROR") {
+            return .err(code: "internal_error", message: resp, data: nil)
+        }
+        return .ok(["focused": resp.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "true"])
+    }
+
     private func v2DebugLayout() -> V2CallResult {
         let resp = layoutDebug()
         guard resp.hasPrefix("OK ") else {
@@ -12436,13 +12439,6 @@ class TerminalController {
             return .err(code: "internal_error", message: "layout_debug JSON decode failed", data: ["payload": String(jsonStr.prefix(200))])
         }
         return .ok(["layout": obj])
-    }
-
-    private func v2DebugPortalStats() -> V2CallResult {
-        let payload: [String: Any] = v2MainSync {
-            TerminalWindowPortalRegistry.debugPortalStats()
-        }
-        return .ok(payload)
     }
 
     private func v2DebugBonsplitUnderflowCount() -> V2CallResult {

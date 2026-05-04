@@ -5236,6 +5236,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let eventWindow = event?.window
         return "eventWinNum=\(eventWindowNumber) eventWin={\(debugWindowToken(eventWindow))} keyWin={\(debugWindowToken(NSApp.keyWindow))} mainWin={\(debugWindowToken(NSApp.mainWindow))} activeMgr=\(debugManagerToken(activeManager)) activeWinId=\(activeWindowId) activeSelected=\(selectedWorkspace) contexts=[\(contexts)]"
     }
+
 #endif
 
     private func mainWindowForShortcutEvent(_ event: NSEvent) -> NSWindow? {
@@ -5524,65 +5525,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return TerminalSurfaceRegistry.shared.isRightSidebarDockSurface(id: panelId)
     }
 
-    func allowsTerminalKeyboardFocus(
-        workspaceId: UUID,
-        panelId: UUID,
-        in window: NSWindow?
-    ) -> Bool {
-        keyboardFocusCoordinator(for: window)?.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId) ?? true
-    }
-
-    func syncBonsplitTabShortcutHintEligibility(in window: NSWindow?) {
-        keyboardFocusCoordinator(for: window)?.syncBonsplitTabShortcutHintEligibility()
-    }
-
-    fileprivate struct TerminalKeyboardFocusRequest {
-        let workspaceId: UUID
-        let panelId: UUID
-        let ghosttyView: GhosttyNSView
-    }
-
-    fileprivate func terminalKeyboardFocusRequest(for responder: NSResponder?) -> TerminalKeyboardFocusRequest? {
-        guard let ghosttyView = cmuxOwningGhosttyView(for: responder),
-              let workspaceId = ghosttyView.tabId,
-              let panelId = ghosttyView.terminalSurface?.id else {
-            return nil
+    private func noteFocusedMainPanelShortcutIntent(for event: NSEvent) {
+        if let context = preferredMainWindowContextForShortcutRouting(event: event) {
+            if let targetWindow = context.window ?? windowForMainWindowId(context.windowId) {
+                let accepted = noteFocusedMainPanelShortcutIntent(in: targetWindow)
+#if DEBUG
+                cmuxDebugLog(
+                    "shortcut.focusIntent.mainPanel event=\(NSWindow.keyDescription(event)) " +
+                        "source=context accepted=\(accepted ? 1 : 0) " +
+                        "target={\(debugWindowToken(targetWindow))} context={\(debugContextToken(context))}"
+                )
+#endif
+                return
+            }
         }
-        if TerminalSurfaceRegistry.shared.isRightSidebarDockSurface(id: panelId) {
-            return nil
-        }
-        return TerminalKeyboardFocusRequest(
-            workspaceId: workspaceId,
-            panelId: panelId,
-            ghosttyView: ghosttyView
+        let targetWindow = mainWindowForShortcutEvent(event) ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+        let accepted = noteFocusedMainPanelShortcutIntent(in: targetWindow)
+#if DEBUG
+        cmuxDebugLog(
+            "shortcut.focusIntent.mainPanel event=\(NSWindow.keyDescription(event)) " +
+                "source=fallback accepted=\(accepted ? 1 : 0) " +
+                "target={\(debugWindowToken(targetWindow))}"
         )
-    }
-
-    func allowsTerminalKeyboardFocus(for responder: NSResponder?, in window: NSWindow?) -> Bool {
-        guard let request = terminalKeyboardFocusRequest(for: responder) else {
-            return true
-        }
-        return allowsTerminalKeyboardFocus(
-            workspaceId: request.workspaceId,
-            panelId: request.panelId,
-            in: window
-        )
-    }
-
-    func noteTerminalKeyboardFocusIntent(workspaceId: UUID, panelId: UUID, in window: NSWindow?) {
-        keyboardFocusCoordinator(for: window)?.noteTerminalInteraction(workspaceId: workspaceId, panelId: panelId)
-    }
-
-    func noteMainPanelKeyboardFocusIntent(workspaceId: UUID, panelId: UUID, in window: NSWindow?) {
-        keyboardFocusCoordinator(for: window)?.noteMainPanelInteraction(workspaceId: workspaceId, panelId: panelId)
-    }
-
-    func noteRightSidebarKeyboardFocusIntent(mode: RightSidebarMode, in window: NSWindow?) {
-        keyboardFocusCoordinator(for: window)?.noteRightSidebarInteraction(mode: mode)
-    }
-
-    func syncKeyboardFocusAfterFirstResponderChange(in window: NSWindow?) {
-        keyboardFocusCoordinator(for: window)?.syncAfterResponderChange()
+#endif
     }
 
     @discardableResult
@@ -11033,10 +10998,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Surface navigation: Cmd+Shift+] / Cmd+Shift+[
         if matchConfiguredShortcut(event: event, action: .nextSurface) {
             tabManager?.selectNextSurface()
+            noteFocusedMainPanelShortcutIntent(for: event)
             return true
         }
         if matchConfiguredShortcut(event: event, action: .prevSurface) {
             tabManager?.selectPreviousSurface()
+            noteFocusedMainPanelShortcutIntent(for: event)
             return true
         }
 
@@ -11196,6 +11163,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             } else {
                 tabManager?.selectSurface(at: digit - 1)
             }
+            noteFocusedMainPanelShortcutIntent(for: event)
             return true
         }
 
@@ -11207,6 +11175,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             arrowKeyCode: 123
         ) || (ghosttyGotoSplitLeftShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "←", arrowKeyCode: 123) } ?? false) {
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: NSApp.keyWindow); tabManager?.movePaneFocus(direction: .left)
+            noteFocusedMainPanelShortcutIntent(for: event)
 #if DEBUG
             recordGotoSplitMoveIfNeeded(direction: .left)
 #endif
@@ -11219,6 +11188,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             arrowKeyCode: 124
         ) || (ghosttyGotoSplitRightShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "→", arrowKeyCode: 124) } ?? false) {
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: NSApp.keyWindow); tabManager?.movePaneFocus(direction: .right)
+            noteFocusedMainPanelShortcutIntent(for: event)
 #if DEBUG
             recordGotoSplitMoveIfNeeded(direction: .right)
 #endif
@@ -11231,6 +11201,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             arrowKeyCode: 126
         ) || (ghosttyGotoSplitUpShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "↑", arrowKeyCode: 126) } ?? false) {
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: NSApp.keyWindow); tabManager?.movePaneFocus(direction: .up)
+            noteFocusedMainPanelShortcutIntent(for: event)
 #if DEBUG
             recordGotoSplitMoveIfNeeded(direction: .up)
 #endif
@@ -11243,6 +11214,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             arrowKeyCode: 125
         ) || (ghosttyGotoSplitDownShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "↓", arrowKeyCode: 125) } ?? false) {
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: NSApp.keyWindow); tabManager?.movePaneFocus(direction: .down)
+            noteFocusedMainPanelShortcutIntent(for: event)
 #if DEBUG
             recordGotoSplitMoveIfNeeded(direction: .down)
 #endif
@@ -11305,10 +11277,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Surface navigation (legacy Ctrl+Tab support)
         if matchTabShortcut(event: event, shortcut: StoredShortcut(key: "\t", command: false, shift: false, option: false, control: true)) {
             tabManager?.selectNextSurface()
+            noteFocusedMainPanelShortcutIntent(for: event)
             return true
         }
         if matchTabShortcut(event: event, shortcut: StoredShortcut(key: "\t", command: false, shift: true, option: false, control: true)) {
             tabManager?.selectPreviousSurface()
+            noteFocusedMainPanelShortcutIntent(for: event)
             return true
         }
 

@@ -77,7 +77,7 @@ final class MainWindowFocusController {
     let windowId: UUID
 
     private weak var window: NSWindow?
-    private weak var tabManager: TabManager?
+    weak var tabManager: TabManager?
     private weak var fileExplorerState: FileExplorerState?
     private weak var rightSidebarHost: RightSidebarKeyboardFocusView?
     private weak var fileExplorerHost: FileExplorerContainerView?
@@ -173,30 +173,6 @@ final class MainWindowFocusController {
         rightSidebarFocusState = .inactive
         intent = .mainPanel(workspaceId: workspaceId, panelId: panelId)
         publishFeedFocusSnapshot()
-    }
-
-    func allowsTerminalFocus(workspaceId: UUID, panelId: UUID) -> Bool {
-        if TerminalSurfaceRegistry.shared.isRightSidebarDockSurface(id: panelId) {
-            return true
-        }
-        switch intent {
-        case .rightSidebar:
-            return false
-        case .mainPanel, nil:
-            return true
-        }
-    }
-
-    func allowsBonsplitTabShortcutHints(workspaceId: UUID) -> Bool {
-        guard tabManager?.selectedTabId == workspaceId else { return false }
-        switch intent {
-        case .rightSidebar:
-            return false
-        case .mainPanel(let focusedWorkspaceId, _):
-            return focusedWorkspaceId == workspaceId
-        case nil:
-            return true
-        }
     }
 
     func ownsRightSidebarFocus(_ responder: NSResponder) -> Bool {
@@ -339,11 +315,11 @@ final class MainWindowFocusController {
             return
         }
         if let terminal = terminalFocusRequest(for: responder) {
-            if rightSidebarFocusState.request != nil {
-                publishFeedFocusSnapshot()
-                return
-            }
-            noteTerminalInteraction(workspaceId: terminal.workspaceId, panelId: terminal.panelId)
+            _ = requestMainPanelFocus(
+                workspaceId: terminal.workspaceId,
+                panelId: terminal.panelId,
+                source: .responderSync
+            )
             return
         }
         if let mode = rightSidebarModeOwning(responder) {
@@ -723,7 +699,11 @@ final class MainWindowFocusController {
         return false
     }
 
-    private func publishFeedFocusSnapshot(force: Bool = false) {
+    var hasPendingRightSidebarFocusRequest: Bool {
+        rightSidebarFocusState.request != nil
+    }
+
+    func publishFeedFocusSnapshot(force: Bool = false) {
         let snapshot = feedFocusSnapshot()
         guard force || snapshot != lastPublishedFeedFocusSnapshot else { return }
         lastPublishedFeedFocusSnapshot = snapshot
