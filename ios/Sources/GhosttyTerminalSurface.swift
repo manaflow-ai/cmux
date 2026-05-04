@@ -806,6 +806,7 @@ public final class GhosttyTerminalSurfaceView: UIView {
     #if DEBUG
     var onOutputProcessedForTesting: (() -> Void)?
     private var hasRunUITestingZoomStress = false
+    private var pendingUITestingZoomStressCycles = 0
     #endif
     // Keep `ghostty_surface_process_output` off the main thread. This is
     // per surface so a slow free or render on one terminal cannot block input
@@ -997,19 +998,9 @@ public final class GhosttyTerminalSurfaceView: UIView {
               let cycles = Int(value),
               cycles > 0 else { return }
         hasRunUITestingZoomStress = true
-
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            for index in 0..<cycles {
-                self.simulatePinchZoomCycleForTesting([.decrease])
-                self.simulatePinchZoomCycleForTesting([.increase])
-                if index.isMultiple(of: 20) {
-                    await Task.yield()
-                }
-            }
-            let renderedText = self.accessibilityRenderedTextForTesting() ?? ""
-            self.accessibilityValue = renderedText + "\nZOOM_STRESS_DONE"
-        }
+        // Display-link pacing keeps repeated Ghostty font rebuilds from
+        // monopolizing the main actor during responsiveness tests.
+        pendingUITestingZoomStressCycles = cycles
     }
     #endif
 
@@ -1253,6 +1244,9 @@ public final class GhosttyTerminalSurfaceView: UIView {
     }
 
     @objc private func handleDisplayLink() {
+        #if DEBUG
+        drainUITestingZoomStressFrame()
+        #endif
         runtime?.drainScheduledWakeupTick()
         guard let surface else { return }
         if needsDraw {
@@ -1282,6 +1276,18 @@ public final class GhosttyTerminalSurfaceView: UIView {
             }
         }
     }
+
+    #if DEBUG
+    private func drainUITestingZoomStressFrame() {
+        guard pendingUITestingZoomStressCycles > 0 else { return }
+        simulatePinchZoomCycleForTesting([.decrease])
+        simulatePinchZoomCycleForTesting([.increase])
+        pendingUITestingZoomStressCycles -= 1
+        guard pendingUITestingZoomStressCycles == 0 else { return }
+        let renderedText = accessibilityRenderedTextForTesting() ?? ""
+        accessibilityValue = renderedText + "\nZOOM_STRESS_DONE"
+    }
+    #endif
 }
 
 private final class WeakGhosttySurfaceViewBox {
