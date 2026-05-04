@@ -1078,8 +1078,9 @@ final class WindowTerminalPortal: NSObject {
     }
 
     /// Update the visibleInUI flag on an existing entry without rebinding.
-    /// Used when a deferred bind is pending — this ensures synchronizeHostedView
-    /// won't hide a view that updateNSView has already marked as visible.
+    /// Used when a deferred bind is pending. Invisible entries are hidden
+    /// immediately so transparent terminal layers cannot bleed through while
+    /// waiting for a later geometry sync; visible entries still reveal via bind/sync.
     func updateEntryVisibility(forHostedId hostedId: ObjectIdentifier, visibleInUI: Bool) {
         guard var entry = entriesByHostedId[hostedId] else { return }
         entry.visibleInUI = visibleInUI
@@ -1087,6 +1088,19 @@ final class WindowTerminalPortal: NSObject {
             entry.transientRecoveryRetriesRemaining = 0
         }
         entriesByHostedId[hostedId] = entry
+
+        guard !visibleInUI, let hostedView = entry.hostedView else { return }
+#if DEBUG
+        let wasHidden = hostedView.isHidden
+#endif
+        hostedView.setVisibleInUI(false)
+#if DEBUG
+        if !wasHidden {
+            cmuxDebugLog(
+                "portal.hidden hosted=\(portalDebugToken(hostedView)) value=1 reason=entryVisibility"
+            )
+        }
+#endif
     }
 
     func isHostedViewBoundToAnchor(withId hostedId: ObjectIdentifier, anchorView: NSView) -> Bool {
