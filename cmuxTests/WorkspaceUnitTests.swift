@@ -209,6 +209,15 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         XCTAssertFalse(shortcut.shift)
         XCTAssertFalse(shortcut.option)
         XCTAssertFalse(shortcut.control)
+        XCTAssertEqual(KeyboardShortcutSettings.Action.renameTab.shortcutContext, .nonBrowserPanel)
+        XCTAssertEqual(KeyboardShortcutSettings.Action.browserReload.shortcutContext, .browserPanel)
+        XCTAssertFalse(
+            KeyboardShortcutSettings.Action.renameTab.conflicts(
+                with: KeyboardShortcutSettings.Action.browserReload.defaultShortcut,
+                proposedAction: .browserReload,
+                configuredShortcut: shortcut
+            )
+        )
     }
 
     func testCloseWindowShortcutDefaultsAndMetadata() {
@@ -233,6 +242,7 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         XCTAssertTrue(shortcut.shift)
         XCTAssertFalse(shortcut.option)
         XCTAssertFalse(shortcut.control)
+        XCTAssertEqual(KeyboardShortcutSettings.Action.renameWorkspace.shortcutContext, .nonBrowserPanel)
     }
 
     func testRenameWorkspaceShortcutConvertsToMenuShortcut() {
@@ -985,6 +995,34 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         )
         XCTAssertTrue(KeyboardShortcutSettings.isManagedBySettingsFile(.newTab))
         XCTAssertNotNil(KeyboardShortcutSettings.settingsFileManagedSubtitle(for: .newTab))
+    }
+
+    func testShortcutSettingsFilePreservesConfiguredShortcutWithoutGlobalConflictLookup() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "newWindow": "cmd+n"
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(
+            store.override(for: .newWindow),
+            StoredShortcut(key: "n", command: true, shift: false, option: false, control: false)
+        )
     }
 
     @MainActor

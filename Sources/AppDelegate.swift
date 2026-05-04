@@ -11192,10 +11192,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .renameTab) {
-            // Keep Cmd+R browser reload behavior when a browser panel is focused.
-            if tabManager?.focusedBrowserPanel != nil {
-                return false
-            }
             let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
             requestCommandPaletteRenameTab(preferredWindow: targetWindow, source: "shortcut.renameTab")
             return true
@@ -12335,7 +12331,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func matchConfiguredShortcut(event: NSEvent, action: KeyboardShortcutSettings.Action) -> Bool {
+        guard action.shortcutContext.isAvailable(focusedBrowserPanel: tabManager?.focusedBrowserPanel != nil) else {
+            return false
+        }
+        return matchConfiguredShortcutIgnoringContext(event: event, action: action)
+    }
+
+    private func matchConfiguredShortcutIgnoringContext(
+        event: NSEvent,
+        action: KeyboardShortcutSettings.Action
+    ) -> Bool {
         matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: action))
+    }
+
+    fileprivate func shouldForwardBrowserSurfaceShortcutToTerminal(_ event: NSEvent) -> Bool {
+        guard tabManager?.focusedBrowserPanel == nil else { return false }
+        return KeyboardShortcutSettings.Action.allCases.contains { action in
+            action.shortcutContext == .browserPanel &&
+                matchConfiguredShortcutIgnoringContext(event: event, action: action)
+        }
     }
 
     private func numberedConfiguredShortcutDigit(
@@ -14214,6 +14228,16 @@ private extension NSWindow {
         // When the terminal is focused, skip the full NSWindow.performKeyEquivalent
         // (which walks the SwiftUI content view hierarchy) and dispatch Command-key
         // events directly to the main menu. This avoids the broken SwiftUI focus path.
+        if let firstResponderGhosttyView,
+           shouldRouteCommandEquivalentDirectlyToMainMenu(event),
+           AppDelegate.shared?.shouldForwardBrowserSurfaceShortcutToTerminal(event) == true {
+            firstResponderGhosttyView.keyDown(with: event)
+#if DEBUG
+            cmuxDebugLog("  → terminal received browser-scoped command equivalent")
+#endif
+            return true
+        }
+
         if firstResponderGhosttyView != nil,
            shouldRouteCommandEquivalentDirectlyToMainMenu(event),
            let mainMenu = NSApp.mainMenu {

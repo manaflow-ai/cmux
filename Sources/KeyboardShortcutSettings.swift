@@ -181,15 +181,43 @@ enum KeyboardShortcutSettings {
 
         var defaultsKey: String { "shortcut.\(rawValue)" }
 
-        private enum ConflictScope {
+        enum ShortcutContext: Equatable {
             case application
+            case nonBrowserPanel
+            case browserPanel
             case rightSidebarFocus
+
+            func isAvailable(focusedBrowserPanel: Bool) -> Bool {
+                switch self {
+                case .application, .rightSidebarFocus:
+                    return true
+                case .nonBrowserPanel:
+                    return !focusedBrowserPanel
+                case .browserPanel:
+                    return focusedBrowserPanel
+                }
+            }
+
+            func overlaps(_ other: ShortcutContext) -> Bool {
+                if self == .rightSidebarFocus || other == .rightSidebarFocus {
+                    return self == other
+                }
+                if self == .application || other == .application {
+                    return true
+                }
+                return self == other
+            }
         }
 
-        private var conflictScope: ConflictScope {
+        var shortcutContext: ShortcutContext {
             switch self {
             case .switchRightSidebarToFiles, .switchRightSidebarToFind, .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
                 return .rightSidebarFocus
+            case .renameTab, .renameWorkspace:
+                return .nonBrowserPanel
+            case .browserBack, .browserForward, .browserReload, .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole,
+                 .toggleReactGrab, .browserZoomIn, .browserZoomOut, .browserZoomReset:
+                return .browserPanel
             default:
                 return .application
             }
@@ -363,7 +391,7 @@ enum KeyboardShortcutSettings {
             proposedAction: Action,
             configuredShortcut: StoredShortcut
         ) -> Bool {
-            guard conflictScope == proposedAction.conflictScope else {
+            guard shortcutContext.overlaps(proposedAction.shortcutContext) else {
                 return false
             }
             return KeyboardShortcutSettings.shortcutsConflict(

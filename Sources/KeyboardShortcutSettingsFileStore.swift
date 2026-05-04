@@ -862,10 +862,15 @@ final class CmuxSettingsFileStore {
         }()
 
         guard let shortcut else { return nil }
-        if let normalized = action.normalizedRecordedShortcut(shortcut) {
+        // Settings-file parsing can run while the global shortcut store is
+        // initializing, so keep this path independent of store-backed conflict
+        // checks. Recorder UI still validates conflicts before persisting.
+        switch action.resolvedRecordedShortcutIgnoringConflicts(shortcut) {
+        case let .accepted(normalized):
             return normalized
+        case .rejected:
+            return action.usesNumberedDigitMatching ? nil : shortcut
         }
-        return action.usesNumberedDigitMatching ? nil : shortcut
     }
 
     private func parseNullableHex(
