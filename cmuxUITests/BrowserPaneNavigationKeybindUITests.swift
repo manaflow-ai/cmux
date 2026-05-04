@@ -785,6 +785,59 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         )
     }
 
+    func testTerminalSplitAfterBrowserSplitFocusesCreatedTerminal() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_RECORD_ONLY"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        launchAndEnsureForeground(app)
+
+        let window = app.windows.firstMatch
+        _ = window.waitForExistence(timeout: 2.0)
+
+        app.typeKey("d", modifierFlags: [.command])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                guard data["lastSplitDirection"] == "right" else { return false }
+                guard let paneCountAfterSplit = Int(data["paneCountAfterSplit"] ?? "") else { return false }
+                return paneCountAfterSplit >= 2 && data["focusedPanelKind"] == "terminal"
+            },
+            "Expected Cmd+D to create and focus a right terminal split. data=\(String(describing: loadData()))"
+        )
+
+        app.typeKey("d", modifierFlags: [.command, .shift, .option])
+        let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
+        XCTAssertTrue(omnibar.waitForExistence(timeout: 8.0), "Expected browser omnibar after Cmd+Option+Shift+D")
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                data["webViewFocusedAfterAddressBarFocus"] == "false" &&
+                    (data["webViewFocusedAfterAddressBarFocusPanelId"]?.isEmpty == false)
+            },
+            "Expected Cmd+Option+Shift+D to create and focus a browser split. data=\(String(describing: loadData()))"
+        )
+
+        app.typeKey("d", modifierFlags: [.command, .shift])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                guard data["lastSplitDirection"] == "down" else { return false }
+                guard let focusedPanelId = data["focusedPanelId"], !focusedPanelId.isEmpty else { return false }
+                guard let paneCountAfterSplit = Int(data["paneCountAfterSplit"] ?? "") else { return false }
+                return paneCountAfterSplit >= 4 && data["focusedPanelKind"] == "terminal"
+            },
+            "Expected Cmd+Shift+D from browser split to create and select a terminal. data=\(String(describing: loadData()))"
+        )
+
+        guard let focusedPanelId = loadData()?["focusedPanelId"], !focusedPanelId.isEmpty else {
+            XCTFail("Missing focusedPanelId after terminal split. data=\(String(describing: loadData()))")
+            return
+        }
+
+        XCTAssertTrue(
+            waitForStableTerminalFirstResponder(panelId: focusedPanelId, stableDuration: 1.0, timeout: 6.0),
+            "Expected newly created terminal to own AppKit first responder. focusedPanelId=\(focusedPanelId) data=\(String(describing: loadData()))"
+        )
+    }
+
     func testCmdOptionPaneSwitchPreservesFindFieldFocus() {
         runFindFocusPersistenceScenario(route: .cmdOptionArrows, useAutofocusRacePage: false)
     }
@@ -1385,6 +1438,38 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             guard let data = self.loadData() else { return false }
             return predicate(data)
         }
+    }
+
+    private func waitForStableTerminalFirstResponder(
+        panelId: String,
+        stableDuration: TimeInterval,
+        timeout: TimeInterval
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        var stableSince: Date?
+
+        while Date() < deadline {
+            let matches = loadData().map { data in
+                data["focusedPanelId"] == panelId &&
+                    data["focusedPanelKind"] == "terminal" &&
+                    data["firstResponderTerminalPanelId"] == panelId
+            } ?? false
+
+            if matches {
+                if stableSince == nil {
+                    stableSince = Date()
+                }
+                if let stableSince, Date().timeIntervalSince(stableSince) >= stableDuration {
+                    return true
+                }
+            } else {
+                stableSince = nil
+            }
+
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+
+        return false
     }
 
     private func waitForNonExistence(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
