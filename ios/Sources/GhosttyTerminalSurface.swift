@@ -1232,7 +1232,6 @@ public final class GhosttyTerminalSurfaceView: UIView {
         for view in registeredSurfaceViews.values.compactMap(\.value) where view.window != nil {
             if let surface = view.surface {
                 ghostty_surface_refresh(surface)
-                view.needsDraw = true
             }
         }
     }
