@@ -1,5 +1,8 @@
 import Foundation
 import Darwin
+#if DEBUG
+import CMUXDebugLog
+#endif
 
 extension CMUXCLI {
     /// Interactive list of simulators. Default action when the user runs
@@ -12,10 +15,10 @@ extension CMUXCLI {
     ///   s             shutdown the selected device
     ///   r             refresh now
     ///   q or Ctrl-C   quit
-    func runSimulatorTUI(client: SocketClient, idFormat: CLIIDFormat) throws {
+    func runSimulatorTUI(client: SocketClient, idFormat: CLIIDFormat, jsonOutput: Bool) throws {
         // Non-TTY (piped or scripted): fall back to plain list and exit.
-        if isatty(STDIN_FILENO) == 0 || isatty(STDOUT_FILENO) == 0 {
-            try runSimulatorList(client: client, jsonOutput: false)
+        if jsonOutput || isatty(STDIN_FILENO) == 0 || isatty(STDOUT_FILENO) == 0 {
+            try runSimulatorList(client: client, jsonOutput: jsonOutput)
             return
         }
 
@@ -26,10 +29,13 @@ extension CMUXCLI {
         var devices: [SimulatorTUIDevice] = []
         var selection = 0
         var statusLine = ""
-        var pending: SimulatorTUIPendingAction?
+        let pending: SimulatorTUIPendingAction? = nil
 
         func reload() {
             do {
+#if DEBUG
+                CMUXDebugLog.logDebugEvent("sim.tui.list.request")
+#endif
                 let payload = try client.sendV2(method: "simulator.list", params: [:])
                 let raw = (payload["devices"] as? [[String: Any]]) ?? []
                 devices = raw.compactMap(SimulatorTUIDevice.init(payload:))
@@ -42,8 +48,14 @@ extension CMUXCLI {
                 } else {
                     selection = max(0, min(selection, devices.count - 1))
                 }
+#if DEBUG
+                CMUXDebugLog.logDebugEvent("sim.tui.list.success count=\(devices.count)")
+#endif
             } catch {
-                statusLine = "list failed: \(error.localizedDescription)"
+#if DEBUG
+                CMUXDebugLog.logDebugEvent("sim.tui.list.error error=\(String(describing: error))")
+#endif
+                statusLine = "list failed: \(String(describing: error))"
             }
         }
 
@@ -96,14 +108,23 @@ extension CMUXCLI {
                 case .openSelection:
                     if let device = devices[safe: selection] {
                         do {
+#if DEBUG
+                            CMUXDebugLog.logDebugEvent("sim.tui.open.request udid=\(device.udid.prefix(8))")
+#endif
                             let payload = try client.sendV2(method: "simulator.open", params: [
                                 "udid": device.udid,
                                 "direction": "right",
                             ])
                             let surfaceText = formatHandle(payload, kind: "surface", idFormat: idFormat) ?? "?"
                             statusLine = "opened \(device.name) (surface=\(surfaceText))"
+#if DEBUG
+                            CMUXDebugLog.logDebugEvent("sim.tui.open.success udid=\(device.udid.prefix(8))")
+#endif
                         } catch {
-                            statusLine = "open failed: \(error.localizedDescription)"
+#if DEBUG
+                            CMUXDebugLog.logDebugEvent("sim.tui.open.error udid=\(device.udid.prefix(8)) error=\(String(describing: error))")
+#endif
+                            statusLine = "open failed: \(String(describing: error))"
                         }
                     }
                 case .bootSelection:
@@ -111,10 +132,19 @@ extension CMUXCLI {
                         statusLine = "booting \(device.name)…"
                         renderer.draw(devices: devices, selection: selection, status: statusLine, pending: pending)
                         do {
+#if DEBUG
+                            CMUXDebugLog.logDebugEvent("sim.tui.boot.request udid=\(device.udid.prefix(8))")
+#endif
                             _ = try client.sendV2(method: "simulator.boot", params: ["udid": device.udid])
-                            statusLine = "booted \(device.name)"
+                            statusLine = "boot requested for \(device.name)"
+#if DEBUG
+                            CMUXDebugLog.logDebugEvent("sim.tui.boot.success udid=\(device.udid.prefix(8))")
+#endif
                         } catch {
-                            statusLine = "boot failed: \(error.localizedDescription)"
+#if DEBUG
+                            CMUXDebugLog.logDebugEvent("sim.tui.boot.error udid=\(device.udid.prefix(8)) error=\(String(describing: error))")
+#endif
+                            statusLine = "boot failed: \(String(describing: error))"
                         }
                         reload()
                     }
@@ -123,10 +153,19 @@ extension CMUXCLI {
                         statusLine = "shutting down \(device.name)…"
                         renderer.draw(devices: devices, selection: selection, status: statusLine, pending: pending)
                         do {
+#if DEBUG
+                            CMUXDebugLog.logDebugEvent("sim.tui.shutdown.request udid=\(device.udid.prefix(8))")
+#endif
                             _ = try client.sendV2(method: "simulator.shutdown", params: ["udid": device.udid])
-                            statusLine = "shut down \(device.name)"
+                            statusLine = "shutdown requested for \(device.name)"
+#if DEBUG
+                            CMUXDebugLog.logDebugEvent("sim.tui.shutdown.success udid=\(device.udid.prefix(8))")
+#endif
                         } catch {
-                            statusLine = "shutdown failed: \(error.localizedDescription)"
+#if DEBUG
+                            CMUXDebugLog.logDebugEvent("sim.tui.shutdown.error udid=\(device.udid.prefix(8)) error=\(String(describing: error))")
+#endif
+                            statusLine = "shutdown failed: \(String(describing: error))"
                         }
                         reload()
                     }

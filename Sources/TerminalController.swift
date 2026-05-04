@@ -8903,24 +8903,38 @@ class TerminalController {
         guard let udid = v2String(params, "udid"), !udid.isEmpty else {
             return .err(code: "invalid_params", message: "Missing 'udid'", data: nil)
         }
-        do {
-            try SimulatorService.shared.boot(udid: udid)
-            return .ok(["udid": udid])
-        } catch {
-            return .err(code: "boot_failed", message: error.localizedDescription, data: ["udid": udid])
+        Task.detached(priority: .userInitiated) {
+            do {
+                try SimulatorService.shared.boot(udid: udid)
+#if DEBUG
+                cmuxDebugLog("simulator.boot.success udid=\(udid.prefix(8))")
+#endif
+            } catch {
+#if DEBUG
+                cmuxDebugLog("simulator.boot.error udid=\(udid.prefix(8)) error=\(error.localizedDescription)")
+#endif
+            }
         }
+        return .ok(["udid": udid, "status": "booting"])
     }
 
     private func v2SimulatorShutdown(params: [String: Any]) -> V2CallResult {
         guard let udid = v2String(params, "udid"), !udid.isEmpty else {
             return .err(code: "invalid_params", message: "Missing 'udid'", data: nil)
         }
-        do {
-            try SimulatorService.shared.shutdown(udid: udid)
-            return .ok(["udid": udid])
-        } catch {
-            return .err(code: "shutdown_failed", message: error.localizedDescription, data: ["udid": udid])
+        Task.detached(priority: .userInitiated) {
+            do {
+                try SimulatorService.shared.shutdown(udid: udid)
+#if DEBUG
+                cmuxDebugLog("simulator.shutdown.success udid=\(udid.prefix(8))")
+#endif
+            } catch {
+#if DEBUG
+                cmuxDebugLog("simulator.shutdown.error udid=\(udid.prefix(8)) error=\(error.localizedDescription)")
+#endif
+            }
         }
+        return .ok(["udid": udid, "status": "shutting_down"])
     }
 
     private func v2SimulatorOpen(params: [String: Any]) -> V2CallResult {

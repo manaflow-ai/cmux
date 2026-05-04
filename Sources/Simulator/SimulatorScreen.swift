@@ -9,6 +9,8 @@ import ObjectiveC
 final class SimulatorScreen: @unchecked Sendable {
     private let udid: String
     private let queue = DispatchQueue(label: "cmux.simulator.screen", qos: .userInteractive)
+    private let queueKey = DispatchSpecificKey<UInt8>()
+    private let queueValue: UInt8 = 1
 
     private var ioClient: NSObject?
     private var descriptors: [NSObject] = []
@@ -28,6 +30,7 @@ final class SimulatorScreen: @unchecked Sendable {
 
     init(udid: String) {
         self.udid = udid
+        queue.setSpecific(key: queueKey, value: queueValue)
     }
 
     deinit {
@@ -35,7 +38,11 @@ final class SimulatorScreen: @unchecked Sendable {
     }
 
     func start(onFrame: @escaping @Sendable (IOSurface, CGSize) -> Void) throws {
-        self.onFrame = onFrame
+        guard SimulatorPrivateFrameworks.ensureLoaded() else {
+            throw SimulatorError.frameworksUnavailable(
+                SimulatorPrivateFrameworks.loadErrorMessage ?? "unknown"
+            )
+        }
         guard let device = try SimulatorService.shared.resolveDevice(udid: udid) else {
             throw SimulatorError.notFound(udid: udid)
         }
@@ -44,11 +51,26 @@ final class SimulatorScreen: @unchecked Sendable {
         else {
             throw SimulatorError.ioUnavailable
         }
-        self.ioClient = io
-        try wireFramebuffer()
+        try syncOnQueue {
+            stopLocked()
+            self.onFrame = onFrame
+            self.ioClient = io
+            do {
+                try wireFramebufferLocked()
+            } catch {
+                stopLocked()
+                throw error
+            }
+        }
     }
 
     func stop() {
+        syncOnQueue {
+            stopLocked()
+        }
+    }
+
+    private func stopLocked() {
         let unregSel = NSSelectorFromString("unregisterScreenCallbacksWithUUID:")
         for desc in descriptors {
             if let uuid = callbackUUIDs[ObjectIdentifier(desc)],
@@ -64,7 +86,14 @@ final class SimulatorScreen: @unchecked Sendable {
 
     // MARK: - private
 
-    private func wireFramebuffer() throws {
+    private func syncOnQueue<T>(_ work: () throws -> T) rethrows -> T {
+        if DispatchQueue.getSpecific(key: queueKey) == queueValue {
+            return try work()
+        }
+        return try queue.sync(execute: work)
+    }
+
+    private func wireFramebufferLocked() throws {
         guard let io = ioClient else { throw SimulatorError.ioUnavailable }
         io.perform(NSSelectorFromString("updateIOPorts"))
 

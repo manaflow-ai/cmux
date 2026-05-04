@@ -72,6 +72,35 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertTrue(panelSnapshot.listeningPorts.isEmpty)
     }
 
+    @MainActor
+    func testWorkspaceSessionSnapshotExcludesSimulatorPanelsFromPersistedLayout() throws {
+        let workspace = Workspace()
+        let paneId = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let initialPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let simulatorPanel = try XCTUnwrap(
+            workspace.newSimulatorSurface(
+                inPane: paneId,
+                preferredUDID: "test-simulator",
+                focus: false
+            )
+        )
+        let secondTerminal = try XCTUnwrap(
+            workspace.newTerminalSurface(inPane: paneId, focus: false)
+        )
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+
+        XCTAssertFalse(snapshot.panels.contains { $0.id == simulatorPanel.id })
+        XCTAssertTrue(snapshot.panels.contains { $0.id == initialPanelId })
+        XCTAssertTrue(snapshot.panels.contains { $0.id == secondTerminal.id })
+        guard case .pane(let pane) = snapshot.layout else {
+            return XCTFail("Expected a single-pane snapshot")
+        }
+        XCTAssertFalse(pane.panelIds.contains(simulatorPanel.id))
+        XCTAssertTrue(pane.panelIds.contains(initialPanelId))
+        XCTAssertTrue(pane.panelIds.contains(secondTerminal.id))
+    }
+
     func testSaveAndLoadRoundTripWithCustomSnapshotPath() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)

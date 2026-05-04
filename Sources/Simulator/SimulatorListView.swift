@@ -4,12 +4,26 @@ import SwiftUI
 import CoreImage
 
 @MainActor
+final class SimulatorPreviewFrameStore: ObservableObject {
+    @Published var image: NSImage?
+    @Published var imageSize: CGSize = .zero
+
+    func update(image: NSImage, imageSize: CGSize) {
+        self.image = image
+        self.imageSize = imageSize
+    }
+
+    func clear() {
+        image = nil
+        imageSize = .zero
+    }
+}
+
+@MainActor
 final class SimulatorListModel: ObservableObject {
     @Published var devices: [SimulatorDevice] = []
     @Published var loadError: String?
     @Published var selectedUDID: String?
-    @Published var lastFrame: NSImage?
-    @Published var lastFrameSize: CGSize = .zero
     @Published var lastInputError: String?
     @Published var capabilityReport: SimulatorCapabilityReport = SimulatorCapabilities.report()
 
@@ -21,6 +35,8 @@ final class SimulatorListModel: ObservableObject {
 
     private var screen: SimulatorScreen?
     private var input: IndigoHIDInput?
+    private var streamingUDID: String?
+    private weak var frameStore: SimulatorPreviewFrameStore?
     private var refreshTimer: Timer?
     nonisolated private let ciContext = CIContext()
 
@@ -29,7 +45,11 @@ final class SimulatorListModel: ObservableObject {
     /// args want); falls back to pixel size from the latest frame.
     var touchUnit: CGSize {
         if let p = devicePointSize, p.width > 0, p.height > 0 { return p }
-        return lastFrameSize
+        return frameStore?.imageSize ?? .zero
+    }
+
+    func attachFrameStore(_ frameStore: SimulatorPreviewFrameStore) {
+        self.frameStore = frameStore
     }
 
     func startAutoRefresh() {
@@ -51,13 +71,11 @@ final class SimulatorListModel: ObservableObject {
             devices = try SimulatorService.shared.listDevices()
                 .sorted { ($0.runtime, $0.name) < ($1.runtime, $1.name) }
             loadError = nil
-            if let sel = selectedUDID, devices.first(where: { $0.udid == sel }) == nil {
-                selectedUDID = nil
-                stopStreaming()
-            }
+            reconcileSelectedDeviceState()
         } catch {
             loadError = error.localizedDescription
             devices = []
+            stopStreaming()
         }
     }
 
@@ -98,6 +116,7 @@ final class SimulatorListModel: ObservableObject {
         if let device = devices.first(where: { $0.udid == udid }) {
             select(device)
         } else {
+            stopStreaming()
             selectedUDID = udid
         }
     }
@@ -147,14 +166,44 @@ final class SimulatorListModel: ObservableObject {
     }
 
     private func recordInputResult(ok: Bool, fallback: String?) {
-        lastInputError = ok ? nil : (fallback ?? "input dispatch failed")
+        lastInputError = ok
+            ? nil
+            : (
+                fallback ?? String(
+                    localized: "simulator.input.dispatchFailed",
+                    defaultValue: "input dispatch failed"
+                )
+            )
     }
 
     // MARK: - lifecycle
 
+    private func reconcileSelectedDeviceState() {
+        guard let selectedUDID else {
+            stopStreaming()
+            return
+        }
+        guard let device = devices.first(where: { $0.udid == selectedUDID }) else {
+            self.selectedUDID = nil
+            stopStreaming()
+            return
+        }
+        if device.isBooted {
+            if streamingUDID != selectedUDID || screen == nil {
+                stopStreaming()
+                startStreaming(udid: selectedUDID)
+            }
+        } else if streamingUDID == selectedUDID || screen != nil {
+            stopStreaming()
+        } else {
+            frameStore?.clear()
+        }
+    }
+
     private func startStreaming(udid: String) {
         let screen = SimulatorScreen(udid: udid)
         self.screen = screen
+        self.streamingUDID = udid
         let input = IndigoHIDInput(udid: udid)
         self.input = input
         self.devicePointSize = SimulatorService.shared.deviceScreenSizeInPoints(udid: udid)
@@ -163,13 +212,14 @@ final class SimulatorListModel: ObservableObject {
             try screen.start { [weak self] surface, size in
                 guard let self else { return }
                 guard let image = Self.makeImage(from: surface, ciContext: self.ciContext) else { return }
-                Task { @MainActor in
-                    self.lastFrame = image
-                    self.lastFrameSize = size
+                Task { @MainActor [weak self] in
+                    guard self?.streamingUDID == udid else { return }
+                    self?.frameStore?.update(image: image, imageSize: size)
                 }
             }
         } catch {
             self.screen = nil
+            self.streamingUDID = nil
             self.input = nil
             loadError = error.localizedDescription
             return
@@ -182,9 +232,9 @@ final class SimulatorListModel: ObservableObject {
     private func stopStreaming() {
         screen?.stop()
         screen = nil
+        streamingUDID = nil
         input = nil
-        lastFrame = nil
-        lastFrameSize = .zero
+        frameStore?.clear()
         devicePointSize = nil
         lastInputError = nil
     }
@@ -201,6 +251,7 @@ final class SimulatorListModel: ObservableObject {
 /// `initialUDID` selects a device automatically when the view appears.
 struct SimulatorListView: View {
     @StateObject private var model = SimulatorListModel()
+    @StateObject private var frameStore = SimulatorPreviewFrameStore()
     @State private var isTouchActive: Bool = false
     var initialUDID: String?
     var hidesDeviceList: Bool = false
@@ -219,6 +270,7 @@ struct SimulatorListView: View {
             }
         }
         .onAppear {
+            model.attachFrameStore(frameStore)
             model.startAutoRefresh()
             if let initialUDID { model.selectByUDID(initialUDID) }
         }
@@ -230,13 +282,13 @@ struct SimulatorListView: View {
     private var list: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("Devices")
+                Text(String(localized: "simulator.devices.title", defaultValue: "Devices"))
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(.secondary)
                 Spacer()
                 Button { model.refresh() } label: { Image(systemName: "arrow.clockwise") }
                     .buttonStyle(.borderless)
-                    .help("Refresh")
+                    .help(String(localized: "simulator.refresh.help", defaultValue: "Refresh"))
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -255,7 +307,7 @@ struct SimulatorListView: View {
                 set: { model.selectByUDID($0) }
             )) {
                 ForEach(groupedRuntimes, id: \.self) { runtime in
-                    Section(runtime.isEmpty ? "Other" : runtime) {
+                    Section(runtime.isEmpty ? String(localized: "simulator.runtime.other", defaultValue: "Other") : runtime) {
                         ForEach(devicesByRuntime[runtime, default: []]) { device in
                             row(for: device)
                                 .tag(Optional(device.udid))
@@ -289,22 +341,42 @@ struct SimulatorListView: View {
                     .font(.system(size: 11))
                 VStack(alignment: .leading, spacing: 2) {
                     if let inputErr {
-                        Text("Input: \(inputErr)")
+                        Text(
+                            String(
+                                localized: "simulator.input.errorFormat",
+                                defaultValue: "Input: \(inputErr)"
+                            )
+                        )
                             .font(.system(size: 11))
                             .foregroundColor(.orange)
                     }
                     if !report.input.isAvailable, let r = report.input.reasonText {
-                        Text("Touch HID unavailable: \(r)")
+                        Text(
+                            String(
+                                localized: "simulator.touchHIDUnavailableFormat",
+                                defaultValue: "Touch HID unavailable: \(r)"
+                            )
+                        )
                             .font(.system(size: 11))
                             .foregroundColor(.orange)
                     }
                     if !report.screen.isAvailable, let r = report.screen.reasonText {
-                        Text("Screen mirror unavailable: \(r)")
+                        Text(
+                            String(
+                                localized: "simulator.screenMirrorUnavailableFormat",
+                                defaultValue: "Screen mirror unavailable: \(r)"
+                            )
+                        )
                             .font(.system(size: 11))
                             .foregroundColor(.orange)
                     }
                     if let xc = report.xcodeVersion {
-                        Text("Xcode \(xc)")
+                        Text(
+                            String(
+                                localized: "simulator.xcodeVersionFormat",
+                                defaultValue: "Xcode \(xc)"
+                            )
+                        )
                             .font(.system(size: 10))
                             .foregroundColor(.secondary)
                     }
@@ -327,7 +399,7 @@ struct SimulatorListView: View {
                     Text(device.runtime).font(.system(size: 10)).foregroundColor(.secondary)
                 }
             } else {
-                Text("Select a booted simulator")
+                Text(String(localized: "simulator.preview.selectBooted", defaultValue: "Select a booted simulator"))
                     .font(.system(size: 12))
                     .foregroundColor(.secondary)
             }
@@ -341,8 +413,8 @@ struct SimulatorListView: View {
         GeometryReader { proxy in
             ZStack {
                 Color.black.opacity(0.04)
-                if let frame = model.lastFrame, model.lastFrameSize != .zero {
-                    let rendered = renderRect(for: model.lastFrameSize, in: proxy.size)
+                if let frame = frameStore.image, frameStore.imageSize != .zero {
+                    let rendered = renderRect(for: frameStore.imageSize, in: proxy.size)
                     Image(nsImage: frame)
                         .resizable()
                         .interpolation(.high)
@@ -354,14 +426,14 @@ struct SimulatorListView: View {
                           !device.isBooted {
                     VStack(spacing: 6) {
                         Image(systemName: "iphone.slash").font(.system(size: 28))
-                        Text("Boot the device to see its screen.")
+                        Text(String(localized: "simulator.preview.bootPrompt", defaultValue: "Boot the device to see its screen."))
                             .font(.system(size: 12))
                             .foregroundColor(.secondary)
                     }
                 } else if model.selectedUDID != nil {
                     ProgressView().controlSize(.small)
                 } else {
-                    Text("No device selected")
+                    Text(String(localized: "simulator.preview.noDevice", defaultValue: "No device selected"))
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
                 }
@@ -378,7 +450,7 @@ struct SimulatorListView: View {
                 Image(systemName: "house").imageScale(.medium)
             }
             .buttonStyle(.bordered)
-            .help("Home button")
+            .help(String(localized: "simulator.button.home.help", defaultValue: "Home button"))
             .disabled(!isBootedSelection)
 
             Button {
@@ -387,7 +459,7 @@ struct SimulatorListView: View {
                 Image(systemName: "lock").imageScale(.medium)
             }
             .buttonStyle(.bordered)
-            .help("Lock button")
+            .help(String(localized: "simulator.button.lock.help", defaultValue: "Lock button"))
             .disabled(!isBootedSelection)
 
             Spacer()
@@ -468,19 +540,25 @@ struct SimulatorListView: View {
     private func actionButton(for device: SimulatorDevice) -> some View {
         switch device.state {
         case .booted:
-            Button("Shutdown") { model.shutdown(device) }
+            Button(String(localized: "simulator.action.shutdown", defaultValue: "Shutdown")) { model.shutdown(device) }
                 .buttonStyle(.borderless)
                 .font(.system(size: 11))
         case .shutdown, .unknown:
-            Button("Boot") { model.boot(device) }
+            Button(String(localized: "simulator.action.boot", defaultValue: "Boot")) { model.boot(device) }
                 .buttonStyle(.borderless)
                 .font(.system(size: 11))
         case .booting:
-            Text("Booting…").font(.system(size: 11)).foregroundColor(.secondary)
+            Text(String(localized: "simulator.state.booting", defaultValue: "Booting…"))
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
         case .shuttingDown:
-            Text("Shutting down…").font(.system(size: 11)).foregroundColor(.secondary)
+            Text(String(localized: "simulator.state.shuttingDown", defaultValue: "Shutting down…"))
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
         case .creating:
-            Text("Creating…").font(.system(size: 11)).foregroundColor(.secondary)
+            Text(String(localized: "simulator.state.creating", defaultValue: "Creating…"))
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
         }
     }
 
@@ -501,8 +579,8 @@ struct SimulatorListView: View {
     }
 
     private var deviceSizeCaption: String {
-        guard model.lastFrameSize != .zero else { return "" }
-        let pixels = "\(Int(model.lastFrameSize.width))×\(Int(model.lastFrameSize.height))px"
+        guard frameStore.imageSize != .zero else { return "" }
+        let pixels = "\(Int(frameStore.imageSize.width))×\(Int(frameStore.imageSize.height))px"
         if let pt = model.devicePointSize {
             return "\(Int(pt.width))×\(Int(pt.height))pt · \(pixels)"
         }

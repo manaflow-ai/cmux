@@ -401,7 +401,7 @@ struct cmuxApp: App {
                     Button("File Explorer Style Debug…") {
                         FileExplorerStyleDebugWindowController.shared.show()
                     }
-                    Button("iOS Simulators…") {
+                    Button(String(localized: "debug.menu.iosSimulators", defaultValue: "iOS Simulators…")) {
                         SimulatorListWindowController.shared.show()
                     }
                     Button(
@@ -1116,6 +1116,7 @@ struct cmuxApp: App {
         FeedTextEditorDebugWindowController.shared.show()
         FeedButtonStyleDebugWindowController.shared.show()
         BonsplitTabBarDebugWindowController.shared.show()
+        SimulatorListWindowController.shared.show()
     }
 #endif
 }
@@ -1149,6 +1150,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.backgroundDebug",
     "cmux.startupAppearanceDebug",
     "cmux.bonsplitTabBarDebug",
+    "cmux.simulators",
 ]
 
 /// Returns whether the given window should handle the standard close shortcut
@@ -1787,7 +1789,7 @@ private struct DebugWindowControlsView: View {
                         ) {
                             FeedTextEditorDebugWindowController.shared.show()
                         }
-                        Button("iOS Simulators…") {
+                        Button(String(localized: "debug.menu.iosSimulators", defaultValue: "iOS Simulators…")) {
                             SimulatorListWindowController.shared.show()
                         }
                         Button("Open All Debug Windows") {
@@ -1802,6 +1804,7 @@ private struct DebugWindowControlsView: View {
                             PDFPreviewChromeDebugWindowController.shared.show()
                             TabBarBackdropLabWindowController.shared.show()
                             FeedTextEditorDebugWindowController.shared.show()
+                            SimulatorListWindowController.shared.show()
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)

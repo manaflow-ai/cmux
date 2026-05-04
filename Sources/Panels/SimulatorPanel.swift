@@ -21,7 +21,7 @@ final class SimulatorPanel: Panel, ObservableObject {
         self.id = UUID()
         self.workspaceId = workspaceId
         self.preferredUDID = preferredUDID
-        self.displayTitle = title ?? "iOS Simulators"
+        self.displayTitle = title ?? String(localized: "simulator.window.title", defaultValue: "iOS Simulators")
     }
 
     // MARK: - Panel protocol

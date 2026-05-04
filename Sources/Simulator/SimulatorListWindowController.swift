@@ -15,7 +15,7 @@ final class SimulatorListWindowController: NSWindowController, NSWindowDelegate 
             backing: .buffered,
             defer: false
         )
-        window.title = "iOS Simulators"
+        window.title = String(localized: "simulator.window.title", defaultValue: "iOS Simulators")
         window.identifier = NSUserInterfaceItemIdentifier("cmux.simulators")
         window.minSize = NSSize(width: 520, height: 360)
         window.center()
@@ -30,7 +30,7 @@ final class SimulatorListWindowController: NSWindowController, NSWindowDelegate 
             window?.center()
         }
         window?.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        NSApp.activate()
     }
 }
 #endif

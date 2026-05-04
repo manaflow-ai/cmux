@@ -178,6 +178,7 @@ extension Workspace {
         }
 
         let panelSnapshots = allPanelIds
+            .filter { panels[$0]?.panelType != .simulator }
             .prefix(SessionPersistencePolicy.maxPanelsPerWorkspace)
             .compactMap { panelId in
                 sessionPanelSnapshot(
@@ -324,6 +325,7 @@ extension Workspace {
         var seen = Set<UUID>()
         for tab in pane.tabs {
             guard let panelId = sessionPanelID(forExternalTabIDString: tab.id) else { continue }
+            guard panels[panelId]?.panelType != .simulator else { continue }
             if seen.insert(panelId).inserted {
                 panelIds.append(panelId)
             }

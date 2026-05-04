@@ -3597,7 +3597,7 @@ struct CMUXCLI {
 
         switch sub {
         case "", "tui", "ui":
-            try runSimulatorTUI(client: client, idFormat: idFormat)
+            try runSimulatorTUI(client: client, idFormat: idFormat, jsonOutput: jsonOutput)
         case "list", "ls":
             try runSimulatorList(client: client, jsonOutput: jsonOutput)
         case "boot":
