@@ -915,7 +915,6 @@ public final class GhosttyTerminalSurfaceView: UIView {
                 self.accessibilityValue = self.accessibilityRenderedTextForTesting()
                 #if DEBUG
                 self.onOutputProcessedForTesting?()
-                self.runUITestingZoomStressIfNeeded()
                 #endif
             }
         }
@@ -948,6 +947,9 @@ public final class GhosttyTerminalSurfaceView: UIView {
         cmuxDebugLog("ios.ghostty.focusInput")
         #endif
         inputProxy.becomeFirstResponder()
+        #if DEBUG
+        runUITestingZoomStressIfNeeded()
+        #endif
     }
 
     func updateHostPlatform(_ platform: CmxHostPlatform) {

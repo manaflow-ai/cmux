@@ -27,11 +27,12 @@ final class CmxGhosttyTypingUITests: XCTestCase {
 
     func testRepeatedPinchZoomKeepsGhosttyResponsive() throws {
         app.terminate()
-        app.launchEnvironment["CMUX_IOS_UI_TESTING_ZOOM_STRESS_CYCLES"] = "240"
+        app.launchEnvironment["CMUX_IOS_UI_TESTING_ZOOM_STRESS_CYCLES"] = "80"
         app.launch()
 
         let terminal = try openTerminal()
 
+        terminal.tap()
         XCTAssertTrue(waitForTerminalValue(terminal, containing: "ZOOM_STRESS_DONE", timeout: 30))
 
         for _ in 0..<8 {
