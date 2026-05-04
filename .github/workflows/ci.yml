@@ -5,6 +5,13 @@ on:
     branches:
       - main
   pull_request:
+  workflow_dispatch:
+    inputs:
+      run_warpbuild_macos:
+        description: Run preserved WarpBuild macOS jobs
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -139,6 +146,7 @@ jobs:
           bun test tests/vm-db-read-model.test.ts
 
   tests:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_warpbuild_macos }}
     runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 30
     steps:
@@ -305,13 +313,17 @@ jobs:
 
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_version_memory_guard.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_contract_help.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_layout_focus_contract.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_operation_deadline.py
+          python3 tests/test_claude_wrapper_hooks.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_stop_last_assistant.py
 
   tests-build-and-lag:
     # Build the full cmux scheme and run the lag regression on WarpBuild.
     # Keep lag validation separate from UI regressions so functional UI failures
     # and performance regressions stay isolated. Broader interactive UI suites
     # still run via test-e2e.yml on GitHub-hosted runners.
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_warpbuild_macos }}
     runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 20
     steps:
@@ -487,6 +499,7 @@ jobs:
     # Compile the same unsigned universal Release app that nightly builds before
     # signing, notarization, and publishing. This catches DEBUG/Release boundary
     # mistakes before they reach main.
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_warpbuild_macos }}
     runs-on: warp-macos-26-arm64-6x
     timeout-minutes: 20
     steps:
@@ -578,6 +591,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly build
 
   ui-regressions:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_warpbuild_macos }}
     runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 25
     steps:

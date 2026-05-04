@@ -1692,6 +1692,7 @@ struct ContentView: View {
     private var commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
     @AppStorage(CommandPaletteSwitcherSearchSettings.searchAllSurfacesKey)
     private var commandPaletteSearchAllSurfaces = CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces
+    @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
     @State private var commandPaletteShouldFocusWorkspaceDescriptionEditor = false
     @FocusState private var isCommandPaletteSearchFocused: Bool
     @FocusState private var isCommandPaletteRenameFocused: Bool
@@ -2798,7 +2799,7 @@ struct ContentView: View {
         _ = titlebarThemeGeneration
         return WindowAppearanceSnapshot.current(
             unifySurfaceBackdrops: sidebarMatchTerminalBackground,
-            colorScheme: colorScheme,
+            colorScheme: AppearanceSettings.colorScheme(for: appearanceMode, fallback: colorScheme),
             sidebarMaterial: sidebarMaterial,
             sidebarBlendMode: sidebarBlendMode,
             sidebarState: sidebarStateSetting,
@@ -3831,7 +3832,7 @@ struct ContentView: View {
             installFileDropOverlayWhenReady(on: window, tabManager: tabManager)
         }))
 
-        return view
+        return AnyView(view.cmuxAppearanceColorScheme(appearanceMode))
     }
 
     private func reconcileMountedWorkspaceIds(tabs: [Workspace]? = nil, selectedId: UUID? = nil) {
@@ -6670,11 +6671,6 @@ struct ContentView: View {
         for contribution: CommandPaletteCommandContribution,
         context: CommandPaletteContextSnapshot
     ) -> String? {
-        // Preserve browser reload semantics for Cmd+R when a browser tab is focused.
-        if contribution.commandId == "palette.renameTab",
-           context.bool(CommandPaletteContextKeys.panelIsBrowser) {
-            return nil
-        }
         if let configuredShortcut = cmuxConfigStore.resolvedAction(id: contribution.commandId)?.shortcut {
             return configuredShortcut.displayString
         }
@@ -6683,7 +6679,12 @@ struct ContentView: View {
             return configuredShortcut.displayString
         }
         if let action = Self.commandPaletteShortcutAction(forCommandID: contribution.commandId) {
-            return KeyboardShortcutSettings.shortcut(for: action).displayString
+            let shortcut = KeyboardShortcutSettings.shortcut(for: action)
+            guard !shortcut.isUnbound else { return nil }
+            guard action.shortcutContext.isAvailable(focusedBrowserPanel: context.bool(CommandPaletteContextKeys.panelIsBrowser), rightSidebarFocused: false) else {
+                return nil
+            }
+            return shortcut.displayString
         }
         if let staticShortcut = commandPaletteStaticShortcutHint(for: contribution.commandId) {
             return staticShortcut
@@ -8223,10 +8224,10 @@ struct ContentView: View {
             }
         }
         registry.register(commandId: "palette.equalizeSplits") {
-            guard let workspace = tabManager.selectedWorkspace,
-                  tabManager.equalizeSplits(tabId: workspace.id) else {
-                NSSound.beep()
-                return
+            if let workspace = tabManager.selectedWorkspace, !tabManager.equalizeSplits(tabId: workspace.id) {
+#if DEBUG
+                cmuxDebugLog("palette.equalizeSplits result=noSplitOrFailed workspaceId=\(workspace.id)")
+#endif
             }
         }
 
@@ -9633,6 +9634,7 @@ private struct SidebarTabItemSettingsSnapshot: Equatable {
     let usesVerticalBranchLayout: Bool
     let showsGitBranchIcon: Bool
     let showsSSH: Bool
+    let makesPullRequestsClickable: Bool
     let openPullRequestLinksInCmuxBrowser: Bool
     let openPortLinksInCmuxBrowser: Bool
     let showsNotificationMessage: Bool
@@ -9662,6 +9664,7 @@ private struct SidebarTabItemSettingsSnapshot: Equatable {
         usesVerticalBranchLayout = SidebarBranchLayoutSettings.usesVerticalLayout(defaults: defaults)
         showsGitBranchIcon = Self.bool(defaults: defaults, key: "sidebarShowGitBranchIcon", defaultValue: false)
         showsSSH = Self.bool(defaults: defaults, key: "sidebarShowSSH", defaultValue: true)
+        makesPullRequestsClickable = SidebarPullRequestClickabilitySettings.isClickable(defaults: defaults)
         openPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowser(
             defaults: defaults
         )
@@ -9806,6 +9809,10 @@ struct VerticalTabsSidebar: View {
         SidebarWorkspaceListMetrics.topScrimHeight
     }
 
+    private var sidebarBottomScrimHeight: CGFloat {
+        SidebarWorkspaceListMetrics.bottomScrimHeight
+    }
+
     private var isMinimalMode: Bool {
         WorkspacePresentationModeSettings.mode(for: workspacePresentationMode) == .minimal
     }
@@ -9906,7 +9913,7 @@ struct VerticalTabsSidebar: View {
             workspaceTerminalScrollBarHiddenById: workspaceTerminalScrollBarHiddenById
         )
 
-        VStack(spacing: 0) {
+        ZStack(alignment: .bottomLeading) {
             workspaceScrollArea(renderContext: renderContext)
             SidebarFooter(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -10005,12 +10012,19 @@ struct VerticalTabsSidebar: View {
                     .frame(width: 0, height: 0)
                 )
                 .safeAreaInset(edge: .top, spacing: 0) {
-                    Color.clear
-                        .frame(height: workspaceScrollTopVisibilityInset)
+                    Color.clear.frame(height: workspaceScrollTopVisibilityInset)
+                        .allowsHitTesting(false)
+                }
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    Color.clear.frame(height: sidebarBottomScrimHeight)
                         .allowsHitTesting(false)
                 }
                 .overlay(alignment: .top) {
                     SidebarTopScrim(height: sidebarTopScrimHeight)
+                        .allowsHitTesting(false)
+                }
+                .overlay(alignment: .bottom) {
+                    SidebarBottomScrim(height: sidebarBottomScrimHeight)
                         .allowsHitTesting(false)
                 }
                 .overlay(alignment: .top) {
@@ -12424,15 +12438,6 @@ private struct SidebarDevFooter: View {
 }
 #endif
 
-private struct SidebarTopScrim: View {
-    let height: CGFloat
-
-    var body: some View {
-        Color.clear
-            .frame(height: height)
-    }
-}
-
 private struct SidebarScrollViewResolver: NSViewRepresentable {
     let onResolve: (NSScrollView?) -> Void
 
@@ -13164,28 +13169,24 @@ private struct TabItemView: View, Equatable {
                 VStack(alignment: .leading, spacing: 1) {
                     ForEach(workspaceSnapshot.pullRequestRows) { pullRequest in
                         let pullRequestNumber = String(pullRequest.number)
-                        Button(action: {
-                            openPullRequestLink(pullRequest.url)
-                        }) {
-                            HStack(spacing: 4) {
-                                PullRequestStatusIcon(
-                                    status: pullRequest.status,
-                                    color: pullRequestForegroundColor
-                                )
-                                Text("\(pullRequest.label) #\(pullRequestNumber)")
-                                    .underline()
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
-                                Text(pullRequestStatusLabel(pullRequest.status))
-                                    .lineLimit(1)
-                                Spacer(minLength: 0)
-                            }
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundColor(pullRequestForegroundColor)
-                            .opacity(pullRequest.isStale ? 0.5 : 1)
+                        let pullRequestTitle = "\(pullRequest.label) #\(pullRequestNumber)"
+                        let rowContent = HStack(spacing: 4) {
+                            PullRequestStatusIcon(status: pullRequest.status, color: pullRequestForegroundColor)
+                            Text(pullRequestTitle).underline(settings.makesPullRequestsClickable).lineLimit(1).truncationMode(.tail)
+                            Text(pullRequestStatusLabel(pullRequest.status)).lineLimit(1)
+                            Spacer(minLength: 0)
                         }
-                        .buttonStyle(.plain)
-                        .safeHelp(String(localized: "sidebar.pullRequest.openTooltip", defaultValue: "Open \(pullRequest.label) #\(pullRequestNumber)"))
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(pullRequestForegroundColor)
+                        .opacity(pullRequest.isStale ? 0.5 : 1)
+                        if settings.makesPullRequestsClickable {
+                            Button(action: { openPullRequestLink(pullRequest.url) }) { rowContent }
+                                .buttonStyle(.plain)
+                                .safeHelp(String(localized: "sidebar.pullRequest.openTooltip", defaultValue: "Open \(pullRequestTitle)"))
+                                .accessibilityIdentifier("SidebarPullRequestRow")
+                        } else {
+                            rowContent.accessibilityElement(children: .combine).accessibilityIdentifier("SidebarPullRequestRow")
+                        }
                     }
                 }
             }

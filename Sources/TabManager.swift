@@ -114,6 +114,18 @@ enum SidebarWorkspaceDetailSettings {
     }
 }
 
+enum SidebarPullRequestClickabilitySettings {
+    static let key = "sidebarMakePullRequestClickable"
+    static let defaultClickable = true
+
+    static func isClickable(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: key) == nil {
+            return defaultClickable
+        }
+        return defaults.bool(forKey: key)
+    }
+}
+
 struct SidebarWorkspaceAuxiliaryDetailVisibility: Equatable {
     let showsMetadata: Bool
     let showsLog: Bool
@@ -5508,21 +5520,6 @@ class TabManager: ObservableObject {
         return tab.bonsplitController.setDividerPosition(clamped, forSplit: candidate.splitId, fromExternal: true)
     }
 
-    /// Equalize splits - not directly supported by bonsplit
-    func equalizeSplits(tabId: UUID) -> Bool {
-        guard let tab = tabs.first(where: { $0.id == tabId }) else { return false }
-
-        var foundSplit = false
-        var allSucceeded = true
-        equalizeSplits(
-            in: tab.bonsplitController.treeSnapshot(),
-            controller: tab.bonsplitController,
-            foundSplit: &foundSplit,
-            allSucceeded: &allSucceeded
-        )
-        return foundSplit && allSucceeded
-    }
-
     /// Toggle zoom on a panel.
     func toggleSplitZoom(tabId: UUID, surfaceId: UUID) -> Bool {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return false }
@@ -5535,41 +5532,6 @@ class TabManager: ObservableObject {
         guard let tab = selectedWorkspace,
               let focusedPanelId = tab.focusedPanelId else { return false }
         return tab.toggleSplitZoom(panelId: focusedPanelId)
-    }
-
-    private func equalizeSplits(
-        in node: ExternalTreeNode,
-        controller: BonsplitController,
-        foundSplit: inout Bool,
-        allSucceeded: inout Bool
-    ) {
-        switch node {
-        case .pane:
-            return
-        case .split(let splitNode):
-            foundSplit = true
-            guard let splitId = UUID(uuidString: splitNode.id) else {
-                allSucceeded = false
-                return
-            }
-
-            if !controller.setDividerPosition(0.5, forSplit: splitId) {
-                allSucceeded = false
-            }
-
-            equalizeSplits(
-                in: splitNode.first,
-                controller: controller,
-                foundSplit: &foundSplit,
-                allSucceeded: &allSucceeded
-            )
-            equalizeSplits(
-                in: splitNode.second,
-                controller: controller,
-                foundSplit: &foundSplit,
-                allSucceeded: &allSucceeded
-            )
-        }
     }
 
     private struct ResizeSplitCandidate {
