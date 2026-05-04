@@ -5610,6 +5610,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         keyboardFocusCoordinator(for: window)?.noteRightSidebarInteraction(mode: mode)
     }
 
+    func noteDockTerminalKeyboardFocusIntent(surfaceId: UUID, in window: NSWindow?) {
+        keyboardFocusCoordinator(for: window)?.noteDockTerminalInteraction(surfaceId: surfaceId)
+    }
+
     func syncKeyboardFocusAfterFirstResponderChange(in window: NSWindow?) {
         keyboardFocusCoordinator(for: window)?.syncAfterResponderChange()
     }

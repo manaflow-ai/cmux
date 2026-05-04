@@ -118,8 +118,9 @@ final class DockControlRuntime: ObservableObject, Identifiable {
 
     fileprivate var terminalAttachment: DockTerminalAttachment { .init(paneId: paneId, panelId: panel.id, terminalSurface: panel.surface, searchState: panel.searchState, reattachToken: panel.viewReattachToken) }
 
-    func focus() {
-        panel.hostedView.ensureFocus(
+    @discardableResult
+    func focus() -> Bool {
+        panel.hostedView.ensureFocusAndReport(
             for: panel.surface.tabId,
             surfaceId: panel.id,
             respectForeignFirstResponder: false
@@ -249,8 +250,9 @@ final class DockDefaultTerminalRuntime: ObservableObject {
         )
     }
 
-    func focus() {
-        panel.hostedView.ensureFocus(
+    @discardableResult
+    func focus() -> Bool {
+        panel.hostedView.ensureFocusAndReport(
             for: panel.surface.tabId,
             surfaceId: panel.id,
             respectForeignFirstResponder: false
@@ -415,14 +417,12 @@ final class DockControlsStore: ObservableObject {
 
     func focusSurface(id surfaceId: UUID) -> Bool {
         if let control = controls.first(where: { $0.panel.id == surfaceId }) {
-            control.focus()
-            return true
+            return control.focus()
         }
         guard let defaultTerminal, defaultTerminal.panel.id == surfaceId else {
             return false
         }
-        defaultTerminal.focus()
-        return true
+        return defaultTerminal.focus()
     }
 
     func activate(rootDirectory: String?, workspaceId: UUID?) {
@@ -494,12 +494,10 @@ final class DockControlsStore: ObservableObject {
 
     func focusFirstControl() -> Bool {
         if let first = controls.first {
-            first.focus()
-            return true
+            return first.focus()
         }
         guard let defaultTerminal else { return false }
-        defaultTerminal.focus()
-        return true
+        return defaultTerminal.focus()
     }
 
     func openConfiguration() {
@@ -520,7 +518,7 @@ final class DockControlsStore: ObservableObject {
     }
 
     func focusControl(id: String) {
-        controls.first { $0.id == id }?.focus()
+        _ = controls.first { $0.id == id }?.focus()
     }
 
     func restartControl(id: String) {
@@ -536,18 +534,18 @@ final class DockControlsStore: ObservableObject {
         oldControl.close()
     }
 
-    func noteKeyboardFocusIntent(id: String, window: NSWindow?) {
-        guard controls.contains(where: { $0.id == id }) else { return }
-        AppDelegate.shared?.noteRightSidebarKeyboardFocusIntent(mode: .dock, in: window)
+    func noteKeyboardFocusIntent(id: String, surfaceId: UUID, window: NSWindow?) {
+        guard controls.contains(where: { $0.id == id && $0.panel.id == surfaceId }) else { return }
+        AppDelegate.shared?.noteDockTerminalKeyboardFocusIntent(surfaceId: surfaceId, in: window)
     }
 
     func triggerFlash(id: String) {
         controls.first { $0.id == id }?.panel.triggerFlash(reason: .debug)
     }
 
-    func noteDefaultTerminalKeyboardFocusIntent(window: NSWindow?) {
-        guard defaultTerminal != nil else { return }
-        AppDelegate.shared?.noteRightSidebarKeyboardFocusIntent(mode: .dock, in: window)
+    func noteDefaultTerminalKeyboardFocusIntent(surfaceId: UUID, window: NSWindow?) {
+        guard defaultTerminal?.panel.id == surfaceId else { return }
+        AppDelegate.shared?.noteDockTerminalKeyboardFocusIntent(surfaceId: surfaceId, in: window)
     }
 
     func triggerDefaultTerminalFlash() {
@@ -833,8 +831,8 @@ struct DockPanelView: View {
         } else if let attachment = store.defaultTerminalAttachment {
             DockTerminalView(
                 attachment: attachment,
-                onKeyboardFocusIntent: { window in
-                    store.noteDefaultTerminalKeyboardFocusIntent(window: window)
+                onKeyboardFocusIntent: { surfaceId, window in
+                    store.noteDefaultTerminalKeyboardFocusIntent(surfaceId: surfaceId, window: window)
                 },
                 onTriggerFlash: {
                     store.triggerDefaultTerminalFlash()
@@ -848,7 +846,9 @@ struct DockPanelView: View {
                 terminalAttachment: { id in store.terminalAttachment(for: id) },
                 onFocus: { id in store.focusControl(id: id) },
                 onRestart: { id in store.restartControl(id: id) },
-                onKeyboardFocusIntent: { id, window in store.noteKeyboardFocusIntent(id: id, window: window) },
+                onKeyboardFocusIntent: { id, surfaceId, window in
+                    store.noteKeyboardFocusIntent(id: id, surfaceId: surfaceId, window: window)
+                },
                 onTriggerFlash: { id in store.triggerFlash(id: id) }
             )
         }
@@ -860,7 +860,7 @@ private struct DockControlsLayoutView: View {
     let terminalAttachment: (String) -> DockTerminalAttachment?
     let onFocus: (String) -> Void
     let onRestart: (String) -> Void
-    let onKeyboardFocusIntent: (String, NSWindow?) -> Void
+    let onKeyboardFocusIntent: (String, UUID, NSWindow?) -> Void
     let onTriggerFlash: (String) -> Void
 
     private let headerHeight: CGFloat = 30
@@ -883,7 +883,9 @@ private struct DockControlsLayoutView: View {
                                 if let attachment = terminalAttachment(snapshot.id) {
                                     DockTerminalView(
                                         attachment: attachment,
-                                        onKeyboardFocusIntent: { window in onKeyboardFocusIntent(snapshot.id, window) },
+                                        onKeyboardFocusIntent: { surfaceId, window in
+                                            onKeyboardFocusIntent(snapshot.id, surfaceId, window)
+                                        },
                                         onTriggerFlash: { onTriggerFlash(snapshot.id) }
                                     )
                                 } else {
@@ -1003,7 +1005,7 @@ private struct DockControlSectionView<TerminalContent: View>: View {
 
 private struct DockTerminalView: View {
     let attachment: DockTerminalAttachment
-    let onKeyboardFocusIntent: (NSWindow?) -> Void
+    let onKeyboardFocusIntent: (UUID, NSWindow?) -> Void
     let onTriggerFlash: () -> Void
 
     var body: some View {
@@ -1016,7 +1018,10 @@ private struct DockTerminalView: View {
             searchState: attachment.searchState,
             reattachToken: attachment.reattachToken,
             onFocus: { _ in
-                onKeyboardFocusIntent(attachment.terminalSurface.hostedView.window)
+                onKeyboardFocusIntent(
+                    attachment.panelId,
+                    attachment.terminalSurface.hostedView.window
+                )
             },
             onTriggerFlash: {
                 onTriggerFlash()
@@ -1137,14 +1142,14 @@ final class DockKeyboardFocusView: NSView {
         return surfaceId
     }
 
-    func focusFirstItemFromCoordinator() { _ = focusFirstControl?() }
+    func focusFirstItemFromCoordinator() -> Bool { focusFirstControl?() == true }
 
     func focusSurfaceFromCoordinator(_ surfaceId: UUID) -> Bool {
         focusSurface?(surfaceId) == true
     }
 
     func focusHostFromCoordinator() -> Bool {
-        focusFirstControl?() == true || window?.makeFirstResponder(self) == true
+        window?.makeFirstResponder(self) == true
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool { handleModeShortcut(event) || super.performKeyEquivalent(with: event) }

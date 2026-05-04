@@ -70,6 +70,7 @@ final class MainWindowFocusController {
         case outline
         case searchField
         case firstItem
+        case dockSurface(UUID)
     }
 
     private struct RightSidebarFocusRequest: Equatable {
@@ -190,6 +191,25 @@ final class MainWindowFocusController {
         if mode != .feed {
             feedSelectedItemId = nil
         }
+        publishFeedFocusSnapshot()
+    }
+
+    func noteDockTerminalInteraction(surfaceId: UUID) {
+        rememberedRightSidebarMode = .dock
+        let target: RightSidebarFocusTarget = {
+            if let request = rightSidebarFocusState.request,
+               request.mode == .dock {
+                if case .dockSurface(let requestedSurfaceId) = request.target,
+                   requestedSurfaceId != surfaceId {
+                    return .dockSurface(surfaceId)
+                }
+                return request.target
+            }
+            return .dockSurface(surfaceId)
+        }()
+        rightSidebarFocusState = .focused(mode: .dock, target: target)
+        intent = .rightSidebar(mode: .dock)
+        feedSelectedItemId = nil
         publishFeedFocusSnapshot()
     }
 
@@ -850,7 +870,7 @@ final class MainWindowFocusController {
         guard let state = fileExplorerState else { return false }
 
         rememberedRightSidebarMode = .dock
-        beginRightSidebarFocusRequest(mode: .dock, target: .firstItem)
+        beginRightSidebarFocusRequest(mode: .dock, target: .dockSurface(surfaceId))
         intent = .rightSidebar(mode: .dock)
         feedSelectedItemId = nil
         publishFeedFocusSnapshot()
@@ -861,16 +881,13 @@ final class MainWindowFocusController {
         }
 
         if dockHost?.focusSurfaceFromCoordinator(surfaceId) == true {
-            rightSidebarFocusState = .focused(mode: .dock, target: .firstItem)
+            rightSidebarFocusState = .focused(mode: .dock, target: .dockSurface(surfaceId))
             publishFeedFocusSnapshot()
             return true
         }
 
-        return focusRightSidebar(
-            mode: .dock,
-            target: .firstItem,
-            terminalYieldReason: "restoreDockSurfaceFallback"
-        )
+        publishFeedFocusSnapshot()
+        return rightSidebarFocusState.request?.mode == .dock
     }
 
     private func effectiveFocusOwner(currentResponder: NSResponder? = nil) -> EffectiveFocusOwner {
@@ -990,6 +1007,8 @@ final class MainWindowFocusController {
             return .searchField
         case .firstItem:
             return .firstItem
+        case .dockSurface(let surfaceId):
+            return .dockSurface(surfaceId)
         }
     }
 
@@ -1003,8 +1022,10 @@ final class MainWindowFocusController {
             return .outline
         case .searchField:
             return .searchField
-        case .firstItem, .dockSurface:
+        case .firstItem:
             return .firstItem
+        case .dockSurface(let surfaceId):
+            return .dockSurface(surfaceId)
         }
     }
 
@@ -1025,10 +1046,16 @@ final class MainWindowFocusController {
             }
             return feedHost?.focusHostFromCoordinator() == true
         case .dock:
-            if target == .firstItem {
-                dockHost?.focusFirstItemFromCoordinator()
+            switch target {
+            case .firstItem:
+                return dockHost?.focusFirstItemFromCoordinator() == true
+            case .host:
+                return dockHost?.focusHostFromCoordinator() == true
+            case .dockSurface(let surfaceId):
+                return dockHost?.focusSurfaceFromCoordinator(surfaceId) == true
+            case .outline, .searchField:
+                return false
             }
-            return dockHost?.focusHostFromCoordinator() == true
         }
     }
 
@@ -1093,11 +1120,11 @@ final class MainWindowFocusController {
         if fileSearchHost?.ownsKeyboardFocus(responder) == true {
             return .find
         }
-        if feedHost?.ownsKeyboardFocus(responder) == true || responder is FeedKeyboardFocusResponder {
-            return .feed
-        }
         if dockHost?.ownsKeyboardFocus(responder) == true {
             return .dock
+        }
+        if feedHost?.ownsKeyboardFocus(responder) == true || responder is FeedKeyboardFocusResponder {
+            return .feed
         }
         return nil
     }
