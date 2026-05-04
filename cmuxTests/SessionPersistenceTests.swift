@@ -1608,6 +1608,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         let scriptPath = String(trimmedInput.dropFirst(prefix.count).dropLast())
         let scriptContents = try String(contentsOfFile: scriptPath, encoding: .utf8)
         XCTAssertTrue(scriptContents.contains(longPath))
+        XCTAssertFalse(scriptContents.contains("initial prompt should not replay"))
         XCTAssertTrue(scriptContents.contains("'resume'"))
         XCTAssertTrue(scriptContents.contains("'019dad34-d218-7943-b81a-eddac5c87951'"))
 
@@ -1698,6 +1699,10 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                     "--search",
                     "--cd",
                     "/Users/example/repo",
+                    "--add-dir",
+                    "/Users/example/repo-a",
+                    "--add-dir",
+                    "/Users/example/repo-b",
                     "initial prompt should not replay"
                 ],
                 workingDirectory: "/Users/example/repo",
@@ -1709,7 +1714,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'resume' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' '--ask-for-approval' 'never' '--search' '--cd' '/Users/example/repo' '019dad34-d218-7943-b81a-eddac5c87951'"
+            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'resume' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' '--ask-for-approval' 'never' '--search' '--cd' '/Users/example/repo' '--add-dir' '/Users/example/repo-a' '--add-dir' '/Users/example/repo-b' '019dad34-d218-7943-b81a-eddac5c87951'"
         )
     }
 
@@ -1807,6 +1812,54 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(
             snapshot.resumeCommand,
             "'env' 'ANTHROPIC_MODEL=' 'claude' '--resume' 'claude-session-env'"
+        )
+    }
+
+    func testResumeCommandUsesProviderSpecificEnvironmentAllowlists() {
+        let codex = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "codex-session-env",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "codex",
+                arguments: ["codex"],
+                workingDirectory: nil,
+                environment: [
+                    "CLAUDE_CONFIG_DIR": "/tmp/claude",
+                    "CODEX_HOME": "/tmp/codex",
+                    "OPENCODE_CONFIG_DIR": "/tmp/opencode"
+                ],
+                capturedAt: nil,
+                source: nil
+            )
+        )
+        let opencode = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "opencode-session-env",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "opencode",
+                executablePath: "opencode",
+                arguments: ["opencode"],
+                workingDirectory: nil,
+                environment: [
+                    "CODEX_HOME": "/tmp/codex",
+                    "NODE_OPTIONS": "--trace-warnings",
+                    "OPENCODE_CONFIG_DIR": "/tmp/opencode"
+                ],
+                capturedAt: nil,
+                source: nil
+            )
+        )
+
+        XCTAssertEqual(
+            codex.resumeCommand,
+            "'env' 'CODEX_HOME=/tmp/codex' 'codex' 'resume' 'codex-session-env'"
+        )
+        XCTAssertEqual(
+            opencode.resumeCommand,
+            "'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode' 'opencode' '--session' 'opencode-session-env'"
         )
     }
 

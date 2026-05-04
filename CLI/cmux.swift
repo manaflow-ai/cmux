@@ -15792,7 +15792,7 @@ struct CMUXCLI {
                 tail,
                 valueOptions: Self.codexLaunchValueOptions,
                 optionalValueOptions: [],
-                variadicOptions: ["--image", "-i", "--add-dir"],
+                variadicOptions: ["--image", "-i"],
                 nonRestorableCommands: Self.codexLaunchNonRestorableCommands,
                 droppedOptions: ["--last", "--all"],
                 droppedOptionPrefixes: [],
