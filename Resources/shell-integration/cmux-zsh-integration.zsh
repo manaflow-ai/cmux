@@ -379,20 +379,9 @@ _cmux_patch_ghostty_semantic_redraw() {
 _cmux_patch_ghostty_semantic_redraw
 
 _cmux_prompt_wrap_guard() {
-    local cmd_start="$1"
-    local pwd="$2"
-    [[ -n "$cmd_start" && "$cmd_start" != 0 ]] || return 0
-
-    local cols="${COLUMNS:-0}"
-    (( cols > 0 )) || return 0
-
-    local budget=$(( cols - 24 ))
-    (( budget < 20 )) && budget=20
-    (( ${#pwd} >= budget )) || return 0
-
-    # Keep a spacer line between command output and a wrapped prompt so
-    # resize-driven prompt redraw cannot overwrite the command tail.
-    builtin print -r -- ""
+    # Prompt redraw is owned by Ghostty's OSC 133 handling. Shell integration
+    # metadata hooks must not write layout bytes into the pty.
+    return 0
 }
 
 _cmux_install_winch_guard() {
