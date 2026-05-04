@@ -34,6 +34,17 @@ public protocol GhosttyTerminalSurfaceViewDelegate: AnyObject {
 public enum TerminalFontZoomDirection: Equatable {
     case decrease
     case increase
+
+    func bindingAction(delta: Float32) -> String {
+        // Keep this on Ghostty's native relative zoom actions so upstream owns
+        // font metric invalidation as it does for desktop shortcuts.
+        switch self {
+        case .decrease:
+            "decrease_font_size:\(delta)"
+        case .increase:
+            "increase_font_size:\(delta)"
+        }
+    }
 }
 
 public enum TerminalInputAccessoryAction: Int, CaseIterable {
@@ -1093,7 +1104,7 @@ public final class GhosttyTerminalSurfaceView: UIView {
             if renderNow {
                 ghostty_surface_render_now(surface)
             } else {
-                needsDraw = true
+                ghostty_surface_refresh(surface)
             }
         }
     }
@@ -1169,7 +1180,8 @@ public final class GhosttyTerminalSurfaceView: UIView {
     ) -> Bool {
         guard let surface else { return false }
         guard nextFontSize != currentFontSize else { return false }
-        let action = "set_font_size:\(nextFontSize)"
+        let direction: TerminalFontZoomDirection = nextFontSize > currentFontSize ? .increase : .decrease
+        let action = direction.bindingAction(delta: abs(nextFontSize - currentFontSize))
         let handled = action.withCString { pointer in
             ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))
         }
@@ -1185,7 +1197,6 @@ public final class GhosttyTerminalSurfaceView: UIView {
         #endif
         if synchronizeGeometry {
             syncSurfaceGeometry(reportResize: reportResize, renderNow: false)
-            needsDraw = true
         }
         return true
     }
