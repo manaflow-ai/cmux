@@ -31,6 +31,8 @@ def load_results(results_dir: pathlib.Path) -> list[dict[str, Any]]:
 
 
 def status_for(result: dict[str, Any]) -> str:
+    if bool(result.get("skipped")):
+        return "skipped"
     severity = str(result.get("severity") or "none")
     if severity == "failure":
         return "failed"
@@ -51,6 +53,10 @@ def model_for(result: dict[str, Any]) -> str:
     return str(result.get("model") or "")
 
 
+def engine_for(result: dict[str, Any]) -> str:
+    return f"{provider_for(result)} `{model_for(result)}`"
+
+
 def result_sort_key(result: dict[str, Any]) -> tuple[str, str, str]:
     return (
         str(result.get("rule_id") or ""),
@@ -62,6 +68,8 @@ def result_sort_key(result: dict[str, Any]) -> tuple[str, str, str]:
 def comparison_lines(results: list[dict[str, Any]]) -> list[str]:
     by_rule: dict[str, list[dict[str, Any]]] = {}
     for result in results:
+        if bool(result.get("skipped")):
+            continue
         by_rule.setdefault(str(result.get("rule_id") or ""), []).append(result)
 
     compared_rules = {rule: rule_results for rule, rule_results in by_rule.items() if len(rule_results) > 1}
@@ -73,20 +81,18 @@ def comparison_lines(results: list[dict[str, Any]]) -> list[str]:
         severities = {str(result.get("severity") or "none") for result in rule_results}
         violated = {bool(result.get("violated")) for result in rule_results}
         if len(severities) > 1 or len(violated) > 1:
-            parts = [
-                f"{provider_for(result)} `{model_for(result)}`: {status_for(result)}"
-                for result in sorted(rule_results, key=result_sort_key)
-            ]
+            parts = [f"{engine_for(result)}: {status_for(result)}" for result in sorted(rule_results, key=result_sort_key)]
             disagreements.append(f"- `{rule}`: " + ", ".join(parts))
 
     if disagreements:
         return ["", "Provider comparison:", *disagreements]
 
-    provider_names = sorted({provider_for(result) for result in results})
+    compared_results = [result for rule_results in compared_rules.values() for result in rule_results]
+    engine_names = sorted({engine_for(result) for result in compared_results})
     return [
         "",
         "Provider comparison:",
-        f"- {' and '.join(provider_names)} agreed on all {len(compared_rules)} compared rule(s).",
+        f"- {', '.join(engine_names)} agreed on all {len(compared_rules)} compared rule(s).",
     ]
 
 
@@ -99,7 +105,8 @@ def build_body(
 ) -> str:
     failures = sum(1 for result in results if result.get("severity") == "failure")
     warnings = sum(1 for result in results if result.get("severity") == "warning")
-    passed = sum(1 for result in results if result.get("severity") == "none")
+    skipped = sum(1 for result in results if bool(result.get("skipped")))
+    passed = sum(1 for result in results if result.get("severity") == "none" and not bool(result.get("skipped")))
 
     lines = [
         MARKER,
@@ -109,7 +116,7 @@ def build_body(
         f"Run: {run_url}",
         f"Diff: {diff_url}",
         "",
-        f"Result: {failures} failed, {warnings} warning, {passed} passed.",
+        f"Result: {failures} failed, {warnings} warning, {passed} passed, {skipped} skipped.",
         "",
         "| Rule | Provider | Model | Status | Summary |",
         "| --- | --- | --- | --- | --- |",

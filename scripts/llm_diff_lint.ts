@@ -40,6 +40,7 @@ type LintResult = {
   severity: Severity;
   summary: string;
   findings: Finding[];
+  skipped?: boolean;
 };
 type Args = {
   base: string;
@@ -65,21 +66,20 @@ type RawArgs = Omit<Args, "thinking"> & {
 };
 
 const modelResultSchema = z.object({
-  rule_id: z.string().optional(),
+  rule_id: z.string(),
   violated: z.boolean(),
-  severity: z.enum(["none", "warning", "failure"]).optional(),
-  summary: z.string().optional(),
+  severity: z.enum(["none", "warning", "failure"]),
+  summary: z.string(),
   findings: z
     .array(
       z.object({
-        file: z.string().optional(),
-        line: z.number().int().nullable().optional(),
-        excerpt: z.string().optional(),
-        why: z.string().optional(),
-        confidence: z.enum(["low", "medium", "high"]).optional(),
+        file: z.string(),
+        line: z.number().int().nullable(),
+        excerpt: z.string(),
+        why: z.string(),
+        confidence: z.enum(["low", "medium", "high"]),
       }),
-    )
-    .optional(),
+    ),
 });
 
 const secretPatterns: Array<[RegExp, string]> = [
@@ -355,6 +355,7 @@ function missingKeyResult(args: Args, ruleId: string, envName: string): LintResu
     severity: "none",
     summary: normalizeSummary(`${envName} is not set, skipped.`),
     findings: [],
+    skipped: true,
   };
 }
 
@@ -367,6 +368,7 @@ function skippedResult(args: Args, ruleId: string, summary: string): LintResult 
     severity: "none",
     summary: normalizeSummary(summary),
     findings: [],
+    skipped: true,
   };
 }
 
@@ -584,16 +586,19 @@ async function runModel(args: Args, ruleId: string, ruleText: string, diff: stri
 
   const { system, prompt } = buildPrompt(ruleId, ruleText, diff, args.sourceLabel);
   const resolved = resolveModel(args);
-  const result = await generateObject({
+  const request: Parameters<typeof generateObject>[0] = {
     model: resolved.model as never,
     schema: modelResultSchema,
     system,
     prompt,
-    temperature: 0,
     maxOutputTokens: args.maxTokens,
     abortSignal: AbortSignal.timeout(args.timeout * 1000),
     providerOptions: resolved.providerOptions,
-  });
+  };
+  if (!(args.provider === "openai" || (args.provider === "gateway" && args.model.startsWith("openai/")))) {
+    request.temperature = 0;
+  }
+  const result = await generateObject(request);
   return normalizeResult(args, ruleId, result.object);
 }
 
@@ -618,6 +623,43 @@ async function runModelWithRetries(args: Args, ruleId: string, ruleText: string,
     }
   }
   throw lastError;
+}
+
+function parseMockResponse(ruleId: string, mockResponse: string): z.infer<typeof modelResultSchema> {
+  const parsed = JSON.parse(mockResponse);
+  if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+    const mock = parsed as Record<string, unknown>;
+    mock.rule_id ||= ruleId;
+    mock.violated = Boolean(mock.violated);
+    mock.severity ||= mock.violated ? "failure" : "none";
+    mock.summary ||= mock.violated ? "Rule violated." : "No violation found.";
+    mock.findings ||= [];
+    if (Array.isArray(mock.findings)) {
+      mock.findings = mock.findings.map((finding) => {
+        if (!finding || typeof finding !== "object" || Array.isArray(finding)) {
+          return {
+            file: "",
+            line: null,
+            excerpt: "",
+            why: "",
+            confidence: "medium",
+          };
+        }
+        const normalized = finding as Record<string, unknown>;
+        return {
+          file: String(normalized.file || ""),
+          line: Number.isInteger(normalized.line) ? (normalized.line as number) : null,
+          excerpt: String(normalized.excerpt || ""),
+          why: String(normalized.why || ""),
+          confidence:
+            normalized.confidence === "low" || normalized.confidence === "medium" || normalized.confidence === "high"
+              ? normalized.confidence
+              : "medium",
+        };
+      });
+    }
+  }
+  return modelResultSchema.parse(parsed);
 }
 
 async function main(argv: string[]): Promise<number> {
@@ -670,7 +712,7 @@ async function main(argv: string[]): Promise<number> {
   let result: LintResult;
   try {
     if (args.mockResponse) {
-      result = normalizeResult(args, ruleId, modelResultSchema.parse(JSON.parse(args.mockResponse)));
+      result = normalizeResult(args, ruleId, parseMockResponse(ruleId, args.mockResponse));
     } else {
       result = await runModelWithRetries(args, ruleId, ruleText, diff);
     }

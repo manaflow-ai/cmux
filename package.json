@@ -1,6 +1,7 @@
 {
   "scripts": {
-    "feed-tui": "bun Resources/feed-tui/index.ts"
+    "feed-tui": "bun Resources/feed-tui/index.ts",
+    "llm-diff-lint": "bun scripts/llm_diff_lint_all.ts"
   },
   "dependencies": {
     "@ai-sdk/deepseek": "^2.0.32",

@@ -19,6 +19,7 @@ on:
       - "GhosttyTabs.xcodeproj/**"
       - ".github/llm-diff-lint/**"
       - ".github/workflows/llm-diff-lint.yml"
+      - "scripts/llm_diff_lint_all.ts"
       - "scripts/llm_diff_lint.ts"
       - "scripts/llm_diff_lint_comment.py"
       - "package.json"
@@ -222,7 +223,7 @@ jobs:
         run: exit 1
 
   codex-architecture-rule:
-    name: LLM rule (openai codex / swift-architectural-rethink)
+    name: LLM rule (gateway codex / swift-architectural-rethink)
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     permissions:
@@ -272,14 +273,14 @@ jobs:
         id: lint
         continue-on-error: true
         env:
-          LLM_DIFF_LINT_CODEX_MODEL: ${{ vars.LLM_DIFF_LINT_CODEX_MODEL || 'gpt-5.3-codex' }}
+          AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
+          AI_GATEWAY_BASE_URL: ${{ vars.AI_GATEWAY_BASE_URL }}
+          LLM_DIFF_LINT_CODEX_MODEL: ${{ vars.LLM_DIFF_LINT_CODEX_MODEL || 'openai/gpt-5.3-codex' }}
           LLM_DIFF_LINT_MAX_DIFF_BYTES: ${{ vars.LLM_DIFF_LINT_MAX_DIFF_BYTES || '5000000' }}
           LLM_DIFF_LINT_MAX_TOKENS: ${{ vars.LLM_DIFF_LINT_CODEX_MAX_TOKENS || vars.LLM_DIFF_LINT_MAX_TOKENS || '8192' }}
-          LLM_DIFF_LINT_PROVIDER: openai
+          LLM_DIFF_LINT_PROVIDER: gateway
           LLM_DIFF_LINT_REASONING_EFFORT: ${{ vars.LLM_DIFF_LINT_CODEX_REASONING_EFFORT || 'medium' }}
           LLM_DIFF_LINT_RETRIES: ${{ vars.LLM_DIFF_LINT_RETRIES || '0' }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL }}
         shell: bash
         run: |
           set -euo pipefail
@@ -287,7 +288,7 @@ jobs:
             --rule ".github/llm-diff-lint/rules/swift-architectural-rethink.md" \
             --diff-file "$RUNNER_TEMP/pr.diff" \
             --source-label "pull request ${{ steps.pr.outputs.number }}" \
-            --provider "openai" \
+            --provider "gateway" \
             --model "$LLM_DIFF_LINT_CODEX_MODEL" \
             --reasoning-effort "$LLM_DIFF_LINT_REASONING_EFFORT" \
             --skip-if-missing-key \
@@ -297,7 +298,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: llm-diff-lint-openai-swift-architectural-rethink
+          name: llm-diff-lint-gateway-swift-architectural-rethink
           path: ${{ runner.temp }}/result.json
           if-no-files-found: warn
 

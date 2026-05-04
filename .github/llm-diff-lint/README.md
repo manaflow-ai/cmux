@@ -21,15 +21,16 @@ Required secret:
 
 Optional secret:
 
-- `OPENAI_API_KEY`, enables the Codex-backed `swift-architectural-rethink` rule. Without this secret the job uploads a skipped result and does not block PRs.
+- `AI_GATEWAY_API_KEY`, enables the Codex-backed `swift-architectural-rethink` rule through Vercel AI Gateway. Without this secret the job uploads a skipped result and does not block PRs.
 
 Optional repository variables:
 
+- `AI_GATEWAY_BASE_URL`, optional AI Gateway override
 - `GCP_WORKLOAD_IDENTITY_PROVIDER`, defaults to the cmux GitHub Actions workload identity provider
 - `GCP_SERVICE_ACCOUNT`, defaults to `cmux-vertex-ai@manaflow-437420.iam.gserviceaccount.com`
 - `GOOGLE_VERTEX_PROJECT`, required for Gemini unless `GOOGLE_CLOUD_PROJECT` is set in the environment
 - `GOOGLE_VERTEX_LOCATION`, defaults to `global`
-- `LLM_DIFF_LINT_CODEX_MODEL`, defaults to `gpt-5.3-codex`
+- `LLM_DIFF_LINT_CODEX_MODEL`, defaults to `openai/gpt-5.3-codex`
 - `LLM_DIFF_LINT_CODEX_REASONING_EFFORT`, defaults to `medium`
 - `LLM_DIFF_LINT_CODEX_MAX_TOKENS`, defaults to `LLM_DIFF_LINT_MAX_TOKENS` or `8192`
 - `LLM_DIFF_LINT_MAX_TOKENS`, defaults to `8192`
@@ -40,9 +41,36 @@ Optional repository variables:
 
 The default provider matrix compares `deepseek-v4-pro` with `gemini-3-flash-preview` through Vertex AI. GitHub Actions authenticates to Vertex with OIDC workload identity and the `cmux-vertex-ai` service account. This avoids storing a long-lived GCP service account key.
 
-The broader `swift-architectural-rethink` rule runs once on OpenAI Codex with medium reasoning. It uses `gpt-5.3-codex` by default because the rule asks for architecture judgment rather than narrow lint matching.
+The broader `swift-architectural-rethink` rule runs once on OpenAI Codex through AI Gateway with medium reasoning. It uses `openai/gpt-5.3-codex` by default because the rule asks for architecture judgment rather than narrow lint matching.
 
 Use `LLM diff lint status` as the required branch-protection check.
+
+## Local Development CLI
+
+Run the same rule set locally with:
+
+```bash
+bun scripts/llm_diff_lint_all.ts --pr 3455 --profile gateway
+```
+
+The `gateway` profile uses one `AI_GATEWAY_API_KEY` for all local model calls:
+
+- focused rules with `deepseek/deepseek-v4-pro`
+- focused rules with `google/gemini-3-flash`
+- the architecture rule with `openai/gpt-5.3-codex` and medium reasoning
+
+The default `auto` profile uses gateway when `AI_GATEWAY_API_KEY` is present. If it is not present, it falls back to direct providers and runs the jobs with credentials available in the environment, skipping missing providers unless `--strict` is passed.
+
+Useful options:
+
+```bash
+bun scripts/llm_diff_lint_all.ts --pr 3455 --env-file ~/.secrets/cmux.env
+bun scripts/llm_diff_lint_all.ts --diff-file /tmp/pr.diff --profile gateway
+bun scripts/llm_diff_lint_all.ts --pr 3455 --profile gateway --post-comment
+bun scripts/llm_diff_lint_all.ts --pr 3455 --rule-set architecture
+```
+
+By default the CLI writes JSON artifacts and `comment.md` under `tmp/llm-diff-lint/<source>/` and prints the same comment body that the GitHub Action posts. `--post-comment` updates the PR issue comment through `scripts/llm_diff_lint_comment.py`.
 
 For local Gemini runs, authenticate Application Default Credentials first:
 
@@ -58,7 +86,7 @@ Every provider/rule job sends the full diff plus one rule. Estimated input token
 (diff bytes / 4 + rule tokens + prompt overhead) * provider count * rule count
 ```
 
-The Codex architecture rule is one extra full-diff request when `OPENAI_API_KEY` is configured.
+The Codex architecture rule is one extra full-diff request when `AI_GATEWAY_API_KEY` is configured.
 
 Current published prices as of 2026-05-02:
 
@@ -71,7 +99,7 @@ Current published prices as of 2026-05-02:
 | `gemini-2.5-flash-lite` | $0.10 / 1M | $0.01 / 1M | $0.40 / 1M | Cheapest generally available Gemini Flash-Lite model |
 | `gpt-5.3-codex` | $1.75 / 1M | $0.175 / 1M | $14.00 / 1M | Codex architecture rule, medium reasoning |
 
-Sources: [DeepSeek API pricing](https://api-docs.deepseek.com/quick_start/pricing), [Vertex AI Gemini pricing](https://cloud.google.com/vertex-ai/generative-ai/pricing), [Gemini API pricing](https://ai.google.dev/gemini-api/docs/pricing), and [OpenAI GPT-5.3-Codex model pricing](https://developers.openai.com/api/docs/models/gpt-5.3-codex).
+Sources: [DeepSeek API pricing](https://api-docs.deepseek.com/quick_start/pricing), [Vertex AI Gemini pricing](https://cloud.google.com/vertex-ai/generative-ai/pricing), [Gemini API pricing](https://ai.google.dev/gemini-api/docs/pricing), [OpenAI GPT-5.3-Codex model pricing](https://developers.openai.com/api/docs/models/gpt-5.3-codex), and [Vercel AI Gateway models](https://vercel.com/docs/ai-gateway/models-and-providers).
 
 With cache misses, `deepseek-v4-pro` is currently cheaper than `gemini-3-flash-preview` during the DeepSeek promotion, but it is not cheaper than `gemini-2.5-flash-lite`. After the promotion, DeepSeek Pro is materially more expensive than both Flash options.
 

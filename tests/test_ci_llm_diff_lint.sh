@@ -283,7 +283,7 @@ python3 scripts/llm_diff_lint_comment.py \
   --run-url https://github.com/manaflow-ai/cmux/actions/runs/456 \
   --dry-run > "$TMP_DIR/compare-comment.md"
 
-if ! grep -Fq 'deepseek and google-vertex agreed on all 1 compared rule(s).' "$TMP_DIR/compare-comment.md"; then
+if ! grep -Fq 'deepseek `deepseek-v4-pro`, google-vertex `gemini-3-flash-preview` agreed on all 1 compared rule(s).' "$TMP_DIR/compare-comment.md"; then
   echo "expected provider comparison summary" >&2
   cat "$TMP_DIR/compare-comment.md" >&2
   exit 1
@@ -304,6 +304,70 @@ fi
 if ! grep -Fq '"model": "gpt-5.3-codex"' "$OPENAI_RESULT"; then
   echo "expected Codex model in mock output" >&2
   cat "$OPENAI_RESULT" >&2
+  exit 1
+fi
+
+GATEWAY_RESULT="$TMP_DIR/gateway.json"
+LLM_DIFF_LINT_PROVIDER=gateway LLM_DIFF_LINT_MODEL=openai/gpt-5.3-codex LLM_DIFF_LINT_REASONING_EFFORT=medium bun scripts/llm_diff_lint.ts \
+  --rule "$RULE" \
+  --diff-file "$DIFF" \
+  --mock-response "$CLEAN" > "$GATEWAY_RESULT"
+
+if ! grep -Fq '"provider": "gateway"' "$GATEWAY_RESULT"; then
+  echo "expected Gateway provider in mock output" >&2
+  cat "$GATEWAY_RESULT" >&2
+  exit 1
+fi
+
+if ! grep -Fq '"model": "openai/gpt-5.3-codex"' "$GATEWAY_RESULT"; then
+  echo "expected Gateway Codex model in mock output" >&2
+  cat "$GATEWAY_RESULT" >&2
+  exit 1
+fi
+
+if env -u AI_GATEWAY_API_KEY bun scripts/llm_diff_lint_all.ts \
+  --diff-file "$DIFF" \
+  --profile gateway \
+  --rule-set focused \
+  --only-rule swift-blocking-runtime \
+  --out-dir "$TMP_DIR/local-gateway-skip" > "$TMP_DIR/local-gateway-skip.out" 2>&1; then
+  :
+else
+  echo "expected local gateway profile to skip missing keys by default" >&2
+  cat "$TMP_DIR/local-gateway-skip.out" >&2
+  exit 1
+fi
+
+if ! grep -Fq 'AI_GATEWAY_API_KEY is not set, skipped.' "$TMP_DIR/local-gateway-skip.out"; then
+  echo "expected local gateway profile to report missing AI Gateway key" >&2
+  cat "$TMP_DIR/local-gateway-skip.out" >&2
+  exit 1
+fi
+
+LOCAL_CLEAN='{"violated":false,"severity":"none","summary":"clean","findings":[]}'
+bun scripts/llm_diff_lint_all.ts \
+  --diff-file "$DIFF" \
+  --profile gateway \
+  --only-rule swift-blocking-runtime \
+  --only-rule swift-architectural-rethink \
+  --out-dir "$TMP_DIR/local-gateway-mock" \
+  --mock-response "$LOCAL_CLEAN" > "$TMP_DIR/local-gateway-mock.out"
+
+if ! grep -Fq '| `swift-blocking-runtime` | gateway | `deepseek/deepseek-v4-pro` | passed | clean |' "$TMP_DIR/local-gateway-mock/comment.md"; then
+  echo "expected local CLI comment to include DeepSeek gateway result" >&2
+  cat "$TMP_DIR/local-gateway-mock/comment.md" >&2
+  exit 1
+fi
+
+if ! grep -Fq '| `swift-blocking-runtime` | gateway | `google/gemini-3-flash` | passed | clean |' "$TMP_DIR/local-gateway-mock/comment.md"; then
+  echo "expected local CLI comment to include Gemini gateway result" >&2
+  cat "$TMP_DIR/local-gateway-mock/comment.md" >&2
+  exit 1
+fi
+
+if ! grep -Fq '| `swift-architectural-rethink` | gateway | `openai/gpt-5.3-codex` | passed | clean |' "$TMP_DIR/local-gateway-mock/comment.md"; then
+  echo "expected local CLI comment to include Codex gateway result" >&2
+  cat "$TMP_DIR/local-gateway-mock/comment.md" >&2
   exit 1
 fi
 
@@ -361,7 +425,17 @@ if ! grep -Fq 'LLM_DIFF_LINT_CODEX_REASONING_EFFORT' "$WORKFLOW"; then
   exit 1
 fi
 
+if ! grep -Fq 'AI_GATEWAY_API_KEY' "$WORKFLOW"; then
+  echo "workflow should use AI Gateway for the Codex architecture rule" >&2
+  exit 1
+fi
+
+if grep -Fq 'OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}' "$WORKFLOW"; then
+  echo "workflow should not require a direct OpenAI secret for the Codex architecture rule" >&2
+  exit 1
+fi
+
 if ! grep -Fq -- '--skip-if-missing-key' "$WORKFLOW"; then
-  echo "workflow should skip the Codex rule until OPENAI_API_KEY is configured" >&2
+  echo "workflow should skip the Codex rule until AI_GATEWAY_API_KEY is configured" >&2
   exit 1
 fi
