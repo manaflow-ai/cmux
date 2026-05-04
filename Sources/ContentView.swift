@@ -12782,10 +12782,6 @@ private struct TabItemView: View, Equatable {
         settings.openPullRequestLinksInCmuxBrowser
     }
 
-    private var sidebarPullRequestsAreClickable: Bool {
-        settings.makesPullRequestsClickable
-    }
-
     private var openSidebarPortLinksInCmuxBrowser: Bool {
         settings.openPortLinksInCmuxBrowser
     }
@@ -13169,7 +13165,26 @@ private struct TabItemView: View, Equatable {
             if detailVisibility.showsPullRequests, !workspaceSnapshot.pullRequestRows.isEmpty {
                 VStack(alignment: .leading, spacing: 1) {
                     ForEach(workspaceSnapshot.pullRequestRows) { pullRequest in
-                        pullRequestRowView(pullRequest)
+                        let pullRequestNumber = String(pullRequest.number)
+                        Button(action: { openPullRequestLink(pullRequest.url) }) {
+                            HStack(spacing: 4) {
+                                PullRequestStatusIcon(status: pullRequest.status, color: pullRequestForegroundColor)
+                                Text("\(pullRequest.label) #\(pullRequestNumber)")
+                                    .underline(settings.makesPullRequestsClickable)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                Text(pullRequestStatusLabel(pullRequest.status))
+                                    .lineLimit(1)
+                                Spacer(minLength: 0)
+                            }
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(pullRequestForegroundColor)
+                            .opacity(pullRequest.isStale ? 0.5 : 1)
+                        }
+                        .buttonStyle(.plain)
+                        .allowsHitTesting(settings.makesPullRequestsClickable)
+                        .accessibilityIdentifier("SidebarPullRequestRow")
+                        .safeHelp(settings.makesPullRequestsClickable ? String(localized: "sidebar.pullRequest.openTooltip", defaultValue: "Open \(pullRequest.label) #\(pullRequestNumber)") : "")
                     }
                 }
             }
@@ -14098,57 +14113,6 @@ private struct TabItemView: View, Equatable {
             return
         }
         NSWorkspace.shared.open(url)
-    }
-
-    @ViewBuilder
-    private func pullRequestRowView(_ pullRequest: SidebarWorkspaceSnapshotBuilder.PullRequestDisplay) -> some View {
-        if sidebarPullRequestsAreClickable {
-            Button(action: {
-                openPullRequestLink(pullRequest.url)
-            }) {
-                pullRequestRowContent(pullRequest, underlinesTitle: true)
-            }
-            .buttonStyle(.plain)
-            .safeHelp(
-                String(
-                    localized: "sidebar.pullRequest.openTooltip",
-                    defaultValue: "Open \(pullRequest.label) #\(pullRequest.number)"
-                )
-            )
-            .accessibilityIdentifier("SidebarPullRequestRow")
-        } else {
-            pullRequestRowContent(pullRequest, underlinesTitle: false)
-                .accessibilityElement(children: .combine)
-                .accessibilityIdentifier("SidebarPullRequestRow")
-        }
-    }
-
-    private func pullRequestRowContent(
-        _ pullRequest: SidebarWorkspaceSnapshotBuilder.PullRequestDisplay,
-        underlinesTitle: Bool
-    ) -> some View {
-        HStack(spacing: 4) {
-            PullRequestStatusIcon(
-                status: pullRequest.status,
-                color: pullRequestForegroundColor
-            )
-            Group {
-                if underlinesTitle {
-                    Text("\(pullRequest.label) #\(pullRequest.number)")
-                        .underline()
-                } else {
-                    Text("\(pullRequest.label) #\(pullRequest.number)")
-                }
-            }
-            .lineLimit(1)
-            .truncationMode(.tail)
-            Text(pullRequestStatusLabel(pullRequest.status))
-                .lineLimit(1)
-            Spacer(minLength: 0)
-        }
-        .font(.system(size: 10, weight: .semibold))
-        .foregroundColor(pullRequestForegroundColor)
-        .opacity(pullRequest.isStale ? 0.5 : 1)
     }
 
     private func openPortLink(_ port: Int) {
