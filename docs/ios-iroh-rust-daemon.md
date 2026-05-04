@@ -44,6 +44,51 @@ Current implementation status:
 
 The WebSocket route remains an explicit dev fallback for local tickets that include `ws://` or `wss://`. Production tickets without a WebSocket route use the Rust iroh client binding.
 
+## Dogfood attach runbook
+
+Start one shared `cmx` daemon and attach a local TUI to it:
+
+```sh
+cd rust/cmux-cli
+CMX_SOCKET_PATH=/tmp/cmx-ios.sock cargo run -p cmx --bin cmx -- server --ws-bind 0.0.0.0:8787 --auth-token dev
+```
+
+In another terminal:
+
+```sh
+cd rust/cmux-cli
+CMX_SOCKET_PATH=/tmp/cmx-ios.sock cargo run -p cmx --bin cmx -- attach
+```
+
+For the WebSocket dev fallback, launch the installed simulator app with a direct ticket:
+
+```sh
+TICKET='{"version":1,"alpn":"/cmux/cmx/3","endpoint":{"id":"dev-websocket","addrs":[{"Custom":"ws://127.0.0.1:8787?token=dev"}]},"auth":{"mode":"direct"},"node":{"id":"dev-mac","name":"Lawrence MacBook Pro","subtitle":"WebSocket dogfood","kind":"macos"}}'
+xcodebuildmcp simulator launch-app --simulator-name "iPhone 17 Pro" --bundle-id dev.cmux.ios.irh22 --json "$(jq -n --arg ticket "$TICKET" '{"args":["--cmux-ticket",$ticket,"--cmux-autoconnect"]}')"
+```
+
+For the iroh path, expose the same daemon socket through the bridge:
+
+```sh
+cd rust/cmux-cli
+cargo run -p cmux-iroh-bridge -- --socket /tmp/cmx-ios.sock --allow-insecure-direct --node-name "Lawrence MacBook Pro" --node-subtitle "iroh dogfood" --node-kind macos
+```
+
+Press `c` in the bridge terminal to copy the current ticket with OSC 52, then launch iOS with that ticket:
+
+```sh
+TICKET="$(pbpaste)"
+xcodebuildmcp simulator launch-app --simulator-name "iPhone 17 Pro" --bundle-id dev.cmux.ios.irh22 --json "$(jq -n --arg ticket "$TICKET" '{"args":["--cmux-ticket",$ticket,"--cmux-autoconnect"]}')"
+```
+
+Once physical devices are unlocked and CoreDevice tunnels are connected, the same ticket can launch the installed device build:
+
+```sh
+xcrun devicectl device process launch --device E4058DA9-F4C7-52DD-951D-0354061B8E89 dev.cmux.ios.irh22 -- --cmux-ticket "$TICKET" --cmux-autoconnect
+```
+
+The expected proof is the same prompt visible in both clients, for example `lawrence in ~/fun/cmux-cli on main λ`, and text typed from iOS rendering back in the `cmx attach` TUI.
+
 ## iroh transport
 
 `cmux-iroh-bridge` exposes a local `cmx` Unix socket over iroh with ALPN `/cmux/cmx/3`. The bridge prints a JSON ticket containing the iroh endpoint address and auth metadata, and the iOS app passes that ticket to the Rust iroh C ABI before sending framed cmx MessagePack payloads.
