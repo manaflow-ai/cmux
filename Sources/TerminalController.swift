@@ -296,15 +296,16 @@ class TerminalController {
         }
     }
 
-    private nonisolated static func socketCommandAllowsInAppFocusMutations(commandKey: String, isV2: Bool) -> Bool {
+    private nonisolated static func socketCommandAllowsInAppFocusMutations(commandKey: String, isV2: Bool, params: [String: Any] = [:]) -> Bool {
         if isV2 {
             return focusIntentV2Methods.contains(commandKey)
+                || explicitFocusParamAllowsFocus(commandKey: commandKey, params: params)
         }
         return focusIntentV1Commands.contains(commandKey)
     }
 
-    nonisolated func withSocketCommandPolicy<T>(commandKey: String, isV2: Bool, _ body: () -> T) -> T {
-        let allowsFocusMutation = Self.socketCommandAllowsInAppFocusMutations(commandKey: commandKey, isV2: isV2)
+    nonisolated func withSocketCommandPolicy<T>(commandKey: String, isV2: Bool, params: [String: Any] = [:], _ body: () -> T) -> T {
+        let allowsFocusMutation = Self.socketCommandAllowsInAppFocusMutations(commandKey: commandKey, isV2: isV2, params: params)
         var stack = Self.currentSocketCommandFocusAllowanceStack()
         stack.append(allowsFocusMutation)
         Self.setCurrentSocketCommandFocusAllowanceStack(stack)
@@ -340,11 +341,12 @@ class TerminalController {
 #if DEBUG
     static func debugSocketCommandPolicySnapshot(
         commandKey: String,
-        isV2: Bool
+        isV2: Bool,
+        params: [String: Any] = [:]
     ) -> (insideSuppressed: Bool, insideAllowsFocus: Bool, outsideSuppressed: Bool, outsideAllowsFocus: Bool) {
         var insideSuppressed = false
         var insideAllowsFocus = false
-        _ = Self.shared.withSocketCommandPolicy(commandKey: commandKey, isV2: isV2) {
+        _ = Self.shared.withSocketCommandPolicy(commandKey: commandKey, isV2: isV2, params: params) {
             insideSuppressed = Self.shouldSuppressSocketCommandActivation()
             insideAllowsFocus = Self.socketCommandAllowsInAppFocusMutations()
             return 0
@@ -1517,7 +1519,7 @@ class TerminalController {
             return nil
         }
 
-        return withSocketCommandPolicy(commandKey: request.method, isV2: true) {
+        return withSocketCommandPolicy(commandKey: request.method, isV2: true, params: request.params) {
             socketWorkerV2Response(request)
         }
     }
@@ -2365,7 +2367,7 @@ class TerminalController {
         v2MainSync { self.v2RefreshKnownRefs() }
 
 
-        return withSocketCommandPolicy(commandKey: method, isV2: true) {
+        return withSocketCommandPolicy(commandKey: method, isV2: true, params: params) {
             switch method {
         case "system.ping":
             return v2Ok(id: id, result: ["pong": true])
@@ -2479,6 +2481,8 @@ class TerminalController {
             return v2Result(id: id, self.v2TabAction(params: params))
         case "surface.drag_to_split":
             return v2Result(id: id, self.v2SurfaceDragToSplit(params: params))
+        case "surface.split_off":
+            return v2Result(id: id, self.v2SurfaceSplitOff(params: params))
         case "surface.refresh":
             return v2Result(id: id, self.v2SurfaceRefresh(params: params))
         case "surface.health":
@@ -2851,6 +2855,7 @@ class TerminalController {
             "surface.create",
             "surface.close",
             "surface.drag_to_split",
+            "surface.split_off",
             "surface.move",
             "surface.reorder",
             "surface.action",
@@ -4285,7 +4290,7 @@ class TerminalController {
         }
 
         var newId: UUID?
-        let shouldFocus = v2FocusAllowed()
+        let shouldFocus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
         v2MainSync {
             let ws = tabManager.addWorkspace(
                 title: title,
@@ -5526,6 +5531,7 @@ class TerminalController {
             }
 
             let windowId = v2ResolveWindowId(tabManager: tabManager)
+            let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
 
             @MainActor
             func finish(_ extras: [String: Any] = [:]) {
@@ -5647,12 +5653,12 @@ class TerminalController {
                 guard let newPanel = workspace.newBrowserSurface(
                     inPane: paneId,
                     url: browserPanel.currentURL,
-                    focus: true
+                    focus: focus
                 ) else {
                     result = .err(code: "internal_error", message: "Failed to duplicate tab", data: nil)
                     return
                 }
-                _ = workspace.reorderSurface(panelId: newPanel.id, toIndex: targetIndex)
+                _ = workspace.reorderSurface(panelId: newPanel.id, toIndex: targetIndex, focus: focus)
                 finish([
                     "created_surface_id": newPanel.id.uuidString,
                     "created_surface_ref": v2Ref(kind: .surface, uuid: newPanel.id),
@@ -5668,11 +5674,11 @@ class TerminalController {
                 }
 
                 let targetIndex = insertionIndexToRight(anchorTabId: anchorTabId, inPane: paneId)
-                guard let newPanel = workspace.newTerminalSurface(inPane: paneId, focus: true) else {
+                guard let newPanel = workspace.newTerminalSurface(inPane: paneId, focus: focus) else {
                     result = .err(code: "internal_error", message: "Failed to create tab", data: nil)
                     return
                 }
-                _ = workspace.reorderSurface(panelId: newPanel.id, toIndex: targetIndex)
+                _ = workspace.reorderSurface(panelId: newPanel.id, toIndex: targetIndex, focus: focus)
                 finish([
                     "created_surface_id": newPanel.id.uuidString,
                     "created_surface_ref": v2Ref(kind: .surface, uuid: newPanel.id),
@@ -5703,11 +5709,11 @@ class TerminalController {
                 }
 
                 let targetIndex = insertionIndexToRight(anchorTabId: anchorTabId, inPane: paneId)
-                guard let newPanel = workspace.newBrowserSurface(inPane: paneId, url: url, focus: true) else {
+                guard let newPanel = workspace.newBrowserSurface(inPane: paneId, url: url, focus: focus) else {
                     result = .err(code: "internal_error", message: "Failed to create tab", data: nil)
                     return
                 }
-                _ = workspace.reorderSurface(panelId: newPanel.id, toIndex: targetIndex)
+                _ = workspace.reorderSurface(panelId: newPanel.id, toIndex: targetIndex, focus: focus)
                 finish([
                     "created_surface_id": newPanel.id.uuidString,
                     "created_surface_ref": v2Ref(kind: .surface, uuid: newPanel.id),
@@ -5934,8 +5940,16 @@ class TerminalController {
                 return
             }
             let requestedSurfaceId: UUID? = v2UUID(params, "surface_id")
-            // Fall back to focused surface if the requested surface no longer exists (e.g. closed teammate pane)
-            let targetSurfaceId: UUID? = requestedSurfaceId.flatMap({ ws.panels[$0] != nil ? $0 : nil }) ?? ws.focusedPanelId
+            let targetSurfaceId: UUID?
+            if let requestedSurfaceId {
+                guard ws.panels[requestedSurfaceId] != nil else {
+                    result = .err(code: "not_found", message: "Surface not found", data: ["surface_id": requestedSurfaceId.uuidString])
+                    return
+                }
+                targetSurfaceId = requestedSurfaceId
+            } else {
+                targetSurfaceId = ws.focusedPanelId
+            }
             guard let targetSurfaceId, ws.panels[targetSurfaceId] != nil else {
                 result = .err(code: "not_found", message: "No focused surface", data: nil)
                 return
@@ -5944,7 +5958,7 @@ class TerminalController {
             v2MaybeFocusWindow(for: tabManager)
             v2MaybeSelectWorkspace(tabManager, workspace: ws)
 
-            let focus = v2Bool(params, "focus") ?? true
+            let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
             if let newId = tabManager.newSplit(tabId: ws.id, surfaceId: targetSurfaceId, direction: direction, focus: focus) {
                 let paneUUID = ws.paneId(forPanelId: newId)?.id
                 let windowId = v2ResolveWindowId(tabManager: tabManager)
@@ -6000,10 +6014,11 @@ class TerminalController {
             }
 
             let newPanelId: UUID?
+            let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
             if panelType == .browser {
-                newPanelId = ws.newBrowserSurface(inPane: paneId, url: url, focus: v2FocusAllowed())?.id
+                newPanelId = ws.newBrowserSurface(inPane: paneId, url: url, focus: focus)?.id
             } else {
-                newPanelId = ws.newTerminalSurface(inPane: paneId, focus: v2FocusAllowed())?.id
+                newPanelId = ws.newTerminalSurface(inPane: paneId, focus: focus)?.id
             }
 
             guard let newPanelId else {
@@ -6058,54 +6073,6 @@ class TerminalController {
             // Socket API must be non-interactive: bypass close-confirmation gating.
             ws.closePanel(surfaceId, force: true)
             result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString), "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))])
-        }
-        return result
-    }
-
-    private func v2SurfaceDragToSplit(params: [String: Any]) -> V2CallResult {
-        guard let tabManager = v2ResolveTabManager(params: params) else {
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
-        }
-        guard let surfaceId = v2UUID(params, "surface_id") else {
-            return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
-        }
-        guard let directionStr = v2String(params, "direction"),
-              let direction = parseSplitDirection(directionStr) else {
-            return .err(code: "invalid_params", message: "Missing or invalid direction (left|right|up|down)", data: nil)
-        }
-
-        let orientation: SplitOrientation = direction.isHorizontal ? .horizontal : .vertical
-        let insertFirst = (direction == .left || direction == .up)
-
-        var result: V2CallResult = .err(code: "internal_error", message: "Failed to move surface", data: nil)
-        v2MainSync {
-            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
-                result = .err(code: "not_found", message: "Workspace not found", data: nil)
-                return
-            }
-            guard let bonsplitTabId = ws.surfaceIdFromPanelId(surfaceId) else {
-                result = .err(code: "not_found", message: "Surface not found", data: ["surface_id": surfaceId.uuidString])
-                return
-            }
-            guard let newPaneId = ws.bonsplitController.splitPane(
-                orientation: orientation,
-                movingTab: bonsplitTabId,
-                insertFirst: insertFirst
-            ) else {
-                result = .err(code: "internal_error", message: "Failed to split pane", data: nil)
-                return
-            }
-            let windowId = v2ResolveWindowId(tabManager: tabManager)
-            result = .ok([
-                "window_id": v2OrNull(windowId?.uuidString),
-                "window_ref": v2Ref(kind: .window, uuid: windowId),
-                "workspace_id": ws.id.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                "surface_id": surfaceId.uuidString,
-                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-                "pane_id": newPaneId.id.uuidString,
-                "pane_ref": v2Ref(kind: .pane, uuid: newPaneId.id)
-            ])
         }
         return result
     }
@@ -6267,6 +6234,7 @@ class TerminalController {
         let index = v2Int(params, "index")
         let beforeSurfaceId = v2UUID(params, "before_surface_id")
         let afterSurfaceId = v2UUID(params, "after_surface_id")
+        let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
         let targetCount = (index != nil ? 1 : 0) + (beforeSurfaceId != nil ? 1 : 0) + (afterSurfaceId != nil ? 1 : 0)
         if targetCount != 1 {
             return .err(code: "invalid_params", message: "Specify exactly one of index, before_surface_id, or after_surface_id", data: nil)
@@ -6306,7 +6274,7 @@ class TerminalController {
                 return
             }
 
-            guard ws.reorderSurface(panelId: surfaceId, toIndex: targetIndex) else {
+            guard ws.reorderSurface(panelId: surfaceId, toIndex: targetIndex, focus: focus) else {
                 result = .err(code: "internal_error", message: "Failed to reorder surface", data: nil)
                 return
             }
@@ -7321,20 +7289,21 @@ class TerminalController {
             }
 
             let newPanelId: UUID?
+            let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
             if panelType == .browser {
                 newPanelId = ws.newBrowserSplit(
                     from: focusedPanelId,
                     orientation: orientation,
                     insertFirst: insertFirst,
                     url: url,
-                    focus: v2FocusAllowed()
+                    focus: focus
                 )?.id
             } else {
                 newPanelId = ws.newTerminalSplit(
                     from: focusedPanelId,
                     orientation: orientation,
                     insertFirst: insertFirst,
-                    focus: v2FocusAllowed()
+                    focus: focus
                 )?.id
             }
 
@@ -7552,7 +7521,7 @@ class TerminalController {
         if sourcePaneUUID == targetPaneUUID {
             return .err(code: "invalid_params", message: "pane_id and target_pane_id must be different", data: nil)
         }
-        let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? true)
+        let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to swap panes", data: nil)
         v2MainSync {
@@ -7635,7 +7604,7 @@ class TerminalController {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
-        let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? true)
+        let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to break pane", data: nil)
         v2MainSync {
@@ -8837,7 +8806,7 @@ class TerminalController {
                 orientation: orientation,
                 insertFirst: insertFirst,
                 filePath: filePath,
-                focus: v2FocusAllowed()
+                focus: v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
             )
 
             guard let markdownPanelId = createdPanel?.id else {
@@ -8930,16 +8899,17 @@ class TerminalController {
             }
 
             let sourcePaneUUID = ws.paneId(forPanelId: sourceSurfaceId)?.id
+            let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
 
             var createdSplit = true
             var placementStrategy = "split_right"
             let createdPanel: BrowserPanel?
             if let targetPane = ws.preferredBrowserTargetPane(fromPanelId: sourceSurfaceId) {
-                createdPanel = ws.newBrowserSurface(inPane: targetPane, url: url, focus: true)
+                createdPanel = ws.newBrowserSurface(inPane: targetPane, url: url, focus: focus)
                 createdSplit = false
                 placementStrategy = "reuse_right_sibling"
             } else {
-                createdPanel = ws.newBrowserSplit(from: sourceSurfaceId, orientation: .horizontal, url: url)
+                createdPanel = ws.newBrowserSplit(from: sourceSurfaceId, orientation: .horizontal, url: url, focus: focus)
             }
 
             guard let browserPanelId = createdPanel?.id else {
@@ -14671,7 +14641,7 @@ class TerminalController {
     }
 #endif
 
-    private func parseSplitDirection(_ value: String) -> SplitDirection? {
+    func parseSplitDirection(_ value: String) -> SplitDirection? {
         switch value.lowercased() {
         case "left", "l":
             return .left
@@ -15580,6 +15550,22 @@ class TerminalController {
 	
 	        let orientation: SplitOrientation = direction.isHorizontal ? .horizontal : .vertical
 	        let insertFirst = (direction == .left || direction == .up)
+
+	        v2MainSync { self.v2RefreshKnownRefs() }
+	        if let stableSurfaceId = v2UUID(["surface_id": surfaceArg], "surface_id") {
+	            switch v2SurfaceSplitOff(params: [
+	                "surface_id": stableSurfaceId.uuidString,
+	                "direction": directionArg,
+	                "focus": false
+	            ]) {
+	            case .ok(let payload):
+	                let dict = payload as? [String: Any]
+	                let paneId = (dict?["pane_id"] as? String) ?? ""
+	                return paneId.isEmpty ? "OK" : "OK \(paneId)"
+	            case .err(_, let message, _):
+	                return "ERROR: \(message)"
+	            }
+	        }
 	
 	        var result = "ERROR: Failed to move surface"
 	        v2MainSync {

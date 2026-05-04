@@ -278,7 +278,7 @@
         },
         "makePullRequestsClickable": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "Allow sidebar pull request metadata to open links when clicked."
         },
         "openPullRequestLinksInCmuxBrowser": {
