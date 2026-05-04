@@ -433,6 +433,65 @@ final class CmxBridgeTicketTests: XCTestCase {
     }
 
     @MainActor
+    func testVisibleTerminalResizeSendsActiveSessionResize() throws {
+        let sessionFactory = RecordingTerminalSessionFactory()
+        let store = CmxConnectionStore(
+            authSessionStore: MemoryStackAuthSessionStore(),
+            pairingSecretClient: RecordingPairingSecretClient(),
+            terminalSessionFactory: sessionFactory
+        )
+        store.ticketText = """
+        {
+          "version": 1,
+          "alpn": "/cmux/cmx/3",
+          "endpoint": { "id": "endpoint-public-key", "addrs": [] },
+          "auth": { "mode": "direct" }
+        }
+        """
+        store.connect()
+        sessionFactory.session.delegate?.terminalSession(
+            sessionFactory.session,
+            didReceive: .nativeSnapshot(CmxNativeSnapshot(
+                workspaces: [
+                    CmxNativeWorkspaceInfo(
+                        id: 11,
+                        title: "main",
+                        spaceCount: 1,
+                        tabCount: 1,
+                        terminalCount: 1,
+                        pinned: false,
+                        color: nil
+                    ),
+                ],
+                activeWorkspace: 0,
+                activeWorkspaceID: 11,
+                spaces: [
+                    CmxNativeSpaceInfo(id: 21, title: "space-1", paneCount: 1, terminalCount: 1),
+                ],
+                activeSpace: 0,
+                activeSpaceID: 21,
+                panels: .leaf(
+                    panelID: 31,
+                    tabs: [
+                        CmxNativeTabInfo(id: 41, title: "shell", hasActivity: false, bellCount: 0),
+                    ],
+                    active: 0,
+                    activeTabID: 41
+                ),
+                focusedPanelID: 31,
+                focusedTabID: 41
+            ))
+        )
+        sessionFactory.session.clearRecordedResizes()
+
+        store.updateTerminalSize(terminalID: 41, size: CmxTerminalSize(cols: 100, rows: 20))
+
+        XCTAssertEqual(sessionFactory.session.sentResizes.count, 1)
+        XCTAssertEqual(sessionFactory.session.sentResizes.last?.terminalID, 41)
+        XCTAssertEqual(sessionFactory.session.sentResizes.last?.viewport, CmxWireViewport(cols: 100, rows: 20))
+    }
+
+    @MainActor
     func testDefaultSessionFactoryUsesIrohWhenTicketHasNoWebSocketRoute() throws {
         let rawTicket = """
         {
@@ -646,6 +705,7 @@ private final class RecordingTerminalSession: CmxTerminalSession {
     private(set) var didStart = false
     private(set) var startCount = 0
     private(set) var sentLayouts: [[CmxWireTerminalViewport]] = []
+    private(set) var sentResizes: [(viewport: CmxWireViewport, terminalID: UInt64)] = []
     private(set) var sentCommands: [CmxClientCommand] = []
     var notifiesCloseOnDisconnect = false
 
@@ -656,7 +716,9 @@ private final class RecordingTerminalSession: CmxTerminalSession {
 
     func sendInput(_ data: Data, terminalID: UInt64) {}
 
-    func sendResize(_ viewport: CmxWireViewport, terminalID: UInt64) {}
+    func sendResize(_ viewport: CmxWireViewport, terminalID: UInt64) {
+        sentResizes.append((viewport: viewport, terminalID: terminalID))
+    }
 
     func sendNativeLayout(_ terminals: [CmxWireTerminalViewport]) {
         sentLayouts.append(terminals)
@@ -670,5 +732,9 @@ private final class RecordingTerminalSession: CmxTerminalSession {
         if notifiesCloseOnDisconnect {
             delegate?.terminalSessionDidClose(self)
         }
+    }
+
+    func clearRecordedResizes() {
+        sentResizes = []
     }
 }
