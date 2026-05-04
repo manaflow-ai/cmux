@@ -7844,7 +7844,8 @@ private struct AgentHookSettingsRow: View {
             HStack(spacing: 8) {
                 AgentHookStatusPill(
                     text: AgentHookIntegrationSettings.statusLabel(for: currentStatus),
-                    isActive: currentStatus.isActive
+                    isActive: currentStatus.isActive,
+                    isUpdateAvailable: currentStatus.isUpdateAvailable
                 )
                 Button(buttonTitle(for: currentStatus)) {
                     install()
@@ -7862,6 +7863,9 @@ private struct AgentHookSettingsRow: View {
         }
         if status.isActive {
             return String(localized: "settings.automation.agentHooks.installed", defaultValue: "Installed")
+        }
+        if status.isUpdateAvailable {
+            return String(localized: "settings.automation.agentHooks.update", defaultValue: "Update")
         }
         if agent.isClaudeWrapper {
             return String(localized: "settings.automation.agentHooks.enable", defaultValue: "Enable")
@@ -7884,17 +7888,30 @@ private struct AgentHookSettingsRow: View {
 private struct AgentHookStatusPill: View {
     let text: String
     let isActive: Bool
+    let isUpdateAvailable: Bool
 
     var body: some View {
         Text(text)
             .font(.caption.weight(.medium))
-            .foregroundStyle(isActive ? Color.green : Color.secondary)
+            .foregroundStyle(foregroundColor)
             .padding(.horizontal, 7)
             .padding(.vertical, 3)
             .background(
                 Capsule(style: .continuous)
-                    .fill(isActive ? Color.green.opacity(0.12) : Color.secondary.opacity(0.12))
+                    .fill(backgroundColor)
             )
+    }
+
+    private var foregroundColor: Color {
+        if isActive { return .green }
+        if isUpdateAvailable { return .orange }
+        return .secondary
+    }
+
+    private var backgroundColor: Color {
+        if isActive { return Color.green.opacity(0.12) }
+        if isUpdateAvailable { return Color.orange.opacity(0.12) }
+        return Color.secondary.opacity(0.12)
     }
 }
 

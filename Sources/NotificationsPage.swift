@@ -229,6 +229,9 @@ struct TerminalNotificationActionButtons: View {
         if isRunning {
             return String(localized: "agentHooks.prompt.installing", defaultValue: "Installing...")
         }
+        if AgentHookIntegrationSettings.status(for: agent).isUpdateAvailable {
+            return String(localized: "agentHooks.prompt.update", defaultValue: "Update hooks")
+        }
         if agent.isClaudeWrapper {
             return String(localized: "agentHooks.prompt.enable", defaultValue: "Enable")
         }

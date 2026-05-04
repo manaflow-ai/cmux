@@ -16345,7 +16345,7 @@ struct CMUXCLI {
     // MARK: Generic hook install/uninstall
 
     private func hookCommand(for def: AgentHookDef, event: AgentHookDef.HookEvent) -> String {
-        "[ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && command -v cmux >/dev/null 2>&1 && cmux hooks \(def.name) \(event.cmuxSubcommand) || echo '{}'"
+        "[ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && CMUX_AGENT_HOOK_VERSION=1 sh -c 'if [ -n \"${CMUX_BUNDLED_CLI_PATH:-}\" ] && [ -x \"$CMUX_BUNDLED_CLI_PATH\" ]; then \"$CMUX_BUNDLED_CLI_PATH\" hooks \(def.name) \(event.cmuxSubcommand); elif command -v cmux >/dev/null 2>&1; then cmux hooks \(def.name) \(event.cmuxSubcommand); else echo \"{}\"; fi' || echo '{}'"
     }
 
     /// Shell command the agent runs for a Feed bridge event. 120s timeout
@@ -16353,7 +16353,7 @@ struct CMUXCLI {
     /// nested hook config (see `buildHooksDict`); the shell command
     /// itself just dispatches.
     private func feedHookCommand(for def: AgentHookDef, agentEvent: String) -> String {
-        "[ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && command -v cmux >/dev/null 2>&1 && cmux hooks feed --source \(def.name) --event \(agentEvent) || echo '{}'"
+        "[ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && CMUX_AGENT_HOOK_VERSION=1 sh -c 'if [ -n \"${CMUX_BUNDLED_CLI_PATH:-}\" ] && [ -x \"$CMUX_BUNDLED_CLI_PATH\" ]; then \"$CMUX_BUNDLED_CLI_PATH\" hooks feed --source \(def.name) --event \(agentEvent); elif command -v cmux >/dev/null 2>&1; then cmux hooks feed --source \(def.name) --event \(agentEvent); else echo \"{}\"; fi' || echo '{}'"
     }
 
     /// Marker substrings used when removing / upgrading our own Feed bridge
@@ -16540,7 +16540,7 @@ function sendHook(subcommand, ctx, event, extra = {}) {
     hook_event_name: event && event.type,
     ...extra,
   };
-  const cmux = process.env.CMUX_OPENCODE_CMUX_BIN || "cmux";
+  const cmux = process.env.CMUX_OPENCODE_CMUX_BIN || process.env.CMUX_BUNDLED_CLI_PATH || "cmux";
   try {
     spawnSync(cmux, ["hooks", "opencode", subcommand], {
       input: JSON.stringify(payload),

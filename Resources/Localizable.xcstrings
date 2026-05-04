@@ -59257,6 +59257,108 @@
         }
       }
     },
+    "agentHooks.nudge.updateBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux has a newer hook script for notifications and session restore."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxには通知とセッション復元用の新しいフックスクリプトがあります。"
+          }
+        }
+      }
+    },
+    "agentHooks.nudge.updateTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update %@ hooks"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@フックを更新"
+          }
+        }
+      }
+    },
+    "agentHooks.prompt.update": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update hooks"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フックを更新"
+          }
+        }
+      }
+    },
+    "settings.automation.agentHooks.status.updateAvailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update available"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新あり"
+          }
+        }
+      }
+    },
+    "settings.automation.agentHooks.status.updateAvailable.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux hooks are installed, but this app has a newer hook script."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxフックはインストール済みですが、このアプリには新しいフックスクリプトがあります。"
+          }
+        }
+      }
+    },
+    "settings.automation.agentHooks.update": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新"
+          }
+        }
+      }
+    },
     "settings.automation.openAccess.dialog.cancel": {
       "extractionState": "manual",
       "localizations": {

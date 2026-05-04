@@ -667,6 +667,7 @@ struct AgentHookIntegration: Identifiable, Hashable, Sendable {
     let configFile: String?
     let configDirEnvOverride: String?
     let hookMarkers: [String]
+    let currentMarkers: [String]
     let isClaudeWrapper: Bool
 
     var id: String { name }
@@ -683,6 +684,7 @@ enum AgentHookIntegrationStatus: Equatable {
     case enabled
     case disabled
     case installed(path: String)
+    case updateAvailable(path: String)
     case notInstalled(path: String?)
     case unreadable(path: String)
 
@@ -690,9 +692,16 @@ enum AgentHookIntegrationStatus: Equatable {
         switch self {
         case .enabled, .installed:
             return true
-        case .disabled, .notInstalled, .unreadable:
+        case .disabled, .updateAvailable, .notInstalled, .unreadable:
             return false
         }
+    }
+
+    var isUpdateAvailable: Bool {
+        if case .updateAvailable = self {
+            return true
+        }
+        return false
     }
 }
 
@@ -717,6 +726,7 @@ enum AgentHookIntegrationSettings {
             configFile: nil,
             configDirEnvOverride: nil,
             hookMarkers: [],
+            currentMarkers: [],
             isClaudeWrapper: true
         ),
         AgentHookIntegration(
@@ -727,6 +737,7 @@ enum AgentHookIntegrationSettings {
             configFile: "hooks.json",
             configDirEnvOverride: "CODEX_HOME",
             hookMarkers: ["cmux hooks codex", "cmux codex-hook"],
+            currentMarkers: ["CMUX_AGENT_HOOK_VERSION=1"],
             isClaudeWrapper: false
         ),
         AgentHookIntegration(
@@ -737,6 +748,7 @@ enum AgentHookIntegrationSettings {
             configFile: "plugins/cmux-session.js",
             configDirEnvOverride: "OPENCODE_CONFIG_DIR",
             hookMarkers: ["cmux-opencode-session-plugin-marker", "cmux hooks opencode"],
+            currentMarkers: ["cmux-opencode-session-plugin-marker v1"],
             isClaudeWrapper: false
         ),
         AgentHookIntegration(
@@ -747,6 +759,7 @@ enum AgentHookIntegrationSettings {
             configFile: "hooks.json",
             configDirEnvOverride: nil,
             hookMarkers: ["cmux hooks cursor"],
+            currentMarkers: ["CMUX_AGENT_HOOK_VERSION=1"],
             isClaudeWrapper: false
         ),
         AgentHookIntegration(
@@ -757,6 +770,7 @@ enum AgentHookIntegrationSettings {
             configFile: "settings.json",
             configDirEnvOverride: nil,
             hookMarkers: ["cmux hooks gemini"],
+            currentMarkers: ["CMUX_AGENT_HOOK_VERSION=1"],
             isClaudeWrapper: false
         ),
         AgentHookIntegration(
@@ -767,6 +781,7 @@ enum AgentHookIntegrationSettings {
             configFile: "config.json",
             configDirEnvOverride: nil,
             hookMarkers: ["cmux hooks copilot"],
+            currentMarkers: ["CMUX_AGENT_HOOK_VERSION=1"],
             isClaudeWrapper: false
         ),
         AgentHookIntegration(
@@ -777,6 +792,7 @@ enum AgentHookIntegrationSettings {
             configFile: "settings.json",
             configDirEnvOverride: nil,
             hookMarkers: ["cmux hooks codebuddy"],
+            currentMarkers: ["CMUX_AGENT_HOOK_VERSION=1"],
             isClaudeWrapper: false
         ),
         AgentHookIntegration(
@@ -787,6 +803,7 @@ enum AgentHookIntegrationSettings {
             configFile: "settings.json",
             configDirEnvOverride: nil,
             hookMarkers: ["cmux hooks factory"],
+            currentMarkers: ["CMUX_AGENT_HOOK_VERSION=1"],
             isClaudeWrapper: false
         ),
         AgentHookIntegration(
@@ -797,6 +814,7 @@ enum AgentHookIntegrationSettings {
             configFile: "settings.json",
             configDirEnvOverride: nil,
             hookMarkers: ["cmux hooks qoder"],
+            currentMarkers: ["CMUX_AGENT_HOOK_VERSION=1"],
             isClaudeWrapper: false
         ),
     ]
@@ -835,8 +853,11 @@ enum AgentHookIntegrationSettings {
         guard let contents = try? String(contentsOfFile: path, encoding: .utf8) else {
             return .unreadable(path: path)
         }
-        if agent.hookMarkers.contains(where: { contents.contains($0) }) {
+        if agent.currentMarkers.contains(where: { contents.contains($0) }) {
             return .installed(path: path)
+        }
+        if agent.hookMarkers.contains(where: { contents.contains($0) }) {
+            return .updateAvailable(path: path)
         }
         return .notInstalled(path: path)
     }
@@ -849,6 +870,8 @@ enum AgentHookIntegrationSettings {
             return String(localized: "settings.automation.agentHooks.status.disabled", defaultValue: "Disabled")
         case .installed:
             return String(localized: "settings.automation.agentHooks.status.installed", defaultValue: "Installed")
+        case .updateAvailable:
+            return String(localized: "settings.automation.agentHooks.status.updateAvailable", defaultValue: "Update available")
         case .notInstalled:
             return String(localized: "settings.automation.agentHooks.status.notInstalled", defaultValue: "Not installed")
         case .unreadable:
@@ -864,6 +887,8 @@ enum AgentHookIntegrationSettings {
             return String(localized: "settings.automation.agentHooks.status.claudeDisabled", defaultValue: "Claude Code runs without cmux hooks.")
         case .installed(let path):
             return String(localized: "settings.automation.agentHooks.status.installedAt", defaultValue: "cmux hooks found in \(path).")
+        case .updateAvailable:
+            return String(localized: "settings.automation.agentHooks.status.updateAvailable.subtitle", defaultValue: "cmux hooks are installed, but this app has a newer hook script.")
         case .notInstalled:
             return String(localized: "settings.automation.agentHooks.status.notInstalled.subtitle", defaultValue: "No cmux hooks found.")
         case .unreadable(let path):
@@ -877,7 +902,8 @@ enum AgentHookIntegrationSettings {
               let agent = agent(named: agentName) else {
             return
         }
-        guard !status(for: agent).isActive else {
+        let currentStatus = status(for: agent)
+        guard !currentStatus.isActive else {
             return
         }
         guard shouldShowPrompt(for: agent) else {
@@ -888,9 +914,13 @@ enum AgentHookIntegrationSettings {
         TerminalNotificationStore.shared.addNotification(
             tabId: tabId,
             surfaceId: surfaceId,
-            title: String(localized: "agentHooks.nudge.title", defaultValue: "Install \(agent.displayName) hooks"),
+            title: currentStatus.isUpdateAvailable
+                ? String(localized: "agentHooks.nudge.updateTitle", defaultValue: "Update \(agent.displayName) hooks")
+                : String(localized: "agentHooks.nudge.title", defaultValue: "Install \(agent.displayName) hooks"),
             subtitle: String(localized: "agentHooks.nudge.subtitle", defaultValue: "Notifications and session restore"),
-            body: String(localized: "agentHooks.nudge.body", defaultValue: "Hooks let cmux show agent notifications and restore sessions after cmux restarts."),
+            body: currentStatus.isUpdateAvailable
+                ? String(localized: "agentHooks.nudge.updateBody", defaultValue: "cmux has a newer hook script for notifications and session restore.")
+                : String(localized: "agentHooks.nudge.body", defaultValue: "Hooks let cmux show agent notifications and restore sessions after cmux restarts."),
             cooldownKey: "agent-hooks-setup-\(agent.name)",
             cooldownInterval: promptCooldown,
             action: .agentHookSetup(agentName: agent.name)
