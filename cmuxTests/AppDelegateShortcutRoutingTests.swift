@@ -1085,10 +1085,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     func testAddWorkspaceInPreferredMainWindowPrunesOrphanedContextWithoutLiveWindow() {
-        guard let appDelegate = AppDelegate.shared else {
-            XCTFail("Expected AppDelegate.shared")
-            return
-        }
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        defer { AppDelegate.shared = previousAppDelegate }
 
         let orphanWindowId = UUID()
         let orphanManager = TabManager()
@@ -3174,7 +3174,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
     }
 
-    func testCmdPhysicalOWithDvorakCharactersTriggersRenameTabShortcut() {
+    func testConfiguredCmdPhysicalOWithDvorakCharactersTriggersRenameTabShortcut() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -3306,7 +3306,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(observedSwitcherWindow?.windowNumber, window.windowNumber)
     }
 
-    func testCmdShiftRRequestsRenameWorkspaceInCommandPalette() {
+    func testConfiguredCmdShiftRRequestsRenameWorkspaceInCommandPalette() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return

@@ -19579,6 +19579,40 @@
         }
       }
     },
+    "agent.claude.completion.subtitle.completed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Completed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了"
+          }
+        }
+      }
+    },
+    "agent.claude.completion.subtitle.completedInProject": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Completed in %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ で完了"
+          }
+        }
+      }
+    },
     "agent.codex.completion.body.sessionCompleted": {
       "extractionState": "manual",
       "localizations": {
@@ -53066,6 +53100,40 @@
         }
       }
     },
+    "settings.app.openSidebarPRLinks.subtitleDisabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable sidebar PR clickability to choose where PR links open."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PRリンクの開き先を選ぶには、サイドバーのPRクリックを有効にしてください。"
+          }
+        }
+      }
+    },
+    "settings.app.openSidebarPRLinks.subtitleHidden": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable sidebar PR visibility to choose where PR links open."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PRリンクの開き先を選ぶには、サイドバーのPR表示を有効にしてください。"
+          }
+        }
+      }
+    },
     "settings.app.openSidebarPortLinks": {
       "extractionState": "manual",
       "localizations": {
@@ -55831,115 +55899,166 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Display review items (PR/MR/etc.) with status, number, and clickable link."
+            "value": "Display review items (PR/MR/etc.) with status and number."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ステータス、番号、クリック可能なリンク付きのレビュー項目（PR/MRなど）を表示します。"
+            "value": "ステータスと番号付きのレビュー項目（PR/MRなど）を表示します。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "显示包含状态、编号和可点击链接的审查项（PR/MR 等）。"
+            "value": "显示包含状态和编号的审查项（PR/MR 等）。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "顯示審查項目（PR/MR 等），包含狀態、編號和可點擊的連結。"
+            "value": "顯示審查項目（PR/MR 等），包含狀態和編號。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "상태, 번호 및 클릭 가능한 링크가 있는 리뷰 항목(PR/MR 등)을 표시합니다."
+            "value": "상태와 번호가 있는 리뷰 항목(PR/MR 등)을 표시합니다."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Review-Elemente (PR/MR/etc.) mit Status, Nummer und anklickbarem Link anzeigen."
+            "value": "Review-Elemente (PR/MR/etc.) mit Status und Nummer anzeigen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mostrar elementos de revisión (PR/MR/etc.) con estado, número y enlace interactivo."
+            "value": "Mostrar elementos de revisión (PR/MR/etc.) con estado y número."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Afficher les éléments de revue (PR/MR/etc.) avec le statut, le numéro et un lien cliquable."
+            "value": "Afficher les éléments de revue (PR/MR/etc.) avec le statut et le numéro."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Visualizza elementi di revisione (PR/MR/ecc.) con stato, numero e link cliccabile."
+            "value": "Visualizza elementi di revisione (PR/MR/ecc.) con stato e numero."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vis gennemgangselementer (PR/MR osv.) med status, nummer og klikbart link."
+            "value": "Vis gennemgangselementer (PR/MR osv.) med status og nummer."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wyświetlaj elementy przeglądu (PR/MR/itp.) ze statusem, numerem i klikalnym linkiem."
+            "value": "Wyświetlaj elementy przeglądu (PR/MR/itp.) ze statusem i numerem."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Отображать элементы проверки (PR/MR и т.д.) со статусом, номером и ссылкой."
+            "value": "Отображать элементы проверки (PR/MR и т.д.) со статусом и номером."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Prikaži stavke za pregled (PR/MR/itd.) sa statusom, brojem i linkom."
+            "value": "Prikaži stavke za pregled (PR/MR/itd.) sa statusom i brojem."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "عرض عناصر المراجعة (طلبات السحب/الدمج/إلخ.) مع الحالة والرقم والرابط القابل للنقر."
+            "value": "عرض عناصر المراجعة (طلبات السحب/الدمج/إلخ.) مع الحالة والرقم."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vis gjennomgangselementer (PR/MR/osv.) med status, nummer og klikkbar lenke."
+            "value": "Vis gjennomgangselementer (PR/MR/osv.) med status og nummer."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Exibir itens de revisão (PR/MR/etc.) com status, número e link clicável."
+            "value": "Exibir itens de revisão (PR/MR/etc.) com status e número."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "แสดงรายการตรวจสอบ (PR/MR/อื่นๆ) พร้อมสถานะ หมายเลข และลิงก์ที่คลิกได้"
+            "value": "แสดงรายการตรวจสอบ (PR/MR/อื่นๆ) พร้อมสถานะและหมายเลข"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Durum, numara ve tıklanabilir bağlantıyla inceleme öğelerini (PR/MR/vb.) göster."
+            "value": "Durum ve numarayla inceleme öğelerini (PR/MR/vb.) göster."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Відображати елементи перегляду (PR/MR тощо) зі статусом, номером та клікабельним посиланням."
+            "value": "Відображати елементи перегляду (PR/MR тощо) зі статусом і номером."
+          }
+        }
+      }
+    },
+    "settings.app.showPullRequests.subtitle.basic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Display review items (PR/MR/etc.) with status and number."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステータスと番号付きのレビュー項目（PR/MRなど）を表示します。"
+          }
+        }
+      }
+    },
+    "settings.app.makeSidebarPullRequestClickable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Make Sidebar PR Clickable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーのPRをクリック可能にする"
+          }
+        }
+      }
+    },
+    "settings.app.makeSidebarPullRequestClickable.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review items stay visible as plain text, and clicks in that area select the workspace row."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レビュー項目は通常のテキストとして表示され、その領域をクリックするとワークスペース行が選択されます。"
           }
         }
       }
@@ -68896,29 +69015,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "모든 윈도우 표시/숨기기"
-          }
-        }
-      }
-    },
-    "settings.shortcuts.managedByFile": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Managed in cmux.json"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux.json で管理"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux.json에서 관리됨"
           }
         }
       }
@@ -85152,6 +85248,125 @@
         }
       }
     },
+    "shortcut.equalizeSplits.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Equalize Splits"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分割を均等にする"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "均分面板"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "均等分割"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "분할 균등화"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teilungen angleichen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Igualar divisiones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Égaliser les divisions"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Equalizza divisioni"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udlign opdelinger"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyrównaj podziały"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выровнять разделение"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Izjednači podjele"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تسوية التقسيمات"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gjør delinger like"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Equalizar Divisões"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปรับขนาดช่องแยกให้เท่ากัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bölmeleri Eşitle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вирівняти розділення"
+          }
+        }
+      }
+    },
     "shortcut.splitRight.label": {
       "extractionState": "manual",
       "localizations": {
@@ -89134,6 +89349,210 @@
           "stringUnit": {
             "state": "translated",
             "value": "Тільки процеси, запущені в терміналах cmux, можуть надсилати команди."
+          }
+        }
+      }
+    },
+    "socket.surfaceSplitOff.error.appDelegateUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AppDelegate not available"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AppDelegateを利用できません"
+          }
+        }
+      }
+    },
+    "socket.surfaceSplitOff.error.invalidDirection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing or invalid direction (left|right|up|down)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "方向が指定されていないか無効です（left|right|up|down）"
+          }
+        }
+      }
+    },
+    "socket.surfaceSplitOff.error.invalidWindowId": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing or invalid window_id"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "window_idが指定されていないか無効です"
+          }
+        }
+      }
+    },
+    "socket.surfaceSplitOff.error.invalidWorkspaceId": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing or invalid workspace_id"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace_idが指定されていないか無効です"
+          }
+        }
+      }
+    },
+    "socket.surfaceSplitOff.error.missingSurfaceId": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing or invalid surface_id"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface_idが指定されていないか無効です"
+          }
+        }
+      }
+    },
+    "socket.surfaceSplitOff.error.moveSurfaceFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to move surface"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスを移動できませんでした"
+          }
+        }
+      }
+    },
+    "socket.surfaceSplitOff.error.sourcePaneNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source pane not found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移動元ペインが見つかりません"
+          }
+        }
+      }
+    },
+    "socket.surfaceSplitOff.error.splitPaneFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to split pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインを分割できませんでした"
+          }
+        }
+      }
+    },
+    "socket.surfaceSplitOff.error.surfaceNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface not found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスが見つかりません"
+          }
+        }
+      }
+    },
+    "socket.surfaceSplitOff.error.surfaceNotFoundInWindow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface not found in window"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウィンドウ内にサーフェスが見つかりません"
+          }
+        }
+      }
+    },
+    "socket.surfaceSplitOff.error.surfaceNotFoundInWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface not found in workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース内にサーフェスが見つかりません"
+          }
+        }
+      }
+    },
+    "socket.surfaceSplitOff.error.wouldEmptySourcePane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "splitting off would leave the source pane empty"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分割して移動すると移動元ペインが空になります"
           }
         }
       }
@@ -109596,6 +110015,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "エージェントの判断とTodoリストの更新がここに表示されます。"
+          }
+        }
+      }
+    },
+    "feed.history.loadOlder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Load older activity"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "古いアクティビティを読み込む"
+          }
+        }
+      }
+    },
+    "feed.history.loadingOlder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading older activity..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "古いアクティビティを読み込み中..."
           }
         }
       }
