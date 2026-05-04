@@ -134,9 +134,9 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{WebSocketStream, accept_async};
 
 use crate::native_terminal::{
-    native_terminal_grid_snapshot, terminal_default_colors_from_report,
-    terminal_default_colors_from_theme, terminal_probe_colors_from_report,
-    terminal_theme_set_from_report,
+    active_terminal_theme_set_for_host, native_terminal_grid_snapshot,
+    terminal_default_colors_from_report, terminal_default_colors_from_theme,
+    terminal_probe_colors_from_report, terminal_theme_set_from_report,
 };
 use crate::render::{
     BorderSpec, ChromeSpec, LineSelection, LogicalLineSelection, PaneChrome, RenderBroker,
@@ -2938,7 +2938,9 @@ impl Daemon {
             fallback_cwd: opts.cwd.clone(),
             initial_viewport: opts.initial_viewport,
         };
-        let terminal_theme = ghostty_theme::load_terminal_theme();
+        let terminal_theme = ghostty_theme::load_terminal_theme()
+            .as_ref()
+            .map(active_terminal_theme_set_for_host);
         broker.set_default_colors(terminal_default_colors_from_theme(terminal_theme.as_ref()));
 
         // If a snapshot exists, load it. Otherwise, start fresh.

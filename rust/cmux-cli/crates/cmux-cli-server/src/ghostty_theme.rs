@@ -27,6 +27,28 @@ struct ThemeSelection {
 }
 
 pub fn load_terminal_theme() -> Option<NativeTerminalThemeSet> {
+    // Prefer Ghostty's resolved config when available. This avoids our fallback
+    // parser disagreeing with the actual host terminal on light/dark theme pairs.
+    if let Some(theme) = load_terminal_theme_from_ghostty() {
+        let theme_set = NativeTerminalThemeSet {
+            default: Some(theme),
+            ..NativeTerminalThemeSet::default()
+        };
+        if probe::color_enabled() {
+            probe::log_event(
+                "ghostty_theme",
+                "terminal_theme_resolved",
+                &[
+                    ("source", "ghostty_show_config".to_string()),
+                    ("selection", "-".to_string()),
+                    ("config_paths", existing_paths_summary(config_paths())),
+                    ("theme", terminal_theme_set_summary(&theme_set)),
+                ],
+            );
+        }
+        return Some(theme_set);
+    }
+
     let config = load_ghostty_config();
 
     let theme = resolve_terminal_theme_from_config(&config, &theme_dirs());
@@ -51,25 +73,7 @@ pub fn load_terminal_theme() -> Option<NativeTerminalThemeSet> {
         return theme;
     }
 
-    load_terminal_theme_from_ghostty().map(|theme| {
-        let theme_set = NativeTerminalThemeSet {
-            default: Some(theme),
-            ..NativeTerminalThemeSet::default()
-        };
-        if probe::color_enabled() {
-            probe::log_event(
-                "ghostty_theme",
-                "terminal_theme_resolved",
-                &[
-                    ("source", "ghostty_show_config".to_string()),
-                    ("selection", "-".to_string()),
-                    ("config_paths", existing_paths_summary(config_paths())),
-                    ("theme", terminal_theme_set_summary(&theme_set)),
-                ],
-            );
-        }
-        theme_set
-    })
+    None
 }
 
 fn load_terminal_theme_from_ghostty() -> Option<NativeTerminalTheme> {

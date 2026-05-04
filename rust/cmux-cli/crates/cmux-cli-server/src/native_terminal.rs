@@ -60,6 +60,12 @@ pub(crate) fn terminal_default_colors_from_report(
     }
 }
 
+pub(crate) fn active_terminal_theme_set_for_host(
+    theme_set: &NativeTerminalThemeSet,
+) -> NativeTerminalThemeSet {
+    active_terminal_theme_set(theme_set, host_prefers_dark_theme())
+}
+
 pub(crate) fn terminal_default_colors_from_theme(
     theme_set: Option<&NativeTerminalThemeSet>,
 ) -> TerminalGridDefaultColors {
@@ -84,6 +90,16 @@ pub(crate) fn terminal_default_colors_from_theme(
         );
     }
     colors
+}
+
+fn active_terminal_theme_set(
+    theme_set: &NativeTerminalThemeSet,
+    prefers_dark: bool,
+) -> NativeTerminalThemeSet {
+    NativeTerminalThemeSet {
+        default: active_theme(theme_set, prefers_dark).cloned(),
+        ..NativeTerminalThemeSet::default()
+    }
 }
 
 fn active_theme(
@@ -417,6 +433,37 @@ mod tests {
         assert_eq!(theme.background.as_deref(), Some("#272822"));
         assert_eq!(theme.palette.get(&118).map(String::as_str), Some("#5FD700"));
         assert_eq!(theme.palette.get(&135).map(String::as_str), Some("#AF5FFF"));
+    }
+
+    #[test]
+    fn active_terminal_theme_set_collapses_to_host_selected_theme() {
+        let theme_set = NativeTerminalThemeSet {
+            light: Some(NativeTerminalTheme {
+                foreground: Some("#111111".into()),
+                background: Some("#FAF9F0".into()),
+                ..NativeTerminalTheme::default()
+            }),
+            dark: Some(NativeTerminalTheme {
+                foreground: Some("#EEEEEE".into()),
+                background: Some("#101010".into()),
+                ..NativeTerminalTheme::default()
+            }),
+            ..NativeTerminalThemeSet::default()
+        };
+
+        let light = active_terminal_theme_set(&theme_set, false);
+        let dark = active_terminal_theme_set(&theme_set, true);
+
+        assert_eq!(
+            light.default.and_then(|theme| theme.background).as_deref(),
+            Some("#FAF9F0")
+        );
+        assert_eq!(
+            dark.default.and_then(|theme| theme.background).as_deref(),
+            Some("#101010")
+        );
+        assert!(light.light.is_none());
+        assert!(light.dark.is_none());
     }
 
     #[test]
