@@ -387,6 +387,10 @@ public final class GhosttyRuntime {
 
     private(set) var app: ghostty_app_t?
     private(set) var config: ghostty_config_t?
+    // Ghostty may emit wakeups in bursts during font metric churn. Keep at most
+    // one main-queue tick pending so pinch zoom cannot starve UIKit's run loop.
+    private let tickLock = NSLock()
+    private var tickScheduled = false
 
     public static func shared() throws -> GhosttyRuntime {
         if let sharedResult {
@@ -414,10 +418,10 @@ public final class GhosttyRuntime {
         var runtimeConfig = ghostty_runtime_config_s()
         runtimeConfig.userdata = Unmanaged.passUnretained(self).toOpaque()
         runtimeConfig.supports_selection_clipboard = false
-        runtimeConfig.wakeup_cb = { _ in
-            Task { @MainActor in
-                GhosttyTerminalSurfaceView.drawVisibleSurfacesForWakeup()
-            }
+        runtimeConfig.wakeup_cb = { userdata in
+            guard let userdata else { return }
+            let runtime = Unmanaged<GhosttyRuntime>.fromOpaque(userdata).takeUnretainedValue()
+            runtime.scheduleWakeupTick()
         }
         runtimeConfig.action_cb = { _, target, action in
             GhosttyRuntime.handleAction(target: target, action: action)
@@ -458,6 +462,26 @@ public final class GhosttyRuntime {
     public func tick() {
         guard let app else { return }
         ghostty_app_tick(app)
+    }
+
+    private func scheduleWakeupTick() {
+        tickLock.lock()
+        defer { tickLock.unlock() }
+        guard !tickScheduled else { return }
+        tickScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            self?.runScheduledWakeupTick()
+        }
+    }
+
+    @MainActor
+    private func runScheduledWakeupTick() {
+        tickLock.lock()
+        tickScheduled = false
+        tickLock.unlock()
+
+        tick()
+        GhosttyTerminalSurfaceView.drawVisibleSurfacesForWakeup()
     }
 
     public static func configuredUIColor(named key: String, fallback: UIColor) -> UIColor {
@@ -1147,7 +1171,6 @@ public final class GhosttyTerminalSurfaceView: UIView {
     ) -> Bool {
         guard let surface else { return false }
         guard nextFontSize != currentFontSize else { return false }
-        runtime?.tick()
         let action = "set_font_size:\(nextFontSize)"
         let handled = action.withCString { pointer in
             ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))
@@ -1207,7 +1230,6 @@ public final class GhosttyTerminalSurfaceView: UIView {
     static func drawVisibleSurfacesForWakeup() {
         registeredSurfaceViews = registeredSurfaceViews.filter { $0.value.value != nil }
         for view in registeredSurfaceViews.values.compactMap(\.value) where view.window != nil {
-            view.runtime?.tick()
             if let surface = view.surface {
                 ghostty_surface_refresh(surface)
                 view.needsDraw = true
