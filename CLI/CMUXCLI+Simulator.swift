@@ -1,5 +1,6 @@
 import Foundation
 
+#if DEBUG
 extension CMUXCLI {
     func runSimulatorCommand(
         commandArgs: [String],
@@ -129,3 +130,4 @@ extension CMUXCLI {
         }
     }
 }
+#endif

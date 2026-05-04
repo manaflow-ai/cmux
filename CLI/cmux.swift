@@ -3431,7 +3431,10 @@ struct CMUXCLI {
         // Markdown commands
         case "markdown":
             try runMarkdownCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
-        case "sim", "simulator": try runSimulatorCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+#if DEBUG
+        case "sim", "simulator":
+            try runSimulatorCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+#endif
         default:
             print(usage())
             throw CLIError(message: "Unknown command: \(command)")

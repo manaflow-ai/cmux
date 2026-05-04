@@ -4,6 +4,7 @@ import Darwin
 import CMUXDebugLog
 #endif
 
+#if DEBUG
 extension CMUXCLI {
     /// Interactive list of simulators. Default action when the user runs
     /// `cmux sim` with no subcommand.
@@ -369,3 +370,4 @@ private extension Array {
         indices.contains(index) ? self[index] : nil
     }
 }
+#endif

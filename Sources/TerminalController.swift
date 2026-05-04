@@ -2718,7 +2718,10 @@ class TerminalController {
         case "file.open":
             return v2Result(id: id, self.v2FileOpen(params: params))
 
-        case "simulator.open", "simulator.list", "simulator.boot", "simulator.shutdown": return v2Result(id: id, self.v2SimulatorCall(method: method, params: params))
+#if DEBUG
+        case "simulator.open", "simulator.list", "simulator.boot", "simulator.shutdown":
+            return v2Result(id: id, self.v2SimulatorCall(method: method, params: params))
+#endif
         case "surface.read_text":
             return v2Result(id: id, self.v2SurfaceReadText(params: params))
 

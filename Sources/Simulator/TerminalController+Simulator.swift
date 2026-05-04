@@ -1,6 +1,7 @@
 import Bonsplit
 import Foundation
 
+#if DEBUG
 extension TerminalController {
     func v2SimulatorCall(method: String, params: [String: Any]) -> V2CallResult {
         switch method {
@@ -172,3 +173,4 @@ extension TerminalController {
         }
     }
 }
+#endif
