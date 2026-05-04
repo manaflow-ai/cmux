@@ -1669,45 +1669,45 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
     }
 
-    func testOpenCodeInstallHooksRegistersSessionPlugin() throws {
+    func testOpenCodeInstallHooksIsIdempotentForLegacySetupAlias() throws {
         let cliPath = try bundledCLIPath()
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-opencode-hooks-\(UUID().uuidString)", isDirectory: true)
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-opencode-hooks-\(UUID().uuidString)", isDirectory: true)
         let configDir = root.appendingPathComponent("opencode", isDirectory: true)
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
         try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
         let configURL = configDir.appendingPathComponent("opencode.json", isDirectory: false)
-        try """
-        {
-          "plugin": [
-            "other-plugin",
-            "./plugins/cmux-session.js"
-          ]
-        }
-        """.write(to: configURL, atomically: true, encoding: .utf8)
+        try #"{"plugin":["other-plugin","./plugins/cmux-session.js"]}"#.write(to: configURL, atomically: true, encoding: .utf8)
+        let fakeOpenCodeURL = binDir.appendingPathComponent("opencode", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: fakeOpenCodeURL, atomically: true, encoding: .utf8)
+        chmod(fakeOpenCodeURL.path, 0o755)
 
         var environment = ProcessInfo.processInfo.environment
         environment["OPENCODE_CONFIG_DIR"] = configDir.path
+        environment["PATH"] = "\(binDir.path):\(environment["PATH"] ?? "/usr/bin")"
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         let result = runProcess(
-            executablePath: cliPath,
-            arguments: ["opencode", "install-hooks", "--yes"],
-            environment: environment,
-            timeout: 5
+            executablePath: cliPath, arguments: ["hooks", "opencode", "install", "--yes"], environment: environment, timeout: 5
         )
 
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        let pluginURL = configDir
-            .appendingPathComponent("plugins", isDirectory: true)
-            .appendingPathComponent("cmux-session.js", isDirectory: false)
+        let pluginURL = configDir.appendingPathComponent("plugins", isDirectory: true).appendingPathComponent("cmux-session.js", isDirectory: false)
         let pluginSource = try String(contentsOf: pluginURL, encoding: .utf8)
         XCTAssertTrue(pluginSource.contains("cmux-opencode-session-plugin-marker"))
-        XCTAssertTrue(pluginSource.contains("\"opencode-hook\""))
+        XCTAssertTrue(pluginSource.contains("\"hooks\", \"opencode\""))
 
-        let data = try Data(contentsOf: configURL)
-        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data, options: []) as? [String: Any])
+        let secondResult = runProcess(
+            executablePath: cliPath, arguments: ["setup-hooks", "--agent", "opencode"], environment: environment, timeout: 5
+        )
+        XCTAssertFalse(secondResult.timedOut, secondResult.stderr)
+        XCTAssertEqual(secondResult.status, 0, secondResult.stderr)
+        XCTAssertFalse(secondResult.stdout.contains("Will write OpenCode cmux plugin"), secondResult.stdout)
+        XCTAssertTrue(secondResult.stdout.contains("OpenCode hooks already up to date"), secondResult.stdout)
+
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: configURL), options: []) as? [String: Any])
         let plugins = try XCTUnwrap(json["plugin"] as? [String])
         XCTAssertEqual(plugins, ["other-plugin", "./plugins/cmux-session.js"])
     }
