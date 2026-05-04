@@ -1001,6 +1001,8 @@ public final class GhosttyTerminalSurfaceView: UIView {
         // Display-link pacing keeps repeated Ghostty font rebuilds from
         // monopolizing the main actor during responsiveness tests.
         pendingUITestingZoomStressCycles = cycles
+        startDisplayLink()
+        scheduleUITestingZoomStressFallback()
     }
     #endif
 
@@ -1286,6 +1288,15 @@ public final class GhosttyTerminalSurfaceView: UIView {
         guard pendingUITestingZoomStressCycles == 0 else { return }
         let renderedText = accessibilityRenderedTextForTesting() ?? ""
         accessibilityValue = renderedText + "\nZOOM_STRESS_DONE"
+    }
+
+    private func scheduleUITestingZoomStressFallback() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  self.pendingUITestingZoomStressCycles > 0 else { return }
+            self.drainUITestingZoomStressFrame()
+            self.scheduleUITestingZoomStressFallback()
+        }
     }
     #endif
 }
