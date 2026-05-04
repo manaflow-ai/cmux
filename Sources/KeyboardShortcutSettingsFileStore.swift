@@ -860,10 +860,7 @@ final class CmuxSettingsFileStore {
         }()
 
         guard let shortcut else { return nil }
-        if case let .accepted(normalized) = action.resolvedRecordedShortcutIgnoringConflicts(shortcut, checkingSystemWideConflicts: false) {
-            return normalized
-        }
-        return action.usesNumberedDigitMatching ? nil : shortcut
+        return action.normalizedSettingsFileShortcut(shortcut)
     }
 
     private func parseNullableHex(
@@ -1067,6 +1064,8 @@ final class CmuxSettingsFileStore {
         case LanguageSettings.languageKey:
             let language = AppLanguage(rawValue: UserDefaults.standard.string(forKey: defaultsKey) ?? "") ?? .system
             LanguageSettings.apply(language)
+        case AppearanceSettings.appearanceModeKey:
+            AppearanceSettings.applyStoredMode(rawValue: UserDefaults.standard.string(forKey: defaultsKey), source: "cmuxConfig.applyManagedDefault")
         case AppIconSettings.modeKey:
             AppIconSettings.applyIcon(AppIconSettings.resolvedMode())
         default:
@@ -1113,6 +1112,8 @@ final class CmuxSettingsFileStore {
         case LanguageSettings.languageKey:
             let language = AppLanguage(rawValue: UserDefaults.standard.string(forKey: defaultsKey) ?? "") ?? .system
             LanguageSettings.apply(language)
+        case AppearanceSettings.appearanceModeKey:
+            AppearanceSettings.applyStoredMode(rawValue: UserDefaults.standard.string(forKey: defaultsKey), source: "cmuxConfig.restoreUserDefault")
         case AppIconSettings.modeKey:
             AppIconSettings.applyIcon(AppIconSettings.resolvedMode())
         default:

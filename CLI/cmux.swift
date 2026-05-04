@@ -2655,6 +2655,9 @@ struct CMUXCLI {
         case "move-surface":
             try runMoveSurface(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
 
+        case "split-off":
+            try runSplitOff(commandName: "split-off", commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+
         case "reorder-surface":
             try runReorderSurface(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
 
@@ -2716,9 +2719,10 @@ struct CMUXCLI {
             let (cwdOpt, rem1) = parseOption(rem0, name: "--cwd")
             let (nameOpt, rem2) = parseOption(rem1, name: "--name")
             let (descriptionOpt, rem3) = parseOption(rem2, name: "--description")
-            let (layoutOpt, remaining) = parseOption(rem3, name: "--layout")
+            let (layoutOpt, rem4) = parseOption(rem3, name: "--layout")
+            let (focusOpt, remaining) = parseOption(rem4, name: "--focus")
             if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
-                throw CLIError(message: "new-workspace: unknown flag '\(unknown)'. Known flags: --name <title>, --description <text>, --command <text>, --cwd <path>, --layout <json>")
+                throw CLIError(message: "new-workspace: unknown flag '\(unknown)'. Known flags: --name <title>, --description <text>, --command <text>, --cwd <path>, --layout <json>, --focus <true|false>")
             }
             var params: [String: Any] = [:]
             if let cwdOpt {
@@ -2738,6 +2742,7 @@ struct CMUXCLI {
                 }
                 params["layout"] = layoutObj
             }
+            try applyFocusOption(focusOpt, defaultValue: false, to: &params)
             let response = try client.sendV2(method: "workspace.create", params: params)
             let wsId = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
             print("OK \(wsId)")
@@ -2751,16 +2756,19 @@ struct CMUXCLI {
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
             let (panelArg, rem1) = parseOption(rem0, name: "--panel")
             let (sfArg, rem2) = parseOption(rem1, name: "--surface")
+            let (focusOpt, rem3) = parseOption(rem2, name: "--focus")
             let workspaceArg = wsArg ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
             let surfaceRaw = sfArg ?? panelArg ?? (wsArg == nil && windowId == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
-            guard let direction = rem2.first else {
-                throw CLIError(message: "new-split requires a direction")
+            let direction = try validatedSplitDirection(rem3.first, commandName: "new-split")
+            if let unknown = rem3.dropFirst().first(where: { $0.hasPrefix("--") }) {
+                throw CLIError(message: "new-split: unknown flag '\(unknown)'")
             }
             var params: [String: Any] = ["direction": direction]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }
             let sfId = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: wsId)
             if let sfId { params["surface_id"] = sfId }
+            try applyFocusOption(focusOpt, defaultValue: false, to: &params)
             let payload = try client.sendV2(method: "surface.split", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
 
@@ -2839,11 +2847,13 @@ struct CMUXCLI {
             let type = optionValue(commandArgs, name: "--type")
             let direction = optionValue(commandArgs, name: "--direction") ?? "right"
             let url = optionValue(commandArgs, name: "--url")
+            let focusOpt = optionValue(commandArgs, name: "--focus")
             var params: [String: Any] = ["direction": direction]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }
             if let type { params["type"] = type }
             if let url { params["url"] = url }
+            try applyFocusOption(focusOpt, defaultValue: false, to: &params)
             let payload = try client.sendV2(method: "pane.create", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "workspace"]))
 
@@ -2852,6 +2862,7 @@ struct CMUXCLI {
             let type = optionValue(commandArgs, name: "--type")
             let paneRaw = optionValue(commandArgs, name: "--pane")
             let url = optionValue(commandArgs, name: "--url")
+            let focusOpt = optionValue(commandArgs, name: "--focus")
             var params: [String: Any] = [:]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }
@@ -2859,6 +2870,7 @@ struct CMUXCLI {
             if let paneId { params["pane_id"] = paneId }
             if let type { params["type"] = type }
             if let url { params["url"] = url }
+            try applyFocusOption(focusOpt, defaultValue: false, to: &params)
             let payload = try client.sendV2(method: "surface.create", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "workspace"]))
 
@@ -2883,17 +2895,7 @@ struct CMUXCLI {
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
 
         case "drag-surface-to-split":
-            let (surfaceArg, rem0) = parseOption(commandArgs, name: "--surface")
-            let (panelArg, rem1) = parseOption(rem0, name: "--panel")
-            let surface = surfaceArg ?? panelArg
-            guard let surface else {
-                throw CLIError(message: "drag-surface-to-split requires --surface <id|index>")
-            }
-            guard let direction = rem1.first else {
-                throw CLIError(message: "drag-surface-to-split requires a direction")
-            }
-            let response = try sendV1Command("drag_surface_to_split \(surface) \(direction)", client: client)
-            print(response)
+            try runSplitOff(commandName: "drag-surface-to-split", commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
 
         case "refresh-surfaces":
             let response = try sendV1Command("refresh_surfaces", client: client)
@@ -3508,7 +3510,8 @@ struct CMUXCLI {
         let (windowOpt, argsAfterWindow) = parseOption(argsAfterWorkspace, name: "--window")
         let (surfaceOpt, argsAfterSurface) = parseOption(argsAfterWindow, name: "--surface")
         let (directionOpt, argsAfterDirection) = parseOption(argsAfterSurface, name: "--direction")
-        args = argsAfterDirection
+        let (focusOpt, argsAfterFocus) = parseOption(argsAfterDirection, name: "--focus")
+        args = argsAfterFocus
 
         // Determine subcommand. Explicit "open" is supported, otherwise treat
         // a single positional argument as shorthand path.
@@ -3523,7 +3526,7 @@ struct CMUXCLI {
             if let first = args.first, first.hasPrefix("-") {
                 throw CLIError(
                     message:
-                        "markdown open: unknown flag '\(first)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--direction right|down|left|up]"
+                        "markdown open: unknown flag '\(first)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--direction right|down|left|up] [--focus <true|false>]"
                 )
             } else if let first = args.first, looksLikePath(first) || first.contains(".") {
                 subArgs = args
@@ -3541,13 +3544,13 @@ struct CMUXCLI {
         if let unknownFlag = trailingArgs.first(where: { $0.hasPrefix("-") }) {
             throw CLIError(
                 message:
-                    "markdown open: unknown flag '\(unknownFlag)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--direction right|down|left|up]"
+                    "markdown open: unknown flag '\(unknownFlag)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--direction right|down|left|up] [--focus <true|false>]"
             )
         }
         if let extraArg = trailingArgs.first {
             throw CLIError(
                 message:
-                    "markdown open: unexpected argument '\(extraArg)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--direction right|down|left|up]"
+                    "markdown open: unexpected argument '\(extraArg)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--direction right|down|left|up] [--focus <true|false>]"
             )
         }
 
@@ -3572,6 +3575,7 @@ struct CMUXCLI {
                 params["window_id"] = window
             }
         }
+        try applyFocusOption(focusOpt, defaultValue: false, to: &params)
 
         let payload = try client.sendV2(method: "markdown.open", params: params)
 
@@ -4138,7 +4142,7 @@ struct CMUXCLI {
         }
     }
 
-    private func printV2Payload(
+    func printV2Payload(
         _ payload: [String: Any],
         jsonOutput: Bool,
         idFormat: CLIIDFormat,
@@ -4303,92 +4307,6 @@ struct CMUXCLI {
             return [line1, line2, line3, line4, line5].joined(separator: "\n")
         }
         .joined(separator: "\n")
-    }
-
-    private func runMoveSurface(
-        commandArgs: [String],
-        client: SocketClient,
-        jsonOutput: Bool,
-        idFormat: CLIIDFormat
-    ) throws {
-        let surfaceRaw = optionValue(commandArgs, name: "--surface") ?? commandArgs.first
-        guard let surfaceRaw else {
-            throw CLIError(message: "move-surface requires --surface <id|ref|index>")
-        }
-
-        let workspaceRaw = optionValue(commandArgs, name: "--workspace")
-        let windowRaw = optionValue(commandArgs, name: "--window")
-        let paneRaw = optionValue(commandArgs, name: "--pane")
-        let beforeRaw = optionValue(commandArgs, name: "--before") ?? optionValue(commandArgs, name: "--before-surface")
-        let afterRaw = optionValue(commandArgs, name: "--after") ?? optionValue(commandArgs, name: "--after-surface")
-
-        let windowHandle = try normalizeWindowHandle(windowRaw, client: client)
-        let workspaceHandle = try normalizeWorkspaceHandle(workspaceRaw, client: client, windowHandle: windowHandle)
-        let surfaceHandle = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: workspaceHandle, allowFocused: false)
-        let paneHandle = try normalizePaneHandle(paneRaw, client: client, workspaceHandle: workspaceHandle)
-        let beforeHandle = try normalizeSurfaceHandle(beforeRaw, client: client, workspaceHandle: workspaceHandle)
-        let afterHandle = try normalizeSurfaceHandle(afterRaw, client: client, workspaceHandle: workspaceHandle)
-
-        var params: [String: Any] = [:]
-        if let surfaceHandle { params["surface_id"] = surfaceHandle }
-        if let paneHandle { params["pane_id"] = paneHandle }
-        if let workspaceHandle { params["workspace_id"] = workspaceHandle }
-        if let windowHandle { params["window_id"] = windowHandle }
-        if let beforeHandle { params["before_surface_id"] = beforeHandle }
-        if let afterHandle { params["after_surface_id"] = afterHandle }
-
-        if let indexRaw = optionValue(commandArgs, name: "--index") {
-            guard let index = Int(indexRaw) else {
-                throw CLIError(message: "--index must be an integer")
-            }
-            params["index"] = index
-        }
-        if let focusRaw = optionValue(commandArgs, name: "--focus") {
-            guard let focus = parseBoolString(focusRaw) else {
-                throw CLIError(message: "--focus must be true|false")
-            }
-            params["focus"] = focus
-        }
-
-        let payload = try client.sendV2(method: "surface.move", params: params)
-        let summary = "OK surface=\(formatHandle(payload, kind: "surface", idFormat: idFormat) ?? "unknown") pane=\(formatHandle(payload, kind: "pane", idFormat: idFormat) ?? "unknown") workspace=\(formatHandle(payload, kind: "workspace", idFormat: idFormat) ?? "unknown") window=\(formatHandle(payload, kind: "window", idFormat: idFormat) ?? "unknown")"
-        printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: summary)
-    }
-
-    private func runReorderSurface(
-        commandArgs: [String],
-        client: SocketClient,
-        jsonOutput: Bool,
-        idFormat: CLIIDFormat
-    ) throws {
-        let surfaceRaw = optionValue(commandArgs, name: "--surface") ?? commandArgs.first
-        guard let surfaceRaw else {
-            throw CLIError(message: "reorder-surface requires --surface <id|ref|index>")
-        }
-
-        let workspaceRaw = optionValue(commandArgs, name: "--workspace")
-        let workspaceHandle = try normalizeWorkspaceHandle(workspaceRaw, client: client)
-        let surfaceHandle = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: workspaceHandle)
-
-        let beforeRaw = optionValue(commandArgs, name: "--before") ?? optionValue(commandArgs, name: "--before-surface")
-        let afterRaw = optionValue(commandArgs, name: "--after") ?? optionValue(commandArgs, name: "--after-surface")
-        let beforeHandle = try normalizeSurfaceHandle(beforeRaw, client: client, workspaceHandle: workspaceHandle)
-        let afterHandle = try normalizeSurfaceHandle(afterRaw, client: client, workspaceHandle: workspaceHandle)
-
-        var params: [String: Any] = [:]
-        if let surfaceHandle { params["surface_id"] = surfaceHandle }
-        if let beforeHandle { params["before_surface_id"] = beforeHandle }
-        if let afterHandle { params["after_surface_id"] = afterHandle }
-        if let indexRaw = optionValue(commandArgs, name: "--index") {
-            guard let index = Int(indexRaw) else {
-                throw CLIError(message: "--index must be an integer")
-            }
-            params["index"] = index
-        }
-
-        let payload = try client.sendV2(method: "surface.reorder", params: params)
-        let summary = "OK surface=\(formatHandle(payload, kind: "surface", idFormat: idFormat) ?? "unknown") pane=\(formatHandle(payload, kind: "pane", idFormat: idFormat) ?? "unknown") workspace=\(formatHandle(payload, kind: "workspace", idFormat: idFormat) ?? "unknown")"
-        printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: summary)
     }
 
     private func runReorderWorkspace(
@@ -7083,7 +7001,8 @@ struct CMUXCLI {
         if subcommand == "open" || subcommand == "open-split" || subcommand == "new" {
             // Parse routing flags before URL assembly so they never leak into the URL string.
             let (workspaceOpt, argsAfterWorkspace) = parseOption(subArgs, name: "--workspace")
-            let (windowOpt, urlArgs) = parseOption(argsAfterWorkspace, name: "--window")
+            let (windowOpt, argsAfterWindow) = parseOption(argsAfterWorkspace, name: "--window")
+            let (focusOpt, urlArgs) = parseOption(argsAfterWindow, name: "--focus")
             let url = urlArgs.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
             let respectExternalOpenRules: Bool = {
                 guard let raw = ProcessInfo.processInfo.environment["CMUX_RESPECT_EXTERNAL_OPEN_RULES"] else {
@@ -7129,6 +7048,7 @@ struct CMUXCLI {
                     params["window_id"] = window
                 }
             }
+            try applyFocusOption(focusOpt, defaultValue: false, to: &params)
             let payload = try client.sendV2(method: "browser.open_split", params: params)
             let surfaceText = formatHandle(payload, kind: "surface", idFormat: effectiveIDFormat) ?? "unknown"
             let paneText = formatHandle(payload, kind: "pane", idFormat: effectiveIDFormat) ?? "unknown"
@@ -8741,6 +8661,7 @@ struct CMUXCLI {
               --after-surface <id|ref|index>
                                        Alias for --after
               --index <n>                Place at this index
+              --focus <true|false>       Focus the surface after reordering
 
             Example:
               cmux reorder-surface --surface surface:1 --index 0
@@ -8861,7 +8782,7 @@ struct CMUXCLI {
             """
         case "new-workspace":
             return """
-            Usage: cmux new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>]
+            Usage: cmux new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--focus <true|false>]
 
             Create a new workspace in the current window.
 
@@ -8873,6 +8794,7 @@ struct CMUXCLI {
               --layout <json>      Create workspace with a predefined split layout (inline JSON).
                                    Uses the same schema as cmux.json layout definitions.
                                    When provided, --command is ignored (layout surfaces define their own commands).
+              --focus <true|false> Focus the new workspace (default: false)
 
             Example:
               cmux new-workspace
@@ -8931,6 +8853,7 @@ struct CMUXCLI {
               --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
               --surface <id|ref>     Surface to split from (default: $CMUX_SURFACE_ID)
               --panel <id|ref>       Alias for --surface
+              --focus <true|false>   Focus the new split (default: false)
 
             Example:
               cmux new-split right
@@ -9038,6 +8961,7 @@ struct CMUXCLI {
               --direction <left|right|up|down>    Split direction (default: right)
               --workspace <id|ref>                Target workspace (default: $CMUX_WORKSPACE_ID)
               --url <url>                         URL for browser panes
+              --focus <true|false>                Focus the new pane (default: false)
 
             Example:
               cmux new-pane
@@ -9054,6 +8978,7 @@ struct CMUXCLI {
               --pane <id|ref>             Target pane
               --workspace <id|ref>        Target workspace (default: $CMUX_WORKSPACE_ID)
               --url <url>                 URL for browser surfaces
+              --focus <true|false>        Focus the new surface (default: false)
 
             Example:
               cmux new-surface
@@ -9076,17 +9001,35 @@ struct CMUXCLI {
             """
         case "drag-surface-to-split":
             return """
-            Usage: cmux drag-surface-to-split --surface <id|ref> <left|right|up|down>
+            Usage: cmux drag-surface-to-split --surface <id|ref|index> <left|right|up|down> [flags]
 
             Drag a surface into a new split in the given direction.
 
             Flags:
-              --surface <id|ref>   Surface to drag (required)
-              --panel <id|ref>     Alias for --surface
+              --surface <id|ref|index>     Surface to drag (required)
+              --panel <id|ref|index>       Alias for --surface
+              --workspace <id|ref|index>   Workspace context for ref/index resolution
+              --focus <true|false>   Focus the split-off surface (default: false)
 
             Example:
               cmux drag-surface-to-split --surface surface:1 right
               cmux drag-surface-to-split --panel surface:2 down
+            """
+        case "split-off":
+            return """
+            Usage: cmux split-off --surface <id|ref|index> <left|right|up|down> [flags]
+
+            Move an existing surface into a new split without changing focus by default.
+
+            Flags:
+              --surface <id|ref|index>     Surface to move (required)
+              --panel <id|ref|index>       Alias for --surface
+              --workspace <id|ref|index>   Workspace context for ref/index resolution
+              --focus <true|false>   Focus the split-off surface (default: false)
+
+            Example:
+              cmux split-off --surface surface:1 right
+              cmux split-off --workspace workspace:2 --surface surface:4 down
             """
         case "refresh-surfaces":
             return """
@@ -9261,7 +9204,7 @@ struct CMUXCLI {
             """
         case "swap-pane":
             return """
-            Usage: cmux swap-pane --pane <id|ref> --target-pane <id|ref> [--workspace <id|ref>]
+            Usage: cmux swap-pane --pane <id|ref> --target-pane <id|ref> [--workspace <id|ref>] [--focus <true|false>]
 
             Swap two panes.
 
@@ -9269,10 +9212,11 @@ struct CMUXCLI {
               --pane <id|ref>         Source pane (required)
               --target-pane <id|ref>  Target pane (required)
               --workspace <id|ref>    Workspace context (default: $CMUX_WORKSPACE_ID)
+              --focus <true|false>    Focus the target pane after swapping (default: false)
             """
         case "break-pane":
             return """
-            Usage: cmux break-pane [--workspace <id|ref>] [--pane <id|ref>] [--surface <id|ref>] [--no-focus]
+            Usage: cmux break-pane [--workspace <id|ref>] [--pane <id|ref>] [--surface <id|ref>] [--focus <true|false>] [--no-focus]
 
             Move a pane/surface out into its own pane context.
 
@@ -9280,11 +9224,12 @@ struct CMUXCLI {
               --workspace <id|ref>   Workspace context (default: $CMUX_WORKSPACE_ID)
               --pane <id|ref>        Source pane
               --surface <id|ref>     Source surface
-              --no-focus             Do not focus the result
+              --focus <true|false>   Focus the result (default: false)
+              --no-focus             Compatibility alias for --focus false
             """
         case "join-pane":
             return """
-            Usage: cmux join-pane --target-pane <id|ref> [--workspace <id|ref>] [--pane <id|ref>] [--surface <id|ref>] [--no-focus]
+            Usage: cmux join-pane --target-pane <id|ref> [--workspace <id|ref>] [--pane <id|ref>] [--surface <id|ref>] [--focus <true|false>] [--no-focus]
 
             Join a pane/surface into another pane.
 
@@ -9293,7 +9238,8 @@ struct CMUXCLI {
               --workspace <id|ref>    Workspace context (default: $CMUX_WORKSPACE_ID)
               --pane <id|ref>         Source pane
               --surface <id|ref>      Source surface
-              --no-focus              Do not focus the result
+              --focus <true|false>    Focus the result (default: false)
+              --no-focus              Compatibility alias for --focus false
             """
         case "next-window", "previous-window", "last-window":
             return """
@@ -9680,8 +9626,9 @@ struct CMUXCLI {
             `open`/`open-split`/`new`/`identify` can run without an explicit surface.
 
             Subcommands:
-              open|open-split|new [url] [--workspace <id|ref|index>] [--window <id|ref|index>]
+              open|open-split|new [url] [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]
                 open/open-split/new default to $CMUX_WORKSPACE_ID when --workspace is omitted and --window is not set
+                --focus defaults to false
               disable | enable | status
               goto|navigate <url> [--snapshot-after]
               back|forward|reload [--snapshot-after]
@@ -9767,6 +9714,7 @@ struct CMUXCLI {
               --surface <id|ref|index>     Source surface to split from (default: focused surface)
               --window <id|ref|index>      Target window
               --direction <left|right|up|down>  Split direction (default: right)
+              --focus <true|false>         Focus the markdown panel (default: false)
 
             Examples:
               cmux markdown open plan.md
@@ -9852,7 +9800,7 @@ struct CMUXCLI {
         return (values, remaining)
     }
 
-    private func optionValue(_ args: [String], name: String) -> String? {
+    func optionValue(_ args: [String], name: String) -> String? {
         guard let index = args.firstIndex(of: name), index + 1 < args.count else { return nil }
         return args[index + 1]
     }
@@ -9943,7 +9891,7 @@ struct CMUXCLI {
         }
     }
 
-    private func v2OKSummary(_ payload: [String: Any], idFormat: CLIIDFormat, kinds: [String] = ["surface", "workspace"]) -> String {
+    func v2OKSummary(_ payload: [String: Any], idFormat: CLIIDFormat, kinds: [String] = ["surface", "workspace"]) -> String {
         var parts = ["OK"]
         for kind in kinds {
             if let handle = formatHandle(payload, kind: kind, idFormat: idFormat) {
@@ -13526,6 +13474,7 @@ struct CMUXCLI {
             guard let targetPaneRaw = optionValue(commandArgs, name: "--target-pane") else {
                 throw CLIError(message: "swap-pane requires --target-pane")
             }
+            let focusRaw = optionValue(commandArgs, name: "--focus")
             var params: [String: Any] = [:]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }
@@ -13533,6 +13482,7 @@ struct CMUXCLI {
             let targetPane = try normalizePaneHandle(targetPaneRaw, client: client, workspaceHandle: wsId)
             if let sourcePane { params["pane_id"] = sourcePane }
             if let targetPane { params["target_pane_id"] = targetPane }
+            try applyFocusOption(focusRaw, defaultValue: false, to: &params)
             let payload = try client.sendV2(method: "pane.swap", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
 
@@ -13540,7 +13490,13 @@ struct CMUXCLI {
             let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowOverride)
             let paneArg = optionValue(commandArgs, name: "--pane")
             let surfaceArg = optionValue(commandArgs, name: "--surface")
-            var params: [String: Any] = ["focus": !commandArgs.contains("--no-focus")]
+            let focusRaw = optionValue(commandArgs, name: "--focus")
+            try rejectConflictingFocusFlags(commandArgs)
+            var params: [String: Any] = [:]
+            try applyFocusOption(focusRaw, defaultValue: false, to: &params)
+            if commandArgs.contains("--no-focus") {
+                params["focus"] = false
+            }
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }
             let paneId = try normalizePaneHandle(paneArg, client: client, workspaceHandle: wsId)
@@ -13557,7 +13513,13 @@ struct CMUXCLI {
             guard let targetPaneArg = optionValue(commandArgs, name: "--target-pane") else {
                 throw CLIError(message: "join-pane requires --target-pane")
             }
-            var params: [String: Any] = ["focus": !commandArgs.contains("--no-focus")]
+            let focusRaw = optionValue(commandArgs, name: "--focus")
+            try rejectConflictingFocusFlags(commandArgs)
+            var params: [String: Any] = [:]
+            try applyFocusOption(focusRaw, defaultValue: false, to: &params)
+            if commandArgs.contains("--no-focus") {
+                params["focus"] = false
+            }
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }
             let sourcePaneId = try normalizePaneHandle(sourcePaneArg, client: client, workspaceHandle: wsId)
@@ -16732,13 +16694,11 @@ export default CMUXSessionRestore;
             print("No OpenCode cmux plugin found at \(pluginURL.path)")
             return
         }
-
         let existing = (try? String(contentsOf: pluginURL, encoding: .utf8)) ?? ""
         guard existing.contains(Self.openCodeSessionPluginMarker) else {
             print("Refusing to remove \(pluginURL.path): missing cmux marker")
             return
         }
-
         try fm.removeItem(at: pluginURL)
         _ = try updateOpenCodePluginRegistration(
             configDir: URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true),
@@ -16746,7 +16706,6 @@ export default CMUXSessionRestore;
         )
         print("Removed OpenCode cmux plugin from \(pluginURL.path)")
     }
-
     private func installAgentHooks(_ def: AgentHookDef) throws {
         if def.name == "opencode" {
             try installOpenCodePluginHooks(def)
@@ -19098,22 +19057,63 @@ export default CMUXSessionRestore;
 
     private func bundledOpenCodePluginSource() throws -> String {
         // The plugin JS is bundled into the .app via `Resources/opencode-plugin.js`.
-        // When running from the dev CLI binary (out of DerivedData), Bundle.main
-        // might resolve to the .app bundle or fall back to a checked-in resource
-        // copy next to the running binary.
-        if let url = Bundle.main.url(forResource: "opencode-plugin", withExtension: "js"),
-           let contents = try? String(contentsOf: url, encoding: .utf8) {
-            return contents
+        // The `cmux` CLI is often launched from `Contents/Resources/bin/cmux`,
+        // where Bundle.main can be the CLI executable rather than the containing
+        // app. Search the real executable path before falling back to repo dev
+        // paths used by `swift run`-style local builds.
+        for url in openCodePluginResourceCandidates() {
+            if let contents = try? String(contentsOf: url, encoding: .utf8) {
+                return contents
+            }
         }
-        // Fallback for `swift run`-style local dev.
+        throw CLIError(message: "bundled opencode-plugin.js not found (Bundle.main, app bundle, executable, and repo fallbacks)")
+    }
+
+    private func openCodePluginResourceCandidates() -> [URL] {
+        let fileManager = FileManager.default
+        var candidates: [URL] = []
+        var seen: Set<String> = []
+
+        func appendIfExisting(_ url: URL?) {
+            guard let url else { return }
+            let standardized = url.standardizedFileURL
+            guard seen.insert(standardized.path).inserted else { return }
+            guard fileManager.fileExists(atPath: standardized.path) else { return }
+            candidates.append(standardized)
+        }
+
+        appendIfExisting(Bundle.main.url(forResource: "opencode-plugin", withExtension: "js"))
+        appendIfExisting(Bundle.main.resourceURL?.appendingPathComponent("opencode-plugin.js", isDirectory: false))
+
+        if let executableURL = resolvedExecutableURL() {
+            let execDir = executableURL.deletingLastPathComponent().standardizedFileURL
+            for relativePath in ["opencode-plugin.js", "../opencode-plugin.js", "../../Resources/opencode-plugin.js", "../../../Contents/Resources/opencode-plugin.js"] {
+                appendIfExisting(execDir.appendingPathComponent(relativePath, isDirectory: false).standardizedFileURL)
+            }
+
+            var current = execDir
+            for _ in 0..<4 {
+                if current.pathExtension == "app" {
+                    appendIfExisting(current.appendingPathComponent("Contents/Resources/opencode-plugin.js", isDirectory: false))
+                    break
+                }
+                let projectMarker = current.appendingPathComponent("GhosttyTabs.xcodeproj/project.pbxproj")
+                let repoResource = current.appendingPathComponent("Resources/opencode-plugin.js", isDirectory: false)
+                if fileManager.fileExists(atPath: projectMarker.path),
+                   fileManager.fileExists(atPath: repoResource.path) {
+                    appendIfExisting(repoResource)
+                    break
+                }
+                current = current.deletingLastPathComponent().standardizedFileURL
+            }
+        }
+
         let devRelative = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Resources/opencode-plugin.js")
-        if let contents = try? String(contentsOf: devRelative, encoding: .utf8) {
-            return contents
-        }
-        throw CLIError(message: "bundled opencode-plugin.js not found (Bundle.main + fallback)")
+        appendIfExisting(devRelative)
+        return candidates
     }
 
     private func installOpenCodePlugin(projectLocal: Bool) throws {
@@ -20380,23 +20380,24 @@ export default CMUXSessionRestore;
           workspace-action --action <name> [--workspace <id|ref|index>] [--title <text>] [--color <name|#hex>] [--description <text>]
           move-tab-to-new-workspace [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--title <text>] [--focus <true|false>]
           list-workspaces
-          new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>]
+          new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--focus <true|false>]
           ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [--ssh-option <opt>] [--no-focus] [-- <remote-command-args>]
           remote-daemon-status [--os <darwin|linux>] [--arch <arm64|amd64>]
-          new-split <left|right|up|down> [--workspace <id|ref>] [--surface <id|ref>] [--panel <id|ref>]
+          new-split <left|right|up|down> [--workspace <id|ref>] [--surface <id|ref>] [--panel <id|ref>] [--focus <true|false>]
           list-panes [--workspace <id|ref>]
           list-pane-surfaces [--workspace <id|ref>] [--pane <id|ref>]
           tree [--all] [--workspace <id|ref|index>]
           top [--all] [--workspace <id|ref|index>] [--processes]
           focus-pane --pane <id|ref> [--workspace <id|ref>]
-          new-pane [--type <terminal|browser>] [--direction <left|right|up|down>] [--workspace <id|ref>] [--url <url>]
-          new-surface [--type <terminal|browser>] [--pane <id|ref>] [--workspace <id|ref>] [--url <url>]
+          new-pane [--type <terminal|browser>] [--direction <left|right|up|down>] [--workspace <id|ref>] [--url <url>] [--focus <true|false>]
+          new-surface [--type <terminal|browser>] [--pane <id|ref>] [--workspace <id|ref>] [--url <url>] [--focus <true|false>]
           close-surface [--surface <id|ref>] [--workspace <id|ref>]
           move-surface --surface <id|ref|index> [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--before <id|ref|index>] [--after <id|ref|index>] [--index <n>] [--focus <true|false>]
-          reorder-surface --surface <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>)
+          split-off --surface <id|ref|index> <left|right|up|down> [--workspace <id|ref|index>] [--focus <true|false>]
+          reorder-surface --surface <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--focus <true|false>]
           tab-action --action <name> [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--title <text>] [--url <url>] [--focus <true|false>]
           rename-tab [--workspace <id|ref>] [--tab <id|ref>] [--surface <id|ref>] <title>
-          drag-surface-to-split --surface <id|ref> <left|right|up|down>
+          drag-surface-to-split --surface <id|ref|index> <left|right|up|down> [--workspace <id|ref|index>] [--focus <true|false>]
           refresh-surfaces
           reload-config
           surface-health [--workspace <id|ref>]
@@ -20435,9 +20436,9 @@ export default CMUXSessionRestore;
           resize-pane --pane <id|ref> [--workspace <id|ref>] (-L|-R|-U|-D) [--amount <n>]
           pipe-pane --command <shell-command> [--workspace <id|ref>] [--surface <id|ref>]
           wait-for [-S|--signal] <name> [--timeout <seconds>]
-          swap-pane --pane <id|ref> --target-pane <id|ref> [--workspace <id|ref>]
-          break-pane [--workspace <id|ref>] [--pane <id|ref>] [--surface <id|ref>] [--no-focus]
-          join-pane --target-pane <id|ref> [--workspace <id|ref>] [--pane <id|ref>] [--surface <id|ref>] [--no-focus]
+          swap-pane --pane <id|ref> --target-pane <id|ref> [--workspace <id|ref>] [--focus <true|false>]
+          break-pane [--workspace <id|ref>] [--pane <id|ref>] [--surface <id|ref>] [--focus <true|false>] [--no-focus]
+          join-pane --target-pane <id|ref> [--workspace <id|ref>] [--pane <id|ref>] [--surface <id|ref>] [--focus <true|false>] [--no-focus]
           next-window | previous-window | last-window
           last-pane [--workspace <id|ref>]
           find-window [--content] [--select] <query>
@@ -20451,11 +20452,11 @@ export default CMUXSessionRestore;
           respawn-pane [--workspace <id|ref>] [--surface <id|ref>] [--command <cmd>]
           display-message [-p|--print] <text>
 
-          markdown [open] <path>             (open markdown file in formatted viewer panel with live reload)
+          markdown [open] <path> [--focus <true|false>] (open markdown file in formatted viewer panel with live reload)
 
           browser [--surface <id|ref|index> | <surface>] <subcommand> ...
           browser disable | enable | status
-          browser open [url]                   (create browser split in caller's workspace; if surface supplied, behaves like navigate)
+          browser open [url] [--focus <true|false>] (create browser split in caller's workspace; if surface supplied, behaves like navigate)
           browser open-split [url]
           browser goto|navigate <url> [--snapshot-after]
           browser back|forward|reload [--snapshot-after]

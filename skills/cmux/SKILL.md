@@ -30,6 +30,7 @@ cmux list-pane-surfaces --pane pane:1
 cmux new-workspace
 cmux new-split right --panel pane:1
 cmux move-surface --surface surface:7 --pane pane:2 --focus true
+cmux split-off --surface surface:7 right
 cmux reorder-surface --surface surface:7 --before surface:3
 
 # attention cue

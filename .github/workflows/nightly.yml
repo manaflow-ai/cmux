@@ -1,6 +1,8 @@
 name: Nightly macOS build
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       force:

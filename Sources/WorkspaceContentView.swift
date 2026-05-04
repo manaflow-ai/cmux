@@ -305,10 +305,11 @@ struct WorkspaceContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { notification in
             let payloadHex = (notification.userInfo?[GhosttyNotificationKey.backgroundColor] as? NSColor)?.hexString() ?? "nil"
+            let foregroundHex = (notification.userInfo?[GhosttyNotificationKey.foregroundColor] as? NSColor)?.hexString() ?? "nil"
             let eventId = (notification.userInfo?[GhosttyNotificationKey.backgroundEventId] as? NSNumber)?.uint64Value
             let source = (notification.userInfo?[GhosttyNotificationKey.backgroundSource] as? String) ?? "nil"
             logTheme(
-                "theme notification workspace=\(workspace.id.uuidString) event=\(eventId.map(String.init) ?? "nil") source=\(source) payload=\(payloadHex) appBg=\(GhosttyApp.shared.defaultBackgroundColor.hexString()) appOpacity=\(String(format: "%.3f", GhosttyApp.shared.defaultBackgroundOpacity))"
+                "theme notification workspace=\(workspace.id.uuidString) event=\(eventId.map(String.init) ?? "nil") source=\(source) payload=\(payloadHex) payloadFg=\(foregroundHex) appBg=\(GhosttyApp.shared.defaultBackgroundColor.hexString()) appFg=\(GhosttyApp.shared.defaultForegroundColor.hexString()) appOpacity=\(String(format: "%.3f", GhosttyApp.shared.defaultBackgroundOpacity))"
             )
             // Payload ordering can lag across rapid config/theme updates.
             // Resolve from GhosttyApp.shared.defaultBackgroundColor to keep tabs aligned
@@ -525,52 +526,6 @@ struct WorkspaceContentView: View {
             snapshot.panes.contains { pane in
                 pane.frame.width > 1 && pane.frame.height > 1
             }
-    }
-
-    static func resolveGhosttyAppearanceConfig(
-        reason: String = "unspecified",
-        backgroundOverride: NSColor? = nil,
-        loadConfig: () -> GhosttyConfig = { GhosttyConfig.load() },
-        defaultBackground: () -> NSColor = { GhosttyApp.shared.defaultBackgroundColor },
-        defaultBackgroundOpacity: () -> Double = { GhosttyApp.shared.defaultBackgroundOpacity }
-    ) -> GhosttyConfig {
-        var next = loadConfig()
-        let loadedBackgroundHex = next.backgroundColor.hexString()
-        let defaultBackgroundHex: String
-        let resolvedBackground: NSColor
-
-        if let backgroundOverride {
-            resolvedBackground = backgroundOverride
-            defaultBackgroundHex = "skipped"
-        } else {
-            let fallback = defaultBackground()
-            resolvedBackground = fallback
-            defaultBackgroundHex = fallback.hexString()
-        }
-
-        next.backgroundColor = resolvedBackground
-        // Use the runtime opacity from the Ghostty engine, which may differ from the
-        // file-level value parsed by GhosttyConfig.load().
-        next.backgroundOpacity = defaultBackgroundOpacity()
-        if GhosttyApp.shared.backgroundLogEnabled {
-            GhosttyApp.shared.logBackground(
-                "theme resolve reason=\(reason) loadedBg=\(loadedBackgroundHex) overrideBg=\(backgroundOverride?.hexString() ?? "nil") defaultBg=\(defaultBackgroundHex) finalBg=\(next.backgroundColor.hexString()) opacity=\(String(format: "%.3f", next.backgroundOpacity)) theme=\(next.theme ?? "nil")"
-            )
-        }
-        return next
-    }
-
-    private static func ghosttyAppearanceSignature(_ config: GhosttyConfig, usesHostLayerBackground: Bool) -> String {
-        [
-            config.backgroundColor.hexString(includeAlpha: true),
-            String(format: "%.4f", config.backgroundOpacity),
-            String(describing: config.backgroundBlur),
-            String(format: "%.4f", config.surfaceTabBarFontSize),
-            String(format: "%.4f", config.unfocusedSplitOpacity),
-            config.unfocusedSplitFill?.hexString(includeAlpha: true) ?? "nil",
-            config.splitDividerColor?.hexString(includeAlpha: true) ?? "nil",
-            String(usesHostLayerBackground),
-        ].joined(separator: "|")
     }
 
     private func flushDeferredThemeRefreshIfNeeded() {

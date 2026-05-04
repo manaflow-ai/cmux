@@ -1031,79 +1031,6 @@ enum TerminalOpenURLTarget: Equatable {
     }
 }
 
-enum GhosttyDefaultBackgroundUpdateScope: Int {
-    case unscoped = 0
-    case app = 1
-    case surface = 2
-
-    var logLabel: String {
-        switch self {
-        case .unscoped: return "unscoped"
-        case .app: return "app"
-        case .surface: return "surface"
-        }
-    }
-}
-
-/// Coalesces Ghostty background notifications so consumers only observe
-/// the latest runtime background for a burst of updates.
-final class GhosttyDefaultBackgroundNotificationDispatcher {
-    private let coalescer: NotificationBurstCoalescer
-    private let postNotification: ([AnyHashable: Any]) -> Void
-    private var pendingUserInfo: [AnyHashable: Any]?
-    private var pendingEventId: UInt64 = 0
-    private var pendingSource: String = "unspecified"
-    private let logEvent: ((String) -> Void)?
-
-    init(
-        delay: TimeInterval = 1.0 / 30.0,
-        logEvent: ((String) -> Void)? = nil,
-        postNotification: @escaping ([AnyHashable: Any]) -> Void = { userInfo in
-            NotificationCenter.default.post(
-                name: .ghosttyDefaultBackgroundDidChange,
-                object: nil,
-                userInfo: userInfo
-            )
-        }
-    ) {
-        coalescer = NotificationBurstCoalescer(delay: delay)
-        self.logEvent = logEvent
-        self.postNotification = postNotification
-    }
-
-    func signal(backgroundColor: NSColor, opacity: Double, eventId: UInt64, source: String) {
-        let signalOnMain = { [self] in
-            pendingEventId = eventId
-            pendingSource = source
-            pendingUserInfo = [
-                GhosttyNotificationKey.backgroundColor: backgroundColor,
-                GhosttyNotificationKey.backgroundOpacity: opacity,
-                GhosttyNotificationKey.backgroundEventId: NSNumber(value: eventId),
-                GhosttyNotificationKey.backgroundSource: source
-            ]
-            logEvent?(
-                "bg notify queued id=\(eventId) source=\(source) color=\(backgroundColor.hexString()) opacity=\(String(format: "%.3f", opacity))"
-            )
-            coalescer.signal { [self] in
-                guard let userInfo = pendingUserInfo else { return }
-                let eventId = pendingEventId
-                let source = pendingSource
-                pendingUserInfo = nil
-                logEvent?("bg notify flushed id=\(eventId) source=\(source)")
-                logEvent?("bg notify posting id=\(eventId) source=\(source)")
-                postNotification(userInfo)
-                logEvent?("bg notify posted id=\(eventId) source=\(source)")
-            }
-        }
-
-        if Thread.isMainThread {
-            signalOnMain()
-        } else {
-            DispatchQueue.main.async(execute: signalOnMain)
-        }
-    }
-}
-
 func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? {
     let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
     #if DEBUG
@@ -1502,6 +1429,7 @@ class GhosttyApp {
 
     static let shared = GhosttyApp()
     private static let releaseBundleIdentifier = "com.cmuxterm.app"
+    private static let fallbackAppearanceConfig = GhosttyConfig()
     private static let backgroundLogTimestampFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -1518,6 +1446,11 @@ class GhosttyApp {
     private(set) var defaultBackgroundColor: NSColor = .windowBackgroundColor
     private(set) var defaultBackgroundOpacity: Double = 1.0
     private(set) var defaultBackgroundBlur: GhosttyBackgroundBlur = .disabled
+    private(set) var defaultForegroundColor: NSColor = GhosttyApp.fallbackAppearanceConfig.foregroundColor
+    private(set) var defaultCursorColor: NSColor = GhosttyApp.fallbackAppearanceConfig.cursorColor
+    private(set) var defaultCursorTextColor: NSColor = GhosttyApp.fallbackAppearanceConfig.cursorTextColor
+    private(set) var defaultSelectionBackground: NSColor = GhosttyApp.fallbackAppearanceConfig.selectionBackground
+    private(set) var defaultSelectionForeground: NSColor = GhosttyApp.fallbackAppearanceConfig.selectionForeground
     private(set) var usesHostLayerBackground = false
     private(set) var userGhosttyShellIntegrationMode: String = "detect"
     private static func resolveBackgroundLogURL(
@@ -2752,18 +2685,34 @@ class GhosttyApp {
 
         func existingConfigURLs(for bundleIdentifier: String) -> [URL] {
             let directory = appSupportDirectory.appendingPathComponent(bundleIdentifier, isDirectory: true)
-            return [
-                directory.appendingPathComponent("config", isDirectory: false),
-                directory.appendingPathComponent("config.ghostty", isDirectory: false)
-            ].filter { url in
+            let legacy = directory.appendingPathComponent("config", isDirectory: false)
+            let preferred = directory.appendingPathComponent("config.ghostty", isDirectory: false)
+
+            func regularFileSize(_ url: URL) -> Int? {
                 guard let attrs = try? fileManager.attributesOfItem(atPath: url.path),
                       let type = attrs[.type] as? FileAttributeType,
                       type == .typeRegular,
                       let size = attrs[.size] as? NSNumber else {
-                    return false
+                    return nil
                 }
-                return size.intValue > 0
+                return size.intValue
             }
+
+            let preferredSize = regularFileSize(preferred)
+            if let preferredSize, preferredSize > 0 {
+                // `config.ghostty` is the canonical app-support config. Do not also
+                // layer the legacy `config` underneath it: older cmux builds wrote
+                // explicit dark colors there, which pins the runtime background and
+                // prevents appearance-driven theme pairs from switching.
+                return [preferred]
+            }
+
+            let legacySize = regularFileSize(legacy)
+            if let legacySize, legacySize > 0 {
+                return [legacy]
+            }
+
+            return []
         }
 
         let currentURLs = existingConfigURLs(for: currentBundleIdentifier)
@@ -3045,6 +2994,23 @@ class GhosttyApp {
         return hasChanged
     }
 
+    private func ghosttyColorValue(
+        from config: ghostty_config_t,
+        key: String,
+        fallback: NSColor
+    ) -> NSColor {
+        var color = ghostty_config_color_s()
+        guard ghostty_config_get(config, &color, key, UInt(key.lengthOfBytes(using: .utf8))) else {
+            return fallback
+        }
+        return NSColor(
+            red: CGFloat(color.r) / 255,
+            green: CGFloat(color.g) / 255,
+            blue: CGFloat(color.b) / 255,
+            alpha: 1.0
+        )
+    }
+
     private func updateDefaultBackground(
         from config: ghostty_config_t?,
         source: String,
@@ -3053,19 +3019,14 @@ class GhosttyApp {
     ) {
         guard let config else { return }
 
-        var resolvedColor = defaultBackgroundColor
-        var color = ghostty_config_color_s()
-        let bgKey = "background"
-        if ghostty_config_get(config, &color, bgKey, UInt(bgKey.lengthOfBytes(using: .utf8))) {
-            resolvedColor = NSColor(
-                red: CGFloat(color.r) / 255,
-                green: CGFloat(color.g) / 255,
-                blue: CGFloat(color.b) / 255,
-                alpha: 1.0
-            )
-        }
-
-        var opacity = defaultBackgroundOpacity
+        let baseline = Self.fallbackAppearanceConfig
+        let resolvedColor = ghosttyColorValue(from: config, key: "background", fallback: baseline.backgroundColor)
+        let resolvedForeground = ghosttyColorValue(from: config, key: "foreground", fallback: baseline.foregroundColor)
+        let resolvedCursor = ghosttyColorValue(from: config, key: "cursor-color", fallback: baseline.cursorColor)
+        let resolvedCursorText = ghosttyColorValue(from: config, key: "cursor-text", fallback: baseline.cursorTextColor)
+        let resolvedSelectionBackground = ghosttyColorValue(from: config, key: "selection-background", fallback: baseline.selectionBackground)
+        let resolvedSelectionForeground = ghosttyColorValue(from: config, key: "selection-foreground", fallback: baseline.selectionForeground)
+        var opacity = baseline.backgroundOpacity
         let opacityKey = "background-opacity"
         _ = ghostty_config_get(config, &opacity, opacityKey, UInt(opacityKey.lengthOfBytes(using: .utf8)))
         opacity = min(1.0, max(0.0, opacity))
@@ -3074,6 +3035,11 @@ class GhosttyApp {
             color: resolvedColor,
             opacity: opacity,
             backgroundBlur: backgroundBlur,
+            foregroundColor: resolvedForeground,
+            cursorColor: resolvedCursor,
+            cursorTextColor: resolvedCursorText,
+            selectionBackground: resolvedSelectionBackground,
+            selectionForeground: resolvedSelectionForeground,
             source: source,
             scope: scope,
             forceNotify: forceNotify
@@ -3171,6 +3137,11 @@ class GhosttyApp {
         color: NSColor,
         opacity: Double,
         backgroundBlur: GhosttyBackgroundBlur,
+        foregroundColor: NSColor? = nil,
+        cursorColor: NSColor? = nil,
+        cursorTextColor: NSColor? = nil,
+        selectionBackground: NSColor? = nil,
+        selectionForeground: NSColor? = nil,
         source: String,
         scope: GhosttyDefaultBackgroundUpdateScope,
         forceNotify: Bool = false
@@ -3192,19 +3163,44 @@ class GhosttyApp {
         let previousHex = defaultBackgroundColor.hexString()
         let previousOpacity = defaultBackgroundOpacity
         let previousBlur = defaultBackgroundBlur
+        let previousForegroundHex = defaultForegroundColor.hexString()
+        let previousCursorHex = defaultCursorColor.hexString()
+        let previousCursorTextHex = defaultCursorTextColor.hexString()
+        let previousSelectionBackgroundHex = defaultSelectionBackground.hexString()
+        let previousSelectionForegroundHex = defaultSelectionForeground.hexString()
         defaultBackgroundColor = color
         defaultBackgroundOpacity = opacity
         defaultBackgroundBlur = backgroundBlur
+        if let foregroundColor {
+            defaultForegroundColor = foregroundColor
+        }
+        if let cursorColor {
+            defaultCursorColor = cursorColor
+        }
+        if let cursorTextColor {
+            defaultCursorTextColor = cursorTextColor
+        }
+        if let selectionBackground {
+            defaultSelectionBackground = selectionBackground
+        }
+        if let selectionForeground {
+            defaultSelectionForeground = selectionForeground
+        }
         let hasChanged = forceNotify ||
             previousHex != defaultBackgroundColor.hexString() ||
             abs(previousOpacity - defaultBackgroundOpacity) > 0.0001 ||
-            previousBlur != defaultBackgroundBlur
+            previousBlur != defaultBackgroundBlur ||
+            previousForegroundHex != defaultForegroundColor.hexString() ||
+            previousCursorHex != defaultCursorColor.hexString() ||
+            previousCursorTextHex != defaultCursorTextColor.hexString() ||
+            previousSelectionBackgroundHex != defaultSelectionBackground.hexString() ||
+            previousSelectionForegroundHex != defaultSelectionForeground.hexString()
         if hasChanged {
             notifyDefaultBackgroundDidChange(source: source)
         }
         if backgroundLogEnabled {
             logBackground(
-                "default background updated source=\(source) scope=\(scope.logLabel) previousScope=\(previousScope.logLabel) previousScopeSource=\(previousScopeSource) previousColor=\(previousHex) previousOpacity=\(String(format: "%.3f", previousOpacity)) previousBlur=\(previousBlur) color=\(defaultBackgroundColor) opacity=\(String(format: "%.3f", defaultBackgroundOpacity)) blur=\(defaultBackgroundBlur) changed=\(hasChanged) forced=\(forceNotify)"
+                "default appearance updated source=\(source) scope=\(scope.logLabel) previousScope=\(previousScope.logLabel) previousScopeSource=\(previousScopeSource) previousBg=\(previousHex) previousFg=\(previousForegroundHex) previousOpacity=\(String(format: "%.3f", previousOpacity)) previousBlur=\(previousBlur) bg=\(defaultBackgroundColor.hexString()) fg=\(defaultForegroundColor.hexString()) cursor=\(defaultCursorColor.hexString()) cursorText=\(defaultCursorTextColor.hexString()) selectionBg=\(defaultSelectionBackground.hexString()) selectionFg=\(defaultSelectionForeground.hexString()) opacity=\(String(format: "%.3f", defaultBackgroundOpacity)) blur=\(defaultBackgroundBlur) changed=\(hasChanged) forced=\(forceNotify)"
             )
         }
     }
@@ -3222,7 +3218,12 @@ class GhosttyApp {
                 backgroundColor: defaultBackgroundColor,
                 opacity: defaultBackgroundOpacity,
                 eventId: eventId,
-                source: source
+                source: source,
+                foregroundColor: defaultForegroundColor,
+                cursorColor: defaultCursorColor,
+                cursorTextColor: defaultCursorTextColor,
+                selectionBackground: defaultSelectionBackground,
+                selectionForeground: defaultSelectionForeground
             )
         }
         if Thread.isMainThread {
@@ -3256,6 +3257,73 @@ class GhosttyApp {
         logBackground(
             "action event target=\(targetLabel) action=\(actionLabel(for: action)) tab=\(tabId?.uuidString ?? "nil") surface=\(surfaceId?.uuidString ?? "nil")"
         )
+    }
+
+    private func color(from change: ghostty_action_color_change_s) -> NSColor {
+        NSColor(
+            red: CGFloat(change.r) / 255,
+            green: CGFloat(change.g) / 255,
+            blue: CGFloat(change.b) / 255,
+            alpha: 1.0
+        )
+    }
+
+    private func colorKindLabel(_ kind: ghostty_action_color_kind_e) -> String {
+        switch kind {
+        case GHOSTTY_ACTION_COLOR_KIND_FOREGROUND:
+            return "foreground"
+        case GHOSTTY_ACTION_COLOR_KIND_BACKGROUND:
+            return "background"
+        case GHOSTTY_ACTION_COLOR_KIND_CURSOR:
+            return "cursor"
+        default:
+            return "palette:\(kind.rawValue)"
+        }
+    }
+
+    @MainActor
+    private func applyAppColorChange(
+        _ change: ghostty_action_color_change_s,
+        source: String
+    ) {
+        let newColor = color(from: change)
+        switch change.kind {
+        case GHOSTTY_ACTION_COLOR_KIND_BACKGROUND:
+            applyDefaultBackground(
+                color: newColor,
+                opacity: defaultBackgroundOpacity,
+                backgroundBlur: defaultBackgroundBlur,
+                source: source,
+                scope: .app
+            )
+            DispatchQueue.main.async {
+                GhosttyApp.shared.applyBackgroundToKeyWindow()
+            }
+        case GHOSTTY_ACTION_COLOR_KIND_FOREGROUND:
+            applyDefaultBackground(
+                color: defaultBackgroundColor,
+                opacity: defaultBackgroundOpacity,
+                backgroundBlur: defaultBackgroundBlur,
+                foregroundColor: newColor,
+                source: source,
+                scope: .app
+            )
+        case GHOSTTY_ACTION_COLOR_KIND_CURSOR:
+            applyDefaultBackground(
+                color: defaultBackgroundColor,
+                opacity: defaultBackgroundOpacity,
+                backgroundBlur: defaultBackgroundBlur,
+                cursorColor: newColor,
+                source: source,
+                scope: .app
+            )
+        default:
+            if backgroundLogEnabled {
+                logBackground(
+                    "app color change ignored kind=\(colorKindLabel(change.kind)) color=\(newColor.hexString()) source=\(source)"
+                )
+            }
+        }
     }
 
     private func performOnMain<T>(_ work: @MainActor () -> T) -> T {
@@ -3427,24 +3495,9 @@ class GhosttyApp {
                 return true
             }
 
-            if action.tag == GHOSTTY_ACTION_COLOR_CHANGE,
-               action.action.color_change.kind == GHOSTTY_ACTION_COLOR_KIND_BACKGROUND {
-                let change = action.action.color_change
-                let resolvedColor = NSColor(
-                    red: CGFloat(change.r) / 255,
-                    green: CGFloat(change.g) / 255,
-                    blue: CGFloat(change.b) / 255,
-                    alpha: 1.0
-                )
-                applyDefaultBackground(
-                    color: resolvedColor,
-                    opacity: defaultBackgroundOpacity,
-                    backgroundBlur: defaultBackgroundBlur,
-                    source: "action.color_change.app",
-                    scope: .app
-                )
-                DispatchQueue.main.async {
-                    GhosttyApp.shared.applyBackgroundToKeyWindow()
+            if action.tag == GHOSTTY_ACTION_COLOR_CHANGE {
+                performOnMain {
+                    applyAppColorChange(action.action.color_change, source: "action.color_change.app")
                 }
                 return true
             }
@@ -3688,14 +3741,9 @@ class GhosttyApp {
             }
             return true
         case GHOSTTY_ACTION_COLOR_CHANGE:
+            let change = action.action.color_change
+            let newColor = color(from: change)
             if action.action.color_change.kind == GHOSTTY_ACTION_COLOR_KIND_BACKGROUND {
-                let change = action.action.color_change
-                let newColor = NSColor(
-                    red: CGFloat(change.r) / 255,
-                    green: CGFloat(change.g) / 255,
-                    blue: CGFloat(change.b) / 255,
-                    alpha: 1.0
-                )
                 if backgroundLogEnabled {
                     logBackground(
                         "surface override set tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil") override=\(newColor.hexString()) default=\(defaultBackgroundColor.hexString()) source=action.color_change.surface"
@@ -3709,6 +3757,10 @@ class GhosttyApp {
                     }
                     surfaceView.applyWindowBackgroundIfActive()
                 }
+            } else if backgroundLogEnabled {
+                logBackground(
+                    "surface color change observed tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil") kind=\(colorKindLabel(change.kind)) color=\(newColor.hexString()) source=action.color_change.surface"
+                )
             }
             return true
         case GHOSTTY_ACTION_CONFIG_CHANGE:
@@ -9338,18 +9390,6 @@ struct GhosttyScrollbar {
         offset = c.offset
         len = c.len
     }
-}
-
-enum GhosttyNotificationKey {
-    static let scrollbar = "ghostty.scrollbar"
-    static let cellSize = "ghostty.cellSize"
-    static let tabId = "ghostty.tabId"
-    static let surfaceId = "ghostty.surfaceId"
-    static let title = "ghostty.title"
-    static let backgroundColor = "ghostty.backgroundColor"
-    static let backgroundOpacity = "ghostty.backgroundOpacity"
-    static let backgroundEventId = "ghostty.backgroundEventId"
-    static let backgroundSource = "ghostty.backgroundSource"
 }
 
 extension Notification.Name {

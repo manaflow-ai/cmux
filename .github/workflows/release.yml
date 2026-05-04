@@ -1,6 +1,9 @@
 name: Release macOS app
 
 on:
+  push:
+    tags:
+      - "v*"
   workflow_dispatch:
 
 permissions:
@@ -30,10 +33,16 @@ jobs:
         with:
           script: |
             const { evaluateReleaseAssetGuard } = require('./scripts/release_asset_guard');
-            const tag = context.ref.replace('refs/tags/', '');
+            const tag = context.ref.startsWith('refs/tags/')
+              ? context.ref.replace('refs/tags/', '')
+              : null;
             core.setOutput('skip_all', 'false');
             core.setOutput('skip_upload', 'false');
             core.setOutput('release_state', 'clear');
+            if (!tag) {
+              core.notice('workflow_dispatch is not running from a tag; release guard is in dry-run mode.');
+              return;
+            }
             try {
               const release = await github.rest.repos.getReleaseByTag({
                 owner: context.repo.owner,
