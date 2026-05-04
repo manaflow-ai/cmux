@@ -89324,6 +89324,210 @@
         }
       }
     },
+    "socket.surfaceSplitOff.error.appDelegateUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AppDelegate not available"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AppDelegateを利用できません"
+          }
+        }
+      }
+    },
+    "socket.surfaceSplitOff.error.invalidDirection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing or invalid direction (left|right|up|down)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "方向が指定されていないか無効です（left|right|up|down）"
+          }
+        }
+      }
+    },
+    "socket.surfaceSplitOff.error.invalidWindowId": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing or invalid window_id"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "window_idが指定されていないか無効です"
+          }
+        }
+      }
+    },
+    "socket.surfaceSplitOff.error.invalidWorkspaceId": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing or invalid workspace_id"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace_idが指定されていないか無効です"
+          }
+        }
+      }
+    },
+    "socket.surfaceSplitOff.error.missingSurfaceId": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing or invalid surface_id"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface_idが指定されていないか無効です"
+          }
+        }
+      }
+    },
+    "socket.surfaceSplitOff.error.moveSurfaceFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to move surface"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスを移動できませんでした"
+          }
+        }
+      }
+    },
+    "socket.surfaceSplitOff.error.sourcePaneNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source pane not found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移動元ペインが見つかりません"
+          }
+        }
+      }
+    },
+    "socket.surfaceSplitOff.error.splitPaneFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to split pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインを分割できませんでした"
+          }
+        }
+      }
+    },
+    "socket.surfaceSplitOff.error.surfaceNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface not found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスが見つかりません"
+          }
+        }
+      }
+    },
+    "socket.surfaceSplitOff.error.surfaceNotFoundInWindow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface not found in window"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウィンドウ内にサーフェスが見つかりません"
+          }
+        }
+      }
+    },
+    "socket.surfaceSplitOff.error.surfaceNotFoundInWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface not found in workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース内にサーフェスが見つかりません"
+          }
+        }
+      }
+    },
+    "socket.surfaceSplitOff.error.wouldEmptySourcePane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "splitting off would leave the source pane empty"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分割して移動すると移動元ペインが空になります"
+          }
+        }
+      }
+    },
     "socketControl.cmuxOnly.name": {
       "extractionState": "manual",
       "localizations": {

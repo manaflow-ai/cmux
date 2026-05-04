@@ -2759,8 +2759,9 @@ struct CMUXCLI {
             let (focusOpt, rem3) = parseOption(rem2, name: "--focus")
             let workspaceArg = wsArg ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
             let surfaceRaw = sfArg ?? panelArg ?? (wsArg == nil && windowId == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
-            guard let direction = rem3.first else {
-                throw CLIError(message: "new-split requires a direction")
+            let direction = try validatedSplitDirection(rem3.first, commandName: "new-split")
+            if let unknown = rem3.dropFirst().first(where: { $0.hasPrefix("--") }) {
+                throw CLIError(message: "new-split: unknown flag '\(unknown)'")
             }
             var params: [String: Any] = ["direction": direction]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
@@ -8995,14 +8996,14 @@ struct CMUXCLI {
             """
         case "drag-surface-to-split":
             return """
-            Usage: cmux drag-surface-to-split --surface <id|ref> <left|right|up|down> [flags]
+            Usage: cmux drag-surface-to-split --surface <id|ref|index> <left|right|up|down> [flags]
 
             Drag a surface into a new split in the given direction.
 
             Flags:
-              --surface <id|ref>     Surface to drag (required)
-              --panel <id|ref>       Alias for --surface
-              --workspace <id|ref>   Workspace context for ref/index resolution
+              --surface <id|ref|index>     Surface to drag (required)
+              --panel <id|ref|index>       Alias for --surface
+              --workspace <id|ref|index>   Workspace context for ref/index resolution
               --focus <true|false>   Focus the split-off surface (default: false)
 
             Example:
@@ -9011,14 +9012,14 @@ struct CMUXCLI {
             """
         case "split-off":
             return """
-            Usage: cmux split-off --surface <id|ref> <left|right|up|down> [flags]
+            Usage: cmux split-off --surface <id|ref|index> <left|right|up|down> [flags]
 
             Move an existing surface into a new split without changing focus by default.
 
             Flags:
-              --surface <id|ref>     Surface to move (required)
-              --panel <id|ref>       Alias for --surface
-              --workspace <id|ref>   Workspace context for ref/index resolution
+              --surface <id|ref|index>     Surface to move (required)
+              --panel <id|ref|index>       Alias for --surface
+              --workspace <id|ref|index>   Workspace context for ref/index resolution
               --focus <true|false>   Focus the split-off surface (default: false)
 
             Example:
@@ -13485,6 +13486,7 @@ struct CMUXCLI {
             let paneArg = optionValue(commandArgs, name: "--pane")
             let surfaceArg = optionValue(commandArgs, name: "--surface")
             let focusRaw = optionValue(commandArgs, name: "--focus")
+            try rejectConflictingFocusFlags(commandArgs)
             var params: [String: Any] = [:]
             try applyFocusOption(focusRaw, defaultValue: false, to: &params)
             if commandArgs.contains("--no-focus") {
@@ -13507,6 +13509,7 @@ struct CMUXCLI {
                 throw CLIError(message: "join-pane requires --target-pane")
             }
             let focusRaw = optionValue(commandArgs, name: "--focus")
+            try rejectConflictingFocusFlags(commandArgs)
             var params: [String: Any] = [:]
             try applyFocusOption(focusRaw, defaultValue: false, to: &params)
             if commandArgs.contains("--no-focus") {
@@ -20353,7 +20356,7 @@ export default CMUXSessionRestore;
           reorder-surface --surface <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--focus <true|false>]
           tab-action --action <name> [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--title <text>] [--url <url>] [--focus <true|false>]
           rename-tab [--workspace <id|ref>] [--tab <id|ref>] [--surface <id|ref>] <title>
-          drag-surface-to-split --surface <id|ref> <left|right|up|down> [--workspace <id|ref>] [--focus <true|false>]
+          drag-surface-to-split --surface <id|ref|index> <left|right|up|down> [--workspace <id|ref|index>] [--focus <true|false>]
           refresh-surfaces
           reload-config
           surface-health [--workspace <id|ref>]

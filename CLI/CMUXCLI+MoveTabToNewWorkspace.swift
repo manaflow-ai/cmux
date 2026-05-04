@@ -13,7 +13,25 @@ extension CMUXCLI {
     }
 
     func applyTabActionFocusOption(_ focusOpt: String?, to params: inout [String: Any]) throws {
-        try applyFocusOption(focusOpt, to: &params)
+        try applyFocusOption(focusOpt, defaultValue: false, to: &params)
+    }
+
+    func validatedSplitDirection(_ raw: String?, commandName: String) throws -> String {
+        guard let direction = raw, !direction.hasPrefix("--") else {
+            throw CLIError(message: "\(commandName) requires a direction")
+        }
+        switch direction.lowercased() {
+        case "left", "right", "up", "down", "l", "r", "u", "d":
+            return direction
+        default:
+            throw CLIError(message: "\(commandName): direction must be left|right|up|down")
+        }
+    }
+
+    func rejectConflictingFocusFlags(_ commandArgs: [String]) throws {
+        if commandArgs.contains("--focus"), commandArgs.contains("--no-focus") {
+            throw CLIError(message: "--focus and --no-focus cannot be used together")
+        }
     }
 
     func appendCreatedWorkspaceSummaryParts(
@@ -75,7 +93,8 @@ extension CMUXCLI {
         jsonOutput: Bool,
         idFormat: CLIIDFormat
     ) throws {
-        let surfaceRaw = optionValue(commandArgs, name: "--surface") ?? commandArgs.first
+        let surfaceRaw = optionValue(commandArgs, name: "--surface")
+            ?? commandArgs.first.flatMap { $0.hasPrefix("--") ? nil : $0 }
         guard let surfaceRaw else {
             throw CLIError(message: "move-surface requires --surface <id|ref|index>")
         }
@@ -134,9 +153,7 @@ extension CMUXCLI {
         guard let surfaceRaw = surfaceArg ?? panelArg else {
             throw CLIError(message: "\(commandName) requires --surface <id|ref|index>")
         }
-        guard let direction = rem3.first else {
-            throw CLIError(message: "\(commandName) requires a direction")
-        }
+        let direction = try validatedSplitDirection(rem3.first, commandName: commandName)
         if let unknown = rem3.dropFirst().first(where: { $0.hasPrefix("--") }) {
             throw CLIError(message: "\(commandName): unknown flag '\(unknown)'")
         }
@@ -159,7 +176,8 @@ extension CMUXCLI {
         jsonOutput: Bool,
         idFormat: CLIIDFormat
     ) throws {
-        let surfaceRaw = optionValue(commandArgs, name: "--surface") ?? commandArgs.first
+        let surfaceRaw = optionValue(commandArgs, name: "--surface")
+            ?? commandArgs.first.flatMap { $0.hasPrefix("--") ? nil : $0 }
         guard let surfaceRaw else {
             throw CLIError(message: "reorder-surface requires --surface <id|ref|index>")
         }

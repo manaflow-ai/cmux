@@ -59,6 +59,14 @@ class FakeCmuxState:
                 "surface_id": SURFACE_ID,
                 "surface_ref": "surface:1",
             }
+        if method == "tab.action":
+            return {
+                "action": params.get("action", ""),
+                "workspace_id": WORKSPACE_ID,
+                "workspace_ref": "workspace:1",
+                "surface_id": SURFACE_ID,
+                "surface_ref": "surface:1",
+            }
         raise RuntimeError(f"Unsupported fake cmux method: {method}")
 
 
@@ -106,6 +114,23 @@ def run_cli(cli: str, socket_path: str, args: list[str]) -> str:
         merged = f"{proc.stdout}\n{proc.stderr}".strip()
         raise AssertionError(f"CLI failed ({' '.join(args)}): {merged}")
     return proc.stdout.strip()
+
+
+def assert_cli_fails(cli: str, socket_path: str, args: list[str], expected: str) -> None:
+    env = dict(os.environ)
+    proc = subprocess.run(
+        [cli, "--socket", socket_path, *args],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=5,
+    )
+    if proc.returncode == 0:
+        raise AssertionError(f"CLI unexpectedly succeeded ({' '.join(args)}): {proc.stdout}")
+    merged = f"{proc.stdout}\n{proc.stderr}"
+    if expected not in merged:
+        raise AssertionError(f"expected failure containing {expected!r}, got {merged!r}")
 
 
 def assert_last_call(
@@ -169,6 +194,13 @@ def main() -> int:
                 {"surface_id": SURFACE_ID, "index": 0, "focus": False},
             )
 
+            run_cli(cli, socket_path, ["tab-action", "--action", "duplicate", "--workspace", WORKSPACE_ID, "--surface", SURFACE_ID])
+            assert_last_call(
+                state,
+                "tab.action",
+                {"action": "duplicate", "workspace_id": WORKSPACE_ID, "surface_id": SURFACE_ID, "focus": False},
+            )
+
             run_cli(cli, socket_path, ["split-off", "--workspace", WORKSPACE_ID, "--surface", SURFACE_ID, "down"])
             assert_last_call(
                 state,
@@ -186,6 +218,12 @@ def main() -> int:
                 "surface.split_off",
                 {"workspace_id": WORKSPACE_ID, "surface_id": SURFACE_ID, "direction": "right", "focus": True},
             )
+
+            assert_cli_fails(cli, socket_path, ["new-split", "--bogus"], "new-split requires a direction")
+            assert_cli_fails(cli, socket_path, ["split-off", "--surface", SURFACE_ID, "--bogus"], "split-off requires a direction")
+            assert_cli_fails(cli, socket_path, ["break-pane", "--focus", "true", "--no-focus"], "--focus and --no-focus cannot be used together")
+            assert_cli_fails(cli, socket_path, ["move-surface", "--workspace", WORKSPACE_ID], "move-surface requires --surface")
+            assert_cli_fails(cli, socket_path, ["reorder-surface", "--workspace", WORKSPACE_ID], "reorder-surface requires --surface")
         finally:
             server.shutdown()
             server.server_close()
