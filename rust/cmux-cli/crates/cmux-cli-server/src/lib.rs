@@ -5293,6 +5293,7 @@ async fn handle_ws_client(
     auth_token: Option<String>,
     heartbeat: HeartbeatConfig,
 ) -> Result<()> {
+    let stream = configure_ws_tcp_stream(stream)?;
     let ws = accept_async(stream).await.context("ws handshake")?;
     run_session(
         daemon,
@@ -5301,6 +5302,13 @@ async fn handle_ws_client(
         heartbeat,
     )
     .await
+}
+
+fn configure_ws_tcp_stream(stream: TcpStream) -> Result<TcpStream> {
+    stream
+        .set_nodelay(true)
+        .context("enable TCP_NODELAY for websocket stream")?;
+    Ok(stream)
 }
 
 struct ClientViewRegistration {
@@ -8003,6 +8011,20 @@ mod tests {
         assert!(should_fallback_term(Some("tmux-256color")));
         assert!(should_fallback_term(Some("screen-256color")));
         assert!(!should_fallback_term(Some("xterm-256color")));
+    }
+
+    #[tokio::test]
+    async fn websocket_tcp_stream_enables_nodelay_for_terminal_latency() -> Result<()> {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let addr = listener.local_addr()?;
+        let (client, (server, _)) =
+            tokio::try_join!(tokio::net::TcpStream::connect(addr), listener.accept())?;
+
+        let server = configure_ws_tcp_stream(server)?;
+
+        assert!(server.nodelay()?);
+        drop(client);
+        Ok(())
     }
 
     #[test]
