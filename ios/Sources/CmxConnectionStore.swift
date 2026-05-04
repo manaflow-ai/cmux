@@ -563,28 +563,18 @@ final class CmxConnectionStore: ObservableObject {
 
     private func initialOutput(for terminal: CmxTerminal) -> Data {
         let esc = "\u{001B}"
-        let title = "\(esc)[1;36m\(terminal.title)\(esc)[0m"
-        let rows = terminal.rows.enumerated().map { index, row in
-            if index == 0 {
-                return "\(esc)[32m\(row)\(esc)[0m"
-            }
-            if row.hasPrefix("$") {
-                return "\(esc)[33m\(row)\(esc)[0m"
-            }
-            return row
-        }
-        return Data(("\(esc)[2J\(esc)[H\(title)\r\n\r\n" + rows.joined(separator: "\r\n") + "\r\n\r\n\(esc)[32mios$ \(esc)[0m").utf8)
+        return Data(("\(esc)[2J\(esc)[H\(terminal.title)\r\n\r\n" + terminal.rows.joined(separator: "\r\n") + "\r\n\r\nios$ ").utf8)
     }
 
     private func renderEcho(for data: Data) -> Data {
         if data == Data([0x03]) {
-            return Data("^C\r\n\u{001B}[32mios$ \u{001B}[0m".utf8)
+            return Data("^C\r\nios$ ".utf8)
         }
         if data == Data([0x04]) {
-            return Data("^D\r\n\u{001B}[32mios$ \u{001B}[0m".utf8)
+            return Data("^D\r\nios$ ".utf8)
         }
         if data == Data([0x0C]) {
-            return Data("\u{001B}[2J\u{001B}[H\u{001B}[32mios$ \u{001B}[0m".utf8)
+            return Data("\u{001B}[2J\u{001B}[Hios$ ".utf8)
         }
         if data == Data([0x7F]) {
             return Data("\u{8} \u{8}".utf8)
@@ -596,7 +586,7 @@ final class CmxConnectionStore: ObservableObject {
             return Data()
         }
         if text.contains("\n") {
-            return Data(text.replacingOccurrences(of: "\n", with: "\r\n\u{001B}[32mios$ \u{001B}[0m").utf8)
+            return Data(text.replacingOccurrences(of: "\n", with: "\r\nios$ ").utf8)
         }
         return Data(text.utf8)
     }
