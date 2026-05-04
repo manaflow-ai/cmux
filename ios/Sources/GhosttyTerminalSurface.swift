@@ -387,10 +387,10 @@ public final class GhosttyRuntime {
 
     private(set) var app: ghostty_app_t?
     private(set) var config: ghostty_config_t?
-    // Ghostty may emit wakeups in bursts during font metric churn. Keep at most
-    // one main-queue tick pending so pinch zoom cannot starve UIKit's run loop.
-    private let tickLock = NSLock()
-    private var tickScheduled = false
+    // Ghostty may emit wakeups in bursts during font metric churn. Treat them
+    // as a frame-cadenced signal so pinch zoom cannot starve UIKit's run loop.
+    private let wakeupTickLock = NSLock()
+    private var wakeupTickPending = false
 
     public static func shared() throws -> GhosttyRuntime {
         if let sharedResult {
@@ -465,21 +465,19 @@ public final class GhosttyRuntime {
     }
 
     private func scheduleWakeupTick() {
-        tickLock.lock()
-        defer { tickLock.unlock() }
-        guard !tickScheduled else { return }
-        tickScheduled = true
-        DispatchQueue.main.async { [weak self] in
-            self?.runScheduledWakeupTick()
-        }
+        wakeupTickLock.lock()
+        wakeupTickPending = true
+        wakeupTickLock.unlock()
     }
 
     @MainActor
-    private func runScheduledWakeupTick() {
-        tickLock.lock()
-        tickScheduled = false
-        tickLock.unlock()
+    func drainScheduledWakeupTick() {
+        wakeupTickLock.lock()
+        let shouldTick = wakeupTickPending
+        wakeupTickPending = false
+        wakeupTickLock.unlock()
 
+        guard shouldTick else { return }
         tick()
         GhosttyTerminalSurfaceView.drawVisibleSurfacesForWakeup()
     }
@@ -1219,6 +1217,7 @@ public final class GhosttyTerminalSurfaceView: UIView {
     }
 
     @objc private func handleDisplayLink() {
+        runtime?.drainScheduledWakeupTick()
         guard let surface else { return }
         if needsDraw {
             needsDraw = false
