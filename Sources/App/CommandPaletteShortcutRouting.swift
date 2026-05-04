@@ -46,7 +46,7 @@ func commandPaletteSelectionDeltaForKeyboardNavigation(
 @MainActor
 func commandPaletteSelectionDeltaForFieldEditorCommand(
     _ commandSelector: Selector,
-    event: NSEvent? = NSApp.currentEvent,
+    event: NSEvent?,
     nextShortcut: StoredShortcut? = KeyboardShortcutSettings.shortcutIfBound(for: .commandPaletteNext),
     previousShortcut: StoredShortcut? = KeyboardShortcutSettings.shortcutIfBound(for: .commandPalettePrevious),
     layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)

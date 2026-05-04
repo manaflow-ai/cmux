@@ -4908,7 +4908,8 @@ struct ContentView: View {
             }
 
             func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-                if let delta = commandPaletteSelectionDeltaForFieldEditorCommand(commandSelector) {
+                let currentEvent = NSApp.currentEvent
+                if let delta = commandPaletteSelectionDeltaForFieldEditorCommand(commandSelector, event: currentEvent) {
                     parent.onMoveSelection(delta)
                     return true
                 }
@@ -4916,7 +4917,7 @@ struct ContentView: View {
                 switch commandSelector {
                 case #selector(NSResponder.moveDown(_:)),
                      #selector(NSResponder.moveUp(_:)):
-                    guard let event = NSApp.currentEvent else { return false }
+                    guard let event = currentEvent else { return false }
                     return parent.onUnhandledNavigationKey(event)
                 case #selector(NSResponder.insertNewline(_:)):
                     guard !textView.hasMarkedText() else { return false }
