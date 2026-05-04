@@ -79,6 +79,7 @@ jobs:
       - name: Run iOS unit and UI tests
         run: |
           set -euo pipefail
+          defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool false
           xcodebuild \
             -project ios/cmux-ios.xcodeproj \
             -scheme cmux-ios \

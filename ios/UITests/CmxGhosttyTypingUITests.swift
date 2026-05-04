@@ -61,6 +61,26 @@ final class CmxGhosttyTypingUITests: XCTestCase {
         )
     }
 
+    func testSoftwareKeyboardShrinksGhosttySurfaceAndTypingStillRenders() throws {
+        let terminal = try openTerminal()
+        let initialHeight = terminal.frame.height
+
+        terminal.tap()
+        let input = app.descendants(matching: .any)["terminal.input"]
+        XCTAssertTrue(input.waitForExistence(timeout: 10))
+        input.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+
+        XCTAssertTrue(
+            waitForTerminalHeight(terminal, below: initialHeight - 120, timeout: 10),
+            "expected terminal height to shrink after the software keyboard appeared"
+        )
+
+        input.typeText("echo KEYBOARD_RESIZE_OK\n")
+
+        XCTAssertTrue(waitForTerminalValue(terminal, containing: "KEYBOARD_RESIZE_OK", timeout: 10))
+    }
+
     private func openTerminal() throws -> XCUIElement {
         try openTerminal(expectedPrompt: "ui-test$")
     }
@@ -84,6 +104,19 @@ final class CmxGhosttyTypingUITests: XCTestCase {
         let predicate = NSPredicate { element, _ in
             guard let terminal = element as? XCUIElement else { return false }
             return (terminal.value as? String)?.contains(expected) == true
+        }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: terminal)
+        return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    private func waitForTerminalHeight(
+        _ terminal: XCUIElement,
+        below expectedHeight: CGFloat,
+        timeout: TimeInterval
+    ) -> Bool {
+        let predicate = NSPredicate { element, _ in
+            guard let terminal = element as? XCUIElement else { return false }
+            return terminal.frame.height < expectedHeight
         }
         let expectation = XCTNSPredicateExpectation(predicate: predicate, object: terminal)
         return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
