@@ -1101,7 +1101,7 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         temporaryDirectoryURL = directoryURL
         KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
-            primaryPath: directoryURL.appendingPathComponent("settings.json", isDirectory: false).path,
+            primaryPath: directoryURL.appendingPathComponent("cmux.json", isDirectory: false).path,
             fallbackPath: nil,
             startWatching: false
         )
@@ -1310,7 +1310,6 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
-        defer { window.close() }
         let contentView = NSView(frame: window.contentView?.bounds ?? .zero)
         window.contentView = contentView
         let controller = MainWindowFocusController(
@@ -1323,12 +1322,13 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
         XCTAssertTrue(controller.focusRightSidebar(mode: .sessions, focusFirstItem: true))
         XCTAssertEqual(controller.debugPendingRightSidebarFocusMode, .sessions)
 
-        let host = RightSidebarKeyboardFocusView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
-        contentView.addSubview(host)
-        controller.registerRightSidebarHost(host)
+        let focusHost = RightSidebarKeyboardFocusView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        defer { _ = window.makeFirstResponder(nil); focusHost.removeFromSuperview(); window.contentView = nil; window.close() }
+        contentView.addSubview(focusHost)
+        controller.registerRightSidebarHost(focusHost)
 
         XCTAssertNil(controller.debugPendingRightSidebarFocusMode)
-        XCTAssertTrue(window.firstResponder === host)
+        XCTAssertTrue(window.firstResponder === focusHost)
     }
 
     @MainActor
@@ -1598,25 +1598,6 @@ final class LastSurfaceCloseShortcutSettingsTests: XCTestCase {
         XCTAssertFalse(LastSurfaceCloseShortcutSettings.closesWorkspace(defaults: defaults))
     }
 }
-
-
-final class AppearanceSettingsTests: XCTestCase {
-    func testResolvedModeDefaultsToSystemWhenUnset() {
-        let suiteName = "AppearanceSettingsTests.Default.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        defaults.removeObject(forKey: AppearanceSettings.appearanceModeKey)
-
-        let resolved = AppearanceSettings.resolvedMode(defaults: defaults)
-        XCTAssertEqual(resolved, .system)
-        XCTAssertEqual(defaults.string(forKey: AppearanceSettings.appearanceModeKey), AppearanceMode.system.rawValue)
-    }
-}
-
 
 final class QuitWarningSettingsTests: XCTestCase {
     func testDefaultWarnBeforeQuitIsEnabledWhenUnset() {

@@ -3,7 +3,6 @@ import AppKit
 final class WindowDecorationsController {
     private var observers: [NSObjectProtocol] = []
     private var didStart = false
-    private var trafficLightBaseFrames: [ObjectIdentifier: [NSWindow.ButtonType: NSRect]] = [:]
     private var minimalModeSidebarChromeHoverMonitor: Any?
     private var lastMinimalModeTitlebarClick: MinimalModeTitlebarClickRecord?
     private var lastKnownPresentationMode = WorkspacePresentationModeSettings.mode()
@@ -43,7 +42,6 @@ final class WindowDecorationsController {
         }
         let shouldHideButtons = shouldHideTrafficLights(for: window)
         hideStandardButtons(on: window, hidden: shouldHideButtons)
-        applyTrafficLightOffset(on: window, hidden: shouldHideButtons)
         applyMinimalModeSidebarTitlebarClickTarget(to: window)
     }
 
@@ -359,34 +357,6 @@ final class WindowDecorationsController {
         window.standardWindowButton(.zoomButton)?.isHidden = hidden
     }
 
-    private func applyTrafficLightOffset(on window: NSWindow, hidden: Bool) {
-        DispatchQueue.main.async { [weak self, weak window] in
-            guard let self, let window else { return }
-            let offset = hidden ? NSPoint.zero : self.trafficLightOffset(for: window)
-            self.applyTrafficLightOffsetNow(on: window, offset: offset)
-        }
-    }
-
-    private func applyTrafficLightOffsetNow(on window: NSWindow, offset: NSPoint) {
-        let key = ObjectIdentifier(window)
-        let buttonTypes: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
-        var baseFrames = trafficLightBaseFrames[key] ?? [:]
-
-        for type in buttonTypes {
-            guard let button = window.standardWindowButton(type) else { continue }
-            if baseFrames[type] == nil || (baseFrames[type]?.isEmpty ?? true) {
-                baseFrames[type] = button.frame
-            }
-        }
-
-        trafficLightBaseFrames[key] = baseFrames
-
-        for type in buttonTypes {
-            guard let button = window.standardWindowButton(type), let base = baseFrames[type] else { continue }
-            button.setFrameOrigin(NSPoint(x: base.origin.x + offset.x, y: base.origin.y + offset.y))
-        }
-    }
-
     private func applyMinimalModeSidebarTitlebarClickTarget(to window: NSWindow) {
         let shouldInstall = isMainWorkspaceWindow(window)
             && WorkspacePresentationModeSettings.isMinimal()
@@ -458,10 +428,6 @@ final class WindowDecorationsController {
         guard let target = minimalModeSidebarTitlebarClickTargets.object(forKey: window) else { return }
         target.removeFromSuperview()
         minimalModeSidebarTitlebarClickTargets.removeObject(forKey: window)
-    }
-
-    private func trafficLightOffset(for window: NSWindow) -> NSPoint {
-        return .zero
     }
 
     private func shouldHideTrafficLights(for window: NSWindow) -> Bool {

@@ -157,7 +157,7 @@ final class WindowTerminalHostView: NSView {
 
             let dragPasteboardTypes = NSPasteboard(name: .drag).types
             let eventType = currentEvent?.type
-            let shouldPassThrough = DragOverlayRoutingPolicy.shouldPassThroughPortalHitTesting(
+            let shouldPassThrough = DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
                 pasteboardTypes: dragPasteboardTypes,
                 eventType: eventType
             )
@@ -446,6 +446,7 @@ final class WindowTerminalHostView: NSView {
     ) {
         let hasRelevantTypes = DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboardTypes)
             || DragOverlayRoutingPolicy.hasSidebarTabReorder(pasteboardTypes)
+            || DragOverlayRoutingPolicy.hasFileURL(pasteboardTypes)
         guard passThrough || hasRelevantTypes else { return }
 
         let targetClass = hitView.map { NSStringFromClass(type(of: $0)) } ?? "nil"
@@ -913,14 +914,11 @@ final class WindowTerminalPortal: NSObject {
     }
 
     private func installationTarget(for window: NSWindow) -> (container: NSView, reference: NSView)? {
-        guard let contentView = window.contentView else { return nil }
-
-        // If NSGlassEffectView wraps the original content view, install inside the glass view
-        // so terminals are above the glass background but below SwiftUI content.
-        if contentView.className == "NSGlassEffectView",
-           let foreground = contentView.subviews.first(where: { $0 !== hostView }) {
-            return (contentView, foreground)
+        if let glassTarget = WindowGlassEffect.portalInstallationTarget(for: window) {
+            return glassTarget
         }
+
+        guard let contentView = window.contentView else { return nil }
 
         guard let themeFrame = contentView.superview else { return nil }
         return (themeFrame, contentView)

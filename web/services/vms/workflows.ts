@@ -19,6 +19,7 @@ import {
   VmCreateFailedError,
   VmCreateInProgressError,
   VmNotFoundError,
+  vmWorkflowErrorCause,
   type VmWorkflowError,
 } from "./errors";
 import { isProviderNotFoundError } from "./providerErrors";
@@ -41,16 +42,20 @@ export type VmEntry = {
 
 export const VmWorkflowLive = Layer.mergeAll(VmRepositoryLive, VmProviderGatewayLive, VmBillingGatewayLive);
 
-export function runVmWorkflow<A>(
+export async function runVmWorkflow<A>(
   program: Effect.Effect<A, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway>,
 ): Promise<A> {
-  return Effect.runPromise(program.pipe(Effect.provide(VmWorkflowLive)));
+  try {
+    return await Effect.runPromise(program.pipe(Effect.provide(VmWorkflowLive)));
+  } catch (err) {
+    throw vmWorkflowErrorCause(err) ?? err;
+  }
 }
 
-export function listUserVms(userId: string) {
+export function listUserVms(userId: string, billingTeamId?: string | null) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
-    const rows = yield* repo.listUserVms(userId);
+    const rows = yield* repo.listUserVms(userId, billingTeamId);
     return rows.filter((row) => row.providerVmId).map(vmEntryFromRow);
   });
 }
@@ -100,7 +105,33 @@ export function createVm(input: {
       imageVersion: input.imageVersion ?? null,
       vmId: create.vm.id,
       idempotencyKey: input.idempotencyKey,
-    });
+    }).pipe(
+      Effect.tapError((err) =>
+        Effect.all([
+          repo.markCreateFailed({
+            id: create.vm.id,
+            code: "billing_reserve_failed",
+            message: errorMessage(err),
+          }),
+          repo.recordUsageEvent({
+            userId: input.userId,
+            billingTeamId: input.billingTeamId,
+            billingPlanId: input.billingPlanId,
+            vmId: create.vm.id,
+            eventType: "vm.create.billing_failed",
+            provider: input.provider,
+            imageId: input.image,
+            metadata: {
+              idempotencyKeySet: !!input.idempotencyKey,
+              imageVersion: input.imageVersion ?? null,
+              errorTag: typeof err === "object" && err !== null && "_tag" in err
+                ? String((err as { _tag?: unknown })._tag)
+                : null,
+            },
+          }),
+        ], { discard: true }).pipe(Effect.catchAll(() => Effect.void))
+      ),
+    );
 
     yield* recordCreditEvent(repo, create.vm, "vm.create.credit.reserved", creditReservation)
       .pipe(Effect.catchAll(() => Effect.void));

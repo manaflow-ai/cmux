@@ -505,6 +505,7 @@ final class FileExplorerStore: ObservableObject {
     @Published var rootNodes: [FileExplorerNode] = []
     @Published private(set) var isRootLoading: Bool = false
     @Published private(set) var gitStatusByPath: [String: GitFileStatus] = [:]
+    @Published private(set) var contentRevision = 0
 
     var provider: FileExplorerProvider?
 
@@ -620,6 +621,7 @@ final class FileExplorerStore: ObservableObject {
         #if DEBUG
         NSLog("[FileExplorer] reload() path=\(rootPath) provider=\(type(of: provider).self)")
         #endif
+        contentRevision &+= 1
         cancelAllLoads()
         rootNodes = []
         nodesByPath = [:]

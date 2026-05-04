@@ -1,5 +1,8 @@
 import XCTest
 import AppKit
+import Carbon.HIToolbox
+import Darwin
+import PDFKit
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
@@ -31,16 +34,100 @@ final class WindowGlassEffectTests: XCTestCase {
 
         if WindowGlassEffect.isAvailable {
             XCTAssertFalse(window.contentView === originalContentView)
-            XCTAssertTrue(window.contentView?.subviews.contains(where: { $0 === originalContentView }) == true)
+            XCTAssertTrue(WindowGlassEffect.originalContentView(for: window) === originalContentView)
+            XCTAssertTrue(originalContentView.superview === WindowGlassEffect.foregroundContainer(for: window))
+            XCTAssertNotNil(WindowGlassEffect.portalInstallationTarget(for: window))
         } else {
             XCTAssertTrue(window.contentView === originalContentView)
-            XCTAssertTrue(originalContentView.subviews.contains(where: { $0 is NSVisualEffectView }))
+            XCTAssertNil(WindowGlassEffect.originalContentView(for: window))
+            XCTAssertNil(WindowGlassEffect.foregroundContainer(for: window))
+            XCTAssertNil(WindowGlassEffect.portalInstallationTarget(for: window))
         }
+        XCTAssertTrue(Self.windowContainsGlassBackground(window))
 
         WindowGlassEffect.remove(from: window)
 
         XCTAssertTrue(window.contentView === originalContentView)
-        XCTAssertFalse(originalContentView.subviews.contains(where: { $0 is NSVisualEffectView }))
+        XCTAssertNil(WindowGlassEffect.foregroundContainer(for: window))
+        XCTAssertNil(WindowGlassEffect.originalContentView(for: window))
+        XCTAssertFalse(Self.windowContainsGlassBackground(window))
+    }
+
+    func testNativeGlassTintFollowsWindowKeyNotifications() throws {
+        guard WindowGlassEffect.isAvailable else {
+            throw XCTSkip("NSGlassEffectView is unavailable on this macOS version")
+        }
+        _ = NSApplication.shared
+
+        let originalContentView = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 200))
+        let window = NSWindow(
+            contentRect: originalContentView.bounds,
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = originalContentView
+
+        WindowGlassEffect.apply(to: window, tintColor: .black, style: .clear)
+
+        guard let backgroundView = Self.glassBackgroundView(in: window.contentView),
+              let tintOverlay = backgroundView.subviews.last else {
+            XCTFail("Expected glass background tint overlay")
+            return
+        }
+
+        XCTAssertGreaterThan(tintOverlay.alphaValue, 0)
+        NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window)
+        XCTAssertEqual(tintOverlay.alphaValue, 0, accuracy: 0.001)
+        NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
+        XCTAssertGreaterThan(tintOverlay.alphaValue, 0)
+    }
+
+    private static func windowContainsGlassBackground(_ window: NSWindow) -> Bool {
+        guard let contentView = window.contentView else { return false }
+        let root = contentView.superview ?? contentView
+        return glassBackgroundView(in: root) != nil
+    }
+
+    private static func glassBackgroundView(in view: NSView?) -> NSView? {
+        guard let view else { return nil }
+        if view.identifier == WindowGlassEffect.backgroundViewIdentifier {
+            return view
+        }
+        return view.subviews.lazy.compactMap(glassBackgroundView(in:)).first
+    }
+}
+
+@MainActor
+final class WindowAccessorTests: XCTestCase {
+    func testSameWindowDedupeAllowsRefreshIDChanges() {
+        _ = NSApplication.shared
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let coordinator = WindowAccessor.Coordinator()
+
+        XCTAssertTrue(coordinator.shouldInvoke(window: window, dedupeByWindow: true, refreshID: "glass-off"))
+        XCTAssertFalse(coordinator.shouldInvoke(window: window, dedupeByWindow: true, refreshID: "glass-off"))
+        XCTAssertTrue(coordinator.shouldInvoke(window: window, dedupeByWindow: true, refreshID: "glass-clear"))
+        XCTAssertFalse(coordinator.shouldInvoke(window: window, dedupeByWindow: true, refreshID: "glass-clear"))
+    }
+
+    func testDedupeDisabledAlwaysInvokesForSameWindow() {
+        _ = NSApplication.shared
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let coordinator = WindowAccessor.Coordinator()
+
+        XCTAssertTrue(coordinator.shouldInvoke(window: window, dedupeByWindow: false, refreshID: "same"))
+        XCTAssertTrue(coordinator.shouldInvoke(window: window, dedupeByWindow: false, refreshID: "same"))
     }
 }
 
@@ -499,13 +586,13 @@ final class WindowDragHandleHitTests: XCTestCase {
     }
 
     private final class SidebarActionRegionView: NSView, MinimalModeSidebarControlActionHitRegionProviding {
-        var config = TitlebarControlsStyle.classic.config
+        nonisolated(unsafe) var config = TitlebarControlsStyle.classic.config
 
-        func containsMinimalModeTitlebarControlHit(localPoint: NSPoint) -> Bool {
+        nonisolated func containsMinimalModeTitlebarControlHit(localPoint: NSPoint) -> Bool {
             minimalModeSidebarControlActionSlot(localPoint: localPoint) != nil
         }
 
-        func minimalModeSidebarControlActionSlot(localPoint: NSPoint) -> MinimalModeSidebarControlActionSlot? {
+        nonisolated func minimalModeSidebarControlActionSlot(localPoint: NSPoint) -> MinimalModeSidebarControlActionSlot? {
             let ranges = TitlebarControlsHitRegions.buttonXRanges(config: config)
             for (index, range) in ranges.enumerated() where range.contains(localPoint.x) {
                 return MinimalModeSidebarControlActionSlot(rawValue: index)
@@ -731,7 +818,7 @@ final class WindowDragHandleHitTests: XCTestCase {
 
     func testMinimalModeTitlebarControlRegionCanLimitHitsInsideRegisteredView() {
         final class ButtonOnlyRegion: NSView, MinimalModeTitlebarControlHitRegionProviding {
-            func containsMinimalModeTitlebarControlHit(localPoint: NSPoint) -> Bool {
+            nonisolated func containsMinimalModeTitlebarControlHit(localPoint: NSPoint) -> Bool {
                 localPoint.x >= 24 && localPoint.x <= 48
             }
         }
@@ -1421,6 +1508,831 @@ final class WindowMoveSuppressionHitPathTests: XCTestCase {
     }
 }
 
+private final class FilePreviewPDFChromeNotificationFlag: @unchecked Sendable {
+    var didNotify = false
+}
+
+
+@MainActor
+final class FilePreviewPDFChromeTests: XCTestCase {
+    func testChromeHostsAcceptFirstMouse() {
+        let host = FilePreviewPDFChromeHostingView(rootView: AnyView(EmptyView()))
+
+        XCTAssertTrue(host.acceptsFirstMouse(for: nil))
+    }
+
+    #if DEBUG
+    func testPDFChromeStyleVariantPersistsForDebugWindow() {
+        let defaults = UserDefaults.standard
+        let previousValue = defaults.string(forKey: FilePreviewPDFChromeStyleVariant.defaultsKey)
+        let notificationFlag = FilePreviewPDFChromeNotificationFlag()
+        let observer = NotificationCenter.default.addObserver(
+            forName: .filePreviewPDFChromeStyleDidChange,
+            object: nil,
+            queue: nil
+        ) { _ in
+            notificationFlag.didNotify = true
+        }
+        defer {
+            NotificationCenter.default.removeObserver(observer)
+            if let previousValue {
+                defaults.set(previousValue, forKey: FilePreviewPDFChromeStyleVariant.defaultsKey)
+            } else {
+                defaults.removeObject(forKey: FilePreviewPDFChromeStyleVariant.defaultsKey)
+            }
+        }
+
+        defaults.removeObject(forKey: FilePreviewPDFChromeStyleVariant.defaultsKey)
+        XCTAssertEqual(FilePreviewPDFChromeStyleVariant.current(), .liquidGlass)
+
+        FilePreviewPDFChromeStyleVariant.thinOutline.persist()
+        XCTAssertEqual(FilePreviewPDFChromeStyleVariant.current(), .thinOutline)
+        XCTAssertTrue(notificationFlag.didNotify)
+    }
+    #endif
+
+    func testPDFChromeControlsUseSwiftUILiquidGlassHosts() throws {
+        let container = FilePreviewPDFContainerView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        let mirror = Mirror(reflecting: container)
+        let sidebarChromeHost = try XCTUnwrap(
+            mirror.descendant("sidebarChromeHost") as? FilePreviewPDFChromeHostingView
+        )
+        let zoomChromeHost = try XCTUnwrap(
+            mirror.descendant("zoomChromeHost") as? FilePreviewPDFChromeHostingView
+        )
+        let chromeHost = try XCTUnwrap(
+            mirror.descendant("chromeHost") as? FilePreviewPDFChromeHostView
+        )
+
+        XCTAssertFalse(sidebarChromeHost.isHidden)
+        XCTAssertFalse(zoomChromeHost.isHidden)
+        XCTAssertEqual(chromeHost.interactiveOverlayViews.count, 2)
+        XCTAssertTrue(chromeHost.interactiveOverlayViews.contains { $0 === sidebarChromeHost })
+        XCTAssertTrue(chromeHost.interactiveOverlayViews.contains { $0 === zoomChromeHost })
+    }
+
+    func testPDFChromeControlsAreHitTestedAbovePDFContent() throws {
+        let container = FilePreviewPDFContainerView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        let hostView = NSView(frame: container.frame)
+        let window = NSWindow(
+            contentRect: container.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = hostView
+        hostView.addSubview(container)
+        NSLayoutConstraint.activate([
+            container.topAnchor.constraint(equalTo: hostView.topAnchor),
+            container.leadingAnchor.constraint(equalTo: hostView.leadingAnchor),
+            container.trailingAnchor.constraint(equalTo: hostView.trailingAnchor),
+            container.bottomAnchor.constraint(equalTo: hostView.bottomAnchor),
+        ])
+        window.layoutIfNeeded()
+        hostView.needsLayout = true
+        hostView.layoutSubtreeIfNeeded()
+        container.needsLayout = true
+        container.layout()
+        container.layoutSubtreeIfNeeded()
+
+        let mirror = Mirror(reflecting: container)
+        let chromeHost = try XCTUnwrap(mirror.descendant("chromeHost") as? NSView)
+        let sidebarChromeHost = try XCTUnwrap(mirror.descendant("sidebarChromeHost") as? NSView)
+        let zoomChromeHost = try XCTUnwrap(mirror.descendant("zoomChromeHost") as? NSView)
+        let contentHost = mirror.descendant("contentHost") as? NSView
+        chromeHost.needsLayout = true
+        chromeHost.layoutSubtreeIfNeeded()
+        sidebarChromeHost.layoutSubtreeIfNeeded()
+        zoomChromeHost.layoutSubtreeIfNeeded()
+
+        let leftProbe = chromeHost.convert(
+            NSPoint(x: sidebarChromeHost.frame.midX, y: sidebarChromeHost.frame.midY),
+            to: container
+        )
+        let rightProbe = chromeHost.convert(
+            NSPoint(x: zoomChromeHost.frame.midX, y: zoomChromeHost.frame.midY),
+            to: container
+        )
+        let leftChromeHit = container.hitTest(leftProbe)
+        let rightChromeHit = container.hitTest(rightProbe)
+        let debugFrames = "container=\(container.frame) content=\(String(describing: contentHost?.frame)) chromeHost=\(chromeHost.frame) left=\(sidebarChromeHost.frame) right=\(zoomChromeHost.frame) leftProbe=\(leftProbe) rightProbe=\(rightProbe) leftHit=\(String(describing: leftChromeHit)) rightHit=\(String(describing: rightChromeHit))"
+
+        XCTAssertTrue(isView(leftChromeHit, inside: sidebarChromeHost), debugFrames)
+        XCTAssertTrue(isView(rightChromeHit, inside: zoomChromeHost), debugFrames)
+    }
+
+    func testThumbnailSidebarUsesFullWidthSingleColumnLayout() throws {
+        let sidebar = FilePreviewPDFThumbnailSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 480))
+
+        sidebar.layoutSubtreeIfNeeded()
+
+        let mirror = Mirror(reflecting: sidebar)
+        let collectionView = try XCTUnwrap(
+            mirror.descendant("collectionView") as? NSCollectionView
+        )
+        let flowLayout = try XCTUnwrap(
+            mirror.descendant("flowLayout") as? NSCollectionViewFlowLayout
+        )
+        let itemSize = sidebar.collectionView(
+            collectionView,
+            layout: flowLayout,
+            sizeForItemAt: IndexPath(item: 0, section: 0)
+        )
+
+        XCTAssertGreaterThanOrEqual(itemSize.width, sidebar.bounds.width)
+        XCTAssertGreaterThan(itemSize.width, sidebar.bounds.width / 2)
+    }
+
+    func testThumbnailSidebarPreferredWidthShrinksToPortraitContent() throws {
+        let document = try makePDFDocument(pageSizes: [NSSize(width: 80, height: 160)])
+
+        let width = FilePreviewPDFSizing.preferredThumbnailSidebarWidth(for: document)
+
+        XCTAssertEqual(width, FilePreviewPDFSizing.minimumThumbnailSidebarWidth, accuracy: 0.001)
+    }
+
+    func testThumbnailSidebarPreferredWidthUsesThumbnailMinimumWithoutDocument() {
+        let width = FilePreviewPDFSizing.preferredThumbnailSidebarWidth(for: nil)
+
+        XCTAssertEqual(width, FilePreviewPDFSizing.minimumThumbnailSidebarWidth, accuracy: 0.001)
+    }
+
+    func testThumbnailSidebarPreferredWidthExpandsForLandscapeContent() throws {
+        let document = try makePDFDocument(pageSizes: [NSSize(width: 160, height: 90)])
+
+        let width = FilePreviewPDFSizing.preferredThumbnailSidebarWidth(for: document)
+
+        XCTAssertGreaterThan(width, 200)
+        XCTAssertLessThan(width, FilePreviewPDFSizing.maximumSidebarWidth)
+    }
+
+    func testSidebarWidthClampReservesMinimumContentWidth() {
+        let width = FilePreviewPDFSizing.clampedSidebarWidth(
+            240,
+            containerWidth: FilePreviewPDFSizing.minimumSidebarWidth
+                + FilePreviewPDFSizing.minimumContentWidth
+                - 40,
+            dividerThickness: 1
+        )
+
+        XCTAssertEqual(width, FilePreviewPDFSizing.minimumSidebarWidth, accuracy: 0.001)
+    }
+
+    func testThumbnailSidebarKeepsSingleSelectionWhenProgrammaticallyChangingPage() throws {
+        let sidebar = FilePreviewPDFThumbnailSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 480))
+        let document = try makePDFDocument(pageCount: 5)
+
+        sidebar.setDocument(document)
+        sidebar.selectPage(at: 1, scrollToVisible: false)
+        sidebar.selectPage(at: 3, scrollToVisible: false)
+
+        let mirror = Mirror(reflecting: sidebar)
+        let collectionView = try XCTUnwrap(
+            mirror.descendant("collectionView") as? NSCollectionView
+        )
+
+        let previousItem = sidebar.collectionView(
+            collectionView,
+            itemForRepresentedObjectAt: IndexPath(item: 1, section: 0)
+        )
+        let currentItem = sidebar.collectionView(
+            collectionView,
+            itemForRepresentedObjectAt: IndexPath(item: 3, section: 0)
+        )
+
+        XCTAssertFalse(try thumbnailItemSelectedState(previousItem))
+        XCTAssertTrue(try thumbnailItemSelectedState(currentItem))
+    }
+
+    func testPDFViewportOriginUsesVisibleClipWidth() {
+        let origin = FilePreviewViewport.clampedClipOrigin(
+            documentPoint: CGPoint(x: 500, y: 700),
+            anchorOffsetInClip: CGPoint(x: 200, y: 300),
+            documentBounds: CGRect(x: 0, y: 0, width: 1_000, height: 1_400),
+            clipSize: CGSize(width: 400, height: 600)
+        )
+
+        XCTAssertEqual(origin.x, 300, accuracy: 0.001)
+        XCTAssertEqual(origin.y, 400, accuracy: 0.001)
+    }
+
+    func testPDFViewportOriginCentersSmallerDocuments() {
+        let origin = FilePreviewViewport.clampedClipOrigin(
+            documentPoint: CGPoint(x: 54, y: 224.5),
+            anchorOffsetInClip: CGPoint(x: 300, y: 400),
+            documentBounds: CGRect(x: 0, y: 0, width: 108, height: 449),
+            clipSize: CGSize(width: 600, height: 800)
+        )
+
+        XCTAssertEqual(origin.x, -246, accuracy: 0.001)
+        XCTAssertEqual(origin.y, -175.5, accuracy: 0.001)
+    }
+
+    private func isView(_ view: NSView?, inside container: NSView) -> Bool {
+        var current = view
+        while let next = current {
+            if next === container {
+                return true
+            }
+            current = next.superview
+        }
+        return false
+    }
+
+    private func makePDFDocument(pageCount: Int) throws -> PDFDocument {
+        try makePDFDocument(pageSizes: Array(repeating: NSSize(width: 80, height: 80), count: pageCount))
+    }
+
+    private func makePDFDocument(pageSizes: [NSSize]) throws -> PDFDocument {
+        let document = PDFDocument()
+        for (pageIndex, pageSize) in pageSizes.enumerated() {
+            let image = NSImage(size: pageSize)
+            image.lockFocus()
+            NSColor(
+                calibratedHue: CGFloat(pageIndex) / CGFloat(max(pageSizes.count, 1)),
+                saturation: 0.5,
+                brightness: 0.8,
+                alpha: 1
+            ).setFill()
+            NSBezierPath(rect: NSRect(origin: .zero, size: pageSize)).fill()
+            image.unlockFocus()
+            let page = try XCTUnwrap(PDFPage(image: image))
+            document.insert(page, at: pageIndex)
+        }
+        return document
+    }
+
+    private func thumbnailItemSelectedState(_ item: NSCollectionViewItem) throws -> Bool {
+        try XCTUnwrap(Mirror(reflecting: item.view).descendant("isSelectedForPreview") as? Bool)
+    }
+}
+
+private final class FilePreviewFocusTestView: NSView {
+    override var acceptsFirstResponder: Bool { true }
+    override var canBecomeKeyView: Bool { true }
+}
+
+@MainActor
+final class FilePreviewFocusCoordinatorTests: XCTestCase {
+    func testPDFKeyboardRoutingUsesFocusedRegion() {
+        XCTAssertEqual(
+            FilePreviewPDFKeyboardRouting.action(
+                keyCode: UInt16(kVK_UpArrow),
+                modifiers: [],
+                region: .pdfThumbnails
+            ),
+            .navigatePage(-1)
+        )
+        XCTAssertEqual(
+            FilePreviewPDFKeyboardRouting.action(
+                keyCode: UInt16(kVK_DownArrow),
+                modifiers: [],
+                region: .pdfThumbnails
+            ),
+            .navigatePage(1)
+        )
+        XCTAssertEqual(
+            FilePreviewPDFKeyboardRouting.action(
+                keyCode: UInt16(kVK_UpArrow),
+                modifiers: [],
+                region: .pdfCanvas
+            ),
+            .native
+        )
+        XCTAssertEqual(
+            FilePreviewPDFKeyboardRouting.action(
+                keyCode: UInt16(kVK_DownArrow),
+                modifiers: [],
+                region: .pdfOutline
+            ),
+            .native
+        )
+        XCTAssertEqual(
+            FilePreviewPDFKeyboardRouting.action(
+                keyCode: UInt16(kVK_PageDown),
+                modifiers: .command,
+                region: .pdfThumbnails
+            ),
+            .native
+        )
+    }
+
+    func testCoordinatorResolvesMostSpecificRegisteredSubregion() {
+        let root = FilePreviewFocusTestView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
+        let thumbnailHost = NSView(frame: NSRect(x: 0, y: 0, width: 120, height: 240))
+        let thumbnailResponder = FilePreviewFocusTestView(frame: thumbnailHost.bounds)
+        thumbnailHost.addSubview(thumbnailResponder)
+        root.addSubview(thumbnailHost)
+
+        let coordinator = FilePreviewFocusCoordinator(preferredIntent: .pdfCanvas)
+        coordinator.register(root: root, primaryResponder: root, intent: .pdfCanvas)
+        coordinator.register(
+            root: thumbnailHost,
+            primaryResponder: thumbnailResponder,
+            intent: .pdfThumbnails
+        )
+
+        XCTAssertEqual(coordinator.ownedIntent(for: root), .pdfCanvas)
+        XCTAssertEqual(coordinator.ownedIntent(for: thumbnailResponder), .pdfThumbnails)
+        XCTAssertTrue(coordinator.endpoint(for: .pdfThumbnails) === thumbnailResponder)
+        coordinator.notePreferredIntent(.pdfThumbnails)
+        XCTAssertEqual(coordinator.preferredIntent, .pdfThumbnails)
+    }
+}
+
+
+final class FilePreviewDragPasteboardWriterTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        FilePreviewDragRegistry.shared.discardAll()
+        NSPasteboard(name: .drag).clearContents()
+    }
+
+    override func tearDown() {
+        NSPasteboard(name: .drag).clearContents()
+        FilePreviewDragRegistry.shared.discardAll()
+        super.tearDown()
+    }
+
+    func testRegistrationIsLazyAndDiscardedFromDragPasteboard() throws {
+        let fileURL = URL(fileURLWithPath: "/tmp/example.txt").standardizedFileURL
+        let writer = FilePreviewDragPasteboardWriter(
+            filePath: fileURL.path,
+            displayTitle: "example.txt"
+        )
+        let dragPasteboard = NSPasteboard(name: .drag)
+
+        XCTAssertNil(FilePreviewDragPasteboardWriter.dragID(from: dragPasteboard))
+        XCTAssertTrue(writer.writableTypes(for: dragPasteboard).contains(.fileURL))
+        XCTAssertEqual(
+            writer.pasteboardPropertyList(forType: .fileURL) as? String,
+            fileURL.absoluteString
+        )
+
+        let filePreviewData = try XCTUnwrap(
+            writer.pasteboardPropertyList(forType: DragOverlayRoutingPolicy.filePreviewTransferType) as? Data
+        )
+        let dragID = try XCTUnwrap(FilePreviewDragPasteboardWriter.dragID(from: filePreviewData))
+        XCTAssertTrue(FilePreviewDragRegistry.shared.contains(id: dragID))
+
+        let bonsplitData = try XCTUnwrap(
+            writer.pasteboardPropertyList(forType: FilePreviewDragPasteboardWriter.bonsplitTransferType) as? Data
+        )
+        XCTAssertEqual(FilePreviewDragPasteboardWriter.dragID(from: bonsplitData), dragID)
+        XCTAssertEqual(dragPasteboard.data(forType: DragOverlayRoutingPolicy.filePreviewTransferType), filePreviewData)
+        XCTAssertEqual(dragPasteboard.data(forType: FilePreviewDragPasteboardWriter.bonsplitTransferType), filePreviewData)
+        XCTAssertEqual(dragPasteboard.string(forType: .fileURL), fileURL.absoluteString)
+
+        FilePreviewDragPasteboardWriter.discardRegisteredDrag(from: dragPasteboard)
+
+        XCTAssertFalse(FilePreviewDragRegistry.shared.contains(id: dragID))
+    }
+
+    func testRegistrySweepsExpiredDragEntries() {
+        let start = Date(timeIntervalSince1970: 1_000)
+        let oldID = FilePreviewDragRegistry.shared.register(
+            FilePreviewDragEntry(filePath: "/tmp/old.txt", displayTitle: "old.txt"),
+            now: start
+        )
+        XCTAssertTrue(FilePreviewDragRegistry.shared.contains(id: oldID, now: start.addingTimeInterval(30)))
+
+        let newID = FilePreviewDragRegistry.shared.register(
+            FilePreviewDragEntry(filePath: "/tmp/new.txt", displayTitle: "new.txt"),
+            now: start.addingTimeInterval(61)
+        )
+
+        XCTAssertFalse(FilePreviewDragRegistry.shared.contains(id: oldID, now: start.addingTimeInterval(61)))
+        XCTAssertTrue(FilePreviewDragRegistry.shared.contains(id: newID, now: start.addingTimeInterval(61)))
+    }
+}
+
+
+@MainActor
+final class FilePreviewPanelTextSavingTests: XCTestCase {
+    func testSaveTextContentWritesLiveTextViewContent() async throws {
+        let url = try temporaryTextFile(contents: "original", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        await panel.loadTextContent().value
+        let textView = NSTextView()
+        textView.string = "edited from text view"
+        panel.attachTextView(textView)
+
+        let task = try XCTUnwrap(panel.saveTextContent())
+        XCTAssertTrue(panel.isSaving)
+        await task.value
+
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "edited from text view")
+        XCTAssertEqual(panel.textContent, "edited from text view")
+        XCTAssertFalse(panel.isDirty)
+        XCTAssertFalse(panel.isSaving)
+    }
+
+    func testSaveTextContentIgnoresConcurrentSaveRequest() async throws {
+        let url = try temporaryTextFile(contents: "original", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        await panel.loadTextContent().value
+        panel.updateTextContent("first save")
+
+        try FileManager.default.removeItem(at: url)
+        XCTAssertEqual(mkfifo(url.path, 0o600), 0)
+
+        let firstSave = try XCTUnwrap(panel.saveTextContent())
+        XCTAssertTrue(panel.isSaving)
+
+        panel.updateTextContent("second save")
+        XCTAssertNil(panel.saveTextContent())
+
+        let pipeRead = Task.detached { () throws -> String in
+            let handle = try FileHandle(forReadingFrom: url)
+            defer { try? handle.close() }
+            return String(data: handle.availableData, encoding: .utf8) ?? ""
+        }
+
+        let savedContent = try await pipeRead.value
+        XCTAssertEqual(savedContent, "first save")
+        await firstSave.value
+
+        XCTAssertEqual(panel.textContent, "second save")
+        XCTAssertTrue(panel.isDirty)
+        XCTAssertFalse(panel.isSaving)
+    }
+
+    func testCleanSaveDoesNotCancelPendingTextLoad() async throws {
+        let url = try temporaryTextFile(contents: "", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        await panel.loadTextContent().value
+
+        try "loaded after clean save".write(to: url, atomically: true, encoding: .utf8)
+
+        let loadTask = panel.loadTextContent()
+        XCTAssertNil(panel.saveTextContent())
+        await loadTask.value
+
+        XCTAssertEqual(panel.textContent, "loaded after clean save")
+        XCTAssertFalse(panel.isDirty)
+        XCTAssertFalse(panel.isFileUnavailable)
+    }
+
+    func testSavingTextViewUsesConfiguredSaveShortcut() async throws {
+        KeyboardShortcutSettings.resetAll()
+        defer { KeyboardShortcutSettings.resetAll() }
+
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(key: "u", command: true, shift: false, option: true, control: false),
+            for: .saveFilePreview
+        )
+
+        let url = try temporaryTextFile(contents: "original", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        await panel.loadTextContent().value
+
+        let textView = SavingTextView()
+        textView.string = "saved by configured shortcut"
+        textView.panel = panel
+        panel.attachTextView(textView)
+
+        let event = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command, .option],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: "u",
+            charactersIgnoringModifiers: "u",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_U)
+        ))
+
+        XCTAssertTrue(textView.performKeyEquivalent(with: event))
+        await waitForPanelSave(panel)
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "saved by configured shortcut")
+    }
+
+    func testSavingTextViewDoesNotUseDefaultSaveShortcutAfterRemap() async throws {
+        KeyboardShortcutSettings.resetAll()
+        defer { KeyboardShortcutSettings.resetAll() }
+
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(key: "u", command: true, shift: false, option: true, control: false),
+            for: .saveFilePreview
+        )
+
+        let url = try temporaryTextFile(contents: "original", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        await panel.loadTextContent().value
+
+        let textView = SavingTextView()
+        textView.string = "should not save through command s"
+        textView.panel = panel
+        panel.attachTextView(textView)
+
+        let event = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: "s",
+            charactersIgnoringModifiers: "s",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_S)
+        ))
+
+        XCTAssertFalse(textView.performKeyEquivalent(with: event))
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "original")
+    }
+
+    func testSaveTextContentPreservesLoadedEncoding() async throws {
+        let url = try temporaryTextFile(contents: "original", encoding: .utf16)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        await panel.loadTextContent().value
+        panel.updateTextContent("edited")
+        if let task = panel.saveTextContent() {
+            await task.value
+        }
+
+        let data = try Data(contentsOf: url)
+        XCTAssertEqual(String(data: data, encoding: .utf16), "edited")
+        XCTAssertFalse(panel.isDirty)
+    }
+
+    func testSaveTextContentWritesThroughSymlink() async throws {
+        let targetURL = try temporaryTextFile(contents: "original", encoding: .utf8)
+        let linkURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("txt")
+        defer {
+            try? FileManager.default.removeItem(at: linkURL)
+            try? FileManager.default.removeItem(at: targetURL)
+        }
+        try FileManager.default.createSymbolicLink(
+            at: linkURL,
+            withDestinationURL: targetURL
+        )
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: linkURL.path)
+        await panel.loadTextContent().value
+        panel.updateTextContent("edited through link")
+        if let task = panel.saveTextContent() {
+            await task.value
+        }
+
+        XCTAssertEqual(try String(contentsOf: targetURL, encoding: .utf8), "edited through link")
+        XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: linkURL.path), targetURL.path)
+        XCTAssertFalse(panel.isDirty)
+    }
+
+    func testCleanSaveDoesNotWriteReadOnlyTextFile() async throws {
+        let url = try temporaryTextFile(contents: "original", encoding: .utf8)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+            try? FileManager.default.removeItem(at: url)
+        }
+        try FileManager.default.setAttributes([.posixPermissions: 0o400], ofItemAtPath: url.path)
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        await panel.loadTextContent().value
+        if let task = panel.saveTextContent() {
+            await task.value
+        }
+
+        XCTAssertFalse(panel.isDirty)
+        XCTAssertFalse(panel.isFileUnavailable)
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "original")
+    }
+
+    func testLoadTextContentClearsDirtyStateWhenFileVanishes() async throws {
+        let url = try temporaryTextFile(contents: "original", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        await panel.loadTextContent().value
+        panel.updateTextContent("edited")
+        try FileManager.default.removeItem(at: url)
+
+        await panel.loadTextContent().value
+
+        XCTAssertEqual(panel.textContent, "")
+        XCTAssertFalse(panel.isDirty)
+        XCTAssertTrue(panel.isFileUnavailable)
+    }
+
+    func testTextEditorInsetsReapplyWhenMovedBetweenWindows() {
+        _ = NSApplication.shared
+        let textView = SavingTextView()
+        textView.textContainerInset = .zero
+        textView.textContainer?.lineFragmentPadding = 5
+
+        let firstWindow = windowHosting(textView)
+        XCTAssertEqual(textView.textContainerInset.width, FilePreviewTextEditorLayout.textContainerInset.width)
+        XCTAssertEqual(textView.textContainerInset.height, FilePreviewTextEditorLayout.textContainerInset.height)
+        XCTAssertEqual(textView.textContainer?.lineFragmentPadding, FilePreviewTextEditorLayout.lineFragmentPadding)
+
+        textView.textContainerInset = .zero
+        textView.textContainer?.lineFragmentPadding = 5
+
+        let secondWindow = windowHosting(textView)
+        XCTAssertEqual(textView.textContainerInset.width, FilePreviewTextEditorLayout.textContainerInset.width)
+        XCTAssertEqual(textView.textContainerInset.height, FilePreviewTextEditorLayout.textContainerInset.height)
+        XCTAssertEqual(textView.textContainer?.lineFragmentPadding, FilePreviewTextEditorLayout.lineFragmentPadding)
+
+        withExtendedLifetime([firstWindow, secondWindow]) {}
+    }
+
+    func testPendingTextFocusAppliesWhenTextViewAttaches() throws {
+        _ = NSApplication.shared
+        let url = try temporaryTextFile(contents: "original", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        panel.focus()
+
+        let textView = SavingTextView()
+        let window = windowHosting(textView)
+        panel.attachTextView(textView)
+
+        XCTAssertTrue(window.firstResponder === textView)
+        withExtendedLifetime(window) {}
+    }
+
+    func testPDFExtensionWinsOverLooseTextSniff() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("pdf")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        try Data("%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n".utf8).write(to: url)
+
+        XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .pdf)
+        XCTAssertEqual(FilePreviewKindResolver.tabIconName(for: url), "doc.richtext")
+    }
+
+    func testUTF16TextWithBOMStillResolvesAsText() throws {
+        let url = try temporaryTextFile(contents: "hello", encoding: .utf16)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
+        XCTAssertEqual(FilePreviewKindResolver.tabIconName(for: url), "doc.text")
+    }
+
+    func testExtensionlessTextFileResolvesToTextAfterFastInitialClassification() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        try "extensionless text".write(to: url, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .quickLook)
+        XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        await waitForPanelPreviewMode(panel, .text)
+        await waitForPanelTextContent(panel, "extensionless text")
+
+        XCTAssertEqual(panel.displayIcon, "doc.text")
+    }
+
+    func testBinaryPlistDoesNotOpenAsEditableText() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("plist")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try Data("bplist00".utf8).write(to: url)
+
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .quickLook)
+        XCTAssertNotEqual(FilePreviewKindResolver.mode(for: url), .text)
+    }
+
+    private func temporaryTextFile(contents: String, encoding: String.Encoding) throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("txt")
+        try contents.write(to: url, atomically: true, encoding: encoding)
+        return url
+    }
+
+    private func waitForPanelSave(
+        _ panel: FilePreviewPanel,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        for _ in 0..<1000 {
+            if !panel.isSaving {
+                return
+            }
+            await Task.yield()
+        }
+        XCTFail("Timed out waiting for file preview save", file: file, line: line)
+    }
+
+    private func waitForPanelPreviewMode(
+        _ panel: FilePreviewPanel,
+        _ mode: FilePreviewMode,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        for _ in 0..<1000 {
+            if panel.previewMode == mode {
+                return
+            }
+            await Task.yield()
+        }
+        XCTFail("Timed out waiting for file preview mode", file: file, line: line)
+    }
+
+    private func waitForPanelTextContent(
+        _ panel: FilePreviewPanel,
+        _ content: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        for _ in 0..<1000 {
+            if panel.textContent == content {
+                return
+            }
+            await Task.yield()
+        }
+        XCTFail("Timed out waiting for file preview text content", file: file, line: line)
+    }
+
+    private func windowHosting(_ textView: NSTextView) -> NSWindow {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let scrollView = NSScrollView(frame: window.contentView?.bounds ?? .zero)
+        scrollView.autoresizingMask = [.width, .height]
+        window.contentView?.addSubview(scrollView)
+        scrollView.documentView = textView
+        return window
+    }
+}
+
+
+final class BonsplitTabDragPayloadTests: XCTestCase {
+    func testRejectsFilePreviewCompatibilityPayload() throws {
+        let pasteboard = try makeBonsplitPayloadPasteboard(kind: "filePreview", includesFilePreviewTransferType: true)
+
+        XCTAssertNil(
+            BonsplitTabDragPayload.transfer(from: pasteboard),
+            "Sidebar workspace drop targets should ignore file-preview drags instead of treating them as movable tabs"
+        )
+    }
+
+    func testAcceptsRealFilePreviewTabPayload() throws {
+        let pasteboard = try makeBonsplitPayloadPasteboard(kind: "filePreview")
+
+        XCTAssertNotNil(
+            BonsplitTabDragPayload.transfer(from: pasteboard),
+            "Existing file-preview tabs should still move through normal Bonsplit tab drag paths"
+        )
+    }
+
+    func testAcceptsRegularCurrentProcessTabPayload() throws {
+        let pasteboard = try makeBonsplitPayloadPasteboard(kind: nil)
+
+        XCTAssertNotNil(BonsplitTabDragPayload.transfer(from: pasteboard))
+    }
+
+    private func makeBonsplitPayloadPasteboard(
+        kind: String?,
+        includesFilePreviewTransferType: Bool = false
+    ) throws -> NSPasteboard {
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.bonsplit.\(UUID().uuidString)"))
+        pasteboard.clearContents()
+
+        var tab: [String: Any] = ["id": UUID().uuidString]
+        if let kind {
+            tab["kind"] = kind
+        }
+        let payload: [String: Any] = [
+            "tab": tab,
+            "sourcePaneId": UUID().uuidString,
+            "sourceProcessId": Int(ProcessInfo.processInfo.processIdentifier)
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        pasteboard.setData(data, forType: NSPasteboard.PasteboardType(BonsplitTabDragPayload.typeIdentifier))
+        if includesFilePreviewTransferType {
+            pasteboard.setData(data, forType: DragOverlayRoutingPolicy.filePreviewTransferType)
+        }
+        return pasteboard
+    }
+}
+
 
 @MainActor
 final class FileDropOverlayViewTests: XCTestCase {
@@ -1487,8 +2399,8 @@ final class FileDropOverlayViewTests: XCTestCase {
         let draggingLocation: NSPoint
         let draggedImageLocation: NSPoint
         let draggedImage: NSImage?
-        let draggingPasteboard: NSPasteboard
-        let draggingSource: Any?
+        nonisolated(unsafe) let draggingPasteboard: NSPasteboard
+        nonisolated(unsafe) let draggingSource: Any?
         let draggingSequenceNumber: Int
         var draggingFormation: NSDraggingFormation = .default
         var animatesToDestination = false
@@ -1606,7 +2518,7 @@ final class FileDropOverlayViewTests: XCTestCase {
         )
     }
 
-    func testOverlayForwardsFullDragLifecycleToPortalHostedBrowserWebView() {
+    func testOverlayDoesNotCaptureFileDragLifecycleWhenPanePreviewDropsAreEnabled() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 280),
             styleMask: [.titled, .closable],
@@ -1654,15 +2566,15 @@ final class FileDropOverlayViewTests: XCTestCase {
             pasteboard: pasteboard
         )
 
-        XCTAssertEqual(overlay.draggingEntered(dragInfo), .copy)
-        XCTAssertTrue(overlay.prepareForDragOperation(dragInfo))
-        XCTAssertTrue(overlay.performDragOperation(dragInfo))
+        XCTAssertEqual(overlay.draggingEntered(dragInfo), [])
+        XCTAssertFalse(overlay.prepareForDragOperation(dragInfo))
+        XCTAssertFalse(overlay.performDragOperation(dragInfo))
         overlay.concludeDragOperation(dragInfo)
 
         XCTAssertEqual(
             webView.dragCalls,
-            ["entered", "prepare", "perform", "conclude"],
-            "Finder file drops need the full AppKit drag lifecycle forwarded into the portal-hosted WKWebView"
+            [],
+            "Finder file drops should reach pane-level Bonsplit preview targets instead of the root overlay"
         )
     }
 }

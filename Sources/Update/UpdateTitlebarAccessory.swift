@@ -352,6 +352,7 @@ struct TitlebarControlButton<Content: View>: View {
     let accessibilityIdentifier: String
     let accessibilityLabel: String
     let action: () -> Void
+    var rightClickAction: ((NSView, NSEvent) -> Void)? = nil
     @ViewBuilder let content: () -> Content
     @State private var isHovering = false
 
@@ -368,6 +369,11 @@ struct TitlebarControlButton<Content: View>: View {
         .accessibilityIdentifier(accessibilityIdentifier)
         .accessibilityLabel(accessibilityLabel)
         .background(hoverBackground)
+        .overlay {
+            if let rightClickAction {
+                TitlebarControlRightClickView(onRightMouseDown: rightClickAction)
+            }
+        }
 
         if titlebarControlsShouldTrackButtonHover(config: config) {
             baseButton.onHover { isHovering = $0 }
@@ -382,6 +388,38 @@ struct TitlebarControlButton<Content: View>: View {
             RoundedRectangle(cornerRadius: config.buttonCornerRadius, style: .continuous)
                 .fill(Color.primary.opacity(0.08))
         }
+    }
+}
+
+private struct TitlebarControlRightClickView: NSViewRepresentable {
+    let onRightMouseDown: (NSView, NSEvent) -> Void
+
+    func makeNSView(context: Context) -> TitlebarControlRightClickNSView {
+        let view = TitlebarControlRightClickNSView()
+        view.onRightMouseDown = onRightMouseDown
+        return view
+    }
+
+    func updateNSView(_ nsView: TitlebarControlRightClickNSView, context: Context) {
+        nsView.onRightMouseDown = onRightMouseDown
+    }
+}
+
+private final class TitlebarControlRightClickNSView: NSView {
+    var onRightMouseDown: ((NSView, NSEvent) -> Void)?
+
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard bounds.contains(point),
+              NSApp.currentEvent?.type == .rightMouseDown else {
+            return nil
+        }
+        return self
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        onRightMouseDown?(self, event)
     }
 }
 
@@ -550,7 +588,10 @@ struct TitlebarControlsView: View {
                 cmuxDebugLog("titlebar.newTab")
                 #endif
                 onNewTab()
-            }) {
+            },
+                rightClickAction: { anchorView, event in
+                    _ = AppDelegate.shared?.showNewWorkspaceContextMenu(anchorView: anchorView, event: event)
+                }) {
                 iconLabel(systemName: "plus", config: config)
             }
             .safeHelp(KeyboardShortcutSettings.Action.newTab.tooltip(String(localized: "titlebar.newWorkspace.tooltip", defaultValue: "New workspace")))

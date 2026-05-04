@@ -456,7 +456,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             return
         }
 
-        // Move focus away from browser to terminal first so Cmd+R opens the rename overlay.
+        // Move focus away from browser to terminal first, then open the command palette.
         app.typeKey("h", modifierFlags: [.command, .control])
         XCTAssertTrue(
             waitForDataMatch(timeout: 5.0) { data in
@@ -465,18 +465,18 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             "Expected Cmd+Ctrl+H to move focus to left pane (terminal)"
         )
 
-        let renameField = app.textFields["CommandPaletteRenameField"].firstMatch
-        app.typeKey("r", modifierFlags: [.command])
+        let paletteSearchField = app.textFields["CommandPaletteSearchField"].firstMatch
+        app.typeKey("p", modifierFlags: [.command, .shift])
         XCTAssertTrue(
-            renameField.waitForExistence(timeout: 5.0),
-            "Expected Cmd+R to open the rename command palette while terminal is focused"
+            paletteSearchField.waitForExistence(timeout: 5.0),
+            "Expected Cmd+Shift+P to open the command palette while terminal is focused"
         )
 
         let browserPane = app.otherElements["BrowserPanelContent.\(expectedBrowserPanelId)"].firstMatch
         XCTAssertTrue(browserPane.waitForExistence(timeout: 5.0), "Expected browser pane content for click target")
         browserPane.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
         XCTAssertTrue(
-            waitForNonExistence(renameField, timeout: 5.0),
+            waitForNonExistence(paletteSearchField, timeout: 5.0),
             "Expected clicking the browser pane to dismiss the command palette"
         )
 
@@ -782,6 +782,59 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
                 return paneCountAfter == initialPaneCount + 1
             },
             "Expected Cmd+Shift+D to split down while omnibar is first responder"
+        )
+    }
+
+    func testTerminalSplitAfterBrowserSplitFocusesCreatedTerminal() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_RECORD_ONLY"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        launchAndEnsureForeground(app)
+
+        let window = app.windows.firstMatch
+        _ = window.waitForExistence(timeout: 2.0)
+
+        app.typeKey("d", modifierFlags: [.command])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                guard data["lastSplitDirection"] == "right" else { return false }
+                guard let paneCountAfterSplit = Int(data["paneCountAfterSplit"] ?? "") else { return false }
+                return paneCountAfterSplit >= 2 && data["focusedPanelKind"] == "terminal"
+            },
+            "Expected Cmd+D to create and focus a right terminal split. data=\(String(describing: loadData()))"
+        )
+
+        app.typeKey("d", modifierFlags: [.command, .shift, .option])
+        let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
+        XCTAssertTrue(omnibar.waitForExistence(timeout: 8.0), "Expected browser omnibar after Cmd+Option+Shift+D")
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                data["webViewFocusedAfterAddressBarFocus"] == "false" &&
+                    (data["webViewFocusedAfterAddressBarFocusPanelId"]?.isEmpty == false)
+            },
+            "Expected Cmd+Option+Shift+D to create and focus a browser split. data=\(String(describing: loadData()))"
+        )
+
+        app.typeKey("d", modifierFlags: [.command, .shift])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                guard data["lastSplitDirection"] == "down" else { return false }
+                guard let focusedPanelId = data["focusedPanelId"], !focusedPanelId.isEmpty else { return false }
+                guard let paneCountAfterSplit = Int(data["paneCountAfterSplit"] ?? "") else { return false }
+                return paneCountAfterSplit >= 4 && data["focusedPanelKind"] == "terminal"
+            },
+            "Expected Cmd+Shift+D from browser split to create and select a terminal. data=\(String(describing: loadData()))"
+        )
+
+        guard let focusedPanelId = loadData()?["focusedPanelId"], !focusedPanelId.isEmpty else {
+            XCTFail("Missing focusedPanelId after terminal split. data=\(String(describing: loadData()))")
+            return
+        }
+
+        XCTAssertTrue(
+            waitForStableTerminalFirstResponder(panelId: focusedPanelId, stableDuration: 1.0, timeout: 6.0),
+            "Expected newly created terminal to own AppKit first responder. focusedPanelId=\(focusedPanelId) data=\(String(describing: loadData()))"
         )
     }
 
@@ -1385,6 +1438,38 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             guard let data = self.loadData() else { return false }
             return predicate(data)
         }
+    }
+
+    private func waitForStableTerminalFirstResponder(
+        panelId: String,
+        stableDuration: TimeInterval,
+        timeout: TimeInterval
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        var stableSince: Date?
+
+        while Date() < deadline {
+            let matches = loadData().map { data in
+                data["focusedPanelId"] == panelId &&
+                    data["focusedPanelKind"] == "terminal" &&
+                    data["firstResponderTerminalPanelId"] == panelId
+            } ?? false
+
+            if matches {
+                if stableSince == nil {
+                    stableSince = Date()
+                }
+                if let stableSince, Date().timeIntervalSince(stableSince) >= stableDuration {
+                    return true
+                }
+            } else {
+                stableSince = nil
+            }
+
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+
+        return false
     }
 
     private func waitForNonExistence(_ element: XCUIElement, timeout: TimeInterval) -> Bool {

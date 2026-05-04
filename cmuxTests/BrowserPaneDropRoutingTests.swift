@@ -9,6 +9,13 @@ import Bonsplit
 #endif
 
 final class BrowserPaneDropRoutingTests: XCTestCase {
+    func testFilePreviewPanelTypeUsesLowercaseRawValueWithLegacyDecode() throws {
+        XCTAssertEqual(PanelType.filePreview.rawValue, "filepreview")
+        XCTAssertEqual(PanelType(rawValue: "filepreview"), .filePreview)
+        let legacy = try JSONDecoder().decode(PanelType.self, from: Data("\"filePreview\"".utf8))
+        XCTAssertEqual(legacy, .filePreview)
+    }
+
     func testVerticalZonesFollowAppKitCoordinates() {
         let size = CGSize(width: 240, height: 180)
 
@@ -133,7 +140,7 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
         let sourcePaneId = UUID()
         let payload = try! JSONSerialization.data(
             withJSONObject: [
-                "tab": ["id": tabId.uuidString],
+                "tab": ["id": tabId.uuidString, "kind": "filePreview"],
                 "sourcePaneId": sourcePaneId.uuidString,
                 "sourceProcessId": ProcessInfo.processInfo.processIdentifier,
             ]
@@ -144,5 +151,74 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
         XCTAssertEqual(transfer?.tabId, tabId)
         XCTAssertEqual(transfer?.sourcePaneId, sourcePaneId)
         XCTAssertTrue(transfer?.isFromCurrentProcess == true)
+        XCTAssertEqual(transfer?.kind, "filePreview")
+        XCTAssertTrue(transfer?.isFilePreview == false)
+    }
+
+    func testDecodePasteboardUsesDedicatedFilePreviewTransferType() throws {
+        let realTabPasteboard = try makeBonsplitPanePayloadPasteboard(
+            kind: "filePreview",
+            includesFilePreviewTransferType: false
+        )
+        let realTabTransfer = try XCTUnwrap(BrowserPaneDragTransfer.decode(from: realTabPasteboard))
+        XCTAssertFalse(realTabTransfer.isFilePreview)
+        XCTAssertEqual(realTabTransfer.kind, "filePreview")
+
+        let syntheticPasteboard = try makeBonsplitPanePayloadPasteboard(
+            kind: "filePreview",
+            includesFilePreviewTransferType: true
+        )
+        let syntheticTransfer = try XCTUnwrap(BrowserPaneDragTransfer.decode(from: syntheticPasteboard))
+        XCTAssertTrue(syntheticTransfer.isFilePreview)
+    }
+
+    func testFilePreviewDropDestinationUsesPaneCenterOrSplitZone() {
+        let paneId = PaneID(id: UUID())
+        let target = BrowserPaneDropContext(
+            workspaceId: UUID(),
+            panelId: UUID(),
+            paneId: paneId
+        )
+
+        switch BrowserPaneDropRouting.filePreviewDestination(target: target, zone: .center) {
+        case .insert(let destinationPane, let index):
+            XCTAssertEqual(destinationPane, paneId)
+            XCTAssertNil(index)
+        default:
+            XCTFail("Center file-preview drops should insert into the target pane")
+        }
+
+        switch BrowserPaneDropRouting.filePreviewDestination(target: target, zone: .left) {
+        case .split(let destinationPane, let orientation, let insertFirst):
+            XCTAssertEqual(destinationPane, paneId)
+            XCTAssertEqual(orientation, .horizontal)
+            XCTAssertTrue(insertFirst)
+        default:
+            XCTFail("Edge file-preview drops should split the target pane")
+        }
+    }
+
+    private func makeBonsplitPanePayloadPasteboard(
+        kind: String?,
+        includesFilePreviewTransferType: Bool
+    ) throws -> NSPasteboard {
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.browser-pane.\(UUID().uuidString)"))
+        pasteboard.clearContents()
+
+        var tab: [String: Any] = ["id": UUID().uuidString]
+        if let kind {
+            tab["kind"] = kind
+        }
+        let payload: [String: Any] = [
+            "tab": tab,
+            "sourcePaneId": UUID().uuidString,
+            "sourceProcessId": Int(ProcessInfo.processInfo.processIdentifier)
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        pasteboard.setData(data, forType: DragOverlayRoutingPolicy.bonsplitTabTransferType)
+        if includesFilePreviewTransferType {
+            pasteboard.setData(data, forType: DragOverlayRoutingPolicy.filePreviewTransferType)
+        }
+        return pasteboard
     }
 }

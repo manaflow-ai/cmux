@@ -715,6 +715,30 @@ final class WindowBrowserHostViewTests: XCTestCase {
                 "Browser host should keep external drag payload in WebKit: \(pasteboardTypes)"
             )
         }
+        XCTAssertFalse(
+            WindowBrowserHostView.shouldPassThroughToDragTargets(
+                pasteboardTypes: [.fileURL],
+                eventType: .leftMouseDragged
+            )
+        )
+        XCTAssertFalse(
+            DragOverlayRoutingPolicy.shouldPassThroughPortalHitTesting(
+                pasteboardTypes: [.fileURL],
+                eventType: .leftMouseDragged
+            )
+        )
+        XCTAssertTrue(
+            DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
+                pasteboardTypes: [.fileURL],
+                eventType: .leftMouseDragged
+            )
+        )
+        XCTAssertFalse(
+            DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
+                pasteboardTypes: [.fileURL],
+                eventType: .mouseMoved
+            )
+        )
     }
 
     func testHostViewKeepsHostedInspectorDividerInteractive() {

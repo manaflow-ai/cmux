@@ -484,6 +484,64 @@ describe("VM Effect workflows", () => {
 
     expect(error).toBeInstanceOf(VmCreateCreditsInsufficientError);
     expect(createCalls).toBe(0);
+
+    const [failedVm] = await sql<{
+      status: string;
+      failureCode: string | null;
+      providerVmId: string | null;
+    }[]>`
+      select status, failure_code as "failureCode", provider_vm_id as "providerVmId"
+      from cloud_vms
+      where user_id = 'user-workflow-credit-empty'
+    `;
+    expect(failedVm).toMatchObject({
+      status: "failed",
+      failureCode: "billing_reserve_failed",
+      providerVmId: null,
+    });
+
+    const usageEvents = await sql<{ eventType: string }[]>`
+      select event_type as "eventType" from cloud_vm_usage_events
+      where user_id = 'user-workflow-credit-empty'
+    `;
+    expect(usageEvents.map((event) => event.eventType)).toContain("vm.create.billing_failed");
+
+    const [active] = await sql<{ total: number }[]>`
+      select count(*)::int as total from cloud_vms
+      where billing_team_id = 'team-workflow-credit-empty'
+        and status in ('provisioning', 'running', 'paused')
+    `;
+    expect(active?.total).toBe(0);
+
+    const recoveryProvider: VmProviderGatewayShape = {
+      create: () => Effect.succeed({
+        provider: "freestyle" as const,
+        providerVmId: "provider-vm-credit-recovered",
+        status: "running" as const,
+        image: "snapshot-credit-recovered",
+        createdAt: Date.now(),
+      }),
+      destroy: () => Effect.void,
+      exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
+      openAttach: () => Effect.fail(new Error("unused") as never),
+      openSSH: () => Effect.fail(new Error("unused") as never),
+      revokeSSHIdentity: () => Effect.void,
+    };
+
+    const recovered = await Effect.runPromise(
+      createVm({
+        userId: "user-workflow-credit-empty",
+        billingCustomerType: "team",
+        billingTeamId: "team-workflow-credit-empty",
+        billingPlanId: "free",
+        maxActiveVms: 1,
+        provider: "freestyle",
+        image: "snapshot-credit-recovered",
+        idempotencyKey: "credit-empty-2",
+      }).pipe(Effect.provide(providerLayer(recoveryProvider))),
+    );
+
+    expect(recovered.providerVmId).toBe("provider-vm-credit-recovered");
   });
 
   dbTest("refunds a reserved Stack Auth credit when provider create fails", async () => {

@@ -73,6 +73,13 @@ def main() -> int:
         if not plugin_path.exists():
             print(f"FAIL: expected plugin at {plugin_path}")
             return 1
+        feed_plugin_path = config_dir / "plugins" / "cmux-feed.js"
+        if not feed_plugin_path.exists():
+            print(f"FAIL: expected feed plugin at {feed_plugin_path}")
+            return 1
+        if "cmux-feed-plugin-marker" not in feed_plugin_path.read_text(encoding="utf-8"):
+            print(f"FAIL: expected cmux feed marker in {feed_plugin_path}")
+            return 1
 
         try:
             config = json.loads(config_json.read_text(encoding="utf-8"))
@@ -87,10 +94,13 @@ def main() -> int:
             entry
             for entry in plugins
             if (entry if isinstance(entry, str) else entry[0] if isinstance(entry, list) and entry else "")
-            in {"cmux-session", "./plugins/cmux-session.js"}
+            == "cmux-session"
         ]
         if stale:
             print(f"FAIL: expected stale cmux plugin registrations removed, got {plugins!r}")
+            return 1
+        if "./plugins/cmux-session.js" not in plugins:
+            print(f"FAIL: expected local cmux session plugin registration, got {plugins!r}")
             return 1
         if "oh-my-opencode" not in plugins or ["existing-plugin", {"enabled": True}] not in plugins:
             print(f"FAIL: installer did not preserve existing plugin entries: {plugins!r}")

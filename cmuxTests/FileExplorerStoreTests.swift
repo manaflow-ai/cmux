@@ -294,24 +294,145 @@ final class FileExplorerStoreTests: XCTestCase {
     }
 }
 
-final class FileSearchRipgrepParserTests: XCTestCase {
-    func testParseMatchLineBuildsRelativeSearchResult() {
-        let line = """
-        {"type":"match","data":{"path":{"text":"/tmp/project/Sources/App.swift"},"lines":{"text":"let title = \\"Search files\\"\\n"},"line_number":42,"submatches":[{"match":{"text":"Search"},"start":13,"end":19}]}}
-        """
+@MainActor
+final class FileSearchControllerTests: XCTestCase {
+    private struct WaitTimeout: Error {}
 
-        let result = FileSearchRipgrepParser.parseMatchLine(line, rootPath: "/tmp/project")
+    func testSearchIncludesDotfilesWithoutSearchingGitInternals() async throws {
+        try XCTSkipUnless(Self.hasRipgrep(), "ripgrep is required for file search behavior tests")
 
-        XCTAssertEqual(result?.path, "/tmp/project/Sources/App.swift")
-        XCTAssertEqual(result?.relativePath, "Sources/App.swift")
-        XCTAssertEqual(result?.lineNumber, 42)
-        XCTAssertEqual(result?.columnNumber, 14)
-        XCTAssertEqual(result?.preview, "let title = \"Search files\"")
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        try "visible needle\n".write(
+            to: rootURL.appendingPathComponent("visible.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "hidden needle\n".write(
+            to: rootURL.appendingPathComponent(".env"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let gitURL = rootURL.appendingPathComponent(".git", isDirectory: true)
+        try FileManager.default.createDirectory(at: gitURL, withIntermediateDirectories: true)
+        try "git needle\n".write(
+            to: gitURL.appendingPathComponent("config"),
+            atomically: true,
+            encoding: .utf8
+        )
+        for generatedDirectoryName in ["node_modules", "dist", "build", "DerivedData"] {
+            let generatedURL = rootURL.appendingPathComponent(generatedDirectoryName, isDirectory: true)
+            try FileManager.default.createDirectory(at: generatedURL, withIntermediateDirectories: true)
+            try "generated needle\n".write(
+                to: generatedURL.appendingPathComponent("generated.txt"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+
+        let controller = FileSearchController()
+        var snapshots: [FileSearchSnapshot] = []
+        controller.onSnapshotChanged = { snapshots.append($0) }
+
+        controller.search(query: "needle", rootPath: rootURL.path, isLocal: true)
+        let finalSnapshot = try await waitForSettledSearchSnapshot { snapshots.last }
+
+        XCTAssertEqual(finalSnapshot.status, .matches)
+        XCTAssertTrue(finalSnapshot.results.contains { $0.relativePath == "visible.txt" })
+        XCTAssertTrue(finalSnapshot.results.contains { $0.relativePath == ".env" })
+        XCTAssertFalse(finalSnapshot.results.contains { $0.relativePath.hasPrefix(".git/") })
+        XCTAssertFalse(finalSnapshot.results.contains { $0.relativePath.hasPrefix("node_modules/") })
+        XCTAssertFalse(finalSnapshot.results.contains { $0.relativePath.hasPrefix("dist/") })
+        XCTAssertFalse(finalSnapshot.results.contains { $0.relativePath.hasPrefix("build/") })
+        XCTAssertFalse(finalSnapshot.results.contains { $0.relativePath.hasPrefix("DerivedData/") })
     }
 
-    func testParseMatchLineIgnoresNonMatchEvents() {
-        let line = #"{"type":"summary","data":{"elapsed_total":{"secs":0,"nanos":1}}}"#
+    func testSearchRefreshesWhenContentRevisionChanges() async throws {
+        try XCTSkipUnless(Self.hasRipgrep(), "ripgrep is required for file search behavior tests")
 
-        XCTAssertNil(FileSearchRipgrepParser.parseMatchLine(line, rootPath: "/tmp/project"))
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+
+        let controller = FileSearchController()
+        var snapshots: [FileSearchSnapshot] = []
+        controller.onSnapshotChanged = { snapshots.append($0) }
+
+        controller.search(query: "needle", rootPath: rootURL.path, isLocal: true, contentRevision: 1)
+        let emptySnapshot = try await waitForSettledSearchSnapshot { snapshots.last }
+        XCTAssertEqual(emptySnapshot.status, .noMatches)
+
+        try "fresh needle\n".write(
+            to: rootURL.appendingPathComponent("fresh.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        controller.search(query: "needle", rootPath: rootURL.path, isLocal: true, contentRevision: 2)
+        let refreshedSnapshot = try await waitForSettledSearchSnapshot { snapshots.last }
+
+        XCTAssertEqual(refreshedSnapshot.status, .matches)
+        XCTAssertEqual(refreshedSnapshot.results.map(\.relativePath), ["fresh.txt"])
+    }
+
+    func testSearchRefreshesSameRequestAfterFileContentsChange() async throws {
+        try XCTSkipUnless(Self.hasRipgrep(), "ripgrep is required for file search behavior tests")
+
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+
+        let fileURL = rootURL.appendingPathComponent("editable.txt")
+        try "old text\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let controller = FileSearchController()
+        var snapshots: [FileSearchSnapshot] = []
+        controller.onSnapshotChanged = { snapshots.append($0) }
+
+        controller.search(query: "needle", rootPath: rootURL.path, isLocal: true, contentRevision: 1)
+        let emptySnapshot = try await waitForSettledSearchSnapshot { snapshots.last }
+        XCTAssertEqual(emptySnapshot.status, .noMatches)
+
+        try "fresh needle\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        controller.search(query: "needle", rootPath: rootURL.path, isLocal: true, contentRevision: 1)
+        let refreshedSnapshot = try await waitForSettledSearchSnapshot { snapshots.last }
+
+        XCTAssertEqual(refreshedSnapshot.status, .matches)
+        XCTAssertEqual(refreshedSnapshot.results.map(\.relativePath), ["editable.txt"])
+    }
+
+    private func waitForSettledSearchSnapshot(
+        timeout: TimeInterval = 5,
+        _ snapshot: @MainActor @escaping () -> FileSearchSnapshot?
+    ) async throws -> FileSearchSnapshot {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let current = snapshot(), !current.isSearching {
+                return current
+            }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTFail("Timed out waiting for file search to finish")
+        throw WaitTimeout()
+    }
+
+    private static func hasRipgrep() -> Bool {
+        let fileManager = FileManager.default
+        for path in ["/opt/homebrew/bin/rg", "/usr/local/bin/rg", "/usr/bin/rg"] where fileManager.isExecutableFile(atPath: path) {
+            return true
+        }
+        let pathValue = ProcessInfo.processInfo.environment["PATH"] ?? ""
+        for directory in pathValue.split(separator: ":", omittingEmptySubsequences: true) {
+            let path = URL(fileURLWithPath: String(directory)).appendingPathComponent("rg").path
+            if fileManager.isExecutableFile(atPath: path) {
+                return true
+            }
+        }
+        return false
     }
 }

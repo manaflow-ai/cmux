@@ -145,6 +145,7 @@ struct RightSidebarPanelView: View {
     let titlebarHeight: CGFloat
     let workspaceId: UUID?
     let onResumeSession: ((SessionEntry) -> Void)?
+    let onOpenFilePreview: (String) -> Void
 
     @StateObject private var modeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOrControl) { window in
         guard let responder = window.firstResponder else { return false }
@@ -259,9 +260,19 @@ struct RightSidebarPanelView: View {
     private var contentForMode: some View {
         switch fileExplorerState.mode {
         case .files:
-            FileExplorerPanelView(store: fileExplorerStore, state: fileExplorerState, presentation: .files)
+            FileExplorerPanelView(
+                store: fileExplorerStore,
+                state: fileExplorerState,
+                onOpenFilePreview: onOpenFilePreview,
+                presentation: .files
+            )
         case .find:
-            FileExplorerPanelView(store: fileExplorerStore, state: fileExplorerState, presentation: .find)
+            FileExplorerPanelView(
+                store: fileExplorerStore,
+                state: fileExplorerState,
+                onOpenFilePreview: onOpenFilePreview,
+                presentation: .find
+            )
         case .sessions:
             SessionIndexView(store: sessionIndexStore, onResume: onResumeSession)
                 .onAppear {
