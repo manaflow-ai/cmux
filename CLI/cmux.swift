@@ -3338,7 +3338,7 @@ struct CMUXCLI {
                 throw error
             }
         case "codex-hook": // Backwards compatibility for older installed Codex hooks. Hidden from help.
-            guard let codexDef = Self.agentDef(named: "codex") else { throw CLIError(message: "Codex hook integration is unavailable.") }
+            guard let codexDef = Self.agentDef(named: "codex") else { print("{}"); return }
             try runGenericAgentHook(def: codexDef, commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
         case "feed-hook": // Backwards compatibility for older installed Feed hooks. Hidden from help.
             try runFeedHook(commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
