@@ -66,6 +66,10 @@ final class SimulatorService: @unchecked Sendable {
 
     private init() {}
 
+    static func udidsMatch(_ lhs: String, _ rhs: String) -> Bool {
+        normalizedUDID(lhs) == normalizedUDID(rhs)
+    }
+
     func listDevices() throws -> [SimulatorDevice] {
         guard SimulatorPrivateFrameworks.ensureLoaded() else {
             throw SimulatorError.frameworksUnavailable(
@@ -144,7 +148,8 @@ final class SimulatorService: @unchecked Sendable {
         guard let set = try resolveDefaultSet() else { return nil }
         let devices = (set.value(forKey: "availableDevices") as? [NSObject]) ?? []
         for device in devices {
-            if (device.value(forKey: "UDID") as? NSUUID)?.uuidString == udid {
+            if let deviceUDID = (device.value(forKey: "UDID") as? NSUUID)?.uuidString,
+               Self.udidsMatch(deviceUDID, udid) {
                 return device
             }
         }
@@ -227,6 +232,11 @@ final class SimulatorService: @unchecked Sendable {
     private func errorIsAlreadyShutdown(_ err: NSError) -> Bool {
         let msg = err.localizedDescription.lowercased()
         return msg.contains("already") && msg.contains("shut")
+    }
+
+    private static func normalizedUDID(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return UUID(uuidString: trimmed)?.uuidString ?? trimmed.uppercased()
     }
 }
 

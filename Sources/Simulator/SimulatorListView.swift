@@ -26,8 +26,8 @@ struct SimulatorListView: View {
         }
         .onAppear {
             model.attachFrameStore(frameStore)
-            model.startAutoRefresh()
             model.setVisibleInUI(isVisibleInUI)
+            model.startAutoRefresh()
             if let initialUDID { model.selectByUDID(initialUDID) }
         }
         .onDisappear { model.stopAutoRefresh() }
@@ -152,7 +152,7 @@ struct SimulatorListView: View {
     private var previewHeader: some View {
         HStack {
             if let udid = model.selectedUDID,
-               let device = model.devices.first(where: { $0.udid == udid }) {
+               let device = model.devices.first(where: { SimulatorService.udidsMatch($0.udid, udid) }) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(device.name).font(.system(size: 12, weight: .semibold))
                     Text(device.runtime).font(.system(size: 10)).foregroundColor(.secondary)
@@ -181,7 +181,7 @@ struct SimulatorListView: View {
                         .position(x: rendered.midX, y: rendered.midY)
                         .gesture(dragGesture(in: rendered))
                 } else if let udid = model.selectedUDID,
-                          let device = model.devices.first(where: { $0.udid == udid }),
+                          let device = model.devices.first(where: { SimulatorService.udidsMatch($0.udid, udid) }),
                           !device.isBooted {
                     VStack(spacing: 6) {
                         Image(systemName: "iphone.slash").font(.system(size: 28))
@@ -335,7 +335,7 @@ struct SimulatorListView: View {
 
     private var isBootedSelection: Bool {
         guard let udid = model.selectedUDID else { return false }
-        return model.devices.first(where: { $0.udid == udid })?.isBooted == true
+        return model.devices.first(where: { SimulatorService.udidsMatch($0.udid, udid) })?.isBooted == true
     }
 
     private var deviceSizeCaption: String {

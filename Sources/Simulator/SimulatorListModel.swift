@@ -30,6 +30,8 @@ final class SimulatorListModel {
     @ObservationIgnored
     private var refreshTimer: Timer?
     @ObservationIgnored
+    private var autoRefreshEnabled: Bool = false
+    @ObservationIgnored
     private var refreshGeneration: UInt64 = 0
     @ObservationIgnored
     private var isVisibleInUI: Bool = true
@@ -51,16 +53,15 @@ final class SimulatorListModel {
     }
 
     func startAutoRefresh() {
+        autoRefreshEnabled = true
+        guard isVisibleInUI else { return }
         refresh()
-        refreshTimer?.invalidate()
-        refreshTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.refresh() }
-        }
+        scheduleRefreshTimer()
     }
 
     func stopAutoRefresh() {
-        refreshTimer?.invalidate()
-        refreshTimer = nil
+        autoRefreshEnabled = false
+        invalidateRefreshTimer()
         stopStreaming()
     }
 
@@ -68,8 +69,13 @@ final class SimulatorListModel {
         guard isVisibleInUI != visible else { return }
         isVisibleInUI = visible
         if visible {
+            if autoRefreshEnabled {
+                refresh()
+                scheduleRefreshTimer()
+            }
             reconcileSelectedDeviceState()
         } else {
+            invalidateRefreshTimer()
             stopStreaming()
         }
     }
@@ -100,7 +106,7 @@ final class SimulatorListModel {
     }
 
     func shutdown(_ device: SimulatorDevice) {
-        if device.udid == selectedUDID {
+        if let selectedUDID, SimulatorService.udidsMatch(device.udid, selectedUDID) {
             stopStreaming()
         }
         Task.detached(priority: .userInitiated) {
@@ -122,7 +128,7 @@ final class SimulatorListModel {
 
     func selectByUDID(_ udid: String?) {
         guard let udid else { select(nil); return }
-        if let device = devices.first(where: { $0.udid == udid }) {
+        if let device = devices.first(where: { SimulatorService.udidsMatch($0.udid, udid) }) {
             select(device)
         } else {
             stopStreaming()
@@ -215,21 +221,36 @@ final class SimulatorListModel {
             stopStreaming()
             return
         }
-        guard let device = devices.first(where: { $0.udid == selectedUDID }) else {
+        guard let device = devices.first(where: { SimulatorService.udidsMatch($0.udid, selectedUDID) }) else {
             self.selectedUDID = nil
             stopStreaming()
             return
         }
+        if selectedUDID != device.udid {
+            self.selectedUDID = device.udid
+        }
         if device.isBooted {
-            if streamingUDID != selectedUDID || screen == nil {
+            if streamingUDID != device.udid || screen == nil {
                 stopStreaming()
-                startStreaming(udid: selectedUDID)
+                startStreaming(udid: device.udid)
             }
-        } else if streamingUDID == selectedUDID || screen != nil {
+        } else if streamingUDID == device.udid || screen != nil {
             stopStreaming()
         } else {
             frameStore?.clear()
         }
+    }
+
+    private func scheduleRefreshTimer() {
+        refreshTimer?.invalidate()
+        refreshTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.refresh() }
+        }
+    }
+
+    private func invalidateRefreshTimer() {
+        refreshTimer?.invalidate()
+        refreshTimer = nil
     }
 
     private func startStreaming(udid: String) {
@@ -287,4 +308,10 @@ final class SimulatorListModel {
         let size = NSSize(width: cg.width, height: cg.height)
         return NSImage(cgImage: cg, size: size)
     }
+
+    #if DEBUG
+    var isAutoRefreshTimerActiveForTesting: Bool {
+        refreshTimer != nil
+    }
+    #endif
 }

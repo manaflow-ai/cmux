@@ -61,3 +61,37 @@ final class SimulatorSessionPersistenceTests: XCTestCase {
         }
     }
 }
+
+final class SimulatorServiceUDIDTests: XCTestCase {
+    func testUDIDMatchingNormalizesCase() {
+        let canonical = "A73B3AF0-8C9F-4A8B-A89A-4F4E10AF6821"
+
+        XCTAssertTrue(SimulatorService.udidsMatch(canonical, canonical.lowercased()))
+        XCTAssertFalse(SimulatorService.udidsMatch(canonical, "B73B3AF0-8C9F-4A8B-A89A-4F4E10AF6821"))
+    }
+}
+
+@MainActor
+final class SimulatorListModelLifecycleTests: XCTestCase {
+    func testHiddenViewDoesNotStartRefreshTimer() {
+        let model = SimulatorListModel()
+
+        model.setVisibleInUI(false)
+        model.startAutoRefresh()
+
+        XCTAssertFalse(model.isAutoRefreshTimerActiveForTesting)
+        model.stopAutoRefresh()
+    }
+
+    func testVisibilityTransitionStopsRefreshTimer() {
+        let model = SimulatorListModel()
+
+        model.startAutoRefresh()
+        XCTAssertTrue(model.isAutoRefreshTimerActiveForTesting)
+
+        model.setVisibleInUI(false)
+
+        XCTAssertFalse(model.isAutoRefreshTimerActiveForTesting)
+        model.stopAutoRefresh()
+    }
+}
