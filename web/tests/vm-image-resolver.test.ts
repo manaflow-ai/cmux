@@ -11,8 +11,8 @@ describe("VM image resolver", () => {
     });
     expect(resolveVmImage("freestyle", undefined, {})).toMatchObject({
       provider: "freestyle",
-      image: "sc-mt237w1nd7c7673bd03m",
-      imageVersion: "freestyle-sc-mt237",
+      image: "sh-6ch5p9k23xrcx24056n8",
+      imageVersion: "freestyle-rpclease-20260502a",
     });
   });
 

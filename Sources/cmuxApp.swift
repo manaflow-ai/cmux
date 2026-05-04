@@ -37,7 +37,7 @@ struct cmuxApp: App {
         LanguageSettings.apply(LanguageSettings.languageAtLaunch)
 
         let startupAppearance = AppearanceSettings.resolvedMode()
-        Self.applyAppearance(startupAppearance)
+        Self.applyAppearance(startupAppearance, duringLaunch: true)
         _tabManager = StateObject(wrappedValue: TabManager())
         // Migrate legacy and old-format socket mode values to the new enum.
         let defaults = UserDefaults.standard
@@ -797,10 +797,12 @@ struct cmuxApp: App {
         Self.applyAppearance(mode)
     }
 
-    private static func applyAppearance(_ mode: AppearanceMode) {
+    private static func applyAppearance(_ mode: AppearanceMode, duringLaunch: Bool = false) {
         switch mode {
         case .system:
-            NSApplication.shared.appearance = nil
+            NSApplication.shared.appearance = duringLaunch
+                ? AppearanceSettings.systemNSAppearance()
+                : nil
         case .light:
             NSApplication.shared.appearance = NSAppearance(named: .aqua)
         case .dark:
@@ -2488,6 +2490,7 @@ enum SettingsWindowPresenter {
     static let windowID = "settings"
     static let windowIdentifier = "cmux.settings"
     static let minimumSize = NSSize(width: 820, height: 540)
+    private static let visibleAreaInset: CGFloat = 18
 
     private static var openWindow: (@MainActor () -> Void)?
     private static weak var settingsWindow: NSWindow?
@@ -2505,8 +2508,10 @@ enum SettingsWindowPresenter {
     static func configure(window: NSWindow) {
         settingsWindow = window
         window.identifier = NSUserInterfaceItemIdentifier(windowIdentifier)
+        window.isRestorable = false
         window.minSize = minimumSize
         window.contentMinSize = minimumSize
+        clampToVisibleAreaIfNeeded(window)
     }
 
     static func show(navigationTarget: SettingsNavigationTarget? = nil) {
@@ -2559,9 +2564,28 @@ enum SettingsWindowPresenter {
         if window.isMiniaturized {
             window.deminiaturize(nil)
         }
+        clampToVisibleAreaIfNeeded(window)
         NSRunningApplication.current.activate(options: [.activateAllWindows])
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
+    }
+
+    private static func clampToVisibleAreaIfNeeded(_ window: NSWindow) {
+        guard let screen = window.screen ?? NSScreen.main else { return }
+        var frame = window.frame
+        let visibleFrame = screen.visibleFrame
+        let minX = visibleFrame.minX + visibleAreaInset
+        let minY = visibleFrame.minY + visibleAreaInset
+        let maxX = max(minX, visibleFrame.maxX - visibleAreaInset - frame.width)
+        let maxY = max(minY, visibleFrame.maxY - visibleAreaInset - frame.height)
+        let clampedOrigin = NSPoint(
+            x: min(max(frame.origin.x, minX), maxX),
+            y: min(max(frame.origin.y, minY), maxY)
+        )
+
+        guard clampedOrigin != frame.origin else { return }
+        frame.origin = clampedOrigin
+        window.setFrame(frame, display: true)
     }
 }
 
@@ -4490,57 +4514,6 @@ private struct AboutVisualEffectBackground: NSViewRepresentable {
     }
 }
 
-enum AppearanceMode: String, CaseIterable, Identifiable {
-    case system
-    case light
-    case dark
-    case auto
-
-    var id: String { rawValue }
-
-    static var visibleCases: [AppearanceMode] {
-        [.system, .light, .dark]
-    }
-
-    var displayName: String {
-        switch self {
-        case .system:
-            return String(localized: "appearance.system", defaultValue: "System")
-        case .light:
-            return String(localized: "appearance.light", defaultValue: "Light")
-        case .dark:
-            return String(localized: "appearance.dark", defaultValue: "Dark")
-        case .auto:
-            return String(localized: "appearance.auto", defaultValue: "Auto")
-        }
-    }
-}
-
-enum AppearanceSettings {
-    static let appearanceModeKey = "appearanceMode"
-    static let defaultMode: AppearanceMode = .system
-
-    static func mode(for rawValue: String?) -> AppearanceMode {
-        guard let rawValue, let mode = AppearanceMode(rawValue: rawValue) else {
-            return defaultMode
-        }
-        if mode == .auto {
-            return .system
-        }
-        return mode
-    }
-
-    @discardableResult
-    static func resolvedMode(defaults: UserDefaults = .standard) -> AppearanceMode {
-        let stored = defaults.string(forKey: appearanceModeKey)
-        let resolved = mode(for: stored)
-        if stored != resolved.rawValue {
-            defaults.set(resolved.rawValue, forKey: appearanceModeKey)
-        }
-        return resolved
-    }
-}
-
 enum AppLanguage: String, CaseIterable, Identifiable {
     case system
     case en
@@ -5192,7 +5165,7 @@ enum CmuxRuntimeDebugCapture {
         return sequence
     }
 }
-private func openCmuxSettingsFileInEditor() {
+func openCmuxSettingsFileInEditor() {
     let url = KeyboardShortcutSettings.settingsFileStore.settingsFileURLForEditing()
     PreferredEditorSettings.open(url)
 }

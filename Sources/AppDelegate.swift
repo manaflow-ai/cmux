@@ -1488,6 +1488,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         isTerminatingApp = true
         _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
         stopSessionAutosaveTimer()
+        CloudVMActionLauncher.shared.terminateAll()
         TerminalController.shared.stop()
         VSCodeServeWebController.shared.stop()
         BrowserProfileStore.shared.flushPendingSaves()
@@ -3844,6 +3845,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
             }
         }
+        for route in recoverableMainWindowRoutes() {
+            guard let manager = route.tabManager else { continue }
+            for workspace in manager.tabs {
+                if let panelId = workspace.panelIdFromSurfaceId(bonsplitTabId) {
+                    return (route.windowId, workspace.id, panelId, manager)
+                }
+            }
+        }
         return nil
     }
 
@@ -4990,11 +4999,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }) else {
             return nil
         }
-        guard resolvedWindow(for: context) != nil else {
-            discardOrphanedMainWindowContext(context)
-            return nil
-        }
-        return context.tabManager
+        return resolvedWindow(for: context) == nil ? nil : context.tabManager
     }
 
 #if DEBUG
@@ -5949,6 +5954,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return true
     }
 
+    @discardableResult
+    func performCloudVMAction(
+        tabManager preferredTabManager: TabManager? = nil,
+        preferredWindow: NSWindow? = nil,
+        debugSource: String = "cloudVM"
+    ) -> Bool {
+        let context = preferredTabManager.flatMap { mainWindowContext(for: $0) }
+            ?? preferredWindow.flatMap { contextForMainWindow($0) }
+            ?? preferredMainWindowContextForWorkspaceCreation(event: nil, debugSource: debugSource)
+        guard let context else {
+            NSSound.beep()
+            return false
+        }
+        let socketPath = TerminalController.shared.activeSocketPath(
+            preferredPath: SocketControlSettings.socketPath()
+        )
+        return CloudVMActionLauncher.shared.start(
+            socketPath: socketPath,
+            preferredWindow: resolvedWindow(for: context) ?? preferredWindow
+        )
+    }
+
     private func mainWindowContext(for tabManager: TabManager) -> MainWindowContext? {
         mainWindowContexts.values.first(where: { $0.tabManager === tabManager })
     }
@@ -6446,7 +6473,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 chosenContext: nil
             )
 #endif
-            return nil
         }
 
         if let context = mainWindowContext(forShortcutEvent: event, debugSource: debugSource) {
@@ -12377,6 +12403,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         switch action.action {
         case .builtIn(let builtIn):
             switch builtIn {
+            case .newWorkspace:
+                context.tabManager.addWorkspace()
+                onExecuted?()
+                return true
+            case .cloudVM:
+                let didStart = performCloudVMAction(
+                    tabManager: context.tabManager,
+                    preferredWindow: resolvedWindow(for: context) ?? preferredWindow,
+                    debugSource: "configured.cmux.cloudvm"
+                )
+                if didStart { onExecuted?() }
+                return didStart
             case .newTerminal:
                 context.tabManager.newSurface()
                 onExecuted?()

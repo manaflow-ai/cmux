@@ -32,14 +32,11 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) throws -> (raw: String, envelope: [String: Any]) {
-        var request: [String: Any] = [
+        let request: [String: Any] = [
             "id": id ?? method,
             "method": method,
             "params": params
         ]
-        if params.isEmpty {
-            request["params"] = [:]
-        }
         let requestData = try JSONSerialization.data(withJSONObject: request)
         let requestLine = try XCTUnwrap(String(data: requestData, encoding: .utf8), file: file, line: line)
         let raw = TerminalController.shared.handleSocketLine(requestLine)
@@ -56,18 +53,6 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         let (raw, envelope) = try v2Envelope(method: method, params: params, id: id, file: file, line: line)
         XCTAssertEqual(envelope["ok"] as? Bool, true, raw, file: file, line: line)
         return try XCTUnwrap(envelope["result"] as? [String: Any], raw, file: file, line: line)
-    }
-
-    private func v2ResultIfAvailable(
-        method: String,
-        params: [String: Any] = [:],
-        id: String? = nil,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) throws -> [String: Any]? {
-        let (raw, envelope) = try v2Envelope(method: method, params: params, id: id, file: file, line: line)
-        XCTAssertEqual(envelope["ok"] as? Bool, true, raw, file: file, line: line)
-        return envelope["result"] as? [String: Any]
     }
 
     private func workspaceListPayload(surfaceId: UUID, file: StaticString = #filePath, line: UInt = #line) throws -> [String: Any] {
@@ -196,40 +181,39 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
             "system.tree should not report an empty world while a live terminal surface is still associated with its workspace"
         )
 
-        if let currentWindow = try v2ResultIfAvailable(method: "window.current") {
-            XCTAssertEqual(currentWindow["window_id"] as? String, windowId.uuidString)
-        }
-        if let currentWorkspace = try v2ResultIfAvailable(method: "workspace.current") {
-            XCTAssertEqual(currentWorkspace["workspace_id"] as? String, workspace.id.uuidString)
-        }
-        if let workspaceList = try v2ResultIfAvailable(method: "workspace.list") {
-            try assertWorkspaceListContains(workspaceList, workspaceId: workspace.id)
-        }
-        if let workspaceListBySurface = try v2ResultIfAvailable(method: "workspace.list", params: ["surface_id": surfaceId.uuidString]) {
-            try assertWorkspaceListContains(workspaceListBySurface, workspaceId: workspace.id)
-        }
-        if let surfaces = try v2ResultIfAvailable(method: "surface.list", params: ["surface_id": surfaceId.uuidString]) {
-            XCTAssertEqual(surfaces["workspace_id"] as? String, workspace.id.uuidString)
-        }
-        if let currentSurface = try v2ResultIfAvailable(method: "surface.current", params: ["surface_id": surfaceId.uuidString]) {
-            XCTAssertEqual(currentSurface["workspace_id"] as? String, workspace.id.uuidString)
-        }
-        if let panes = try v2ResultIfAvailable(method: "pane.list", params: ["surface_id": surfaceId.uuidString]) {
-            XCTAssertEqual(panes["workspace_id"] as? String, workspace.id.uuidString)
-        }
-        if let health = try v2ResultIfAvailable(method: "surface.health", params: ["surface_id": surfaceId.uuidString]) {
-            XCTAssertEqual(health["workspace_id"] as? String, workspace.id.uuidString)
-        }
-        if let split = try v2ResultIfAvailable(
+        let currentWindow = try v2Result(method: "window.current")
+        XCTAssertEqual(currentWindow["window_id"] as? String, windowId.uuidString)
+
+        let currentWorkspace = try v2Result(method: "workspace.current")
+        XCTAssertEqual(currentWorkspace["workspace_id"] as? String, workspace.id.uuidString)
+
+        let workspaceList = try v2Result(method: "workspace.list")
+        try assertWorkspaceListContains(workspaceList, workspaceId: workspace.id)
+
+        let workspaceListBySurface = try v2Result(method: "workspace.list", params: ["surface_id": surfaceId.uuidString])
+        try assertWorkspaceListContains(workspaceListBySurface, workspaceId: workspace.id)
+
+        let surfaces = try v2Result(method: "surface.list", params: ["surface_id": surfaceId.uuidString])
+        XCTAssertEqual(surfaces["workspace_id"] as? String, workspace.id.uuidString)
+
+        let currentSurface = try v2Result(method: "surface.current", params: ["surface_id": surfaceId.uuidString])
+        XCTAssertEqual(currentSurface["workspace_id"] as? String, workspace.id.uuidString)
+
+        let panes = try v2Result(method: "pane.list", params: ["surface_id": surfaceId.uuidString])
+        XCTAssertEqual(panes["workspace_id"] as? String, workspace.id.uuidString)
+
+        let health = try v2Result(method: "surface.health", params: ["surface_id": surfaceId.uuidString])
+        XCTAssertEqual(health["workspace_id"] as? String, workspace.id.uuidString)
+
+        let split = try v2Result(
             method: "surface.split",
             params: [
                 "surface_id": surfaceId.uuidString,
                 "direction": "right",
                 "focus": false
             ]
-        ) {
-            XCTAssertNotNil(split["surface_id"] as? String)
-        }
+        )
+        XCTAssertNotNil(split["surface_id"] as? String)
     }
 
     func testIssue2907NoTargetCommandsPreferKeyRecoveredWindowOverRegisteredWindow() throws {
@@ -287,5 +271,89 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
 
         let currentWorkspace = try v2Result(method: "workspace.current")
         XCTAssertEqual(currentWorkspace["workspace_id"] as? String, recoveredWorkspace.id.uuidString)
+    }
+
+    func testIssue2907BonsplitTabLookupUsesRecoveredRoute() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            window.orderOut(nil)
+        }
+
+        let manager = TabManager()
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let terminalPanel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        let bonsplitTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(terminalPanel.id)?.uuid)
+
+        app.unregisterMainWindowContextForTesting(windowId: windowId)
+        TerminalController.shared.setActiveTabManager(nil)
+
+        let located = try XCTUnwrap(app.locateBonsplitSurface(tabId: bonsplitTabId))
+        XCTAssertEqual(located.windowId, windowId)
+        XCTAssertEqual(located.workspaceId, workspace.id)
+        XCTAssertEqual(located.panelId, terminalPanel.id)
+        XCTAssertTrue(located.tabManager === manager)
+    }
+
+    func testWorkspaceCreationContinuesAfterStaleActiveContextDiscard() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let staleManager = TabManager()
+        let liveManager = TabManager()
+        let staleWindowId = app.registerMainWindowContextForTesting(tabManager: staleManager)
+        let liveWindowId = UUID()
+        let liveWindow = makeMainWindow(id: liveWindowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: staleWindowId)
+            app.unregisterMainWindowContextForTesting(windowId: liveWindowId)
+            liveWindow.orderOut(nil)
+        }
+
+        app.registerMainWindow(
+            liveWindow,
+            windowId: liveWindowId,
+            tabManager: liveManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        liveWindow.makeKeyAndOrderFront(nil)
+        app.tabManager = staleManager
+        TerminalController.shared.setActiveTabManager(staleManager)
+
+        let originalLiveWorkspaceCount = liveManager.tabs.count
+        let createdWorkspaceId = app.addWorkspaceInPreferredMainWindow(
+            shouldBringToFront: false,
+            debugSource: "test.issue2907.staleActiveContext"
+        )
+
+        let unwrappedCreatedWorkspaceId = try XCTUnwrap(createdWorkspaceId)
+        XCTAssertEqual(liveManager.tabs.count, originalLiveWorkspaceCount + 1)
+        XCTAssertTrue(liveManager.tabs.contains { $0.id == unwrappedCreatedWorkspaceId })
     }
 }
