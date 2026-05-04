@@ -1,6 +1,16 @@
 import AppKit
 import WebKit
 
+struct ShortcutEventFocusContext {
+    let browserPanel: BrowserPanel?
+    let rightSidebarFocused: Bool
+}
+
+struct ShortcutEventFocusContextCache {
+    let event: NSEvent
+    let context: ShortcutEventFocusContext
+}
+
 extension KeyboardShortcutSettings.Action {
     enum ShortcutContext: Equatable {
         case application
@@ -8,21 +18,28 @@ extension KeyboardShortcutSettings.Action {
         case browserPanel
         case rightSidebarFocus
 
-        func isAvailable(focusedBrowserPanel: Bool) -> Bool {
+        var isAlwaysAvailable: Bool {
+            self == .application
+        }
+
+        func isAvailable(focusedBrowserPanel: Bool, rightSidebarFocused: Bool) -> Bool {
             switch self {
-            case .application, .rightSidebarFocus:
+            case .application:
                 return true
             case .nonBrowserPanel:
-                return !focusedBrowserPanel
+                return !focusedBrowserPanel && !rightSidebarFocused
             case .browserPanel:
                 return focusedBrowserPanel
+            case .rightSidebarFocus:
+                return rightSidebarFocused
             }
         }
 
+        func isAvailable(_ context: ShortcutEventFocusContext) -> Bool {
+            isAvailable(focusedBrowserPanel: context.browserPanel != nil, rightSidebarFocused: context.rightSidebarFocused)
+        }
+
         func overlaps(_ other: ShortcutContext) -> Bool {
-            if self == .rightSidebarFocus || other == .rightSidebarFocus {
-                return self == other
-            }
             if self == .application || other == .application {
                 return true
             }
@@ -57,6 +74,30 @@ extension AppDelegate {
         panel.reload()
     }
 
+    func shortcutEventBrowserPanel(_ event: NSEvent) -> BrowserPanel? {
+        shortcutEventFocusContext(event).browserPanel
+    }
+
+    func shortcutEventFocusContext(_ event: NSEvent) -> ShortcutEventFocusContext {
+        if let cache = shortcutEventFocusContextCache, cache.event === event {
+            return cache.context
+        }
+
+        let shortcutWindow = shortcutResolvedEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
+        let context = ShortcutEventFocusContext(
+            browserPanel: shortcutEventFocusedBrowserPanel(event) ?? shortcutWebInspectorFocusedBrowserPanel(in: shortcutWindow),
+            rightSidebarFocused: shortcutWindow.map { shouldRouteRightSidebarModeShortcut(in: $0) } ?? false
+        )
+        shortcutEventFocusContextCache = ShortcutEventFocusContextCache(event: event, context: context)
+        return context
+    }
+
+    func clearShortcutEventFocusContextCache(for event: NSEvent) {
+        if shortcutEventFocusContextCache?.event === event {
+            shortcutEventFocusContextCache = nil
+        }
+    }
+
     func shortcutEventFocusedBrowserPanel(_ event: NSEvent) -> BrowserPanel? {
         guard let shortcutWindow = shortcutResolvedEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow else {
             return nil
@@ -83,6 +124,19 @@ extension AppDelegate {
         }
 
         return nil
+    }
+
+    private func shortcutWebInspectorFocusedBrowserPanel(in window: NSWindow?) -> BrowserPanel? {
+        let responder = window?.firstResponder ?? NSApp.keyWindow?.firstResponder ?? NSApp.mainWindow?.firstResponder
+        guard cmuxIsLikelyWebInspectorResponder(responder) else { return nil }
+
+        if let window,
+           let context = mainWindowContexts[ObjectIdentifier(window)] ??
+               mainWindowContexts.values.first(where: { $0.window === window }) {
+            return context.tabManager.focusedBrowserPanel
+        }
+
+        return tabManager?.focusedBrowserPanel
     }
 
     private func shortcutResolvedEventWindow(_ event: NSEvent) -> NSWindow? {

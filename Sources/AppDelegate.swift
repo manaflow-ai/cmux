@@ -659,6 +659,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
     private var pendingConfiguredShortcutChord: PendingConfiguredShortcutChord?
     private var activeConfiguredShortcutChordPrefixForCurrentEvent: ShortcutStroke?
+    var shortcutEventFocusContextCache: ShortcutEventFocusContextCache?
     private var configuredShortcutChordActions: [KeyboardShortcutSettings.Action] = []
     private var ghosttyConfigObserver: NSObjectProtocol?
     private var ghosttyGotoSplitLeftShortcut: StoredShortcut?
@@ -10467,7 +10468,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             activeConfiguredShortcutChordPrefixForCurrentEvent = nil
         }
         pendingConfiguredShortcutChord = nil
-        defer { activeConfiguredShortcutChordPrefixForCurrentEvent = nil }
+        defer { activeConfiguredShortcutChordPrefixForCurrentEvent = nil; clearShortcutEventFocusContextCache(for: event) }
 #if DEBUG
         if isControlD {
             writeChildExitKeyboardProbe(
@@ -11333,7 +11334,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .browserBack) {
-            guard let focusedBrowserPanel = shortcutEventFocusedBrowserPanel(event) else {
+            guard let focusedBrowserPanel = shortcutEventBrowserPanel(event) else {
                 return false
             }
             focusedBrowserPanel.goBack()
@@ -11341,7 +11342,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .browserForward) {
-            guard let focusedBrowserPanel = shortcutEventFocusedBrowserPanel(event) else {
+            guard let focusedBrowserPanel = shortcutEventBrowserPanel(event) else {
                 return false
             }
             focusedBrowserPanel.goForward()
@@ -11349,7 +11350,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .browserReload) {
-            guard let focusedBrowserPanel = shortcutEventFocusedBrowserPanel(event) else {
+            guard let focusedBrowserPanel = shortcutEventBrowserPanel(event) else {
                 return false
             }
             reloadBrowserPanelForShortcut(focusedBrowserPanel)
@@ -11363,7 +11364,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             logDeveloperToolsShortcutSnapshot(phase: "toggle.pre", event: event)
 #endif
-            let didHandle = shortcutEventFocusedBrowserPanel(event)?.toggleDeveloperTools() ?? false
+            let didHandle = shortcutEventBrowserPanel(event)?.toggleDeveloperTools() ?? false
 #if DEBUG
             logDeveloperToolsShortcutSnapshot(phase: "toggle.post", event: event, didHandle: didHandle)
             DispatchQueue.main.async { [weak self] in
@@ -11378,7 +11379,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             logDeveloperToolsShortcutSnapshot(phase: "console.pre", event: event)
 #endif
-            let didHandle = shortcutEventFocusedBrowserPanel(event)?.showDeveloperToolsConsole() ?? false
+            let didHandle = shortcutEventBrowserPanel(event)?.showDeveloperToolsConsole() ?? false
 #if DEBUG
             logDeveloperToolsShortcutSnapshot(phase: "console.post", event: event, didHandle: didHandle)
             DispatchQueue.main.async { [weak self] in
@@ -11396,15 +11397,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .browserZoomIn) {
-            return shortcutEventFocusedBrowserPanel(event)?.zoomIn() ?? false
+            return shortcutEventBrowserPanel(event)?.zoomIn() ?? false
         }
 
         if matchConfiguredShortcut(event: event, action: .browserZoomOut) {
-            return shortcutEventFocusedBrowserPanel(event)?.zoomOut() ?? false
+            return shortcutEventBrowserPanel(event)?.zoomOut() ?? false
         }
 
         if matchConfiguredShortcut(event: event, action: .browserZoomReset) {
-            return shortcutEventFocusedBrowserPanel(event)?.resetZoom() ?? false
+            return shortcutEventBrowserPanel(event)?.resetZoom() ?? false
         }
 
         if matchConfiguredShortcut(event: event, action: .findInDirectory) {
@@ -12293,7 +12294,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func matchConfiguredShortcut(event: NSEvent, action: KeyboardShortcutSettings.Action) -> Bool {
-        if !action.shortcutContext.isAvailable(focusedBrowserPanel: shortcutEventFocusedBrowserPanel(event) != nil) { return false }
+        if !action.shortcutContext.isAlwaysAvailable && !action.shortcutContext.isAvailable(shortcutEventFocusContext(event)) { return false }
         return matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: action))
     }
 

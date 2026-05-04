@@ -40,6 +40,20 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertEqual(KeyboardShortcutSettings.Action.renameWorkspace.shortcutContext, .nonBrowserPanel)
     }
 
+    func testRightSidebarContextIsOnlyAvailableWhenRightSidebarHasFocus() {
+        let context = KeyboardShortcutSettings.Action.switchRightSidebarToFiles.shortcutContext
+
+        XCTAssertEqual(context, .rightSidebarFocus)
+        XCTAssertFalse(context.isAvailable(focusedBrowserPanel: false, rightSidebarFocused: false))
+        XCTAssertTrue(context.isAvailable(focusedBrowserPanel: false, rightSidebarFocused: true))
+        XCTAssertFalse(
+            KeyboardShortcutSettings.Action.renameTab.shortcutContext
+                .isAvailable(focusedBrowserPanel: false, rightSidebarFocused: true)
+        )
+        XCTAssertTrue(context.overlaps(KeyboardShortcutSettings.Action.commandPalette.shortcutContext))
+        XCTAssertFalse(context.overlaps(KeyboardShortcutSettings.Action.renameTab.shortcutContext))
+    }
+
     func testReactGrabStaysApplicationScopedForTerminalPastebackRouting() {
         XCTAssertEqual(KeyboardShortcutSettings.Action.toggleReactGrab.shortcutContext, .application)
     }
@@ -70,6 +84,31 @@ final class KeyboardShortcutContextTests: XCTestCase {
             store.override(for: .newWindow),
             StoredShortcut(key: "n", command: true, shift: false, option: false, control: false)
         )
+    }
+
+    func testShortcutSettingsFilePreservesUnboundShortcutWithoutGlobalConflictLookup() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "newWindow": "none"
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(store.override(for: .newWindow), StoredShortcut.unbound)
     }
 
     private func makeTemporaryDirectory() throws -> URL {
