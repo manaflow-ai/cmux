@@ -202,12 +202,16 @@ OTHER_IOS_STATUS="unavailable"
 DEVICE_RELOAD_DETAILS=()
 if [ "$SIMULATOR_ONLY" -eq 0 ]; then
     DEVICELIST_JSON=""
+    DEVICE_SERVICE_PREFLIGHT_REASON=""
     if command -v jq >/dev/null 2>&1; then
         DEVICELIST_JSON="$(mktemp "${TMPDIR:-/tmp}/cmux-ios-reload-devices.XXXXXX.json")"
-        run_with_timeout 10 xcrun devicectl list devices --json-output "$DEVICELIST_JSON" >/dev/null 2>&1 || {
+        DEVICELIST_LOG="$(mktemp "${TMPDIR:-/tmp}/cmux-ios-reload-devices.XXXXXX.log")"
+        run_with_timeout 10 xcrun devicectl list devices --json-output "$DEVICELIST_JSON" >"$DEVICELIST_LOG" 2>&1 || {
+            DEVICE_SERVICE_PREFLIGHT_REASON="$(classify_device_reload_failure "$DEVICELIST_LOG")"
             rm -f "$DEVICELIST_JSON"
             DEVICELIST_JSON=""
         }
+        rm -f "$DEVICELIST_LOG"
         if ! IOS_DEVICES="$(xcrun xcdevice list --timeout 2 | jq -r '.[] | select(.simulator == false and .platform == "com.apple.platform.iphoneos" and .available == true) | [.name, .identifier] | @tsv')"; then
             IOS_DEVICES=""
         fi
@@ -222,6 +226,9 @@ if [ "$SIMULATOR_ONLY" -eq 0 ]; then
             DEVICE_STATUS="succeeded"
             DEVICE_LOG="$(mktemp "${TMPDIR:-/tmp}/cmux-ios-reload-device.XXXXXX.log")"
             PREFLIGHT_REASON="$(preflight_device_reload_failure "$DEVICE_ID" "$DEVICELIST_JSON" || true)"
+            if [ -z "$PREFLIGHT_REASON" ] && [ -n "$DEVICE_SERVICE_PREFLIGHT_REASON" ]; then
+                PREFLIGHT_REASON="$DEVICE_SERVICE_PREFLIGHT_REASON"
+            fi
             if [ -n "$PREFLIGHT_REASON" ]; then
                 DEVICE_STATUS="failed"
                 DEVICE_RELOAD_DETAILS+=("$DEVICE_NAME reload reason: $PREFLIGHT_REASON")
