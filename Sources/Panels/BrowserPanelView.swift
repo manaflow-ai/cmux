@@ -3256,11 +3256,7 @@ final class OmnibarNativeTextField: NSTextField {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window != nil {
-            BrowserOmnibarFocusRegistry.shared.register(self, panelId: panelId)
-        } else {
-            BrowserOmnibarFocusRegistry.shared.unregister(self)
-        }
+        BrowserOmnibarFocusRegistry.shared.syncAttachedRegistration(self, panelId: panelId)
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -3959,16 +3955,8 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
     func updateNSView(_ nsView: OmnibarNativeTextField, context: Context) {
         context.coordinator.parent = self
         context.coordinator.parentField = nsView
-        if nsView.panelId != panelId {
-            BrowserOmnibarFocusRegistry.shared.unregister(nsView)
-        }
-        nsView.panelId = panelId
         nsView.placeholderString = placeholder
-        if nsView.window != nil {
-            BrowserOmnibarFocusRegistry.shared.register(nsView, panelId: panelId, applyPendingFocus: false)
-        } else {
-            BrowserOmnibarFocusRegistry.shared.unregister(nsView)
-        }
+        BrowserOmnibarFocusRegistry.shared.syncAttachedRegistration(nsView, panelId: panelId, applyPendingFocus: false)
         context.coordinator.queueSelectAllRequest(selectAllRequestId)
 
         let activeInlineCompletion = omnibarInlineCompletionIfBufferMatchesTypedPrefix(

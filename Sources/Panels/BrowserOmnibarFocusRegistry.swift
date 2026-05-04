@@ -68,6 +68,22 @@ final class BrowserOmnibarFocusRegistry {
         _ = applyPendingFocusIfPossible(panelId: panelId)
     }
 
+    func syncAttachedRegistration(
+        _ field: OmnibarNativeTextField,
+        panelId: UUID?,
+        applyPendingFocus: Bool = true
+    ) {
+        if field.panelId != panelId {
+            unregister(field)
+        }
+        field.panelId = panelId
+        guard field.window != nil else {
+            unregister(field)
+            return
+        }
+        register(field, panelId: panelId, applyPendingFocus: applyPendingFocus)
+    }
+
     func unregister(_ field: OmnibarNativeTextField) {
         guard let panelId = field.panelId,
               fieldsByPanelId[panelId]?.field === field else {
