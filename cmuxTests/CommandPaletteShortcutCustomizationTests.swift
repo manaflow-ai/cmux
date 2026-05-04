@@ -11,10 +11,17 @@ import XCTest
 final class CommandPaletteShortcutCustomizationTests: XCTestCase {
     private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore!
     private var settingsDirectoryURL: URL!
+    private var savedCommandPaletteNext: Any?
+    private var savedCommandPalettePrevious: Any?
 
     override func setUpWithError() throws {
         try super.setUpWithError()
         executionTimeAllowance = 30
+        let defaults = UserDefaults.standard
+        savedCommandPaletteNext = defaults.object(forKey: KeyboardShortcutSettings.Action.commandPaletteNext.defaultsKey)
+        savedCommandPalettePrevious = defaults.object(forKey: KeyboardShortcutSettings.Action.commandPalettePrevious.defaultsKey)
+        defaults.removeObject(forKey: KeyboardShortcutSettings.Action.commandPaletteNext.defaultsKey)
+        defaults.removeObject(forKey: KeyboardShortcutSettings.Action.commandPalettePrevious.defaultsKey)
         originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
         settingsDirectoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -27,11 +34,23 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
     }
 
     override func tearDown() {
+        restoreDefault(savedCommandPaletteNext, forKey: KeyboardShortcutSettings.Action.commandPaletteNext.defaultsKey)
+        restoreDefault(savedCommandPalettePrevious, forKey: KeyboardShortcutSettings.Action.commandPalettePrevious.defaultsKey)
+        savedCommandPaletteNext = nil
+        savedCommandPalettePrevious = nil
         KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
         if let settingsDirectoryURL {
             try? FileManager.default.removeItem(at: settingsDirectoryURL)
         }
         super.tearDown()
+    }
+
+    private func restoreDefault(_ value: Any?, forKey key: String) {
+        if let value {
+            UserDefaults.standard.set(value, forKey: key)
+        } else {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
     }
 
     func testFieldEditorMoveCommandHonorsClearedCommandPalettePreviousShortcut() {

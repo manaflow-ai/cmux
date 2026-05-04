@@ -3710,6 +3710,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             fieldEditor.removeFromSuperview()
         }
 
+        let moveExpectation = expectation(
+            description: "Expected commandPaletteMoveSelection notification for chorded next shortcut"
+        )
         var observedDeltas: [Int] = []
         var observedWindow: NSWindow?
         let moveToken = NotificationCenter.default.addObserver(
@@ -3720,6 +3723,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             observedWindow = notification.object as? NSWindow
             if let delta = notification.userInfo?["delta"] as? Int {
                 observedDeltas.append(delta)
+                moveExpectation.fulfill()
             }
         }
         defer { NotificationCenter.default.removeObserver(moveToken) }
@@ -3759,6 +3763,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #endif
         }
 
+        wait(for: [moveExpectation], timeout: 1.0)
         XCTAssertEqual(observedWindow?.windowNumber, window.windowNumber)
         XCTAssertEqual(observedDeltas, [1])
     }

@@ -8084,6 +8084,7 @@ private struct AppIconPickerRow: View {
 private struct GlobalHotkeySection: View {
     @AppStorage(SystemWideHotkeySettings.enabledKey) private var isEnabled = SystemWideHotkeySettings.defaultEnabled
     @State private var shortcut = KeyboardShortcutSettings.shortcut(for: SystemWideHotkeySettings.action)
+    @State private var isManagedBySettingsFile = SystemWideHotkeySettings.isManagedBySettingsFile()
 
     private var enabledBinding: Binding<Bool> {
         Binding(
@@ -8130,8 +8131,10 @@ private struct GlobalHotkeySection: View {
             ShortcutRecorderSettingsControl(
                 action: SystemWideHotkeySettings.action,
                 shortcut: $shortcut,
-                subtitle: KeyboardShortcutSettings.settingsFileManagedSubtitle(for: SystemWideHotkeySettings.action),
-                isDisabled: KeyboardShortcutSettings.isManagedBySettingsFile(SystemWideHotkeySettings.action)
+                subtitle: isManagedBySettingsFile
+                    ? KeyboardShortcutSettings.settingsFileManagedSubtitle(for: SystemWideHotkeySettings.action)
+                    : nil,
+                isDisabled: isManagedBySettingsFile
             )
                 .padding(.horizontal, 14)
                 .padding(.vertical, 9)
@@ -8156,8 +8159,12 @@ private struct GlobalHotkeySection: View {
 
     private func syncFromDefaults() {
         let latestShortcut = KeyboardShortcutSettings.shortcut(for: SystemWideHotkeySettings.action)
+        let latestManagedState = SystemWideHotkeySettings.isManagedBySettingsFile()
         if latestShortcut != shortcut {
             shortcut = latestShortcut
+        }
+        if latestManagedState != isManagedBySettingsFile {
+            isManagedBySettingsFile = latestManagedState
         }
     }
 }

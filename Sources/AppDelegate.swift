@@ -10672,7 +10672,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if commandPaletteInteractiveInTargetWindow,
+        let shouldRouteConfiguredPaletteSelection = commandPaletteShortcutWindow != nil
+            && shouldRouteCommandPaletteSelectionNavigation(
+                delta: 1,
+                isInteractive: commandPaletteInteractiveInTargetWindow,
+                usesInlineTextHandling: paletteUsesInlineTextHandling
+            )
+
+        if shouldRouteConfiguredPaletteSelection,
            let paletteWindow = commandPaletteShortcutWindow {
             if matchConfiguredShortcut(event: event, action: .commandPaletteNext) {
                 NotificationCenter.default.post(
@@ -10759,15 +10766,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // focused omnibar in another window does not suppress Cmd+P here.
         let hasFocusedAddressBarInShortcutContext = focusedBrowserAddressBarPanelIdForShortcutEvent(event) != nil
 
-        if commandPaletteEffectiveInTargetWindow {
-            if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
-               armConfiguredShortcutChordIfNeeded(event: event, actions: [
-                   .commandPaletteNext,
-                   .commandPalettePrevious,
-               ]) {
-                return true
-            }
+        if shouldRouteConfiguredPaletteSelection,
+           activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
+           armConfiguredShortcutChordIfNeeded(event: event, actions: [
+               .commandPaletteNext,
+               .commandPalettePrevious,
+           ]) {
+            return true
+        }
 
+        if commandPaletteEffectiveInTargetWindow {
             if matchConfiguredShortcut(event: event, action: .commandPalette) {
                 let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
                 requestCommandPaletteCommands(preferredWindow: targetWindow, source: "shortcut.commandPalette")

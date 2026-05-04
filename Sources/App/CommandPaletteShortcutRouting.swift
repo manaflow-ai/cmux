@@ -20,7 +20,8 @@ func commandPaletteSelectionDeltaForKeyboardNavigation(
         }
     }
 
-    if nextShortcut?.matches(
+    if nextShortcut?.hasChord == false,
+       nextShortcut?.matches(
         keyCode: keyCode,
         modifierFlags: flags,
         eventCharacter: chars,
@@ -29,7 +30,8 @@ func commandPaletteSelectionDeltaForKeyboardNavigation(
         return 1
     }
 
-    if previousShortcut?.matches(
+    if previousShortcut?.hasChord == false,
+       previousShortcut?.matches(
         keyCode: keyCode,
         modifierFlags: flags,
         eventCharacter: chars,
@@ -41,6 +43,7 @@ func commandPaletteSelectionDeltaForKeyboardNavigation(
     return nil
 }
 
+@MainActor
 func commandPaletteSelectionDeltaForFieldEditorCommand(
     _ commandSelector: Selector,
     event: NSEvent? = NSApp.currentEvent,
