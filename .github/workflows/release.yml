@@ -1,9 +1,6 @@
 name: Release macOS app
 
 on:
-  push:
-    tags:
-      - "v*"
   workflow_dispatch:
 
 permissions:

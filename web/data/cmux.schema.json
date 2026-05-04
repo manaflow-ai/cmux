@@ -276,6 +276,11 @@
           "default": true,
           "description": "Show pull request metadata in the sidebar."
         },
+        "makePullRequestsClickable": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow sidebar pull request metadata to open links when clicked."
+        },
         "openPullRequestLinksInCmuxBrowser": {
           "type": "boolean",
           "default": true,

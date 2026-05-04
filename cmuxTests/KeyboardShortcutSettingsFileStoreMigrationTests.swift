@@ -98,6 +98,58 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
         XCTAssertEqual(store.activeSourcePath, primaryURL.path)
     }
 
+    func testManagedShortcutParsingDoesNotConsultLiveStore() throws {
+        let originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
+        KeyboardShortcutSettings.resetAll()
+        defer {
+            KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
+            KeyboardShortcutSettings.resetAll()
+        }
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let liveSettingsFileURL = directoryURL.appendingPathComponent("live-cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "openBrowser": "cmd+2"
+              }
+            }
+            """,
+            to: liveSettingsFileURL
+        )
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: liveSettingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "selectWorkspaceByNumber": "cmd+2"
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(
+            store.override(for: .selectWorkspaceByNumber),
+            StoredShortcut(key: "1", command: true, shift: false, option: false, control: false)
+        )
+    }
+
     func testSettingsFileURLForEditingReturnsCanonicalConfigWhenLegacyFallbackExists() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }

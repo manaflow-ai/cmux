@@ -468,9 +468,78 @@ jobs:
           path: .spm-cache
       - save-zig-cache
 
+  macos-nightly-publish:
+    executor: macos-xcode
+    steps:
+      - checkout-source:
+          submodules: true
+      - print-xcode
+      - restore-swift-package-cache:
+          prefix: nightly
+      - restore-zig-cache
+      - install-zig
+      - resolve-swift-packages:
+          scheme: cmux
+          source-packages-dir: .spm-cache
+      - run:
+          name: Build, sign, notarize, and publish nightly
+          no_output_timeout: 45m
+          command: ./scripts/ci/circleci-nightly.sh
+      - save-swift-package-cache:
+          prefix: nightly
+          path: .spm-cache
+      - save-zig-cache
+
+  macos-release-publish:
+    executor: macos-xcode
+    steps:
+      - checkout-source:
+          submodules: true
+      - print-xcode
+      - restore-swift-package-cache:
+          prefix: release-publish
+      - restore-zig-cache
+      - install-zig
+      - resolve-swift-packages:
+          scheme: cmux
+          source-packages-dir: .spm-cache
+      - run:
+          name: Build, sign, notarize, and publish release
+          no_output_timeout: 45m
+          command: ./scripts/ci/circleci-release.sh
+      - save-swift-package-cache:
+          prefix: release-publish
+          path: .spm-cache
+      - save-zig-cache
+
 workflows:
   ci:
     jobs:
-      - macos-unit-tests
-      - macos-debug-build
-      - macos-release-build
+      - macos-unit-tests:
+          filters:
+            tags:
+              ignore: /.*/
+      - macos-debug-build:
+          filters:
+            tags:
+              ignore: /.*/
+      - macos-release-build:
+          filters:
+            tags:
+              ignore: /.*/
+  nightly:
+    jobs:
+      - macos-nightly-publish:
+          filters:
+            branches:
+              only: main
+            tags:
+              ignore: /.*/
+  release:
+    jobs:
+      - macos-release-publish:
+          filters:
+            branches:
+              ignore: /.*/
+            tags:
+              only: /^v.*/
