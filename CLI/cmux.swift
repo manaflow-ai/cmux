@@ -2284,7 +2284,14 @@ struct CMUXCLI {
             }
         }
 
-        let capturesSocketErrorsInsideCommand = command == "claude-hook" || command == "hooks"
+        // Hidden backwards-compatibility aliases for hook commands installed by
+        // older cmux releases. Keep these out of help/usage, but route errors
+        // through hook dispatch so stale agent configs never print CLI help into
+        // hook stdout.
+        let capturesSocketErrorsInsideCommand = command == "claude-hook" ||
+            command == "codex-hook" ||
+            command == "feed-hook" ||
+            command == "hooks"
 
         do {
         switch command {
@@ -3333,6 +3340,16 @@ struct CMUXCLI {
                 captureSocketTransportError(telemetry: cliTelemetry, stage: "claude_hook_dispatch", error: error, client: client)
                 throw error
             }
+
+        // Backwards compatibility for older installed Codex hooks. New installs
+        // use `cmux hooks codex ...`; do not advertise this legacy entrypoint.
+        case "codex-hook":
+            try runGenericAgentHook(def: Self.agentDef(named: "codex")!, commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
+
+        // Backwards compatibility for older installed Feed hooks. New installs
+        // use `cmux hooks feed ...`; do not advertise this legacy entrypoint.
+        case "feed-hook":
+            try runFeedHook(commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
 
         case "hooks":
             try runHooksSocketCommand(commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
@@ -16369,6 +16386,8 @@ struct CMUXCLI {
     private static func hookMarkers(for def: AgentHookDef) -> [String] {
         var markers = [def.hookMarker]
         if def.name == "codex" {
+            // Backwards compatibility marker for removing/upgrading hooks that
+            // older cmux releases installed. New installs use def.hookMarker.
             markers.append("cmux codex-hook")
         }
         return markers
@@ -16393,6 +16412,8 @@ struct CMUXCLI {
     private static func feedHookMarkers(for def: AgentHookDef) -> [String] {
         var markers = ["cmux hooks feed --source"]
         if def.name == "codex" {
+            // Backwards compatibility marker for removing/upgrading hooks that
+            // older cmux releases installed. New installs use hooks feed.
             markers.append("cmux feed-hook --source")
         }
         return markers
