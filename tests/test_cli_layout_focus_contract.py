@@ -118,6 +118,8 @@ def run_cli(cli: str, socket_path: str, args: list[str]) -> str:
 
 def assert_cli_fails(cli: str, socket_path: str, args: list[str], expected: str) -> None:
     env = dict(os.environ)
+    for key in ["CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID", "CMUX_TAB_ID"]:
+        env.pop(key, None)
     proc = subprocess.run(
         [cli, "--socket", socket_path, *args],
         capture_output=True,
