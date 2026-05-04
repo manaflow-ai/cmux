@@ -3915,6 +3915,10 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             "Expected the bootstrap install SSH hop to signal foreground auth readiness via LocalCommand, saw \(firstInvocation)"
         )
         XCTAssertTrue(
+            localCommand.hasPrefix("/bin/sh -c "),
+            "Expected LocalCommand to force a POSIX shell so non-POSIX login shells such as fish can execute it, saw \(localCommand)"
+        )
+        XCTAssertTrue(
             localCommand.contains("%%s\\n"),
             "Expected LocalCommand to percent-escape literal percent signs for OpenSSH, saw \(localCommand)"
         )
@@ -3929,6 +3933,26 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             0,
             "Expected LocalCommand shell snippet to parse cleanly, stderr: \(localCommandSyntaxCheck.stderr)"
         )
+        let fishExecutable = [
+            "/opt/homebrew/bin/fish",
+            "/usr/local/bin/fish",
+            "/usr/bin/fish",
+            "/bin/fish",
+        ].first { FileManager.default.isExecutableFile(atPath: $0) }
+        guard let fishExecutable else {
+            throw XCTSkip("fish is not installed")
+        }
+        let fishLocalCommandCheck = runProcess(
+            executablePath: fishExecutable,
+            arguments: ["-n", "-c", localCommand],
+            environment: ProcessInfo.processInfo.environment,
+            timeout: 5
+        )
+        XCTAssertEqual(
+            fishLocalCommandCheck.status,
+            0,
+            "Expected LocalCommand wrapper to parse cleanly when the user's login shell is fish, stderr: \(fishLocalCommandCheck.stderr)"
+        )
         let destinationIndex = try XCTUnwrap(firstInvocation.lastIndex(of: "cmux-macmini"))
         let remoteCommandArgs = Array(firstInvocation.suffix(from: firstInvocation.index(after: destinationIndex)))
 
@@ -3937,7 +3961,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             1,
             "Expected the staged bootstrap installer to be passed as one SSH remote command, saw \(firstInvocation)"
         )
-        XCTAssertTrue(remoteCommandArgs[0].contains("/bin/sh -lc"), "Expected a POSIX shell wrapper in \(remoteCommandArgs)")
+        XCTAssertTrue(remoteCommandArgs[0].contains("/bin/sh -c"), "Expected a POSIX shell wrapper in \(remoteCommandArgs)")
         XCTAssertTrue(remoteCommandArgs[0].contains("set -eu"), "Expected installer command body in \(remoteCommandArgs)")
         XCTAssertFalse(remoteCommandArgs.contains("sh"))
         XCTAssertFalse(remoteCommandArgs.contains("-c"))
@@ -3949,6 +3973,29 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertFalse(
             secondInvocation.contains(where: { $0.contains("LocalCommand=") }),
             "Expected only the bootstrap install hop to trigger LocalCommand, saw \(secondInvocation)"
+        )
+        let secondRemoteCommandOption = try XCTUnwrap(
+            secondInvocation.first(where: { $0.hasPrefix("RemoteCommand=") })
+        )
+        let secondRemoteCommand = String(secondRemoteCommandOption.dropFirst("RemoteCommand=".count))
+        XCTAssertTrue(
+            secondRemoteCommand.contains("/bin/sh -c"),
+            "Expected the interactive remote command to force a POSIX shell so fish login shells can execute it, saw \(secondInvocation)"
+        )
+        XCTAssertTrue(
+            secondRemoteCommand.contains("cmux_bootstrap_tty=") || secondRemoteCommand.contains("cmux_bootstrap_tty\\\""),
+            "Expected staged remote bootstrap command body in \(secondRemoteCommand)"
+        )
+        let remoteFishCommandCheck = runProcess(
+            executablePath: fishExecutable,
+            arguments: ["-n", "-c", secondRemoteCommand],
+            environment: ProcessInfo.processInfo.environment,
+            timeout: 5
+        )
+        XCTAssertEqual(
+            remoteFishCommandCheck.status,
+            0,
+            "Expected staged remote command wrapper to parse cleanly when the remote login shell is fish, stderr: \(remoteFishCommandCheck.stderr)"
         )
 
         XCTAssertEqual(foregroundAuthState.commands.count, 1)
