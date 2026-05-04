@@ -465,6 +465,32 @@ final class CmxBridgeTicketTests: XCTestCase {
     }
 
     @MainActor
+    func testReplacingSessionIgnoresPreviousSessionCloseCallback() throws {
+        let sessionFactory = RecordingTerminalSessionFactory()
+        sessionFactory.session.notifiesCloseOnDisconnect = true
+        let store = CmxConnectionStore(
+            authSessionStore: MemoryStackAuthSessionStore(),
+            pairingSecretClient: RecordingPairingSecretClient(),
+            terminalSessionFactory: sessionFactory
+        )
+        store.ticketText = """
+        {
+          "version": 1,
+          "alpn": "/cmux/cmx/3",
+          "endpoint": { "id": "local", "addrs": [] },
+          "auth": { "mode": "direct" }
+        }
+        """
+
+        store.connect()
+        store.connect()
+
+        XCTAssertEqual(sessionFactory.session.startCount, 2)
+        XCTAssertTrue(store.isConnecting)
+        XCTAssertFalse(store.isConnected)
+    }
+
+    @MainActor
     func testLifecycleSignalReconnectsActiveTicket() throws {
         let sessionFactory = RecordingTerminalSessionFactory()
         let store = CmxConnectionStore(
@@ -584,6 +610,7 @@ private final class RecordingTerminalSession: CmxTerminalSession {
     private(set) var startCount = 0
     private(set) var sentLayouts: [[CmxWireTerminalViewport]] = []
     private(set) var sentCommands: [CmxClientCommand] = []
+    var notifiesCloseOnDisconnect = false
 
     func start(viewport: CmxWireViewport) {
         didStart = true
@@ -602,5 +629,9 @@ private final class RecordingTerminalSession: CmxTerminalSession {
         sentCommands.append(command)
     }
 
-    func disconnect() {}
+    func disconnect() {
+        if notifiesCloseOnDisconnect {
+            delegate?.terminalSessionDidClose(self)
+        }
+    }
 }

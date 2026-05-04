@@ -17,9 +17,10 @@ final class CmxConnectionStore: ObservableObject {
     @Published var nodes = CmxDemoState.nodes
     @Published var workspaces = CmxDemoState.workspaces
     @Published private(set) var nativeSnapshot: CmxNativeSnapshot?
-    @Published var selectedWorkspaceID: UInt64 = CmxDemoState.workspaces[0].id
-    @Published var selectedSpaceID: UInt64 = CmxDemoState.workspaces[0].spaces[0].id
-    @Published var selectedTerminalID: UInt64 = CmxDemoState.workspaces[0].spaces[0].terminals[0].id
+    @Published var selectedWorkspaceID: UInt64 = CmxDemoState.workspaces.first?.id ?? 0
+    @Published var selectedSpaceID: UInt64 = CmxDemoState.workspaces.first?.spaces.first?.id ?? 0
+    @Published var selectedTerminalID: UInt64 = CmxConnectionStore.firstDemoTerminalID
+        ?? CmxConnectionStore.placeholderTerminalID
     @Published private var outputChunksByTerminalID: [UInt64: [CmxTerminalOutputChunk]] = [:]
     @Published private var nextOutputChunkID = 1
     private let authSessionStore: CmxStackAuthSessionStore
@@ -38,6 +39,13 @@ final class CmxConnectionStore: ObservableObject {
     private var reconnectAllowed = false
     private var reconnectPending = false
     private var didUseImmediateReconnectForCurrentLoss = false
+
+    private static var firstDemoTerminalID: UInt64? {
+        CmxDemoState.workspaces
+            .flatMap(\.spaces)
+            .flatMap(\.terminals)
+            .first?.id
+    }
 
     init(
         authSessionStore: CmxStackAuthSessionStore = CmxKeychainStackAuthSessionStore(),
@@ -486,7 +494,9 @@ final class CmxConnectionStore: ObservableObject {
         ticket parsed: CmxBridgeTicket,
         pairingSecret: String?
     ) throws {
-        terminalSession?.disconnect()
+        let previousSession = terminalSession
+        previousSession?.delegate = nil
+        previousSession?.disconnect()
         let session = try terminalSessionFactory.makeSession(
             rawTicket: rawTicket,
             ticket: parsed,

@@ -546,7 +546,6 @@ impl InputHandler {
 
     pub fn set_table(&mut self, table: KeybindTable) {
         self.table = table;
-        self.buf.clear();
     }
 
     pub fn process(&mut self, bytes: &[u8]) -> (Vec<u8>, Vec<Command>) {
@@ -860,6 +859,21 @@ mod tests {
         assert!(pass.is_empty());
         assert_eq!(cmds.len(), 1);
         assert!(matches!(cmds[0], Command::NewSpace { .. }));
+    }
+
+    #[test]
+    fn input_handler_keeps_pending_prefix_across_table_reload() {
+        let t = compile(&Settings::default());
+        let mut h = InputHandler::new(t);
+        let (pass, cmds) = h.process(b"\x02");
+        assert!(pass.is_empty());
+        assert!(cmds.is_empty());
+
+        h.set_table(KeybindTable { bindings: vec![] });
+        let (pass, cmds) = h.process(b"x");
+
+        assert_eq!(pass, b"\x02x");
+        assert!(cmds.is_empty());
     }
 
     #[test]

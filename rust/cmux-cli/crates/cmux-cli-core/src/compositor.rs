@@ -17,6 +17,7 @@ use libghostty_vt::render::{
 };
 use libghostty_vt::screen::CellContentTag;
 pub use libghostty_vt::style::{RgbColor, StyleColor};
+use unicode_width::UnicodeWidthStr;
 
 use crate::layout::Rect;
 
@@ -283,9 +284,10 @@ fn grid_cell_from_iteration(
             std::mem::swap(&mut fg, &mut bg);
         }
     }
+    let text = if invisible { " ".into() } else { grapheme };
     Ok(TerminalGridCell {
-        text: if invisible { " ".into() } else { grapheme },
-        width: 1,
+        width: cell_display_width(&text),
+        text,
         fg,
         bg,
         bold,
@@ -321,6 +323,10 @@ fn cell_grapheme(cell_iteration: &CellIteration<'_, '_>) -> String {
         }
     }
     if out.is_empty() { " ".into() } else { out }
+}
+
+fn cell_display_width(text: &str) -> u8 {
+    u8::try_from(UnicodeWidthStr::width(text).max(1)).unwrap_or(u8::MAX)
 }
 
 fn terminal_cursor_style(style: CursorVisualStyle) -> TerminalCursorStyle {
@@ -889,6 +895,15 @@ mod tests {
                 b: 255,
             }
         );
+    }
+
+    #[test]
+    fn grid_snapshot_reports_wide_grapheme_width() {
+        let t = mk_terminal(4, 1, "界".as_bytes());
+        let snapshot = terminal_grid_snapshot(&t).expect("grid snapshot");
+
+        assert_eq!(snapshot.cells[0].text, "界");
+        assert_eq!(snapshot.cells[0].width, 2);
     }
 
     #[test]

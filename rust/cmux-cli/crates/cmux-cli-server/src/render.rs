@@ -571,7 +571,10 @@ impl RenderBroker {
                         let Some(terminal) = terminals.get(pane_id) else {
                             continue;
                         };
-                        let _ = compositor::paste_pane(&mut frame, *pane_rect, terminal);
+                        if let Err(error) = compositor::paste_pane(&mut frame, *pane_rect, terminal)
+                        {
+                            tracing::warn!(%error, pane_id, "could not paste pane into composed frame");
+                        }
                         if probe::color_enabled() && (compose_seq <= 80 || i == 0) {
                             probe::log_event(
                                 "render",
@@ -630,9 +633,7 @@ impl RenderBroker {
                     }
                     let mut ansi = Vec::new();
                     ansi.extend_from_slice(&compositor::emit_ansi(&frame));
-                    if let Some(tail) = cursor_tail {
-                        ansi.extend_from_slice(&tail);
-                    }
+                    ansi.extend_from_slice(cursor_tail.as_deref().unwrap_or(b"\x1b[?25h"));
                     if probe::color_enabled()
                         && (compose_seq <= 120
                             || probe::has_terminal_color_sequences(&ansi)
@@ -1087,13 +1088,12 @@ fn paint_sidebar(frame: &mut Frame, spec: &SidebarSpec) {
         // Layout: "<active><pin><colordot><title>". The colored
         // dot is painted separately so it uses the user's RGB
         // instead of the row's foreground color.
-        let (dot_glyph, title_start_col) = if item.color_rgb.is_some() {
-            ("● ", 3u16)
+        let (dot_glyph, dot_col) = if item.color_rgb.is_some() {
+            ("● ", Some(2u16))
         } else {
-            ("", 2u16)
+            ("", None)
         };
         let prefix = format!("{active_marker}{pin_marker}{dot_glyph}");
-        let _ = dot_glyph; // only used for prefix construction
         let line = format!("{prefix}{}", item.title);
         frame.paint_text(
             row,
@@ -1104,8 +1104,8 @@ fn paint_sidebar(frame: &mut Frame, spec: &SidebarSpec) {
         );
         // Overlay the dot in the user's color so it stands out
         // regardless of the dim/bright row styling above.
-        if let Some(rgb) = item.color_rgb {
-            frame.paint_text(row, title_start_col - 2, "●", Some(rgb), Some(SIDEBAR_BG));
+        if let (Some(rgb), Some(col)) = (item.color_rgb, dot_col) {
+            frame.paint_text(row, col, "●", Some(rgb), Some(SIDEBAR_BG));
         }
     }
 }
@@ -1862,6 +1862,30 @@ mod tests {
         let corner = &frame.cells[0][0];
         assert_eq!(corner.fg, StyleColor::Rgb(PANE_BORDER_FLASH_FG));
         assert!(!corner.bold);
+    }
+
+    #[test]
+    fn sidebar_color_dot_does_not_overwrite_pin_marker() {
+        let mut frame = Frame::new(16, 6);
+        let dot = RgbColor { r: 255, g: 0, b: 0 };
+        paint_sidebar(
+            &mut frame,
+            &SidebarSpec {
+                width: 16,
+                items: vec![SidebarItem {
+                    title: "main".into(),
+                    pinned: true,
+                    color_rgb: Some(dot),
+                }],
+                active: 0,
+                focused: false,
+            },
+        );
+
+        assert_eq!(frame.cells[2][0].grapheme, "▶");
+        assert_eq!(frame.cells[2][1].grapheme, "*");
+        assert_eq!(frame.cells[2][2].grapheme, "●");
+        assert_eq!(frame.cells[2][2].fg, StyleColor::Rgb(dot));
     }
 
     #[test]

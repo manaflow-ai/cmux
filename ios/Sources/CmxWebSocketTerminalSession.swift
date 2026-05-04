@@ -20,6 +20,7 @@ final class CmxWebSocketTerminalSession: CmxTerminalSession {
     private var receiveTask: Task<Void, Never>?
     private var heartbeatTimer: Timer?
     private var closedByClient = false
+    private var didNotifyClose = false
     private var nextCommandID: UInt32 = 1
 
     init(
@@ -38,6 +39,7 @@ final class CmxWebSocketTerminalSession: CmxTerminalSession {
 
     func start(viewport: CmxWireViewport) {
         closedByClient = false
+        didNotifyClose = false
         var request = URLRequest(url: url)
         for (name, value) in headers {
             request.setValue(value, forHTTPHeaderField: name)
@@ -99,6 +101,7 @@ final class CmxWebSocketTerminalSession: CmxTerminalSession {
         send(.detach)
         task?.cancel(with: .goingAway, reason: nil)
         task = nil
+        notifyClosed()
     }
 
     private func send(_ message: CmxClientMessage) {
@@ -137,9 +140,18 @@ final class CmxWebSocketTerminalSession: CmxTerminalSession {
             }
         } catch {
             stopHeartbeat()
-            guard !closedByClient else { return }
+            guard !closedByClient else {
+                notifyClosed()
+                return
+            }
             delegate?.terminalSession(self, didFail: error)
         }
+    }
+
+    private func notifyClosed() {
+        guard !didNotifyClose else { return }
+        didNotifyClose = true
+        delegate?.terminalSessionDidClose(self)
     }
 
     private func startHeartbeat() {

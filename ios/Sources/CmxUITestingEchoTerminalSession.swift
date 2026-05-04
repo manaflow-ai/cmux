@@ -13,7 +13,7 @@ final class CmxUITestingEchoTerminalSession: CmxTerminalSession {
             Data(
                 "\u{001B}[2J\u{001B}[H\u{001B}[38;2;166;226;46mui-test$ \u{001B}[0m".utf8
             ),
-            terminalID: CmxDemoState.workspaces[0].spaces[0].terminals[0].id
+            terminalID: CmxDemoState.workspaces.flatMap(\.spaces).flatMap(\.terminals).first?.id ?? 0
         )
     }
 
