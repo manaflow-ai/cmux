@@ -49,6 +49,8 @@ classify_device_reload_failure() {
         echo "device locked while mounting the developer disk image"
     elif grep -qi "device disconnected immediately after connecting" "$log_path"; then
         echo "CoreDevice device disconnected immediately after connecting; keep the device awake and verify USB or local-network reachability"
+    elif grep -qi "Command timeout" "$log_path" && grep -qi "developer disk image" "$log_path"; then
+        echo "developer disk image services timed out; unlock the device and keep it awake"
     elif grep -qi "developer disk image could not be mounted" "$log_path"; then
         echo "developer disk image mount failed"
     elif grep -qiE "tunnel connection failed|RemotePairingError|Operation timed out" "$log_path"; then
@@ -108,6 +110,53 @@ preflight_device_reload_failure() {
     fi
 
     return 0
+}
+
+refresh_device_list_json() {
+    local devices_json="$1"
+    local device_log="$2"
+    run_with_timeout 10 xcrun devicectl list devices --json-output "$devices_json" >"$device_log" 2>&1
+}
+
+refresh_device_connection() {
+    local device_id="$1"
+    local device_log="$2"
+    run_with_timeout 12 xcrun devicectl --timeout 8 device info lockState --device "$device_id" >"$device_log" 2>&1
+}
+
+refresh_device_ddi_services() {
+    local device_id="$1"
+    local device_log="$2"
+    run_with_timeout 35 xcrun devicectl --timeout 30 device info ddiServices --device "$device_id" >"$device_log" 2>&1
+}
+
+refresh_device_preflight() {
+    local device_id="$1"
+    local devices_json="$2"
+    local refresh_log="$3"
+
+    local reason
+    reason="$(preflight_device_reload_failure "$device_id" "$devices_json" || true)"
+
+    if echo "$reason" | grep -qi "CoreDevice tunnel is"; then
+        if refresh_device_connection "$device_id" "$refresh_log"; then
+            refresh_device_list_json "$devices_json" "$refresh_log" || true
+            reason="$(preflight_device_reload_failure "$device_id" "$devices_json" || true)"
+        else
+            reason="$(classify_device_reload_failure "$refresh_log")"
+        fi
+    fi
+
+    if echo "$reason" | grep -qi "developer disk image services unavailable"; then
+        if refresh_device_ddi_services "$device_id" "$refresh_log"; then
+            refresh_device_list_json "$devices_json" "$refresh_log" || true
+            reason="$(preflight_device_reload_failure "$device_id" "$devices_json" || true)"
+        else
+            reason="$(classify_device_reload_failure "$refresh_log")"
+        fi
+    fi
+
+    echo "$reason"
 }
 
 device_reload_identity() {
@@ -233,7 +282,7 @@ if [ "$SIMULATOR_ONLY" -eq 0 ]; then
     if command -v jq >/dev/null 2>&1; then
         DEVICELIST_JSON="$(mktemp "${TMPDIR:-/tmp}/cmux-ios-reload-devices.XXXXXX.json")"
         DEVICELIST_LOG="$(mktemp "${TMPDIR:-/tmp}/cmux-ios-reload-devices.XXXXXX.log")"
-        run_with_timeout 10 xcrun devicectl list devices --json-output "$DEVICELIST_JSON" >"$DEVICELIST_LOG" 2>&1 || {
+        refresh_device_list_json "$DEVICELIST_JSON" "$DEVICELIST_LOG" || {
             DEVICE_SERVICE_PREFLIGHT_REASON="$(classify_device_reload_failure "$DEVICELIST_LOG")"
             rm -f "$DEVICELIST_JSON"
             DEVICELIST_JSON=""
@@ -253,7 +302,8 @@ if [ "$SIMULATOR_ONLY" -eq 0 ]; then
             DEVICE_STATUS="succeeded"
             DEVICE_LOG="$(mktemp "${TMPDIR:-/tmp}/cmux-ios-reload-device.XXXXXX.log")"
             DEVICE_IDENTITY="$(device_reload_identity "$DEVICE_ID" "$DEVICELIST_JSON")"
-            PREFLIGHT_REASON="$(preflight_device_reload_failure "$DEVICE_ID" "$DEVICELIST_JSON" || true)"
+            PREFLIGHT_REASON="$(refresh_device_preflight "$DEVICE_ID" "$DEVICELIST_JSON" "$DEVICE_LOG")"
+            DEVICE_IDENTITY="$(device_reload_identity "$DEVICE_ID" "$DEVICELIST_JSON")"
             if [ -z "$PREFLIGHT_REASON" ] && [ -n "$DEVICE_SERVICE_PREFLIGHT_REASON" ]; then
                 PREFLIGHT_REASON="$DEVICE_SERVICE_PREFLIGHT_REASON"
             fi
