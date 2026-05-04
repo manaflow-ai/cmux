@@ -3276,22 +3276,24 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         XCTAssertTrue(output.contains("PREEXEC=0"), output)
     }
 
-    func testGhosttySemanticPatchRetriesAfterDeferredInitCreatesLiveHooks() throws {
+    func testCmuxShellIntegrationPreservesGhosttyZshPromptMarkers() throws {
         let output = try runInteractiveZsh(
             cmuxLoadGhosttyIntegration: true,
             cmuxLoadShellIntegration: true,
             command: """
-            _cmux_patch_ghostty_semantic_redraw
             (( $+functions[_ghostty_deferred_init] )) && _ghostty_deferred_init >/dev/null 2>&1
-            _cmux_patch_ghostty_semantic_redraw
             print -r -- "PRECMD_BODY=${functions[_ghostty_precmd]}"
             print -r -- "PREEXEC_BODY=${functions[_ghostty_preexec]}"
+            print -r -- "ZLE_BODY=${functions[_ghostty_zle_line_init]}"
             """
         )
 
         XCTAssertTrue(output.contains("PRECMD_BODY="), output)
         XCTAssertTrue(output.contains("PREEXEC_BODY="), output)
-        XCTAssertTrue(output.contains("133;A;redraw=last;cl=line"), output)
+        XCTAssertTrue(output.contains("ZLE_BODY="), output)
+        XCTAssertTrue(output.contains("133;A;cl=line"), output)
+        XCTAssertTrue(output.contains("133;P;k=i"), output)
+        XCTAssertFalse(output.contains("133;A;redraw=last;cl=line"), output)
     }
 
     func testShellIntegrationWinchGuardDoesNotPrintSpacerLineOnResize() throws {
