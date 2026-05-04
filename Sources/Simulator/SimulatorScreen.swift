@@ -15,6 +15,17 @@ final class SimulatorScreen: @unchecked Sendable {
     private var callbackUUIDs: [ObjectIdentifier: NSUUID] = [:]
     private var onFrame: (@Sendable (IOSurface, CGSize) -> Void)?
 
+    /// Max delivery rate for emitted frames. SimulatorKit fires the
+    /// callback at the device's native refresh (60 / 120 Hz). Each
+    /// emit costs a CIImage->CGImage->NSImage round-trip plus a
+    /// MainActor hop and a SwiftUI invalidation, so without a cap a
+    /// single open viewer can saturate the main thread and lag the
+    /// rest of the app. 30 fps is enough for visual confirmation
+    /// while leaving headroom for everything else.
+    private let maxEmitsPerSecond: Double = 30
+    private var lastEmitTime: CFAbsoluteTime = 0
+    private var captureScheduled = false
+
     init(udid: String) {
         self.udid = udid
     }
@@ -94,10 +105,10 @@ final class SimulatorScreen: @unchecked Sendable {
         callbackUUIDs[ObjectIdentifier(desc)] = uuid
 
         let frame: @convention(block) () -> Void = { [weak self] in
-            self?.queue.async { self?.captureLatest() }
+            self?.scheduleCaptureCoalesced()
         }
         let surfaces: @convention(block) () -> Void = { [weak self] in
-            self?.queue.async { self?.captureLatest() }
+            self?.scheduleCaptureCoalesced()
         }
         let props: @convention(block) () -> Void = {}
 
@@ -114,7 +125,31 @@ final class SimulatorScreen: @unchecked Sendable {
         )
     }
 
+    /// Coalesces frame callbacks into at most one in-flight capture on
+    /// our serial queue. SimulatorKit can fire the callback faster than
+    /// we drain it; without coalescing each callback queues another
+    /// captureLatest, even if one is already pending. With coalescing,
+    /// while a capture is queued or running, additional callbacks are
+    /// no-ops.
+    private func scheduleCaptureCoalesced() {
+        queue.async { [weak self] in
+            guard let self else { return }
+            if self.captureScheduled { return }
+            self.captureScheduled = true
+            self.captureLatest()
+            self.captureScheduled = false
+        }
+    }
+
     private func captureLatest() {
+        // Throttle delivery to the consumer. The capture itself is
+        // cheap (just KVC + IOSurface area check) but the consumer's
+        // CIImage / CGImage / NSImage round-trip and SwiftUI re-render
+        // are not.
+        let now = CFAbsoluteTimeGetCurrent()
+        let minInterval = 1.0 / maxEmitsPerSecond
+        if now - lastEmitTime < minInterval { return }
+
         let surfSel = NSSelectorFromString("framebufferSurface")
         var best: IOSurface?
         var bestSize = CGSize.zero
@@ -132,6 +167,9 @@ final class SimulatorScreen: @unchecked Sendable {
                 bestArea = area
             }
         }
-        if let best { onFrame?(best, bestSize) }
+        if let best {
+            lastEmitTime = now
+            onFrame?(best, bestSize)
+        }
     }
 }
