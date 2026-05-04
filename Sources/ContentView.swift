@@ -4475,7 +4475,8 @@ struct ContentView: View {
                     ),
                     onSubmit: runSelectedCommandPaletteResult,
                     onEscape: { dismissCommandPalette() },
-                    onMoveSelection: moveCommandPaletteSelection(by:)
+                    onMoveSelection: moveCommandPaletteSelection(by:),
+                    onUnhandledNavigationKey: forwardCommandPaletteUnhandledNavigationKeyToFocusedTerminal
                 )
                 .frame(maxWidth: .infinity)
             }
@@ -4866,6 +4867,7 @@ struct ContentView: View {
         let onSubmit: () -> Void
         let onEscape: () -> Void
         let onMoveSelection: (Int) -> Void
+        let onUnhandledNavigationKey: (NSEvent) -> Bool
 
         final class Coordinator: NSObject, NSTextFieldDelegate {
             var parent: CommandPaletteSearchFieldRepresentable
@@ -4906,13 +4908,16 @@ struct ContentView: View {
             }
 
             func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+                if let delta = commandPaletteSelectionDeltaForFieldEditorCommand(commandSelector) {
+                    parent.onMoveSelection(delta)
+                    return true
+                }
+
                 switch commandSelector {
-                case #selector(NSResponder.moveDown(_:)):
-                    parent.onMoveSelection(1)
-                    return true
-                case #selector(NSResponder.moveUp(_:)):
-                    parent.onMoveSelection(-1)
-                    return true
+                case #selector(NSResponder.moveDown(_:)),
+                     #selector(NSResponder.moveUp(_:)):
+                    guard let event = NSApp.currentEvent else { return false }
+                    return parent.onUnhandledNavigationKey(event)
                 case #selector(NSResponder.insertNewline(_:)):
                     guard !textView.hasMarkedText() else { return false }
                     parent.onSubmit()
@@ -8516,6 +8521,17 @@ struct ContentView: View {
             syncCommandPaletteSelectionAnchorFromVisibleResults()
         }
         syncCommandPaletteDebugStateForObservedWindow()
+    }
+
+    private func forwardCommandPaletteUnhandledNavigationKeyToFocusedTerminal(_ event: NSEvent) -> Bool {
+        guard let target = commandPaletteRestoreFocusTarget,
+              target.intent == .terminal(.surface),
+              let workspace = tabManager.tabs.first(where: { $0.id == target.workspaceId }),
+              let terminalPanel = workspace.panels[target.panelId] as? TerminalPanel else {
+            return false
+        }
+        terminalPanel.hostedView.forwardKeyDownToSurface(event)
+        return true
     }
 
     static func commandPaletteShouldPopRenameInputOnDelete(

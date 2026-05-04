@@ -40,3 +40,39 @@ func commandPaletteSelectionDeltaForKeyboardNavigation(
 
     return nil
 }
+
+func commandPaletteSelectionDeltaForFieldEditorCommand(
+    _ commandSelector: Selector,
+    event: NSEvent? = NSApp.currentEvent,
+    nextShortcut: StoredShortcut? = KeyboardShortcutSettings.shortcutIfBound(for: .commandPaletteNext),
+    previousShortcut: StoredShortcut? = KeyboardShortcutSettings.shortcutIfBound(for: .commandPalettePrevious),
+    layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
+) -> Int? {
+    let selectorDelta: Int
+    switch commandSelector {
+    case #selector(NSResponder.moveDown(_:)):
+        selectorDelta = 1
+    case #selector(NSResponder.moveUp(_:)):
+        selectorDelta = -1
+    default:
+        return nil
+    }
+
+    guard let event else {
+        return selectorDelta
+    }
+
+    if let eventDelta = commandPaletteSelectionDeltaForKeyboardNavigation(
+        flags: event.modifierFlags,
+        chars: event.characters ?? event.charactersIgnoringModifiers ?? "",
+        keyCode: event.keyCode,
+        nextShortcut: nextShortcut,
+        previousShortcut: previousShortcut,
+        layoutCharacterProvider: layoutCharacterProvider
+    ),
+       eventDelta == selectorDelta {
+        return eventDelta
+    }
+
+    return nil
+}

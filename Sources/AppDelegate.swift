@@ -10674,6 +10674,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if commandPaletteInteractiveInTargetWindow,
            let paletteWindow = commandPaletteShortcutWindow {
+            if matchConfiguredShortcut(event: event, action: .commandPaletteNext) {
+                NotificationCenter.default.post(
+                    name: .commandPaletteMoveSelection,
+                    object: paletteWindow,
+                    userInfo: ["delta": 1]
+                )
+                return true
+            }
+
+            if matchConfiguredShortcut(event: event, action: .commandPalettePrevious) {
+                NotificationCenter.default.post(
+                    name: .commandPaletteMoveSelection,
+                    object: paletteWindow,
+                    userInfo: ["delta": -1]
+                )
+                return true
+            }
+        }
+
+        if commandPaletteInteractiveInTargetWindow,
+           let paletteWindow = commandPaletteShortcutWindow {
             let paletteFieldEditorHasMarkedText = commandPaletteFieldEditorHasMarkedText(in: paletteWindow)
             let paletteSnapshot = mainWindowId(for: paletteWindow).map(commandPaletteSnapshot(windowId:)) ?? .empty
             let paletteUsesInlineReturnHandling = paletteUsesInlineTextHandling
@@ -10739,6 +10760,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let hasFocusedAddressBarInShortcutContext = focusedBrowserAddressBarPanelIdForShortcutEvent(event) != nil
 
         if commandPaletteEffectiveInTargetWindow {
+            if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
+               armConfiguredShortcutChordIfNeeded(event: event, actions: [
+                   .commandPaletteNext,
+                   .commandPalettePrevious,
+               ]) {
+                return true
+            }
+
             if matchConfiguredShortcut(event: event, action: .commandPalette) {
                 let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
                 requestCommandPaletteCommands(preferredWindow: targetWindow, source: "shortcut.commandPalette")

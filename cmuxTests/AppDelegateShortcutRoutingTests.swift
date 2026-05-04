@@ -3676,6 +3676,93 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(observedDelta, 1)
     }
 
+    func testChordedCommandPaletteNextShortcutMovesSelection() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer {
+            closeWindow(withId: windowId)
+        }
+
+        guard let window = window(withId: windowId),
+              let contentView = window.contentView else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        let overlayContainer = NSView(frame: contentView.bounds)
+        overlayContainer.identifier = commandPaletteOverlayContainerIdentifier
+        overlayContainer.alphaValue = 1
+        overlayContainer.isHidden = false
+        contentView.addSubview(overlayContainer)
+
+        let fieldEditor = CommandPaletteMarkedTextFieldEditor(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+        fieldEditor.isFieldEditor = true
+        overlayContainer.addSubview(fieldEditor)
+        XCTAssertTrue(window.makeFirstResponder(fieldEditor))
+
+        appDelegate.setCommandPaletteVisible(false, for: window)
+        defer {
+            overlayContainer.removeFromSuperview()
+            fieldEditor.removeFromSuperview()
+        }
+
+        var observedDeltas: [Int] = []
+        var observedWindow: NSWindow?
+        let moveToken = NotificationCenter.default.addObserver(
+            forName: .commandPaletteMoveSelection,
+            object: nil,
+            queue: nil
+        ) { notification in
+            observedWindow = notification.object as? NSWindow
+            if let delta = notification.userInfo?["delta"] as? Int {
+                observedDeltas.append(delta)
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(moveToken) }
+
+        let shortcut = StoredShortcut(
+            key: "b",
+            command: false,
+            shift: false,
+            option: false,
+            control: true,
+            chordKey: "n"
+        )
+
+        withTemporaryShortcut(action: .commandPaletteNext, shortcut: shortcut) {
+            guard let prefixEvent = makeKeyDownEvent(
+                key: "b",
+                modifiers: [.control],
+                keyCode: 11,
+                windowNumber: window.windowNumber
+            ),
+            let actionEvent = makeKeyDownEvent(
+                key: "n",
+                modifiers: [],
+                keyCode: 45,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct command-palette chord events")
+                return
+            }
+
+#if DEBUG
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: prefixEvent))
+            XCTAssertEqual(observedDeltas, [], "Chord prefix must arm without moving selection")
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: actionEvent))
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        }
+
+        XCTAssertEqual(observedWindow?.windowNumber, window.windowNumber)
+        XCTAssertEqual(observedDeltas, [1])
+    }
+
     func testControlKDoesNotRoutePaletteMoveSelectionWhenSearchFieldIsFocused() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")

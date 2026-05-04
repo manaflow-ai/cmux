@@ -83,13 +83,14 @@ struct ShortcutRecorderSettingsControl: View {
         KeyboardShortcutRecorderActivity.stopAllRecording()
 
         let previousShortcut = shortcut
-        KeyboardShortcutSettings.swapShortcutConflict(
+        let didSwap = KeyboardShortcutSettings.swapShortcutConflict(
             proposedShortcut: proposedShortcut,
             currentAction: action,
             conflictingAction: conflictingAction,
             previousShortcut: previousShortcut
         )
-        shortcut = proposedShortcut
+        guard didSwap else { return }
+        shortcut = KeyboardShortcutSettings.shortcut(for: action)
         rejectedAttempt = nil
     }
 }

@@ -9479,6 +9479,11 @@ final class GhosttySurfaceScrollView: NSView {
     var isRightSidebarDockSurface: Bool {
         surfaceView.terminalSurface?.focusPlacement == .rightSidebarDock
     }
+
+    func forwardKeyDownToSurface(_ event: NSEvent) {
+        surfaceView.keyDown(with: event)
+    }
+
     private var lastFlashStyle: FlashStyle = .navigation
     private let keyboardCopyModeBadgeContainerView: GhosttyFlashOverlayView
     private let keyboardCopyModeBadgeView: GhosttyPassthroughVisualEffectView

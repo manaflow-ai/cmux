@@ -701,7 +701,7 @@ enum KeyboardShortcutSettings {
         currentAction: Action,
         conflictingAction: Action,
         previousShortcut: StoredShortcut
-    ) {
+    ) -> Bool {
         guard !isManagedBySettingsFile(currentAction),
               !isManagedBySettingsFile(conflictingAction),
               let resolvedCurrentShortcut = storedShortcutForReplacement(
@@ -713,13 +713,14 @@ enum KeyboardShortcutSettings {
                 action: conflictingAction
             )
         else {
-            return
+            return false
         }
 
         persistShortcut(resolvedCurrentShortcut, for: currentAction)
         persistShortcut(resolvedConflictingShortcut, for: conflictingAction)
         postDidChangeNotification(action: currentAction)
         postDidChangeNotification(action: conflictingAction)
+        return true
     }
 
     static func notifySettingsFileDidChange(center: NotificationCenter = .default) { postDidChangeNotification(center: center) }
@@ -816,6 +817,9 @@ enum SystemWideHotkeySettings {
 
     static func shortcut() -> StoredShortcut {
         migrateLegacyShortcutIfNeeded()
+        if let managedShortcut = KeyboardShortcutSettings.settingsFileStore.override(for: action) {
+            return managedShortcut
+        }
         return storedShortcut() ?? defaultShortcut
     }
 
@@ -2233,14 +2237,16 @@ struct ShortcutRecorderValidationPresentation: Equatable {
         attempt: ShortcutRecorderRejectedAttempt?,
         action: KeyboardShortcutSettings.Action,
         currentShortcut: StoredShortcut,
-        shortcutForAction: (KeyboardShortcutSettings.Action) -> StoredShortcut = KeyboardShortcutSettings.shortcut(for:)
+        shortcutForAction: (KeyboardShortcutSettings.Action) -> StoredShortcut = KeyboardShortcutSettings.shortcut(for:),
+        isManagedBySettingsFile: (KeyboardShortcutSettings.Action) -> Bool = KeyboardShortcutSettings.isManagedBySettingsFile
     ) {
         guard let attempt else { return nil }
 
         let canSwap = Self.canSwapConflict(
             attempt: attempt,
             action: action,
-            currentShortcut: currentShortcut
+            currentShortcut: currentShortcut,
+            isManagedBySettingsFile: isManagedBySettingsFile
         )
 
         self.message = Self.message(
@@ -2304,10 +2310,16 @@ struct ShortcutRecorderValidationPresentation: Equatable {
     private static func canSwapConflict(
         attempt: ShortcutRecorderRejectedAttempt,
         action: KeyboardShortcutSettings.Action,
-        currentShortcut: StoredShortcut
+        currentShortcut: StoredShortcut,
+        isManagedBySettingsFile: (KeyboardShortcutSettings.Action) -> Bool
     ) -> Bool {
         guard case let .conflictsWithAction(conflictingAction) = attempt.reason,
               let proposedShortcut = attempt.proposedShortcut else {
+            return false
+        }
+
+        guard !isManagedBySettingsFile(action),
+              !isManagedBySettingsFile(conflictingAction) else {
             return false
         }
 

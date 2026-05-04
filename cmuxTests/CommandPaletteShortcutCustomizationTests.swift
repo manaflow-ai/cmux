@@ -34,6 +34,90 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
         super.tearDown()
     }
 
+    func testFieldEditorMoveCommandHonorsClearedCommandPalettePreviousShortcut() {
+        guard let controlPEvent = makeKeyDownEvent(
+            key: "\u{10}",
+            modifiers: [.control],
+            keyCode: 35,
+            windowNumber: 0
+        ) else {
+            XCTFail("Failed to construct Ctrl+P event")
+            return
+        }
+
+        XCTAssertNil(
+            commandPaletteSelectionDeltaForFieldEditorCommand(
+                #selector(NSResponder.moveUp(_:)),
+                event: controlPEvent,
+                previousShortcut: nil
+            ),
+            "The field editor must not translate cleared Ctrl+P into palette navigation"
+        )
+    }
+
+    func testFieldEditorMoveCommandHonorsRemappedCommandPalettePreviousShortcut() {
+        let remappedPrevious = StoredShortcut(
+            key: "u",
+            command: false,
+            shift: false,
+            option: false,
+            control: true
+        )
+
+        guard let controlPEvent = makeKeyDownEvent(
+            key: "\u{10}",
+            modifiers: [.control],
+            keyCode: 35,
+            windowNumber: 0
+        ),
+        let controlUEvent = makeKeyDownEvent(
+            key: "\u{15}",
+            modifiers: [.control],
+            keyCode: 32,
+            windowNumber: 0
+        ) else {
+            XCTFail("Failed to construct command-palette navigation events")
+            return
+        }
+
+        XCTAssertNil(
+            commandPaletteSelectionDeltaForFieldEditorCommand(
+                #selector(NSResponder.moveUp(_:)),
+                event: controlPEvent,
+                previousShortcut: remappedPrevious
+            )
+        )
+        XCTAssertEqual(
+            commandPaletteSelectionDeltaForFieldEditorCommand(
+                #selector(NSResponder.moveUp(_:)),
+                event: controlUEvent,
+                previousShortcut: remappedPrevious
+            ),
+            -1
+        )
+    }
+
+    func testFieldEditorMoveCommandAlwaysKeepsPlainArrowNavigation() {
+        guard let upArrowEvent = makeKeyDownEvent(
+            key: String(UnicodeScalar(NSUpArrowFunctionKey)!),
+            modifiers: [],
+            keyCode: 126,
+            windowNumber: 0
+        ) else {
+            XCTFail("Failed to construct Up Arrow event")
+            return
+        }
+
+        XCTAssertEqual(
+            commandPaletteSelectionDeltaForFieldEditorCommand(
+                #selector(NSResponder.moveUp(_:)),
+                event: upArrowEvent,
+                previousShortcut: nil
+            ),
+            -1
+        )
+    }
+
     func testRemappedCommandPalettePreviousShortcutDoesNotConsumeControlP() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
