@@ -141,10 +141,17 @@ fn resolve_trace_path() -> Option<PathBuf> {
     {
         return Some(PathBuf::from(path));
     }
-    if flag_enabled("CMX_TRACE") {
+    if trace_value_enables_path(std::env::var("CMX_TRACE").ok().as_deref()) {
         return Some(std::env::temp_dir().join("cmx-trace.jsonl"));
     }
     None
+}
+
+fn trace_value_enables_path(value: Option<&str>) -> bool {
+    matches!(
+        value,
+        Some("1" | "true" | "TRUE" | "yes" | "YES" | "on" | "ON" | "color" | "colors" | "all")
+    )
 }
 
 fn flag_enabled(name: &str) -> bool {
@@ -335,7 +342,7 @@ fn extract_osc_prefixes(data: &[u8], limit: usize) -> Vec<String> {
 mod tests {
     use super::{
         contains_alt_screen, extract_sgr_palette_summary, extract_sgr_sequences, preview_bytes,
-        terminal_bytes_summary,
+        terminal_bytes_summary, trace_value_enables_path,
     };
 
     #[test]
@@ -363,5 +370,15 @@ mod tests {
     #[test]
     fn detects_alt_screen_entry() {
         assert!(contains_alt_screen(b"\x1b[?1049h"));
+    }
+
+    #[test]
+    fn trace_modes_enable_default_trace_path() {
+        assert!(trace_value_enables_path(Some("color")));
+        assert!(trace_value_enables_path(Some("colors")));
+        assert!(trace_value_enables_path(Some("all")));
+        assert!(trace_value_enables_path(Some("1")));
+        assert!(!trace_value_enables_path(Some("0")));
+        assert!(!trace_value_enables_path(None));
     }
 }

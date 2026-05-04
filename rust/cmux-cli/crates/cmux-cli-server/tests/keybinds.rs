@@ -40,7 +40,7 @@ async fn default_prefix_c_creates_space() {
     let (read_half, mut w) = stream.into_split();
     let mut r = BufReader::new(read_half);
 
-    handshake(&mut w, &mut r).await;
+    handshake(&mut w, &mut r, Viewport { cols: 80, rows: 24 }).await;
     drain_announcements(&mut r).await;
 
     // Ctrl-B (0x02) then 'c' → NewSpace.
@@ -119,7 +119,7 @@ async fn default_ctrl_t_digit_selects_terminal_in_focused_pane() {
     let (read_half, mut w) = stream.into_split();
     let mut r = BufReader::new(read_half);
 
-    handshake(&mut w, &mut r).await;
+    handshake(&mut w, &mut r, Viewport { cols: 80, rows: 24 }).await;
     drain_announcements(&mut r).await;
 
     send_command(&mut w, 1, Command::NewTab).await;
@@ -179,7 +179,15 @@ async fn default_alt_navigation_focuses_split_panes() {
     let (read_half, mut w) = stream.into_split();
     let mut r = BufReader::new(read_half);
 
-    handshake(&mut w, &mut r).await;
+    handshake(
+        &mut w,
+        &mut r,
+        Viewport {
+            cols: 120,
+            rows: 24,
+        },
+    )
+    .await;
     drain_announcements(&mut r).await;
 
     send_command(&mut w, 1, Command::SplitHorizontal).await;
@@ -236,7 +244,15 @@ async fn default_alt_left_is_noop_when_only_diagonal_panes_exist() {
     let (read_half, mut w) = stream.into_split();
     let mut r = BufReader::new(read_half);
 
-    handshake(&mut w, &mut r).await;
+    handshake(
+        &mut w,
+        &mut r,
+        Viewport {
+            cols: 160,
+            rows: 36,
+        },
+    )
+    .await;
     drain_announcements(&mut r).await;
 
     send_command(&mut w, 1, Command::SplitVertical).await;
@@ -295,7 +311,15 @@ async fn default_workspace_sidebar_mode_uses_jk_and_ctrl_np() {
     let (read_half, mut w) = stream.into_split();
     let mut r = BufReader::new(read_half);
 
-    handshake(&mut w, &mut r).await;
+    handshake(
+        &mut w,
+        &mut r,
+        Viewport {
+            cols: 120,
+            rows: 24,
+        },
+    )
+    .await;
     drain_announcements(&mut r).await;
 
     send_command(
@@ -387,7 +411,15 @@ async fn workspace_sidebar_mode_can_create_a_new_workspace() {
     let (read_half, mut w) = stream.into_split();
     let mut r = BufReader::new(read_half);
 
-    handshake(&mut w, &mut r).await;
+    handshake(
+        &mut w,
+        &mut r,
+        Viewport {
+            cols: 120,
+            rows: 24,
+        },
+    )
+    .await;
     drain_announcements(&mut r).await;
 
     write_msg(
@@ -465,7 +497,15 @@ async fn zellij_ctrl_p_split_chords_spawn_and_focus_new_panes() {
     let (read_half, mut w) = stream.into_split();
     let mut r = BufReader::new(read_half);
 
-    handshake(&mut w, &mut r).await;
+    handshake(
+        &mut w,
+        &mut r,
+        Viewport {
+            cols: 120,
+            rows: 24,
+        },
+    )
+    .await;
     drain_announcements(&mut r).await;
 
     write_msg(
@@ -533,7 +573,7 @@ async fn hot_reload_rebinds_prefix() {
     let (read_half, mut w) = stream.into_split();
     let mut r = BufReader::new(read_half);
 
-    handshake(&mut w, &mut r).await;
+    handshake(&mut w, &mut r, Viewport { cols: 80, rows: 24 }).await;
     drain_announcements(&mut r).await;
 
     // Ctrl-A (0x01) + 'c' should create a space.
@@ -667,7 +707,7 @@ where
     }
 }
 
-async fn handshake<R, W>(w: &mut W, r: &mut R)
+async fn handshake<R, W>(w: &mut W, r: &mut R, viewport: Viewport)
 where
     R: tokio::io::AsyncRead + Unpin,
     W: tokio::io::AsyncWrite + Unpin,
@@ -676,7 +716,7 @@ where
         w,
         &ClientMsg::Hello {
             version: PROTOCOL_VERSION,
-            viewport: Viewport { cols: 80, rows: 24 },
+            viewport,
             token: None,
         },
     )

@@ -32,9 +32,7 @@ async fn shell_output_streams_over_socket() {
     };
 
     // Server runs until the shell exits (alive_rx flips to false).
-    let server_handle = tokio::spawn(async move {
-        let _ = run(opts).await;
-    });
+    let server_handle = tokio::spawn(async move { run(opts).await });
 
     // Wait for the socket to appear.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
@@ -146,7 +144,11 @@ async fn shell_output_streams_over_socket() {
     assert!(saw_bye, "expected Bye after shell exit, got:\n{joined}");
 
     // Server task should wind down shortly after alive=false.
-    let _ = timeout(Duration::from_secs(5), server_handle).await;
+    timeout(Duration::from_secs(5), server_handle)
+        .await
+        .expect("server shutdown timeout")
+        .expect("server task panicked")
+        .expect("server returned error");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -165,9 +167,7 @@ async fn shell_output_streams_over_grid_socket() {
         auth_token: None,
     };
 
-    let server_handle = tokio::spawn(async move {
-        let _ = run(opts).await;
-    });
+    let server_handle = tokio::spawn(async move { run(opts).await });
 
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
     while !socket.exists() {
@@ -246,5 +246,9 @@ async fn shell_output_streams_over_grid_socket() {
     write_msg(&mut write_half, &ClientMsg::Input { data: vec![0x04] })
         .await
         .expect("send eof");
-    let _ = timeout(Duration::from_secs(5), server_handle).await;
+    timeout(Duration::from_secs(5), server_handle)
+        .await
+        .expect("server shutdown timeout")
+        .expect("server task panicked")
+        .expect("server returned error");
 }

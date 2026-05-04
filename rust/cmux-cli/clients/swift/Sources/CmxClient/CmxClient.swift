@@ -45,6 +45,10 @@ public struct CmxAttachOptions: Sendable {
     }
 }
 
+public enum CmxClientError: Error, Equatable, Sendable {
+    case unimplemented(String)
+}
+
 /// Handle to an attached cmx session. Real implementation will own a
 /// URLSession/NWConnection over AF_UNIX, a MessagePack encoder/decoder,
 /// and the per-tab libghostty-vt instances.
@@ -57,6 +61,8 @@ public final class CmxSession: @unchecked Sendable {
 
     /// Connect, Hello, and start streaming frames.
     public func attach() async throws {
-        fatalError("CmxSession.attach() not implemented — see clients/swift/README.md for the wire contract")
+        throw CmxClientError.unimplemented(
+            "CmxSession.attach() not implemented; see clients/swift/README.md for the wire contract"
+        )
     }
 }

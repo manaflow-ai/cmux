@@ -149,7 +149,7 @@ clipboard writes travel as `HostControl` so they do not pollute the grid.
 This rendered-grid path is the intended base for web, macOS Swift, and iOS Swift
 clients.
 
-Four Rust crates:
+Five Rust crates:
 
 - `cmux-cli-protocol` — wire types (`ClientMsg`, `ServerMsg`, `Command`, …)
 - `cmux-cli-core` — terminal helpers, settings loader, keybind dispatch

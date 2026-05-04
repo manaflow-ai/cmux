@@ -261,7 +261,7 @@ async fn scroll_during_selection_yanks_logical_rows_not_final_viewport() {
         "expected several visible markers before selection, screen={screen:?}"
     );
     let (pane_row, anchor_marker) = marker_rows[marker_rows.len() / 2].clone();
-    let viewport_row = pane_origin_row((120, 24)).saturating_add(pane_row as u16);
+    let viewport_row = pane_origin_row((80, 10)).saturating_add(pane_row as u16);
 
     write_msg(
         &mut w,
