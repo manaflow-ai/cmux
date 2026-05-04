@@ -13,6 +13,7 @@ pub mod ffi;
 
 use std::io::ErrorKind;
 use std::path::PathBuf;
+use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
 use base64::Engine;
@@ -27,6 +28,7 @@ use tokio::net::UnixStream;
 pub const CMUX_IROH_ALPN: &[u8] = b"/cmux/cmx/3";
 const MAX_AUTH_FRAME_BYTES: usize = 4096;
 const MAX_CMX_FRAME_BYTES: usize = 64 * 1024 * 1024;
+const RELAY_ADDR_WAIT: Duration = Duration::from_secs(5);
 type HmacSha256 = Hmac<Sha256>;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -338,7 +340,7 @@ pub async fn serve(options: BridgeOptions) -> Result<()> {
         .bind()
         .await
         .context("bind iroh endpoint")?;
-    let addr = endpoint.watch_addr().get();
+    let addr = publishable_endpoint_addr(&endpoint, options.relay_mode).await;
     let ticket_auth = options
         .pairing
         .as_ref()
@@ -400,18 +402,71 @@ async fn proxy_incoming(
         .with_context(|| format!("connect cmx socket {}", socket_path.display()))?;
     let (mut cmx_recv, mut cmx_send) = cmx.split();
 
-    let client_to_cmx = async {
-        io::copy(&mut iroh_recv, &mut cmx_send)
-            .await
-            .context("copy iroh client to cmx socket")
-    };
-    let cmx_to_client = async {
-        io::copy(&mut cmx_recv, &mut iroh_send)
-            .await
-            .context("copy cmx socket to iroh client")
-    };
+    let client_to_cmx = copy_then_shutdown(
+        &mut iroh_recv,
+        &mut cmx_send,
+        "copy iroh client to cmx socket",
+        "shutdown cmx socket write half",
+    );
+    let cmx_to_client = copy_then_shutdown(
+        &mut cmx_recv,
+        &mut iroh_send,
+        "copy cmx socket to iroh client",
+        "shutdown iroh client write half",
+    );
     tokio::try_join!(client_to_cmx, cmx_to_client)?;
     Ok(())
+}
+
+async fn copy_then_shutdown<R, W>(
+    reader: &mut R,
+    writer: &mut W,
+    copy_context: &'static str,
+    shutdown_context: &'static str,
+) -> Result<()>
+where
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
+{
+    if let Err(error) = io::copy(reader, writer).await
+        && !is_expected_stream_close(&error)
+    {
+        return Err(error).context(copy_context);
+    }
+    if let Err(error) = writer.shutdown().await
+        && !is_expected_stream_close(&error)
+    {
+        return Err(error).context(shutdown_context);
+    }
+    Ok(())
+}
+
+fn is_expected_stream_close(error: &std::io::Error) -> bool {
+    matches!(
+        error.kind(),
+        ErrorKind::BrokenPipe
+            | ErrorKind::ConnectionAborted
+            | ErrorKind::ConnectionReset
+            | ErrorKind::NotConnected
+            | ErrorKind::UnexpectedEof
+    )
+}
+
+async fn publishable_endpoint_addr(
+    endpoint: &Endpoint,
+    relay_mode: BridgeRelayMode,
+) -> EndpointAddr {
+    if relay_mode != BridgeRelayMode::Disabled
+        && tokio::time::timeout(RELAY_ADDR_WAIT, endpoint.online())
+            .await
+            .is_err()
+    {
+        tracing::warn!(
+            wait_ms = RELAY_ADDR_WAIT.as_millis(),
+            "iroh relay did not become ready before bridge ticket was printed"
+        );
+    }
+    endpoint.watch_addr().get()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -621,7 +676,7 @@ mod tests {
     use cmux_cli_server::{ServerOptions, run};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::UnixListener;
-    use tokio::time::{Duration, Instant, sleep};
+    use tokio::time::{Duration, Instant, sleep, timeout};
 
     #[test]
     fn ticket_roundtrips_json() {
@@ -711,6 +766,25 @@ mod tests {
         assert!(error.to_string().contains("missing Rivet pairing id"));
     }
 
+    #[tokio::test]
+    async fn publishable_addr_does_not_wait_for_relay_when_disabled() -> Result<()> {
+        let endpoint = Endpoint::builder(presets::Minimal)
+            .relay_mode(RelayMode::Disabled)
+            .bind()
+            .await?;
+
+        let addr = timeout(
+            Duration::from_secs(1),
+            publishable_endpoint_addr(&endpoint, BridgeRelayMode::Disabled),
+        )
+        .await
+        .context("relay-disabled address should be available immediately")?;
+
+        assert_eq!(addr.id, endpoint.id());
+        endpoint.close().await;
+        Ok(())
+    }
+
     #[test]
     fn pairing_proof_depends_on_secret_and_nonce() {
         let proof = pairing_proof("secret-a", "pairing-1", "client-a", "server-a").expect("proof");
@@ -779,10 +853,13 @@ mod tests {
         client.recv.read_exact(&mut output).await?;
         assert_eq!(&output, b"pong");
 
+        client.send.shutdown().await?;
         client.endpoint.close().await;
         server.close().await;
         unix_server.await??;
-        server_task.abort();
+        timeout(Duration::from_secs(2), server_task)
+            .await
+            .context("proxy should finish after both streams close")???;
         Ok(())
     }
 
@@ -839,10 +916,13 @@ mod tests {
             .context("expected reply payload")?;
         assert_eq!(output, b"hello from cmx");
 
+        client.send.shutdown().await?;
         client.endpoint.close().await;
         server.close().await;
         unix_server.await??;
-        server_task.abort();
+        timeout(Duration::from_secs(2), server_task)
+            .await
+            .context("framed proxy should finish after both streams close")???;
         Ok(())
     }
 
