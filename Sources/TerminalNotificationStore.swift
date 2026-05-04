@@ -710,6 +710,12 @@ struct AgentHookInstallResult {
     let message: String
 }
 
+struct AgentHookDiffResult {
+    let succeeded: Bool
+    let message: String
+    let diff: String
+}
+
 enum AgentHookIntegrationSettings {
     static let promptEnabledKey = "agentHookSetupPromptEnabled"
     static let defaultPromptEnabled = true
@@ -944,10 +950,29 @@ enum AgentHookIntegrationSettings {
             let result = runInstallCommand(
                 executableURL: launch.executableURL,
                 arguments: launch.arguments,
+                environment: nil,
                 fallbackCommand: agent.installCommand
             )
             DispatchQueue.main.async {
                 NotificationCenter.default.post(name: statusDidChangeNotification, object: nil)
+                completion(result)
+            }
+        }
+    }
+
+    static func diffHooks(for agent: AgentHookIntegration, completion: @escaping (AgentHookDiffResult) -> Void) {
+        if agent.isClaudeWrapper {
+            completion(AgentHookDiffResult(
+                succeeded: true,
+                message: "",
+                diff: String(localized: "agentHooks.diff.claude", defaultValue: "Claude Code uses the cmux wrapper in cmux terminals. No config file changes are needed.")
+            ))
+            return
+        }
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = buildHookDiff(for: agent)
+            DispatchQueue.main.async {
                 completion(result)
             }
         }
@@ -1001,14 +1026,118 @@ enum AgentHookIntegrationSettings {
         return (URL(fileURLWithPath: "/usr/bin/env"), ["cmux", "hooks", agent.name, "install", "--yes"])
     }
 
+    private static func buildHookDiff(for agent: AgentHookIntegration) -> AgentHookDiffResult {
+        let fm = FileManager.default
+        let tempHome = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("cmux-agent-hook-diff-\(UUID().uuidString)", isDirectory: true)
+
+        do {
+            try fm.createDirectory(at: tempHome, withIntermediateDirectories: true)
+            defer { try? fm.removeItem(at: tempHome) }
+
+            guard let configDir = agent.configDir else {
+                return AgentHookDiffResult(
+                    succeeded: false,
+                    message: String(localized: "agentHooks.diff.failed", defaultValue: "Could not prepare hook diff."),
+                    diff: ""
+                )
+            }
+
+            let originalConfigDir = expandedHomePath(configDir)
+            let tempConfigDir = tempHome.appendingPathComponent(configDir, isDirectory: true)
+            try fm.createDirectory(at: tempConfigDir.deletingLastPathComponent(), withIntermediateDirectories: true)
+            if fm.fileExists(atPath: originalConfigDir.path) {
+                try fm.copyItem(at: originalConfigDir, to: tempConfigDir)
+            } else {
+                try fm.createDirectory(at: tempConfigDir, withIntermediateDirectories: true)
+            }
+
+            var environment = ProcessInfo.processInfo.environment
+            environment["HOME"] = tempHome.path
+            if let envKey = agent.configDirEnvOverride {
+                environment[envKey] = tempConfigDir.path
+            }
+
+            let launch = hookInstallLaunch(for: agent)
+            let installResult = runInstallCommand(
+                executableURL: launch.executableURL,
+                arguments: launch.arguments,
+                environment: environment,
+                fallbackCommand: agent.installCommand
+            )
+            guard installResult.succeeded else {
+                return AgentHookDiffResult(succeeded: false, message: installResult.message, diff: "")
+            }
+
+            let relativePaths = diffRelativePaths(for: agent)
+            let diffs = relativePaths.compactMap { relativePath in
+                let oldURL = URL(fileURLWithPath: NSString(string: "~/\(relativePath)").expandingTildeInPath)
+                let newURL = tempHome.appendingPathComponent(relativePath)
+                return unifiedDiff(relativePath: relativePath, oldURL: oldURL, newURL: newURL)
+            }
+            let diff = diffs.joined(separator: "\n")
+            if diff.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return AgentHookDiffResult(
+                    succeeded: true,
+                    message: String(localized: "agentHooks.diff.noChanges", defaultValue: "No file changes needed."),
+                    diff: String(localized: "agentHooks.diff.noChanges", defaultValue: "No file changes needed.")
+                )
+            }
+            return AgentHookDiffResult(succeeded: true, message: "", diff: diff)
+        } catch {
+            return AgentHookDiffResult(
+                succeeded: false,
+                message: String(localized: "agentHooks.diff.failed", defaultValue: "Could not prepare hook diff."),
+                diff: ""
+            )
+        }
+    }
+
+    private static func expandedHomePath(_ relativePath: String) -> URL {
+        URL(fileURLWithPath: NSString(string: "~/\(relativePath)").expandingTildeInPath)
+    }
+
+    private static func diffRelativePaths(for agent: AgentHookIntegration) -> [String] {
+        guard let configDir = agent.configDir,
+              let configFile = agent.configFile else {
+            return []
+        }
+        var paths = ["\(configDir)/\(configFile)"]
+        if agent.name == "codex" {
+            paths.append("\(configDir)/config.toml")
+        }
+        return paths
+    }
+
+    private static func unifiedDiff(relativePath: String, oldURL: URL, newURL: URL) -> String? {
+        let oldText = (try? String(contentsOf: oldURL, encoding: .utf8)) ?? ""
+        let newText = (try? String(contentsOf: newURL, encoding: .utf8)) ?? ""
+        guard oldText != newText else { return nil }
+
+        let oldLines = oldText.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        let newLines = newText.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        var lines = [
+            "--- ~/\(relativePath)",
+            "+++ ~/\(relativePath)",
+            "@@",
+        ]
+        lines.append(contentsOf: oldLines.map { "-\($0)" })
+        lines.append(contentsOf: newLines.map { "+\($0)" })
+        return lines.joined(separator: "\n")
+    }
+
     private static func runInstallCommand(
         executableURL: URL,
         arguments: [String],
+        environment: [String: String]?,
         fallbackCommand: String
     ) -> AgentHookInstallResult {
         let process = Process()
         process.executableURL = executableURL
         process.arguments = arguments
+        if let environment {
+            process.environment = environment
+        }
         process.standardInput = FileHandle.nullDevice
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()

@@ -7826,8 +7826,7 @@ private struct AgentHooksSettingsCard: View {
 private struct AgentHookSettingsRow: View {
     let agent: AgentHookIntegration
     @Binding var refreshToken: UInt64
-    @State private var isInstalling = false
-    @State private var installMessage: String?
+    @State private var reviewAgent: AgentHookIntegration?
 
     private var status: AgentHookIntegrationStatus {
         let _ = refreshToken
@@ -7839,7 +7838,7 @@ private struct AgentHookSettingsRow: View {
         SettingsCardRow(
             configurationReview: .settingsOnly,
             agent.displayName,
-            subtitle: installMessage ?? AgentHookIntegrationSettings.statusSubtitle(for: agent, status: currentStatus)
+            subtitle: AgentHookIntegrationSettings.statusSubtitle(for: agent, status: currentStatus)
         ) {
             HStack(spacing: 8) {
                 AgentHookStatusPill(
@@ -7848,40 +7847,25 @@ private struct AgentHookSettingsRow: View {
                     isUpdateAvailable: currentStatus.isUpdateAvailable
                 )
                 Button(buttonTitle(for: currentStatus)) {
-                    install()
+                    reviewAgent = agent
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
-                .disabled(isInstalling || currentStatus.isActive)
+                .disabled(currentStatus.isActive)
+            }
+        }
+        .sheet(item: $reviewAgent) { agent in
+            AgentHookDiffReviewView(agent: agent) {
+                refreshToken &+= 1
             }
         }
     }
 
     private func buttonTitle(for status: AgentHookIntegrationStatus) -> String {
-        if isInstalling {
-            return String(localized: "settings.automation.agentHooks.installing", defaultValue: "Installing")
-        }
         if status.isActive {
             return String(localized: "settings.automation.agentHooks.installed", defaultValue: "Installed")
         }
-        if status.isUpdateAvailable {
-            return String(localized: "settings.automation.agentHooks.update", defaultValue: "Update")
-        }
-        if agent.isClaudeWrapper {
-            return String(localized: "settings.automation.agentHooks.enable", defaultValue: "Enable")
-        }
-        return String(localized: "settings.automation.agentHooks.install", defaultValue: "Install")
-    }
-
-    private func install() {
-        guard !isInstalling else { return }
-        isInstalling = true
-        installMessage = nil
-        AgentHookIntegrationSettings.installHooks(for: agent) { result in
-            isInstalling = false
-            refreshToken &+= 1
-            installMessage = result.succeeded ? nil : result.message
-        }
+        return String(localized: "settings.automation.agentHooks.review", defaultValue: "Review")
     }
 }
 

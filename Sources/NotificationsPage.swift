@@ -183,8 +183,7 @@ struct ShortcutAnnotation: View {
 struct TerminalNotificationActionButtons: View {
     let action: TerminalNotificationAction
     let onClear: () -> Void
-    @State private var isRunning = false
-    @State private var message: String?
+    @State private var reviewAgent: AgentHookIntegration?
 
     var body: some View {
         switch action {
@@ -193,18 +192,16 @@ struct TerminalNotificationActionButtons: View {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 8) {
                         Button(primaryButtonTitle(for: agent)) {
-                            install(agent)
+                            reviewAgent = agent
                         }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.small)
-                        .disabled(isRunning)
 
                         Button(String(localized: "agentHooks.prompt.notNow", defaultValue: "Not Now")) {
                             onClear()
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
-                        .disabled(isRunning)
 
                         Button(String(localized: "agentHooks.prompt.never", defaultValue: "Never Show Again")) {
                             AgentHookIntegrationSettings.setPromptEnabled(false)
@@ -212,13 +209,11 @@ struct TerminalNotificationActionButtons: View {
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
-                        .disabled(isRunning)
                     }
-
-                    if let message {
-                        Text(message)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                }
+                .sheet(item: $reviewAgent) { agent in
+                    AgentHookDiffReviewView(agent: agent) {
+                        onClear()
                     }
                 }
             }
@@ -226,7 +221,91 @@ struct TerminalNotificationActionButtons: View {
     }
 
     private func primaryButtonTitle(for agent: AgentHookIntegration) -> String {
-        if isRunning {
+        return String(localized: "agentHooks.prompt.review", defaultValue: "Review changes")
+    }
+}
+
+struct AgentHookDiffReviewView: View {
+    let agent: AgentHookIntegration
+    let onInstalled: () -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var isLoading = true
+    @State private var isInstalling = false
+    @State private var diffSucceeded = false
+    @State private var diffText = ""
+    @State private var message: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title)
+                .font(.headline)
+            Text(String(localized: "agentHooks.diff.subtitle", defaultValue: "Review the config changes before installing hooks."))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Group {
+                if isLoading {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text(String(localized: "agentHooks.diff.loading", defaultValue: "Preparing diff..."))
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 280, alignment: .center)
+                } else {
+                    ScrollView {
+                        Text(diffText)
+                            .font(.system(.caption, design: .monospaced))
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(10)
+                    }
+                    .background(Color(nsColor: .textBackgroundColor))
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+                    )
+                    .frame(minHeight: 280)
+                }
+            }
+
+            if let message {
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack {
+                Spacer()
+                Button(String(localized: "agentHooks.diff.cancel", defaultValue: "Cancel")) {
+                    dismiss()
+                }
+                .keyboardShortcut(.cancelAction)
+                .disabled(isInstalling)
+
+                Button(installButtonTitle) {
+                    install()
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+                .disabled(isLoading || isInstalling || !diffSucceeded)
+            }
+        }
+        .padding(18)
+        .frame(width: 720, height: 520)
+        .onAppear(perform: loadDiff)
+    }
+
+    private var title: String {
+        if AgentHookIntegrationSettings.status(for: agent).isUpdateAvailable {
+            return String(localized: "agentHooks.diff.updateTitle", defaultValue: "Update \(agent.displayName) hooks")
+        }
+        return String(localized: "agentHooks.diff.installTitle", defaultValue: "Install \(agent.displayName) hooks")
+    }
+
+    private var installButtonTitle: String {
+        if isInstalling {
             return String(localized: "agentHooks.prompt.installing", defaultValue: "Installing...")
         }
         if AgentHookIntegrationSettings.status(for: agent).isUpdateAvailable {
@@ -238,14 +317,29 @@ struct TerminalNotificationActionButtons: View {
         return String(localized: "agentHooks.prompt.install", defaultValue: "Install hooks")
     }
 
-    private func install(_ agent: AgentHookIntegration) {
-        guard !isRunning else { return }
-        isRunning = true
+    private func loadDiff() {
+        isLoading = true
+        diffSucceeded = false
+        message = nil
+        AgentHookIntegrationSettings.diffHooks(for: agent) { result in
+            isLoading = false
+            diffSucceeded = result.succeeded
+            diffText = result.diff.isEmpty
+                ? String(localized: "agentHooks.diff.noDiff", defaultValue: "No diff available.")
+                : result.diff
+            message = result.message.isEmpty ? nil : result.message
+        }
+    }
+
+    private func install() {
+        guard !isInstalling else { return }
+        isInstalling = true
         message = nil
         AgentHookIntegrationSettings.installHooks(for: agent) { result in
-            isRunning = false
+            isInstalling = false
             if result.succeeded {
-                onClear()
+                onInstalled()
+                dismiss()
             } else {
                 message = result.message
             }

@@ -58951,6 +58951,176 @@
         }
       }
     },
+    "agentHooks.prompt.review": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review changes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変更を確認"
+          }
+        }
+      }
+    },
+    "agentHooks.diff.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャンセル"
+          }
+        }
+      }
+    },
+    "agentHooks.diff.claude": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code uses the cmux wrapper in cmux terminals. No config file changes are needed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxターミナル内ではClaude Codeにcmuxラッパーを使います。設定ファイルの変更はありません。"
+          }
+        }
+      }
+    },
+    "agentHooks.diff.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not prepare hook diff."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フックの差分を準備できませんでした。"
+          }
+        }
+      }
+    },
+    "agentHooks.diff.installTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install %@ hooks"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@フックをインストール"
+          }
+        }
+      }
+    },
+    "agentHooks.diff.loading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparing diff..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "差分を準備中..."
+          }
+        }
+      }
+    },
+    "agentHooks.diff.noChanges": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No file changes needed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイル変更は不要です。"
+          }
+        }
+      }
+    },
+    "agentHooks.diff.noDiff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No diff available."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表示できる差分はありません。"
+          }
+        }
+      }
+    },
+    "agentHooks.diff.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review the config changes before installing hooks."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フックをインストールする前に設定変更を確認してください。"
+          }
+        }
+      }
+    },
+    "agentHooks.diff.updateTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update %@ hooks"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@フックを更新"
+          }
+        }
+      }
+    },
     "settings.automation.agentHooks.enable": {
       "extractionState": "manual",
       "localizations": {
@@ -59015,6 +59185,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "インストール中"
+          }
+        }
+      }
+    },
+    "settings.automation.agentHooks.review": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認"
           }
         }
       }
