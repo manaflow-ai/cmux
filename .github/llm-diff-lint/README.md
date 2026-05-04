@@ -31,6 +31,7 @@ Optional repository variables:
 - `GCP_SERVICE_ACCOUNT`, defaults to `cmux-vertex-ai@manaflow-437420.iam.gserviceaccount.com`
 - `GOOGLE_VERTEX_PROJECT`, required for Gemini unless `GOOGLE_CLOUD_PROJECT` is set in the environment
 - `GOOGLE_VERTEX_LOCATION`, defaults to `global`
+- `LLM_DIFF_LINT_GOOGLE_THINKING_LEVEL`, defaults to `minimal` for Vertex Gemini 3 models. Use `omit`, `minimal`, `low`, `medium`, or `high`
 - `LLM_DIFF_LINT_ARCHITECTURE_MODEL`, defaults to `openai/gpt-5.5`. `LLM_DIFF_LINT_CODEX_MODEL` is still accepted as a compatibility fallback
 - `LLM_DIFF_LINT_CODEX_REASONING_EFFORT`, defaults to `medium`
 - `LLM_DIFF_LINT_CODEX_MAX_TOKENS`, defaults to `LLM_DIFF_LINT_MAX_TOKENS` or `8192`
@@ -40,7 +41,7 @@ Optional repository variables:
 - `LLM_DIFF_LINT_MAX_DIFF_BYTES`, defaults to `5000000`
 - `DEEPSEEK_BASE_URL`, optional DeepSeek override
 
-The default provider matrix runs `deepseek-v4-pro`. The optional Gemini comparison runs `gemini-3-flash-preview` through Vertex AI when `LLM_DIFF_LINT_ENABLE_VERTEX=true`. GitHub Actions authenticates to Vertex with OIDC workload identity and the `cmux-vertex-ai` service account. This avoids storing a long-lived GCP service account key.
+The default provider matrix runs `deepseek-v4-pro`. The optional Gemini comparison runs `gemini-3-flash-preview` through Vertex AI when `LLM_DIFF_LINT_ENABLE_VERTEX=true`. GitHub Actions authenticates to Vertex with OIDC workload identity and the `cmux-vertex-ai` service account. This avoids storing a long-lived GCP service account key. Gemini 3 Vertex calls default to minimal thinking so structured JSON output is not starved by hidden reasoning tokens.
 
 The broader `swift-architectural-rethink` rule runs once on GPT-5.5 through cx gateway with medium reasoning. It uses `openai/gpt-5.5` by default because the rule asks for architecture judgment rather than narrow lint matching.
 

@@ -25,6 +25,7 @@ const MAX_SUMMARY_CHARS = 300;
 
 type Severity = "none" | "warning" | "failure";
 type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "omit";
+type GoogleThinkingLevel = "minimal" | "low" | "medium" | "high" | "omit";
 type Finding = {
   file: string;
   line: number | null;
@@ -107,6 +108,13 @@ function normalizeReasoningEffort(value: string): ReasoningEffort {
     return value as ReasoningEffort;
   }
   throw new Error(`invalid reasoning effort: ${value}`);
+}
+
+function normalizeGoogleThinkingLevel(value: string): GoogleThinkingLevel {
+  if (["minimal", "low", "medium", "high", "omit"].includes(value)) {
+    return value as GoogleThinkingLevel;
+  }
+  throw new Error(`invalid Google thinking level: ${value}`);
 }
 
 function parseArgs(argv: string[]): Args {
@@ -209,6 +217,9 @@ function parseArgs(argv: string[]): Args {
   }
   if (!Number.isInteger(args.retries) || args.retries < 0) {
     throw new Error(`invalid retry value: ${args.retries}`);
+  }
+  if (process.env.LLM_DIFF_LINT_GOOGLE_THINKING_LEVEL) {
+    normalizeGoogleThinkingLevel(process.env.LLM_DIFF_LINT_GOOGLE_THINKING_LEVEL);
   }
   return {
     ...args,
@@ -601,7 +612,18 @@ function resolveModel(args: Args): { model: unknown; providerOptions?: Record<st
     }
     const location = process.env.GOOGLE_VERTEX_LOCATION || process.env.GOOGLE_CLOUD_LOCATION || "global";
     const vertex = createVertex({ project, location });
-    return { model: vertex(args.model) };
+    const thinkingLevel = normalizeGoogleThinkingLevel(
+      process.env.LLM_DIFF_LINT_GOOGLE_THINKING_LEVEL || (args.model.startsWith("gemini-3") ? "minimal" : "omit"),
+    );
+    const providerOptions =
+      thinkingLevel === "omit"
+        ? undefined
+        : {
+            vertex: {
+              thinkingConfig: { thinkingLevel },
+            },
+          };
+    return { model: vertex(args.model), providerOptions };
   }
 
   if (args.provider === "gateway") {

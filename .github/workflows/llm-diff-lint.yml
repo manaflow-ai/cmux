@@ -197,6 +197,7 @@ jobs:
         env:
           GOOGLE_VERTEX_LOCATION: ${{ vars.GOOGLE_VERTEX_LOCATION || 'global' }}
           GOOGLE_VERTEX_PROJECT: ${{ vars.GOOGLE_VERTEX_PROJECT || 'manaflow-437420' }}
+          LLM_DIFF_LINT_GOOGLE_THINKING_LEVEL: ${{ vars.LLM_DIFF_LINT_GOOGLE_THINKING_LEVEL || 'minimal' }}
           LLM_DIFF_LINT_MAX_DIFF_BYTES: ${{ vars.LLM_DIFF_LINT_MAX_DIFF_BYTES || '5000000' }}
           LLM_DIFF_LINT_MAX_TOKENS: ${{ vars.LLM_DIFF_LINT_MAX_TOKENS || vars.DEEPSEEK_MAX_TOKENS || '8192' }}
           LLM_DIFF_LINT_PROVIDER: google-vertex

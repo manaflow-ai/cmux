@@ -187,6 +187,20 @@ if ! grep -Fq 'invalid reasoning effort: huge' "$TMP_DIR/invalid-reasoning.out";
   exit 1
 fi
 
+if LLM_DIFF_LINT_GOOGLE_THINKING_LEVEL=huge bun scripts/llm_diff_lint.ts \
+  --rule "$RULE" \
+  --diff-file "$DIFF" \
+  --mock-response "$CLEAN" > "$TMP_DIR/invalid-google-thinking.out" 2>&1; then
+  echo "expected invalid Google thinking level value to fail" >&2
+  exit 1
+fi
+
+if ! grep -Fq 'invalid Google thinking level: huge' "$TMP_DIR/invalid-google-thinking.out"; then
+  echo "expected invalid Google thinking level diagnostic" >&2
+  cat "$TMP_DIR/invalid-google-thinking.out" >&2
+  exit 1
+fi
+
 if bun scripts/llm_diff_lint.ts \
   --rule "$RULE" \
   --diff-file "$DIFF" \
