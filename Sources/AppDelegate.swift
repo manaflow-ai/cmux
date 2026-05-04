@@ -11333,7 +11333,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .browserBack) {
-            guard let focusedBrowserPanel = tabManager?.focusedBrowserPanel else {
+            guard let focusedBrowserPanel = shortcutEventFocusedBrowserPanel(event) else {
                 return false
             }
             focusedBrowserPanel.goBack()
@@ -11341,7 +11341,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .browserForward) {
-            guard let focusedBrowserPanel = tabManager?.focusedBrowserPanel else {
+            guard let focusedBrowserPanel = shortcutEventFocusedBrowserPanel(event) else {
                 return false
             }
             focusedBrowserPanel.goForward()
@@ -11349,10 +11349,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .browserReload) {
-            guard let focusedBrowserPanel = tabManager?.focusedBrowserPanel else {
+            guard let focusedBrowserPanel = shortcutEventFocusedBrowserPanel(event) else {
                 return false
             }
-            focusedBrowserPanel.reload()
+            reloadBrowserPanelForShortcut(focusedBrowserPanel)
             return true
         }
 
@@ -11673,7 +11673,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
     }
 
-    private func focusedBrowserAddressBarPanelIdForShortcutEvent(_ event: NSEvent) -> UUID? {
+    func focusedBrowserAddressBarPanelIdForShortcutEvent(_ event: NSEvent) -> UUID? {
         guard let panelId = browserAddressBarFocusedPanelId else { return nil }
 
         guard let context = preferredMainWindowContextForShortcutRouting(event: event) else {
@@ -12293,12 +12293,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func matchConfiguredShortcut(event: NSEvent, action: KeyboardShortcutSettings.Action) -> Bool {
-        if !action.shortcutContext.isAvailable(focusedBrowserPanel: tabManager?.focusedBrowserPanel != nil) { return false }
+        if !action.shortcutContext.isAvailable(focusedBrowserPanel: shortcutEventFocusedBrowserPanel(event) != nil) { return false }
         return matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: action))
     }
 
     fileprivate func shouldForwardBrowserSurfaceShortcutToTerminal(_ event: NSEvent) -> Bool {
-        guard tabManager?.focusedBrowserPanel == nil else { return false }
         return KeyboardShortcutSettings.Action.allCases.contains {
             $0.shortcutContext == .browserPanel &&
                 matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: $0))

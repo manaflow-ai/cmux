@@ -10,6 +10,7 @@ final class KeyboardShortcutContextTests: XCTestCase {
     func testRenameTabAndBrowserReloadCanShareDefaultChordAcrossContexts() {
         let renameTabShortcut = KeyboardShortcutSettings.Action.renameTab.defaultShortcut
 
+        XCTAssertEqual(renameTabShortcut, KeyboardShortcutSettings.Action.browserReload.defaultShortcut)
         XCTAssertEqual(KeyboardShortcutSettings.Action.renameTab.shortcutContext, .nonBrowserPanel)
         XCTAssertEqual(KeyboardShortcutSettings.Action.browserReload.shortcutContext, .browserPanel)
         XCTAssertFalse(
