@@ -54,7 +54,7 @@ jobs:
       - name: Checkout trusted workflow code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || github.event.repository.default_branch }}
 
       - name: Resolve pull request
         id: pr
@@ -126,7 +126,9 @@ jobs:
 
   google-vertex-rule:
     name: LLM rule (google-vertex / ${{ matrix.rule }})
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false
+    if: |
+      vars.LLM_DIFF_LINT_ENABLE_VERTEX == 'true' &&
+      (github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -147,7 +149,7 @@ jobs:
       - name: Checkout trusted workflow code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || github.event.repository.default_branch }}
 
       - name: Resolve pull request
         id: pr
@@ -233,7 +235,7 @@ jobs:
       - name: Checkout trusted workflow code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || github.event.repository.default_branch }}
 
       - name: Resolve pull request
         id: pr
@@ -325,7 +327,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ "$DEEPSEEK_RULE_RESULT" != "success" ] || [ "$GOOGLE_VERTEX_RULE_RESULT" != "success" ] || [ "$GPT55_ARCHITECTURE_RESULT" != "success" ]; then
+          if [ "$DEEPSEEK_RULE_RESULT" != "success" ] || { [ "$GOOGLE_VERTEX_RULE_RESULT" != "success" ] && [ "$GOOGLE_VERTEX_RULE_RESULT" != "skipped" ]; } || [ "$GPT55_ARCHITECTURE_RESULT" != "success" ]; then
             echo "DeepSeek rule matrix result: $DEEPSEEK_RULE_RESULT" >&2
             echo "Google Vertex rule matrix result: $GOOGLE_VERTEX_RULE_RESULT" >&2
             echo "GPT-5.5 architecture rule result: $GPT55_ARCHITECTURE_RESULT" >&2
@@ -350,7 +352,7 @@ jobs:
       - name: Checkout trusted workflow code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || github.event.repository.default_branch }}
 
       - name: Resolve pull request
         id: pr

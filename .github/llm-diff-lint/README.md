@@ -7,8 +7,8 @@ The workflow uses `pull_request_target` and fetches the net PR diff with `gh pr 
 Security boundaries:
 
 - no `pull_request` trigger, so fork or branch PR code never runs with repository secrets
-- manual `workflow_dispatch` accepts only a numeric PR number and still checks out the repository default branch
-- checkout always uses the repository default branch
+- manual `workflow_dispatch` accepts only a numeric PR number and checks out the selected maintainer-controlled workflow ref
+- `pull_request_target` checkout always uses the repository default branch
 - `id-token: write` is scoped only to the Google Vertex job
 - model input and model output are redacted before artifacts, annotations, and PR comments
 - the GCP Workload Identity provider is restricted to `.github/workflows/llm-diff-lint.yml` on `main`
@@ -26,6 +26,7 @@ Optional secret:
 Optional repository variables:
 
 - `CX_GATEWAY_BASE_URL`, optional cx gateway base URL override. `AI_GATEWAY_BASE_URL` is still accepted as a fallback
+- `LLM_DIFF_LINT_ENABLE_VERTEX`, set to `true` to enable the optional Gemini comparison jobs through Vertex AI
 - `GCP_WORKLOAD_IDENTITY_PROVIDER`, defaults to the cmux GitHub Actions workload identity provider
 - `GCP_SERVICE_ACCOUNT`, defaults to `cmux-vertex-ai@manaflow-437420.iam.gserviceaccount.com`
 - `GOOGLE_VERTEX_PROJECT`, required for Gemini unless `GOOGLE_CLOUD_PROJECT` is set in the environment
@@ -39,7 +40,7 @@ Optional repository variables:
 - `LLM_DIFF_LINT_MAX_DIFF_BYTES`, defaults to `5000000`
 - `DEEPSEEK_BASE_URL`, optional DeepSeek override
 
-The default provider matrix compares `deepseek-v4-pro` with `gemini-3-flash-preview` through Vertex AI. GitHub Actions authenticates to Vertex with OIDC workload identity and the `cmux-vertex-ai` service account. This avoids storing a long-lived GCP service account key.
+The default provider matrix runs `deepseek-v4-pro`. The optional Gemini comparison runs `gemini-3-flash-preview` through Vertex AI when `LLM_DIFF_LINT_ENABLE_VERTEX=true`. GitHub Actions authenticates to Vertex with OIDC workload identity and the `cmux-vertex-ai` service account. This avoids storing a long-lived GCP service account key.
 
 The broader `swift-architectural-rethink` rule runs once on GPT-5.5 through cx gateway with medium reasoning. It uses `openai/gpt-5.5` by default because the rule asks for architecture judgment rather than narrow lint matching.
 
@@ -122,7 +123,7 @@ Do not include large code examples unless the syntax is ambiguous. Every extra r
 
 ## Provider And Rule Split
 
-The current split is 6 focused rules across 2 providers, plus 1 broad GPT-5.5 architecture rule. That produces 13 jobs when `CX_GATEWAY_API_KEY` or `AI_GATEWAY_API_KEY` is configured, with the provider matrices capped at `max-parallel: 4`.
+The current production split is 6 focused DeepSeek rules plus 1 broad GPT-5.5 architecture rule. That produces 7 lint jobs when `CX_GATEWAY_API_KEY` or `AI_GATEWAY_API_KEY` is configured. Enabling `LLM_DIFF_LINT_ENABLE_VERTEX=true` adds 6 Gemini comparison jobs. Provider matrices are capped at `max-parallel: 4`.
 
 This keeps each LLM call independent and gives complete per-provider, per-rule status in GitHub checks. `fail-fast: false` lets all focused rules finish even when one fails.
 

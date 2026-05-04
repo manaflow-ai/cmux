@@ -393,9 +393,19 @@ if ! grep -Fq 'EVENT_PR_NUMBER: ${{ github.event.pull_request.number || inputs.p
   exit 1
 fi
 
-default_checkout_count="$(grep -Fc 'ref: ${{ github.event.repository.default_branch }}' "$WORKFLOW")"
+default_checkout_count="$(grep -Fc "ref: \${{ github.event_name == 'workflow_dispatch' && github.ref || github.event.repository.default_branch }}" "$WORKFLOW")"
 if [ "$default_checkout_count" -ne 4 ]; then
-  echo "all workflow checkouts must use repository default branch, got $default_checkout_count" >&2
+  echo "all workflow checkouts must use the selected dispatch ref or repository default branch, got $default_checkout_count" >&2
+  exit 1
+fi
+
+if ! grep -Fq "vars.LLM_DIFF_LINT_ENABLE_VERTEX == 'true'" "$WORKFLOW"; then
+  echo "Google Vertex comparison must stay opt-in" >&2
+  exit 1
+fi
+
+if ! grep -Fq '[ "$GOOGLE_VERTEX_RULE_RESULT" != "skipped" ]' "$WORKFLOW"; then
+  echo "status job should allow skipped Google Vertex comparison" >&2
   exit 1
 fi
 
