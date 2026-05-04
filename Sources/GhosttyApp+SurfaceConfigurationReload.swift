@@ -1,5 +1,3 @@
-import Foundation
-
 extension GhosttyApp {
     func reloadSurfaceConfiguration(
         _ surface: ghostty_surface_t,
@@ -26,6 +24,8 @@ extension GhosttyApp {
         cmuxDebugLog("surface.config.reload source=\(source) soft=\(soft) mode=\(mode)")
 #endif
         GhosttyConfig.invalidateLoadCache()
-        NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
+        // Do not post .ghosttyConfigDidReload here. Its observers read the
+        // app-scoped GhosttyApp.config, which this surface-only path leaves
+        // unchanged to avoid desyncing the app and other surfaces.
     }
 }
