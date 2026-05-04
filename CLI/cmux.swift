@@ -14735,6 +14735,24 @@ struct CMUXCLI {
         let codexErrorInfo: String?
         let additionalDetails: String?
         let isStreamError: Bool
+        let rateLimits: CodexRateLimitsSnapshot?
+    }
+
+    private struct CodexRateLimitsSnapshot {
+        let primaryWindowMinutes: Int?
+        let primaryUsedPercent: Double?
+        let secondaryWindowMinutes: Int?
+        let secondaryUsedPercent: Double?
+
+        var isPrimaryFiveHourSaturatedWhileSecondarySevenDayAvailable: Bool {
+            guard primaryWindowMinutes == 300,
+                  secondaryWindowMinutes == 10_080,
+                  let primaryUsedPercent,
+                  let secondaryUsedPercent else {
+                return false
+            }
+            return primaryUsedPercent >= 100 && secondaryUsedPercent < 100
+        }
     }
 
     private enum CodexTranscriptFailureReadResult {
@@ -14799,7 +14817,8 @@ struct CMUXCLI {
                     message: fallback,
                     codexErrorInfo: nil,
                     additionalDetails: nil,
-                    isStreamError: false
+                    isStreamError: false,
+                    rateLimits: nil
                 )
             )
         }
@@ -14817,6 +14836,7 @@ struct CMUXCLI {
 
         var candidate: CodexHookFailureCandidate?
         var candidateCanPublishBeforeTerminal = false
+        var latestRateLimits: CodexRateLimitsSnapshot?
         var sawAssistantMessage = false
         var sawTerminalTurn = false
         var sawRelevantTurn = turnId == nil
@@ -14841,6 +14861,10 @@ struct CMUXCLI {
             }
 
             switch eventType {
+            case "token_count":
+                if let rateLimits = codexRateLimitsSnapshot(from: payload["rate_limits"]) {
+                    latestRateLimits = rateLimits
+                }
             case "task_started":
                 let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
                 if let turnId {
@@ -14862,7 +14886,8 @@ struct CMUXCLI {
                 if let failure = codexHookFailureCandidate(
                     from: payload,
                     isStreamError: false,
-                    requireFailureSignal: false
+                    requireFailureSignal: false,
+                    fallbackRateLimits: latestRateLimits
                 ) {
                     candidate = failure
                     candidateCanPublishBeforeTerminal = turnId == nil || payloadTurnId == turnId || sawRelevantTurn
@@ -14878,7 +14903,8 @@ struct CMUXCLI {
                 if let failure = codexHookFailureCandidate(
                     from: payload,
                     isStreamError: true,
-                    requireFailureSignal: false
+                    requireFailureSignal: false,
+                    fallbackRateLimits: latestRateLimits
                 ) {
                     candidate = failure
                     candidateCanPublishBeforeTerminal = turnId == nil || payloadTurnId == turnId || sawRelevantTurn
@@ -14905,7 +14931,8 @@ struct CMUXCLI {
                         ),
                         codexErrorInfo: nil,
                         additionalDetails: nil,
-                        isStreamError: false
+                        isStreamError: false,
+                        rateLimits: nil
                     )
                     candidateCanPublishBeforeTerminal = false
                 }
@@ -14957,7 +14984,8 @@ struct CMUXCLI {
     private func codexHookFailureCandidate(
         from object: [String: Any]?,
         isStreamError: Bool = false,
-        requireFailureSignal: Bool = true
+        requireFailureSignal: Bool = true,
+        fallbackRateLimits: CodexRateLimitsSnapshot? = nil
     ) -> CodexHookFailureCandidate? {
         guard let object else { return nil }
         let message = firstString(in: object, keys: ["message", "error", "body", "text", "description"])
@@ -14991,7 +15019,8 @@ struct CMUXCLI {
             ),
             codexErrorInfo: codexErrorInfo,
             additionalDetails: additionalDetails,
-            isStreamError: isStreamError || eventType == "stream_error"
+            isStreamError: isStreamError || eventType == "stream_error",
+            rateLimits: codexRateLimitsSnapshot(from: object["rate_limits"]) ?? fallbackRateLimits
         )
     }
 
@@ -15014,7 +15043,14 @@ struct CMUXCLI {
             signal.contains("rate limit") ||
             signal.contains("credits") {
             subtitle = String(localized: "agent.codex.error.subtitle.rateLimit", defaultValue: "Rate limit")
-            statusValue = String(localized: "agent.codex.error.status.rateLimit", defaultValue: "Codex rate limit")
+            if candidate.rateLimits?.isPrimaryFiveHourSaturatedWhileSecondarySevenDayAvailable == true {
+                statusValue = String(
+                    localized: "agent.codex.error.status.temporarilyCooked",
+                    defaultValue: "[temporarily cooked]"
+                )
+            } else {
+                statusValue = String(localized: "agent.codex.error.status.rateLimit", defaultValue: "Codex rate limit")
+            }
         } else if signal.contains("unauthorized") ||
                     signal.contains("auth") ||
                     signal.contains("access token") ||
@@ -15042,6 +15078,45 @@ struct CMUXCLI {
             subtitle: subtitle,
             body: truncate(normalizedSingleLine(detail), maxLength: 220)
         )
+    }
+
+    private func codexRateLimitsSnapshot(from rawValue: Any?) -> CodexRateLimitsSnapshot? {
+        guard let object = rawValue as? [String: Any] else { return nil }
+        let primary = object["primary"] as? [String: Any]
+        let secondary = object["secondary"] as? [String: Any]
+        guard primary != nil || secondary != nil else { return nil }
+        return CodexRateLimitsSnapshot(
+            primaryWindowMinutes: intValue(primary?["window_minutes"] ?? primary?["windowMinutes"]),
+            primaryUsedPercent: doubleValue(primary?["used_percent"] ?? primary?["usedPercent"]),
+            secondaryWindowMinutes: intValue(secondary?["window_minutes"] ?? secondary?["windowMinutes"]),
+            secondaryUsedPercent: doubleValue(secondary?["used_percent"] ?? secondary?["usedPercent"])
+        )
+    }
+
+    private func intValue(_ rawValue: Any?) -> Int? {
+        if let int = rawValue as? Int {
+            return int
+        }
+        if let number = rawValue as? NSNumber {
+            return number.intValue
+        }
+        if let string = rawValue as? String {
+            return Int(string.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        return nil
+    }
+
+    private func doubleValue(_ rawValue: Any?) -> Double? {
+        if let double = rawValue as? Double {
+            return double
+        }
+        if let number = rawValue as? NSNumber {
+            return number.doubleValue
+        }
+        if let string = rawValue as? String {
+            return Double(string.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        return nil
     }
 
     private func codexHookStringValue(_ rawValue: Any?) -> String? {

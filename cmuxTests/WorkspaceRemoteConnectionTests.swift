@@ -1787,7 +1787,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(persistedEnvironment, ["CODEX_HOME": "/tmp/codex home"])
     }
 
-    func testCodexHookStopSetsRateLimitStatusFromTranscript() throws {
+    func testCodexHookStopSetsTemporarilyCookedStatusFromFiveHourRateLimitTranscript() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -1810,7 +1810,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let transcriptURL = transcriptDirectory.appendingPathComponent("rollout-\(sessionId).jsonl")
         try """
         {"timestamp":"2026-04-25T07:55:29.462Z","type":"session_meta","payload":{"id":"\(sessionId)","cwd":"\(root.path)"}}
-        {"timestamp":"2026-04-25T07:55:29.799Z","type":"event_msg","payload":{"type":"token_count","info":null,"rate_limits":{"credits":{"has_credits":false,"unlimited":false,"balance":"0"}}}}
+        {"timestamp":"2026-04-25T07:55:29.799Z","type":"event_msg","payload":{"type":"token_count","info":null,"rate_limits":{"limit_id":"codex","limit_name":null,"primary":{"used_percent":100.0,"window_minutes":300,"resets_at":1777437140},"secondary":{"used_percent":39.0,"window_minutes":10080,"resets_at":1777976830},"credits":null,"plan_type":"pro","rate_limit_reached_type":"primary"}}}
         {"timestamp":"2026-04-25T07:55:29.803Z","type":"event_msg","payload":{"type":"error","message":"You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 4:05 AM.","codex_error_info":"usage_limit_exceeded"}}
         {"timestamp":"2026-04-25T07:55:29.804Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-1","last_agent_message":null}}
         """.write(to: transcriptURL, atomically: true, encoding: .utf8)
@@ -1849,19 +1849,20 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Rate limit|")
+                command.contains("notify_target") &&
+                    command.contains("\(workspaceId) \(surfaceId) Codex|Rate limit|")
             },
             "Expected Codex failure notification, saw \(state.commands)"
         )
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("set_status codex Codex rate limit") &&
+                command.contains("set_status codex [temporarily cooked]") &&
                     command.contains("--icon=exclamationmark.triangle.fill") &&
                     command.contains("--color=#FF453A") &&
                     command.contains("--priority=100") &&
                     command.contains("--tab=\(workspaceId)")
             },
-            "Expected high-priority Codex rate limit status, saw \(state.commands)"
+            "Expected high-priority temporarily cooked Codex status, saw \(state.commands)"
         )
     }
 
