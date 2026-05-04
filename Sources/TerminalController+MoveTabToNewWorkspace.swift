@@ -166,10 +166,7 @@ extension TerminalController {
             if focus {
                 _ = app.focusMainWindow(windowId: located.windowId)
                 setActiveTabManager(located.tabManager)
-                if located.tabManager.selectedTabId != ws.id {
-                    located.tabManager.selectWorkspace(ws)
-                }
-                ws.focusPanel(surfaceId)
+                located.tabManager.focusTab(ws.id, surfaceId: surfaceId, suppressFlash: true)
             } else if let previousFocusedPanelId, ws.panels[previousFocusedPanelId] != nil {
                 ws.focusPanel(previousFocusedPanelId)
             }
