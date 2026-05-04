@@ -32,6 +32,7 @@ enum SidebarWorkspaceListMetrics {
     static let firstRowTopOffset: CGFloat = MinimalModeChromeMetrics.titlebarHeight + 2
     static let rowVerticalPadding: CGFloat = 8
     static let topScrimHeight: CGFloat = firstRowTopOffset + 20
+    static let bottomScrimHeight: CGFloat = topScrimHeight
 
     static var scrollTopInset: CGFloat {
         max(0, firstRowTopOffset - rowVerticalPadding)

@@ -18,7 +18,7 @@ reviews:
         Apply the cmux custom Swift lint rules in `.github/review-bot-rules/` during review. Treat those files as the source of truth. Focus on production Swift changes and ignore test-only scaffolding unless it makes production behavior worse.
     - path: "**/Package.swift"
       instructions: |
-        Apply the cmux custom Swift lint rules in `.github/review-bot-rules/`, especially the concurrency modernization, actor isolation, blocking runtime, and architectural rethink rules.
+        Apply the cmux custom Swift lint rules in `.github/review-bot-rules/`, especially the concurrency modernization, actor isolation, blocking runtime, file/package boundary, and architectural rethink rules.
     - path: "GhosttyTabs.xcodeproj/**"
       instructions: |
         Review project wiring against the cmux Swift lint rules. Flag project changes that enable app/runtime code paths which bypass Swift concurrency, logging, localization, or shared action-path expectations.
@@ -41,6 +41,10 @@ reviews:
         mode: error
         instructions: |
           For Swift changes, fail when the diff violates `.github/review-bot-rules/swift-concurrent-annotation.md`: missing `@concurrent` on `nonisolated async` work that should leave the caller actor, invalid `@concurrent` on synchronous or actor-isolated functions, or CPU/file/network-heavy async helpers called from UI isolation without an explicit hop. Pass for intentionally UI-bound async work.
+      - name: "cmux Swift file and package boundaries"
+        mode: error
+        instructions: |
+          For production Swift changes, fail when the diff violates `.github/review-bot-rules/swift-file-package-boundaries.md`: new oversized files, large additions to already oversized files, mixed UI/state/persistence/network/parsing/protocol responsibilities in one file, or independently testable feature logic kept in the app target when it should live behind a small SwiftPM package target. Pass for existing oversized files touched incidentally, small UI/AppKit/Ghostty glue, generated/vendored/prototype/test code, and focused bug fixes that preserve a clear extraction path.
       - name: "cmux Swift logging"
         mode: error
         instructions: |

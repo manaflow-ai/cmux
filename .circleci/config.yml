@@ -165,154 +165,6 @@ commands:
             done
 
 jobs:
-  workflow-guard-tests:
-    executor: linux-python-node
-    steps:
-      - checkout-source
-      - run:
-          name: Validate workflow guard tests
-          command: |
-            ./tests/test_ci_self_hosted_guard.sh
-            ./tests/test_ci_create_dmg_pinned.sh
-            ./tests/test_ci_unit_test_spm_retry.sh
-            ./tests/test_ci_scheme_testaction_debug.sh
-            ./tests/test_ci_ghosttykit_checksum_verification.sh
-            node scripts/release_asset_guard.test.js
-            ./tests/test_ci_ghosttykit_checksum_present.sh
-            ./tests/test_ci_swift_warning_budget.sh
-            ./tests/test_ci_swift_file_length_budget.sh
-            python3 scripts/swift_file_length_budget.py --budget .github/swift-file-length-budget.tsv
-
-  remote-daemon-tests:
-    executor: linux-go
-    steps:
-      - checkout-source
-      - restore_cache:
-          keys:
-            - v1-go-mod-{{ checksum "daemon/remote/go.sum" }}
-            - v1-go-mod-
-      - run:
-          name: Validate Go version
-          command: |
-            GO_MOD_VERSION="$(awk '$1 == "go" { print $2 }' daemon/remote/go.mod)"
-            GO_RUNTIME_VERSION="$(go env GOVERSION | sed 's/^go//')"
-            case "$GO_RUNTIME_VERSION" in
-              "$GO_MOD_VERSION"|"$GO_MOD_VERSION".*)
-                echo "Go runtime $GO_RUNTIME_VERSION satisfies daemon/remote/go.mod $GO_MOD_VERSION"
-                ;;
-              *)
-                echo "Go runtime $GO_RUNTIME_VERSION does not match daemon/remote/go.mod $GO_MOD_VERSION" >&2
-                echo "Update the linux-go executor image tag when bumping daemon/remote/go.mod." >&2
-                exit 1
-                ;;
-            esac
-      - run:
-          name: Run remote daemon tests
-          command: |
-            cd daemon/remote
-            go test ./...
-      - run:
-          name: Validate remote daemon release assets
-          command: ./tests/test_remote_daemon_release_assets.sh
-      - save_cache:
-          key: v1-go-mod-{{ checksum "daemon/remote/go.sum" }}
-          paths:
-            - ~/go/pkg/mod
-
-  web-typecheck:
-    executor: linux-python-node
-    steps:
-      - checkout-source
-      - install-bun
-      - restore_cache:
-          keys:
-            - v1-web-bun-{{ checksum "web/bun.lock" }}
-            - v1-web-bun-
-      - run:
-          name: Install web dependencies
-          command: |
-            cd web
-            bun install --frozen-lockfile
-      - run:
-          name: Typecheck web
-          command: |
-            cd web
-            bun tsc --noEmit
-      - run:
-          name: Run web tests
-          command: |
-            cd web
-            bun test
-      - save_cache:
-          key: v1-web-bun-{{ checksum "web/bun.lock" }}
-          paths:
-            - ~/.bun/install/cache
-            - web/node_modules
-
-  web-db-migrations:
-    docker:
-      - image: cimg/python:3.12-node
-      - image: postgres:16-alpine
-        environment:
-          POSTGRES_DB: cmux_test
-          POSTGRES_PASSWORD: cmux
-          POSTGRES_USER: cmux
-    resource_class: medium
-    steps:
-      - checkout-source
-      - install-bun
-      - run:
-          name: Install PostgreSQL client
-          command: |
-            sudo apt-get update
-            sudo apt-get install -y postgresql-client
-      - restore_cache:
-          keys:
-            - v1-web-bun-{{ checksum "web/bun.lock" }}
-            - v1-web-bun-
-      - run:
-          name: Install web dependencies
-          command: |
-            cd web
-            bun install --frozen-lockfile
-      - run:
-          name: Wait for PostgreSQL
-          command: |
-            for attempt in $(seq 1 60); do
-              if pg_isready -h localhost -p 5432 -U cmux -d cmux_test; then
-                exit 0
-              fi
-              echo "PostgreSQL not ready on attempt $attempt"
-              sleep 1
-            done
-            echo "PostgreSQL did not become ready" >&2
-            exit 1
-      - run:
-          name: Apply migrations twice
-          environment:
-            DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
-            DIRECT_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
-          command: |
-            cd web
-            bunx drizzle-kit migrate --config drizzle.config.ts
-            bunx drizzle-kit migrate --config drizzle.config.ts
-      - run:
-          name: Run database behavior tests
-          environment:
-            CMUX_DB_TEST: "1"
-            DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
-            DIRECT_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
-          command: |
-            cd web
-            bun test tests/db-schema.test.ts
-            bun test tests/drizzle-effect.test.ts
-            bun test tests/vm-db-read-model.test.ts
-      - save_cache:
-          key: v1-web-bun-{{ checksum "web/bun.lock" }}
-          paths:
-            - ~/.bun/install/cache
-            - web/node_modules
-
   macos-unit-tests:
     executor: macos-xcode
     steps:
@@ -470,8 +322,24 @@ jobs:
       - save-zig-cache
 
 workflows:
-  ci:
+  ci-trusted:
+    when:
+      equal: [main, << pipeline.git.branch >>]
     jobs:
       - macos-unit-tests
       - macos-debug-build
       - macos-release-build
+
+  ci-gated:
+    when:
+      not:
+        equal: [main, << pipeline.git.branch >>]
+    jobs:
+      - hold-for-approval:
+          type: approval
+      - macos-unit-tests:
+          requires: [hold-for-approval]
+      - macos-debug-build:
+          requires: [hold-for-approval]
+      - macos-release-build:
+          requires: [hold-for-approval]

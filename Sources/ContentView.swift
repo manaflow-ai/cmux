@@ -9783,6 +9783,10 @@ struct VerticalTabsSidebar: View {
         SidebarWorkspaceListMetrics.topScrimHeight
     }
 
+    private var sidebarBottomScrimHeight: CGFloat {
+        SidebarWorkspaceListMetrics.bottomScrimHeight
+    }
+
     private var isMinimalMode: Bool {
         WorkspacePresentationModeSettings.mode(for: workspacePresentationMode) == .minimal
     }
@@ -9883,7 +9887,7 @@ struct VerticalTabsSidebar: View {
             workspaceTerminalScrollBarHiddenById: workspaceTerminalScrollBarHiddenById
         )
 
-        VStack(spacing: 0) {
+        ZStack(alignment: .bottomLeading) {
             workspaceScrollArea(renderContext: renderContext)
             SidebarFooter(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -9982,12 +9986,19 @@ struct VerticalTabsSidebar: View {
                     .frame(width: 0, height: 0)
                 )
                 .safeAreaInset(edge: .top, spacing: 0) {
-                    Color.clear
-                        .frame(height: workspaceScrollTopVisibilityInset)
+                    Color.clear.frame(height: workspaceScrollTopVisibilityInset)
+                        .allowsHitTesting(false)
+                }
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    Color.clear.frame(height: sidebarBottomScrimHeight)
                         .allowsHitTesting(false)
                 }
                 .overlay(alignment: .top) {
                     SidebarTopScrim(height: sidebarTopScrimHeight)
+                        .allowsHitTesting(false)
+                }
+                .overlay(alignment: .bottom) {
+                    SidebarBottomScrim(height: sidebarBottomScrimHeight)
                         .allowsHitTesting(false)
                 }
                 .overlay(alignment: .top) {
@@ -12400,15 +12411,6 @@ private struct SidebarDevFooter: View {
     }
 }
 #endif
-
-private struct SidebarTopScrim: View {
-    let height: CGFloat
-
-    var body: some View {
-        Color.clear
-            .frame(height: height)
-    }
-}
 
 private struct SidebarScrollViewResolver: NSViewRepresentable {
     let onResolve: (NSScrollView?) -> Void
