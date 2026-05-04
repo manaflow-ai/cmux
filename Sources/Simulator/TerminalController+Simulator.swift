@@ -3,7 +3,7 @@ import Foundation
 
 #if DEBUG
 extension TerminalController {
-    func v2SimulatorCall(method: String, params: [String: Any]) -> V2CallResult {
+    nonisolated func v2SimulatorCall(method: String, params: [String: Any]) -> V2CallResult {
         switch method {
         case "simulator.open": return v2SimulatorOpen(params: params)
         case "simulator.list": return v2SimulatorList(params: params)
@@ -13,7 +13,7 @@ extension TerminalController {
         }
     }
 
-    func v2SimulatorList(params: [String: Any]) -> V2CallResult {
+    nonisolated func v2SimulatorList(params: [String: Any]) -> V2CallResult {
         _ = params
         do {
             let devices = try SimulatorService.shared.listDevices()
@@ -32,8 +32,8 @@ extension TerminalController {
         }
     }
 
-    func v2SimulatorBoot(params: [String: Any]) -> V2CallResult {
-        guard let udid = v2String(params, "udid"), !udid.isEmpty else {
+    nonisolated func v2SimulatorBoot(params: [String: Any]) -> V2CallResult {
+        guard let udid = v2SimulatorString(params, "udid"), !udid.isEmpty else {
             return .err(code: "invalid_params", message: "Missing 'udid'", data: nil)
         }
         if let validationError = v2SimulatorDeviceValidationError(udid: udid) {
@@ -54,8 +54,8 @@ extension TerminalController {
         return .ok(["udid": udid, "status": "booting"])
     }
 
-    func v2SimulatorShutdown(params: [String: Any]) -> V2CallResult {
-        guard let udid = v2String(params, "udid"), !udid.isEmpty else {
+    nonisolated func v2SimulatorShutdown(params: [String: Any]) -> V2CallResult {
+        guard let udid = v2SimulatorString(params, "udid"), !udid.isEmpty else {
             return .err(code: "invalid_params", message: "Missing 'udid'", data: nil)
         }
         if let validationError = v2SimulatorDeviceValidationError(udid: udid) {
@@ -76,17 +76,14 @@ extension TerminalController {
         return .ok(["udid": udid, "status": "shutting_down"])
     }
 
-    func v2SimulatorOpen(params: [String: Any]) -> V2CallResult {
-        guard let tabManager = v2ResolveTabManager(params: params) else {
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
-        }
-        let preferredUDID = v2String(params, "udid")?.trimmingCharacters(in: .whitespaces)
+    nonisolated func v2SimulatorOpen(params: [String: Any]) -> V2CallResult {
+        let preferredUDID = v2SimulatorString(params, "udid")
         if let preferredUDID, !preferredUDID.isEmpty,
            let validationError = v2SimulatorDeviceValidationError(udid: preferredUDID) {
             return validationError
         }
-        let directionStr = v2String(params, "direction") ?? "right"
-        guard let direction = parseSplitDirection(directionStr) else {
+        let directionStr = v2SimulatorString(params, "direction") ?? "right"
+        guard let direction = v2SimulatorDirection(directionStr) else {
             return .err(
                 code: "invalid_params",
                 message: "Invalid direction '\(directionStr)' (left|right|up|down)",
@@ -100,6 +97,10 @@ extension TerminalController {
             data: nil
         )
         v2MainSync {
+            guard let tabManager = v2ResolveTabManager(params: params) else {
+                result = .err(code: "unavailable", message: "TabManager not available", data: nil)
+                return
+            }
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
                 return
@@ -162,7 +163,7 @@ extension TerminalController {
         return result
     }
 
-    private func v2SimulatorDeviceValidationError(udid: String) -> V2CallResult? {
+    private nonisolated func v2SimulatorDeviceValidationError(udid: String) -> V2CallResult? {
         do {
             guard try SimulatorService.shared.resolveDevice(udid: udid) != nil else {
                 return .err(code: "not_found", message: "Simulator not found: \(udid)", data: ["udid": udid])
@@ -170,6 +171,22 @@ extension TerminalController {
             return nil
         } catch {
             return .err(code: "simulator_unavailable", message: error.localizedDescription, data: ["udid": udid])
+        }
+    }
+
+    private nonisolated func v2SimulatorString(_ params: [String: Any], _ key: String) -> String? {
+        guard let raw = params[key] as? String else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private nonisolated func v2SimulatorDirection(_ value: String) -> SplitDirection? {
+        switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "left": return .left
+        case "right": return .right
+        case "up": return .up
+        case "down": return .down
+        default: return nil
         }
     }
 }
