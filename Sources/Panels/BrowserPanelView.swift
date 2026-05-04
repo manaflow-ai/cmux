@@ -3990,9 +3990,21 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                 let shouldSelectAll = context.coordinator.pendingSelectAllRequestId != nil
                 BrowserOmnibarFocusRegistry.shared.requestFocusAfterViewUpdate(
                     panelId: panelId,
-                    selectAll: shouldSelectAll
+                    selectAll: shouldSelectAll,
+                    shouldApply: { [weak coordinator = context.coordinator] in
+                        guard let coordinator else { return false }
+                        guard coordinator.parent.isFocused else {
+#if DEBUG
+                            coordinator.logFocusEvent("updateNSView.requestFocus.cancel", detail: "reason=stale_state")
+#endif
+                            return false
+                        }
+                        return true
+                    },
+                    onComplete: { [weak coordinator = context.coordinator] in
+                        coordinator?.pendingFocusRequest = nil
+                    }
                 )
-                context.coordinator.pendingFocusRequest = nil
 #if DEBUG
                 context.coordinator.logFocusEvent(
                     "updateNSView.requestFocus.defer",

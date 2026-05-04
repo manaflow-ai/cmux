@@ -33,7 +33,17 @@ final class BrowserOmnibarImmediateTypingUITests: XCTestCase {
 
     func testCmdShiftLImmediateTypingPreservesCompleteURL() {
         let app = launchBrowserSplit()
-        XCTAssertTrue(app.textFields["BrowserOmnibarTextField"].firstMatch.waitForExistence(timeout: 6.0))
+        let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
+        XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0))
+        app.typeKey("l", modifierFlags: [.command])
+        omnibar.typeText("example.com")
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+        XCTAssertTrue(
+            waitForCondition(timeout: 8.0) {
+                Self.containsExampleDomain(((omnibar.value as? String) ?? "").lowercased())
+            },
+            "Expected baseline navigation to load before Cmd+Shift+L fast-typing check."
+        )
         assertImmediateTypingPreservesCompleteURL(app: app, shortcutFlags: [.command, .shift])
     }
 

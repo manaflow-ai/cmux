@@ -81,12 +81,22 @@ final class BrowserOmnibarFocusRegistry {
         return applyPendingFocusIfPossible(panelId: panelId)
     }
 
-    func requestFocusAfterViewUpdate(panelId: UUID, selectAll: Bool) {
+    func requestFocusAfterViewUpdate(
+        panelId: UUID,
+        selectAll: Bool,
+        shouldApply: @escaping () -> Bool,
+        onComplete: @escaping () -> Void
+    ) {
         // SwiftUI can call updateNSView while AppKit text input is ending editing.
         // Keep the Cmd+L shortcut path synchronous, but replay this fallback next turn.
         _ = recordPendingFocus(panelId: panelId, selectAll: selectAll)
         DispatchQueue.main.async { [weak self] in
+            defer { onComplete() }
             guard let self else { return }
+            guard shouldApply() else {
+                self.pendingFocusRequestsByPanelId[panelId] = nil
+                return
+            }
             _ = self.applyPendingFocusIfPossible(panelId: panelId)
         }
     }
