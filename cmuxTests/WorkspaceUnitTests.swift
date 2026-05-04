@@ -1018,6 +1018,68 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertNotNil(KeyboardShortcutSettings.settingsFileManagedSubtitle(for: .newTab))
     }
 
+    func testUserDefaultsShortcutOverrideWinsOverSettingsFileShortcut() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        let fileShortcut = StoredShortcut(key: "m", command: true, shift: true, option: false, control: false)
+        let uiShortcut = StoredShortcut(key: "y", command: true, shift: true, option: false, control: false)
+        try writeSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "newWindow": "cmd+shift+m"
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+        let originalSettingsFileContents = try String(contentsOf: settingsFileURL, encoding: .utf8)
+
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .newWindow), fileShortcut)
+        XCTAssertTrue(KeyboardShortcutSettings.isManagedBySettingsFile(.newWindow))
+
+        KeyboardShortcutSettings.setShortcut(uiShortcut, for: .newWindow)
+
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .newWindow), uiShortcut)
+        XCTAssertEqual(
+            try String(contentsOf: settingsFileURL, encoding: .utf8),
+            originalSettingsFileContents
+        )
+    }
+
+    func testSettingsFileShortcutDoesNotRenderManagedSubtitle() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "newWindow": "cmd+shift+m"
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertNil(KeyboardShortcutSettings.settingsFileManagedSubtitle(for: .newWindow))
+    }
+
     @MainActor
     func testReloadConfigurationReloadsShortcutSettingsFile() throws {
         let directoryURL = try makeTemporaryDirectory()
