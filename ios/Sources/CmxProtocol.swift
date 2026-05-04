@@ -200,6 +200,7 @@ enum CmxClientMessage: Equatable, Sendable {
     case command(id: UInt32, CmxClientCommand)
     case detach
     case ping
+    case clientLatency(milliseconds: UInt32)
 }
 
 enum CmxClientCommand: Equatable, Sendable {
@@ -341,6 +342,12 @@ enum CmxWireCodec {
             writer.writeMapHeader(1)
             writer.writeString("kind")
             writer.writeString("ping")
+        case .clientLatency(let milliseconds):
+            writer.writeMapHeader(2)
+            writer.writeString("kind")
+            writer.writeString("client_latency")
+            writer.writeString("latency_ms")
+            writer.writeUInt(UInt64(milliseconds))
         }
         return writer.data
     }

@@ -331,6 +331,12 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "接続中" } }
       }
     },
+    "status.latency_ms" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%d ms" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%d ms" } }
+      }
+    },
     "status.needs_ticket" : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Ticket needed" } },

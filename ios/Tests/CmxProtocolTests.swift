@@ -68,6 +68,14 @@ final class CmxProtocolTests: XCTestCase {
         ]))
     }
 
+    func testClientLatencyEncodingReportsMeasuredRoundTrip() throws {
+        let payload = try CmxWireCodec.encode(.clientLatency(milliseconds: 42))
+
+        XCTAssertNotNil(payload.range(of: Data("client_latency".utf8)))
+        XCTAssertNotNil(payload.range(of: Data("latency_ms".utf8)))
+        XCTAssertNotNil(payload.range(of: Data([42])))
+    }
+
     func testDecodeWelcome() throws {
         let payload = Data([
             0x83,

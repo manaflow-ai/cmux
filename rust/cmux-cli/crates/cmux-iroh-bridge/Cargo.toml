@@ -15,6 +15,7 @@ crate-type = ["rlib", "staticlib"]
 anyhow.workspace = true
 base64.workspace = true
 clap.workspace = true
+crossterm.workspace = true
 getrandom.workspace = true
 hmac.workspace = true
 iroh.workspace = true

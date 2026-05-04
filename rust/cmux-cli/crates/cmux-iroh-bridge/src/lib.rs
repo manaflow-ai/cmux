@@ -11,13 +11,14 @@
 
 pub mod ffi;
 
-use std::io::ErrorKind;
+use std::io::{ErrorKind, IsTerminal, Write as _};
 use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
 use base64::Engine;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
+use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use hmac::{Hmac, Mac};
 use iroh::{Endpoint, EndpointAddr, RelayMode, Watcher, endpoint::presets};
 use serde::{Deserialize, Serialize};
@@ -346,10 +347,9 @@ pub async fn serve(options: BridgeOptions) -> Result<()> {
         .as_ref()
         .map(BridgePairingOptions::ticket_auth)
         .unwrap_or(BridgeTicketAuth::Direct);
-    println!(
-        "{}",
-        BridgeTicket::new_with_node(addr, ticket_auth, options.node.clone()).encode()?
-    );
+    let ticket = BridgeTicket::new_with_node(addr, ticket_auth, options.node.clone()).encode()?;
+    println!("{ticket}");
+    spawn_ticket_copy_shortcut(ticket);
 
     while let Some(incoming) = endpoint.accept().await {
         let socket_path = options.cmx_socket_path.clone();
@@ -363,6 +363,69 @@ pub async fn serve(options: BridgeOptions) -> Result<()> {
 
     endpoint.close().await;
     Ok(())
+}
+
+fn spawn_ticket_copy_shortcut(ticket: String) {
+    if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
+        return;
+    }
+    let spawn_result = std::thread::Builder::new()
+        .name("cmux-iroh-ticket-copy".into())
+        .spawn(move || {
+            if let Err(error) = ticket_copy_loop(&ticket) {
+                eprintln!("cmux iroh ticket copy shortcut disabled: {error:#}");
+            }
+        });
+    if let Err(error) = spawn_result {
+        eprintln!("cmux iroh ticket copy shortcut disabled: {error}");
+    }
+}
+
+fn ticket_copy_loop(ticket: &str) -> Result<()> {
+    crossterm::terminal::enable_raw_mode().context("enable raw mode for ticket copy shortcut")?;
+    let _raw_mode = RawModeGuard;
+    eprintln!("press c to copy the iroh ticket, Ctrl-C to stop the bridge");
+
+    loop {
+        if !event::poll(Duration::from_millis(250)).context("poll terminal input")? {
+            continue;
+        }
+        let Event::Key(key) = event::read().context("read terminal input")? else {
+            continue;
+        };
+        if key.kind != KeyEventKind::Press {
+            continue;
+        }
+        if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+            crossterm::terminal::disable_raw_mode().ok();
+            std::process::exit(130);
+        }
+        if matches!(key.code, KeyCode::Char('c') | KeyCode::Char('C'))
+            && !key.modifiers.contains(KeyModifiers::CONTROL)
+            && !key.modifiers.contains(KeyModifiers::ALT)
+        {
+            write_ticket_osc52(ticket).context("copy ticket with OSC 52")?;
+            eprintln!("copied iroh ticket");
+        }
+    }
+}
+
+struct RawModeGuard;
+
+impl Drop for RawModeGuard {
+    fn drop(&mut self) {
+        crossterm::terminal::disable_raw_mode().ok();
+    }
+}
+
+fn write_ticket_osc52(ticket: &str) -> Result<()> {
+    let mut stdout = std::io::stdout().lock();
+    write!(stdout, "{}", ticket_osc52_sequence(ticket)).context("write OSC 52 sequence")?;
+    stdout.flush().context("flush OSC 52 sequence")
+}
+
+fn ticket_osc52_sequence(ticket: &str) -> String {
+    format!("\x1b]52;c;{}\x07", STANDARD.encode(ticket.as_bytes()))
 }
 
 async fn read_exact_or_eof<R>(reader: &mut R, bytes: &mut [u8]) -> Result<bool>
@@ -719,6 +782,11 @@ mod tests {
         assert!(encoded.contains("\"node-mbp\""));
         assert!(!encoded.contains("secret"));
         assert_eq!(BridgeTicket::decode(&encoded).expect("decode"), ticket);
+    }
+
+    #[test]
+    fn ticket_copy_shortcut_emits_osc52_payload() {
+        assert_eq!(ticket_osc52_sequence("ticket"), "\x1b]52;c;dGlja2V0\x07");
     }
 
     #[test]

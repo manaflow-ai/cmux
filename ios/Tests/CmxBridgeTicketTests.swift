@@ -378,6 +378,38 @@ final class CmxBridgeTicketTests: XCTestCase {
     }
 
     @MainActor
+    func testConnectionStoreSurfacesActiveSessionLatency() throws {
+        let sessionFactory = RecordingTerminalSessionFactory()
+        let store = CmxConnectionStore(
+            authSessionStore: MemoryStackAuthSessionStore(),
+            pairingSecretClient: RecordingPairingSecretClient(),
+            terminalSessionFactory: sessionFactory
+        )
+        store.ticketText = """
+        {
+          "version": 1,
+          "alpn": "/cmux/cmx/3",
+          "endpoint": { "id": "endpoint-public-key", "addrs": [] },
+          "auth": { "mode": "direct" }
+        }
+        """
+
+        store.connect()
+        sessionFactory.session.delegate?.terminalSession(
+            sessionFactory.session,
+            didUpdateLatencyMilliseconds: 42
+        )
+
+        XCTAssertEqual(store.latencyMilliseconds, 42)
+        XCTAssertEqual(store.latencyText, "42 ms")
+
+        store.disconnect()
+
+        XCTAssertNil(store.latencyMilliseconds)
+        XCTAssertNil(store.latencyText)
+    }
+
+    @MainActor
     func testDefaultSessionFactoryUsesIrohWhenTicketHasNoWebSocketRoute() throws {
         let rawTicket = """
         {

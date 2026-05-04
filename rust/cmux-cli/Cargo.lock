@@ -461,6 +461,7 @@ dependencies = [
  "clap",
  "cmux-cli-protocol",
  "cmux-cli-server",
+ "crossterm",
  "getrandom 0.3.4",
  "hmac",
  "iroh",

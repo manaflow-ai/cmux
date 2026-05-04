@@ -22,6 +22,7 @@ final class CmxWebSocketTerminalSession: CmxTerminalSession {
     private var closedByClient = false
     private var didNotifyClose = false
     private var nextCommandID: UInt32 = 1
+    private var pendingPingSentAt: Date?
 
     init(
         url: URL,
@@ -90,6 +91,8 @@ final class CmxWebSocketTerminalSession: CmxTerminalSession {
     }
 
     private func sendPing() {
+        guard pendingPingSentAt == nil else { return }
+        pendingPingSentAt = Date()
         send(.ping)
     }
 
@@ -131,6 +134,9 @@ final class CmxWebSocketTerminalSession: CmxTerminalSession {
                     if case .bye = decoded {
                         stopHeartbeat()
                     }
+                    if case .pong = decoded {
+                        recordPong()
+                    }
                     delegate?.terminalSession(self, didReceive: decoded)
                 case .string:
                     throw CmxWebSocketTerminalSessionError.unexpectedTextFrame
@@ -156,11 +162,11 @@ final class CmxWebSocketTerminalSession: CmxTerminalSession {
 
     private func startHeartbeat() {
         stopHeartbeat()
-        send(.ping)
+        sendPing()
         let timer = Timer(timeInterval: Self.heartbeatInterval, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self, self.task != nil, !self.closedByClient else { return }
-                self.send(.ping)
+                self.sendPing()
             }
         }
         heartbeatTimer = timer
@@ -170,6 +176,16 @@ final class CmxWebSocketTerminalSession: CmxTerminalSession {
     private func stopHeartbeat() {
         heartbeatTimer?.invalidate()
         heartbeatTimer = nil
+        pendingPingSentAt = nil
+    }
+
+    private func recordPong() {
+        guard let sentAt = pendingPingSentAt else { return }
+        pendingPingSentAt = nil
+        let elapsedMilliseconds = max(0, Date().timeIntervalSince(sentAt) * 1_000)
+        let latencyMilliseconds = UInt32(clamping: Int(elapsedMilliseconds.rounded()))
+        delegate?.terminalSession(self, didUpdateLatencyMilliseconds: latencyMilliseconds)
+        send(.clientLatency(milliseconds: latencyMilliseconds))
     }
 }
 

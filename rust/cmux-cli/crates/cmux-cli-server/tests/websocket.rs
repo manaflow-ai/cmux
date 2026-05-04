@@ -899,6 +899,17 @@ async fn websocket_native_snapshot_reports_attached_client_layouts() {
     assert_eq!(wide_client.terminals[0].cols, 180);
     assert_eq!(wide_client.terminals[0].rows, 60);
 
+    send_client_msg(&mut wide, &ClientMsg::ClientLatency { latency_ms: 42 }).await;
+    let latency_snapshot = recv_native_snapshot_with_client_count(&mut wide, 1).await;
+    let latency_client = latency_snapshot
+        .attached_clients
+        .iter()
+        .find(|client| client.client_id == wide_id)
+        .expect("wide client should keep reporting latency");
+    assert_eq!(latency_client.latency_ms, Some(42));
+    assert_eq!(latency_client.terminals[0].cols, 180);
+    assert_eq!(latency_client.terminals[0].rows, 60);
+
     let mut narrow = connect_ws(ws_addr).await;
     send_client_msg(
         &mut narrow,

@@ -56,6 +56,9 @@ async fn composed_frame_shows_sidebar_and_status() {
     )
     .await
     .unwrap();
+    write_msg(&mut w, &ClientMsg::ClientLatency { latency_ms: 42 })
+        .await
+        .unwrap();
 
     // Drive the shell to echo a sentinel.
     write_msg(
@@ -82,6 +85,7 @@ async fn composed_frame_shows_sidebar_and_status() {
                 if frames_buf.contains("CMX_CHROME_OK_22A")
                     && frames_buf.contains("cmux")
                     && frames_buf.contains("[main")
+                    && frames_buf.contains("42ms")
                 {
                     break;
                 }
@@ -99,6 +103,11 @@ async fn composed_frame_shows_sidebar_and_status() {
     assert!(
         frames_buf.contains("[main"),
         "status bar missing workspace title. snippet: {}",
+        &frames_buf[..frames_buf.len().min(800)]
+    );
+    assert!(
+        frames_buf.contains("42ms"),
+        "status bar missing client latency. snippet: {}",
         &frames_buf[..frames_buf.len().min(800)]
     );
     assert!(

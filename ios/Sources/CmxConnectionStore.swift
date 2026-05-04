@@ -12,6 +12,7 @@ final class CmxConnectionStore: ObservableObject {
     @Published private(set) var isConnecting = false
     @Published private(set) var isConnected = false
     @Published private(set) var isDiscoveringHive = false
+    @Published private(set) var latencyMilliseconds: UInt32?
     @Published private(set) var stackAuthSession: CmxStackAuthSession?
     @Published private(set) var terminalAppearanceRevision = 0
     @Published var nodes = CmxDemoState.nodes
@@ -121,6 +122,14 @@ final class CmxConnectionStore: ObservableObject {
         return String(localized: "status.ready", defaultValue: "Ready")
     }
 
+    var latencyText: String? {
+        guard let latencyMilliseconds else { return nil }
+        return String(
+            format: String(localized: "status.latency_ms", defaultValue: "%d ms"),
+            Int(latencyMilliseconds)
+        )
+    }
+
     func connect() {
         connect(isAutomaticReconnect: false)
     }
@@ -134,6 +143,7 @@ final class CmxConnectionStore: ObservableObject {
             if !isAutomaticReconnect {
                 didUseImmediateReconnectForCurrentLoss = false
             }
+            latencyMilliseconds = nil
             connectTask?.cancel()
             if parsed.auth?.requiresStackSession == true {
                 guard let stackAuthSession else {
@@ -160,6 +170,7 @@ final class CmxConnectionStore: ObservableObject {
             terminalSession?.disconnect()
             terminalSession = nil
             ticket = nil
+            latencyMilliseconds = nil
             errorText = error.localizedDescription
             isConnecting = false
             isConnected = false
@@ -197,6 +208,7 @@ final class CmxConnectionStore: ObservableObject {
         connectTask = nil
         terminalSession?.disconnect()
         terminalSession = nil
+        latencyMilliseconds = nil
         isConnecting = false
         isConnected = false
     }
@@ -483,6 +495,7 @@ final class CmxConnectionStore: ObservableObject {
             return
         } catch {
             self.ticket = nil
+            latencyMilliseconds = nil
             errorText = error.localizedDescription
             isConnecting = false
             isConnected = false
@@ -640,6 +653,7 @@ final class CmxConnectionStore: ObservableObject {
         if let error {
             errorText = error.localizedDescription
         }
+        latencyMilliseconds = nil
         terminalSession = nil
         isConnecting = false
         isConnected = false
@@ -680,6 +694,7 @@ extension CmxConnectionStore: CmxTerminalSessionDelegate {
         case .error(let message):
             reconnectAllowed = false
             reconnectPending = false
+            latencyMilliseconds = nil
             errorText = message
             terminalSession = nil
             isConnecting = false
@@ -690,6 +705,11 @@ extension CmxConnectionStore: CmxTerminalSessionDelegate {
                 kind
             )
         }
+    }
+
+    func terminalSession(_ session: any CmxTerminalSession, didUpdateLatencyMilliseconds latencyMilliseconds: UInt32) {
+        guard session === terminalSession else { return }
+        self.latencyMilliseconds = latencyMilliseconds
     }
 
     func terminalSession(_ session: any CmxTerminalSession, didFail error: Error) {

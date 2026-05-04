@@ -2907,6 +2907,7 @@ struct ClientView {
     kind: AttachedClientKind,
     terminals: Vec<(TabId, Rect)>,
     updated_at_ms: u64,
+    latency_ms: Option<u32>,
 }
 
 #[derive(Debug, Clone)]
@@ -3112,12 +3113,14 @@ impl Daemon {
                 .get(client_id)
                 .is_none_or(|view| view.kind != AttachedClientKind::Tui || view.terminals != panes);
             if changed {
+                let latency_ms = views.get(client_id).and_then(|view| view.latency_ms);
                 views.insert(
                     client_id.to_string(),
                     ClientView {
                         kind: AttachedClientKind::Tui,
                         terminals: panes,
                         updated_at_ms: now,
+                        latency_ms,
                     },
                 );
             } else if let Some(view) = views.get_mut(client_id) {
@@ -3168,12 +3171,14 @@ impl Daemon {
                 view.kind != AttachedClientKind::Native || view.terminals != panes
             });
             if changed {
+                let latency_ms = views.get(client_id).and_then(|view| view.latency_ms);
                 views.insert(
                     client_id.to_string(),
                     ClientView {
                         kind: AttachedClientKind::Native,
                         terminals: panes,
                         updated_at_ms: now,
+                        latency_ms,
                     },
                 );
             } else if let Some(view) = views.get_mut(client_id) {
@@ -3185,6 +3190,31 @@ impl Daemon {
             self.apply_canonical_tab_sizes().await;
             self.wake_model();
         }
+    }
+
+    async fn update_client_latency(&self, client_id: &str, latency_ms: u32) {
+        let changed = {
+            let mut views = self.client_views.lock().await;
+            let Some(view) = views.get_mut(client_id) else {
+                return;
+            };
+            let latency_ms = latency_ms.min(60_000);
+            let changed = view.latency_ms != Some(latency_ms);
+            view.latency_ms = Some(latency_ms);
+            view.updated_at_ms = now_unix_millis();
+            changed
+        };
+        if changed {
+            self.wake_model();
+        }
+    }
+
+    async fn client_latency_ms(&self, client_id: &str) -> Option<u32> {
+        self.client_views
+            .lock()
+            .await
+            .get(client_id)
+            .and_then(|view| view.latency_ms)
     }
 
     async fn apply_canonical_tab_sizes(&self) {
@@ -3245,6 +3275,7 @@ impl Daemon {
                     visible_terminal_count: terminals.len(),
                     updated_at_ms: view.updated_at_ms,
                     terminals,
+                    latency_ms: view.latency_ms,
                 }
             })
             .collect();
@@ -4228,6 +4259,7 @@ pub fn chrome_layout(viewport: (u16, u16)) -> (Rect, Rect, Rect, Rect, Rect, Rec
 
 async fn build_chrome_spec(
     daemon: &Arc<Daemon>,
+    client_id: &str,
     window: &mut WindowState,
     viewport: (u16, u16),
 ) -> ChromeSpec {
@@ -4238,6 +4270,11 @@ async fn build_chrome_spec(
     let active = window.active_workspace_index(daemon).await.unwrap_or(0);
     let (workspaces, _) = daemon.workspace_list_with_active(active_ws.id).await;
     let active_ws_title = active_ws.title.lock().await.clone();
+    let latency_text = daemon
+        .client_latency_ms(client_id)
+        .await
+        .map(|latency_ms| format!(" · {latency_ms}ms"))
+        .unwrap_or_default();
     let (sidebar, space_bar_rect, _top_border, _pane, _bottom_border, _status) =
         chrome_layout(viewport);
     let items: Vec<SidebarItem> = workspaces
@@ -4312,20 +4349,20 @@ async fn build_chrome_spec(
             Some(_) => {
                 *guard = None;
                 if window.sidebar_focused {
-                    format!(" [workspace nav: {active_ws_title}] ")
+                    format!(" [workspace nav: {active_ws_title}{latency_text}] ")
                 } else if window.space_strip_focused {
-                    format!(" [space nav: {active_space_title}] ")
+                    format!(" [space nav: {active_space_title}{latency_text}] ")
                 } else {
-                    format!(" [{active_ws_title} · {active_space_title}] ")
+                    format!(" [{active_ws_title} · {active_space_title}{latency_text}] ")
                 }
             }
             None => {
                 if window.sidebar_focused {
-                    format!(" [workspace nav: {active_ws_title}] ")
+                    format!(" [workspace nav: {active_ws_title}{latency_text}] ")
                 } else if window.space_strip_focused {
-                    format!(" [space nav: {active_space_title}] ")
+                    format!(" [space nav: {active_space_title}{latency_text}] ")
                 } else {
-                    format!(" [{active_ws_title} · {active_space_title}] ")
+                    format!(" [{active_ws_title} · {active_space_title}{latency_text}] ")
                 }
             }
         }
@@ -4664,11 +4701,12 @@ fn project_anchor_into_rect(
 
 async fn render_session_frame(
     daemon: &Arc<Daemon>,
+    client_id: &str,
     window: &mut WindowState,
     viewport: (u16, u16),
     selection: Option<LineSelection>,
 ) -> Vec<u8> {
-    let chrome = build_chrome_spec(daemon, window, viewport).await;
+    let chrome = build_chrome_spec(daemon, client_id, window, viewport).await;
     let panes = window_pane_paints(daemon, window, viewport)
         .await
         .unwrap_or_default();
@@ -5559,7 +5597,7 @@ async fn run_session(
             _ = shutdown_rx.changed() => {
                 if *shutdown_rx.borrow() {
                     while let Ok(_data) = output_rx.try_recv() {}
-                    repaint_window(&mut session, &daemon, &mut window, viewport_state, selection).await.ok();
+                    repaint_window(&mut session, &daemon, &session_id, &mut window, viewport_state, selection).await.ok();
                     daemon.remove_client_view(&session_id).await;
                     session.send(&ServerMsg::Bye).await.ok();
                     return Ok(());
@@ -5664,6 +5702,9 @@ async fn run_session(
                     }
                     Some(ClientMsg::Ping) => {
                         session.send(&ServerMsg::Pong).await?;
+                    }
+                    Some(ClientMsg::ClientLatency { latency_ms }) => {
+                        daemon.update_client_latency(&session_id, latency_ms).await;
                     }
                     Some(ClientMsg::TerminalColors { colors }) => {
                         daemon
@@ -5776,7 +5817,7 @@ async fn run_session(
                     refresh_selection_for_viewport(&daemon, active_tab.id, sel, pane, viewport_offset)
                         .await;
                 }
-                repaint_window(&mut session, &daemon, &mut window, viewport_state, selection)
+                repaint_window(&mut session, &daemon, &session_id, &mut window, viewport_state, selection)
                     .await?;
             }
             bytes = output_rx.recv() => {
@@ -5790,11 +5831,11 @@ async fn run_session(
                                 Err(broadcast::error::TryRecvError::Closed) => break,
                             }
                         }
-                        repaint_window(&mut session, &daemon, &mut window, viewport_state, selection)
+                        repaint_window(&mut session, &daemon, &session_id, &mut window, viewport_state, selection)
                             .await?;
                     }
                     Err(broadcast::error::RecvError::Lagged(_)) => {
-                        repaint_window(&mut session, &daemon, &mut window, viewport_state, selection)
+                        repaint_window(&mut session, &daemon, &session_id, &mut window, viewport_state, selection)
                             .await?;
                     }
                     Err(broadcast::error::RecvError::Closed) => {
@@ -6077,6 +6118,9 @@ async fn run_native_session(
                     }
                     Some(ClientMsg::Ping) => {
                         session.send(&ServerMsg::Pong).await?;
+                    }
+                    Some(ClientMsg::ClientLatency { latency_ms }) => {
+                        daemon.update_client_latency(&session_id, latency_ms).await;
                     }
                     Some(ClientMsg::TerminalColors { colors }) => {
                         daemon
@@ -6562,13 +6606,14 @@ async fn current_window_selection(
 async fn repaint_window(
     session: &mut Session,
     daemon: &Arc<Daemon>,
+    client_id: &str,
     window: &mut WindowState,
     viewport: (u16, u16),
     selection: Option<Selection>,
 ) -> Result<()> {
     let (_, _, tab, _, _, _) = window_parts(daemon, window).await?;
     let visible_selection = current_window_selection(daemon, window, selection, viewport).await;
-    let frame = render_session_frame(daemon, window, viewport, visible_selection).await;
+    let frame = render_session_frame(daemon, client_id, window, viewport, visible_selection).await;
     session
         .send(&ServerMsg::PtyBytes {
             tab_id: tab.id,
@@ -6630,7 +6675,7 @@ async fn sync_window_view(
         *subscribed_tab_id = tab.id;
     }
 
-    repaint_window(session, daemon, window, viewport, selection).await
+    repaint_window(session, daemon, client_id, window, viewport, selection).await
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -6839,7 +6884,8 @@ async fn handle_window_mouse(
                 )
                 .await;
                 if show_selection_now {
-                    repaint_window(session, daemon, window, viewport, *selection).await?;
+                    repaint_window(session, daemon, client_id, window, viewport, *selection)
+                        .await?;
                 }
             } else {
                 let show_selection_now = start_selection_for_mouse_down(
@@ -6856,7 +6902,8 @@ async fn handle_window_mouse(
                 )
                 .await;
                 if show_selection_now {
-                    repaint_window(session, daemon, window, viewport, *selection).await?;
+                    repaint_window(session, daemon, client_id, window, viewport, *selection)
+                        .await?;
                 }
             }
         }
@@ -6899,7 +6946,7 @@ async fn handle_window_mouse(
                         .await;
                     }
                 }
-                repaint_window(session, daemon, window, viewport, *selection).await?;
+                repaint_window(session, daemon, client_id, window, viewport, *selection).await?;
             }
         }
         MouseKind::Up => {
@@ -6916,7 +6963,7 @@ async fn handle_window_mouse(
                         session.send(&ServerMsg::HostControl { data: osc }).await?;
                     }
                 }
-                repaint_window(session, daemon, window, viewport, None).await?;
+                repaint_window(session, daemon, client_id, window, viewport, None).await?;
             }
         }
         MouseKind::Wheel { lines } => {
@@ -6927,7 +6974,7 @@ async fn handle_window_mouse(
                 refresh_selection_for_viewport(daemon, active_tab.id, sel, pane, viewport_offset)
                     .await;
             }
-            repaint_window(session, daemon, window, viewport, *selection).await?;
+            repaint_window(session, daemon, client_id, window, viewport, *selection).await?;
         }
     }
 

@@ -23,6 +23,8 @@
 - [x] Add a reusable Rust iroh client connector that decodes bridge tickets, proves Rivet pairing-secret possession, and opens an authenticated cmx stream for the future iOS binding
 - [x] Expand the iOS terminal keyboard action scroller with terminal actions, one-shot/sticky Ctrl/Alt/Shift modifiers, and Mac-only Cmd affordances inferred from connected node metadata
 - [x] Add the real iroh transport for production tickets without a WebSocket route, while keeping explicit WebSocket routes as a dev fallback
+- [x] Surface measured ping/pong latency in the iOS title bar and the cmux TUI status bar
+- [x] Let `cmux-iroh-bridge` users press `c` to copy the current bridge ticket via OSC 52
 - [x] Add committed iOS UI automation coverage that types into Ghostty and verifies the rendered terminal output in CI
 - [x] Add Stack-authenticated iOS hive discovery so a configured Rivet endpoint replaces the demo node/workspace inbox before terminal attach
 - [x] Implement the production Rivet actor/API for signed-in hive discovery records

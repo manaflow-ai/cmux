@@ -90,6 +90,8 @@ pub enum ClientMsg {
     Detach,
     /// Heartbeat.
     Ping,
+    /// Client-measured round trip latency from the most recent ping/pong.
+    ClientLatency { latency_ms: u32 },
     /// Invoke a server-side command (e.g. `new-tab`, `select-tab`).
     Command {
         /// Incrementing id set by the client so replies can be correlated.
@@ -409,6 +411,8 @@ pub struct AttachedClientInfo {
     pub visible_terminal_count: usize,
     pub updated_at_ms: u64,
     pub terminals: Vec<NativeTerminalViewport>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latency_ms: Option<u32>,
 }
 
 /// Server → client.

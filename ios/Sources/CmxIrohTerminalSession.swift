@@ -15,6 +15,7 @@ final class CmxIrohTerminalSession: CmxTerminalSession {
     private var heartbeatTimer: Timer?
     private var closedByClient = false
     private var nextCommandID: UInt32 = 1
+    private var pendingPingSentAt: Date?
 
     init(ticket: String, pairingSecret: String?) {
         self.ticket = ticket.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -90,6 +91,8 @@ final class CmxIrohTerminalSession: CmxTerminalSession {
     }
 
     private func sendPing() {
+        guard pendingPingSentAt == nil else { return }
+        pendingPingSentAt = Date()
         send(.ping)
     }
 
@@ -125,7 +128,11 @@ final class CmxIrohTerminalSession: CmxTerminalSession {
             break
         case CmxIrohClientEventKindMessage.rawValue:
             do {
-                delegate?.terminalSession(self, didReceive: try CmxWireCodec.decodeServerMessage(data))
+                let message = try CmxWireCodec.decodeServerMessage(data)
+                if case .pong = message {
+                    recordPong()
+                }
+                delegate?.terminalSession(self, didReceive: message)
             } catch {
                 delegate?.terminalSession(self, didFail: error)
             }
@@ -188,6 +195,16 @@ final class CmxIrohTerminalSession: CmxTerminalSession {
     private func stopHeartbeat() {
         heartbeatTimer?.invalidate()
         heartbeatTimer = nil
+        pendingPingSentAt = nil
+    }
+
+    private func recordPong() {
+        guard let sentAt = pendingPingSentAt else { return }
+        pendingPingSentAt = nil
+        let elapsedMilliseconds = max(0, Date().timeIntervalSince(sentAt) * 1_000)
+        let latencyMilliseconds = UInt32(clamping: Int(elapsedMilliseconds.rounded()))
+        delegate?.terminalSession(self, didUpdateLatencyMilliseconds: latencyMilliseconds)
+        send(.clientLatency(milliseconds: latencyMilliseconds))
     }
 }
 

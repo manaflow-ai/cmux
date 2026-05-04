@@ -326,6 +326,7 @@ private struct TerminalDetailView: View {
                     selectedWorkspaceID: store.selectedWorkspaceID,
                     selectedSpaceID: store.selectedSpaceID,
                     selectedTerminalID: store.selectedTerminalID,
+                    latencyText: store.latencyText,
                     revision: store.terminalAppearanceRevision,
                     selectWorkspace: { store.select(workspace: $0) },
                     selectSpace: { store.select(space: $0) },
@@ -356,6 +357,7 @@ private struct TerminalPickerMenu: View {
     let selectedWorkspaceID: UInt64
     let selectedSpaceID: UInt64
     let selectedTerminalID: UInt64
+    let latencyText: String?
     let revision: Int
     let selectWorkspace: (CmxWorkspace) -> Void
     let selectSpace: (CmxSpace) -> Void
@@ -415,6 +417,12 @@ private struct TerminalPickerMenu: View {
                     .lineLimit(1)
                 Image(systemName: "chevron.down")
                     .font(.caption2.weight(.bold))
+                if let latencyText {
+                    Text(latencyText)
+                        .font(.caption.monospacedDigit())
+                        .lineLimit(1)
+                        .foregroundStyle(TerminalThemeChrome.foreground(revision: revision).opacity(0.72))
+                }
             }
             .foregroundStyle(TerminalThemeChrome.foreground(revision: revision))
             .accessibilityIdentifier("terminal.selector")

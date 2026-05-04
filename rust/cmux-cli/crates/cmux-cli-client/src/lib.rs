@@ -286,10 +286,21 @@ where
     let mut stdout = io::stdout();
     let mut err_rx = Some(err_rx);
     let mut server_frame_seq: u64 = 0;
+    let mut latency_tick = tokio::time::interval(Duration::from_secs(2));
+    latency_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut pending_ping_sent_at: Option<Instant> = None;
 
     let outcome: Result<()> = loop {
         tokio::select! {
             biased;
+            _ = latency_tick.tick() => {
+                if pending_ping_sent_at.is_none() {
+                    if write_msg(write_half, &ClientMsg::Ping).await.is_err() {
+                        break Ok(());
+                    }
+                    pending_ping_sent_at = Some(Instant::now());
+                }
+            }
             ev = ev_rx.recv() => {
                 let Some(ev) = ev else { break Ok(()) };
                 match ev {
@@ -365,12 +376,25 @@ where
                     ServerMsg::ActiveTabChanged { .. } => {
                         probe::log_event("client", "active_tab_changed", &[]);
                     }
+                    ServerMsg::Pong => {
+                        if let Some(sent_at) = pending_ping_sent_at.take() {
+                            let latency_ms = sent_at
+                                .elapsed()
+                                .as_millis()
+                                .min(u128::from(u32::MAX)) as u32;
+                            if write_msg(write_half, &ClientMsg::ClientLatency { latency_ms })
+                                .await
+                                .is_err()
+                            {
+                                break Ok(());
+                            }
+                        }
+                    }
                     ServerMsg::Bye => break Ok(()),
                     ServerMsg::Error { message } => {
                         break Err(anyhow!("server error: {message}"));
                     }
-                    ServerMsg::Pong
-                    | ServerMsg::CommandReply { .. }
+                    ServerMsg::CommandReply { .. }
                     | ServerMsg::ActiveWorkspaceChanged { .. }
                     | ServerMsg::ActiveSpaceChanged { .. }
                     | ServerMsg::NativeSnapshot { .. }
