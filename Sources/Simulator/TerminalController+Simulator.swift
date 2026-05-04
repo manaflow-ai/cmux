@@ -35,6 +35,9 @@ extension TerminalController {
         guard let udid = v2String(params, "udid"), !udid.isEmpty else {
             return .err(code: "invalid_params", message: "Missing 'udid'", data: nil)
         }
+        if let validationError = v2SimulatorDeviceValidationError(udid: udid) {
+            return validationError
+        }
         Task.detached(priority: .userInitiated) {
             do {
                 try SimulatorService.shared.boot(udid: udid)
@@ -53,6 +56,9 @@ extension TerminalController {
     func v2SimulatorShutdown(params: [String: Any]) -> V2CallResult {
         guard let udid = v2String(params, "udid"), !udid.isEmpty else {
             return .err(code: "invalid_params", message: "Missing 'udid'", data: nil)
+        }
+        if let validationError = v2SimulatorDeviceValidationError(udid: udid) {
+            return validationError
         }
         Task.detached(priority: .userInitiated) {
             do {
@@ -149,5 +155,16 @@ extension TerminalController {
             ])
         }
         return result
+    }
+
+    private func v2SimulatorDeviceValidationError(udid: String) -> V2CallResult? {
+        do {
+            guard try SimulatorService.shared.resolveDevice(udid: udid) != nil else {
+                return .err(code: "not_found", message: "Simulator not found: \(udid)", data: ["udid": udid])
+            }
+            return nil
+        } catch {
+            return .err(code: "simulator_unavailable", message: error.localizedDescription, data: ["udid": udid])
+        }
     }
 }

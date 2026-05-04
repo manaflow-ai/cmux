@@ -26,13 +26,35 @@ enum SimulatorError: Error, LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .frameworksUnavailable(let msg): return "Private frameworks unavailable: \(msg)"
-        case .noServiceContext: return "Could not get SimServiceContext"
-        case .noDeviceSet: return "Could not resolve default SimDeviceSet"
-        case .notFound(let udid): return "Simulator not found: \(udid)"
-        case .bootFailed(let detail): return "Boot failed: \(detail ?? "unknown")"
-        case .shutdownFailed(let detail): return "Shutdown failed: \(detail ?? "unknown")"
-        case .ioUnavailable: return "Simulator IO client unavailable"
+        case .frameworksUnavailable(let msg):
+            return String(
+                format: String(
+                    localized: "simulator.error.frameworksUnavailable",
+                    defaultValue: "Private frameworks unavailable: %@"
+                ),
+                msg
+            )
+        case .noServiceContext:
+            return String(localized: "simulator.error.noServiceContext", defaultValue: "Could not get SimServiceContext")
+        case .noDeviceSet:
+            return String(localized: "simulator.error.noDeviceSet", defaultValue: "Could not resolve default SimDeviceSet")
+        case .notFound(let udid):
+            return String(
+                format: String(localized: "simulator.error.notFound", defaultValue: "Simulator not found: %@"),
+                udid
+            )
+        case .bootFailed(let detail):
+            return String(
+                format: String(localized: "simulator.error.bootFailed", defaultValue: "Boot failed: %@"),
+                detail ?? String(localized: "simulator.error.unknown", defaultValue: "unknown")
+            )
+        case .shutdownFailed(let detail):
+            return String(
+                format: String(localized: "simulator.error.shutdownFailed", defaultValue: "Shutdown failed: %@"),
+                detail ?? String(localized: "simulator.error.unknown", defaultValue: "unknown")
+            )
+        case .ioUnavailable:
+            return String(localized: "simulator.error.ioUnavailable", defaultValue: "Simulator IO client unavailable")
         }
     }
 }
@@ -114,6 +136,11 @@ final class SimulatorService: @unchecked Sendable {
     /// Returns the underlying `SimDevice` ObjC object. Used by the screen
     /// adapter to register IOSurface callbacks.
     func resolveDevice(udid: String) throws -> NSObject? {
+        guard SimulatorPrivateFrameworks.ensureLoaded() else {
+            throw SimulatorError.frameworksUnavailable(
+                SimulatorPrivateFrameworks.loadErrorMessage ?? "unknown"
+            )
+        }
         guard let set = try resolveDefaultSet() else { return nil }
         let devices = (set.value(forKey: "availableDevices") as? [NSObject]) ?? []
         for device in devices {
