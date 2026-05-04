@@ -2189,6 +2189,7 @@ struct CMUXCLI {
             }
         }
 
+        if command == "setup-hooks" || command == "uninstall-hooks" { try runSetupHooks(uninstall: command == "uninstall-hooks"); return } // Backwards compatibility for old hook setup docs/scripts.
         if command == "hooks" {
             if try runHooksNoSocketCommand(commandArgs: commandArgs) {
                 return
@@ -16681,35 +16682,35 @@ export default CMUXSessionRestore;
         }
     }
 
-    private func updateOpenCodePluginRegistration(configDir: URL, shouldInstall: Bool) throws {
+    private func updateOpenCodePluginRegistration(configDir: URL, shouldInstall: Bool) throws -> Bool {
         let configURL = configDir.appendingPathComponent("opencode.json", isDirectory: false)
         var config: [String: Any]
         if let data = try? Data(contentsOf: configURL) {
-            guard let decoded = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                throw CLIError(message: "Failed to parse \(configURL.path). Fix the JSON syntax and retry.")
-            }
+            guard let decoded = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw CLIError(message: "Failed to parse \(configURL.path). Fix the JSON syntax and retry.") }
             config = decoded
         } else {
             config = [:]
         }
-
         var plugins = Self.openCodePluginListRemovingSessionPlugin((config["plugin"] as? [Any]) ?? [])
-        if shouldInstall,
-           !Self.openCodePluginListContains(plugins, spec: Self.openCodeSessionPluginConfigSpec) {
-            plugins.append(Self.openCodeSessionPluginConfigSpec)
-        }
+        if shouldInstall, !Self.openCodePluginListContains(plugins, spec: Self.openCodeSessionPluginConfigSpec) { plugins.append(Self.openCodeSessionPluginConfigSpec) }
         config["plugin"] = plugins
-
         let output = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys])
+        if (try? Data(contentsOf: configURL)) == output { return false }
         try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
         try output.write(to: configURL, options: .atomic)
+        return true
     }
 
     private func installOpenCodePluginHooks(_ def: AgentHookDef) throws {
         let pluginURL = openCodeSessionPluginURL(for: def)
-        let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
-            || ProcessInfo.processInfo.arguments.contains("-y")
-
+        let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes") || ProcessInfo.processInfo.arguments.contains("-y")
+        let existing = (try? String(contentsOf: pluginURL, encoding: .utf8)) ?? ""
+        let configDir = URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true)
+        if existing == Self.openCodeSessionPluginSource {
+            print(try updateOpenCodePluginRegistration(configDir: configDir, shouldInstall: true) ? "OpenCode hooks installed at \(pluginURL.path)" : "OpenCode hooks already up to date at \(pluginURL.path)")
+            return
+        }
+        if !existing.isEmpty, !existing.contains(Self.openCodeSessionPluginMarker) { throw CLIError(message: "\(pluginURL.path) exists and is not a cmux plugin; leaving it alone") }
         if !skipConfirm {
             print("Will write OpenCode cmux plugin to \(pluginURL.path):")
             print(Self.openCodeSessionPluginSource)
@@ -16719,10 +16720,8 @@ export default CMUXSessionRestore;
                 return
             }
         }
-
-        let configDir = URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true)
         try writeOpenCodeSessionPlugin(in: configDir)
-        try updateOpenCodePluginRegistration(configDir: configDir, shouldInstall: true)
+        _ = try updateOpenCodePluginRegistration(configDir: configDir, shouldInstall: true)
         print("OpenCode hooks installed at \(pluginURL.path)")
     }
 
@@ -16741,7 +16740,7 @@ export default CMUXSessionRestore;
         }
 
         try fm.removeItem(at: pluginURL)
-        try updateOpenCodePluginRegistration(
+        _ = try updateOpenCodePluginRegistration(
             configDir: URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true),
             shouldInstall: false
         )
