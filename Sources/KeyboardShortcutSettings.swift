@@ -11,6 +11,7 @@ enum KeyboardShortcutSettings {
     static var settingsFileStore: KeyboardShortcutSettingsFileStore = .shared {
         didSet { notifySettingsFileDidChange() }
     }
+    private static var configuredBareShortcutStartKeysCache: Set<String>?
     #if DEBUG
     static var shortcutLookupObserver: ((Action) -> Void)?
     #endif
@@ -686,6 +687,22 @@ enum KeyboardShortcutSettings {
         return shortcut(for: action)
     }
 
+    static func hasConfiguredBareShortcutStart(key: String) -> Bool {
+        let normalizedKey = key.lowercased()
+        if let configuredBareShortcutStartKeysCache {
+            return configuredBareShortcutStartKeysCache.contains(normalizedKey)
+        }
+
+        let configuredKeys = Set(
+            Action.allCases.compactMap { action -> String? in
+                guard action != .showHideAllWindows else { return nil }
+                return shortcut(for: action).bareShortcutStartKey
+            }
+        )
+        configuredBareShortcutStartKeysCache = configuredKeys
+        return configuredKeys.contains(normalizedKey)
+    }
+
     static func isManagedBySettingsFile(_ action: Action) -> Bool {
         settingsFileStore.isManagedByFile(action)
     }
@@ -744,6 +761,8 @@ enum KeyboardShortcutSettings {
         action: Action? = nil,
         center: NotificationCenter = .default
     ) {
+        configuredBareShortcutStartKeysCache = nil
+
         var userInfo: [AnyHashable: Any] = [:]
         if let action {
             userInfo[actionUserInfoKey] = action.rawValue
@@ -1934,6 +1953,11 @@ struct StoredShortcut: Codable, Equatable, Hashable {
 
     var hasChord: Bool {
         secondStroke != nil
+    }
+
+    var bareShortcutStartKey: String? {
+        guard !isUnbound, firstStroke.modifierFlags.isEmpty else { return nil }
+        return key.lowercased()
     }
 
     var displayString: String {

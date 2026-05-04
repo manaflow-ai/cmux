@@ -10859,11 +10859,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        var configuredCmuxShortcutContext: MainWindowContext?
+        var configuredCmuxShortcutActions: [CmuxResolvedConfigAction] = []
+        var didLoadConfiguredCmuxShortcutActions = false
+        func loadConfiguredCmuxShortcutActionsIfNeeded() {
+            guard !didLoadConfiguredCmuxShortcutActions else { return }
+            configuredCmuxShortcutContext = preferredMainWindowContextForShortcutRouting(event: event)
+            configuredCmuxShortcutActions = self.configuredCmuxShortcutActions(for: configuredCmuxShortcutContext)
+            didLoadConfiguredCmuxShortcutActions = true
+        }
+
         // Fast path for normal typing and terminal navigation keys (for example Up-arrow
         // history): after command-palette/notification handling and browser omnibar
-        // arrow navigation above, plain key events have no app-level shortcut behavior.
+        // arrow navigation above, plain key events only fall through when a configured
+        // bare shortcut could actually match them.
         if normalizedFlags.isEmpty && activeConfiguredShortcutChordPrefixForCurrentEvent == nil {
-            return false
+            guard let bareShortcutKey = bareShortcutFastPathKey(for: event) else {
+                return false
+            }
+            let hasSettingsShortcut = KeyboardShortcutSettings.hasConfiguredBareShortcutStart(
+                key: bareShortcutKey
+            )
+            if !hasSettingsShortcut {
+                loadConfiguredCmuxShortcutActionsIfNeeded()
+            }
+            let hasConfigShortcut = configuredCmuxShortcutActions.contains {
+                $0.shortcut?.bareShortcutStartKey == bareShortcutKey
+            }
+            if !hasSettingsShortcut && !hasConfigShortcut {
+                return false
+            }
         }
 
         // Let omnibar-local Emacs navigation (Cmd/Ctrl+N/P) win while the browser
@@ -10873,8 +10898,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
-        let configuredCmuxShortcutContext = preferredMainWindowContextForShortcutRouting(event: event)
-        let configuredCmuxShortcutActions = configuredCmuxShortcutActions(for: configuredCmuxShortcutContext)
+        loadConfiguredCmuxShortcutActionsIfNeeded()
 
         if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
            armConfiguredShortcutChordIfNeeded(
@@ -12296,6 +12320,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func matchConfiguredShortcut(event: NSEvent, action: KeyboardShortcutSettings.Action) -> Bool {
         if !action.shortcutContext.isAlwaysAvailable && !action.shortcutContext.isAvailable(shortcutEventFocusContext(event)) { return false }
         return matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: action))
+    }
+
+    private func bareShortcutFastPathKey(for event: NSEvent) -> String? {
+        if event.keyCode == 49 {
+            return "space"
+        }
+
+        guard event.specialKey != nil,
+              let stroke = ShortcutStroke.from(event: event, requireModifier: false),
+              stroke.modifierFlags.isEmpty else {
+            return nil
+        }
+        return stroke.key.lowercased()
     }
 
     fileprivate func shouldForwardBrowserSurfaceShortcutToTerminal(_ event: NSEvent) -> Bool {
