@@ -188,7 +188,8 @@ enum SimulatorCapabilities {
         let allClasses = AutoreleasingUnsafeMutablePointer<AnyClass>(buffer)
         let n = objc_getClassList(allClasses, count)
         let initSel = NSSelectorFromString("initWithDevice:error:")
-        for i in 0..<Int(n) {
+        let scannedCount = max(0, min(Int(n), Int(count)))
+        for i in 0..<scannedCount {
             let cls: AnyClass = buffer[i]
             let name = String(cString: class_getName(cls))
             guard name.contains("HIDClient") else { continue }
