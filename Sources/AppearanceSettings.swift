@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 
 enum AppearanceMode: String, CaseIterable, Identifiable {
     case system
@@ -103,6 +104,21 @@ enum AppearanceSettings {
         NSAppearance(named: SystemAppearance.current(defaults: defaults).prefersDark ? .darkAqua : .aqua)
     }
 
+    static func colorSchemeOverride(for rawValue: String?) -> ColorScheme? {
+        switch mode(for: rawValue) {
+        case .system, .auto:
+            return nil
+        case .light:
+            return .light
+        case .dark:
+            return .dark
+        }
+    }
+
+    static func colorScheme(for rawValue: String?, fallback: ColorScheme) -> ColorScheme {
+        colorSchemeOverride(for: rawValue) ?? fallback
+    }
+
     @discardableResult
     static func selectMode(
         _ mode: AppearanceMode,
@@ -175,5 +191,24 @@ enum AppearanceSettings {
         case .auto:
             return nil
         }
+    }
+}
+
+private struct AppearanceColorSchemeModifier: ViewModifier {
+    @Environment(\.colorScheme) private var colorScheme
+    let rawValue: String?
+
+    func body(content: Content) -> some View {
+        let override = AppearanceSettings.colorSchemeOverride(for: rawValue)
+        let effective = AppearanceSettings.colorScheme(for: rawValue, fallback: colorScheme)
+        content
+            .environment(\.colorScheme, effective)
+            .preferredColorScheme(override)
+    }
+}
+
+extension View {
+    func cmuxAppearanceColorScheme(_ rawValue: String?) -> some View {
+        modifier(AppearanceColorSchemeModifier(rawValue: rawValue))
     }
 }

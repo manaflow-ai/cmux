@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import SwiftUI
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -80,6 +81,16 @@ final class AppearanceSettingsTests: XCTestCase {
             GhosttyConfig.currentColorSchemePreference(appAppearance: nil, defaults: defaults, systemAppearance: lightSystem),
             .light
         )
+    }
+
+    func testColorSchemeOverrideIsExplicitOnlyForManualLightAndDarkModes() {
+        XCTAssertEqual(AppearanceSettings.colorSchemeOverride(for: AppearanceMode.light.rawValue), .light)
+        XCTAssertEqual(AppearanceSettings.colorSchemeOverride(for: AppearanceMode.dark.rawValue), .dark)
+        XCTAssertNil(AppearanceSettings.colorSchemeOverride(for: AppearanceMode.system.rawValue))
+        XCTAssertNil(AppearanceSettings.colorSchemeOverride(for: AppearanceMode.auto.rawValue))
+        XCTAssertNil(AppearanceSettings.colorSchemeOverride(for: "invalid"))
+        XCTAssertEqual(AppearanceSettings.colorScheme(for: AppearanceMode.dark.rawValue, fallback: .light), .dark)
+        XCTAssertEqual(AppearanceSettings.colorScheme(for: AppearanceMode.system.rawValue, fallback: .dark), .dark)
     }
 
     func testSelectingDarkModeAppliesRuntimeAppearanceAndSynchronizesTerminalTheme() {
