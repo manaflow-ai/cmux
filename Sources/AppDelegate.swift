@@ -659,6 +659,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
     private var pendingConfiguredShortcutChord: PendingConfiguredShortcutChord?
     private var activeConfiguredShortcutChordPrefixForCurrentEvent: ShortcutStroke?
+    var shortcutEventFocusContextCache: ShortcutEventFocusContextCache?
     private var configuredShortcutChordActions: [KeyboardShortcutSettings.Action] = []
     private var ghosttyConfigObserver: NSObjectProtocol?
     private var ghosttyGotoSplitLeftShortcut: StoredShortcut?
@@ -10467,7 +10468,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             activeConfiguredShortcutChordPrefixForCurrentEvent = nil
         }
         pendingConfiguredShortcutChord = nil
-        defer { activeConfiguredShortcutChordPrefixForCurrentEvent = nil }
+        defer { activeConfiguredShortcutChordPrefixForCurrentEvent = nil; clearShortcutEventFocusContextCache(for: event) }
 #if DEBUG
         if isControlD {
             writeChildExitKeyboardProbe(
@@ -11160,10 +11161,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .renameTab) {
-            // Keep Cmd+R browser reload behavior when a browser panel is focused.
-            if tabManager?.focusedBrowserPanel != nil {
-                return false
-            }
             let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
             requestCommandPaletteRenameTab(preferredWindow: targetWindow, source: "shortcut.renameTab")
             return true
@@ -11337,7 +11334,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .browserBack) {
-            guard let focusedBrowserPanel = tabManager?.focusedBrowserPanel else {
+            guard let focusedBrowserPanel = shortcutEventBrowserPanel(event) else {
                 return false
             }
             focusedBrowserPanel.goBack()
@@ -11345,7 +11342,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .browserForward) {
-            guard let focusedBrowserPanel = tabManager?.focusedBrowserPanel else {
+            guard let focusedBrowserPanel = shortcutEventBrowserPanel(event) else {
                 return false
             }
             focusedBrowserPanel.goForward()
@@ -11353,10 +11350,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .browserReload) {
-            guard let focusedBrowserPanel = tabManager?.focusedBrowserPanel else {
+            guard let focusedBrowserPanel = shortcutEventBrowserPanel(event) else {
                 return false
             }
-            focusedBrowserPanel.reload()
+            reloadBrowserPanelForShortcut(focusedBrowserPanel)
             return true
         }
 
@@ -11367,7 +11364,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             logDeveloperToolsShortcutSnapshot(phase: "toggle.pre", event: event)
 #endif
-            let didHandle = tabManager?.toggleDeveloperToolsFocusedBrowser() ?? false
+            let didHandle = shortcutEventBrowserPanel(event)?.toggleDeveloperTools() ?? false
 #if DEBUG
             logDeveloperToolsShortcutSnapshot(phase: "toggle.post", event: event, didHandle: didHandle)
             DispatchQueue.main.async { [weak self] in
@@ -11382,7 +11379,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             logDeveloperToolsShortcutSnapshot(phase: "console.pre", event: event)
 #endif
-            let didHandle = tabManager?.showJavaScriptConsoleFocusedBrowser() ?? false
+            let didHandle = shortcutEventBrowserPanel(event)?.showDeveloperToolsConsole() ?? false
 #if DEBUG
             logDeveloperToolsShortcutSnapshot(phase: "console.post", event: event, didHandle: didHandle)
             DispatchQueue.main.async { [weak self] in
@@ -11400,15 +11397,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .browserZoomIn) {
-            return tabManager?.zoomInFocusedBrowser() ?? false
+            return shortcutEventBrowserPanel(event)?.zoomIn() ?? false
         }
 
         if matchConfiguredShortcut(event: event, action: .browserZoomOut) {
-            return tabManager?.zoomOutFocusedBrowser() ?? false
+            return shortcutEventBrowserPanel(event)?.zoomOut() ?? false
         }
 
         if matchConfiguredShortcut(event: event, action: .browserZoomReset) {
-            return tabManager?.resetZoomFocusedBrowser() ?? false
+            return shortcutEventBrowserPanel(event)?.resetZoom() ?? false
         }
 
         if matchConfiguredShortcut(event: event, action: .findInDirectory) {
@@ -11677,7 +11674,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
     }
 
-    private func focusedBrowserAddressBarPanelIdForShortcutEvent(_ event: NSEvent) -> UUID? {
+    func focusedBrowserAddressBarPanelIdForShortcutEvent(_ event: NSEvent) -> UUID? {
         guard let panelId = browserAddressBarFocusedPanelId else { return nil }
 
         guard let context = preferredMainWindowContextForShortcutRouting(event: event) else {
@@ -12297,7 +12294,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func matchConfiguredShortcut(event: NSEvent, action: KeyboardShortcutSettings.Action) -> Bool {
-        matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: action))
+        if !action.shortcutContext.isAlwaysAvailable && !action.shortcutContext.isAvailable(shortcutEventFocusContext(event)) { return false }
+        return matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: action))
+    }
+
+    fileprivate func shouldForwardBrowserSurfaceShortcutToTerminal(_ event: NSEvent) -> Bool {
+        return KeyboardShortcutSettings.Action.allCases.contains {
+            $0.shortcutContext == .browserPanel &&
+                matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: $0))
+        }
     }
 
     private func numberedConfiguredShortcutDigit(
@@ -14159,12 +14164,13 @@ private extension NSWindow {
             return true
         }
 
-        // When the terminal is focused, skip the full NSWindow.performKeyEquivalent
-        // (which walks the SwiftUI content view hierarchy) and dispatch Command-key
-        // events directly to the main menu. This avoids the broken SwiftUI focus path.
-        if firstResponderGhosttyView != nil,
-           shouldRouteCommandEquivalentDirectlyToMainMenu(event),
-           let mainMenu = NSApp.mainMenu {
+        if let firstResponderGhosttyView, shouldRouteCommandEquivalentDirectlyToMainMenu(event) {
+            if AppDelegate.shared?.shouldForwardBrowserSurfaceShortcutToTerminal(event) == true {
+                if firstResponderGhosttyView.performKeyEquivalentAfterMenuMiss(with: event) { return true }
+                firstResponderGhosttyView.keyDown(with: event)
+                return true
+            }
+            guard let mainMenu = NSApp.mainMenu else { return false }
             let consumedByMenu = mainMenu.performKeyEquivalent(with: event)
 #if DEBUG
             if browserZoomShortcutTraceCandidate(
@@ -14182,7 +14188,7 @@ private extension NSWindow {
             if !consumedByMenu {
                 // After a direct-to-menu miss, let Ghostty resolve the command key
                 // through its normal binding path so user key overrides still win.
-                let consumedByGhostty = firstResponderGhosttyView?.performKeyEquivalentAfterMenuMiss(with: event) == true
+                let consumedByGhostty = firstResponderGhosttyView.performKeyEquivalentAfterMenuMiss(with: event)
 #if DEBUG
                 cmuxDebugLog("  → mainMenu miss; ghostty command path: \(consumedByGhostty)")
 #endif

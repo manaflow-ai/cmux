@@ -53071,6 +53071,40 @@
         }
       }
     },
+    "settings.app.openSidebarPRLinks.subtitleDisabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable sidebar PR clickability to choose where PR links open."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PRリンクの開き先を選ぶには、サイドバーのPRクリックを有効にしてください。"
+          }
+        }
+      }
+    },
+    "settings.app.openSidebarPRLinks.subtitleHidden": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable sidebar PR visibility to choose where PR links open."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PRリンクの開き先を選ぶには、サイドバーのPR表示を有効にしてください。"
+          }
+        }
+      }
+    },
     "settings.app.openSidebarPortLinks": {
       "extractionState": "manual",
       "localizations": {
@@ -55836,115 +55870,166 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Display review items (PR/MR/etc.) with status, number, and clickable link."
+            "value": "Display review items (PR/MR/etc.) with status and number."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ステータス、番号、クリック可能なリンク付きのレビュー項目（PR/MRなど）を表示します。"
+            "value": "ステータスと番号付きのレビュー項目（PR/MRなど）を表示します。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "显示包含状态、编号和可点击链接的审查项（PR/MR 等）。"
+            "value": "显示包含状态和编号的审查项（PR/MR 等）。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "顯示審查項目（PR/MR 等），包含狀態、編號和可點擊的連結。"
+            "value": "顯示審查項目（PR/MR 等），包含狀態和編號。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "상태, 번호 및 클릭 가능한 링크가 있는 리뷰 항목(PR/MR 등)을 표시합니다."
+            "value": "상태와 번호가 있는 리뷰 항목(PR/MR 등)을 표시합니다."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Review-Elemente (PR/MR/etc.) mit Status, Nummer und anklickbarem Link anzeigen."
+            "value": "Review-Elemente (PR/MR/etc.) mit Status und Nummer anzeigen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mostrar elementos de revisión (PR/MR/etc.) con estado, número y enlace interactivo."
+            "value": "Mostrar elementos de revisión (PR/MR/etc.) con estado y número."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Afficher les éléments de revue (PR/MR/etc.) avec le statut, le numéro et un lien cliquable."
+            "value": "Afficher les éléments de revue (PR/MR/etc.) avec le statut et le numéro."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Visualizza elementi di revisione (PR/MR/ecc.) con stato, numero e link cliccabile."
+            "value": "Visualizza elementi di revisione (PR/MR/ecc.) con stato e numero."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vis gennemgangselementer (PR/MR osv.) med status, nummer og klikbart link."
+            "value": "Vis gennemgangselementer (PR/MR osv.) med status og nummer."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wyświetlaj elementy przeglądu (PR/MR/itp.) ze statusem, numerem i klikalnym linkiem."
+            "value": "Wyświetlaj elementy przeglądu (PR/MR/itp.) ze statusem i numerem."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Отображать элементы проверки (PR/MR и т.д.) со статусом, номером и ссылкой."
+            "value": "Отображать элементы проверки (PR/MR и т.д.) со статусом и номером."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Prikaži stavke za pregled (PR/MR/itd.) sa statusom, brojem i linkom."
+            "value": "Prikaži stavke za pregled (PR/MR/itd.) sa statusom i brojem."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "عرض عناصر المراجعة (طلبات السحب/الدمج/إلخ.) مع الحالة والرقم والرابط القابل للنقر."
+            "value": "عرض عناصر المراجعة (طلبات السحب/الدمج/إلخ.) مع الحالة والرقم."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vis gjennomgangselementer (PR/MR/osv.) med status, nummer og klikkbar lenke."
+            "value": "Vis gjennomgangselementer (PR/MR/osv.) med status og nummer."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Exibir itens de revisão (PR/MR/etc.) com status, número e link clicável."
+            "value": "Exibir itens de revisão (PR/MR/etc.) com status e número."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "แสดงรายการตรวจสอบ (PR/MR/อื่นๆ) พร้อมสถานะ หมายเลข และลิงก์ที่คลิกได้"
+            "value": "แสดงรายการตรวจสอบ (PR/MR/อื่นๆ) พร้อมสถานะและหมายเลข"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Durum, numara ve tıklanabilir bağlantıyla inceleme öğelerini (PR/MR/vb.) göster."
+            "value": "Durum ve numarayla inceleme öğelerini (PR/MR/vb.) göster."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Відображати елементи перегляду (PR/MR тощо) зі статусом, номером та клікабельним посиланням."
+            "value": "Відображати елементи перегляду (PR/MR тощо) зі статусом і номером."
+          }
+        }
+      }
+    },
+    "settings.app.showPullRequests.subtitle.basic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Display review items (PR/MR/etc.) with status and number."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステータスと番号付きのレビュー項目（PR/MRなど）を表示します。"
+          }
+        }
+      }
+    },
+    "settings.app.makeSidebarPullRequestClickable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Make Sidebar PR Clickable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーのPRをクリック可能にする"
+          }
+        }
+      }
+    },
+    "settings.app.makeSidebarPullRequestClickable.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off by default. Review items stay visible as plain text, and clicks in that area select the workspace row."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルトではオフです。レビュー項目は通常のテキストとして表示され、その領域をクリックするとワークスペース行が選択されます。"
           }
         }
       }

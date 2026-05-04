@@ -5252,6 +5252,7 @@ struct SettingsView: View {
     @AppStorage("sidebarNotificationBadgeColorHex") private var sidebarNotificationBadgeColorHex: String?
     @AppStorage("sidebarShowBranchDirectory") private var sidebarShowBranchDirectory = true
     @AppStorage("sidebarShowPullRequest") private var sidebarShowPullRequest = true
+    @AppStorage(SidebarPullRequestClickabilitySettings.key) private var sidebarMakePullRequestClickable = SidebarPullRequestClickabilitySettings.defaultClickable
     @AppStorage(BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowserKey)
     private var openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
     @AppStorage(BrowserLinkOpenSettings.openSidebarPortLinksInCmuxBrowserKey)
@@ -6349,31 +6350,24 @@ struct SettingsView: View {
                         SettingsCardRow(
                             configurationReview: .json("sidebar.showPullRequests"),
                             String(localized: "settings.app.showPullRequests", defaultValue: "Show Pull Requests in Sidebar"),
-                            subtitle: String(localized: "settings.app.showPullRequests.subtitle", defaultValue: "Display review items (PR/MR/etc.) with status, number, and clickable link.")
+                            subtitle: String(localized: "settings.app.showPullRequests.subtitle", defaultValue: "Display review items (PR/MR/etc.) with status and number.")
                         ) {
                             Toggle("", isOn: $sidebarShowPullRequest)
                                 .labelsHidden()
                                 .controlSize(.small)
                         }
                         .disabled(sidebarHideAllDetails)
-
                         SettingsCardDivider()
-
+                        SettingsCardRow(configurationReview: .json("sidebar.makePullRequestsClickable"), String(localized: "settings.app.makeSidebarPullRequestClickable", defaultValue: "Make Sidebar PR Clickable"), subtitle: String(localized: "settings.app.makeSidebarPullRequestClickable.subtitle", defaultValue: "Off by default. Review items stay visible as plain text, and clicks in that area select the workspace row.")) { Toggle("", isOn: $sidebarMakePullRequestClickable).labelsHidden().controlSize(.small).accessibilityIdentifier("SettingsSidebarPullRequestClickableToggle") }
+                        .disabled(sidebarHideAllDetails || !sidebarShowPullRequest)
+                        SettingsCardDivider()
                         SettingsCardRow(
                             configurationReview: .json("sidebar.openPullRequestLinksInCmuxBrowser"),
                             String(localized: "settings.app.openSidebarPRLinks", defaultValue: "Open Sidebar PR Links in cmux Browser"),
-                            subtitle: openSidebarPullRequestLinksInCmuxBrowser
-                                ? String(localized: "settings.app.openSidebarPRLinks.subtitleOn", defaultValue: "Clicks open inside cmux browser.")
-                                : String(localized: "settings.app.openSidebarPRLinks.subtitleOff", defaultValue: "Clicks open in your default browser.")
-                        ) {
-                            Toggle("", isOn: $openSidebarPullRequestLinksInCmuxBrowser)
-                                .labelsHidden()
-                                .controlSize(.small)
-                        }
-                        .disabled(sidebarHideAllDetails)
-
+                            subtitle: !sidebarShowPullRequest ? String(localized: "settings.app.openSidebarPRLinks.subtitleHidden", defaultValue: "Enable sidebar PR visibility to choose where PR links open.") : (!sidebarMakePullRequestClickable ? String(localized: "settings.app.openSidebarPRLinks.subtitleDisabled", defaultValue: "Enable sidebar PR clickability to choose where PR links open.") : (openSidebarPullRequestLinksInCmuxBrowser ? String(localized: "settings.app.openSidebarPRLinks.subtitleOn", defaultValue: "Clicks open inside cmux browser.") : String(localized: "settings.app.openSidebarPRLinks.subtitleOff", defaultValue: "Clicks open in your default browser.")))
+                        ) { Toggle("", isOn: $openSidebarPullRequestLinksInCmuxBrowser).labelsHidden().controlSize(.small) }
+                        .disabled(sidebarHideAllDetails || !sidebarShowPullRequest || !sidebarMakePullRequestClickable)
                         SettingsCardDivider()
-
                         SettingsCardRow(
                             configurationReview: .json("sidebar.openPortLinksInCmuxBrowser"),
                             String(localized: "settings.app.openSidebarPortLinks", defaultValue: "Open Sidebar Port Links in cmux Browser"),
@@ -7406,6 +7400,7 @@ struct SettingsView: View {
         sidebarNotificationBadgeColorHex = nil
         sidebarShowBranchDirectory = true
         sidebarShowPullRequest = true
+        sidebarMakePullRequestClickable = SidebarPullRequestClickabilitySettings.defaultClickable
         openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
         openSidebarPortLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPortLinksInCmuxBrowser
         showShortcutHintsOnCommandHold = ShortcutHintDebugSettings.defaultShowHintsOnCommandHold

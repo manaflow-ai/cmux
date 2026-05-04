@@ -456,7 +456,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             return
         }
 
-        // Move focus away from browser to terminal first so Cmd+R opens the rename overlay.
+        // Move focus away from browser to terminal first, then open the command palette.
         app.typeKey("h", modifierFlags: [.command, .control])
         XCTAssertTrue(
             waitForDataMatch(timeout: 5.0) { data in
@@ -465,18 +465,18 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             "Expected Cmd+Ctrl+H to move focus to left pane (terminal)"
         )
 
-        let renameField = app.textFields["CommandPaletteRenameField"].firstMatch
-        app.typeKey("r", modifierFlags: [.command])
+        let paletteSearchField = app.textFields["CommandPaletteSearchField"].firstMatch
+        app.typeKey("p", modifierFlags: [.command, .shift])
         XCTAssertTrue(
-            renameField.waitForExistence(timeout: 5.0),
-            "Expected Cmd+R to open the rename command palette while terminal is focused"
+            paletteSearchField.waitForExistence(timeout: 5.0),
+            "Expected Cmd+Shift+P to open the command palette while terminal is focused"
         )
 
         let browserPane = app.otherElements["BrowserPanelContent.\(expectedBrowserPanelId)"].firstMatch
         XCTAssertTrue(browserPane.waitForExistence(timeout: 5.0), "Expected browser pane content for click target")
         browserPane.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
         XCTAssertTrue(
-            waitForNonExistence(renameField, timeout: 5.0),
+            waitForNonExistence(paletteSearchField, timeout: 5.0),
             "Expected clicking the browser pane to dismiss the command palette"
         )
 

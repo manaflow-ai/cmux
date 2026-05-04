@@ -3174,7 +3174,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
     }
 
-    func testCmdPhysicalOWithDvorakCharactersTriggersRenameTabShortcut() {
+    func testConfiguredCmdPhysicalOWithDvorakCharactersTriggersRenameTabShortcut() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -3306,7 +3306,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(observedSwitcherWindow?.windowNumber, window.windowNumber)
     }
 
-    func testCmdShiftRRequestsRenameWorkspaceInCommandPalette() {
+    func testConfiguredCmdShiftRRequestsRenameWorkspaceInCommandPalette() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return

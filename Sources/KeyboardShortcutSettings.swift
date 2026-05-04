@@ -183,20 +183,6 @@ enum KeyboardShortcutSettings {
 
         var defaultsKey: String { "shortcut.\(rawValue)" }
 
-        private enum ConflictScope {
-            case application
-            case rightSidebarFocus
-        }
-
-        private var conflictScope: ConflictScope {
-            switch self {
-            case .switchRightSidebarToFiles, .switchRightSidebarToFind, .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
-                return .rightSidebarFocus
-            default:
-                return .application
-            }
-        }
-
         var defaultShortcut: StoredShortcut {
             switch self {
             case .openSettings:
@@ -364,7 +350,7 @@ enum KeyboardShortcutSettings {
             proposedAction: Action,
             configuredShortcut: StoredShortcut
         ) -> Bool {
-            guard conflictScope == proposedAction.conflictScope else {
+            guard shortcutContext.overlaps(proposedAction.shortcutContext) else {
                 return false
             }
             return KeyboardShortcutSettings.shortcutsConflict(

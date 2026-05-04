@@ -30,6 +30,9 @@
 		C0DEF0A30000000000000001 /* SidebarPortDisplayText.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0A30000000000000002 /* SidebarPortDisplayText.swift */; };
 		C0DEF0B10000000000000001 /* JSONCParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0B10000000000000002 /* JSONCParser.swift */; };
 		C0DEF0B30000000000000001 /* KeyboardShortcutSettingsFileStoreMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0B30000000000000002 /* KeyboardShortcutSettingsFileStoreMigrationTests.swift */; };
+		C34670010000000000000001 /* AppDelegateRenameShortcutContextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34670010000000000000002 /* AppDelegateRenameShortcutContextTests.swift */; };
+		C34670020000000000000001 /* KeyboardShortcutContextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34670020000000000000002 /* KeyboardShortcutContextTests.swift */; };
+		C34670030000000000000001 /* KeyboardShortcutContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34670030000000000000002 /* KeyboardShortcutContext.swift */; };
 		E3309A01 /* AppDelegate+EqualizeSplitsShortcut.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3309A02 /* AppDelegate+EqualizeSplitsShortcut.swift */; };
 		E3309A03 /* TabManager+EqualizeSplits.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3309A04 /* TabManager+EqualizeSplits.swift */; };
 		E3309A05 /* Workspace+EqualizeSplitsSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3309A06 /* Workspace+EqualizeSplitsSupport.swift */; };
@@ -240,6 +243,7 @@
 		B900001AA1B2C3D4E5F60719 /* CloseWorkspaceConfirmDialogUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000019A1B2C3D4E5F60719 /* CloseWorkspaceConfirmDialogUITests.swift */; };
 		B900001BA1B2C3D4E5F60719 /* CloseWorkspacesConfirmDialogUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B900001CA1B2C3D4E5F60719 /* CloseWorkspacesConfirmDialogUITests.swift */; };
 		B9000023A1B2C3D4E5F60719 /* CloseWorkspaceCmdDUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000022A1B2C3D4E5F60719 /* CloseWorkspaceCmdDUITests.swift */; };
+		B9000130A1B2C3D4E5F60719 /* SidebarPullRequestInteractivityUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000131A1B2C3D4E5F60719 /* SidebarPullRequestInteractivityUITests.swift */; };
 		F0F0A001A1B2C3D4E5F60718 /* WorkspaceSidebarScrollUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0F0A002A1B2C3D4E5F60718 /* WorkspaceSidebarScrollUITests.swift */; };
 		B9000024A1B2C3D4E5F60719 /* Sentry-Dynamic in Frameworks */ = {isa = PBXBuildFile; productRef = A5001253 /* Sentry-Dynamic */; };
 		B9000025A1B2C3D4E5F60719 /* CloseWindowConfirmDialogUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000026A1B2C3D4E5F60719 /* CloseWindowConfirmDialogUITests.swift */; };
@@ -406,6 +410,8 @@
 		EF7347934AB1BD387686EE43 /* WorkspaceActionDispatcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceActionDispatcherTests.swift; sourceTree = "<group>"; };
 		F016B5C09357B3226FA2E014 /* SidebarWorkspaceSnapshotRefreshPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorkspaceSnapshotRefreshPolicyTests.swift; sourceTree = "<group>"; };
 		C0DEF0B30000000000000002 /* KeyboardShortcutSettingsFileStoreMigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSettingsFileStoreMigrationTests.swift; sourceTree = "<group>"; };
+		C34670010000000000000002 /* AppDelegateRenameShortcutContextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateRenameShortcutContextTests.swift; sourceTree = "<group>"; };
+		C34670020000000000000002 /* KeyboardShortcutContextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutContextTests.swift; sourceTree = "<group>"; };
 		E3309A0C /* KeyboardShortcutSettingsEqualizeSplitsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSettingsEqualizeSplitsTests.swift; sourceTree = "<group>"; };
 		7E7E6EF344A568AC7FEE3715 /* cmuxUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = cmuxUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		818DBCD4AB69EB72573E8138 /* SidebarResizeUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarResizeUITests.swift; sourceTree = "<group>"; };
@@ -567,6 +573,7 @@
 		A5008382 /* CommandPaletteSearchEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteSearchEngineTests.swift; sourceTree = "<group>"; };
 		A500RG00 /* ReactGrab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ReactGrab.swift; sourceTree = "<group>"; };
 		A5F10010A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSettingsFileStore.swift; sourceTree = "<group>"; };
+		C34670030000000000000002 /* KeyboardShortcutContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutContext.swift; sourceTree = "<group>"; };
 		C2B6A97D1F2E4C71A8B9D002 /* BrowserOmnibarPerformanceSupportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserOmnibarPerformanceSupportTests.swift; sourceTree = "<group>"; };
 		C0DEF0B10000000000000002 /* JSONCParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSONCParser.swift; sourceTree = "<group>"; };
 		AA1B2C3D4E5F60719 /* BonsplitTabDragUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BonsplitTabDragUITests.swift; sourceTree = "<group>"; };
@@ -597,6 +604,7 @@
 		B900001CA1B2C3D4E5F60719 /* CloseWorkspacesConfirmDialogUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloseWorkspacesConfirmDialogUITests.swift; sourceTree = "<group>"; };
 		B9000022A1B2C3D4E5F60719 /* CloseWorkspaceCmdDUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloseWorkspaceCmdDUITests.swift; sourceTree = "<group>"; };
 		B9000026A1B2C3D4E5F60719 /* CloseWindowConfirmDialogUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloseWindowConfirmDialogUITests.swift; sourceTree = "<group>"; };
+		B9000131A1B2C3D4E5F60719 /* SidebarPullRequestInteractivityUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarPullRequestInteractivityUITests.swift; sourceTree = "<group>"; };
 		BC39DE4B96D1931C52AF7D68 /* SidebarOrderingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarOrderingTests.swift; sourceTree = "<group>"; };
 		BEE83F8394D90ACACD8E19DD /* WindowAndDragTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowAndDragTests.swift; sourceTree = "<group>"; };
 		2907A0042907A0042907A004 /* AppDelegateIssue2907RoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateIssue2907RoutingTests.swift; sourceTree = "<group>"; };
@@ -762,6 +770,7 @@
 					B8F266276A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift */,
 				F0F0A002A1B2C3D4E5F60718 /* WorkspaceSidebarScrollUITests.swift */,
 				C2577001A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift */,
+				B9000131A1B2C3D4E5F60719 /* SidebarPullRequestInteractivityUITests.swift */,
 				E6FA9085A1B2C3D4E5F60718 /* WorkspaceDescriptionUITests.swift */,
 				D0E0F0B1A1B2C3D4E5F60718 /* BrowserPaneNavigationKeybindUITests.swift */,
 				D0E0F0B5A1B2C3D4E5F60718 /* FindSelectionShortcutUITests.swift */,
@@ -842,6 +851,7 @@
 				B9000017A1B2C3D4E5F60719 /* WindowDragHandleView.swift */,
 				A50012F0 /* Backport.swift */,
 				A50012F2 /* KeyboardShortcutSettings.swift */,
+				C34670030000000000000002 /* KeyboardShortcutContext.swift */,
 				A50012F6 /* KeyboardShortcutRecorder.swift */,
 				A50012F9 /* KeyboardShortcutSettingsControls.swift */,
 				A5F10010A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore.swift */,
@@ -1008,6 +1018,7 @@
 				F5000001A1B2C3D4E5F60718 /* SessionPersistenceTests.swift */,
 				FA100001A1B2C3D4E5F60718 /* BrowserImportMappingTests.swift */,
 				F6000001A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift */,
+				C34670010000000000000002 /* AppDelegateRenameShortcutContextTests.swift */,
 				E3309A0A /* AppDelegateEqualizeSplitsShortcutTests.swift */,
 				F6001001A1B2C3D4E5F60718 /* ShortcutUnbindingTests.swift */,
 				F6100001A1B2C3D4E5F60718 /* WorkspaceRemoteConnectionTests.swift */,
@@ -1032,6 +1043,7 @@
 				EF7347934AB1BD387686EE43 /* WorkspaceActionDispatcherTests.swift */,
 				F016B5C09357B3226FA2E014 /* SidebarWorkspaceSnapshotRefreshPolicyTests.swift */,
 				C0DEF0B30000000000000002 /* KeyboardShortcutSettingsFileStoreMigrationTests.swift */,
+				C34670020000000000000002 /* KeyboardShortcutContextTests.swift */,
 				E3309A0C /* KeyboardShortcutSettingsEqualizeSplitsTests.swift */,
 				1A1B2C3D4E5F607180000004 /* WorkspacePromptSubmitTests.swift */,
 				C0DE31390000000000000102 /* CMUXOpenCommandTests.swift */,
@@ -1339,6 +1351,7 @@
 				B9000018A1B2C3D4E5F60719 /* WindowDragHandleView.swift in Sources */,
 				A50012F1 /* Backport.swift in Sources */,
 				A50012F3 /* KeyboardShortcutSettings.swift in Sources */,
+				C34670030000000000000001 /* KeyboardShortcutContext.swift in Sources */,
 				A50012F7 /* KeyboardShortcutRecorder.swift in Sources */,
 				A50012F8 /* KeyboardShortcutSettingsControls.swift in Sources */,
 				A5F10011A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore.swift in Sources */,
@@ -1517,6 +1530,7 @@
 					C0DE32470000000000000005 /* CommandPaletteIdentifierClipboardUITests.swift in Sources */,
 					B8F266266A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift in Sources */,
 				C2577000A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift in Sources */,
+				B9000130A1B2C3D4E5F60719 /* SidebarPullRequestInteractivityUITests.swift in Sources */,
 				E6FA9084A1B2C3D4E5F60718 /* WorkspaceDescriptionUITests.swift in Sources */,
 				D0E0F0B0A1B2C3D4E5F60718 /* BrowserPaneNavigationKeybindUITests.swift in Sources */,
 				D0E0F0B4A1B2C3D4E5F60718 /* FindSelectionShortcutUITests.swift in Sources */,
@@ -1541,6 +1555,7 @@
 				F5000000A1B2C3D4E5F60718 /* SessionPersistenceTests.swift in Sources */,
 				FA100000A1B2C3D4E5F60718 /* BrowserImportMappingTests.swift in Sources */,
 				F6000000A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift in Sources */,
+				C34670010000000000000001 /* AppDelegateRenameShortcutContextTests.swift in Sources */,
 				E3309A09 /* AppDelegateEqualizeSplitsShortcutTests.swift in Sources */,
 				F6001000A1B2C3D4E5F60718 /* ShortcutUnbindingTests.swift in Sources */,
 				F6100000A1B2C3D4E5F60718 /* WorkspaceRemoteConnectionTests.swift in Sources */,
@@ -1564,6 +1579,7 @@
 				7F0A0E04A8CADC84BB4F1DF7 /* WorkspaceActionDispatcherTests.swift in Sources */,
 				62270F3DCECB4787D789CCE3 /* SidebarWorkspaceSnapshotRefreshPolicyTests.swift in Sources */,
 				C0DEF0B30000000000000001 /* KeyboardShortcutSettingsFileStoreMigrationTests.swift in Sources */,
+				C34670020000000000000001 /* KeyboardShortcutContextTests.swift in Sources */,
 				E3309A0B /* KeyboardShortcutSettingsEqualizeSplitsTests.swift in Sources */,
 				1A1B2C3D4E5F607180000003 /* WorkspacePromptSubmitTests.swift in Sources */,
 				C0DE31390000000000000101 /* CMUXOpenCommandTests.swift in Sources */,

@@ -114,6 +114,18 @@ enum SidebarWorkspaceDetailSettings {
     }
 }
 
+enum SidebarPullRequestClickabilitySettings {
+    static let key = "sidebarMakePullRequestClickable"
+    static let defaultClickable = false
+
+    static func isClickable(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: key) == nil {
+            return defaultClickable
+        }
+        return defaults.bool(forKey: key)
+    }
+}
+
 struct SidebarWorkspaceAuxiliaryDetailVisibility: Equatable {
     let showsMetadata: Bool
     let showsLog: Bool
