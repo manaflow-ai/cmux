@@ -843,7 +843,7 @@ final class CmuxSettingsFileStore {
         }
 
         guard let shortcut else { return nil }
-        if let normalized = action.normalizedRecordedShortcut(shortcut) {
+        if case let .accepted(normalized) = action.resolvedRecordedShortcutIgnoringConflicts(shortcut) {
             return normalized
         }
         return action.usesNumberedDigitMatching ? nil : shortcut
