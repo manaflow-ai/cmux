@@ -171,6 +171,21 @@ async fn recv_native_snapshot_with_client_count(ws: &mut TestWs, count: usize) -
     }
 }
 
+async fn recv_native_snapshot_until(
+    ws: &mut TestWs,
+    description: &str,
+    mut predicate: impl FnMut(&NativeSnapshot) -> bool,
+) -> NativeSnapshot {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while tokio::time::Instant::now() < deadline {
+        let snapshot = recv_native_snapshot(ws).await;
+        if predicate(&snapshot) {
+            return snapshot;
+        }
+    }
+    panic!("timed out waiting for native snapshot: {description}");
+}
+
 async fn bind_ws_listener() -> (tokio::net::TcpListener, SocketAddr) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -641,6 +656,136 @@ async fn websocket_native_libghostty_mode_broadcasts_pty_bytes_to_multiple_clien
         }
     }
 
+    server.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn websocket_native_commands_update_workspace_space_and_pane_tree() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("server.sock");
+    let (ws_listener, ws_addr) = bind_ws_listener().await;
+    let opts = ServerOptions {
+        socket_path: socket.clone(),
+        shell: "/bin/sh".into(),
+        cwd: Some(dir.path().to_path_buf()),
+        initial_viewport: (80, 24),
+        snapshot_path: None,
+        settings_path: None,
+        ws_bind: None,
+        auth_token: Some("sekrit".into()),
+    };
+    let server = tokio::spawn(async move {
+        let _ = run_with_websocket_listener(opts, HeartbeatConfig::default(), ws_listener).await;
+    });
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let mut ws = connect_ws(ws_addr).await;
+    send_client_msg(
+        &mut ws,
+        &ClientMsg::HelloNative {
+            version: PROTOCOL_VERSION,
+            viewport: Viewport { cols: 80, rows: 24 },
+            token: Some("sekrit".into()),
+            terminal_renderer: NativeTerminalRenderer::ServerGrid,
+        },
+    )
+    .await;
+    assert!(matches!(
+        recv_server_msg(&mut ws).await,
+        ServerMsg::Welcome { .. }
+    ));
+    let initial = recv_native_snapshot(&mut ws).await;
+    assert_eq!(initial.workspaces.len(), 1);
+    assert_eq!(initial.spaces.len(), 1);
+    assert_eq!(collect_native_leaves(&initial.panels).len(), 1);
+
+    send_command(
+        &mut ws,
+        10,
+        Command::NewWorkspace {
+            title: Some("ios-created-ws".into()),
+            cwd: None,
+        },
+    )
+    .await;
+    recv_command_ok(&mut ws, 10).await;
+    let workspace_snapshot = recv_native_snapshot_until(
+        &mut ws,
+        "created workspace active in native snapshot",
+        |snapshot| {
+            snapshot.workspaces.len() == 2
+                && snapshot.workspaces[snapshot.active_workspace].title == "ios-created-ws"
+                && snapshot.active_workspace_id == snapshot.workspaces[snapshot.active_workspace].id
+        },
+    )
+    .await;
+    assert_eq!(workspace_snapshot.spaces.len(), 1);
+
+    send_command(
+        &mut ws,
+        20,
+        Command::NewSpace {
+            title: Some("ios-created-space".into()),
+        },
+    )
+    .await;
+    recv_command_ok(&mut ws, 20).await;
+    let space_snapshot = recv_native_snapshot_until(
+        &mut ws,
+        "created space active in native snapshot",
+        |snapshot| {
+            snapshot.spaces.len() == 2
+                && snapshot.spaces[snapshot.active_space].title == "ios-created-space"
+                && snapshot.active_space_id == snapshot.spaces[snapshot.active_space].id
+        },
+    )
+    .await;
+    assert_eq!(
+        space_snapshot.workspaces[space_snapshot.active_workspace].space_count,
+        2
+    );
+
+    send_command(&mut ws, 30, Command::NewTab).await;
+    recv_command_ok(&mut ws, 30).await;
+    let tab_snapshot = recv_native_snapshot_until(
+        &mut ws,
+        "created terminal visible in native panel tree",
+        |snapshot| collect_native_leaves(&snapshot.panels)[0].tabs.len() == 2,
+    )
+    .await;
+    assert_eq!(
+        tab_snapshot.workspaces[tab_snapshot.active_workspace].terminal_count,
+        3
+    );
+
+    send_command(&mut ws, 40, Command::SplitHorizontal).await;
+    recv_command_ok(&mut ws, 40).await;
+    let split_snapshot = recv_native_snapshot_until(
+        &mut ws,
+        "split pane visible in native panel tree",
+        |snapshot| collect_native_leaves(&snapshot.panels).len() == 2,
+    )
+    .await;
+    assert_eq!(
+        split_snapshot.spaces[split_snapshot.active_space].pane_count,
+        2
+    );
+
+    send_command(&mut ws, 50, Command::SelectWorkspace { index: 0 }).await;
+    recv_command_ok(&mut ws, 50).await;
+    let selected_snapshot = recv_native_snapshot_until(
+        &mut ws,
+        "native snapshot switched back to original workspace",
+        |snapshot| snapshot.active_workspace == 0,
+    )
+    .await;
+    assert_ne!(
+        selected_snapshot.workspaces[selected_snapshot.active_workspace].title,
+        "ios-created-ws"
+    );
+
+    drop(ws);
     server.abort();
 }
 
