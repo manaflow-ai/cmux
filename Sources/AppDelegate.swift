@@ -10119,6 +10119,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 var preludeMs: Double = 0
                 var shortcutMs: Double = 0
                 CmuxTypingTiming.logEventDelay(path: "appMonitor", event: event)
+                BrowserOmnibarFocusLatencyTracker.shared.markAppKey(
+                    event: event,
+                    firstResponder: NSApp.keyWindow?.firstResponder,
+                    addressBarPanelId: self.browserAddressBarFocusedPanelId
+                )
                 let shortcutMonitorTraceEnabled =
                     ProcessInfo.processInfo.environment["CMUX_SHORTCUT_MONITOR_TRACE"] == "1"
                     || UserDefaults.standard.bool(forKey: "cmuxShortcutMonitorTrace")
@@ -11543,9 +11548,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let selected = tabManager?.selectedTabId.map { String($0.uuidString.prefix(5)) } ?? "nil"
         let focused = tabManager?.selectedWorkspace?.focusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
         let addressBar = browserAddressBarFocusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+        let totalPanels = tabManager?.selectedWorkspace?.panels.count ?? -1
+        let browserPanels = tabManager?.selectedWorkspace?.panels.values.reduce(0) { count, panel in
+            count + (panel is BrowserPanel ? 1 : 0)
+        } ?? -1
         let keyWindow = NSApp.keyWindow?.windowNumber ?? -1
         let firstResponderType = NSApp.keyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-        return "selected=\(selected) focused=\(focused) addr=\(addressBar) keyWin=\(keyWindow) fr=\(firstResponderType)"
+        return "selected=\(selected) focused=\(focused) addr=\(addressBar) panels=\(totalPanels) browsers=\(browserPanels) keyWin=\(keyWindow) fr=\(firstResponderType)"
+    }
+
+    private func browserFocusPanelCounts(for panel: BrowserPanel) -> (total: Int, browsers: Int) {
+        guard let workspace = tabManager?.tabs.first(where: { $0.id == panel.workspaceId }) else {
+            return (-1, -1)
+        }
+        let browserCount = workspace.panels.values.reduce(0) { count, panel in
+            count + (panel is BrowserPanel ? 1 : 0)
+        }
+        return (workspace.panels.count, browserCount)
     }
 
     private func redactedDebugURL(_ url: URL?) -> String {
@@ -11641,6 +11660,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func focusBrowserAddressBar(in panel: BrowserPanel) {
         let requestId = panel.requestAddressBarFocus()
 #if DEBUG
+        let counts = browserFocusPanelCounts(for: panel)
+        BrowserOmnibarFocusLatencyTracker.shared.begin(
+            panelId: panel.id,
+            requestId: requestId,
+            workspaceId: panel.workspaceId,
+            totalPanelCount: counts.total,
+            browserPanelCount: counts.browsers
+        )
         cmuxDebugLog(
             "browser.focus.addressBar.request panel=\(panel.id.uuidString.prefix(5)) " +
             "request=\(requestId.uuidString.prefix(8)) \(browserFocusStateSnapshot())"
