@@ -356,8 +356,9 @@ working-directory = ~/code`}</CodeBlock>
       </h3>
       <p>
         Use a string for a single shortcut, a two-item array for a chord, or <code>null</code> to
-        unbind a shortcut in <code>shortcuts.bindings</code>. An empty string (<code>&quot;&quot;</code>)
-        is accepted as the same unbind alias. Example chord:{" "}
+        unbind a shortcut in <code>shortcuts.bindings</code>. Unbind aliases also include
+        empty string (<code>&quot;&quot;</code>), <code>none</code>, <code>clear</code>,{" "}
+        <code>unbound</code>, and <code>disabled</code>. Example chord:{" "}
         <code>[&quot;ctrl+b&quot;, &quot;c&quot;]</code>. Numbered actions use{" "}
         <code>1</code> as the stored default and still match digits <code>1</code> through{" "}
         <code>9</code>.
