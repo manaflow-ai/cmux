@@ -19,26 +19,35 @@ struct NotificationsPage: View {
                 ScrollView {
                     LazyVStack(spacing: 8) {
                         ForEach(notificationStore.notifications) { notification in
-                            NotificationRow(
-                                notification: notification,
-                                tabTitle: tabTitle(for: notification.tabId),
-                                onOpen: {
-                                    // SwiftUI action closures are not guaranteed to run on the main actor.
-                                    // Ensure window focus + tab selection happens on the main thread.
-                                    DispatchQueue.main.async {
-                                        _ = AppDelegate.shared?.openNotification(
-                                            tabId: notification.tabId,
-                                            surfaceId: notification.surfaceId,
-                                            notificationId: notification.id
-                                        )
-                                        selection = .tabs
+                            VStack(alignment: .leading, spacing: 6) {
+                                NotificationRow(
+                                    notification: notification,
+                                    tabTitle: tabTitle(for: notification.tabId),
+                                    onOpen: {
+                                        // SwiftUI action closures are not guaranteed to run on the main actor.
+                                        // Ensure window focus + tab selection happens on the main thread.
+                                        DispatchQueue.main.async {
+                                            _ = AppDelegate.shared?.openNotification(
+                                                tabId: notification.tabId,
+                                                surfaceId: notification.surfaceId,
+                                                notificationId: notification.id
+                                            )
+                                            selection = .tabs
+                                        }
+                                    },
+                                    onClear: {
+                                        notificationStore.remove(id: notification.id)
+                                    },
+                                    focusedNotificationId: $focusedNotificationId
+                                )
+                                if let action = notification.action {
+                                    TerminalNotificationActionButtons(action: action) {
+                                        notificationStore.remove(id: notification.id)
                                     }
-                                },
-                                onClear: {
-                                    notificationStore.remove(id: notification.id)
-                                },
-                                focusedNotificationId: $focusedNotificationId
-                            )
+                                    .padding(.horizontal, 12)
+                                    .padding(.bottom, 8)
+                                }
+                            }
                         }
                     }
                     .padding(16)
@@ -168,6 +177,76 @@ struct ShortcutAnnotation: View {
                 RoundedRectangle(cornerRadius: 5)
                     .fill(Color(nsColor: .controlBackgroundColor))
             )
+    }
+}
+
+struct TerminalNotificationActionButtons: View {
+    let action: TerminalNotificationAction
+    let onClear: () -> Void
+    @State private var isRunning = false
+    @State private var message: String?
+
+    var body: some View {
+        switch action {
+        case .agentHookSetup(let agentName):
+            if let agent = AgentHookIntegrationSettings.agent(named: agentName) {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Button(primaryButtonTitle(for: agent)) {
+                            install(agent)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        .disabled(isRunning)
+
+                        Button(String(localized: "agentHooks.prompt.notNow", defaultValue: "Not Now")) {
+                            onClear()
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(isRunning)
+
+                        Button(String(localized: "agentHooks.prompt.never", defaultValue: "Never Show Again")) {
+                            AgentHookIntegrationSettings.setPromptEnabled(false)
+                            onClear()
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(isRunning)
+                    }
+
+                    if let message {
+                        Text(message)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+    }
+
+    private func primaryButtonTitle(for agent: AgentHookIntegration) -> String {
+        if isRunning {
+            return String(localized: "agentHooks.prompt.installing", defaultValue: "Installing...")
+        }
+        if agent.isClaudeWrapper {
+            return String(localized: "agentHooks.prompt.enable", defaultValue: "Enable")
+        }
+        return String(localized: "agentHooks.prompt.install", defaultValue: "Install hooks")
+    }
+
+    private func install(_ agent: AgentHookIntegration) {
+        guard !isRunning else { return }
+        isRunning = true
+        message = nil
+        AgentHookIntegrationSettings.installHooks(for: agent) { result in
+            isRunning = false
+            if result.succeeded {
+                onClear()
+            } else {
+                message = result.message
+            }
+        }
     }
 }
 

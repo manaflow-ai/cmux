@@ -655,6 +655,360 @@ enum NotificationAuthorizationState: Equatable {
     }
 }
 
+enum TerminalNotificationAction: Hashable {
+    case agentHookSetup(agentName: String)
+}
+
+struct AgentHookIntegration: Identifiable, Hashable, Sendable {
+    let name: String
+    let displayName: String
+    let commandNames: [String]
+    let configDir: String?
+    let configFile: String?
+    let configDirEnvOverride: String?
+    let hookMarkers: [String]
+    let isClaudeWrapper: Bool
+
+    var id: String { name }
+
+    var installCommand: String {
+        if isClaudeWrapper {
+            return "cmux settings open --section automation"
+        }
+        return "cmux hooks \(name) install"
+    }
+}
+
+enum AgentHookIntegrationStatus: Equatable {
+    case enabled
+    case disabled
+    case installed(path: String)
+    case notInstalled(path: String?)
+    case unreadable(path: String)
+
+    var isActive: Bool {
+        switch self {
+        case .enabled, .installed:
+            return true
+        case .disabled, .notInstalled, .unreadable:
+            return false
+        }
+    }
+}
+
+struct AgentHookInstallResult {
+    let succeeded: Bool
+    let message: String
+}
+
+enum AgentHookIntegrationSettings {
+    static let promptEnabledKey = "agentHookSetupPromptEnabled"
+    static let defaultPromptEnabled = true
+    static let statusDidChangeNotification = Notification.Name("cmux.agentHookIntegration.statusDidChange")
+
+    private static let promptCooldown: TimeInterval = 24 * 60 * 60
+
+    static let allAgents: [AgentHookIntegration] = [
+        AgentHookIntegration(
+            name: "claude",
+            displayName: "Claude Code",
+            commandNames: ["claude"],
+            configDir: nil,
+            configFile: nil,
+            configDirEnvOverride: nil,
+            hookMarkers: [],
+            isClaudeWrapper: true
+        ),
+        AgentHookIntegration(
+            name: "codex",
+            displayName: "Codex",
+            commandNames: ["codex"],
+            configDir: ".codex",
+            configFile: "hooks.json",
+            configDirEnvOverride: "CODEX_HOME",
+            hookMarkers: ["cmux hooks codex", "cmux codex-hook"],
+            isClaudeWrapper: false
+        ),
+        AgentHookIntegration(
+            name: "opencode",
+            displayName: "OpenCode",
+            commandNames: ["opencode", "open-code"],
+            configDir: ".config/opencode",
+            configFile: "plugins/cmux-session.js",
+            configDirEnvOverride: "OPENCODE_CONFIG_DIR",
+            hookMarkers: ["cmux-opencode-session-plugin-marker", "cmux hooks opencode"],
+            isClaudeWrapper: false
+        ),
+        AgentHookIntegration(
+            name: "cursor",
+            displayName: "Cursor",
+            commandNames: ["cursor"],
+            configDir: ".cursor",
+            configFile: "hooks.json",
+            configDirEnvOverride: nil,
+            hookMarkers: ["cmux hooks cursor"],
+            isClaudeWrapper: false
+        ),
+        AgentHookIntegration(
+            name: "gemini",
+            displayName: "Gemini",
+            commandNames: ["gemini"],
+            configDir: ".gemini",
+            configFile: "settings.json",
+            configDirEnvOverride: nil,
+            hookMarkers: ["cmux hooks gemini"],
+            isClaudeWrapper: false
+        ),
+        AgentHookIntegration(
+            name: "copilot",
+            displayName: "Copilot",
+            commandNames: ["copilot"],
+            configDir: ".copilot",
+            configFile: "config.json",
+            configDirEnvOverride: nil,
+            hookMarkers: ["cmux hooks copilot"],
+            isClaudeWrapper: false
+        ),
+        AgentHookIntegration(
+            name: "codebuddy",
+            displayName: "CodeBuddy",
+            commandNames: ["codebuddy"],
+            configDir: ".codebuddy",
+            configFile: "settings.json",
+            configDirEnvOverride: nil,
+            hookMarkers: ["cmux hooks codebuddy"],
+            isClaudeWrapper: false
+        ),
+        AgentHookIntegration(
+            name: "factory",
+            displayName: "Factory",
+            commandNames: ["factory"],
+            configDir: ".factory",
+            configFile: "settings.json",
+            configDirEnvOverride: nil,
+            hookMarkers: ["cmux hooks factory"],
+            isClaudeWrapper: false
+        ),
+        AgentHookIntegration(
+            name: "qoder",
+            displayName: "Qoder",
+            commandNames: ["qoder"],
+            configDir: ".qoder",
+            configFile: "settings.json",
+            configDirEnvOverride: nil,
+            hookMarkers: ["cmux hooks qoder"],
+            isClaudeWrapper: false
+        ),
+    ]
+
+    static func promptEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: promptEnabledKey) == nil {
+            return defaultPromptEnabled
+        }
+        return defaults.bool(forKey: promptEnabledKey)
+    }
+
+    static func setPromptEnabled(_ enabled: Bool, defaults: UserDefaults = .standard) {
+        defaults.set(enabled, forKey: promptEnabledKey)
+        NotificationCenter.default.post(name: statusDidChangeNotification, object: nil)
+    }
+
+    static func agent(named name: String) -> AgentHookIntegration? {
+        let normalized = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return allAgents.first { agent in
+            agent.name == normalized || agent.commandNames.contains(normalized)
+        }
+    }
+
+    static func status(for agent: AgentHookIntegration, defaults: UserDefaults = .standard) -> AgentHookIntegrationStatus {
+        if agent.isClaudeWrapper {
+            return ClaudeCodeIntegrationSettings.hooksEnabled(defaults: defaults) ? .enabled : .disabled
+        }
+
+        guard let path = configFilePath(for: agent) else {
+            return .notInstalled(path: nil)
+        }
+
+        guard FileManager.default.fileExists(atPath: path) else {
+            return .notInstalled(path: path)
+        }
+        guard let contents = try? String(contentsOfFile: path, encoding: .utf8) else {
+            return .unreadable(path: path)
+        }
+        if agent.hookMarkers.contains(where: { contents.contains($0) }) {
+            return .installed(path: path)
+        }
+        return .notInstalled(path: path)
+    }
+
+    static func statusLabel(for status: AgentHookIntegrationStatus) -> String {
+        switch status {
+        case .enabled:
+            return String(localized: "settings.automation.agentHooks.status.enabled", defaultValue: "Enabled")
+        case .disabled:
+            return String(localized: "settings.automation.agentHooks.status.disabled", defaultValue: "Disabled")
+        case .installed:
+            return String(localized: "settings.automation.agentHooks.status.installed", defaultValue: "Installed")
+        case .notInstalled:
+            return String(localized: "settings.automation.agentHooks.status.notInstalled", defaultValue: "Not installed")
+        case .unreadable:
+            return String(localized: "settings.automation.agentHooks.status.unknown", defaultValue: "Unknown")
+        }
+    }
+
+    static func statusSubtitle(for agent: AgentHookIntegration, status: AgentHookIntegrationStatus) -> String {
+        switch status {
+        case .enabled:
+            return String(localized: "settings.automation.agentHooks.status.claudeEnabled", defaultValue: "cmux wraps the claude command in cmux terminals.")
+        case .disabled:
+            return String(localized: "settings.automation.agentHooks.status.claudeDisabled", defaultValue: "Claude Code runs without cmux hooks.")
+        case .installed(let path):
+            return String(localized: "settings.automation.agentHooks.status.installedAt", defaultValue: "cmux hooks found in \(path).")
+        case .notInstalled:
+            return String(localized: "settings.automation.agentHooks.status.notInstalled.subtitle", defaultValue: "No cmux hooks found.")
+        case .unreadable(let path):
+            return String(localized: "settings.automation.agentHooks.status.unreadable", defaultValue: "Could not read \(path).")
+        }
+    }
+
+    @MainActor
+    static func showSetupPromptIfNeeded(agentName: String, tabId: UUID, surfaceId: UUID?) {
+        guard promptEnabled(),
+              let agent = agent(named: agentName) else {
+            return
+        }
+        guard !status(for: agent).isActive else {
+            return
+        }
+        guard shouldShowPrompt(for: agent) else {
+            return
+        }
+
+        markPromptShown(for: agent)
+        TerminalNotificationStore.shared.addNotification(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            title: String(localized: "agentHooks.nudge.title", defaultValue: "Install \(agent.displayName) hooks"),
+            subtitle: String(localized: "agentHooks.nudge.subtitle", defaultValue: "Notifications and session restore"),
+            body: String(localized: "agentHooks.nudge.body", defaultValue: "Hooks let cmux show agent notifications and restore sessions after cmux restarts."),
+            cooldownKey: "agent-hooks-setup-\(agent.name)",
+            cooldownInterval: promptCooldown,
+            action: .agentHookSetup(agentName: agent.name)
+        )
+        AppDelegate.shared?.toggleNotificationsPopover(animated: true)
+    }
+
+    static func installHooks(for agent: AgentHookIntegration, completion: @escaping (AgentHookInstallResult) -> Void) {
+        if agent.isClaudeWrapper {
+            UserDefaults.standard.set(true, forKey: ClaudeCodeIntegrationSettings.hooksEnabledKey)
+            NotificationCenter.default.post(name: statusDidChangeNotification, object: nil)
+            completion(AgentHookInstallResult(
+                succeeded: true,
+                message: String(localized: "settings.automation.agentHooks.status.claudeEnabled", defaultValue: "cmux wraps the claude command in cmux terminals.")
+            ))
+            return
+        }
+
+        let launch = hookInstallLaunch(for: agent)
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = runInstallCommand(
+                executableURL: launch.executableURL,
+                arguments: launch.arguments,
+                fallbackCommand: agent.installCommand
+            )
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: statusDidChangeNotification, object: nil)
+                completion(result)
+            }
+        }
+    }
+
+    private static func configFilePath(for agent: AgentHookIntegration) -> String? {
+        guard let configDir = agent.configDir,
+              let configFile = agent.configFile else {
+            return nil
+        }
+        let directory: String
+        if let envKey = agent.configDirEnvOverride,
+           let envValue = ProcessInfo.processInfo.environment[envKey],
+           !envValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            directory = NSString(string: envValue).expandingTildeInPath
+        } else {
+            directory = NSString(string: "~/\(configDir)").expandingTildeInPath
+        }
+        return (directory as NSString).appendingPathComponent(configFile)
+    }
+
+    private static func shouldShowPrompt(for agent: AgentHookIntegration, defaults: UserDefaults = .standard) -> Bool {
+        let key = lastPromptKey(for: agent)
+        let lastShown = defaults.double(forKey: key)
+        guard lastShown > 0 else { return true }
+        return Date().timeIntervalSince1970 - lastShown >= promptCooldown
+    }
+
+    private static func markPromptShown(for agent: AgentHookIntegration, defaults: UserDefaults = .standard) {
+        defaults.set(Date().timeIntervalSince1970, forKey: lastPromptKey(for: agent))
+    }
+
+    private static func lastPromptKey(for agent: AgentHookIntegration) -> String {
+        "agentHookSetupPromptLastShown.\(agent.name)"
+    }
+
+    private static func hookInstallLaunch(for agent: AgentHookIntegration) -> (executableURL: URL, arguments: [String]) {
+        if let bundledCLIURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux"),
+           FileManager.default.isExecutableFile(atPath: bundledCLIURL.path) {
+            return (bundledCLIURL, ["hooks", agent.name, "install", "--yes"])
+        }
+        return (URL(fileURLWithPath: "/usr/bin/env"), ["cmux", "hooks", agent.name, "install", "--yes"])
+    }
+
+    private static func runInstallCommand(
+        executableURL: URL,
+        arguments: [String],
+        fallbackCommand: String
+    ) -> AgentHookInstallResult {
+        let process = Process()
+        process.executableURL = executableURL
+        process.arguments = arguments
+        process.standardInput = FileHandle.nullDevice
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return AgentHookInstallResult(
+                succeeded: false,
+                message: String(localized: "agentHooks.prompt.installFailed", defaultValue: "Could not install hooks. Run \(fallbackCommand) in a terminal.")
+            )
+        }
+
+        let outputData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+        let errorData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        let output = String(data: outputData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let errorOutput = String(data: errorData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        guard process.terminationStatus == 0 else {
+            let detail = errorOutput.isEmpty ? output : errorOutput
+            if detail.isEmpty {
+                return AgentHookInstallResult(
+                    succeeded: false,
+                    message: String(localized: "agentHooks.prompt.installFailed", defaultValue: "Could not install hooks. Run \(fallbackCommand) in a terminal.")
+                )
+            }
+            return AgentHookInstallResult(succeeded: false, message: detail)
+        }
+
+        return AgentHookInstallResult(
+            succeeded: true,
+            message: String(localized: "agentHooks.prompt.installSucceeded", defaultValue: "Hooks installed.")
+        )
+    }
+}
+
 struct TerminalNotification: Identifiable, Hashable {
     let id: UUID
     let tabId: UUID
@@ -662,8 +1016,31 @@ struct TerminalNotification: Identifiable, Hashable {
     let title: String
     let subtitle: String
     let body: String
+    let action: TerminalNotificationAction?
     let createdAt: Date
     var isRead: Bool
+
+    init(
+        id: UUID,
+        tabId: UUID,
+        surfaceId: UUID?,
+        title: String,
+        subtitle: String,
+        body: String,
+        action: TerminalNotificationAction? = nil,
+        createdAt: Date,
+        isRead: Bool
+    ) {
+        self.id = id
+        self.tabId = tabId
+        self.surfaceId = surfaceId
+        self.title = title
+        self.subtitle = subtitle
+        self.body = body
+        self.action = action
+        self.createdAt = createdAt
+        self.isRead = isRead
+    }
 }
 
 @MainActor
@@ -908,7 +1285,8 @@ final class TerminalNotificationStore: ObservableObject {
         subtitle: String,
         body: String,
         cooldownKey: String? = nil,
-        cooldownInterval: TimeInterval? = nil
+        cooldownInterval: TimeInterval? = nil,
+        action: TerminalNotificationAction? = nil
     ) {
         let now = Date()
         let resolvedCooldownInterval: TimeInterval?
@@ -958,6 +1336,7 @@ final class TerminalNotificationStore: ObservableObject {
             title: title,
             subtitle: subtitle,
             body: body,
+            action: action,
             createdAt: now,
             isRead: false
         )

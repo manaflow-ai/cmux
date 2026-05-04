@@ -2053,6 +2053,9 @@ class TerminalController {
         case "notify_target_async":
             return notifyTargetQueued(args)
 
+        case "agent_hooks_nudge":
+            return agentHooksNudge(args)
+
         case "list_notifications":
             return listNotifications()
 
@@ -12664,6 +12667,7 @@ class TerminalController {
           notify_surface <id|idx> <payload>  - Notify a specific surface
           notify_target <workspace_id> <surface_id> <payload> - Notify by workspace+surface
           notify_target_async <workspace_uuid> <surface_uuid> <payload> - Queue notification by workspace+surface
+          agent_hooks_nudge <agent> --tab=<uuid> --panel=<uuid> - Prompt for agent hook setup if needed
           list_notifications              - List all notifications
           clear_notifications [--tab=X]    - Clear notifications (all or per-tab)
           set_app_focus <active|inactive|clear> - Override app focus state
@@ -14020,6 +14024,38 @@ class TerminalController {
             subtitle: subtitle,
             body: body
         )
+        return "OK"
+    }
+
+    private func agentHooksNudge(_ args: String) -> String {
+        let parts = args.split(separator: " ").map(String.init)
+        guard let agentName = parts.first?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !agentName.isEmpty else {
+            return "ERROR: Usage: agent_hooks_nudge <agent> --tab=<uuid> --panel=<uuid>"
+        }
+
+        var tabId: UUID?
+        var surfaceId: UUID?
+        for part in parts.dropFirst() {
+            if part.hasPrefix("--tab=") {
+                tabId = UUID(uuidString: String(part.dropFirst("--tab=".count)))
+            } else if part.hasPrefix("--panel=") {
+                surfaceId = UUID(uuidString: String(part.dropFirst("--panel=".count)))
+            } else if part.hasPrefix("--surface=") {
+                surfaceId = UUID(uuidString: String(part.dropFirst("--surface=".count)))
+            }
+        }
+        guard let tabId else {
+            return "ERROR: agent_hooks_nudge requires --tab=<uuid>"
+        }
+
+        TerminalMutationBus.shared.enqueueMainActorMutation {
+            AgentHookIntegrationSettings.showSetupPromptIfNeeded(
+                agentName: agentName,
+                tabId: tabId,
+                surfaceId: surfaceId
+            )
+        }
         return "OK"
     }
 

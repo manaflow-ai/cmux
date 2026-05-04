@@ -1064,6 +1064,70 @@ _cmux_command_starts_nested_shell() {
     return 1
 }
 
+_cmux_agent_hook_agent_for_command() {
+    local cmd="$1"
+    [[ -n "$cmd" ]] || return 1
+
+    local -a words
+    words=("${(@z)cmd}")
+    local index=1
+    while (( index <= ${#words[@]} )); do
+        local word="${words[index]}"
+        case "$word" in
+            env|command|builtin|exec|noglob|time|sudo|doas)
+                index=$(( index + 1 ))
+                continue ;;
+            -*|*=*)
+                index=$(( index + 1 ))
+                continue ;;
+        esac
+
+        local base="${word:t}"
+        case "$base" in
+            claude)
+                print -r -- "claude"
+                return 0 ;;
+            codex)
+                print -r -- "codex"
+                return 0 ;;
+            opencode|open-code)
+                print -r -- "opencode"
+                return 0 ;;
+            cursor)
+                print -r -- "cursor"
+                return 0 ;;
+            gemini)
+                print -r -- "gemini"
+                return 0 ;;
+            copilot)
+                print -r -- "copilot"
+                return 0 ;;
+            codebuddy)
+                print -r -- "codebuddy"
+                return 0 ;;
+            factory)
+                print -r -- "factory"
+                return 0 ;;
+            qoder)
+                print -r -- "qoder"
+                return 0 ;;
+        esac
+        return 1
+    done
+
+    return 1
+}
+
+_cmux_report_agent_hook_nudge() {
+    _cmux_socket_is_unix || return 0
+    [[ -n "$CMUX_TAB_ID" && -n "$CMUX_PANEL_ID" ]] || return 0
+
+    local agent=""
+    agent="$(_cmux_agent_hook_agent_for_command "$1")" || return 0
+    [[ -n "$agent" ]] || return 0
+    _cmux_send_bg "agent_hooks_nudge $agent --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+}
+
 _cmux_preexec() {
     if (( ! _CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT )); then
         _cmux_restore_terminal_identity_after_startup
@@ -1081,6 +1145,7 @@ _cmux_preexec() {
     _CMUX_CMD_START="$(_cmux_now)"
     _cmux_report_shell_activity_state running
     _cmux_record_pr_command_hint "$cmd"
+    _cmux_report_agent_hook_nudge "$cmd"
 
     # Heuristic: commands that may change git branch/dirty state without changing $PWD.
     case "$cmd" in

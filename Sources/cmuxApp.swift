@@ -6515,6 +6515,8 @@ struct SettingsView: View {
                         SettingsCardNote(String(localized: "settings.automation.socketOverrides.note", defaultValue: "Overrides: CMUX_SOCKET_ENABLE, CMUX_SOCKET_MODE, and CMUX_SOCKET_PATH (set CMUX_ALLOW_SOCKET_OVERRIDE=1 for stable/nightly builds)."))
                     }
 
+                    AgentHooksSettingsCard()
+
                     SettingsCard {
                         SettingsCardRow(
                             configurationReview: .json("automation.claudeCodeIntegration"),
@@ -7783,6 +7785,116 @@ private struct SettingsCardNote: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct AgentHooksSettingsCard: View {
+    @AppStorage(AgentHookIntegrationSettings.promptEnabledKey)
+    private var promptEnabled = AgentHookIntegrationSettings.defaultPromptEnabled
+    @State private var refreshToken: UInt64 = 0
+
+    var body: some View {
+        let _ = refreshToken
+        SettingsCard {
+            SettingsCardRow(
+                configurationReview: .settingsOnly,
+                String(localized: "settings.automation.agentHooks.title", defaultValue: "Agent hooks"),
+                subtitle: String(localized: "settings.automation.agentHooks.subtitle", defaultValue: "Install hooks for notifications and session restore."),
+                searchAnchorID: "automation:agent-hooks"
+            ) {
+                Toggle("", isOn: $promptEnabled)
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsAgentHookPromptToggle")
+            }
+
+            SettingsCardDivider()
+
+            SettingsCardNote(String(localized: "settings.automation.agentHooks.note", defaultValue: "Hooks let cmux show agent notifications and restore sessions after cmux restarts. The prompt only appears after you run a supported agent command."))
+
+            ForEach(AgentHookIntegrationSettings.allAgents) { agent in
+                SettingsCardDivider()
+                AgentHookSettingsRow(agent: agent, refreshToken: $refreshToken)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: AgentHookIntegrationSettings.statusDidChangeNotification)) { _ in
+            refreshToken &+= 1
+        }
+    }
+}
+
+private struct AgentHookSettingsRow: View {
+    let agent: AgentHookIntegration
+    @Binding var refreshToken: UInt64
+    @State private var isInstalling = false
+    @State private var installMessage: String?
+
+    private var status: AgentHookIntegrationStatus {
+        let _ = refreshToken
+        return AgentHookIntegrationSettings.status(for: agent)
+    }
+
+    var body: some View {
+        let currentStatus = status
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            agent.displayName,
+            subtitle: installMessage ?? AgentHookIntegrationSettings.statusSubtitle(for: agent, status: currentStatus)
+        ) {
+            HStack(spacing: 8) {
+                AgentHookStatusPill(
+                    text: AgentHookIntegrationSettings.statusLabel(for: currentStatus),
+                    isActive: currentStatus.isActive
+                )
+                Button(buttonTitle(for: currentStatus)) {
+                    install()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(isInstalling || currentStatus.isActive)
+            }
+        }
+    }
+
+    private func buttonTitle(for status: AgentHookIntegrationStatus) -> String {
+        if isInstalling {
+            return String(localized: "settings.automation.agentHooks.installing", defaultValue: "Installing")
+        }
+        if status.isActive {
+            return String(localized: "settings.automation.agentHooks.installed", defaultValue: "Installed")
+        }
+        if agent.isClaudeWrapper {
+            return String(localized: "settings.automation.agentHooks.enable", defaultValue: "Enable")
+        }
+        return String(localized: "settings.automation.agentHooks.install", defaultValue: "Install")
+    }
+
+    private func install() {
+        guard !isInstalling else { return }
+        isInstalling = true
+        installMessage = nil
+        AgentHookIntegrationSettings.installHooks(for: agent) { result in
+            isInstalling = false
+            refreshToken &+= 1
+            installMessage = result.succeeded ? nil : result.message
+        }
+    }
+}
+
+private struct AgentHookStatusPill: View {
+    let text: String
+    let isActive: Bool
+
+    var body: some View {
+        Text(text)
+            .font(.caption.weight(.medium))
+            .foregroundStyle(isActive ? Color.green : Color.secondary)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(isActive ? Color.green.opacity(0.12) : Color.secondary.opacity(0.12))
+            )
     }
 }
 
