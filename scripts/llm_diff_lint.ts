@@ -1,5 +1,7 @@
 #!/usr/bin/env bun
 import { createDeepSeek } from "@ai-sdk/deepseek";
+import { createGateway } from "@ai-sdk/gateway";
+import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { createVertex } from "@ai-sdk/google-vertex";
 import { generateObject } from "ai";
@@ -11,7 +13,9 @@ import { z } from "zod";
 const DEFAULT_PROVIDER = "deepseek";
 const DEFAULT_MODELS: Record<string, string> = {
   deepseek: "deepseek-v4-pro",
+  gateway: "openai/gpt-5.3-codex",
   "google-vertex": "gemini-3-flash-preview",
+  openai: "gpt-5.3-codex",
   "openai-compatible": "model",
 };
 const DEFAULT_MAX_TOKENS = 8192;
@@ -20,6 +24,7 @@ const DEFAULT_RETRIES = 0;
 const MAX_SUMMARY_CHARS = 300;
 
 type Severity = "none" | "warning" | "failure";
+type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "omit";
 type Finding = {
   file: string;
   line: number | null;
@@ -51,9 +56,11 @@ type Args = {
   output?: string;
   skipIfMissingKey: boolean;
   mockResponse?: string;
+  reasoningEffort: ReasoningEffort;
   thinking: "enabled" | "disabled" | "omit";
 };
 type RawArgs = Omit<Args, "thinking"> & {
+  reasoningEffort: string;
   thinking: string;
 };
 
@@ -95,6 +102,13 @@ function normalizeThinking(value: string): Args["thinking"] {
   throw new Error(`invalid thinking mode: ${value}`);
 }
 
+function normalizeReasoningEffort(value: string): ReasoningEffort {
+  if (["none", "minimal", "low", "medium", "high", "xhigh", "omit"].includes(value)) {
+    return value as ReasoningEffort;
+  }
+  throw new Error(`invalid reasoning effort: ${value}`);
+}
+
 function parseArgs(argv: string[]): Args {
   const args: RawArgs = {
     base: "origin/main",
@@ -107,6 +121,7 @@ function parseArgs(argv: string[]): Args {
     maxDiffBytes: Number(process.env.LLM_DIFF_LINT_MAX_DIFF_BYTES || DEFAULT_MAX_DIFF_BYTES),
     retries: Number(process.env.LLM_DIFF_LINT_RETRIES || DEFAULT_RETRIES),
     skipIfMissingKey: false,
+    reasoningEffort: process.env.LLM_DIFF_LINT_REASONING_EFFORT || "omit",
     thinking: process.env.LLM_DIFF_LINT_THINKING || process.env.DEEPSEEK_THINKING || "disabled",
   };
 
@@ -154,6 +169,11 @@ function parseArgs(argv: string[]): Args {
       case "--retries":
         args.retries = Number(next());
         break;
+      case "--reasoning-effort": {
+        const reasoningEffort = next();
+        args.reasoningEffort = normalizeReasoningEffort(reasoningEffort);
+        break;
+      }
       case "--output":
         args.output = next();
         break;
@@ -190,7 +210,11 @@ function parseArgs(argv: string[]): Args {
   if (!Number.isInteger(args.retries) || args.retries < 0) {
     throw new Error(`invalid retry value: ${args.retries}`);
   }
-  return { ...args, thinking: normalizeThinking(args.thinking) };
+  return {
+    ...args,
+    reasoningEffort: normalizeReasoningEffort(args.reasoningEffort),
+    thinking: normalizeThinking(args.thinking),
+  };
 }
 
 function githubEscape(value: unknown, propertyValue = false): string {
@@ -485,6 +509,42 @@ function resolveModel(args: Args): { model: unknown; providerOptions?: Record<st
     return { model: vertex(args.model) };
   }
 
+  if (args.provider === "gateway") {
+    const apiKey = requireEnv("AI_GATEWAY_API_KEY");
+    const aiGateway = createGateway({
+      apiKey,
+      baseURL: process.env.AI_GATEWAY_BASE_URL || undefined,
+    });
+    const providerOptions: Record<string, unknown> = {
+      gateway: {
+        tags: ["cmux-llm-diff-lint"],
+      },
+    };
+    if (args.reasoningEffort !== "omit") {
+      providerOptions.openai = {
+        reasoningEffort: args.reasoningEffort,
+      };
+    }
+    return { model: aiGateway(args.model), providerOptions };
+  }
+
+  if (args.provider === "openai") {
+    const apiKey = requireEnv("OPENAI_API_KEY");
+    const openai = createOpenAI({
+      apiKey,
+      baseURL: process.env.OPENAI_BASE_URL || undefined,
+    });
+    const providerOptions =
+      args.reasoningEffort === "omit"
+        ? undefined
+        : {
+            openai: {
+              reasoningEffort: args.reasoningEffort,
+            },
+          };
+    return { model: openai.responses(args.model), providerOptions };
+  }
+
   if (args.provider === "openai-compatible") {
     const baseURL = requireEnv("LLM_DIFF_LINT_OPENAI_COMPATIBLE_BASE_URL");
     const apiKey = process.env.LLM_DIFF_LINT_OPENAI_COMPATIBLE_API_KEY;
@@ -508,6 +568,18 @@ async function runModel(args: Args, ruleId: string, ruleText: string, diff: stri
   }
   if (args.provider === "google-vertex" && !process.env.GOOGLE_VERTEX_PROJECT && !process.env.GOOGLE_CLOUD_PROJECT) {
     throw new Error("GOOGLE_VERTEX_PROJECT or GOOGLE_CLOUD_PROJECT is required");
+  }
+  if (args.provider === "gateway" && !process.env.AI_GATEWAY_API_KEY) {
+    if (args.skipIfMissingKey) {
+      return missingKeyResult(args, ruleId, "AI_GATEWAY_API_KEY");
+    }
+    throw new Error("AI_GATEWAY_API_KEY is required");
+  }
+  if (args.provider === "openai" && !process.env.OPENAI_API_KEY) {
+    if (args.skipIfMissingKey) {
+      return missingKeyResult(args, ruleId, "OPENAI_API_KEY");
+    }
+    throw new Error("OPENAI_API_KEY is required");
   }
 
   const { system, prompt } = buildPrompt(ruleId, ruleText, diff, args.sourceLabel);

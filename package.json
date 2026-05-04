@@ -4,7 +4,9 @@
   },
   "dependencies": {
     "@ai-sdk/deepseek": "^2.0.32",
+    "@ai-sdk/gateway": "^3.0.109",
     "@ai-sdk/google-vertex": "^4.0.118",
+    "@ai-sdk/openai": "^3.0.58",
     "@ai-sdk/openai-compatible": "^2.0.45",
     "@opentui/core": "^0.1.106",
     "ai": "^6.0.174",

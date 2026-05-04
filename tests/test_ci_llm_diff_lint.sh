@@ -138,6 +138,20 @@ if ! grep -Fq 'invalid thinking mode: typo' "$TMP_DIR/invalid-thinking.out"; the
   exit 1
 fi
 
+if LLM_DIFF_LINT_REASONING_EFFORT=huge bun scripts/llm_diff_lint.ts \
+  --rule "$RULE" \
+  --diff-file "$DIFF" \
+  --mock-response "$CLEAN" > "$TMP_DIR/invalid-reasoning.out" 2>&1; then
+  echo "expected invalid env reasoning effort value to fail" >&2
+  exit 1
+fi
+
+if ! grep -Fq 'invalid reasoning effort: huge' "$TMP_DIR/invalid-reasoning.out"; then
+  echo "expected invalid reasoning effort diagnostic" >&2
+  cat "$TMP_DIR/invalid-reasoning.out" >&2
+  exit 1
+fi
+
 if bun scripts/llm_diff_lint.ts \
   --rule "$RULE" \
   --diff-file "$DIFF" \
@@ -197,6 +211,19 @@ env -u DEEPSEEK_API_KEY bun scripts/llm_diff_lint.ts \
 if ! grep -Fq 'DEEPSEEK_API_KEY is not set' "$TMP_DIR/missing-key.out"; then
   echo "expected missing key skip notice" >&2
   cat "$TMP_DIR/missing-key.out" >&2
+  exit 1
+fi
+
+env -u OPENAI_API_KEY bun scripts/llm_diff_lint.ts \
+  --rule "$RULE" \
+  --diff-file "$DIFF" \
+  --provider openai \
+  --model gpt-5.3-codex \
+  --skip-if-missing-key > "$TMP_DIR/missing-openai-key.out" 2>&1
+
+if ! grep -Fq 'OPENAI_API_KEY is not set' "$TMP_DIR/missing-openai-key.out"; then
+  echo "expected missing OpenAI key skip notice" >&2
+  cat "$TMP_DIR/missing-openai-key.out" >&2
   exit 1
 fi
 
@@ -262,6 +289,24 @@ if ! grep -Fq 'deepseek and google-vertex agreed on all 1 compared rule(s).' "$T
   exit 1
 fi
 
+OPENAI_RESULT="$TMP_DIR/openai.json"
+LLM_DIFF_LINT_PROVIDER=openai LLM_DIFF_LINT_MODEL=gpt-5.3-codex LLM_DIFF_LINT_REASONING_EFFORT=medium bun scripts/llm_diff_lint.ts \
+  --rule "$RULE" \
+  --diff-file "$DIFF" \
+  --mock-response "$CLEAN" > "$OPENAI_RESULT"
+
+if ! grep -Fq '"provider": "openai"' "$OPENAI_RESULT"; then
+  echo "expected OpenAI provider in mock output" >&2
+  cat "$OPENAI_RESULT" >&2
+  exit 1
+fi
+
+if ! grep -Fq '"model": "gpt-5.3-codex"' "$OPENAI_RESULT"; then
+  echo "expected Codex model in mock output" >&2
+  cat "$OPENAI_RESULT" >&2
+  exit 1
+fi
+
 WORKFLOW=".github/workflows/llm-diff-lint.yml"
 
 if grep -Eq '^  pull_request:' "$WORKFLOW"; then
@@ -285,7 +330,7 @@ if ! grep -Fq 'EVENT_PR_NUMBER: ${{ github.event.pull_request.number || inputs.p
 fi
 
 default_checkout_count="$(grep -Fc 'ref: ${{ github.event.repository.default_branch }}' "$WORKFLOW")"
-if [ "$default_checkout_count" -ne 3 ]; then
+if [ "$default_checkout_count" -ne 4 ]; then
   echo "all workflow checkouts must use repository default branch, got $default_checkout_count" >&2
   exit 1
 fi
@@ -303,5 +348,20 @@ fi
 
 if grep -Fq 'head.repo.full_name' "$WORKFLOW"; then
   echo "workflow must not checkout PR-controlled code" >&2
+  exit 1
+fi
+
+if ! grep -Fq 'LLM_DIFF_LINT_CODEX_MODEL' "$WORKFLOW"; then
+  echo "workflow should expose the Codex architecture model" >&2
+  exit 1
+fi
+
+if ! grep -Fq 'LLM_DIFF_LINT_CODEX_REASONING_EFFORT' "$WORKFLOW"; then
+  echo "workflow should expose the Codex reasoning effort" >&2
+  exit 1
+fi
+
+if ! grep -Fq -- '--skip-if-missing-key' "$WORKFLOW"; then
+  echo "workflow should skip the Codex rule until OPENAI_API_KEY is configured" >&2
   exit 1
 fi
