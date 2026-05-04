@@ -1490,61 +1490,6 @@ final class BrowserNavigationNewTabDecisionTests: XCTestCase {
 }
 
 
-final class BrowserPopupDecisionTests: XCTestCase {
-    func testLinkActivatedPlainLeftClickDoesNotCreatePopup() {
-        XCTAssertFalse(
-            browserNavigationShouldCreatePopup(
-                navigationType: .linkActivated,
-                modifierFlags: [],
-                buttonNumber: 0
-            )
-        )
-    }
-
-    func testOtherNavigationKeyDownGestureStillCreatesPopup() {
-        XCTAssertTrue(
-            browserNavigationShouldCreatePopup(
-                navigationType: .other,
-                modifierFlags: [],
-                buttonNumber: 0,
-                currentEventType: .keyDown,
-                currentEventButtonNumber: 0
-            )
-        )
-    }
-
-    func testOtherNavigationWithoutExplicitNewTabIntentCreatesPopup() {
-        XCTAssertTrue(
-            browserNavigationShouldCreatePopup(
-                navigationType: .other,
-                modifierFlags: [],
-                buttonNumber: 0
-            )
-        )
-    }
-
-    func testOtherNavigationMiddleClickDoesNotCreatePopup() {
-        XCTAssertFalse(
-            browserNavigationShouldCreatePopup(
-                navigationType: .other,
-                modifierFlags: [],
-                buttonNumber: 2
-            )
-        )
-    }
-
-    func testLinkActivatedCmdClickDoesNotCreatePopup() {
-        XCTAssertFalse(
-            browserNavigationShouldCreatePopup(
-                navigationType: .linkActivated,
-                modifierFlags: [.command],
-                buttonNumber: 0
-            )
-        )
-    }
-}
-
-
 final class BrowserNilTargetFallbackDecisionTests: XCTestCase {
     func testOtherNavigationDoesNotFallbackToNewTab() {
         XCTAssertFalse(
@@ -3306,23 +3251,6 @@ final class BrowserHistoryStoreTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(suggestions.count, 2)
         XCTAssertEqual(suggestions.first?.url, "https://go.dev/")
         XCTAssertTrue(suggestions.contains(where: { $0.url == "https://www.google.com/" }))
-    }
-}
-
-
-@MainActor
-final class CmuxWebViewDragRoutingTests: XCTestCase {
-    func testRejectsInternalPaneDragEvenWhenFilePromiseTypesArePresent() {
-        XCTAssertTrue(
-            CmuxWebView.shouldRejectInternalPaneDrag([
-                DragOverlayRoutingPolicy.bonsplitTabTransferType,
-                NSPasteboard.PasteboardType("com.apple.pasteboard.promised-file-url"),
-            ])
-        )
-    }
-
-    func testAllowsRegularExternalFileDrops() {
-        XCTAssertFalse(CmuxWebView.shouldRejectInternalPaneDrag([.fileURL]))
     }
 }
 

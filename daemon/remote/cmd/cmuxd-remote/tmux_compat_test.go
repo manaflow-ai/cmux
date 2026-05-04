@@ -306,7 +306,7 @@ func TestConfigureAgentEnvironment(t *testing.T) {
 	// Save and restore env vars
 	envKeys := []string{
 		"CMUX_CLAUDE_TEAMS_CMUX_BIN", "PATH", "TMUX", "TMUX_PANE",
-		"TERM", "CMUX_SOCKET_PATH", "CMUX_SOCKET", "TERM_PROGRAM",
+		"TERM", "CMUX_SOCKET_PATH", "TERM_PROGRAM",
 		"CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID",
 		"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", "COLORTERM",
 	}
