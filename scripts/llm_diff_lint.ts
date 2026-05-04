@@ -22,6 +22,14 @@ const DEFAULT_MAX_TOKENS = 8192;
 const DEFAULT_MAX_DIFF_BYTES = 5_000_000;
 const DEFAULT_RETRIES = 0;
 const MAX_SUMMARY_CHARS = 300;
+const SWIFT_RULE_IDS = new Set([
+  "swift-actor-isolation",
+  "swift-blocking-runtime",
+  "swift-concurrency-modernization",
+  "swift-concurrent-annotation",
+  "swift-logging",
+  "swiftui-state-layout",
+]);
 
 type Severity = "none" | "warning" | "failure";
 type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "omit";
@@ -440,6 +448,33 @@ function isTestPath(file: string): boolean {
   );
 }
 
+function isProductionSwiftPath(file: string): boolean {
+  return file.endsWith(".swift") && !isTestPath(file);
+}
+
+function filterOutOfScopeSwiftFindings(ruleId: string, result: LintResult): LintResult {
+  if (result.skipped || !result.violated || !SWIFT_RULE_IDS.has(ruleId) || result.findings.length === 0) {
+    return result;
+  }
+
+  const findings = result.findings.filter((finding) => isProductionSwiftPath(finding.file));
+  if (findings.length === result.findings.length) {
+    return result;
+  }
+
+  if (findings.length > 0) {
+    return { ...result, findings };
+  }
+
+  return {
+    ...result,
+    violated: false,
+    severity: "none",
+    summary: normalizeSummary("No in-scope production Swift findings after filtering non-Swift or test-only model findings."),
+    findings: [],
+  };
+}
+
 function productionTimingPrimitiveTripwire(diff: string): Finding[] {
   const findings: Finding[] = [];
   let file = "";
@@ -466,8 +501,7 @@ function productionTimingPrimitiveTripwire(diff: string): Finding[] {
     if (rawLine.startsWith("+")) {
       const added = rawLine.slice(1);
       if (
-        file.endsWith(".swift") &&
-        !isTestPath(file) &&
+        isProductionSwiftPath(file) &&
         /\b(?:Task\.sleep|Thread\.sleep|usleep|sleep)\s*\(|DispatchQueue\.[\w.]+\.asyncAfter\s*\(/.test(added)
       ) {
         findings.push({
@@ -840,6 +874,7 @@ async function main(argv: string[]): Promise<number> {
     return 2;
   }
 
+  result = filterOutOfScopeSwiftFindings(ruleId, result);
   result = applyDeterministicTripwires(ruleId, diff, result);
   emitResult(result, args, rulePath, diffBytes);
   if (result.severity === "failure") {

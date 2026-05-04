@@ -81,6 +81,36 @@ if ! grep -Fq '"line": 3' "$TMP_DIR/blocking-tripwire.out"; then
   exit 1
 fi
 
+SHELL_FIXTURE_DIFF="$TMP_DIR/shell-fixture.diff"
+cat > "$SHELL_FIXTURE_DIFF" <<'EOF'
+diff --git a/tests/test_ci_llm_diff_lint.sh b/tests/test_ci_llm_diff_lint.sh
+index 1111111..2222222 100755
+--- a/tests/test_ci_llm_diff_lint.sh
++++ b/tests/test_ci_llm_diff_lint.sh
+@@ -1,3 +1,4 @@
+ #!/usr/bin/env bash
++echo 'Task.sleep(nanoseconds: 10_000_000)'
+ set -euo pipefail
+EOF
+
+OUT_OF_SCOPE_SWIFT_FINDING='{"rule_id":"swift-blocking-runtime","violated":true,"severity":"failure","summary":"Production Swift code introduced sleep or delayed-dispatch timing primitives.","findings":[{"file":"tests/test_ci_llm_diff_lint.sh","line":2,"excerpt":"Task.sleep(nanoseconds: 10_000_000)","why":"Production Swift code introduced a timing primitive.","confidence":"high"}]}'
+bun scripts/llm_diff_lint.ts \
+  --rule "$BLOCKING_RULE" \
+  --diff-file "$SHELL_FIXTURE_DIFF" \
+  --mock-response "$OUT_OF_SCOPE_SWIFT_FINDING" > "$TMP_DIR/out-of-scope-swift-finding.out"
+
+if ! grep -Fq '"violated": false' "$TMP_DIR/out-of-scope-swift-finding.out"; then
+  echo "expected non-Swift model finding to be suppressed for Swift rule" >&2
+  cat "$TMP_DIR/out-of-scope-swift-finding.out" >&2
+  exit 1
+fi
+
+if grep -Fq 'tests/test_ci_llm_diff_lint.sh' "$TMP_DIR/out-of-scope-swift-finding.out"; then
+  echo "expected non-Swift finding to be removed from output" >&2
+  cat "$TMP_DIR/out-of-scope-swift-finding.out" >&2
+  exit 1
+fi
+
 printf -v LONG_SUMMARY '%*s' 360 ''
 LONG_SUMMARY="${LONG_SUMMARY// /x}"
 LONG_RESPONSE="$(printf '{"rule_id":"rule","violated":true,"severity":"failure","summary":"%s","findings":[]}' "$LONG_SUMMARY")"
