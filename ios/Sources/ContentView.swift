@@ -294,17 +294,8 @@ private struct TerminalDetailView: View {
                     .frame(height: proxy.size.height - visibleHeight)
             }
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)
-            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { notification in
-                updateKeyboardOverlap(notification: notification, containerFrame: proxy.frame(in: .global))
-            }
-            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidChangeFrameNotification)) { notification in
-                updateKeyboardOverlap(notification: notification, containerFrame: proxy.frame(in: .global))
-            }
-            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { notification in
-                updateKeyboardOverlap(notification: notification, containerFrame: proxy.frame(in: .global))
-            }
-            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
-                keyboardOverlap = 0
+            .background {
+                CmxKeyboardOverlapReader(overlap: $keyboardOverlap)
             }
             .onAppear {
                 store.refreshTerminalAppearance(colorPreference: CmxTerminalColorPreference(colorScheme: colorScheme))
@@ -338,16 +329,91 @@ private struct TerminalDetailView: View {
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbarColorScheme(TerminalThemeChrome.toolbarColorScheme(revision: store.terminalAppearanceRevision), for: .navigationBar)
     }
+}
 
-    private func updateKeyboardOverlap(notification: Notification, containerFrame: CGRect) {
-        guard let keyboardFrame = (notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue else {
-            keyboardOverlap = 0
-            return
+private struct CmxKeyboardOverlapReader: UIViewRepresentable {
+    @Binding var overlap: CGFloat
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(overlap: $overlap)
+    }
+
+    func makeUIView(context: Context) -> CmxKeyboardOverlapReaderView {
+        let view = CmxKeyboardOverlapReaderView()
+        view.onOverlapChange = { [weak coordinator = context.coordinator] overlap in
+            coordinator?.setOverlap(overlap)
         }
-        keyboardOverlap = CmxKeyboardOverlap.visibleHeight(
-            containerBounds: containerFrame,
-            keyboardFrame: keyboardFrame
+        return view
+    }
+
+    func updateUIView(_ uiView: CmxKeyboardOverlapReaderView, context: Context) {
+        context.coordinator.overlap = $overlap
+        uiView.onOverlapChange = { [weak coordinator = context.coordinator] overlap in
+            coordinator?.setOverlap(overlap)
+        }
+        uiView.reportCurrentOverlap()
+    }
+
+    final class Coordinator {
+        var overlap: Binding<CGFloat>
+
+        init(overlap: Binding<CGFloat>) {
+            self.overlap = overlap
+        }
+
+        @MainActor
+        func setOverlap(_ nextOverlap: CGFloat) {
+            guard abs(overlap.wrappedValue - nextOverlap) > 0.5 else { return }
+            overlap.wrappedValue = nextOverlap
+        }
+    }
+}
+
+private final class CmxKeyboardOverlapReaderView: UIView {
+    var onOverlapChange: ((CGFloat) -> Void)?
+    private var lastOverlap: CGFloat = -1
+    private var pendingOverlap: CGFloat?
+    private var deliveryScheduled = false
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        backgroundColor = .clear
+        keyboardLayoutGuide.followsUndockedKeyboard = true
+    }
+
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        reportCurrentOverlap()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        reportCurrentOverlap()
+    }
+
+    func reportCurrentOverlap() {
+        let nextOverlap = CmxKeyboardOverlap.visibleHeight(
+            containerBounds: bounds,
+            keyboardFrame: keyboardLayoutGuide.layoutFrame
         )
+        guard abs(lastOverlap - nextOverlap) > 0.5 else { return }
+        lastOverlap = nextOverlap
+        pendingOverlap = nextOverlap
+        guard !deliveryScheduled else { return }
+        deliveryScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            deliveryScheduled = false
+            guard let overlap = pendingOverlap else { return }
+            pendingOverlap = nil
+            onOverlapChange?(overlap)
+        }
     }
 }
 
