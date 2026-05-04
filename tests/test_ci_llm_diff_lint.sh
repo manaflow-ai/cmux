@@ -445,6 +445,11 @@ if grep -Fq 'OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}' "$WORKFLOW"; then
   exit 1
 fi
 
+if ! awk '/^  comment:/{flag=1;next}/^  [a-zA-Z0-9_-]+:/{flag=0}flag' "$WORKFLOW" | grep -Fq 'pull-requests: write'; then
+  echo "comment job should have explicit pull-requests write permission" >&2
+  exit 1
+fi
+
 if ! grep -Fq -- '--skip-if-missing-key' "$WORKFLOW"; then
   echo "workflow should skip the GPT-5.5 rule until CX_GATEWAY_API_KEY is configured" >&2
   exit 1
