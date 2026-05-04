@@ -15,6 +15,11 @@ export function parentDirectory(path: string): string {
   return index > 0 ? path.slice(0, index) : ".";
 }
 
+export function ensurePrivateDirectoryCommand(filePath: string): string {
+  const directory = shellQuote(parentDirectory(filePath));
+  return `mkdir -p ${directory} && chmod 700 ${directory}`;
+}
+
 export function makeWebSocketLease(
   provider: string,
   label: string,

@@ -6,7 +6,7 @@ import SQLite3
 
 // MARK: - Agents
 
-enum SessionAgent: String, CaseIterable, Identifiable, Hashable, Codable {
+enum SessionAgent: String, CaseIterable, Identifiable, Hashable, Codable, Sendable {
     case claude
     case codex
     case opencode
@@ -28,6 +28,58 @@ enum SessionAgent: String, CaseIterable, Identifiable, Hashable, Codable {
         case .codex: return "AgentIcons/Codex"
         case .opencode: return "AgentIcons/OpenCode"
         }
+    }
+}
+
+enum OpenCodeDatabaseSnapshot {
+    struct Snapshot {
+        let databaseURL: URL
+        private let directoryURL: URL
+
+        init(databaseURL: URL, directoryURL: URL) {
+            self.databaseURL = databaseURL
+            self.directoryURL = directoryURL
+        }
+
+        func remove() {
+            try? FileManager.default.removeItem(at: directoryURL)
+        }
+    }
+
+    private static let sourcePath = ("~/.local/share/opencode/opencode.db" as NSString).expandingTildeInPath
+
+    static func make(prefix: String) throws -> Snapshot? {
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: sourcePath) else { return nil }
+
+        let snapshotDir = fileManager.temporaryDirectory.appendingPathComponent(
+            "\(prefix)-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: snapshotDir, withIntermediateDirectories: true)
+
+        let snapshotDB = snapshotDir.appendingPathComponent("opencode.db")
+        do {
+            try fileManager.copyItem(atPath: sourcePath, toPath: snapshotDB.path)
+        } catch {
+            try? fileManager.removeItem(at: snapshotDir)
+            throw error
+        }
+
+        do {
+            for sidecar in ["-wal", "-shm"] {
+                let source = sourcePath + sidecar
+                let destination = snapshotDB.path + sidecar
+                if fileManager.fileExists(atPath: source) {
+                    try fileManager.copyItem(atPath: source, toPath: destination)
+                }
+            }
+        } catch {
+            try? fileManager.removeItem(at: snapshotDir)
+            throw error
+        }
+
+        return Snapshot(databaseURL: snapshotDB, directoryURL: snapshotDir)
     }
 }
 
@@ -71,7 +123,10 @@ struct SessionEntry: Identifiable, Hashable {
             if let permissionMode, !permissionMode.isEmpty {
                 parts.append("--permission-mode \(Self.shellQuote(permissionMode))")
             }
-            return parts.joined(separator: " ")
+            return Self.withShellEnvironment(
+                claudeConfigDirectoryForResume.map { ["CLAUDE_CONFIG_DIR": $0] } ?? [:],
+                command: parts.joined(separator: " ")
+            )
         case let .codex(model, approval, sandbox, effort):
             var parts = ["codex resume \(sessionId)"]
             if let model, !model.isEmpty {
@@ -99,6 +154,42 @@ struct SessionEntry: Identifiable, Hashable {
         }
     }
 
+    var resumeCommandWithCwd: String {
+        guard let cwd, !cwd.isEmpty else {
+            return resumeCommand
+        }
+        return "cd \(Self.shellQuote(cwd)) && \(resumeCommand)"
+    }
+
+    private var claudeConfigDirectoryForResume: String? {
+        guard agent == .claude,
+              let fileURL else {
+            return nil
+        }
+        let pathComponents = fileURL.standardizedFileURL.pathComponents
+        guard let projectsIndex = pathComponents.lastIndex(of: "projects"),
+              projectsIndex > 0 else {
+            return nil
+        }
+        let configComponents = Array(pathComponents[..<projectsIndex])
+        let configDir = NSString.path(withComponents: configComponents)
+        return configDir.isEmpty ? nil : configDir
+    }
+
+    private static func withShellEnvironment(
+        _ environment: [String: String],
+        command: String
+    ) -> String {
+        let assignments = environment
+            .filter { key, _ in
+                key.range(of: #"^[A-Za-z_][A-Za-z0-9_]*$"#, options: .regularExpression) != nil
+            }
+            .sorted { $0.key < $1.key }
+            .map { key, value in "\(key)=\(shellQuote(value))" }
+        guard !assignments.isEmpty else { return command }
+        return "env \(assignments.joined(separator: " ")) \(command)"
+    }
+
     /// Single-quote a value for safe shell injection. Escapes embedded single quotes.
     private static func shellQuote(_ value: String) -> String {
         if value.range(of: "[^A-Za-z0-9_./:=+-]", options: .regularExpression) == nil {
@@ -110,10 +201,84 @@ struct SessionEntry: Identifiable, Hashable {
 
     var displayTitle: String {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if agent == .claude {
+            if let title = Self.claudeDisplayTitle(from: trimmed) {
+                return title
+            }
+            if Self.isClaudeLocalCommandEnvelope(trimmed) {
+                return String(localized: "sessionIndex.localCommand", defaultValue: "Local command")
+            }
+            if Self.isClaudeSyntheticEnvelope(trimmed) {
+                return String(localized: "sessionIndex.untitled", defaultValue: "Untitled session")
+            }
+        }
         if trimmed.isEmpty {
             return String(localized: "sessionIndex.untitled", defaultValue: "Untitled session")
         }
         return trimmed
+    }
+
+    static func claudeDisplayTitle(from raw: String, isMeta: Bool = false) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if isMeta || isClaudeSyntheticEnvelope(trimmed) {
+            return nil
+        }
+        if let commandTitle = claudeSlashCommandTitle(from: trimmed) {
+            return commandTitle
+        }
+        return trimmed
+    }
+
+    private static func claudeSlashCommandTitle(from raw: String) -> String? {
+        let commandName = claudeTagValue("command-name", in: raw)
+        let commandMessage = claudeTagValue("command-message", in: raw)
+        var parts: [String] = []
+        if let commandName {
+            parts.append(commandName)
+        }
+        if let commandMessage,
+           !isDuplicateClaudeCommandMessage(commandMessage, commandName: commandName) {
+            parts.append(commandMessage)
+        }
+        if let args = claudeTagValue("command-args", in: raw) {
+            parts.append(args)
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " ")
+    }
+
+    private static func isDuplicateClaudeCommandMessage(_ message: String, commandName: String?) -> Bool {
+        guard let commandName else { return false }
+        let commandWithoutSlash = commandName.hasPrefix("/")
+            ? String(commandName.dropFirst())
+            : commandName
+        return message.caseInsensitiveCompare(commandName) == .orderedSame
+            || message.caseInsensitiveCompare(commandWithoutSlash) == .orderedSame
+    }
+
+    private static func claudeTagValue(_ tag: String, in raw: String) -> String? {
+        let open = "<\(tag)>"
+        let close = "</\(tag)>"
+        guard let start = raw.range(of: open),
+              let end = raw.range(of: close, range: start.upperBound..<raw.endIndex) else {
+            return nil
+        }
+        let value = String(raw[start.upperBound..<end.lowerBound])
+        let collapsed = collapseWhitespace(value)
+        return collapsed.isEmpty ? nil : collapsed
+    }
+
+    private static func isClaudeSyntheticEnvelope(_ raw: String) -> Bool {
+        isClaudeLocalCommandEnvelope(raw)
+            || raw.hasPrefix("<system-reminder>")
+    }
+
+    private static func isClaudeLocalCommandEnvelope(_ raw: String) -> Bool {
+        raw.hasPrefix("<local-command-")
+    }
+
+    private static func collapseWhitespace(_ value: String) -> String {
+        value.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
     }
 
     var cwdLabel: String? {
@@ -627,7 +792,7 @@ final class SessionIndexStore: ObservableObject {
     private static let headByteCap = 64 * 1024
     private static let tailByteCap = 32 * 1024
     /// Hard cap on candidate files inspected per call to keep deep-page searches bounded.
-    private static let searchMaxFiles = 1500
+    nonisolated static let searchMaxFiles = 1500
 
     private static func scanAll() async -> [SessionEntry] {
         // Initial scan errors are silently ignored — UI just shows the cached
@@ -650,6 +815,77 @@ final class SessionIndexStore: ObservableObject {
         var permissionMode: String?
     }
 
+    private struct ClaudeSessionRoot: Hashable {
+        let configDir: String
+
+        var projectsRoot: String {
+            (configDir as NSString).appendingPathComponent("projects")
+        }
+    }
+
+    private struct ClaudeSessionCandidate: Sendable {
+        let url: URL
+        let mtime: Date
+        let dirName: String
+        let prefilteredByRipgrep: Bool
+    }
+
+    nonisolated private static func claudeSessionRoots() -> [ClaudeSessionRoot] {
+        let fm = FileManager.default
+        var roots: [String] = []
+        var seen: Set<String> = []
+
+        func appendRoot(_ rawPath: String?, requireConfigured: Bool) {
+            guard let rawPath else { return }
+            let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return }
+            let configDir = (trimmed as NSString).expandingTildeInPath
+            let standardized = (configDir as NSString).standardizingPath
+            let projectsRoot = (standardized as NSString).appendingPathComponent("projects")
+            var isDirectory: ObjCBool = false
+            guard fm.fileExists(atPath: projectsRoot, isDirectory: &isDirectory),
+                  isDirectory.boolValue else {
+                return
+            }
+            if requireConfigured, !isLikelyConfiguredClaudeRoot(standardized) {
+                return
+            }
+            guard seen.insert(standardized).inserted else { return }
+            roots.append(standardized)
+        }
+
+        let environmentConfigDir = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"]
+        appendRoot(environmentConfigDir, requireConfigured: false)
+
+        let accountRoot = ("~/.codex-accounts/claude" as NSString).expandingTildeInPath
+        if let accountDirs = try? fm.contentsOfDirectory(atPath: accountRoot) {
+            for accountDir in accountDirs.sorted() {
+                appendRoot(
+                    (accountRoot as NSString).appendingPathComponent(accountDir),
+                    requireConfigured: true
+                )
+            }
+        }
+
+        appendRoot(
+            ("~/.claude" as NSString).expandingTildeInPath,
+            requireConfigured: false
+        )
+
+        return roots.map(ClaudeSessionRoot.init(configDir:))
+    }
+
+    nonisolated private static func isLikelyConfiguredClaudeRoot(_ configDir: String) -> Bool {
+        let configPath = (configDir as NSString).appendingPathComponent(".claude.json")
+        guard let data = FileManager.default.contents(atPath: configPath),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return false
+        }
+        return obj["oauthAccount"] != nil
+            || obj["primaryApiKey"] != nil
+            || obj["apiKey"] != nil
+    }
+
     nonisolated private static func extractClaudeMetadata(head: String, tail: String, projectDir: String) -> ClaudeParsed {
         var out = ClaudeParsed()
         out.cwd = decodeClaudeProjectDir(projectDir)
@@ -657,6 +893,7 @@ final class SessionIndexStore: ObservableObject {
         for line in head.split(separator: "\n", omittingEmptySubsequences: true) {
             guard let data = line.data(using: .utf8),
                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+            let isMeta = (obj["isMeta"] as? Bool) ?? false
             if let cwdField = obj["cwd"] as? String, !cwdField.isEmpty {
                 out.cwd = cwdField
             }
@@ -675,13 +912,15 @@ final class SessionIndexStore: ObservableObject {
                (obj["type"] as? String) == "user",
                let message = obj["message"] as? [String: Any],
                (message["role"] as? String) == "user" {
-                if let content = message["content"] as? String, !content.isEmpty {
-                    out.title = content
+                if let content = message["content"] as? String,
+                   let title = SessionEntry.claudeDisplayTitle(from: content, isMeta: isMeta) {
+                    out.title = title
                 } else if let parts = message["content"] as? [[String: Any]] {
                     for part in parts {
                         if (part["type"] as? String) == "text",
-                           let text = part["text"] as? String, !text.isEmpty {
-                            out.title = text
+                           let text = part["text"] as? String,
+                           let title = SessionEntry.claudeDisplayTitle(from: text, isMeta: isMeta) {
+                            out.title = title
                             break
                         }
                     }
@@ -725,7 +964,7 @@ final class SessionIndexStore: ObservableObject {
     /// envelope/system wrapper (`<environment_context>...`, `<user_instructions>`,
     /// `<permissions>`, AGENTS.md preamble) that we don't want to surface as a
     /// session title.
-    nonisolated private static func realCodexUserMessage(_ raw: String) -> String? {
+    nonisolated static func realCodexUserMessage(_ raw: String) -> String? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         let envelopePrefixes = [
@@ -760,11 +999,69 @@ final class SessionIndexStore: ObservableObject {
         return candidate
     }
 
+    nonisolated private static func claudeProjectDirName(for url: URL, projectsRoot: String) -> String {
+        let root = projectsRoot.hasSuffix("/") ? projectsRoot : projectsRoot + "/"
+        guard url.path.hasPrefix(root) else {
+            return url.deletingLastPathComponent().lastPathComponent
+        }
+        let relative = String(url.path.dropFirst(root.count))
+        return relative.split(separator: "/", maxSplits: 1).first.map(String.init)
+            ?? url.deletingLastPathComponent().lastPathComponent
+    }
+
     /// Inverse of `decodeClaudeProjectDir`. Used as a fast path: when filtering
     /// by cwd we can skip enumerating other project dirs entirely.
     nonisolated private static func encodeClaudeProjectDir(_ path: String) -> String {
         // "/Users/x/y" -> "-Users-x-y"
         return path.replacingOccurrences(of: "/", with: "-")
+    }
+
+    nonisolated private static func enumerateClaudeJSONLCandidates(
+        root: ClaudeSessionRoot,
+        cwdFilter: String?,
+        prefilteredByRipgrep: Bool
+    ) -> [ClaudeSessionCandidate] {
+        let fm = FileManager.default
+        var candidates: [ClaudeSessionCandidate] = []
+
+        func appendJSONLFiles(in dirPath: String, dirName: String) {
+            guard let contents = try? fm.contentsOfDirectory(atPath: dirPath) else { return }
+            for name in contents where name.hasSuffix(".jsonl") {
+                let filePath = (dirPath as NSString).appendingPathComponent(name)
+                let url = URL(fileURLWithPath: filePath)
+                guard let attrs = try? fm.attributesOfItem(atPath: filePath),
+                      let mtime = attrs[.modificationDate] as? Date else { continue }
+                candidates.append(
+                    ClaudeSessionCandidate(
+                        url: url,
+                        mtime: mtime,
+                        dirName: dirName,
+                        prefilteredByRipgrep: prefilteredByRipgrep
+                    )
+                )
+            }
+        }
+
+        if let cwdFilter {
+            let dirName = encodeClaudeProjectDir(cwdFilter)
+            let dirPath = (root.projectsRoot as NSString).appendingPathComponent(dirName)
+            var isDir: ObjCBool = false
+            if fm.fileExists(atPath: dirPath, isDirectory: &isDir), isDir.boolValue {
+                appendJSONLFiles(in: dirPath, dirName: dirName)
+            }
+            return candidates
+        }
+
+        guard let projectDirs = try? fm.contentsOfDirectory(atPath: root.projectsRoot) else {
+            return candidates
+        }
+        for dirName in projectDirs {
+            let dirPath = (root.projectsRoot as NSString).appendingPathComponent(dirName)
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: dirPath, isDirectory: &isDir), isDir.boolValue else { continue }
+            appendJSONLFiles(in: dirPath, dirName: dirName)
+        }
+        return candidates
     }
 
     // MARK: Codex
@@ -925,12 +1222,12 @@ final class SessionIndexStore: ObservableObject {
         return (providerModel, agentName?.isEmpty == false ? agentName : nil)
     }
 
-    nonisolated private static func sqliteText(_ stmt: OpaquePointer, _ index: Int32) -> String? {
+    nonisolated static func sqliteText(_ stmt: OpaquePointer, _ index: Int32) -> String? {
         guard let cString = sqlite3_column_text(stmt, index) else { return nil }
         return String(cString: cString)
     }
 
-    nonisolated private static func sqliteMessage(_ db: OpaquePointer?) -> String? {
+    nonisolated static func sqliteMessage(_ db: OpaquePointer?) -> String? {
         guard let db, let cString = sqlite3_errmsg(db) else { return nil }
         return String(cString: cString)
     }
@@ -1077,7 +1374,7 @@ final class SessionIndexStore: ObservableObject {
     /// `process.terminate()`, killing the in-flight rg instead of letting it
     /// grind to completion. Wait is also async (via `terminationHandler`) so we
     /// don't tie up a cooperative-pool thread on `waitUntilExit`.
-    nonisolated private static func ripgrepMatchingPaths(
+    nonisolated static func ripgrepMatchingPaths(
         needle: String, root: String, fileGlob: String
     ) async -> [URL]? {
         guard let rg = cachedRipgrepPath else { return nil }
@@ -1134,8 +1431,8 @@ final class SessionIndexStore: ObservableObject {
     }
 
     /// Returns Claude session entries paginated by mtime desc.
-    /// - When `needle` is empty: fast path. Skips rg, enumerates `~/.claude/projects`,
-    ///   takes the top `offset+limit` by mtime, parses metadata, returns the slice.
+    /// - When `needle` is empty: fast path. Skips rg, enumerates configured Claude
+    ///   roots, takes the top `offset+limit` by mtime, parses metadata, returns the slice.
     /// - When `needle` is non-empty and rg is on PATH: rg pre-filters the candidate
     ///   set; we only parse files that actually contain the needle.
     /// - When `needle` is non-empty and rg is missing/failed: falls back to the
@@ -1143,56 +1440,68 @@ final class SessionIndexStore: ObservableObject {
     nonisolated private static func loadClaudeEntries(
         needle: String, cwdFilter: String?, offset: Int, limit: Int
     ) async -> [SessionEntry] {
-        let projectsRoot = ("~/.claude/projects" as NSString).expandingTildeInPath
+        let roots = claudeSessionRoots()
+        guard !roots.isEmpty else { return [] }
         let fm = FileManager.default
 
         // Pre-filter via rg when we have a needle — rg is parallel, mmaps the
         // file, and scans the WHOLE file (not just our 128 KB head), so it both
         // speeds the scan up and finds matches deeper in long transcripts.
-        var rgFiltered = false
-        var candidates: [(URL, Date, String)] = []
-        if !needle.isEmpty,
-           let rgPaths = await ripgrepMatchingPaths(needle: needle, root: projectsRoot, fileGlob: "*.jsonl") {
-            rgFiltered = true
-            for url in rgPaths {
-                guard let attrs = try? fm.attributesOfItem(atPath: url.path),
-                      let mtime = attrs[.modificationDate] as? Date else { continue }
-                let dirName = url.deletingLastPathComponent().lastPathComponent
-                candidates.append((url, mtime, dirName))
+        var candidates: [ClaudeSessionCandidate] = []
+        if !needle.isEmpty {
+            for root in roots {
+                guard let rgPaths = await ripgrepMatchingPaths(
+                    needle: needle,
+                    root: root.projectsRoot,
+                    fileGlob: "*.jsonl"
+                ) else {
+                    candidates.append(
+                        contentsOf: enumerateClaudeJSONLCandidates(
+                            root: root,
+                            cwdFilter: cwdFilter,
+                            prefilteredByRipgrep: false
+                        )
+                    )
+                    continue
+                }
+                for url in rgPaths {
+                    guard let attrs = try? fm.attributesOfItem(atPath: url.path),
+                          let mtime = attrs[.modificationDate] as? Date else { continue }
+                    let dirName = claudeProjectDirName(for: url, projectsRoot: root.projectsRoot)
+                    candidates.append(
+                        ClaudeSessionCandidate(
+                            url: url,
+                            mtime: mtime,
+                            dirName: dirName,
+                            prefilteredByRipgrep: true
+                        )
+                    )
+                }
             }
         } else if let cwdFilter {
             // Fast path: the project directory name encodes the cwd. We can skip
             // enumerating every other project entirely.
-            let dirName = encodeClaudeProjectDir(cwdFilter)
-            let dirPath = (projectsRoot as NSString).appendingPathComponent(dirName)
-            var isDir: ObjCBool = false
-            if fm.fileExists(atPath: dirPath, isDirectory: &isDir), isDir.boolValue,
-               let contents = try? fm.contentsOfDirectory(atPath: dirPath) {
-                for name in contents where name.hasSuffix(".jsonl") {
-                    let filePath = (dirPath as NSString).appendingPathComponent(name)
-                    let url = URL(fileURLWithPath: filePath)
-                    guard let attrs = try? fm.attributesOfItem(atPath: filePath),
-                          let mtime = attrs[.modificationDate] as? Date else { continue }
-                    candidates.append((url, mtime, dirName))
-                }
+            for root in roots {
+                candidates.append(
+                    contentsOf: enumerateClaudeJSONLCandidates(
+                        root: root,
+                        cwdFilter: cwdFilter,
+                        prefilteredByRipgrep: false
+                    )
+                )
             }
         } else {
-            guard let projectDirs = try? fm.contentsOfDirectory(atPath: projectsRoot) else { return [] }
-            for dirName in projectDirs {
-                let dirPath = (projectsRoot as NSString).appendingPathComponent(dirName)
-                var isDir: ObjCBool = false
-                guard fm.fileExists(atPath: dirPath, isDirectory: &isDir), isDir.boolValue else { continue }
-                guard let contents = try? fm.contentsOfDirectory(atPath: dirPath) else { continue }
-                for name in contents where name.hasSuffix(".jsonl") {
-                    let filePath = (dirPath as NSString).appendingPathComponent(name)
-                    let url = URL(fileURLWithPath: filePath)
-                    guard let attrs = try? fm.attributesOfItem(atPath: filePath),
-                          let mtime = attrs[.modificationDate] as? Date else { continue }
-                    candidates.append((url, mtime, dirName))
-                }
+            for root in roots {
+                candidates.append(
+                    contentsOf: enumerateClaudeJSONLCandidates(
+                        root: root,
+                        cwdFilter: nil,
+                        prefilteredByRipgrep: false
+                    )
+                )
             }
         }
-        candidates.sort { $0.1 > $1.1 }
+        candidates.sort { $0.mtime > $1.mtime }
 
         // Take a generous window of candidates to inspect in parallel. We need
         // enough to cover both targets and skipped files; we'll trim to
@@ -1212,38 +1521,46 @@ final class SessionIndexStore: ObservableObject {
             of: (Int, SessionEntry?, Bool).self
         ) { group in
             for (idx, candidate) in workCandidates.enumerated() {
-                let (url, mtime, dirName) = candidate
                 group.addTask {
                     // Cache hit
-                    if let cached = ClaudeMetadataCache.shared.get(url: url, mtime: mtime) {
+                    let cached = ClaudeMetadataCache.shared.get(url: candidate.url, mtime: candidate.mtime)
+                    if let cached, needle.isEmpty || candidate.prefilteredByRipgrep {
                         if let cwdFilter, cached.cwd != cwdFilter { return (idx, nil, true) }
                         return (idx, cached, true)
                     }
-                    let head = readFileHead(url: url, byteCap: headByteCap)
-                    let tail = readFileTail(url: url, byteCap: tailByteCap)
-                    if !needle.isEmpty && !rgFiltered {
+                    let head = readFileHead(url: candidate.url, byteCap: headByteCap)
+                    let tail = readFileTail(url: candidate.url, byteCap: tailByteCap)
+                    if !needle.isEmpty && !candidate.prefilteredByRipgrep {
                         let combined = head + "\n" + tail
                         if combined.range(of: needle, options: [.caseInsensitive, .literal]) == nil {
                             return (idx, nil, false)
                         }
                     }
-                    let parsed = extractClaudeMetadata(head: head, tail: tail, projectDir: dirName)
+                    if let cached {
+                        if let cwdFilter, cached.cwd != cwdFilter { return (idx, nil, true) }
+                        return (idx, cached, true)
+                    }
+                    let parsed = extractClaudeMetadata(head: head, tail: tail, projectDir: candidate.dirName)
                     if let cwdFilter, parsed.cwd != cwdFilter { return (idx, nil, false) }
-                    let sid = url.deletingPathExtension().lastPathComponent
+                    let sid = candidate.url.deletingPathExtension().lastPathComponent
                     let entry = SessionEntry(
-                        id: "claude:" + url.path,
+                        id: "claude:" + candidate.url.path,
                         agent: .claude,
                         sessionId: sid,
                         title: parsed.title,
                         cwd: parsed.cwd,
                         gitBranch: parsed.branch,
                         pullRequest: parsed.pr,
-                        modified: mtime,
-                        fileURL: url,
+                        modified: candidate.mtime,
+                        fileURL: candidate.url,
                         specifics: .claude(model: parsed.model, permissionMode: parsed.permissionMode)
                     )
                     if needle.isEmpty {
-                        ClaudeMetadataCache.shared.put(url: url, mtime: mtime, entry: entry)
+                        ClaudeMetadataCache.shared.put(
+                            url: candidate.url,
+                            mtime: candidate.mtime,
+                            entry: entry
+                        )
                     }
                     return (idx, entry, false)
                 }
@@ -1274,7 +1591,7 @@ final class SessionIndexStore: ObservableObject {
         needle: String, cwdFilter: String?, offset: Int, limit: Int,
         errorBag: ErrorBag
     ) async -> [SessionEntry] {
-        if let viaSQL = loadCodexEntriesViaSQL(
+        if let viaSQL = await loadCodexEntriesViaSQL(
             needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit,
             errorBag: errorBag
         ) {
@@ -1285,128 +1602,13 @@ final class SessionIndexStore: ObservableObject {
         )
     }
 
-    /// SQL-backed Codex loader. Returns nil if `state_5.sqlite` doesn't exist
-    /// (signaling caller to fall back to the disk scan). On schema mismatch or
-    /// other SQL errors, appends a user-facing message to `errorBag` and still
-    /// returns nil so the caller can fall back.
-    nonisolated private static func loadCodexEntriesViaSQL(
-        needle: String, cwdFilter: String?, offset: Int, limit: Int,
-        errorBag: ErrorBag
-    ) -> [SessionEntry]? {
-        let dbPath = ("~/.codex/state_5.sqlite" as NSString).expandingTildeInPath
-        let fm = FileManager.default
-        guard fm.fileExists(atPath: dbPath) else { return nil }
-
-        // Snapshot DB + WAL/SHM to avoid contention with a running Codex.
-        let snapshotDir = fm.temporaryDirectory.appendingPathComponent(
-            "cmux-codex-search-\(UUID().uuidString)", isDirectory: true
-        )
-        do { try fm.createDirectory(at: snapshotDir, withIntermediateDirectories: true) } catch { return nil }
-        defer { try? fm.removeItem(at: snapshotDir) }
-        let snapshotDB = snapshotDir.appendingPathComponent("state.db")
-        do { try fm.copyItem(atPath: dbPath, toPath: snapshotDB.path) } catch { return nil }
-        for sidecar in ["-wal", "-shm"] {
-            let src = dbPath + sidecar
-            let dst = snapshotDB.path + sidecar
-            if fm.fileExists(atPath: src) { try? fm.copyItem(atPath: src, toPath: dst) }
+    nonisolated static func fileContainsNeedle(url: URL, needle: String) -> Bool {
+        guard !needle.isEmpty,
+              let data = try? Data(contentsOf: url, options: .mappedIfSafe),
+              let text = String(data: data, encoding: .utf8) else {
+            return false
         }
-
-        var db: OpaquePointer?
-        guard sqlite3_open_v2(snapshotDB.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
-            errorBag.add("Codex: cannot open state_5.sqlite (\(sqliteMessage(db) ?? "unknown error"))")
-            sqlite3_close(db)
-            return nil
-        }
-        defer { sqlite3_close(db) }
-
-        var sql = """
-            SELECT id, rollout_path, cwd, title, model, git_branch,
-                   approval_mode, sandbox_policy, reasoning_effort,
-                   first_user_message, updated_at_ms
-            FROM threads
-            WHERE archived = 0
-            """
-        var conditions: [String] = []
-        if !needle.isEmpty {
-            // Match against title, first_user_message, cwd, and git_branch.
-            conditions.append("(LOWER(title) LIKE ?1 OR LOWER(first_user_message) LIKE ?1 OR LOWER(cwd) LIKE ?1 OR LOWER(git_branch) LIKE ?1)")
-        }
-        if cwdFilter != nil {
-            conditions.append("cwd = ?\(needle.isEmpty ? 1 : 2)")
-        }
-        if !conditions.isEmpty {
-            sql += " AND " + conditions.joined(separator: " AND ")
-        }
-        sql += " ORDER BY updated_at_ms DESC LIMIT \(limit) OFFSET \(offset)"
-
-        var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
-            errorBag.add("Codex: schema unsupported — \(sqliteMessage(db) ?? "prepare failed"). Falling back to file scan.")
-            sqlite3_finalize(stmt)
-            return nil
-        }
-        defer { sqlite3_finalize(stmt) }
-
-        let SQLITE_TRANSIENT_FN = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
-        if !needle.isEmpty {
-            sqlite3_bind_text(stmt, 1, "%\(needle)%", -1, SQLITE_TRANSIENT_FN)
-        }
-        if let cwdFilter {
-            sqlite3_bind_text(stmt, needle.isEmpty ? 1 : 2, cwdFilter, -1, SQLITE_TRANSIENT_FN)
-        }
-
-        var results: [SessionEntry] = []
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            let sid = sqliteText(stmt, 0) ?? ""
-            let rollout = sqliteText(stmt, 1) ?? ""
-            let cwd = sqliteText(stmt, 2)
-            let titleField = sqliteText(stmt, 3) ?? ""
-            let model = sqliteText(stmt, 4)
-            let branch = sqliteText(stmt, 5)
-            let approval = sqliteText(stmt, 6)
-            let sandboxJSON = sqliteText(stmt, 7)
-            let effort = sqliteText(stmt, 8)
-            let firstMsg = sqliteText(stmt, 9) ?? ""
-            let updatedMs = sqlite3_column_int64(stmt, 10)
-            let modified = Date(timeIntervalSince1970: TimeInterval(updatedMs) / 1000.0)
-
-            // Codex stores sandbox_policy as JSON like {"type":"danger-full-access"}.
-            let sandboxMode = sandboxJSON
-                .flatMap { $0.data(using: .utf8) }
-                .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
-                .flatMap { $0["type"] as? String }
-
-            // Prefer Codex's curated `title`. Fall back to first_user_message,
-            // skipping envelope wrappers (<environment_context>, etc.).
-            let displayTitle: String
-            if !titleField.isEmpty {
-                displayTitle = titleField
-            } else if let real = realCodexUserMessage(firstMsg) {
-                displayTitle = real
-            } else {
-                displayTitle = ""
-            }
-
-            let fileURL: URL? = rollout.isEmpty ? nil : URL(fileURLWithPath: rollout)
-            results.append(SessionEntry(
-                id: "codex:" + (fileURL?.path ?? sid),
-                agent: .codex,
-                sessionId: sid,
-                title: displayTitle,
-                cwd: cwd,
-                gitBranch: branch?.isEmpty == false ? branch : nil,
-                pullRequest: nil,
-                modified: modified,
-                fileURL: fileURL,
-                specifics: .codex(
-                    model: model?.isEmpty == false ? model : nil,
-                    approvalPolicy: approval?.isEmpty == false ? approval : nil,
-                    sandboxMode: sandboxMode,
-                    effort: effort?.isEmpty == false ? effort : nil
-                )
-            ))
-        }
-        return results
+        return text.range(of: needle, options: [.caseInsensitive, .literal]) != nil
     }
 
     /// Disk-scan fallback for Codex when state_5.sqlite isn't present (very old
@@ -1495,21 +1697,24 @@ final class SessionIndexStore: ObservableObject {
         needle: String, cwdFilter: String?, offset: Int, limit: Int,
         errorBag: ErrorBag
     ) -> [SessionEntry] {
-        let dbPath = ("~/.local/share/opencode/opencode.db" as NSString).expandingTildeInPath
-        let fm = FileManager.default
-        guard fm.fileExists(atPath: dbPath) else { return [] }
-        let snapshotDir = fm.temporaryDirectory.appendingPathComponent("cmux-opencode-search-\(UUID().uuidString)", isDirectory: true)
-        do { try fm.createDirectory(at: snapshotDir, withIntermediateDirectories: true) } catch { return [] }
-        defer { try? fm.removeItem(at: snapshotDir) }
-        let snapshotDB = snapshotDir.appendingPathComponent("opencode.db")
-        do { try fm.copyItem(atPath: dbPath, toPath: snapshotDB.path) } catch { return [] }
-        for sidecar in ["-wal", "-shm"] {
-            let src = dbPath + sidecar
-            let dst = snapshotDB.path + sidecar
-            if fm.fileExists(atPath: src) { try? fm.copyItem(atPath: src, toPath: dst) }
+        let snapshot: OpenCodeDatabaseSnapshot.Snapshot
+        do {
+            guard let madeSnapshot = try OpenCodeDatabaseSnapshot.make(prefix: "cmux-opencode-search") else {
+                return []
+            }
+            snapshot = madeSnapshot
+        } catch {
+            let format = String(
+                localized: "sessionIndex.error.openCodeSnapshot",
+                defaultValue: "OpenCode: cannot snapshot opencode.db (%@)"
+            )
+            errorBag.add(String(format: format, error.localizedDescription))
+            return []
         }
+        defer { snapshot.remove() }
+
         var db: OpaquePointer?
-        guard sqlite3_open_v2(snapshotDB.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
+        guard sqlite3_open_v2(snapshot.databaseURL.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
             errorBag.add("OpenCode: cannot open opencode.db (\(sqliteMessage(db) ?? "unknown error"))")
             sqlite3_close(db)
             return []

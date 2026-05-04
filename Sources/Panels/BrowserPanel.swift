@@ -553,6 +553,7 @@ enum BrowserLinkOpenSettings {
     static let defaultBrowserExternalOpenPatterns: String = ""
 
     static func openTerminalLinksInCmuxBrowser(defaults: UserDefaults = .standard) -> Bool {
+        guard BrowserAvailabilitySettings.isEnabled(defaults: defaults) else { return false }
         if defaults.object(forKey: openTerminalLinksInCmuxBrowserKey) == nil {
             return defaultOpenTerminalLinksInCmuxBrowser
         }
@@ -560,6 +561,7 @@ enum BrowserLinkOpenSettings {
     }
 
     static func openSidebarPullRequestLinksInCmuxBrowser(defaults: UserDefaults = .standard) -> Bool {
+        guard BrowserAvailabilitySettings.isEnabled(defaults: defaults) else { return false }
         if defaults.object(forKey: openSidebarPullRequestLinksInCmuxBrowserKey) == nil {
             return defaultOpenSidebarPullRequestLinksInCmuxBrowser
         }
@@ -567,6 +569,7 @@ enum BrowserLinkOpenSettings {
     }
 
     static func openSidebarPortLinksInCmuxBrowser(defaults: UserDefaults = .standard) -> Bool {
+        guard BrowserAvailabilitySettings.isEnabled(defaults: defaults) else { return false }
         if defaults.object(forKey: openSidebarPortLinksInCmuxBrowserKey) == nil {
             return defaultOpenSidebarPortLinksInCmuxBrowser
         }
@@ -574,6 +577,7 @@ enum BrowserLinkOpenSettings {
     }
 
     static func interceptTerminalOpenCommandInCmuxBrowser(defaults: UserDefaults = .standard) -> Bool {
+        guard BrowserAvailabilitySettings.isEnabled(defaults: defaults) else { return false }
         if defaults.object(forKey: interceptTerminalOpenCommandInCmuxBrowserKey) != nil {
             return defaults.bool(forKey: interceptTerminalOpenCommandInCmuxBrowserKey)
         }
@@ -613,6 +617,7 @@ enum BrowserLinkOpenSettings {
     static func shouldOpenExternally(_ rawURL: String, defaults: UserDefaults = .standard) -> Bool {
         let target = rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !target.isEmpty else { return false }
+        guard BrowserAvailabilitySettings.isEnabled(defaults: defaults) else { return true }
 
         for rawPattern in externalOpenPatterns(defaults: defaults) {
             guard let (isRegex, value) = parseExternalPattern(rawPattern) else { continue }
@@ -680,6 +685,30 @@ enum BrowserLinkOpenSettings {
         }
 
         return (isRegex: false, value: trimmed)
+    }
+}
+
+enum BrowserAvailabilitySettings {
+    static let disabledKey = "browserDisabledOverride"
+    static let didChangeNotification = Notification.Name("cmux.browserAvailabilityDidChange")
+    static let defaultDisabled = false
+
+    static func isDisabled(defaults: UserDefaults = .standard) -> Bool {
+        defaults.synchronize()
+        if defaults.object(forKey: disabledKey) == nil {
+            return defaultDisabled
+        }
+        return defaults.bool(forKey: disabledKey)
+    }
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        !isDisabled(defaults: defaults)
+    }
+
+    static func setDisabled(_ disabled: Bool, defaults: UserDefaults = .standard) {
+        defaults.set(disabled, forKey: disabledKey)
+        defaults.synchronize()
+        NotificationCenter.default.post(name: didChangeNotification, object: nil)
     }
 }
 
@@ -1022,7 +1051,7 @@ final class BrowserHistoryStore: ObservableObject {
 
     func loadIfNeeded() {
         guard !didLoad else { return }
-        didLoad = true
+        didLoad = true; if let seededEntries = BrowserHistoryStore.uiTestSeedEntriesIfConfigured() { entries = seededEntries.sorted { $0.lastVisited > $1.lastVisited }; return }
         guard let fileURL else { return }
         migrateLegacyTaggedHistoryFileIfNeeded(to: fileURL)
 
@@ -2162,6 +2191,7 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Whether the browser panel should render its WKWebView in the content area.
     /// New browser tabs stay in an empty "new tab" state until first navigation.
     @Published private(set) var shouldRenderWebView: Bool = false
+    private var restoredSessionShouldRenderWebView: Bool?
 
     /// True when the browser is showing the internal empty new-tab page (no WKWebView attached yet).
     var isShowingNewTabPage: Bool {
@@ -2208,13 +2238,16 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// Incremented whenever async browser find focus ownership changes.
     @Published private(set) var searchFocusRequestGeneration: UInt64 = 0
+    private var lastSearchNeedle = ""
 
     /// Find-in-page state. Non-nil when the find bar is visible.
     @Published var searchState: BrowserSearchState? = nil {
         didSet {
             if let searchState {
                 preferredFocusIntent = .findField
-                NSLog("Find: browser search state created panel=%@", id.uuidString)
+#if DEBUG
+                cmuxDebugLog("browser.find.state.created panel=\(id.uuidString.prefix(5))")
+#endif
                 searchNeedleCancellable = searchState.$needle
                     .removeDuplicates()
                     .map { needle -> AnyPublisher<String, Never> in
@@ -2228,16 +2261,19 @@ final class BrowserPanel: Panel, ObservableObject {
                     .switchToLatest()
                     .sink { [weak self] needle in
                         guard let self else { return }
-                        NSLog("Find: browser needle updated panel=%@ needle=%@", self.id.uuidString, needle)
+#if DEBUG
+                        cmuxDebugLog("browser.find.needle.updated panel=\(self.id.uuidString.prefix(5)) bytes=\(needle.lengthOfBytes(using: .utf8))")
+#endif
                         self.executeFindSearch(needle)
                     }
-            } else if oldValue != nil {
+            } else if let oldValue {
+                lastSearchNeedle = oldValue.needle
                 searchNeedleCancellable = nil
-                if preferredFocusIntent == .findField {
-                    preferredFocusIntent = .webView
-                }
+                if preferredFocusIntent == .findField { preferredFocusIntent = .webView }
                 invalidateSearchFocusRequests(reason: "searchStateCleared")
-                NSLog("Find: browser search state cleared panel=%@", id.uuidString)
+#if DEBUG
+                cmuxDebugLog("browser.find.state.cleared panel=\(id.uuidString.prefix(5))")
+#endif
                 executeFindClear()
             }
         }
@@ -2607,7 +2643,7 @@ final class BrowserPanel: Panel, ObservableObject {
         webView.onContextMenuOpenLinkInNewTab = { [weak self] url in
             self?.openLinkInNewTab(url: url)
         }
-        configureNavigationDelegateCallbacks()
+        configureMoveTabToNewWorkspaceContextMenu(for: webView); configureNavigationDelegateCallbacks()
         webView.navigationDelegate = navigationDelegate
         webView.uiDelegate = uiDelegate
         setupObservers(for: webView)
@@ -2654,6 +2690,7 @@ final class BrowserPanel: Panel, ObservableObject {
         profileID: UUID? = nil,
         initialURL: URL? = nil,
         initialRequest: URLRequest? = nil,
+        renderInitialNavigation: Bool = true,
         bypassInsecureHTTPHostOnce: String? = nil,
         proxyEndpoint: BrowserProxyEndpoint? = nil,
         isRemoteWorkspace: Bool = false,
@@ -2779,7 +2816,10 @@ final class BrowserPanel: Panel, ObservableObject {
         }
 
         if let initialRequest {
-            shouldRenderWebView = true
+            restoredSessionShouldRenderWebView = nil
+            currentURL = initialRequest.url
+            shouldRenderWebView = renderInitialNavigation
+            guard renderInitialNavigation else { return }
             if let url = initialRequest.url,
                insecureHTTPBypassHostOnce == nil,
                shouldBlockInsecureHTTPNavigation(to: url) {
@@ -2795,7 +2835,10 @@ final class BrowserPanel: Panel, ObservableObject {
                 )
             }
         } else if let url = initialURL {
-            shouldRenderWebView = true
+            restoredSessionShouldRenderWebView = nil
+            currentURL = url
+            shouldRenderWebView = renderInitialNavigation
+            guard renderInitialNavigation else { return }
             navigate(to: url)
         }
     }
@@ -3110,6 +3153,8 @@ final class BrowserPanel: Panel, ObservableObject {
 
     func restoreSessionSnapshot(_ snapshot: SessionBrowserPanelSnapshot) {
         let restoredURL = Self.sanitizedSessionHistoryURL(snapshot.urlString)
+        let shouldRenderRestoredWebView = snapshot.shouldRenderWebView && BrowserAvailabilitySettings.isEnabled()
+        restoredSessionShouldRenderWebView = snapshot.shouldRenderWebView
 
         restoreSessionNavigationHistory(
             backHistoryURLStrings: snapshot.backHistoryURLStrings ?? [],
@@ -3117,10 +3162,10 @@ final class BrowserPanel: Panel, ObservableObject {
             currentURLString: snapshot.urlString
         )
 
-        currentURL = snapshot.shouldRenderWebView ? restoredURL : nil
-        shouldRenderWebView = snapshot.shouldRenderWebView
+        currentURL = restoredURL
+        shouldRenderWebView = shouldRenderRestoredWebView
 
-        guard snapshot.shouldRenderWebView, let restoredURL else {
+        guard shouldRenderRestoredWebView, let restoredURL else {
             refreshNavigationAvailability()
             return
         }
@@ -3130,6 +3175,11 @@ final class BrowserPanel: Panel, ObservableObject {
             recordTypedNavigation: false,
             preserveRestoredSessionHistory: true
         )
+    }
+
+    func shouldRenderWebViewForSessionSnapshot() -> Bool {
+        guard preferredURLStringForOmnibar() != nil else { return false }
+        return restoredSessionShouldRenderWebView ?? shouldRenderWebView
     }
 
     private func setupObservers(for webView: WKWebView) {
@@ -3811,6 +3861,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 recordTypedNavigation: recordTypedNavigation,
                 preserveRestoredSessionHistory: preserveRestoredSessionHistory
             )
+            restoredSessionShouldRenderWebView = nil
             shouldRenderWebView = true
             currentURL = Self.remoteProxyDisplayURL(for: url) ?? url
             navigationDelegate?.lastAttemptedURL = url
@@ -3851,6 +3902,7 @@ final class BrowserPanel: Panel, ObservableObject {
         let effectiveRequest = remoteProxyPreparedRequest(from: request, logScope: "rewrite")
         // Some installs can end up with a legacy Chrome UA override; keep this pinned.
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
+        restoredSessionShouldRenderWebView = nil
         shouldRenderWebView = true
         if recordTypedNavigation {
             historyStore.recordTypedNavigation(url: originalURL)
@@ -4124,6 +4176,7 @@ extension BrowserPanel {
 
         pageTitle = ""
         currentURL = nil
+        restoredSessionShouldRenderWebView = nil
         faviconPNGData = nil
         lastFaviconURLString = nil
         activePortalHostLease = nil
@@ -4283,6 +4336,13 @@ extension BrowserPanel {
             "bypass=\(seed.bypassInsecureHTTPHostOnce ?? "nil")"
         )
 #endif
+        guard BrowserAvailabilitySettings.isEnabled() else {
+            _ = NSWorkspace.shared.open(seed.url)
+#if DEBUG
+            cmuxDebugLog("browser.newTab.open.external panel=\(id.uuidString.prefix(5)) reason=browser_disabled")
+#endif
+            return
+        }
         guard let app = AppDelegate.shared else {
 #if DEBUG
             cmuxDebugLog("browser.newTab.open.abort panel=\(id.uuidString.prefix(5)) reason=missingAppDelegate")
@@ -4961,34 +5021,23 @@ extension BrowserPanel {
     func startFind() {
         preferredFocusIntent = .findField
         let created = searchState == nil
-        if created {
-            searchState = BrowserSearchState()
-        }
+        let recoveredNeedle = created ? lastSearchNeedle : ""
+        if created { searchState = BrowserSearchState(needle: recoveredNeedle) }
+        let shouldSelectAll = created && !recoveredNeedle.isEmpty
         pendingAddressBarFocusRequestId = nil
         NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: id)
         let generation = beginSearchFocusRequest(reason: "startFind")
-#if DEBUG
-        let window = webView.window
-        cmuxDebugLog(
-            "browser.find.start panel=\(id.uuidString.prefix(5)) " +
-            "created=\(created ? 1 : 0) render=\(shouldRenderWebView ? 1 : 0) " +
-            "generation=\(generation) " +
-            "window=\(window?.windowNumber ?? -1) key=\(NSApp.keyWindow === window ? 1 : 0) " +
-            "firstResponder=\(String(describing: window?.firstResponder))"
-        )
-#endif
-        postBrowserSearchFocusNotification(reason: "immediate", generation: generation)
-        // Focus notification can race with portal overlay mount. Re-post on the
-        // next runloop and shortly after so the find field can claim first responder.
+        postBrowserSearchFocusNotification(reason: "immediate", generation: generation, selectAll: shouldSelectAll)
+        // Re-post because portal overlay mount can race first responder focus.
         DispatchQueue.main.async { [weak self] in
-            self?.postBrowserSearchFocusNotification(reason: "async0", generation: generation)
+            self?.postBrowserSearchFocusNotification(reason: "async0", generation: generation, selectAll: shouldSelectAll)
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-            self?.postBrowserSearchFocusNotification(reason: "async50ms", generation: generation)
+            self?.postBrowserSearchFocusNotification(reason: "async50ms", generation: generation, selectAll: shouldSelectAll)
         }
     }
 
-    private func postBrowserSearchFocusNotification(reason: String, generation: UInt64) {
+    private func postBrowserSearchFocusNotification(reason: String, generation: UInt64, selectAll: Bool) {
         guard canApplySearchFocusRequest(generation) else {
 #if DEBUG
             cmuxDebugLog(
@@ -5003,11 +5052,11 @@ extension BrowserPanel {
         cmuxDebugLog(
             "browser.find.focusNotification panel=\(id.uuidString.prefix(5)) " +
             "generation=\(generation) " +
-            "reason=\(reason) window=\(window?.windowNumber ?? -1) " +
+            "reason=\(reason) selectAll=\(selectAll ? 1 : 0) window=\(window?.windowNumber ?? -1) " +
             "firstResponder=\(String(describing: window?.firstResponder))"
         )
 #endif
-        NotificationCenter.default.post(name: .browserSearchFocus, object: id)
+        NotificationCenter.default.post(name: .browserSearchFocus, object: id, userInfo: [FindFocusNotificationKey.selectAll: selectAll])
     }
 
     func findNext() {
@@ -5027,8 +5076,10 @@ extension BrowserPanel {
     }
 
     func hideFind() {
+        let shouldRestoreWebViewFocus = searchState != nil && preferredFocusIntent == .findField
         invalidateSearchFocusRequests(reason: "hideFind")
         searchState = nil
+        if shouldRestoreWebViewFocus { focus() }
     }
 
     private func restoreFindStateAfterNavigation(replaySearch: Bool) {
@@ -5038,10 +5089,7 @@ extension BrowserPanel {
         if replaySearch, !state.needle.isEmpty {
             executeFindSearch(state.needle)
         }
-        postBrowserSearchFocusNotification(
-            reason: "restoreAfterNavigation",
-            generation: searchFocusRequestGeneration
-        )
+        postBrowserSearchFocusNotification(reason: "restoreAfterNavigation", generation: searchFocusRequestGeneration, selectAll: false)
     }
 
     private func executeFindSearch(_ needle: String) {
@@ -6004,6 +6052,7 @@ func browserNavigationShouldCreatePopup(
     navigationType: WKNavigationType,
     modifierFlags: NSEvent.ModifierFlags,
     buttonNumber: Int,
+    popupFeaturesWereSpecified: Bool = false,
     hasRecentMiddleClickIntent: Bool = false,
     currentEventType: NSEvent.EventType? = NSApp.currentEvent?.type,
     currentEventButtonNumber: Int? = NSApp.currentEvent?.buttonNumber
@@ -6016,7 +6065,7 @@ func browserNavigationShouldCreatePopup(
         currentEventType: currentEventType,
         currentEventButtonNumber: currentEventButtonNumber
     )
-    return navigationType == .other && !isUserNewTab
+    return navigationType == .other && popupFeaturesWereSpecified && !isUserNewTab
 }
 
 func browserNavigationShouldFallbackNilTargetToNewTab(
@@ -6058,6 +6107,18 @@ func browserNavigationPopupFeaturesWereSpecified(
         allowsResizing != nil
 }
 
+func browserNavigationPopupFeaturesWereSpecified(windowFeatures: WKWindowFeatures) -> Bool {
+    browserNavigationPopupFeaturesWereSpecified(
+        x: windowFeatures.x,
+        y: windowFeatures.y,
+        width: windowFeatures.width,
+        height: windowFeatures.height,
+        menuBarVisibility: windowFeatures.menuBarVisibility,
+        statusBarVisibility: windowFeatures.statusBarVisibility,
+        toolbarsVisibility: windowFeatures.toolbarsVisibility,
+        allowsResizing: windowFeatures.allowsResizing
+    )
+}
 // Keep popup retargeting intentionally narrow. Explicit cross-host alias groups
 // preserve known first-party search flows without guessing at the public suffix
 // list for arbitrary hosted tenants, while same-host scripted popups stay on
@@ -6583,16 +6644,7 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
         }
 
         let hasRecentMiddleClickIntent = CmuxWebView.hasRecentMiddleClickIntent(for: webView)
-        let popupFeaturesWereSpecified = browserNavigationPopupFeaturesWereSpecified(
-            x: windowFeatures.x,
-            y: windowFeatures.y,
-            width: windowFeatures.width,
-            height: windowFeatures.height,
-            menuBarVisibility: windowFeatures.menuBarVisibility,
-            statusBarVisibility: windowFeatures.statusBarVisibility,
-            toolbarsVisibility: windowFeatures.toolbarsVisibility,
-            allowsResizing: windowFeatures.allowsResizing
-        )
+        let popupFeaturesWereSpecified = browserNavigationPopupFeaturesWereSpecified(windowFeatures: windowFeatures)
         let shouldOpenSimpleUserGesturePopupInCurrentTab = browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
             navigationType: navigationAction.navigationType,
             requestMethod: navigationAction.request.httpMethod,
@@ -6621,17 +6673,13 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
             return nil
         }
 
-        // Classifier: only scripted requests (window.open()) get popup windows.
-        // User-initiated actions (link clicks, context menu "Open Link in New Tab",
-        // Cmd+click, middle-click) fall through to existing new-tab behavior.
-        //
-        // WebKit sometimes delivers .other for Cmd+click / middle-click, so we
-        // reuse browserNavigationShouldOpenInNewTab to recover user intent before
-        // treating .other as a scripted popup.
+        // Only treat scripted `.other` requests as popups when WebKit surfaced
+        // explicit window features; bare `_blank` falls through to tabs.
         let isScriptedPopup = browserNavigationShouldCreatePopup(
             navigationType: navigationAction.navigationType,
             modifierFlags: navigationAction.modifierFlags,
             buttonNumber: navigationAction.buttonNumber,
+            popupFeaturesWereSpecified: popupFeaturesWereSpecified,
             hasRecentMiddleClickIntent: hasRecentMiddleClickIntent
         )
 

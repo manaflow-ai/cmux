@@ -96,7 +96,8 @@ final class TerminalPanel: Panel, ObservableObject {
         initialCommand: String? = nil,
         initialInput: String? = nil,
         initialEnvironmentOverrides: [String: String] = [:],
-        additionalEnvironment: [String: String] = [:]
+        additionalEnvironment: [String: String] = [:],
+        focusPlacement: TerminalSurfaceFocusPlacement = .workspace
     ) {
         let surface = TerminalSurface(
             tabId: workspaceId,
@@ -106,7 +107,8 @@ final class TerminalPanel: Panel, ObservableObject {
             initialCommand: initialCommand,
             initialInput: initialInput,
             initialEnvironmentOverrides: initialEnvironmentOverrides,
-            additionalEnvironment: additionalEnvironment
+            additionalEnvironment: additionalEnvironment,
+            focusPlacement: focusPlacement
         )
         surface.portOrdinal = portOrdinal
         self.init(workspaceId: workspaceId, surface: surface)

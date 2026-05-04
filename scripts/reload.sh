@@ -26,16 +26,6 @@ should_skip_ghostty_cli_helper_zig_build() {
     return 0
   fi
 
-  local product_version zig_version major_version
-  product_version="$(sw_vers -productVersion 2>/dev/null || true)"
-  zig_version="$(zig version 2>/dev/null || true)"
-  major_version="${product_version%%.*}"
-
-  if [[ "$zig_version" == "0.15.2" ]] && [[ "$major_version" =~ ^[0-9]+$ ]] && (( major_version >= 26 )); then
-    AUTO_SKIP_ZIG_BUILD_REASON="macOS ${product_version} + zig ${zig_version}"
-    return 0
-  fi
-
   AUTO_SKIP_ZIG_BUILD_REASON=""
   return 1
 }
@@ -425,9 +415,6 @@ echo "==> reload starting (tag: ${TAG}, log: ${RELOAD_LOG})" >&3
 "$PWD/scripts/ensure-ghosttykit.sh"
 
 if should_skip_ghostty_cli_helper_zig_build; then
-  if [[ "${CMUX_SKIP_ZIG_BUILD:-}" != "1" ]]; then
-    echo "Auto-enabling CMUX_SKIP_ZIG_BUILD=1 for Ghostty CLI helper (${AUTO_SKIP_ZIG_BUILD_REASON})"
-  fi
   export CMUX_SKIP_ZIG_BUILD=1
 fi
 
@@ -447,8 +434,7 @@ if [[ -z "$TAG" ]]; then
     PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID"
   )
 fi
-# Forward CMUX_SKIP_ZIG_BUILD to xcodebuild run script phases (e.g. macOS
-# Tahoe where zig 0.15.2 can't link the ghostty CLI helper).
+# Forward explicit CMUX_SKIP_ZIG_BUILD to xcodebuild run script phases.
 if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
   XCODEBUILD_ARGS+=(CMUX_SKIP_ZIG_BUILD=1)
 fi
@@ -568,13 +554,13 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
     if [[ -n "${TAG_SLUG:-}" ]]; then
       APP_SUPPORT_DIR="$HOME/Library/Application Support/cmux"
       CMUXD_SOCKET="${APP_SUPPORT_DIR}/cmuxd-dev-${TAG_SLUG}.sock"
-      CMUX_SOCKET="/tmp/cmux-debug-${TAG_SLUG}.sock"
+      CMUX_SOCKET_PATH_VALUE="/tmp/cmux-debug-${TAG_SLUG}.sock"
       CMUX_DEBUG_LOG="/tmp/cmux-debug-${TAG_SLUG}.log"
-      write_last_socket_path "$CMUX_SOCKET"
+      write_last_socket_path "$CMUX_SOCKET_PATH_VALUE"
       echo "$CMUX_DEBUG_LOG" > /tmp/cmux-last-debug-log-path || true
       /usr/libexec/PlistBuddy -c "Add :LSEnvironment dict" "$INFO_PLIST" 2>/dev/null || true
       set_plist_env "$INFO_PLIST" CMUXD_UNIX_PATH "$CMUXD_SOCKET"
-      set_plist_env "$INFO_PLIST" CMUX_SOCKET_PATH "$CMUX_SOCKET"
+      set_plist_env "$INFO_PLIST" CMUX_SOCKET_PATH "$CMUX_SOCKET_PATH_VALUE"
       set_plist_env "$INFO_PLIST" CMUX_DEBUG_LOG "$CMUX_DEBUG_LOG"
       set_plist_env "$INFO_PLIST" CMUX_SOCKET_ENABLE "1"
       set_plist_env "$INFO_PLIST" CMUX_SOCKET_MODE "allowAll"
@@ -593,8 +579,8 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
         done
         rm -f "$CMUXD_SOCKET"
       fi
-      if [[ -S "$CMUX_SOCKET" ]]; then
-        rm -f "$CMUX_SOCKET"
+      if [[ -S "$CMUX_SOCKET_PATH_VALUE" ]]; then
+        rm -f "$CMUX_SOCKET_PATH_VALUE"
       fi
     fi
   fi
@@ -626,7 +612,16 @@ if [[ -d "$PWD/ghostty" ]]; then
   if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
     echo "Skipping direct ghostty CLI helper zig build (CMUX_SKIP_ZIG_BUILD=1)"
   else
-    (cd "$PWD/ghostty" && zig build cli-helper -Dapp-runtime=none -Demit-macos-app=false -Demit-xcframework=false -Doptimize=ReleaseFast)
+    GHOSTTY_HELPER_TARGET=""
+    case "$(/usr/bin/arch)" in
+      arm64) GHOSTTY_HELPER_TARGET="aarch64-macos" ;;
+      i386|x86_64) GHOSTTY_HELPER_TARGET="x86_64-macos" ;;
+    esac
+    if [[ -n "$GHOSTTY_HELPER_TARGET" ]]; then
+      "$PWD/scripts/build-ghostty-cli-helper.sh" --target "$GHOSTTY_HELPER_TARGET" --output "$GHOSTTY_HELPER_SRC"
+    else
+      "$PWD/scripts/build-ghostty-cli-helper.sh" --output "$GHOSTTY_HELPER_SRC"
+    fi
   fi
 fi
 if [[ -x "$CMUXD_SRC" ]]; then
@@ -719,9 +714,9 @@ if [[ "$LAUNCH" -eq 1 ]]; then
     CMUX_VM_API_BASE_URL="$CMUX_DEV_ORIGIN"
   )
 
-  if [[ -n "${TAG_SLUG:-}" && -n "${CMUX_SOCKET:-}" ]]; then
+  if [[ -n "${TAG_SLUG:-}" && -n "${CMUX_SOCKET_PATH_VALUE:-}" ]]; then
     # Ensure tag-specific socket paths win even if the caller has CMUX_* overrides.
-    "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" CMUX_SOCKET_PATH="$CMUX_SOCKET" CMUXD_UNIX_PATH="$CMUXD_SOCKET" open -g "$APP_PATH"
+    "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" CMUX_SOCKET_PATH="$CMUX_SOCKET_PATH_VALUE" CMUXD_UNIX_PATH="$CMUXD_SOCKET" open -g "$APP_PATH"
   elif [[ -n "${TAG_SLUG:-}" ]]; then
     "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" open -g "$APP_PATH"
   else

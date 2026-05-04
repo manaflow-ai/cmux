@@ -45,9 +45,9 @@ struct TmuxOverlayExperimentSettings {
 }
 
 private enum WorkspaceTitlebarInteractionMetrics {
-    // Keep in sync with Bonsplit's tab bar height so the monitor only covers
-    // the minimal-mode titlebar strip.
-    static let minimalModeTopStripHeight: CGFloat = 30
+    // Keep in sync with the minimal-mode titlebar strip so the monitor only
+    // covers titlebar chrome.
+    static let minimalModeTopStripHeight: CGFloat = MinimalModeChromeMetrics.titlebarHeight
 }
 
 struct TmuxPaneLayoutPane: Codable, Equatable, Sendable {
@@ -145,83 +145,17 @@ final class TmuxWorkspacePaneOverlayModel: ObservableObject {
     }
 }
 
-struct TmuxWorkspacePaneOverlayView: View {
-    let unreadRects: [CGRect]
-    let flashRect: CGRect?
-    let flashStartedAt: Date?
-    let flashReason: WorkspaceAttentionFlashReason?
-
-    var body: some View {
-        TimelineView(.animation) { timeline in
-            Canvas { context, _ in
-                for rect in unreadRects {
-                    drawUnreadRing(in: &context, rect: rect)
-                }
-
-                guard let flashRect,
-                      let flashStartedAt else { return }
-                let elapsed = timeline.date.timeIntervalSince(flashStartedAt)
-                let opacity = FocusFlashPattern.opacity(at: elapsed)
-                guard opacity > 0.001 else { return }
-                drawFlashRing(
-                    in: &context,
-                    rect: flashRect,
-                    opacity: opacity,
-                    reason: flashReason ?? .notificationArrival
-                )
-            }
-        }
-        .allowsHitTesting(false)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private func drawUnreadRing(in context: inout GraphicsContext, rect: CGRect) {
-        guard let path = ringPath(for: rect) else { return }
-        var glowContext = context
-        glowContext.addFilter(.shadow(color: Color.blue.opacity(0.35), radius: 3))
-        glowContext.stroke(
-            path,
-            with: .color(Color.blue),
-            style: StrokeStyle(lineWidth: PanelOverlayRingMetrics.lineWidth, lineJoin: .round)
-        )
-    }
-
-    private func drawFlashRing(
-        in context: inout GraphicsContext,
-        rect: CGRect,
-        opacity: Double,
-        reason: WorkspaceAttentionFlashReason
-    ) {
-        guard let path = ringPath(for: rect) else { return }
-        let presentation = WorkspaceAttentionCoordinator.flashStyle(for: reason)
-        let strokeColor = Color(nsColor: presentation.accent.strokeColor)
-
-        var glowContext = context
-        glowContext.addFilter(
-            .shadow(
-                color: strokeColor.opacity(opacity * presentation.glowOpacity),
-                radius: presentation.glowRadius
-            )
-        )
-        glowContext.stroke(
-            path,
-            with: .color(strokeColor.opacity(opacity)),
-            style: StrokeStyle(lineWidth: PanelOverlayRingMetrics.lineWidth, lineJoin: .round)
-        )
-    }
-
-    private func ringPath(for rect: CGRect) -> Path? {
-        guard rect.width > PanelOverlayRingMetrics.inset * 2,
-              rect.height > PanelOverlayRingMetrics.inset * 2 else { return nil }
-        return Path(
-            roundedRect: PanelOverlayRingMetrics.pathRect(in: rect),
-            cornerRadius: PanelOverlayRingMetrics.cornerRadius
-        )
-    }
-}
-
 /// View that renders a Workspace's content using BonsplitView
 struct WorkspaceContentView: View {
+    private struct DeferredThemeRefresh {
+        let reason: String
+        let backgroundOverride: NSColor?
+        let backgroundEventId: UInt64?
+        let backgroundSource: String?
+        let notificationPayloadHex: String?
+        let forceInitialApply: Bool
+    }
+
     @ObservedObject var workspace: Workspace
     let isWorkspaceVisible: Bool
     let isWorkspaceInputActive: Bool
@@ -234,6 +168,8 @@ struct WorkspaceContentView: View {
         _ notificationPayloadHex: String?
     ) -> Void)?
     @State private var config = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "stateInit")
+    @State private var lastAppliedUsesHostLayerBackground = GhosttyApp.shared.usesHostLayerBackground
+    @State private var deferredThemeRefresh: DeferredThemeRefresh?
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
     @Environment(\.colorScheme) private var colorScheme
@@ -350,6 +286,10 @@ struct WorkspaceContentView: View {
             syncBonsplitNotificationBadges()
             refreshGhosttyAppearanceConfig(reason: "onAppear")
         }
+        .onChange(of: isWorkspaceVisible) { _, isVisible in
+            guard isVisible else { return }
+            flushDeferredThemeRefreshIfNeeded()
+        }
         .onChange(of: notificationStore.notifications) { _, _ in
             syncBonsplitNotificationBadges()
         }
@@ -357,7 +297,6 @@ struct WorkspaceContentView: View {
             syncBonsplitNotificationBadges()
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
-            GhosttyConfig.invalidateLoadCache()
             refreshGhosttyAppearanceConfig(reason: "ghosttyConfigDidReload")
         }
         .onChange(of: colorScheme) { oldValue, newValue in
@@ -382,14 +321,8 @@ struct WorkspaceContentView: View {
             )
         }
 
-        Group {
-            if isMinimalMode && !isFullScreen {
-                bonsplitView
-                    .ignoresSafeArea(.container, edges: .top)
-            } else {
-                bonsplitView
-            }
-        }
+        bonsplitView
+            .ignoresSafeArea(.container, edges: (isMinimalMode && !isFullScreen) ? .top : [])
     }
 
     private func syncBonsplitNotificationBadges() {
@@ -424,7 +357,7 @@ struct WorkspaceContentView: View {
         workspace.bonsplitController.zoomedPaneId.map { "zoom:\($0.id.uuidString)" } ?? "unzoomed"
     }
 
-    private static let tmuxWorkspacePaneTopChromeHeight: CGFloat = 30
+    private static let tmuxWorkspacePaneTopChromeHeight: CGFloat = MinimalModeChromeMetrics.titlebarHeight
 
     private enum TmuxWorkspacePaneOverlayTrimMode {
         case workspaceLocal
@@ -627,29 +560,98 @@ struct WorkspaceContentView: View {
         return next
     }
 
+    private static func ghosttyAppearanceSignature(_ config: GhosttyConfig, usesHostLayerBackground: Bool) -> String {
+        [
+            config.backgroundColor.hexString(includeAlpha: true),
+            String(format: "%.4f", config.backgroundOpacity),
+            String(describing: config.backgroundBlur),
+            String(format: "%.4f", config.surfaceTabBarFontSize),
+            String(format: "%.4f", config.unfocusedSplitOpacity),
+            config.unfocusedSplitFill?.hexString(includeAlpha: true) ?? "nil",
+            config.splitDividerColor?.hexString(includeAlpha: true) ?? "nil",
+            String(usesHostLayerBackground),
+        ].joined(separator: "|")
+    }
+
+    private func flushDeferredThemeRefreshIfNeeded() {
+        guard isWorkspaceVisible,
+              let deferredRefresh = deferredThemeRefresh else { return }
+        deferredThemeRefresh = nil
+        refreshGhosttyAppearanceConfig(
+            reason: deferredRefresh.reason,
+            backgroundOverride: deferredRefresh.backgroundOverride,
+            backgroundEventId: deferredRefresh.backgroundEventId,
+            backgroundSource: deferredRefresh.backgroundSource,
+            notificationPayloadHex: deferredRefresh.notificationPayloadHex,
+            forceInitialApply: deferredRefresh.forceInitialApply
+        )
+    }
+
     private func refreshGhosttyAppearanceConfig(
         reason: String,
         backgroundOverride: NSColor? = nil,
         backgroundEventId: UInt64? = nil,
         backgroundSource: String? = nil,
-        notificationPayloadHex: String? = nil
+        notificationPayloadHex: String? = nil,
+        forceInitialApply: Bool = false
     ) {
+        guard isWorkspaceVisible else {
+            let existing = deferredThemeRefresh
+            deferredThemeRefresh = DeferredThemeRefresh(
+                reason: reason,
+                backgroundOverride: backgroundOverride,
+                backgroundEventId: backgroundEventId,
+                backgroundSource: backgroundSource,
+                notificationPayloadHex: notificationPayloadHex,
+                forceInitialApply: forceInitialApply
+                    || reason == "onAppear"
+                    || existing?.forceInitialApply == true
+            )
+            return
+        }
+        deferredThemeRefresh = nil
+
+        let previousSignature = Self.ghosttyAppearanceSignature(
+            config,
+            usesHostLayerBackground: lastAppliedUsesHostLayerBackground
+        )
         let previousBackgroundHex = config.backgroundColor.hexString()
         let next = Self.resolveGhosttyAppearanceConfig(
             reason: reason,
             backgroundOverride: backgroundOverride
         )
+        let nextUsesHostLayerBackground = GhosttyApp.shared.usesHostLayerBackground
+        let nextSignature = Self.ghosttyAppearanceSignature(
+            next,
+            usesHostLayerBackground: nextUsesHostLayerBackground
+        )
         let eventLabel = backgroundEventId.map(String.init) ?? "nil"
         let sourceLabel = backgroundSource ?? "nil"
         let payloadLabel = notificationPayloadHex ?? "nil"
+        let configChanged = previousSignature != nextSignature
         let backgroundChanged = previousBackgroundHex != next.backgroundColor.hexString()
         let opacityChanged = abs(config.backgroundOpacity - next.backgroundOpacity) > 0.0001
-        let shouldRequestTitlebarRefresh = backgroundChanged || opacityChanged || reason == "onAppear"
+        let blurChanged = config.backgroundBlur != next.backgroundBlur
+        let shouldForceInitialApply = forceInitialApply || reason == "onAppear"
+        let shouldRequestTitlebarRefresh = backgroundChanged || opacityChanged || blurChanged || shouldForceInitialApply
+        let shouldApplyChrome = configChanged || shouldForceInitialApply
+        let shouldRefreshWindowBackground = backgroundChanged || opacityChanged || blurChanged || shouldForceInitialApply
+        if !shouldApplyChrome && !shouldRefreshWindowBackground && !shouldRequestTitlebarRefresh {
+            logTheme(
+                "theme refresh skip workspace=\(workspace.id.uuidString) reason=\(reason) event=\(eventLabel) source=\(sourceLabel) payload=\(payloadLabel)"
+            )
+            return
+        }
         logTheme(
             "theme refresh begin workspace=\(workspace.id.uuidString) reason=\(reason) event=\(eventLabel) source=\(sourceLabel) payload=\(payloadLabel) previousBg=\(previousBackgroundHex) nextBg=\(next.backgroundColor.hexString()) overrideBg=\(backgroundOverride?.hexString() ?? "nil")"
         )
         withTransaction(Transaction(animation: nil)) {
-            config = next
+            if configChanged {
+                config = next
+            }
+            if shouldApplyChrome {
+                lastAppliedUsesHostLayerBackground = nextUsesHostLayerBackground
+            }
             if shouldRequestTitlebarRefresh {
                 onThemeRefreshRequest?(
                     reason,
@@ -669,16 +671,20 @@ struct WorkspaceContentView: View {
         )
         let chromeReason =
             "refreshGhosttyAppearanceConfig:reason=\(reason):event=\(eventLabel):source=\(sourceLabel):payload=\(payloadLabel)"
-        workspace.applyGhosttyChrome(from: next, reason: chromeReason)
-        if let terminalPanel = workspace.focusedTerminalPanel {
-            terminalPanel.applyWindowBackgroundIfActive()
-            logTheme(
-                "theme refresh terminal-applied workspace=\(workspace.id.uuidString) reason=\(reason) event=\(eventLabel) panel=\(workspace.focusedPanelId?.uuidString ?? "nil")"
-            )
-        } else {
-            logTheme(
-                "theme refresh terminal-skipped workspace=\(workspace.id.uuidString) reason=\(reason) event=\(eventLabel) focusedPanel=\(workspace.focusedPanelId?.uuidString ?? "nil")"
-            )
+        if shouldApplyChrome {
+            workspace.applyGhosttyChrome(from: next, reason: chromeReason)
+        }
+        if shouldRefreshWindowBackground {
+            if let terminalPanel = workspace.focusedTerminalPanel {
+                terminalPanel.applyWindowBackgroundIfActive()
+                logTheme(
+                    "theme refresh terminal-applied workspace=\(workspace.id.uuidString) reason=\(reason) event=\(eventLabel) panel=\(workspace.focusedPanelId?.uuidString ?? "nil")"
+                )
+            } else {
+                logTheme(
+                    "theme refresh terminal-skipped workspace=\(workspace.id.uuidString) reason=\(reason) event=\(eventLabel) focusedPanel=\(workspace.focusedPanelId?.uuidString ?? "nil")"
+                )
+            }
         }
         logTheme(
             "theme refresh end workspace=\(workspace.id.uuidString) reason=\(reason) event=\(eventLabel) chromeBg=\(workspace.bonsplitController.configuration.appearance.chromeColors.backgroundHex ?? "nil")"

@@ -79,7 +79,6 @@ struct FeedPanelView: View {
     var body: some View {
         VStack(spacing: 0) {
             controlBar
-            Divider()
             FeedListView(filter: filter, items: viewModel.items)
         }
     }
@@ -98,19 +97,16 @@ struct FeedPanelView: View {
             controlBarContent
             #endif
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 3)
-        .frame(height: 29)
+        .rightSidebarChromeBar()
+        .rightSidebarChromeBottomBorder()
+        .reportRightSidebarChromeGeometryForBonsplitUITest(role: .secondaryBar, isVisible: true, titlebarHeight: RightSidebarChromeMetrics.secondaryBarHeight)
     }
 
     private var controlBarContent: some View {
         HStack(spacing: 6) {
             ForEach(Filter.allCases) { f in
-                FeedButton(
-                    label: f.label,
-                    leadingIcon: f.symbolName,
-                    kind: .ghost,
-                    size: .compact,
+                FeedSecondaryFilterButton(
+                    filter: f,
                     isSelected: filter == f
                 ) {
                     filter = f
@@ -118,6 +114,32 @@ struct FeedPanelView: View {
             }
             Spacer(minLength: 4)
         }
+    }
+}
+
+private struct FeedSecondaryFilterButton: View {
+    let filter: FeedPanelView.Filter
+    let isSelected: Bool
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 3) {
+                Image(systemName: filter.symbolName)
+                    .font(.system(size: 10, weight: .medium))
+                Text(filter.label)
+                    .font(.system(size: 11, weight: .medium))
+            }
+            .rightSidebarChromePill(
+                isSelected: isSelected,
+                isHovered: isHovered,
+                geometryKeyPrefix: "rightSidebarSecondaryControl_feed_\(filter.rawValue)"
+            )
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .help(filter.label)
     }
 }
 
@@ -271,7 +293,7 @@ private struct FeedListView: View {
         snapshots: [FeedItemSnapshot],
         actions: FeedRowActions
     ) -> some View {
-        ScrollView {
+        ScrollView(.vertical) {
             LazyVStack(spacing: 0) {
                 ForEach(Array(snapshots.enumerated()), id: \.element.id) { idx, snapshot in
                     rowSurface(
@@ -1180,6 +1202,7 @@ struct FeedItemRow: View, Equatable {
             PermissionActionArea(
                 toolName: toolName,
                 toolInputJSON: toolInputJSON,
+                source: snapshot.source,
                 status: snapshot.status,
                 onApprove: { mode in
                     actions.approvePermission(snapshot.id, mode)
@@ -1370,6 +1393,7 @@ private struct FeedLabeledTextRow: View {
 private struct PermissionActionArea: View {
     let toolName: String
     let toolInputJSON: String
+    let source: WorkstreamSource
     let status: WorkstreamStatus
     let onApprove: (WorkstreamPermissionMode) -> Void
 
@@ -1379,22 +1403,20 @@ private struct PermissionActionArea: View {
             codeBlock
             if status.isPending {
                 HStack(spacing: 6) {
-                    FeedButton(
-                        label: String(localized: "feed.permission.deny", defaultValue: "Deny"),
-                        kind: .dark, size: .medium, fullWidth: true
-                    ) { onApprove(.deny) }
-                    FeedButton(
-                        label: String(localized: "feed.permission.once", defaultValue: "Allow Once"),
-                        kind: .light, size: .medium, fullWidth: true
-                    ) { onApprove(.once) }
-                    FeedButton(
-                        label: String(localized: "feed.permission.always", defaultValue: "Always Allow"),
-                        kind: .primary, size: .medium, fullWidth: true
-                    ) { onApprove(.always) }
-                    FeedButton(
-                        label: String(localized: "feed.permission.bypass", defaultValue: "Bypass"),
-                        kind: .destructive, size: .medium, fullWidth: true
-                    ) { onApprove(.bypass) }
+                    FeedButton(label: String(localized: "feed.permission.deny", defaultValue: "Deny"),
+                               kind: .dark, size: .medium, fullWidth: true) { onApprove(.deny) }
+                        .accessibilityIdentifier("FeedPermissionDenyButton")
+                    FeedButton(label: String(localized: "feed.permission.once", defaultValue: "Allow Once"),
+                               kind: .light, size: .medium, fullWidth: true) { onApprove(.once) }
+                        .accessibilityIdentifier("FeedPermissionAllowOnceButton")
+                    if source != .codex {
+                        FeedButton(label: String(localized: "feed.permission.always", defaultValue: "Always Allow"),
+                                   kind: .primary, size: .medium, fullWidth: true) { onApprove(.always) }
+                            .accessibilityIdentifier("FeedPermissionAlwaysAllowButton")
+                        FeedButton(label: String(localized: "feed.permission.bypass", defaultValue: "Bypass"),
+                                   kind: .destructive, size: .medium, fullWidth: true) { onApprove(.bypass) }
+                            .accessibilityIdentifier("FeedPermissionBypassButton")
+                    }
                 }
             } else if let badge = submittedBadge {
                 FeedButton(

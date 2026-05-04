@@ -20,6 +20,44 @@ This is the scoped todo list for making the Cloud VM backend production-ready wi
 - No separate AWS app server is required for the current version.
 - A separate `manaflow/cmux-staging` Vercel project exists for staging.
 
+## Current Blockers
+
+- [x] Create AWS IAM migration roles trusted by GitHub OIDC for the two Cloud VM environments.
+- [x] Add GitHub Environment secret `AWS_MIGRATION_ROLE_ARN` to both `cloud-vm-staging` and `cloud-vm-production`.
+- [x] Copy minimal DB migration variables from Vercel into both GitHub Cloud VM environments:
+  - `PGHOST`
+  - `PGPORT`
+  - `PGUSER`
+  - `PGDATABASE`
+  - `CMUX_DB_SSL_REJECT_UNAUTHORIZED`
+- [x] Copy Stack smoke variables from Vercel into both GitHub Cloud VM environments:
+  - `NEXT_PUBLIC_STACK_PROJECT_ID`
+  - `NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY`
+  - `STACK_SECRET_SERVER_KEY`
+- [x] Add Axiom/OpenTelemetry env to both Vercel projects:
+  - `OTEL_SERVICE_NAME`
+  - `OTEL_EXPORTER_OTLP_ENDPOINT`
+  - `OTEL_EXPORTER_OTLP_HEADERS`
+- [ ] Publish a new Freestyle snapshot with cmuxd-remote started with `--rpc-auth-lease-file`.
+- [ ] Resolve Freestyle snapshot creation returning provider `INTERNAL_ERROR`.
+- [ ] Promote the new Freestyle snapshot to staging and rerun Freestyle create/attach/browser proxy smoke.
+- [x] Keep Freestyle creates disabled and non-default until the current snapshot supports RPC/browser proxy.
+- [x] Use E2B as the staging and production default provider while Freestyle is blocked.
+
+## Current Operational State
+
+- [x] GitHub environments `cloud-vm-staging` and `cloud-vm-production` exist.
+- [x] GitHub environment variable `AWS_REGION=us-west-2` is set for both Cloud VM environments.
+- [x] GitHub OIDC provider `token.actions.githubusercontent.com` exists in AWS.
+- [x] Staging migration role is scoped to `repo:manaflow-ai/cmux:environment:cloud-vm-staging` and the staging Aurora cluster resource id.
+- [x] Production migration role is scoped to `repo:manaflow-ai/cmux:environment:cloud-vm-production` and the production Aurora cluster resource id.
+- [x] Staging and production Cloud VM default provider are set to E2B.
+- [x] Freestyle creates are disabled in staging and production with `CMUX_VM_FREESTYLE_ENABLED=0`.
+- [x] Staging E2B create, WebSocket attach, and destroy smoke passed.
+- [x] Production auth/list smoke passed without creating a production VM.
+- [x] Axiom/OpenTelemetry env is set and redeployed in staging and production.
+- [x] GitHub Cloud VM smoke workflows no longer require `VERCEL_TOKEN`.
+
 ## Existing Vercel Env Vars
 
 These are already configured in Vercel for development, preview, and production:

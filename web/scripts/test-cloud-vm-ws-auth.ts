@@ -204,7 +204,7 @@ async function installLeaseE2B(
   const { token, lease } = makeLease(label, sessionId, singleUse);
   const encoded = Buffer.from(JSON.stringify(lease)).toString("base64");
   await sandbox.commands.run(
-    `install -d -m 0700 ${shellQuote(parentDirectory(path))} && printf '%s' '${encoded}' | base64 -d > ${shellQuote(path)} && chmod 600 ${shellQuote(path)}`,
+    `${ensurePrivateDirectoryCommand(path)} && printf '%s' '${encoded}' | base64 -d > ${shellQuote(path)} && chmod 600 ${shellQuote(path)}`,
     { timeoutMs: 30_000 },
   );
   return token;
@@ -237,7 +237,7 @@ async function installLeaseFreestyle(
   const { token, lease } = makeLease(label, sessionId, singleUse);
   const encoded = Buffer.from(JSON.stringify(lease)).toString("base64");
   await vm.exec({
-    command: `install -d -m 0700 ${shellQuote(parentDirectory(path))} && printf '%s' '${encoded}' | base64 -d > ${shellQuote(path)} && chmod 600 ${shellQuote(path)}`,
+    command: `${ensurePrivateDirectoryCommand(path)} && printf '%s' '${encoded}' | base64 -d > ${shellQuote(path)} && chmod 600 ${shellQuote(path)}`,
     timeoutMs: 30_000,
   });
   return token;
@@ -552,4 +552,9 @@ function shellArgValue(text: string, argName: string): string | null {
 function parentDirectory(path: string): string {
   const index = path.lastIndexOf("/");
   return index > 0 ? path.slice(0, index) : ".";
+}
+
+function ensurePrivateDirectoryCommand(filePath: string): string {
+  const directory = shellQuote(parentDirectory(filePath));
+  return `mkdir -p ${directory} && chmod 700 ${directory}`;
 }

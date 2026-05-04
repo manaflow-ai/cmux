@@ -2,21 +2,64 @@ import AppKit
 import SwiftUI
 
 enum GhosttyTerminalBackdropRenderingMode {
-    case hostLayerSolidColor
+    case windowHostBackdrop
     case ghosttyRendererOwnedBackgroundImage
 
-    var usesHostLayerFill: Bool {
-        self == .hostLayerSolidColor
+    var usesWindowHostBackdrop: Bool {
+        self == .windowHostBackdrop
     }
 }
 
 enum WindowBackdropRole {
+    case windowRoot
     case terminalCanvas
     case bonsplitChrome
     case titlebar
     case leftSidebar
     case rightSidebar
     case browserSurface
+}
+
+enum GhosttyBackgroundBlur: Equatable {
+    case disabled
+    case radius(Int)
+    case macosGlassRegular
+    case macosGlassClear
+
+    init(cValue value: Int16) {
+        switch value {
+        case 0:
+            self = .disabled
+        case -1:
+            self = .macosGlassRegular
+        case -2:
+            self = .macosGlassClear
+        case 1...:
+            self = .radius(Int(value))
+        default:
+            self = .disabled
+        }
+    }
+
+    var isMacOSGlassStyle: Bool {
+        switch self {
+        case .macosGlassRegular, .macosGlassClear:
+            return true
+        case .disabled, .radius:
+            return false
+        }
+    }
+
+    var windowGlassStyle: WindowGlassEffect.Style? {
+        switch self {
+        case .macosGlassRegular:
+            return .regular
+        case .macosGlassClear:
+            return .clear
+        case .disabled, .radius:
+            return nil
+        }
+    }
 }
 
 struct SidebarBackdropMaterialPolicy {
@@ -42,7 +85,7 @@ enum WindowBackdropPolicy {
     var hostLayerBackgroundColor: NSColor? {
         switch self {
         case let .ghosttyTerminalBackdrop(color, opacity, renderingMode):
-            guard renderingMode.usesHostLayerFill else { return nil }
+            guard renderingMode.usesWindowHostBackdrop else { return nil }
             return color.withAlphaComponent(opacity)
         case .sidebarMaterial, .clear:
             return nil
@@ -90,6 +133,25 @@ struct SidebarBackdropSettingsSnapshot {
             usesWindowLevelGlass: usesWindowLevelGlass
         )
     }
+
+    var appKitMutationID: String {
+        [
+            materialRawValue,
+            blendModeRawValue,
+            stateRawValue,
+            tintHex,
+            tintHexLight ?? "nil",
+            tintHexDark ?? "nil",
+            Self.identityComponent(tintOpacity),
+            Self.identityComponent(cornerRadius),
+            Self.identityComponent(blurOpacity),
+            String(describing: colorScheme),
+        ].joined(separator: "|")
+    }
+
+    private static func identityComponent(_ value: Double) -> String {
+        String(format: "%.4f", value)
+    }
 }
 
 struct WindowGlassSettingsSnapshot {
@@ -97,23 +159,63 @@ struct WindowGlassSettingsSnapshot {
     let isEnabled: Bool
     let tintHex: String
     let tintOpacity: Double
+    let terminalBackgroundBlur: GhosttyBackgroundBlur
+    let terminalGlassTintColor: NSColor?
+
+    init(
+        sidebarBlendModeRawValue: String,
+        isEnabled: Bool,
+        tintHex: String,
+        tintOpacity: Double,
+        terminalBackgroundBlur: GhosttyBackgroundBlur = .disabled,
+        terminalGlassTintColor: NSColor? = nil
+    ) {
+        self.sidebarBlendModeRawValue = sidebarBlendModeRawValue
+        self.isEnabled = isEnabled
+        self.tintHex = tintHex
+        self.tintOpacity = tintOpacity
+        self.terminalBackgroundBlur = terminalBackgroundBlur
+        self.terminalGlassTintColor = terminalGlassTintColor
+    }
 
     var tintColor: NSColor {
-        (NSColor(hex: tintHex) ?? .black).withAlphaComponent(tintOpacity)
+        if let terminalGlassTintColor, terminalBackgroundBlur.isMacOSGlassStyle {
+            return terminalGlassTintColor
+        }
+        return (NSColor(hex: tintHex) ?? .black).withAlphaComponent(tintOpacity)
+    }
+
+    var style: WindowGlassEffect.Style {
+        terminalBackgroundBlur.windowGlassStyle ?? .regular
     }
 
     func shouldApply(glassEffectAvailable: Bool = WindowGlassEffect.isAvailable) -> Bool {
-        cmuxShouldApplyWindowGlass(
+        if terminalBackgroundBlur.isMacOSGlassStyle {
+            return true
+        }
+        return cmuxShouldApplyWindowGlass(
             sidebarBlendMode: sidebarBlendModeRawValue,
             bgGlassEnabled: isEnabled,
             glassEffectAvailable: glassEffectAvailable
         )
+    }
+
+    var appKitMutationID: String {
+        [
+            sidebarBlendModeRawValue,
+            String(isEnabled),
+            tintHex,
+            String(format: "%.4f", tintOpacity),
+            String(describing: terminalBackgroundBlur),
+            terminalGlassTintColor?.hexString(includeAlpha: true) ?? "nil",
+        ].joined(separator: "|")
     }
 }
 
 struct WindowAppearanceSnapshot {
     let terminalBackgroundColor: NSColor
     let terminalBackgroundOpacity: CGFloat
+    let terminalBackgroundBlur: GhosttyBackgroundBlur
     let terminalRenderingMode: GhosttyTerminalBackdropRenderingMode
     let unifySurfaceBackdrops: Bool
     let sidebarSettings: SidebarBackdropSettingsSnapshot
@@ -139,6 +241,7 @@ struct WindowAppearanceSnapshot {
         Self(
             terminalBackgroundColor: app.defaultBackgroundColor,
             terminalBackgroundOpacity: Self.clampedOpacity(app.defaultBackgroundOpacity),
+            terminalBackgroundBlur: app.defaultBackgroundBlur,
             terminalRenderingMode: Self.terminalRenderingMode(
                 usesHostLayerBackground: app.usesHostLayerBackground
             ),
@@ -159,7 +262,11 @@ struct WindowAppearanceSnapshot {
                 sidebarBlendModeRawValue: sidebarBlendMode,
                 isEnabled: bgGlassEnabled,
                 tintHex: bgGlassTintHex,
-                tintOpacity: bgGlassTintOpacity
+                tintOpacity: bgGlassTintOpacity,
+                terminalBackgroundBlur: app.defaultBackgroundBlur,
+                terminalGlassTintColor: app.defaultBackgroundColor.withAlphaComponent(
+                    Self.clampedOpacity(app.defaultBackgroundOpacity)
+                )
             )
         )
     }
@@ -175,34 +282,32 @@ struct WindowAppearanceSnapshot {
     static func terminalRenderingMode(
         usesHostLayerBackground: Bool
     ) -> GhosttyTerminalBackdropRenderingMode {
-        usesHostLayerBackground ? .hostLayerSolidColor : .ghosttyRendererOwnedBackgroundImage
+        usesHostLayerBackground ? .windowHostBackdrop : .ghosttyRendererOwnedBackgroundImage
     }
 
     var compositedTerminalBackgroundColor: NSColor {
         terminalBackgroundColor.withAlphaComponent(terminalBackgroundOpacity)
     }
 
-    func shouldUseTransparentHosting(glassEffectAvailable: Bool = WindowGlassEffect.isAvailable) -> Bool {
-        windowGlassSettings.shouldApply(glassEffectAvailable: glassEffectAvailable)
-            || compositedTerminalBackgroundColor.alphaComponent < 0.999
-    }
-
     func policy(for role: WindowBackdropRole) -> WindowBackdropPolicy {
         switch role {
-        case .terminalCanvas, .bonsplitChrome:
+        case .windowRoot:
             return terminalBackdropPolicy()
-        case .titlebar, .browserSurface:
-            return terminalBackdropPolicy()
+        case .terminalCanvas, .bonsplitChrome, .titlebar, .browserSurface:
+            return .clear
         case .leftSidebar, .rightSidebar:
             if unifySurfaceBackdrops {
-                return terminalBackdropPolicy()
+                return .clear
             }
             return .sidebarMaterial(sidebarSettings.materialPolicy)
         }
     }
 
-    private func terminalBackdropPolicy() -> WindowBackdropPolicy {
-        .ghosttyTerminalBackdrop(
+    func terminalBackdropPolicy() -> WindowBackdropPolicy {
+        if terminalBackgroundBlur.isMacOSGlassStyle {
+            return .clear
+        }
+        return .ghosttyTerminalBackdrop(
             color: terminalBackgroundColor,
             opacity: terminalBackgroundOpacity,
             renderingMode: terminalRenderingMode

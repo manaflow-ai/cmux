@@ -16,7 +16,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           submodules: recursive
 
@@ -62,7 +62,7 @@ jobs:
 
       - name: Cache Zig packages
         if: steps.check-release.outputs.exists == 'false'
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.cache/zig
           key: zig-packages-${{ hashFiles('ghostty/build.zig.zon', 'ghostty/build.zig.zon.json') }}
@@ -93,7 +93,8 @@ jobs:
           set -euo pipefail
           rm -rf GhosttyKit.xcframework
           cp -R ghostty/macos/GhosttyKit.xcframework GhosttyKit.xcframework
-          tar czf GhosttyKit.xcframework.tar.gz GhosttyKit.xcframework
+          COPYFILE_DISABLE=1 tar czf GhosttyKit.xcframework.tar.gz GhosttyKit.xcframework
+          python3 scripts/validate-xcframework-archive.py GhosttyKit.xcframework.tar.gz
 
       - name: Upload xcframework release
         if: steps.check-release.outputs.exists == 'false'

@@ -1,0 +1,86 @@
+name: Cloud VM smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Smoke target
+        required: true
+        default: staging
+        type: choice
+        options:
+          - staging
+          - production
+      create_vm:
+        description: Create and destroy one real provider VM
+        required: false
+        default: false
+        type: boolean
+      provider:
+        description: Provider to use when create_vm is enabled
+        required: false
+        default: e2b
+        type: choice
+        options:
+          - e2b
+          - freestyle
+      confirm_production_create:
+        description: Required when create_vm is true and target is production
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-vm-smoke-${{ inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    environment: cloud-vm-${{ inputs.target }}
+    defaults:
+      run:
+        working-directory: web
+    env:
+      CMUX_CLOUD_VM_ENV_SOURCE: process
+      NEXT_PUBLIC_STACK_PROJECT_ID: ${{ vars.NEXT_PUBLIC_STACK_PROJECT_ID }}
+      NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: ${{ vars.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY }}
+      STACK_SECRET_SERVER_KEY: ${{ secrets.STACK_SECRET_SERVER_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # Smoke secrets must only run trusted main code.
+          ref: refs/heads/main
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Guard smoke settings
+        run: |
+          set -euo pipefail
+          for key in NEXT_PUBLIC_STACK_PROJECT_ID NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY STACK_SECRET_SERVER_KEY; do
+            if [ -z "${!key:-}" ]; then
+              echo "::error::Missing cloud-vm-${{ inputs.target }} env $key"
+              exit 1
+            fi
+          done
+          if [ "${{ inputs.target }}" = "production" ] && [ "${{ inputs.create_vm }}" = "true" ] && [ "${{ inputs.confirm_production_create }}" != "true" ]; then
+            echo "::error::Production VM creation smoke requires confirm_production_create=true"
+            exit 1
+          fi
+
+      - name: Smoke target
+        run: |
+          set -euo pipefail
+          args=("${{ inputs.target }}")
+          if [ "${{ inputs.create_vm }}" = "true" ]; then
+            args+=("--create" "--provider" "${{ inputs.provider }}")
+          fi
+          bun run cloud-vm:smoke -- "${args[@]}"
