@@ -27,7 +27,7 @@ final class CmxGhosttyTypingUITests: XCTestCase {
     func testRepeatedPinchZoomKeepsGhosttyResponsive() throws {
         let terminal = try openTerminal()
 
-        for _ in 0..<8 {
+        for _ in 0..<16 {
             terminal.pinch(withScale: 0.55, velocity: -1)
             terminal.pinch(withScale: 1.8, velocity: 1)
         }

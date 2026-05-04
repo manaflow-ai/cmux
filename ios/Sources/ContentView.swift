@@ -313,6 +313,7 @@ private struct EmptyWorkspaceSearch: View {
 
 private struct TerminalDetailView: View {
     @EnvironmentObject private var store: CmxConnectionStore
+    @Environment(\.colorScheme) private var colorScheme
     @State private var keyboardOverlap: CGFloat = 0
 
     var body: some View {
@@ -342,9 +343,15 @@ private struct TerminalDetailView: View {
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
                 keyboardOverlap = 0
             }
+            .onAppear {
+                store.refreshTerminalAppearance(colorPreference: CmxTerminalColorPreference(colorScheme: colorScheme))
+            }
+            .onChange(of: colorScheme) { _, newValue in
+                store.refreshTerminalAppearance(colorPreference: CmxTerminalColorPreference(colorScheme: newValue))
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(TerminalThemeChrome.background.ignoresSafeArea())
+        .background(TerminalThemeChrome.background(revision: store.terminalAppearanceRevision).ignoresSafeArea())
         .ignoresSafeArea(edges: .bottom)
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
@@ -353,9 +360,9 @@ private struct TerminalDetailView: View {
                 TerminalPickerMenu()
             }
         }
-        .toolbarBackground(TerminalThemeChrome.background, for: .navigationBar)
+        .toolbarBackground(TerminalThemeChrome.background(revision: store.terminalAppearanceRevision), for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
-        .toolbarColorScheme(TerminalThemeChrome.toolbarColorScheme, for: .navigationBar)
+        .toolbarColorScheme(TerminalThemeChrome.toolbarColorScheme(revision: store.terminalAppearanceRevision), for: .navigationBar)
     }
 
     private func updateKeyboardOverlap(notification: Notification, containerFrame: CGRect) {
@@ -429,7 +436,7 @@ private struct TerminalPickerMenu: View {
                 Image(systemName: "chevron.down")
                     .font(.caption2.weight(.bold))
             }
-            .foregroundStyle(TerminalThemeChrome.foreground)
+            .foregroundStyle(TerminalThemeChrome.foreground(revision: store.terminalAppearanceRevision))
             .accessibilityIdentifier("terminal.selector")
         }
     }
@@ -451,13 +458,13 @@ private struct TerminalPane: View {
                 .clipped()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(TerminalThemeChrome.background)
+        .background(TerminalThemeChrome.background(revision: store.terminalAppearanceRevision))
     }
 }
 
 private enum TerminalThemeChrome {
     @MainActor
-    static var background: Color {
+    static func background(revision _: Int) -> Color {
         Color(
             GhosttyRuntime.configuredUIColor(
                 named: "background",
@@ -467,7 +474,7 @@ private enum TerminalThemeChrome {
     }
 
     @MainActor
-    static var foreground: Color {
+    static func foreground(revision _: Int) -> Color {
         Color(
             GhosttyRuntime.configuredUIColor(
                 named: "foreground",
@@ -477,11 +484,17 @@ private enum TerminalThemeChrome {
     }
 
     @MainActor
-    static var toolbarColorScheme: ColorScheme {
+    static func toolbarColorScheme(revision _: Int) -> ColorScheme {
         GhosttyRuntime.configuredUIColor(
             named: "background",
             fallback: UIColor(red: 0x27 / 255, green: 0x28 / 255, blue: 0x22 / 255, alpha: 1)
         ).cmxIsDark ? .dark : .light
+    }
+}
+
+private extension CmxTerminalColorPreference {
+    init(colorScheme: ColorScheme) {
+        self = colorScheme == .light ? .light : .dark
     }
 }
 

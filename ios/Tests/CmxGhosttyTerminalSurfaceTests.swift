@@ -163,6 +163,18 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
         XCTAssertLessThanOrEqual(maximum, 30)
     }
 
+    func testGhosttyPinchZoomCoalescesGeometrySyncUntilGestureEnd() throws {
+        let (surfaceView, delegate) = try makeSurfaceView()
+        delegate.resizeCount = 0
+
+        surfaceView.simulatePinchZoomCycleForTesting(Array(repeating: .increase, count: 8))
+        surfaceView.simulatePinchZoomCycleForTesting([.decrease, .increase])
+
+        XCTAssertNotNil(delegate.lastSize)
+        XCTAssertEqual(delegate.resizeCount, 1)
+        XCTAssertEqual(surfaceView.fontSizeForTesting, 24)
+    }
+
     func testGhosttySurfaceCanForceInitialGridReportAfterCoordinatorBinding() throws {
         let (surfaceView, delegate) = try makeSurfaceView()
         surfaceView.frame = CGRect(x: 0, y: 0, width: 390, height: 640)
@@ -188,6 +200,7 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
 private final class DelegateRecorder: GhosttyTerminalSurfaceViewDelegate {
     var onInput: ((Data) -> Void)?
     var lastSize: TerminalGridSize?
+    var resizeCount = 0
 
     func ghosttyTerminalSurfaceView(_ surfaceView: GhosttyTerminalSurfaceView, didProduceInput data: Data) {
         onInput?(data)
@@ -195,5 +208,6 @@ private final class DelegateRecorder: GhosttyTerminalSurfaceViewDelegate {
 
     func ghosttyTerminalSurfaceView(_ surfaceView: GhosttyTerminalSurfaceView, didResize size: TerminalGridSize) {
         lastSize = size
+        resizeCount += 1
     }
 }

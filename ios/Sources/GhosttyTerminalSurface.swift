@@ -374,6 +374,7 @@ public final class GhosttyRuntime {
     private static var sharedResult: Result<GhosttyRuntime, Error>?
     private static var clipboardReader: @MainActor @Sendable () -> String? = { UIPasteboard.general.string }
     private static var clipboardWriter: @MainActor @Sendable (String?) -> Void = { UIPasteboard.general.string = $0 }
+    private static var remoteConfigOverride: String?
 
     private(set) var app: ghostty_app_t?
     private(set) var config: ghostty_config_t?
@@ -465,6 +466,18 @@ public final class GhosttyRuntime {
         return fallback
     }
 
+    @MainActor
+    @discardableResult
+    public static func applyRemoteConfigOverride(_ configText: String?) -> Bool {
+        let normalized = configText?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let next = normalized?.isEmpty == false ? normalized : nil
+        guard next != remoteConfigOverride else { return false }
+        remoteConfigOverride = next
+        guard let runtime = try? shared() else { return true }
+        runtime.reloadConfig()
+        return true
+    }
+
     private static func initializeBackendIfNeeded() throws {
         guard !backendInitialized else { return }
         let result = ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv)
@@ -517,6 +530,28 @@ public final class GhosttyRuntime {
                 ghostty_config_load_file(config, path)
             }
         }
+        if let remoteConfigOverride {
+            remoteConfigOverride.withCString { configPointer in
+                "cmux-remote-appearance".withCString { namePointer in
+                    ghostty_config_load_string(config, configPointer, UInt(remoteConfigOverride.utf8.count), namePointer)
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func reloadConfig() {
+        guard let newConfig = ghostty_config_new() else { return }
+        Self.loadConfig(newConfig)
+        ghostty_config_finalize(newConfig)
+        if let app {
+            ghostty_app_update_config(app, newConfig)
+        }
+        if let oldConfig = config {
+            ghostty_config_free(oldConfig)
+        }
+        config = newConfig
+        GhosttyTerminalSurfaceView.applyRuntimeConfigToVisibleSurfaces()
     }
 
     private static func setupRuntimeEnvironment() {
@@ -723,6 +758,7 @@ public final class GhosttyTerminalSurfaceView: UIView {
     private var hasFedInitialOutput = false
     private var needsDraw = false
     private var pinchAccumulatedScale: CGFloat = 1
+    private var pinchTargetFontSize: Float32?
     private var currentFontSize = GhosttyTerminalSurfaceView.defaultMobileFontSize
     #if DEBUG
     var onOutputProcessedForTesting: (() -> Void)?
@@ -889,6 +925,21 @@ public final class GhosttyTerminalSurfaceView: UIView {
         performFontZoom(direction)
     }
 
+    #if DEBUG
+    public func simulatePinchZoomCycleForTesting(_ directions: [TerminalFontZoomDirection]) {
+        pinchTargetFontSize = currentFontSize
+        for direction in directions {
+            let baseFontSize = pinchTargetFontSize ?? currentFontSize
+            pinchTargetFontSize = nextMobileFontSize(from: baseFontSize, after: direction)
+        }
+        if let target = pinchTargetFontSize,
+           target != currentFontSize {
+            _ = applyMobileFontSize(target, reportResize: true)
+        }
+        pinchTargetFontSize = nil
+    }
+    #endif
+
     public var fontSizeForTesting: Float32 {
         currentFontSize
     }
@@ -1029,13 +1080,19 @@ public final class GhosttyTerminalSurfaceView: UIView {
         switch gesture.state {
         case .began:
             pinchAccumulatedScale = 1
+            pinchTargetFontSize = currentFontSize
         case .changed:
             let delta = gesture.scale - pinchAccumulatedScale
             guard abs(delta) >= 0.15 else { return }
-            _ = performFontZoom(delta > 0 ? .increase : .decrease, reportResize: false)
+            let baseFontSize = pinchTargetFontSize ?? currentFontSize
+            pinchTargetFontSize = nextMobileFontSize(from: baseFontSize, after: delta > 0 ? .increase : .decrease)
             pinchAccumulatedScale = gesture.scale
         case .ended, .cancelled:
-            syncSurfaceGeometry(forceReport: true)
+            if let target = pinchTargetFontSize,
+               target != currentFontSize {
+                _ = applyMobileFontSize(target, reportResize: true)
+            }
+            pinchTargetFontSize = nil
         default:
             break
         }
@@ -1044,23 +1101,40 @@ public final class GhosttyTerminalSurfaceView: UIView {
     @discardableResult
     private func performFontZoom(
         _ direction: TerminalFontZoomDirection,
-        reportResize: Bool = true
+        reportResize: Bool = true,
+        synchronizeGeometry: Bool = true
+    ) -> Bool {
+        let nextFontSize = nextMobileFontSize(from: currentFontSize, after: direction)
+        return applyMobileFontSize(
+            nextFontSize,
+            reportResize: reportResize,
+            synchronizeGeometry: synchronizeGeometry
+        )
+    }
+
+    @discardableResult
+    private func applyMobileFontSize(
+        _ nextFontSize: Float32,
+        reportResize: Bool = true,
+        synchronizeGeometry: Bool = true
     ) -> Bool {
         guard let surface else { return false }
-        let nextFontSize = nextMobileFontSize(after: direction)
         guard nextFontSize != currentFontSize else { return false }
+        runtime?.tick()
         let action = "set_font_size:\(nextFontSize)"
         let handled = action.withCString { pointer in
             ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))
         }
         guard handled else { return false }
         currentFontSize = nextFontSize
-        syncSurfaceGeometry(reportResize: reportResize, renderNow: false)
-        needsDraw = true
+        if synchronizeGeometry {
+            syncSurfaceGeometry(reportResize: reportResize, renderNow: false)
+            needsDraw = true
+        }
         return true
     }
 
-    private func nextMobileFontSize(after direction: TerminalFontZoomDirection) -> Float32 {
+    private func nextMobileFontSize(from fontSize: Float32, after direction: TerminalFontZoomDirection) -> Float32 {
         let delta = switch direction {
         case .decrease:
             -Self.mobileFontZoomStep
@@ -1069,7 +1143,7 @@ public final class GhosttyTerminalSurfaceView: UIView {
         }
         return min(
             Self.maximumMobileFontSize,
-            max(Self.minimumMobileFontSize, currentFontSize + delta)
+            max(Self.minimumMobileFontSize, fontSize + delta)
         )
     }
 
@@ -1103,6 +1177,14 @@ public final class GhosttyTerminalSurfaceView: UIView {
                 ghostty_surface_refresh(surface)
                 view.needsDraw = true
             }
+        }
+    }
+
+    @MainActor
+    static func applyRuntimeConfigToVisibleSurfaces() {
+        registeredSurfaceViews = registeredSurfaceViews.filter { $0.value.value != nil }
+        for view in registeredSurfaceViews.values.compactMap(\.value) {
+            view.applyConfiguredBackground()
         }
     }
 }

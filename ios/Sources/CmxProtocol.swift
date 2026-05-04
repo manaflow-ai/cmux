@@ -86,6 +86,9 @@ struct CmxNativeSnapshot: Equatable, Sendable {
     var panels: CmxNativePanelNode
     var focusedPanelID: UInt64
     var focusedTabID: UInt64
+    var terminalTheme: CmxNativeTerminalThemeSet? = nil
+    var terminalFont: CmxNativeTerminalFont? = nil
+    var terminalCursor: CmxNativeTerminalCursor? = nil
 }
 
 struct CmxTerminalRGB: Equatable, Sendable {
@@ -128,6 +131,62 @@ struct CmxNativeTerminalGridSnapshot: Equatable, Sendable {
     var rows: UInt16
     var cells: [CmxNativeTerminalGridCell]
     var cursor: CmxNativeTerminalCursorPosition?
+}
+
+enum CmxTerminalColorPreference: Equatable, Sendable {
+    case light
+    case dark
+}
+
+struct CmxNativeTerminalThemeSet: Equatable, Sendable {
+    var defaultTheme: CmxNativeTerminalTheme?
+    var light: CmxNativeTerminalTheme?
+    var dark: CmxNativeTerminalTheme?
+
+    func effectiveTheme(colorPreference: CmxTerminalColorPreference) -> CmxNativeTerminalTheme? {
+        switch colorPreference {
+        case .light:
+            light ?? defaultTheme ?? dark
+        case .dark:
+            dark ?? defaultTheme ?? light
+        }
+    }
+}
+
+struct CmxNativeTerminalTheme: Equatable, Sendable {
+    var palette: [UInt8: String]
+    var foreground: String?
+    var background: String?
+    var cursor: String?
+    var cursorAccent: String?
+    var selectionBackground: String?
+    var selectionForeground: String?
+    var black: String?
+    var red: String?
+    var green: String?
+    var yellow: String?
+    var blue: String?
+    var magenta: String?
+    var cyan: String?
+    var white: String?
+    var brightBlack: String?
+    var brightRed: String?
+    var brightGreen: String?
+    var brightYellow: String?
+    var brightBlue: String?
+    var brightMagenta: String?
+    var brightCyan: String?
+    var brightWhite: String?
+}
+
+struct CmxNativeTerminalFont: Equatable, Sendable {
+    var families: [String]
+    var size: Double?
+}
+
+struct CmxNativeTerminalCursor: Equatable, Sendable {
+    var style: String?
+    var blink: Bool?
 }
 
 enum CmxClientMessage: Equatable, Sendable {
@@ -458,7 +517,10 @@ enum CmxWireCodec {
             activeSpaceID: try requiredUInt(map, "active_space_id"),
             panels: try decodePanelNode(try requiredMap(map, "panels")),
             focusedPanelID: try requiredUInt(map, "focused_panel_id"),
-            focusedTabID: try requiredUInt(map, "focused_tab_id")
+            focusedTabID: try requiredUInt(map, "focused_tab_id"),
+            terminalTheme: try optionalMap(map, "terminal_theme").map(decodeTerminalThemeSet),
+            terminalFont: try optionalMap(map, "terminal_font").map(decodeTerminalFont),
+            terminalCursor: try optionalMap(map, "terminal_cursor").map(decodeTerminalCursorConfig)
         )
     }
 
@@ -564,6 +626,76 @@ enum CmxWireCodec {
             b: UInt8(clamping: try requiredUInt(map, "b"))
         )
     }
+
+    private static func decodeTerminalThemeSet(_ map: [String: MessagePackValue]) throws -> CmxNativeTerminalThemeSet {
+        CmxNativeTerminalThemeSet(
+            defaultTheme: try optionalMap(map, "default").map(decodeTerminalTheme),
+            light: try optionalMap(map, "light").map(decodeTerminalTheme),
+            dark: try optionalMap(map, "dark").map(decodeTerminalTheme)
+        )
+    }
+
+    private static func decodeTerminalTheme(_ map: [String: MessagePackValue]) throws -> CmxNativeTerminalTheme {
+        CmxNativeTerminalTheme(
+            palette: try decodeTerminalPalette(try optionalMap(map, "palette") ?? [:]),
+            foreground: try optionalString(map, "foreground"),
+            background: try optionalString(map, "background"),
+            cursor: try optionalString(map, "cursor"),
+            cursorAccent: try optionalString(map, "cursor_accent"),
+            selectionBackground: try optionalString(map, "selection_background"),
+            selectionForeground: try optionalString(map, "selection_foreground"),
+            black: try optionalString(map, "black"),
+            red: try optionalString(map, "red"),
+            green: try optionalString(map, "green"),
+            yellow: try optionalString(map, "yellow"),
+            blue: try optionalString(map, "blue"),
+            magenta: try optionalString(map, "magenta"),
+            cyan: try optionalString(map, "cyan"),
+            white: try optionalString(map, "white"),
+            brightBlack: try optionalString(map, "bright_black"),
+            brightRed: try optionalString(map, "bright_red"),
+            brightGreen: try optionalString(map, "bright_green"),
+            brightYellow: try optionalString(map, "bright_yellow"),
+            brightBlue: try optionalString(map, "bright_blue"),
+            brightMagenta: try optionalString(map, "bright_magenta"),
+            brightCyan: try optionalString(map, "bright_cyan"),
+            brightWhite: try optionalString(map, "bright_white")
+        )
+    }
+
+    private static func decodeTerminalPalette(_ map: [String: MessagePackValue]) throws -> [UInt8: String] {
+        var palette: [UInt8: String] = [:]
+        for (key, value) in map {
+            guard let index = UInt8(key) else { continue }
+            palette[index] = try value.stringValue()
+        }
+        return palette
+    }
+
+    private static func decodeTerminalFont(_ map: [String: MessagePackValue]) throws -> CmxNativeTerminalFont {
+        let families = try (map["families"]?.arrayValue() ?? []).map { try $0.stringValue() }
+        return CmxNativeTerminalFont(
+            families: families,
+            size: try optionalDouble(map, "size")
+        )
+    }
+
+    private static func decodeTerminalCursorConfig(_ map: [String: MessagePackValue]) throws -> CmxNativeTerminalCursor {
+        CmxNativeTerminalCursor(
+            style: try optionalString(map, "style"),
+            blink: try optionalBool(map, "blink")
+        )
+    }
+
+    private static func optionalDouble(_ map: [String: MessagePackValue], _ key: String) throws -> Double? {
+        guard let value = map[key], value != .nilValue else { return nil }
+        return try value.doubleValue()
+    }
+
+    private static func optionalBool(_ map: [String: MessagePackValue], _ key: String) throws -> Bool? {
+        guard let value = map[key], value != .nilValue else { return nil }
+        return try value.boolValue()
+    }
 }
 
 private enum MessagePackValue: Equatable {
@@ -614,6 +746,32 @@ private enum MessagePackValue: Equatable {
             return UInt64(value)
         default:
             throw CmxWireError.expectedInteger
+        }
+    }
+
+    func doubleValue() throws -> Double {
+        switch self {
+        case .float(let value):
+            return value
+        case .uint(let value):
+            return Double(value)
+        case .int(let value):
+            return Double(value)
+        default:
+            throw CmxWireError.invalidMessage("Expected MessagePack number.")
+        }
+    }
+
+    var stringMapKey: String? {
+        switch self {
+        case .string(let value):
+            return value
+        case .uint(let value):
+            return String(value)
+        case .int(let value) where value >= 0:
+            return String(value)
+        default:
+            return nil
         }
     }
 }
@@ -802,8 +960,7 @@ private struct MessagePackReader {
         for _ in 0..<count {
             let key = try readValue()
             let value = try readValue()
-            // Rust may include ignored nested maps keyed by numeric theme color indexes.
-            if case .string(let stringKey) = key {
+            if let stringKey = key.stringMapKey {
                 map[stringKey] = value
             }
         }
@@ -862,5 +1019,121 @@ private struct MessagePackReader {
         return bytes.reduce(T.zero) { partial, byte in
             (partial << 8) | T(byte)
         }
+    }
+}
+
+extension CmxNativeSnapshot {
+    func ghosttyConfigFragment(colorPreference: CmxTerminalColorPreference) -> String? {
+        var lines: [String] = []
+        if let theme = terminalTheme?.effectiveTheme(colorPreference: colorPreference) {
+            lines.append(contentsOf: theme.ghosttyConfigLines())
+        }
+        if let terminalFont {
+            lines.append(contentsOf: terminalFont.ghosttyConfigLines())
+        }
+        if let terminalCursor {
+            lines.append(contentsOf: terminalCursor.ghosttyConfigLines())
+        }
+        guard !lines.isEmpty else { return nil }
+        return lines.joined(separator: "\n") + "\n"
+    }
+}
+
+extension CmxNativeTerminalTheme {
+    func ghosttyConfigLines() -> [String] {
+        var lines: [String] = []
+        appendColor("foreground", foreground, to: &lines)
+        appendColor("background", background, to: &lines)
+        appendColor("cursor-color", cursor, to: &lines)
+        appendColor("cursor-text", cursorAccent, to: &lines)
+        appendColor("selection-background", selectionBackground, to: &lines)
+        appendColor("selection-foreground", selectionForeground, to: &lines)
+
+        var resolvedPalette = palette
+        for (index, value) in namedPaletteEntries {
+            if let value {
+                resolvedPalette[index] = value
+            }
+        }
+        for index in resolvedPalette.keys.sorted() {
+            guard let color = Self.sanitizedColor(resolvedPalette[index]) else { continue }
+            lines.append("palette = \(index)=\(color)")
+        }
+        return lines
+    }
+
+    private var namedPaletteEntries: [(UInt8, String?)] {
+        [
+            (0, black),
+            (1, red),
+            (2, green),
+            (3, yellow),
+            (4, blue),
+            (5, magenta),
+            (6, cyan),
+            (7, white),
+            (8, brightBlack),
+            (9, brightRed),
+            (10, brightGreen),
+            (11, brightYellow),
+            (12, brightBlue),
+            (13, brightMagenta),
+            (14, brightCyan),
+            (15, brightWhite),
+        ]
+    }
+
+    private func appendColor(_ key: String, _ value: String?, to lines: inout [String]) {
+        guard let color = Self.sanitizedColor(value) else { return }
+        lines.append("\(key) = \(color)")
+    }
+
+    private static func sanitizedColor(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hex = trimmed.hasPrefix("#") ? String(trimmed.dropFirst()) : trimmed
+        guard hex.count == 3 || hex.count == 6 else { return nil }
+        let hexScalars = Set("0123456789abcdefABCDEF".unicodeScalars)
+        guard hex.unicodeScalars.allSatisfy({ hexScalars.contains($0) }) else { return nil }
+        return "#\(hex)"
+    }
+}
+
+extension CmxNativeTerminalFont {
+    func ghosttyConfigLines() -> [String] {
+        var lines: [String] = []
+        for family in families {
+            let trimmed = family.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty,
+                  !trimmed.contains(where: { $0.isNewline }) else { continue }
+            lines.append("font-family = \"\(trimmed.ghosttyEscapedString)\"")
+        }
+        if let size,
+           size.isFinite,
+           size > 0 {
+            lines.append(String(format: "font-size = %.3f", size))
+        }
+        return lines
+    }
+}
+
+extension CmxNativeTerminalCursor {
+    func ghosttyConfigLines() -> [String] {
+        var lines: [String] = []
+        if let style,
+           ["block", "bar", "underline", "block_hollow"].contains(style) {
+            lines.append("cursor-style = \(style)")
+        }
+        if let blink {
+            lines.append("cursor-style-blink = \(blink ? "true" : "false")")
+        }
+        return lines
+    }
+}
+
+private extension String {
+    var ghosttyEscapedString: String {
+        replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
     }
 }

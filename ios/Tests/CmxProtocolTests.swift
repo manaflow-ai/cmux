@@ -147,6 +147,14 @@ final class CmxProtocolTests: XCTestCase {
         XCTAssertEqual(snapshot.spaces.map(\.title), ["space-a"])
         XCTAssertEqual(snapshot.panels.flattenedTabs.map(\.id), [41, 42])
         XCTAssertEqual(snapshot.panels.selection(for: 42), CmxNativeTabSelection(panelID: 31, index: 1))
+        XCTAssertEqual(snapshot.terminalTheme?.defaultTheme?.palette[1], "#f92672")
+        XCTAssertEqual(snapshot.terminalTheme?.defaultTheme?.background, "#272822")
+        XCTAssertEqual(snapshot.terminalFont?.families, ["JetBrains Mono"])
+        XCTAssertEqual(snapshot.terminalFont?.size, 13.0)
+        XCTAssertEqual(snapshot.terminalCursor?.style, "block")
+        XCTAssertEqual(snapshot.terminalCursor?.blink, true)
+        XCTAssertTrue(snapshot.ghosttyConfigFragment(colorPreference: .dark)?.contains("palette = 1=#f92672") == true)
+        XCTAssertTrue(snapshot.ghosttyConfigFragment(colorPreference: .dark)?.contains("background = #272822") == true)
     }
 
     func testDecodeTerminalGridSnapshot() throws {

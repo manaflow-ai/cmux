@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 @MainActor
 final class CmxConnectionStore: ObservableObject {
@@ -10,6 +11,7 @@ final class CmxConnectionStore: ObservableObject {
     @Published private(set) var isConnecting = false
     @Published private(set) var isConnected = false
     @Published private(set) var stackAuthSession: CmxStackAuthSession?
+    @Published private(set) var terminalAppearanceRevision = 0
     @Published var nodes = CmxDemoState.nodes
     @Published var workspaces = CmxDemoState.workspaces
     @Published private(set) var nativeSnapshot: CmxNativeSnapshot?
@@ -260,6 +262,7 @@ final class CmxConnectionStore: ObservableObject {
 
     func applyNativeSnapshot(_ snapshot: CmxNativeSnapshot) {
         nativeSnapshot = snapshot
+        applyTerminalAppearance(from: snapshot, colorPreference: currentColorPreference)
         let nodeID = nodes.first?.id ?? 1
         let activeTabs = snapshot.panels.flattenedTabs
         let activeTerminals = activeTabs.map { tab in
@@ -304,6 +307,11 @@ final class CmxConnectionStore: ObservableObject {
         selectedWorkspaceID = snapshot.activeWorkspaceID
         selectedSpaceID = snapshot.activeSpaceID
         selectedTerminalID = snapshot.focusedTabID
+    }
+
+    func refreshTerminalAppearance(colorPreference: CmxTerminalColorPreference) {
+        guard let nativeSnapshot else { return }
+        applyTerminalAppearance(from: nativeSnapshot, colorPreference: colorPreference)
     }
 
     private func updateConnectedNode(for ticket: CmxBridgeTicket) {
@@ -383,30 +391,43 @@ final class CmxConnectionStore: ObservableObject {
         )
     }
 
+    private var currentColorPreference: CmxTerminalColorPreference {
+        UITraitCollection.current.userInterfaceStyle == .light ? .light : .dark
+    }
+
+    private func applyTerminalAppearance(
+        from snapshot: CmxNativeSnapshot,
+        colorPreference: CmxTerminalColorPreference
+    ) {
+        if GhosttyRuntime.applyRemoteConfigOverride(snapshot.ghosttyConfigFragment(colorPreference: colorPreference)) {
+            terminalAppearanceRevision += 1
+        }
+    }
+
     private func initialOutput(for terminal: CmxTerminal) -> Data {
         let esc = "\u{001B}"
-        let title = "\(esc)[1;38;2;102;217;239m\(terminal.title)\(esc)[0m"
+        let title = "\(esc)[1;36m\(terminal.title)\(esc)[0m"
         let rows = terminal.rows.enumerated().map { index, row in
             if index == 0 {
-                return "\(esc)[38;2;166;226;46m\(row)\(esc)[0m"
+                return "\(esc)[32m\(row)\(esc)[0m"
             }
             if row.hasPrefix("$") {
-                return "\(esc)[38;2;253;151;31m\(row)\(esc)[0m"
+                return "\(esc)[33m\(row)\(esc)[0m"
             }
             return row
         }
-        return Data(("\(esc)[2J\(esc)[H\(title)\r\n\r\n" + rows.joined(separator: "\r\n") + "\r\n\r\n\(esc)[38;2;166;226;46mios$ \(esc)[0m").utf8)
+        return Data(("\(esc)[2J\(esc)[H\(title)\r\n\r\n" + rows.joined(separator: "\r\n") + "\r\n\r\n\(esc)[32mios$ \(esc)[0m").utf8)
     }
 
     private func renderEcho(for data: Data) -> Data {
         if data == Data([0x03]) {
-            return Data("^C\r\n\u{001B}[38;2;166;226;46mios$ \u{001B}[0m".utf8)
+            return Data("^C\r\n\u{001B}[32mios$ \u{001B}[0m".utf8)
         }
         if data == Data([0x04]) {
-            return Data("^D\r\n\u{001B}[38;2;166;226;46mios$ \u{001B}[0m".utf8)
+            return Data("^D\r\n\u{001B}[32mios$ \u{001B}[0m".utf8)
         }
         if data == Data([0x0C]) {
-            return Data("\u{001B}[2J\u{001B}[H\u{001B}[38;2;166;226;46mios$ \u{001B}[0m".utf8)
+            return Data("\u{001B}[2J\u{001B}[H\u{001B}[32mios$ \u{001B}[0m".utf8)
         }
         if data == Data([0x7F]) {
             return Data("\u{8} \u{8}".utf8)
@@ -418,7 +439,7 @@ final class CmxConnectionStore: ObservableObject {
             return Data()
         }
         if text.contains("\n") {
-            return Data(text.replacingOccurrences(of: "\n", with: "\r\n\u{001B}[38;2;166;226;46mios$ \u{001B}[0m").utf8)
+            return Data(text.replacingOccurrences(of: "\n", with: "\r\n\u{001B}[32mios$ \u{001B}[0m").utf8)
         }
         return Data(text.utf8)
     }
