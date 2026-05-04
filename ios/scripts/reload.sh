@@ -43,6 +43,21 @@ merge_status() {
     fi
 }
 
+classify_device_reload_failure() {
+    local log_path="$1"
+    if grep -qiE "kAMDMobileImageMounterDeviceLocked|The device is locked|Ensure that the device is unlocked" "$log_path"; then
+        echo "device locked while mounting the developer disk image"
+    elif grep -qi "developer disk image could not be mounted" "$log_path"; then
+        echo "developer disk image mount failed"
+    elif grep -qi "No provider was found" "$log_path"; then
+        echo "CoreDevice provider unavailable"
+    elif grep -qi "Provisioning profile" "$log_path"; then
+        echo "provisioning failed"
+    else
+        echo "see reload output above"
+    fi
+}
+
 require_tag_value() {
     local value="${1:-}"
     if [ -z "$value" ] || [[ "$value" == -* ]]; then
@@ -140,6 +155,7 @@ fi
 
 IPHONE_STATUS="unavailable"
 OTHER_IOS_STATUS="unavailable"
+DEVICE_RELOAD_DETAILS=()
 if [ "$SIMULATOR_ONLY" -eq 0 ]; then
     if command -v jq >/dev/null 2>&1; then
         if ! IOS_DEVICES="$(xcrun xcdevice list --timeout 2 | jq -r '.[] | select(.simulator == false and .platform == "com.apple.platform.iphoneos" and .available == true) | [.name, .identifier] | @tsv')"; then
@@ -154,6 +170,7 @@ if [ "$SIMULATOR_ONLY" -eq 0 ]; then
             [ -n "$DEVICE_ID" ] || continue
             echo "Building device app for $DEVICE_NAME..."
             DEVICE_STATUS="succeeded"
+            DEVICE_LOG="$(mktemp "${TMPDIR:-/tmp}/cmux-ios-reload-device.XXXXXX.log")"
             if ! xcodebuild \
                 -project cmux-ios.xcodeproj \
                 -scheme cmux-ios \
@@ -163,16 +180,20 @@ if [ "$SIMULATOR_ONLY" -eq 0 ]; then
                 "${EXTRA_SETTINGS[@]}" \
                 -allowProvisioningUpdates \
                 -allowProvisioningDeviceRegistration \
-                -quiet; then
+                -quiet 2>&1 | tee "$DEVICE_LOG"; then
                 DEVICE_STATUS="failed"
+                DEVICE_RELOAD_DETAILS+=("$DEVICE_NAME reload reason: $(classify_device_reload_failure "$DEVICE_LOG")")
             else
                 DEVICE_APP_PATH="$DERIVED_DATA_PATH/Build/Products/Debug-iphoneos/$APP_NAME.app"
-                if ! xcrun devicectl device install app --device "$DEVICE_ID" "$DEVICE_APP_PATH"; then
+                if ! xcrun devicectl device install app --device "$DEVICE_ID" "$DEVICE_APP_PATH" 2>&1 | tee "$DEVICE_LOG"; then
                     DEVICE_STATUS="failed"
-                elif ! xcrun devicectl device process launch --device "$DEVICE_ID" "$BUNDLE_ID"; then
+                    DEVICE_RELOAD_DETAILS+=("$DEVICE_NAME reload reason: $(classify_device_reload_failure "$DEVICE_LOG")")
+                elif ! xcrun devicectl device process launch --device "$DEVICE_ID" "$BUNDLE_ID" 2>&1 | tee "$DEVICE_LOG"; then
                     DEVICE_STATUS="installed_launch_failed"
+                    DEVICE_RELOAD_DETAILS+=("$DEVICE_NAME reload reason: launch failed")
                 fi
             fi
+            rm -f "$DEVICE_LOG"
 
             if echo "$DEVICE_NAME" | grep -qi "iphone"; then
                 IPHONE_STATUS="$(merge_status "$IPHONE_STATUS" "$DEVICE_STATUS")"
@@ -189,3 +210,6 @@ echo "iPhone reload: $IPHONE_STATUS"
 if [ "$OTHER_IOS_STATUS" != "unavailable" ]; then
     echo "Other iOS device reload: $OTHER_IOS_STATUS"
 fi
+for DETAIL in "${DEVICE_RELOAD_DETAILS[@]}"; do
+    echo "$DETAIL"
+done
