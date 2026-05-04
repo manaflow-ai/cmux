@@ -79,7 +79,13 @@ struct FeedPanelView: View {
     var body: some View {
         VStack(spacing: 0) {
             controlBar
-            FeedListView(filter: filter, items: viewModel.items)
+            FeedListView(
+                filter: filter,
+                items: viewModel.items,
+                hasMorePersistedItems: viewModel.hasMorePersistedItems,
+                isLoadingOlderItems: viewModel.isLoadingOlderItems,
+                onLoadOlderItems: viewModel.loadOlderItems
+            )
         }
     }
 
@@ -143,51 +149,6 @@ private struct FeedSecondaryFilterButton: View {
     }
 }
 
-/// Bridges the `@Observable` WorkstreamStore to a Combine `@Published`
-/// snapshot so SwiftUI reliably re-renders the Feed panel on every
-/// mutation. This is the documented pattern for observing an
-/// Observable from outside SwiftUI's implicit body-tracking (singleton
-/// access + optional chain breaks the implicit path in our case).
-///
-/// Re-arms `withObservationTracking` after every change so the next
-/// mutation also fires. If the view is created before the store is
-/// installed, it waits for the coordinator's install notification.
-@MainActor
-final class FeedPanelViewModel: ObservableObject {
-    @Published private(set) var items: [WorkstreamItem] = []
-    private var storeInstalledObserver: NSObjectProtocol?
-
-    init() {
-        storeInstalledObserver = NotificationCenter.default.addObserver(
-            forName: FeedCoordinator.storeInstalledNotification,
-            object: FeedCoordinator.shared,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.arm()
-            }
-        }
-        arm()
-    }
-
-    deinit {
-        if let storeInstalledObserver {
-            NotificationCenter.default.removeObserver(storeInstalledObserver)
-        }
-    }
-
-    private func arm() {
-        guard let store = FeedCoordinator.shared.store else { return }
-        withObservationTracking {
-            items = store.items
-        } onChange: { [weak self] in
-            Task { @MainActor in
-                self?.arm()
-            }
-        }
-    }
-}
-
 /// Feed content surface. Isolated so the outer panel's `@State`
 /// changes don't invalidate rows unnecessarily. Receives items as a
 /// plain value so its body never touches the live store, the parent
@@ -195,6 +156,9 @@ final class FeedPanelViewModel: ObservableObject {
 private struct FeedListView: View {
     let filter: FeedPanelView.Filter
     let items: [WorkstreamItem]
+    let hasMorePersistedItems: Bool
+    let isLoadingOlderItems: Bool
+    let onLoadOlderItems: () -> Void
 
     @State private var focusSnapshot = FeedFocusSnapshot()
     @State private var scrollRequest: FeedScrollRequest?
@@ -205,7 +169,7 @@ private struct FeedListView: View {
         let rowActions = FeedRowActions.bound()
         ScrollViewReader { proxy in
             Group {
-                if snapshots.isEmpty {
+                if snapshots.isEmpty && !shouldShowActivityHistoryLoader {
                     emptyState
                 } else {
                     contentBody(
@@ -266,7 +230,7 @@ private struct FeedListView: View {
         case .activity:
             let stable = snapshots.filter(prefersStableSurface)
             let history = snapshots.filter { !prefersStableSurface($0) }
-            if history.isEmpty {
+            if history.isEmpty && !hasMorePersistedItems {
                 stableScrollSurface(
                     snapshots: stable,
                     actions: actions
@@ -282,7 +246,8 @@ private struct FeedListView: View {
                     }
                     historyList(
                         snapshots: history,
-                        actions: actions
+                        actions: actions,
+                        showsLoadMore: hasMorePersistedItems
                     )
                 }
             }
@@ -327,7 +292,8 @@ private struct FeedListView: View {
 
     private func historyList(
         snapshots: [FeedItemSnapshot],
-        actions: FeedRowActions
+        actions: FeedRowActions,
+        showsLoadMore: Bool
     ) -> some View {
         List {
             // Single chronological history stream. The plain List keeps
@@ -338,6 +304,15 @@ private struct FeedListView: View {
                     snapshot: snapshot,
                     actions: actions,
                     showsDivider: idx < snapshots.count - 1
+                )
+                .listRowInsets(EdgeInsets())
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+            }
+            if showsLoadMore {
+                FeedHistoryLoadMoreRow(
+                    isLoading: isLoadingOlderItems,
+                    action: onLoadOlderItems
                 )
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
@@ -385,8 +360,7 @@ private struct FeedListView: View {
     /// "You: …" echo line at the top of their card.
     private static func lastPromptByWorkstream(_ items: [WorkstreamItem]) -> [String: String] {
         var out: [String: String] = [:]
-        let sorted = items.sorted { $0.createdAt < $1.createdAt }
-        for item in sorted {
+        for item in items {
             if case .userPrompt(let text) = item.payload, !text.isEmpty {
                 out[item.workstreamId] = text
             }
@@ -417,7 +391,7 @@ private struct FeedListView: View {
         // in the chronological slot where they arrived so the user's
         // mental map of "this was the second request I got" doesn't
         // get shuffled when they answer it.
-        return base.sorted { $0.createdAt > $1.createdAt }
+        return Array(base.reversed())
     }
 
     private func visibleSnapshots(_ items: [WorkstreamItem]) -> [FeedItemSnapshot] {
@@ -432,6 +406,10 @@ private struct FeedListView: View {
 
     private func prefersStableSurface(_ snapshot: FeedItemSnapshot) -> Bool {
         snapshot.status.isPending || snapshot.kind == .stop
+    }
+
+    private var shouldShowActivityHistoryLoader: Bool {
+        filter == .activity && hasMorePersistedItems
     }
 
     private func selectRow(_ id: UUID, focusFeed: Bool) {

@@ -60,6 +60,7 @@ final class CmuxSettingsFileStore {
         "sidebar.showNotificationMessage",
         "sidebar.showBranchDirectory",
         "sidebar.showPullRequests",
+        "sidebar.makePullRequestsClickable",
         "sidebar.openPullRequestLinksInCmuxBrowser",
         "sidebar.openPortLinksInCmuxBrowser",
         "sidebar.showSSH",
@@ -210,7 +211,7 @@ final class CmuxSettingsFileStore {
         }
 
         if previousShortcuts != resolved.shortcuts || previousActiveSourcePath != resolved.path {
-            KeyboardShortcutSettings.notifySettingsFileDidChange()
+            KeyboardShortcutSettings.notifySettingsFileDidChange(center: notificationCenter)
         }
     }
 
@@ -526,12 +527,9 @@ final class CmuxSettingsFileStore {
         if let value = jsonBool(section["showNotificationMessage"]) {
             snapshot.managedUserDefaults[SidebarWorkspaceDetailSettings.showNotificationMessageKey] = .bool(value)
         }
-        if let value = jsonBool(section["showBranchDirectory"]) {
-            snapshot.managedUserDefaults["sidebarShowBranchDirectory"] = .bool(value)
-        }
-        if let value = jsonBool(section["showPullRequests"]) {
-            snapshot.managedUserDefaults["sidebarShowPullRequest"] = .bool(value)
-        }
+        if let value = jsonBool(section["showBranchDirectory"]) { snapshot.managedUserDefaults["sidebarShowBranchDirectory"] = .bool(value) }
+        if let value = jsonBool(section["showPullRequests"]) { snapshot.managedUserDefaults["sidebarShowPullRequest"] = .bool(value) }
+        if let value = jsonBool(section["makePullRequestsClickable"]) { snapshot.managedUserDefaults[SidebarPullRequestClickabilitySettings.key] = .bool(value) }
         if let value = jsonBool(section["openPullRequestLinksInCmuxBrowser"]) {
             snapshot.managedUserDefaults[BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowserKey] = .bool(value)
         }
@@ -862,10 +860,7 @@ final class CmuxSettingsFileStore {
         }()
 
         guard let shortcut else { return nil }
-        if let normalized = action.normalizedRecordedShortcut(shortcut) {
-            return normalized
-        }
-        return action.usesNumberedDigitMatching ? nil : shortcut
+        return action.normalizedSettingsFileShortcut(shortcut)
     }
 
     private func parseNullableHex(
@@ -1069,6 +1064,8 @@ final class CmuxSettingsFileStore {
         case LanguageSettings.languageKey:
             let language = AppLanguage(rawValue: UserDefaults.standard.string(forKey: defaultsKey) ?? "") ?? .system
             LanguageSettings.apply(language)
+        case AppearanceSettings.appearanceModeKey:
+            AppearanceSettings.applyStoredMode(rawValue: UserDefaults.standard.string(forKey: defaultsKey), source: "cmuxConfig.applyManagedDefault")
         case AppIconSettings.modeKey:
             AppIconSettings.applyIcon(AppIconSettings.resolvedMode())
         default:
@@ -1115,6 +1112,8 @@ final class CmuxSettingsFileStore {
         case LanguageSettings.languageKey:
             let language = AppLanguage(rawValue: UserDefaults.standard.string(forKey: defaultsKey) ?? "") ?? .system
             LanguageSettings.apply(language)
+        case AppearanceSettings.appearanceModeKey:
+            AppearanceSettings.applyStoredMode(rawValue: UserDefaults.standard.string(forKey: defaultsKey), source: "cmuxConfig.restoreUserDefault")
         case AppIconSettings.modeKey:
             AppIconSettings.applyIcon(AppIconSettings.resolvedMode())
         default:
@@ -1276,6 +1275,7 @@ final class CmuxSettingsFileStore {
                     "showNotificationMessage": SidebarWorkspaceDetailSettings.defaultShowNotificationMessage,
                     "showBranchDirectory": true,
                     "showPullRequests": true,
+                    "makePullRequestsClickable": SidebarPullRequestClickabilitySettings.defaultClickable,
                     "openPullRequestLinksInCmuxBrowser": BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser,
                     "openPortLinksInCmuxBrowser": BrowserLinkOpenSettings.defaultOpenSidebarPortLinksInCmuxBrowser,
                     "showSSH": true,

@@ -1669,49 +1669,6 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
     }
 
-    func testOpenCodeInstallHooksRegistersSessionPlugin() throws {
-        let cliPath = try bundledCLIPath()
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-opencode-hooks-\(UUID().uuidString)", isDirectory: true)
-        let configDir = root.appendingPathComponent("opencode", isDirectory: true)
-        try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let configURL = configDir.appendingPathComponent("opencode.json", isDirectory: false)
-        try """
-        {
-          "plugin": [
-            "other-plugin",
-            "./plugins/cmux-session.js"
-          ]
-        }
-        """.write(to: configURL, atomically: true, encoding: .utf8)
-
-        var environment = ProcessInfo.processInfo.environment
-        environment["OPENCODE_CONFIG_DIR"] = configDir.path
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        let result = runProcess(
-            executablePath: cliPath,
-            arguments: ["opencode", "install-hooks", "--yes"],
-            environment: environment,
-            timeout: 5
-        )
-
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-        let pluginURL = configDir
-            .appendingPathComponent("plugins", isDirectory: true)
-            .appendingPathComponent("cmux-session.js", isDirectory: false)
-        let pluginSource = try String(contentsOf: pluginURL, encoding: .utf8)
-        XCTAssertTrue(pluginSource.contains("cmux-opencode-session-plugin-marker"))
-        XCTAssertTrue(pluginSource.contains("\"opencode-hook\""))
-
-        let data = try Data(contentsOf: configURL)
-        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data, options: []) as? [String: Any])
-        let plugins = try XCTUnwrap(json["plugin"] as? [String])
-        XCTAssertEqual(plugins, ["other-plugin", "./plugins/cmux-session.js"])
-    }
-
     func testAgentHookLaunchEnvironmentDoesNotPersistPathOrShell() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("hook")

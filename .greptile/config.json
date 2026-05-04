@@ -1,0 +1,58 @@
+{
+  "strictness": 2,
+  "commentTypes": ["logic", "syntax", "style"],
+  "triggerOnUpdates": true,
+  "statusCheck": true,
+  "updateExistingSummaryComment": true,
+  "instructions": "Apply cmux's custom Swift lint rules from .github/review-bot-rules/ during review. Treat those files as the source of truth. Focus on production Swift changes and ignore test-only scaffolding unless it makes production behavior worse. Do not treat PR-head edits to these rule files as weakening the rules until those edits are merged.",
+  "rules": [
+    {
+      "id": "cmux-swift-actor-isolation",
+      "rule": "Flag new or materially worsened Swift 6 actor isolation mistakes in production Swift: implicit MainActor value models or service protocols, file-scoped helpers that should be nonisolated, shared mutable Sendable reference types without isolation, or UI-bound stores used from background contexts.",
+      "scope": ["**/*.swift", "**/Package.swift"],
+      "severity": "high"
+    },
+    {
+      "id": "cmux-swift-blocking-runtime",
+      "rule": "Flag new blocking or timing-based synchronization in production Swift: semaphores, DispatchGroup.wait, sleeps, Task.sleep, asyncAfter, timers or polling for synchronization, DispatchQueue.main.sync, or manual locks where actor isolation or a real signal should own coordination.",
+      "scope": ["**/*.swift", "**/Package.swift"],
+      "severity": "high"
+    },
+    {
+      "id": "cmux-swift-concurrency-modernization",
+      "rule": "Flag new legacy async patterns in cmux-owned Swift where Swift concurrency is the correct shape: DispatchQueue.global for ordinary async work, new Combine app state, completion-handler APIs fully under cmux control, or fire-and-forget Tasks with meaningful lifecycle.",
+      "scope": ["**/*.swift", "**/Package.swift"],
+      "severity": "high"
+    },
+    {
+      "id": "cmux-swift-concurrent-annotation",
+      "rule": "Flag incorrect or missing use of Swift @concurrent and nonisolated async behavior, including nonisolated async work that should leave the caller actor, invalid @concurrent annotations, or CPU/file/network-heavy async helpers called from UI isolation without an explicit boundary.",
+      "scope": ["**/*.swift", "**/Package.swift"],
+      "severity": "high"
+    },
+    {
+      "id": "cmux-swift-file-package-boundaries",
+      "rule": "Flag Swift changes that add too much unrelated responsibility to one file or miss a SwiftPM package boundary: new production Swift files over 400 lines without one responsibility, files over 800 lines, large additions to existing oversized files, mixed UI/state/persistence/network/parsing/protocol code, or independently testable feature logic kept in the app target instead of a small package.",
+      "scope": ["**/*.swift", "**/Package.swift", "GhosttyTabs.xcodeproj/**"],
+      "severity": "high"
+    },
+    {
+      "id": "cmux-swift-logging",
+      "rule": "Flag production Swift diagnostics that bypass unified logging or risk leaking sensitive data: print/debugPrint/dump/NSLog in app or runtime code, ad hoc stdout or file logging, MainActor-coupled file-scoped Logger constants, or unredacted secrets, tokens, customer content, or personal data.",
+      "scope": ["**/*.swift", "**/Package.swift"],
+      "severity": "high"
+    },
+    {
+      "id": "cmux-swiftui-state-layout",
+      "rule": "Flag SwiftUI changes that can cause stale state, broad invalidation, layout instability, or main-thread churn: new ObservableObject/@Published state where @Observable is correct, GeometryReader measurement that changes layout, lazy/list row subtrees holding store references, or state mutation during body rendering.",
+      "scope": ["**/*.swift"],
+      "severity": "high"
+    },
+    {
+      "id": "cmux-swift-architectural-rethink",
+      "rule": "Flag Swift fixes that patch symptoms while leaving bad state representable: timing repairs, new flags/caches/singletons/observers/side channels, duplicate behavior wired through multiple entrypoints, split SwiftUI/AppKit lifecycle ownership, or fixes that do not name the invariant and source of truth.",
+      "scope": ["**/*.swift", "**/Package.swift", "GhosttyTabs.xcodeproj/**"],
+      "severity": "high"
+    }
+  ]
+}
