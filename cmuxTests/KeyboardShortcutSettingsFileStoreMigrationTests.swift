@@ -108,26 +108,32 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
 
     func testLegacySettingsShortcutBindingsParseWithoutRuntimeConflictLookup() throws {
         let originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
+        KeyboardShortcutSettings.resetAll()
         defer {
             KeyboardShortcutSettings.shortcutLookupObserver = nil
-            KeyboardShortcutSettings.resetAll()
             KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
+            KeyboardShortcutSettings.resetAll()
         }
-        KeyboardShortcutSettings.resetAll()
 
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-        let runtimeStoreURL = directoryURL.appendingPathComponent("runtime/cmux.json", isDirectory: false)
+        let liveSettingsFileURL = directoryURL.appendingPathComponent("live-cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "openBrowser": "cmd+2"
+              }
+            }
+            """,
+            to: liveSettingsFileURL
+        )
         KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
-            primaryPath: runtimeStoreURL.path,
+            primaryPath: liveSettingsFileURL.path,
             fallbackPath: nil,
             notificationCenter: NotificationCenter(),
             startWatching: false
-        )
-        KeyboardShortcutSettings.setShortcut(
-            StoredShortcut(key: "2", command: true, shift: false, option: false, control: false),
-            for: .openBrowser
         )
         let lookupRecorder = ShortcutSettingsLookupRecorder()
         KeyboardShortcutSettings.shortcutLookupObserver = { action in

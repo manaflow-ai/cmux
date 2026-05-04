@@ -68905,29 +68905,6 @@
         }
       }
     },
-    "settings.shortcuts.managedByFile": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Managed in cmux.json"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux.json で管理"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux.json에서 관리됨"
-          }
-        }
-      }
-    },
     "settings.shortcuts.chords": {
       "extractionState": "manual",
       "localizations": {
