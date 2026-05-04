@@ -11720,6 +11720,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         browserAddressBarFocusedPanelId
     }
 
+    func clearBrowserAddressBarFocus(panelId: UUID, reason: String) {
+        guard browserAddressBarFocusedPanelId == panelId else { return }
+        browserAddressBarFocusedPanelId = nil
+        stopBrowserOmnibarSelectionRepeat()
+#if DEBUG
+        cmuxDebugLog("addressBar CLEAR panelId=\(panelId.uuidString.prefix(8)) reason=\(reason)")
+#endif
+    }
+
     private func focusedBrowserAddressBarPanelIdForShortcutEvent(_ event: NSEvent) -> UUID? {
         guard let panelId = browserAddressBarFocusedPanelId else { return nil }
 

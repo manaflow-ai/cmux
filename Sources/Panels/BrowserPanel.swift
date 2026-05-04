@@ -5343,7 +5343,8 @@ extension BrowserPanel {
     }
 
     func ownedFocusIntent(for responder: NSResponder, in window: NSWindow) -> PanelFocusIntent? {
-        if AppDelegate.shared?.focusedBrowserAddressBarPanelId() == id {
+        if AppDelegate.shared?.focusedBrowserAddressBarPanelId() == id,
+           browserOmnibarPanelId(for: responder) == id {
             return .browser(.addressBar)
         }
 
@@ -5374,17 +5375,26 @@ extension BrowserPanel {
             return yielded
         case .addressBar:
             guard AppDelegate.shared?.focusedBrowserAddressBarPanelId() == id else { return false }
-            let yielded = window.makeFirstResponder(nil)
-#if DEBUG
-            if yielded {
-                cmuxDebugLog("focus.handoff.yield panel=\(id.uuidString.prefix(5)) target=addressBar")
+            guard browserOmnibarPanelId(for: window.firstResponder) == id else {
+                clearAddressBarFocusTrackingForYield()
+                return false
             }
+            browserPrepareOmnibarForProgrammaticBlur(panelId: id, responder: window.firstResponder)
+            clearAddressBarFocusTrackingForYield()
+#if DEBUG
+            cmuxDebugLog("focus.handoff.yield panel=\(id.uuidString.prefix(5)) target=addressBar")
 #endif
-            return yielded
+            return true
         case .webView:
             guard Self.responderChainContains(window.firstResponder, target: webView) else { return false }
             return window.makeFirstResponder(nil)
         }
+    }
+
+    private func clearAddressBarFocusTrackingForYield() {
+        endSuppressWebViewFocusForAddressBar()
+        AppDelegate.shared?.clearBrowserAddressBarFocus(panelId: id, reason: "yield")
+        NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: id)
     }
 
     @discardableResult
