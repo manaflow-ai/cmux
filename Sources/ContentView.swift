@@ -9809,6 +9809,10 @@ struct VerticalTabsSidebar: View {
         SidebarWorkspaceListMetrics.topScrimHeight
     }
 
+    private var sidebarBottomScrimHeight: CGFloat {
+        SidebarWorkspaceListMetrics.bottomScrimHeight
+    }
+
     private var isMinimalMode: Bool {
         WorkspacePresentationModeSettings.mode(for: workspacePresentationMode) == .minimal
     }
@@ -9909,7 +9913,7 @@ struct VerticalTabsSidebar: View {
             workspaceTerminalScrollBarHiddenById: workspaceTerminalScrollBarHiddenById
         )
 
-        VStack(spacing: 0) {
+        ZStack(alignment: .bottomLeading) {
             workspaceScrollArea(renderContext: renderContext)
             SidebarFooter(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -10012,8 +10016,17 @@ struct VerticalTabsSidebar: View {
                         .frame(height: workspaceScrollTopVisibilityInset)
                         .allowsHitTesting(false)
                 }
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    Color.clear
+                        .frame(height: sidebarBottomScrimHeight)
+                        .allowsHitTesting(false)
+                }
                 .overlay(alignment: .top) {
                     SidebarTopScrim(height: sidebarTopScrimHeight)
+                        .allowsHitTesting(false)
+                }
+                .overlay(alignment: .bottom) {
+                    SidebarBottomScrim(height: sidebarBottomScrimHeight)
                         .allowsHitTesting(false)
                 }
                 .overlay(alignment: .top) {
@@ -12431,9 +12444,66 @@ private struct SidebarTopScrim: View {
     let height: CGFloat
 
     var body: some View {
-        Color.clear
-            .frame(height: height)
+        SidebarEdgeScrim(height: height, edge: .top)
     }
+}
+
+private struct SidebarBottomScrim: View {
+    let height: CGFloat
+
+    var body: some View {
+        SidebarEdgeScrim(height: height, edge: .bottom)
+    }
+}
+
+private struct SidebarEdgeScrim: View {
+    enum Edge {
+        case top
+        case bottom
+    }
+
+    let height: CGFloat
+    let edge: Edge
+
+    var body: some View {
+        SidebarEdgeBlurEffect()
+            .frame(height: height)
+            .mask(
+                LinearGradient(
+                    colors: gradientColors,
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+    }
+
+    private var gradientColors: [Color] {
+        let colors = [
+            Color.black.opacity(0.95),
+            Color.black.opacity(0.75),
+            Color.black.opacity(0.35),
+            Color.clear,
+        ]
+        switch edge {
+        case .top:
+            return colors
+        case .bottom:
+            return Array(colors.reversed())
+        }
+    }
+}
+
+private struct SidebarEdgeBlurEffect: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.blendingMode = .withinWindow
+        view.material = .underWindowBackground
+        view.state = .active
+        view.isEmphasized = false
+        return view
+    }
+
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
 }
 
 private struct SidebarScrollViewResolver: NSViewRepresentable {
