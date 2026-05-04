@@ -629,6 +629,17 @@ enum KeyboardShortcutSettings {
         }
     }
 
+    fileprivate static func persistedShortcut(
+        for action: Action,
+        defaults: UserDefaults = .standard
+    ) -> StoredShortcut? {
+        guard let data = defaults.data(forKey: action.defaultsKey),
+              let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
+            return nil
+        }
+        return shortcut
+    }
+
     private static func persistShortcut(
         _ shortcut: StoredShortcut,
         for action: Action,
@@ -639,28 +650,24 @@ enum KeyboardShortcutSettings {
     }
 
     static func shortcut(for action: Action) -> StoredShortcut {
-        if let managedShortcut = settingsFileStore.override(for: action) {
-            return managedShortcut
+        if let persistedShortcut = persistedShortcut(for: action) {
+            return persistedShortcut
         }
-        guard let data = UserDefaults.standard.data(forKey: action.defaultsKey),
-              let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
-            return action.defaultShortcut
+        if let settingsFileShortcut = settingsFileStore.override(for: action) {
+            return settingsFileShortcut
         }
-        return shortcut
+        return action.defaultShortcut
     }
 
     static func isManagedBySettingsFile(_ action: Action) -> Bool {
         settingsFileStore.isManagedByFile(action)
     }
 
-    static func settingsFileManagedSubtitle(for action: Action) -> String? {
-        guard isManagedBySettingsFile(action) else { return nil }
-        return String(localized: "settings.shortcuts.managedByFile", defaultValue: "Managed in settings.json")
+    static func settingsFileManagedSubtitle(for _: Action) -> String? {
+        nil
     }
 
     static func setShortcut(_ shortcut: StoredShortcut, for action: Action) {
-        guard !isManagedBySettingsFile(action) else { return }
-
         guard let storedShortcut = storedShortcutForPersistence(shortcut, action: action) else {
             return
         }
@@ -675,16 +682,14 @@ enum KeyboardShortcutSettings {
         conflictingAction: Action,
         previousShortcut: StoredShortcut
     ) {
-        guard !isManagedBySettingsFile(currentAction),
-              !isManagedBySettingsFile(conflictingAction),
-              let resolvedCurrentShortcut = storedShortcutForReplacement(
-                proposedShortcut,
-                action: currentAction
-              ),
-              let resolvedConflictingShortcut = storedShortcutForReplacement(
+        guard let resolvedCurrentShortcut = storedShortcutForReplacement(
+            proposedShortcut,
+            action: currentAction
+        ),
+            let resolvedConflictingShortcut = storedShortcutForReplacement(
                 previousShortcut,
                 action: conflictingAction
-              ) else {
+            ) else {
             return
         }
 
@@ -836,14 +841,13 @@ enum SystemWideHotkeySettings {
     }
 
     private static func storedShortcut(defaults: UserDefaults = .standard) -> StoredShortcut? {
-        if let managedShortcut = KeyboardShortcutSettings.settingsFileStore.override(for: action) {
-            return managedShortcut
+        if let persistedShortcut = KeyboardShortcutSettings.persistedShortcut(for: action, defaults: defaults) {
+            return persistedShortcut
         }
-        guard let data = defaults.data(forKey: action.defaultsKey),
-              let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
-            return nil
+        if let settingsFileShortcut = KeyboardShortcutSettings.settingsFileStore.override(for: action) {
+            return settingsFileShortcut
         }
-        return shortcut
+        return nil
     }
 }
 
@@ -2181,7 +2185,6 @@ struct ShortcutRecorderValidationPresentation: Equatable {
         attempt: ShortcutRecorderRejectedAttempt?,
         action: KeyboardShortcutSettings.Action,
         currentShortcut: StoredShortcut,
-        isManagedBySettingsFile: (KeyboardShortcutSettings.Action) -> Bool = KeyboardShortcutSettings.isManagedBySettingsFile,
         shortcutForAction: (KeyboardShortcutSettings.Action) -> StoredShortcut = KeyboardShortcutSettings.shortcut(for:)
     ) {
         guard let attempt else { return nil }
@@ -2189,8 +2192,7 @@ struct ShortcutRecorderValidationPresentation: Equatable {
         let canSwap = Self.canSwapConflict(
             attempt: attempt,
             action: action,
-            currentShortcut: currentShortcut,
-            isManagedBySettingsFile: isManagedBySettingsFile
+            currentShortcut: currentShortcut
         )
 
         self.message = Self.message(
@@ -2254,13 +2256,10 @@ struct ShortcutRecorderValidationPresentation: Equatable {
     private static func canSwapConflict(
         attempt: ShortcutRecorderRejectedAttempt,
         action: KeyboardShortcutSettings.Action,
-        currentShortcut: StoredShortcut,
-        isManagedBySettingsFile: (KeyboardShortcutSettings.Action) -> Bool
+        currentShortcut: StoredShortcut
     ) -> Bool {
         guard case let .conflictsWithAction(conflictingAction) = attempt.reason,
-              let proposedShortcut = attempt.proposedShortcut,
-              !isManagedBySettingsFile(action),
-              !isManagedBySettingsFile(conflictingAction) else {
+              let proposedShortcut = attempt.proposedShortcut else {
             return false
         }
 
@@ -2276,7 +2275,6 @@ struct ShortcutRecorderValidationPresentation: Equatable {
 /// View for recording a keyboard shortcut
 struct KeyboardShortcutRecorder: View {
     let label: String
-    var subtitle: String? = nil
     @Binding var shortcut: StoredShortcut
     var displayString: (StoredShortcut) -> String = { $0.displayString }
     var transformRecordedShortcut: (StoredShortcut) -> KeyboardShortcutSettings.RecordedShortcutResolution = {
@@ -2288,22 +2286,14 @@ struct KeyboardShortcutRecorder: View {
     var undoButtonTitle: String? = nil
     var onUndoButtonPressed: (() -> Void)? = nil
     var hasPendingRejection: Bool = false
-    var isDisabled: Bool = false
     var onRecordingChanged: (Bool) -> Void = { _ in }
     var onRecorderFeedbackChanged: (ShortcutRecorderRejectedAttempt?) -> Void = { _ in }
     @State private var isRecording = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: subtitle == nil ? .center : .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(label)
-                    if let subtitle {
-                        Text(subtitle)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
+            HStack(alignment: .center, spacing: 12) {
+                Text(label)
 
                 Spacer()
 
@@ -2317,7 +2307,6 @@ struct KeyboardShortcutRecorder: View {
                     onRecorderFeedbackChanged: onRecorderFeedbackChanged
                 )
                     .frame(width: 160)
-                    .disabled(isDisabled)
             }
 
             if let validationMessage {

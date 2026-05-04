@@ -8233,9 +8233,7 @@ private struct ShortcutSettingRow: View {
         ShortcutRecorderSettingsControl(
             action: action,
             shortcut: $shortcut,
-            subtitle: KeyboardShortcutSettings.settingsFileManagedSubtitle(for: action),
-            displayString: { action.displayedShortcutString(for: $0) },
-            isDisabled: KeyboardShortcutSettings.isManagedBySettingsFile(action)
+            displayString: { action.displayedShortcutString(for: $0) }
         )
             .onChange(of: shortcut) { newValue in
                 KeyboardShortcutSettings.setShortcut(newValue, for: action)
@@ -8252,16 +8250,13 @@ private struct ShortcutSettingRow: View {
 private struct ShortcutRecorderSettingsControl: View {
     let action: KeyboardShortcutSettings.Action
     @Binding var shortcut: StoredShortcut
-    var subtitle: String? = nil
     var displayString: (StoredShortcut) -> String = { $0.displayString }
-    var isDisabled: Bool = false
 
     @State private var rejectedAttempt: ShortcutRecorderRejectedAttempt?
 
     var body: some View {
         KeyboardShortcutRecorder(
             label: action.label,
-            subtitle: subtitle,
             shortcut: $shortcut,
             displayString: displayString,
             transformRecordedShortcut: { action.normalizedRecordedShortcutResult($0) },
@@ -8273,7 +8268,6 @@ private struct ShortcutRecorderSettingsControl: View {
             undoButtonTitle: validationPresentation?.undoButtonTitle,
             onUndoButtonPressed: rejectedAttempt != nil ? { rejectedAttempt = nil } : nil,
             hasPendingRejection: rejectedAttempt != nil,
-            isDisabled: isDisabled,
             onRecorderFeedbackChanged: { rejectedAttempt = $0 }
         )
         .onChange(of: shortcut) { _ in
@@ -8360,9 +8354,7 @@ private struct GlobalHotkeySection: View {
 
             ShortcutRecorderSettingsControl(
                 action: SystemWideHotkeySettings.action,
-                shortcut: $shortcut,
-                subtitle: KeyboardShortcutSettings.settingsFileManagedSubtitle(for: SystemWideHotkeySettings.action),
-                isDisabled: KeyboardShortcutSettings.isManagedBySettingsFile(SystemWideHotkeySettings.action)
+                shortcut: $shortcut
             )
                 .padding(.horizontal, 14)
                 .padding(.vertical, 9)

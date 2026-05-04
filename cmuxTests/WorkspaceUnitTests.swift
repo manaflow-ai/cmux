@@ -983,11 +983,12 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertEqual(invalidPrimaryStore.activeSourcePath, primaryURL.path)
     }
 
-    func testShortcutSettingsFileOverridesPersistedShortcutValues() throws {
+    func testPersistedShortcutOverridesSettingsFileDefault() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
         let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        let persistedShortcut = StoredShortcut(key: "y", command: true, shift: false, option: false, control: false)
         try writeSettingsFile(
             """
             {
@@ -999,10 +1000,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             to: settingsFileURL
         )
 
-        KeyboardShortcutSettings.setShortcut(
-            StoredShortcut(key: "n", command: true, shift: false, option: false, control: false),
-            for: .newTab
-        )
+        KeyboardShortcutSettings.setShortcut(persistedShortcut, for: .newTab)
 
         KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
             primaryPath: settingsFileURL.path,
@@ -1012,10 +1010,10 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
 
         XCTAssertEqual(
             KeyboardShortcutSettings.shortcut(for: .newTab),
-            StoredShortcut(key: "b", command: false, shift: false, option: false, control: true, chordKey: "c")
+            persistedShortcut
         )
         XCTAssertTrue(KeyboardShortcutSettings.isManagedBySettingsFile(.newTab))
-        XCTAssertNotNil(KeyboardShortcutSettings.settingsFileManagedSubtitle(for: .newTab))
+        XCTAssertNil(KeyboardShortcutSettings.settingsFileManagedSubtitle(for: .newTab))
     }
 
     func testUserDefaultsShortcutOverrideWinsOverSettingsFileShortcut() throws {
@@ -1080,6 +1078,54 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertNil(KeyboardShortcutSettings.settingsFileManagedSubtitle(for: .newWindow))
     }
 
+    func testSwapShortcutConflictCanReplaceSettingsFileShortcutDefaults() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        let previousNewWindowShortcut = StoredShortcut(
+            key: "m",
+            command: true,
+            shift: true,
+            option: false,
+            control: false
+        )
+        let proposedNewWindowShortcut = StoredShortcut(
+            key: "y",
+            command: true,
+            shift: false,
+            option: false,
+            control: false
+        )
+        try writeSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "newWindow": "cmd+shift+m",
+                "newTab": "cmd+y"
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        KeyboardShortcutSettings.swapShortcutConflict(
+            proposedShortcut: proposedNewWindowShortcut,
+            currentAction: .newWindow,
+            conflictingAction: .newTab,
+            previousShortcut: previousNewWindowShortcut
+        )
+
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .newWindow), proposedNewWindowShortcut)
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .newTab), previousNewWindowShortcut)
+    }
+
     @MainActor
     func testReloadConfigurationReloadsShortcutSettingsFile() throws {
         let directoryURL = try makeTemporaryDirectory()
@@ -1127,16 +1173,13 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         )
     }
 
-    func testManagedShortcutWritesDoNotOverwritePersistedValue() throws {
+    func testResetShortcutRevealsSettingsFileDefault() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
         let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
-        let missingSettingsFileURL = directoryURL.appendingPathComponent("missing.json", isDirectory: false)
-        let persistedShortcut = StoredShortcut(key: "n", command: true, shift: false, option: false, control: false)
-        let managedShortcut = StoredShortcut(key: "b", command: false, shift: false, option: false, control: true, chordKey: "c")
-
-        KeyboardShortcutSettings.setShortcut(persistedShortcut, for: .newTab)
+        let fileShortcut = StoredShortcut(key: "b", command: false, shift: false, option: false, control: true, chordKey: "c")
+        let uiShortcut = StoredShortcut(key: "t", command: true, shift: false, option: false, control: false)
 
         try writeSettingsFile(
             """
@@ -1155,23 +1198,16 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             startWatching: false
         )
 
-        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .newTab), managedShortcut)
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .newTab), fileShortcut)
 
-        KeyboardShortcutSettings.setShortcut(
-            StoredShortcut(key: "t", command: true, shift: false, option: false, control: false),
-            for: .newTab
-        )
+        KeyboardShortcutSettings.setShortcut(uiShortcut, for: .newTab)
 
-        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .newTab), managedShortcut)
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .newTab), uiShortcut)
 
-        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
-            primaryPath: missingSettingsFileURL.path,
-            fallbackPath: nil,
-            startWatching: false
-        )
+        KeyboardShortcutSettings.resetShortcut(for: .newTab)
 
-        XCTAssertFalse(KeyboardShortcutSettings.isManagedBySettingsFile(.newTab))
-        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .newTab), persistedShortcut)
+        XCTAssertTrue(KeyboardShortcutSettings.isManagedBySettingsFile(.newTab))
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .newTab), fileShortcut)
     }
 
     func testSystemWideHotkeySettingsPreserveInvalidManagedShortcutWithoutFallingBackToDefault() throws {
@@ -2116,7 +2152,6 @@ final class StoredShortcutMatchingTests: XCTestCase {
             ),
             action: .openBrowser,
             currentShortcut: KeyboardShortcutSettings.Action.openBrowser.defaultShortcut,
-            isManagedBySettingsFile: { _ in false },
             shortcutForAction: { $0.defaultShortcut }
         )
 
@@ -2134,7 +2169,6 @@ final class StoredShortcutMatchingTests: XCTestCase {
             ),
             action: .openBrowser,
             currentShortcut: KeyboardShortcutSettings.Action.openBrowser.defaultShortcut,
-            isManagedBySettingsFile: { _ in false },
             shortcutForAction: { $0.defaultShortcut }
         )
 
