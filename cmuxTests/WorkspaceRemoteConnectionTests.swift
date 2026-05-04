@@ -1706,10 +1706,10 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertTrue(pluginSource.contains("cmux-opencode-session-plugin-marker"))
         XCTAssertTrue(pluginSource.contains("\"opencode-hook\""))
 
-        let data = try Data(contentsOf: configURL)
-        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data, options: []) as? [String: Any])
-        let plugins = try XCTUnwrap(json["plugin"] as? [String])
-        XCTAssertEqual(plugins, ["other-plugin", "./plugins/cmux-session.js"])
+        XCTAssertTrue(try String(contentsOf: configDir.appendingPathComponent("plugins/cmux-feed.js"), encoding: .utf8).contains("cmux-feed-plugin-marker"))
+
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: try Data(contentsOf: configURL), options: []) as? [String: Any])
+        XCTAssertEqual(try XCTUnwrap(json["plugin"] as? [String]), ["other-plugin", "./plugins/cmux-session.js"])
     }
 
     func testAgentHookLaunchEnvironmentDoesNotPersistPathOrShell() throws {
