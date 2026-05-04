@@ -98,16 +98,25 @@ Current published prices as of 2026-05-04:
 | `deepseek-v4-pro` | $0.435 / 1M | $0.003625 / 1M | $0.87 / 1M | DeepSeek promotional price through 2026-05-31 |
 | `deepseek-v4-flash` | $0.14 / 1M | $0.0028 / 1M | $0.28 / 1M | Cheaper DeepSeek option, not current production model |
 | `gemini-3-flash-preview` | $0.50 / 1M | provider dependent | $3.00 / 1M | Current latest Gemini Flash model used by this workflow |
+| `gemini-3.1-flash-lite-preview` | $0.25 / 1M | $0.03 / 1M | $1.50 / 1M | Latest Flash-Lite preview, cheaper but noisier in lint evals |
 | `gemini-2.5-flash-lite` | $0.10 / 1M | $0.01 / 1M | $0.40 / 1M | Cheapest generally available Gemini Flash-Lite model |
 | `gpt-5.5` | $5.00 / 1M | $0.50 / 1M | $30.00 / 1M | GPT-5.5 architecture rule, medium reasoning |
 
 Sources: [DeepSeek API pricing](https://api-docs.deepseek.com/quick_start/pricing), [Vertex AI Gemini pricing](https://cloud.google.com/vertex-ai/generative-ai/pricing), [Gemini API pricing](https://ai.google.dev/gemini-api/docs/pricing), [OpenAI API pricing](https://openai.com/api/pricing/), and [Vercel AI Gateway models](https://vercel.com/docs/ai-gateway/models-and-providers).
 
-With cache misses, `deepseek-v4-pro` is currently cheaper than `gemini-3-flash-preview` during the DeepSeek promotion, but it is not cheaper than `gemini-2.5-flash-lite`. After the promotion, DeepSeek Pro is materially more expensive than both Flash options.
+With cache misses, `deepseek-v4-pro` is currently cheaper than `gemini-3-flash-preview` during the DeepSeek promotion, but it is not cheaper than the Flash-Lite models. After the promotion, DeepSeek Pro is materially more expensive than the Flash options.
 
 Assume cache miss for planning unless provider billing proves otherwise. PR diffs are usually unique, and this prompt is rule-first, so repeated rule calls should not rely on prefix-cache hits.
 
 Retries repeat the full request and can multiply cost. Keep `LLM_DIFF_LINT_RETRIES=0` for required checks unless provider errors are transient and measured. One retry is reasonable for advisory shadow runs, but it did not fix repeated Gemini structured-output failures in the 2026-05-02 comparison.
+
+## Gemini Eval Notes
+
+Gemini works through Vertex AI with GitHub OIDC, and `gemini-3-flash-preview` caught real issues that DeepSeek missed on the remote-browser PR sample, including new `ObservableObject` state and legacy notification/concurrency patterns.
+
+Keep `gemini-3-flash-preview` on `minimal` thinking for the focused lint rules. In the 2026-05-04 eval, `medium` and `high` thinking increased latency and sometimes needed a much larger `LLM_DIFF_LINT_MAX_TOKENS` to produce valid structured output. Higher thinking did not reduce the main noise source: actor-isolation findings that were too aggressive for required CI.
+
+Do not switch production linting to `gemini-3.1-flash-lite-preview` yet. It is cheaper, has a 1M input window, and returned structured output locally, but it produced more false positives on the same sample set and misapplied a SwiftUI rule to Vue code in the remote-browser PR.
 
 ## Rule Size
 
