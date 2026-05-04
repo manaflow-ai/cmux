@@ -107,11 +107,73 @@ enum AppearanceSettings {
     static func selectMode(
         _ mode: AppearanceMode,
         defaults: UserDefaults = .standard,
-        source _: String,
-        environment _: LiveApplyEnvironment = .live
+        source: String,
+        environment: LiveApplyEnvironment = .live
     ) -> AppearanceMode {
         let normalized = Self.mode(for: mode.rawValue)
         defaults.set(normalized.rawValue, forKey: appearanceModeKey)
+        applyLiveMode(normalized, source: source, environment: environment)
         return normalized
+    }
+
+    @discardableResult
+    static func applyStoredMode(
+        rawValue: String?,
+        defaults: UserDefaults = .standard,
+        source: String,
+        duringLaunch: Bool = false,
+        synchronizeTerminalTheme: Bool = true,
+        environment: LiveApplyEnvironment = .live
+    ) -> AppearanceMode {
+        let normalized = Self.mode(for: rawValue)
+        if rawValue != normalized.rawValue {
+            defaults.set(normalized.rawValue, forKey: appearanceModeKey)
+        }
+        applyLiveMode(
+            normalized,
+            source: source,
+            duringLaunch: duringLaunch,
+            synchronizeTerminalTheme: synchronizeTerminalTheme,
+            environment: environment
+        )
+        return normalized
+    }
+
+    @discardableResult
+    static func applyLiveMode(
+        _ mode: AppearanceMode,
+        source: String,
+        duringLaunch: Bool = false,
+        synchronizeTerminalTheme: Bool = true,
+        environment: LiveApplyEnvironment = .live
+    ) -> AppearanceMode {
+        let normalized = Self.mode(for: mode.rawValue)
+        let appearance = applicationAppearance(
+            for: normalized,
+            duringLaunch: duringLaunch,
+            environment: environment
+        )
+        environment.setApplicationAppearance(appearance)
+        if synchronizeTerminalTheme {
+            environment.synchronizeTerminalThemeWithAppearance(appearance, source)
+        }
+        return normalized
+    }
+
+    private static func applicationAppearance(
+        for mode: AppearanceMode,
+        duringLaunch: Bool,
+        environment: LiveApplyEnvironment
+    ) -> NSAppearance? {
+        switch mode {
+        case .system:
+            return duringLaunch ? environment.systemAppearance() : nil
+        case .light:
+            return NSAppearance(named: .aqua)
+        case .dark:
+            return NSAppearance(named: .darkAqua)
+        case .auto:
+            return nil
+        }
     }
 }
