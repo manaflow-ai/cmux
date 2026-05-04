@@ -49,6 +49,8 @@ classify_device_reload_failure() {
         echo "device locked while mounting the developer disk image"
     elif grep -qi "developer disk image could not be mounted" "$log_path"; then
         echo "developer disk image mount failed"
+    elif grep -qiE "tunnel connection failed|RemotePairingError|Operation timed out" "$log_path"; then
+        echo "CoreDevice tunnel connection timed out; unlock the device, keep it awake, and verify it is reachable over USB or local network"
     elif grep -qi "No provider was found" "$log_path"; then
         echo "CoreDevice provider unavailable"
     elif grep -qi "Provisioning profile" "$log_path"; then
@@ -94,7 +96,11 @@ preflight_device_reload_failure() {
         echo "device is not paired"
         return 0
     fi
-    if [ "$tunnel_state" != "connected" ] || [ "$ddi_services" != "true" ]; then
+    if [ "$tunnel_state" != "connected" ]; then
+        echo "CoreDevice tunnel is ${tunnel_state:-unavailable}; unlock the device, keep it awake, and verify it is reachable over USB or local network"
+        return 0
+    fi
+    if [ "$ddi_services" != "true" ]; then
         echo "developer disk image services unavailable; unlock the device and keep it awake"
         return 0
     fi
