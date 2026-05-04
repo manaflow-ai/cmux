@@ -805,9 +805,6 @@ public final class GhosttyTerminalSurfaceView: UIView {
     private var currentFontSize = GhosttyTerminalSurfaceView.defaultMobileFontSize
     #if DEBUG
     var onOutputProcessedForTesting: (() -> Void)?
-    private var hasRunUITestingZoomStress = false
-    private var didCompleteUITestingZoomStress = false
-    private var pendingUITestingZoomStressCycles = 0
     #endif
     // Keep `ghostty_surface_process_output` off the main thread. This is
     // per surface so a slow free or render on one terminal cannot block input
@@ -916,7 +913,6 @@ public final class GhosttyTerminalSurfaceView: UIView {
                 ghostty_surface_render_now(surface)
                 self.updateAccessibilityRenderedTextForTesting()
                 #if DEBUG
-                self.runUITestingZoomStressIfNeeded()
                 self.onOutputProcessedForTesting?()
                 #endif
             }
@@ -950,9 +946,6 @@ public final class GhosttyTerminalSurfaceView: UIView {
         cmuxDebugLog("ios.ghostty.focusInput")
         #endif
         inputProxy.becomeFirstResponder()
-        #if DEBUG
-        runUITestingZoomStressIfNeeded()
-        #endif
     }
 
     func updateHostPlatform(_ platform: CmxHostPlatform) {
@@ -994,18 +987,6 @@ public final class GhosttyTerminalSurfaceView: UIView {
         pinchTargetFontSize = nil
     }
 
-    private func runUITestingZoomStressIfNeeded() {
-        guard !hasRunUITestingZoomStress,
-              let value = ProcessInfo.processInfo.environment["CMUX_IOS_UI_TESTING_ZOOM_STRESS_CYCLES"],
-              let cycles = Int(value),
-              cycles > 0 else { return }
-        hasRunUITestingZoomStress = true
-        // Display-link pacing keeps repeated Ghostty font rebuilds from
-        // monopolizing the main actor during responsiveness tests.
-        pendingUITestingZoomStressCycles = cycles
-        startDisplayLink()
-        scheduleUITestingZoomStressFallback()
-    }
     #endif
 
     public var fontSizeForTesting: Float32 {
@@ -1248,9 +1229,6 @@ public final class GhosttyTerminalSurfaceView: UIView {
     }
 
     @objc private func handleDisplayLink() {
-        #if DEBUG
-        drainUITestingZoomStressFrame()
-        #endif
         runtime?.drainScheduledWakeupTick()
         guard let surface else { return }
         if needsDraw {
@@ -1281,34 +1259,8 @@ public final class GhosttyTerminalSurfaceView: UIView {
         }
     }
 
-    #if DEBUG
-    private func drainUITestingZoomStressFrame() {
-        guard pendingUITestingZoomStressCycles > 0 else { return }
-        simulatePinchZoomCycleForTesting([.decrease])
-        simulatePinchZoomCycleForTesting([.increase])
-        pendingUITestingZoomStressCycles -= 1
-        guard pendingUITestingZoomStressCycles == 0 else { return }
-        didCompleteUITestingZoomStress = true
-        updateAccessibilityRenderedTextForTesting()
-    }
-
-    private func scheduleUITestingZoomStressFallback() {
-        DispatchQueue.main.async { [weak self] in
-            guard let self,
-                  self.pendingUITestingZoomStressCycles > 0 else { return }
-            self.drainUITestingZoomStressFrame()
-            self.scheduleUITestingZoomStressFallback()
-        }
-    }
-    #endif
-
     private func updateAccessibilityRenderedTextForTesting() {
-        var renderedText = accessibilityRenderedTextForTesting() ?? ""
-        #if DEBUG
-        if didCompleteUITestingZoomStress {
-            renderedText += "\nZOOM_STRESS_DONE"
-        }
-        #endif
+        let renderedText = accessibilityRenderedTextForTesting() ?? ""
         accessibilityValue = renderedText
     }
 }
