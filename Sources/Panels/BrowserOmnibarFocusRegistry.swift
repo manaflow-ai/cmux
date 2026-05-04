@@ -183,6 +183,7 @@ final class BrowserOmnibarFocusRegistry {
 }
 
 #if DEBUG
+@MainActor
 final class BrowserOmnibarFocusLatencyTracker {
     static let shared = BrowserOmnibarFocusLatencyTracker()
 
@@ -327,16 +328,27 @@ final class BrowserOmnibarFocusLatencyTracker {
 
     private func keyDescription(_ event: NSEvent) -> String {
         let characters = event.charactersIgnoringModifiers ?? event.characters ?? ""
-        if characters == "\r" { return "return" }
-        if characters == "\u{7F}" { return "delete" }
-        if characters == "\t" { return "tab" }
-        if characters.isEmpty { return "keyCode:\(event.keyCode)" }
-        let escaped = characters
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\n", with: "\\n")
-            .replacingOccurrences(of: "\r", with: "\\r")
-            .replacingOccurrences(of: "\t", with: "\\t")
-        return "'\(escaped)'"
+        let category: String
+        if characters == "\r" {
+            category = "return"
+        } else if characters == "\u{7F}" {
+            category = "delete"
+        } else if characters == "\t" {
+            category = "tab"
+        } else if characters == "\u{1B}" {
+            category = "escape"
+        } else if characters.isEmpty {
+            category = "none"
+        } else if characters.unicodeScalars.allSatisfy({ CharacterSet.letters.contains($0) }) {
+            category = "letter"
+        } else if characters.unicodeScalars.allSatisfy({ CharacterSet.decimalDigits.contains($0) }) {
+            category = "digit"
+        } else if characters.unicodeScalars.allSatisfy({ CharacterSet.whitespacesAndNewlines.contains($0) || CharacterSet.controlCharacters.contains($0) }) {
+            category = "whitespace_control"
+        } else {
+            category = "symbol"
+        }
+        return "keyCode:\(event.keyCode) category:\(category)"
     }
 
     private func eventDelayMs(_ event: NSEvent) -> Double {
