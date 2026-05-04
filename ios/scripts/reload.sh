@@ -110,6 +110,25 @@ preflight_device_reload_failure() {
     return 0
 }
 
+device_reload_identity() {
+    local device_id="$1"
+    local devices_json="${2:-}"
+    if [ -z "$devices_json" ] || [ ! -f "$devices_json" ] || ! command -v jq >/dev/null 2>&1; then
+        echo "id $device_id"
+        return 0
+    fi
+
+    local identity
+    identity="$(jq -r --arg id "$device_id" '
+        first(
+            .result.devices[]?
+            | select(.identifier == $id or .hardwareProperties.udid == $id)
+            | "CoreDevice id \(.identifier // "unknown"), hardware UDID \(.hardwareProperties.udid // "unknown"), transport \(.connectionProperties.transportType // "unknown")"
+        ) // "id \($id)"
+    ' "$devices_json" 2>/dev/null || true)"
+    echo "${identity:-id $device_id}"
+}
+
 require_tag_value() {
     local value="${1:-}"
     if [ -z "$value" ] || [[ "$value" == -* ]]; then
@@ -233,13 +252,14 @@ if [ "$SIMULATOR_ONLY" -eq 0 ]; then
             echo "Checking device app reload for $DEVICE_NAME..."
             DEVICE_STATUS="succeeded"
             DEVICE_LOG="$(mktemp "${TMPDIR:-/tmp}/cmux-ios-reload-device.XXXXXX.log")"
+            DEVICE_IDENTITY="$(device_reload_identity "$DEVICE_ID" "$DEVICELIST_JSON")"
             PREFLIGHT_REASON="$(preflight_device_reload_failure "$DEVICE_ID" "$DEVICELIST_JSON" || true)"
             if [ -z "$PREFLIGHT_REASON" ] && [ -n "$DEVICE_SERVICE_PREFLIGHT_REASON" ]; then
                 PREFLIGHT_REASON="$DEVICE_SERVICE_PREFLIGHT_REASON"
             fi
             if [ -n "$PREFLIGHT_REASON" ]; then
                 DEVICE_STATUS="failed"
-                DEVICE_RELOAD_DETAILS+=("$DEVICE_NAME reload reason: $PREFLIGHT_REASON")
+                DEVICE_RELOAD_DETAILS+=("$DEVICE_NAME reload reason: $PREFLIGHT_REASON ($DEVICE_IDENTITY)")
             elif ! xcodebuild \
                 -project cmux-ios.xcodeproj \
                 -scheme cmux-ios \
@@ -251,15 +271,15 @@ if [ "$SIMULATOR_ONLY" -eq 0 ]; then
                 -allowProvisioningDeviceRegistration \
                 -quiet 2>&1 | tee "$DEVICE_LOG"; then
                 DEVICE_STATUS="failed"
-                DEVICE_RELOAD_DETAILS+=("$DEVICE_NAME reload reason: $(classify_device_reload_failure "$DEVICE_LOG")")
+                DEVICE_RELOAD_DETAILS+=("$DEVICE_NAME reload reason: $(classify_device_reload_failure "$DEVICE_LOG") ($DEVICE_IDENTITY)")
             else
                 DEVICE_APP_PATH="$DERIVED_DATA_PATH/Build/Products/Debug-iphoneos/$APP_NAME.app"
                 if ! xcrun devicectl device install app --device "$DEVICE_ID" "$DEVICE_APP_PATH" 2>&1 | tee "$DEVICE_LOG"; then
                     DEVICE_STATUS="failed"
-                    DEVICE_RELOAD_DETAILS+=("$DEVICE_NAME reload reason: $(classify_device_reload_failure "$DEVICE_LOG")")
+                    DEVICE_RELOAD_DETAILS+=("$DEVICE_NAME reload reason: $(classify_device_reload_failure "$DEVICE_LOG") ($DEVICE_IDENTITY)")
                 elif ! xcrun devicectl device process launch --device "$DEVICE_ID" "$BUNDLE_ID" 2>&1 | tee "$DEVICE_LOG"; then
                     DEVICE_STATUS="installed_launch_failed"
-                    DEVICE_RELOAD_DETAILS+=("$DEVICE_NAME reload reason: launch failed")
+                    DEVICE_RELOAD_DETAILS+=("$DEVICE_NAME reload reason: launch failed ($DEVICE_IDENTITY)")
                 fi
             fi
             rm -f "$DEVICE_LOG"
