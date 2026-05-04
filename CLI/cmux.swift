@@ -2362,6 +2362,9 @@ struct CMUXCLI {
                 throw CLIError(message: "Usage: cmux auth <status|login|logout>")
             }
 
+        case "sim", "simulator":
+            try runSimulatorCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+
         case "vm", "cloud":
             let sub = commandArgs.first?.lowercased() ?? "ls"
             let rest = Array(commandArgs.dropFirst())
@@ -3486,6 +3489,250 @@ struct CMUXCLI {
                 try? FileManager.default.removeItem(at: entry.url)
             }
         }
+    }
+
+    // MARK: - Simulator Commands
+
+    private func runSimulatorCommand(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat
+    ) throws {
+        let subcommand = commandArgs.first?.lowercased()
+        let rest = subcommand == nil ? [] : Array(commandArgs.dropFirst())
+
+        switch subcommand {
+        case nil:
+            if jsonOutput || isatty(STDIN_FILENO) == 0 || isatty(STDOUT_FILENO) == 0 {
+                try printSimulatorList(client: client, jsonOutput: jsonOutput)
+            } else {
+                try runSimulatorTUI(client: client, idFormat: idFormat)
+            }
+        case "list", "ls":
+            try printSimulatorList(client: client, jsonOutput: jsonOutput)
+        case "boot":
+            let udid = try simulatorUDIDArgument(rest, usage: "cmux sim boot <udid>")
+            let payload = try client.sendV2(method: "simulator.boot", params: ["udid": udid], responseTimeout: 60)
+            if jsonOutput {
+                print(jsonString(payload))
+            } else {
+                print("OK boot \(udid)")
+            }
+        case "shutdown":
+            let udid = try simulatorUDIDArgument(rest, usage: "cmux sim shutdown <udid>")
+            let payload = try client.sendV2(method: "simulator.shutdown", params: ["udid": udid], responseTimeout: 30)
+            if jsonOutput {
+                print(jsonString(payload))
+            } else {
+                print("OK shutdown \(udid)")
+            }
+        case "open":
+            let params = try simulatorOpenParams(rest, client: client)
+            let payload = try client.sendV2(method: "simulator.open", params: params)
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
+        default:
+            throw CLIError(message: "Usage: cmux sim [list|open|boot|shutdown]")
+        }
+    }
+
+    private func simulatorUDIDArgument(_ args: [String], usage: String) throws -> String {
+        let (udidOpt, remaining) = parseOption(args, name: "--udid")
+        let positional = remaining.first
+        let trailing = Array(remaining.dropFirst())
+        if let extra = trailing.first {
+            throw CLIError(message: "\(usage): unexpected argument '\(extra)'")
+        }
+        guard let udid = udidOpt ?? positional, !udid.isEmpty else {
+            throw CLIError(message: usage)
+        }
+        return udid
+    }
+
+    private func simulatorOpenParams(_ args: [String], client: SocketClient) throws -> [String: Any] {
+        let (udidOpt, rem0) = parseOption(args, name: "--udid")
+        let (directionOpt, rem1) = parseOption(rem0, name: "--direction")
+        let (workspaceOpt, rem2) = parseOption(rem1, name: "--workspace")
+        let (surfaceOpt, rem3) = parseOption(rem2, name: "--surface")
+        let (windowOpt, rem4) = parseOption(rem3, name: "--window")
+        if let unknown = rem4.first {
+            throw CLIError(message: "sim open: unexpected argument '\(unknown)'")
+        }
+
+        var params: [String: Any] = ["direction": directionOpt ?? "right"]
+        if let udidOpt { params["udid"] = udidOpt }
+
+        if let surfaceRaw = surfaceOpt ?? (windowOpt == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil),
+           let surface = try normalizeSurfaceHandle(surfaceRaw, client: client) {
+            params["surface_id"] = surface
+        }
+        let workspaceRaw = workspaceOpt ?? (windowOpt == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+        if let workspaceRaw,
+           let workspace = try normalizeWorkspaceHandle(workspaceRaw, client: client) {
+            params["workspace_id"] = workspace
+        }
+        if let windowRaw = windowOpt,
+           let window = try normalizeWindowHandle(windowRaw, client: client) {
+            params["window_id"] = window
+        }
+        return params
+    }
+
+    private func printSimulatorList(client: SocketClient, jsonOutput: Bool) throws {
+        let payload = try client.sendV2(method: "simulator.list")
+        if jsonOutput {
+            print(jsonString(payload))
+            return
+        }
+
+        let devices = simulatorDevices(from: payload)
+        if devices.isEmpty {
+            print("No simulators found.")
+            return
+        }
+        let grouped = Dictionary(grouping: devices, by: { $0.runtime })
+        for runtime in grouped.keys.sorted() {
+            print(runtime.isEmpty ? "Unknown Runtime" : runtime)
+            for device in (grouped[runtime] ?? []).sorted(by: { $0.name < $1.name }) {
+                let state = device.isBooted ? "booted" : device.state.lowercased()
+                print("  \(state.padding(toLength: 10, withPad: " ", startingAt: 0)) \(device.name)  \(device.shortUDID)")
+            }
+        }
+    }
+
+    private struct CLISimulatorDevice {
+        let udid: String
+        let shortUDID: String
+        let name: String
+        let runtime: String
+        let state: String
+        let isBooted: Bool
+    }
+
+    private func simulatorDevices(from payload: [String: Any]) -> [CLISimulatorDevice] {
+        let rawDevices = (payload["devices"] as? [[String: Any]]) ?? []
+        return rawDevices.compactMap { raw in
+            guard let udid = raw["udid"] as? String,
+                  let name = raw["name"] as? String else {
+                return nil
+            }
+            return CLISimulatorDevice(
+                udid: udid,
+                shortUDID: (raw["short_udid"] as? String) ?? String(udid.prefix(8)),
+                name: name,
+                runtime: (raw["runtime"] as? String) ?? "",
+                state: (raw["state"] as? String) ?? "Unknown",
+                isBooted: (raw["is_booted"] as? Bool) ?? false
+            )
+        }
+    }
+
+    private func runSimulatorTUI(client: SocketClient, idFormat: CLIIDFormat) throws {
+        var original = termios()
+        guard tcgetattr(STDIN_FILENO, &original) == 0 else {
+            try printSimulatorList(client: client, jsonOutput: false)
+            return
+        }
+        var raw = original
+        cfmakeraw(&raw)
+        tcsetattr(STDIN_FILENO, TCSANOW, &raw)
+        defer {
+            tcsetattr(STDIN_FILENO, TCSANOW, &original)
+            print("\u{1B}[?25h\u{1B}[?1049l", terminator: "")
+            fflush(stdout)
+        }
+
+        print("\u{1B}[?1049h\u{1B}[?25l", terminator: "")
+        var devices = simulatorDevices(from: try client.sendV2(method: "simulator.list"))
+        var selectedIndex = 0
+        var message = ""
+
+        while true {
+            if selectedIndex >= devices.count {
+                selectedIndex = max(0, devices.count - 1)
+            }
+            renderSimulatorTUI(devices: devices, selectedIndex: selectedIndex, message: message)
+            message = ""
+
+            guard let byte = readTUIByte(timeoutSeconds: 2) else {
+                devices = simulatorDevices(from: try client.sendV2(method: "simulator.list"))
+                continue
+            }
+
+            switch byte {
+            case 3, 113:
+                return
+            case 106:
+                selectedIndex = min(devices.count - 1, selectedIndex + 1)
+            case 107:
+                selectedIndex = max(0, selectedIndex - 1)
+            case 13, 32:
+                guard devices.indices.contains(selectedIndex) else { continue }
+                let device = devices[selectedIndex]
+                var params = try simulatorOpenParams([], client: client)
+                params["udid"] = device.udid
+                let payload = try client.sendV2(method: "simulator.open", params: params)
+                message = v2OKSummary(payload, idFormat: idFormat)
+            case 98:
+                guard devices.indices.contains(selectedIndex) else { continue }
+                let device = devices[selectedIndex]
+                _ = try client.sendV2(method: "simulator.boot", params: ["udid": device.udid], responseTimeout: 60)
+                devices = simulatorDevices(from: try client.sendV2(method: "simulator.list"))
+                message = "boot requested: \(device.name)"
+            case 115:
+                guard devices.indices.contains(selectedIndex) else { continue }
+                let device = devices[selectedIndex]
+                _ = try client.sendV2(method: "simulator.shutdown", params: ["udid": device.udid], responseTimeout: 30)
+                devices = simulatorDevices(from: try client.sendV2(method: "simulator.list"))
+                message = "shutdown requested: \(device.name)"
+            case 114:
+                devices = simulatorDevices(from: try client.sendV2(method: "simulator.list"))
+                message = "refreshed"
+            case 27:
+                if readTUIByte(timeoutSeconds: 0.02) == 91,
+                   let arrow = readTUIByte(timeoutSeconds: 0.02) {
+                    if arrow == 65 {
+                        selectedIndex = max(0, selectedIndex - 1)
+                    } else if arrow == 66 {
+                        selectedIndex = min(devices.count - 1, selectedIndex + 1)
+                    }
+                }
+            default:
+                continue
+            }
+        }
+    }
+
+    private func renderSimulatorTUI(devices: [CLISimulatorDevice], selectedIndex: Int, message: String) {
+        var lines: [String] = []
+        lines.append("\u{1B}[H\u{1B}[2Jcmux sim")
+        lines.append("Enter open  b boot  s shutdown  r refresh  q quit")
+        if !message.isEmpty {
+            lines.append(message)
+        }
+        lines.append("")
+
+        let grouped = Dictionary(grouping: Array(devices.enumerated()), by: { $0.element.runtime })
+        for runtime in grouped.keys.sorted() {
+            lines.append(runtime.isEmpty ? "Unknown Runtime" : runtime)
+            for (index, device) in (grouped[runtime] ?? []).sorted(by: { $0.element.name < $1.element.name }) {
+                let cursor = index == selectedIndex ? ">" : " "
+                let state = device.isBooted ? "booted" : device.state.lowercased()
+                lines.append("\(cursor) \(state.padding(toLength: 10, withPad: " ", startingAt: 0)) \(device.name)  \(device.shortUDID)")
+            }
+        }
+        print(lines.joined(separator: "\n"), terminator: "")
+        fflush(stdout)
+    }
+
+    private func readTUIByte(timeoutSeconds: Double) -> UInt8? {
+        var descriptor = pollfd(fd: STDIN_FILENO, events: Int16(POLLIN), revents: 0)
+        let timeoutMilliseconds = Int32(max(0, timeoutSeconds * 1_000))
+        let ready = poll(&descriptor, 1, timeoutMilliseconds)
+        guard ready > 0 else { return nil }
+        var byte: UInt8 = 0
+        let count = read(STDIN_FILENO, &byte, 1)
+        return count == 1 ? byte : nil
     }
 
     // MARK: - Markdown Commands
@@ -9729,6 +9976,25 @@ struct CMUXCLI {
               cmux browser open https://example.com
               cmux browser surface:1 navigate https://google.com
               cmux browser --surface surface:1 snapshot --interactive
+            """
+        case "sim", "simulator":
+            return """
+            Usage: cmux sim [list|open|boot|shutdown] [options]
+
+            Manage Apple simulators through the running cmux app.
+            With no subcommand, opens an interactive TUI when stdin/stdout are TTYs;
+            otherwise falls back to plain list output.
+
+            Subcommands:
+              list [--json]
+              open [--udid <udid>] [--direction right|down|left|up] [--workspace <ref>] [--surface <ref>] [--window <ref>]
+              boot <udid>
+              shutdown <udid>
+
+            Examples:
+              cmux sim
+              cmux sim list
+              cmux sim open --udid 12345678-90AB-CDEF-1234-567890ABCDEF --direction down
             """
         // Legacy browser aliases — point users to `cmux browser --help`
         case "open-browser":
@@ -20368,6 +20634,7 @@ export default CMUXSessionRestore;
           version
           capabilities
           auth <status|login|logout>
+          sim [list|open|boot|shutdown]              (alias: simulator)
           vm <new|ls|rm|exec|shell|ssh> [args...]    (alias: cloud)
           rpc <method> [json-params]
           identify [--workspace <id|ref|index>] [--surface <id|ref|index>] [--no-caller]

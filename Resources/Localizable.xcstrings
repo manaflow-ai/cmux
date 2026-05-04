@@ -110230,6 +110230,181 @@
         "en": { "stringUnit": { "state": "translated", "value": "Process" } },
         "ja": { "stringUnit": { "state": "translated", "value": "プロセス" } }
       }
+    },
+    "commandPalette.kind.simulator": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Simulator" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "シミュレータ" } }
+      }
+    },
+    "debug.menu.simulatorDebug": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "iOS Simulators…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "iOSシミュレータ…" } }
+      }
+    },
+    "debug.simulator.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "iOS Simulators" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "iOSシミュレータ" } }
+      }
+    },
+    "simulator.action.boot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Boot" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "起動" } }
+      }
+    },
+    "simulator.action.copyUDID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Copy UDID" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "UDIDをコピー" } }
+      }
+    },
+    "simulator.action.detach": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Detach" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "切り離す" } }
+      }
+    },
+    "simulator.action.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Action failed" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "操作に失敗しました" } }
+      }
+    },
+    "simulator.action.home": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Home" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ホーム" } }
+      }
+    },
+    "simulator.action.lock": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Lock" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ロック" } }
+      }
+    },
+    "simulator.action.openInSimulator": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Open in Simulator.app" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Simulator.appで開く" } }
+      }
+    },
+    "simulator.action.refresh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Refresh" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "更新" } }
+      }
+    },
+    "simulator.action.revealContainer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reveal Container in Finder" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "コンテナをFinderで表示" } }
+      }
+    },
+    "simulator.action.rotateLeft": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Rotate Left" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "左に回転" } }
+      }
+    },
+    "simulator.action.rotateRight": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Rotate Right" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "右に回転" } }
+      }
+    },
+    "simulator.action.screenshot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Screenshot" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "スクリーンショット" } }
+      }
+    },
+    "simulator.action.shake": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Shake" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "シェイク" } }
+      }
+    },
+    "simulator.action.shutdown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Shutdown" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "終了" } }
+      }
+    },
+    "simulator.action.volumeDown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Volume Down" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "音量を下げる" } }
+      }
+    },
+    "simulator.action.volumeUp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Volume Up" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "音量を上げる" } }
+      }
+    },
+    "simulator.device.loading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Simulator" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "シミュレータ" } }
+      }
+    },
+    "simulator.keyboard.unsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Keyboard input is not wired yet." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "キーボード入力はまだ接続されていません。" } }
+      }
+    },
+    "simulator.panel.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Simulator" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "シミュレータ" } }
+      }
+    },
+    "simulator.picker.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No simulators found." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "シミュレータが見つかりません。" } }
+      }
+    },
+    "simulator.picker.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Choose a Simulator" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "シミュレータを選択" } }
+      }
+    },
+    "simulator.runtime.unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unknown Runtime" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "不明なランタイム" } }
+      }
     }
   }
 }
