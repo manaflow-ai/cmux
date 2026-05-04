@@ -145,10 +145,13 @@ final class CmxHiveDiscoveryStoreTests: XCTestCase {
             pairingSecretClient: RecordingHivePairingSecretClient(),
             hiveDiscoveryClient: discovery,
             hiveDiscoveryEndpoint: URL(string: "https://rivet.example/hive")!,
-            terminalSessionFactory: RecordingHiveTerminalSessionFactory()
+            terminalSessionFactory: RecordingHiveTerminalSessionFactory(),
+            startHiveDiscoveryOnInit: false
         )
-        await discovery.waitForFetch()
+        let refreshTask = store.refreshHiveDiscoveryIfPossible()
+        await refreshTask?.value
 
+        XCTAssertEqual(discovery.fetchCount, 1)
         XCTAssertEqual(discovery.lastEndpoint?.absoluteString, "https://rivet.example/hive")
         XCTAssertEqual(discovery.lastStackSession, CmxStackAuthSession(refreshToken: "refresh", accessToken: "access"))
         XCTAssertEqual(store.nodes.map(\.name), ["Mac mini"])
@@ -210,7 +213,6 @@ private final class MemoryHiveAuthSessionStore: CmxStackAuthSessionStore {
 
 private final class RecordingHiveDiscoveryClient: CmxHiveDiscoveryFetching {
     let snapshot: CmxHiveDiscoverySnapshot
-    private var continuation: CheckedContinuation<Void, Never>?
     private(set) var fetchCount = 0
     private(set) var lastEndpoint: URL?
     private(set) var lastStackSession: CmxStackAuthSession?
@@ -226,18 +228,7 @@ private final class RecordingHiveDiscoveryClient: CmxHiveDiscoveryFetching {
         fetchCount += 1
         lastEndpoint = endpoint
         lastStackSession = stackSession
-        continuation?.resume()
-        continuation = nil
         return snapshot
-    }
-
-    func waitForFetch() async {
-        if fetchCount > 0 {
-            return
-        }
-        await withCheckedContinuation { continuation in
-            self.continuation = continuation
-        }
     }
 }
 

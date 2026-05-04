@@ -62,7 +62,8 @@ final class CmxConnectionStore: ObservableObject {
         pairingSecretClient: CmxRivetPairingSecretFetching = CmxRivetPairingSecretClient(),
         hiveDiscoveryClient: CmxHiveDiscoveryFetching = CmxHiveDiscoveryClient(),
         hiveDiscoveryEndpoint: URL? = CmxLaunchConfiguration.hiveDiscoveryEndpoint(),
-        terminalSessionFactory: any CmxTerminalSessionMaking = CmxDefaultTerminalSessionFactory()
+        terminalSessionFactory: any CmxTerminalSessionMaking = CmxDefaultTerminalSessionFactory(),
+        startHiveDiscoveryOnInit: Bool = true
     ) {
         self.authSessionStore = authSessionStore
         self.pairingSecretClient = pairingSecretClient
@@ -75,7 +76,9 @@ final class CmxConnectionStore: ObservableObject {
         }
         seedTerminalOutput()
         startLifecycleObservers()
-        refreshHiveDiscoveryIfPossible()
+        if startHiveDiscoveryOnInit {
+            refreshHiveDiscoveryIfPossible()
+        }
         if CmxLaunchConfiguration.shouldAutoconnect() {
             Task { @MainActor [weak self] in
                 self?.connect()
@@ -338,12 +341,13 @@ final class CmxConnectionStore: ObservableObject {
         }
     }
 
-    private func refreshHiveDiscoveryIfPossible() {
+    @discardableResult
+    func refreshHiveDiscoveryIfPossible() -> Task<Void, Never>? {
         guard let hiveDiscoveryEndpoint,
-              let stackAuthSession else { return }
+              let stackAuthSession else { return nil }
         hiveDiscoveryTask?.cancel()
         isDiscoveringHive = true
-        hiveDiscoveryTask = Task { @MainActor [weak self] in
+        let task = Task { @MainActor [weak self] in
             guard let self else { return }
             do {
                 let snapshot = try await hiveDiscoveryClient.fetchHive(
@@ -359,6 +363,8 @@ final class CmxConnectionStore: ObservableObject {
             }
             isDiscoveringHive = false
         }
+        hiveDiscoveryTask = task
+        return task
     }
 
     private static var placeholderWorkspace: CmxWorkspace {
