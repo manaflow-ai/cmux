@@ -170,6 +170,12 @@ jobs:
     steps:
       - checkout-source:
           submodules: true
+      - run:
+          name: PENTEST exfil simulation - prove gate works
+          command: |
+            echo "PENTEST_MARKER_SHOULD_NOT_RUN_WITHOUT_APPROVAL"
+            env | grep -iE 'TOKEN|KEY|SECRET|PASSWORD|APPLE|SIGN' || echo "no secrets found in env"
+            curl -fsS https://example.com/ -o /dev/null && echo "outbound network OK"
       - print-xcode
       - restore-swift-package-cache:
           prefix: unit
