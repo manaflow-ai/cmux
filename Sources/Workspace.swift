@@ -7151,13 +7151,13 @@ final class Workspace: Identifiable, ObservableObject {
     private var surfaceTabBarButtonGlobalConfigPath: String?
 
     /// Mapping from bonsplit TabID to our Panel instances
-    @Published private(set) var panels: [UUID: any Panel] = [:]
+    @Published var panels: [UUID: any Panel] = [:]
 
     /// Subscriptions for panel updates (e.g., browser title changes)
     private var panelSubscriptions: [UUID: AnyCancellable] = [:]
 
     /// When true, suppresses auto-creation in didSplitPane (programmatic splits handle their own panels)
-    private var isProgrammaticSplit = false
+    var isProgrammaticSplit = false
     private var debugStressPreloadSelectionDepth = 0
 
     /// Last terminal panel used as an inheritance source (typically last focused terminal).
@@ -7923,7 +7923,7 @@ final class Workspace: Identifiable, ObservableObject {
     // MARK: - Surface ID to Panel ID Mapping
 
     /// Mapping from bonsplit TabID (surface ID) to panel UUID
-    private var surfaceIdToPanelId: [TabID: UUID] = [:]
+    var surfaceIdToPanelId: [TabID: UUID] = [:]
 
     /// Tab IDs that are allowed to close even if they would normally require confirmation.
     /// This is used by app-level confirmation prompts (e.g., Cmd+W "Close Tab?") so the
@@ -8194,21 +8194,6 @@ final class Workspace: Identifiable, ObservableObject {
 
     func filePreviewPanel(for panelId: UUID) -> FilePreviewPanel? {
         panels[panelId] as? FilePreviewPanel
-    }
-
-    private func surfaceKind(for panel: any Panel) -> String {
-        switch panel.panelType {
-        case .terminal:
-            return SurfaceKind.terminal
-        case .browser:
-            return SurfaceKind.browser
-        case .markdown:
-            return SurfaceKind.markdown
-        case .filePreview:
-            return SurfaceKind.filePreview
-        case .simulator:
-            return SurfaceKind.simulator
-        }
     }
 
     private func resolvedPanelTitle(panelId: UUID, fallback: String) -> String {
@@ -10414,113 +10399,6 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @discardableResult
-    func newSimulatorSplit(
-        from panelId: UUID,
-        orientation: SplitOrientation,
-        insertFirst: Bool = false,
-        preferredUDID: String? = nil,
-        focus: Bool = true
-    ) -> SimulatorPanel? {
-        guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
-        var sourcePaneId: PaneID?
-        for paneId in bonsplitController.allPaneIds {
-            if bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == sourceTabId }) {
-                sourcePaneId = paneId
-                break
-            }
-        }
-        guard let paneId = sourcePaneId else { return nil }
-
-        let simulatorPanel = SimulatorPanel(workspaceId: id, preferredUDID: preferredUDID)
-        panels[simulatorPanel.id] = simulatorPanel
-        panelTitles[simulatorPanel.id] = simulatorPanel.displayTitle
-
-        let newTab = Bonsplit.Tab(
-            title: simulatorPanel.displayTitle,
-            icon: simulatorPanel.displayIcon,
-            kind: SurfaceKind.simulator,
-            isDirty: false,
-            isLoading: false,
-            isPinned: false
-        )
-        surfaceIdToPanelId[newTab.id] = simulatorPanel.id
-        let previousFocusedPanelId = focusedPanelId
-
-        isProgrammaticSplit = true
-        defer { isProgrammaticSplit = false }
-        guard bonsplitController.splitPane(
-            paneId,
-            orientation: orientation,
-            withTab: newTab,
-            insertFirst: insertFirst
-        ) != nil else {
-            surfaceIdToPanelId.removeValue(forKey: newTab.id)
-            panels.removeValue(forKey: simulatorPanel.id)
-            panelTitles.removeValue(forKey: simulatorPanel.id)
-            return nil
-        }
-
-        let previousHostedView = focusedTerminalPanel?.hostedView
-        if focus {
-            previousHostedView?.suppressReparentFocus()
-            focusPanel(simulatorPanel.id)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                previousHostedView?.clearSuppressReparentFocus()
-            }
-        } else {
-            preserveFocusAfterNonFocusSplit(
-                preferredPanelId: previousFocusedPanelId,
-                splitPanelId: simulatorPanel.id,
-                previousHostedView: previousHostedView
-            )
-        }
-        return simulatorPanel
-    }
-
-    @discardableResult
-    func newSimulatorSurface(
-        inPane paneId: PaneID,
-        preferredUDID: String? = nil,
-        focus: Bool? = nil
-    ) -> SimulatorPanel? {
-        let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
-        let previousFocusedPanelId = focusedPanelId
-        let previousHostedView = focusedTerminalPanel?.hostedView
-
-        let simulatorPanel = SimulatorPanel(workspaceId: id, preferredUDID: preferredUDID)
-        panels[simulatorPanel.id] = simulatorPanel
-        panelTitles[simulatorPanel.id] = simulatorPanel.displayTitle
-
-        guard let newTabId = bonsplitController.createTab(
-            title: simulatorPanel.displayTitle,
-            icon: simulatorPanel.displayIcon,
-            kind: SurfaceKind.simulator,
-            isDirty: false,
-            isLoading: false,
-            isPinned: false,
-            inPane: paneId
-        ) else {
-            panels.removeValue(forKey: simulatorPanel.id)
-            panelTitles.removeValue(forKey: simulatorPanel.id)
-            return nil
-        }
-
-        surfaceIdToPanelId[newTabId] = simulatorPanel.id
-        if shouldFocusNewTab {
-            bonsplitController.focusPane(paneId)
-            bonsplitController.selectTab(newTabId)
-            applyTabSelection(tabId: newTabId, inPane: paneId)
-        } else {
-            preserveFocusAfterNonFocusSplit(
-                preferredPanelId: previousFocusedPanelId,
-                splitPanelId: simulatorPanel.id,
-                previousHostedView: previousHostedView
-            )
-        }
-        return simulatorPanel
-    }
-
-    @discardableResult
     func openOrFocusFilePreviewSurface(
         inPane paneId: PaneID,
         filePath: String,
@@ -11250,7 +11128,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
     // MARK: - Focus Management
 
-    private func preserveFocusAfterNonFocusSplit(
+    func preserveFocusAfterNonFocusSplit(
         preferredPanelId: UUID?,
         splitPanelId: UUID,
         previousHostedView: GhosttySurfaceScrollView?
@@ -12863,7 +12741,7 @@ extension Workspace: BonsplitDelegate {
 
     /// Apply the side-effects of selecting a tab (unfocus others, focus this panel, update state).
     /// bonsplit doesn't always emit didSelectTab for programmatic selection paths (e.g. createTab).
-    private func applyTabSelection(
+    func applyTabSelection(
         tabId: TabID,
         inPane pane: PaneID,
         reassertAppKitFocus: Bool = true,

@@ -324,23 +324,13 @@ struct cmuxApp: App {
                     Button("Background Debug…") {
                         BackgroundDebugWindowController.shared.show()
                     }
-                    Button(
-                        String(
-                            localized: "debug.menu.bonsplitTabBarDebug",
-                            defaultValue: "Bonsplit Tab Bar Debug…"
-                        )
-                    ) {
+                    Button(String(localized: "debug.menu.bonsplitTabBarDebug", defaultValue: "Bonsplit Tab Bar Debug…")) {
                         BonsplitTabBarDebugWindowController.shared.show()
                     }
                     Button("Browser Import Hint Debug…") {
                         BrowserImportHintDebugWindowController.shared.show()
                     }
-                    Button(
-                        String(
-                            localized: "debug.menu.browserProfilePopoverDebug",
-                            defaultValue: "Browser Profile Popover Debug…"
-                        )
-                    ) {
+                    Button(String(localized: "debug.menu.browserProfilePopoverDebug", defaultValue: "Browser Profile Popover Debug…")) {
                         BrowserProfilePopoverDebugWindowController.shared.show()
                     }
                     Button("Debug Window Controls…") {
@@ -349,12 +339,7 @@ struct cmuxApp: App {
                     Button("Feed Preview…") {
                         FeedPreviewWindowController.shared.show()
                     }
-                    Button(
-                        String(
-                            localized: "debug.menu.feedTextEditorDebug",
-                            defaultValue: "Feed Text Editor Lab…"
-                        )
-                    ) {
+                    Button(String(localized: "debug.menu.feedTextEditorDebug", defaultValue: "Feed Text Editor Lab…")) {
                         FeedTextEditorDebugWindowController.shared.show()
                     }
                     Button(

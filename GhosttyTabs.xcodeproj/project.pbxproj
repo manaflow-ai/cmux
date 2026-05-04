@@ -58,11 +58,18 @@
 		51M0000000000000000051B6 /* SimulatorPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51M0000000000000000051A6 /* SimulatorPanel.swift */; };
 		51M0000000000000000051B7 /* SimulatorPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51M0000000000000000051A7 /* SimulatorPanelView.swift */; };
 		51M0000000000000000051B8 /* SimulatorCapabilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51M0000000000000000051A8 /* SimulatorCapabilities.swift */; };
+		51M0000000000000000051D1 /* SimulatorPreviewFrameStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51M0000000000000000051D0 /* SimulatorPreviewFrameStore.swift */; };
+		51M0000000000000000051D3 /* SimulatorListModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51M0000000000000000051D2 /* SimulatorListModel.swift */; };
+		51M0000000000000000051D5 /* TerminalController+Simulator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51M0000000000000000051D4 /* TerminalController+Simulator.swift */; };
+		51M0000000000000000051DB /* Workspace+Simulator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51M0000000000000000051DA /* Workspace+Simulator.swift */; };
+		51M0000000000000000051DD /* WorkspaceSurfaceKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51M0000000000000000051DC /* WorkspaceSurfaceKind.swift */; };
+		51M0000000000000000051E1 /* ContentView+CommandPaletteSurfaceMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51M0000000000000000051E0 /* ContentView+CommandPaletteSurfaceMetadata.swift */; };
 		FEED0000000000000000F00D /* FeedButtonStyleDebugWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F00C /* FeedButtonStyleDebugWindowController.swift */; };
 		FEED0000000000000000F00F /* FeedTextEditorDebugWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F00E /* FeedTextEditorDebugWindowController.swift */; };
 		D0C0D0C0D0C0D0C0D0C0D001 /* DockPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C0D0C0D0C0D0C0D0C0D002 /* DockPanelView.swift */; };
 		D0C0D0C0D0C0D0C0D0C0D003 /* DockEmptyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C0D0C0D0C0D0C0D0C0D004 /* DockEmptyView.swift */; };
 		FEEDC0DEC0DEC0DEC0DE0001 /* FeedCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEEDC0DEC0DEC0DEC0DE0002 /* FeedCoordinatorTests.swift */; };
+		51M0000000000000000051D9 /* SimulatorSessionPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51M0000000000000000051D8 /* SimulatorSessionPersistenceTests.swift */; };
 		698944F99A6ADFBA24A7BFB9 /* AuthSettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B1EA8948C5F126FE63CFB4E /* AuthSettingsStore.swift */; };
 		6B524A0BA34FD46A771335AB /* WorkspaceUnitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71F8ED91A4B55D34BE6A0668 /* WorkspaceUnitTests.swift */; };
 		7D77A0EBBE3D8E05CDC16229 /* WorkspaceActionDispatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5CC15CEAA80B779ADEE78AA /* WorkspaceActionDispatcher.swift */; };
@@ -233,6 +240,7 @@
 		D7AB00000000000000000011 /* WorkspaceAdjacentPaneMoveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000012 /* WorkspaceAdjacentPaneMoveTests.swift */; };
 		B9000033A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000032A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift */; };
 		51M0000000000000000051C9 /* CMUXCLI+SimulatorTUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51M0000000000000000051C8 /* CMUXCLI+SimulatorTUI.swift */; };
+		51M0000000000000000051D7 /* CMUXCLI+Simulator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51M0000000000000000051D6 /* CMUXCLI+Simulator.swift */; };
 		B9000012A1B2C3D4E5F60719 /* AutomationSocketUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000011A1B2C3D4E5F60719 /* AutomationSocketUITests.swift */; };
 		FEED0000000000000000F009 /* FeedSidebarUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F008 /* FeedSidebarUITests.swift */; };
 		B9000014A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000013A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift */; };
@@ -394,6 +402,12 @@
 		51M0000000000000000051A6 /* SimulatorPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/SimulatorPanel.swift; sourceTree = "<group>"; };
 		51M0000000000000000051A7 /* SimulatorPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/SimulatorPanelView.swift; sourceTree = "<group>"; };
 		51M0000000000000000051A8 /* SimulatorCapabilities.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SimulatorCapabilities.swift; sourceTree = "<group>"; };
+		51M0000000000000000051D0 /* SimulatorPreviewFrameStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SimulatorPreviewFrameStore.swift; sourceTree = "<group>"; };
+		51M0000000000000000051D2 /* SimulatorListModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SimulatorListModel.swift; sourceTree = "<group>"; };
+		51M0000000000000000051D4 /* TerminalController+Simulator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "TerminalController+Simulator.swift"; sourceTree = "<group>"; };
+		51M0000000000000000051DA /* Workspace+Simulator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Workspace+Simulator.swift"; sourceTree = "<group>"; };
+		51M0000000000000000051DC /* WorkspaceSurfaceKind.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WorkspaceSurfaceKind.swift; sourceTree = "<group>"; };
+		51M0000000000000000051E0 /* ContentView+CommandPaletteSurfaceMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CommandPalette/ContentView+CommandPaletteSurfaceMetadata.swift"; sourceTree = "<group>"; };
 		FEED0000000000000000F00C /* FeedButtonStyleDebugWindowController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedButtonStyleDebugWindowController.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F00E /* FeedTextEditorDebugWindowController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedTextEditorDebugWindowController.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F006 /* opencode-plugin.js */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.javascript; path = "opencode-plugin.js"; sourceTree = "<group>"; };
@@ -592,6 +606,7 @@
 		D7AB00000000000000000012 /* WorkspaceAdjacentPaneMoveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceAdjacentPaneMoveTests.swift; sourceTree = "<group>"; };
 		B9000032A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TopRendering.swift"; sourceTree = "<group>"; };
 		51M0000000000000000051C8 /* CMUXCLI+SimulatorTUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SimulatorTUI.swift"; sourceTree = "<group>"; };
+		51M0000000000000000051D6 /* CMUXCLI+Simulator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Simulator.swift"; sourceTree = "<group>"; };
 		B9000011A1B2C3D4E5F60719 /* AutomationSocketUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationSocketUITests.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F008 /* FeedSidebarUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedSidebarUITests.swift; sourceTree = "<group>"; };
 		B9000013A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JumpToUnreadUITests.swift; sourceTree = "<group>"; };
@@ -636,6 +651,7 @@
 		F4200001A1B2C3D4E5F60718 /* WindowAppearanceSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowAppearanceSnapshotTests.swift; sourceTree = "<group>"; };
 		F4100001A1B2C3D4E5F60718 /* PortScannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortScannerTests.swift; sourceTree = "<group>"; };
 		F5000001A1B2C3D4E5F60718 /* SessionPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPersistenceTests.swift; sourceTree = "<group>"; };
+		51M0000000000000000051D8 /* SimulatorSessionPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimulatorSessionPersistenceTests.swift; sourceTree = "<group>"; };
 		F6000001A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateShortcutRoutingTests.swift; sourceTree = "<group>"; };
 		F6001001A1B2C3D4E5F60718 /* ShortcutUnbindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutUnbindingTests.swift; sourceTree = "<group>"; };
 		F6100001A1B2C3D4E5F60718 /* WorkspaceRemoteConnectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRemoteConnectionTests.swift; sourceTree = "<group>"; };
@@ -756,7 +772,11 @@
 				51M0000000000000000051A2 /* SimulatorScreen.swift */,
 				51M0000000000000000051A5 /* IndigoHIDInput.swift */,
 				51M0000000000000000051A3 /* SimulatorListWindowController.swift */,
+				51M0000000000000000051D0 /* SimulatorPreviewFrameStore.swift */,
+				51M0000000000000000051D2 /* SimulatorListModel.swift */,
 				51M0000000000000000051A4 /* SimulatorListView.swift */,
+				51M0000000000000000051D4 /* TerminalController+Simulator.swift */,
+				51M0000000000000000051DA /* Workspace+Simulator.swift */,
 			);
 			name = Simulator;
 			path = Simulator;
@@ -833,6 +853,7 @@
 				A50019B1 /* SettingsSearchAliases.swift */,
 				A5001012 /* ContentView.swift */,
 				C3408A000000000000000002 /* ContentView+RightSidebarCommandPalette.swift */,
+				51M0000000000000000051E0 /* ContentView+CommandPaletteSurfaceMetadata.swift */,
 				D7AB00000000000000000004 /* ContentView+MoveTabToNewWorkspace.swift */,
 				D7AB34300000000000000002 /* SidebarDropPlanner.swift */,
 				D7AB34300000000000000004 /* SidebarBonsplitTabWorkspaceDropOverlay.swift */,
@@ -873,6 +894,7 @@
 				A5001416 /* Workspace.swift */,
 				D7AB00000000000000000016 /* Workspace+DetachedSurfaceTransfer.swift */,
 				D7AB34400000000000000002 /* WorkspaceSurfaceConfig.swift */,
+				51M0000000000000000051DC /* WorkspaceSurfaceKind.swift */,
 				1A1B2C3D4E5F607180000002 /* WorkspacePromptSubmit.swift */,
 				D0B10005A1B2C3D4E5F60001 /* WorkspacePortalPaneDrop.swift */,
 				C0DE32470000000000000004 /* WorkspaceSurfaceIdentifierClipboardText.swift */,
@@ -1009,6 +1031,7 @@
 				B900002DA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift */,
 				B900002CA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift */,
 				B9000032A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift */,
+				51M0000000000000000051D6 /* CMUXCLI+Simulator.swift */,
 				51M0000000000000000051C8 /* CMUXCLI+SimulatorTUI.swift */,
 			);
 			path = CLI;
@@ -1023,6 +1046,7 @@
 				F4200001A1B2C3D4E5F60718 /* WindowAppearanceSnapshotTests.swift */,
 				F4100001A1B2C3D4E5F60718 /* PortScannerTests.swift */,
 				F5000001A1B2C3D4E5F60718 /* SessionPersistenceTests.swift */,
+				51M0000000000000000051D8 /* SimulatorSessionPersistenceTests.swift */,
 				FA100001A1B2C3D4E5F60718 /* BrowserImportMappingTests.swift */,
 				F6000001A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift */,
 				F6001001A1B2C3D4E5F60718 /* ShortcutUnbindingTests.swift */,
@@ -1327,6 +1351,7 @@
 				A50019B0 /* SettingsSearchAliases.swift in Sources */,
 				A5001002 /* ContentView.swift in Sources */,
 				C3408A000000000000000001 /* ContentView+RightSidebarCommandPalette.swift in Sources */,
+				51M0000000000000000051E1 /* ContentView+CommandPaletteSurfaceMetadata.swift in Sources */,
 				D7AB00000000000000000003 /* ContentView+MoveTabToNewWorkspace.swift in Sources */,
 				D7AB34300000000000000001 /* SidebarDropPlanner.swift in Sources */,
 				D7AB34300000000000000003 /* SidebarBonsplitTabWorkspaceDropOverlay.swift in Sources */,
@@ -1480,7 +1505,12 @@
 				51M0000000000000000051B2 /* SimulatorScreen.swift in Sources */,
 				51M0000000000000000051B5 /* IndigoHIDInput.swift in Sources */,
 				51M0000000000000000051B3 /* SimulatorListWindowController.swift in Sources */,
+				51M0000000000000000051D1 /* SimulatorPreviewFrameStore.swift in Sources */,
+				51M0000000000000000051D3 /* SimulatorListModel.swift in Sources */,
 				51M0000000000000000051B4 /* SimulatorListView.swift in Sources */,
+				51M0000000000000000051D5 /* TerminalController+Simulator.swift in Sources */,
+				51M0000000000000000051DB /* Workspace+Simulator.swift in Sources */,
+				51M0000000000000000051DD /* WorkspaceSurfaceKind.swift in Sources */,
 				51M0000000000000000051B6 /* SimulatorPanel.swift in Sources */,
 				51M0000000000000000051B7 /* SimulatorPanelView.swift in Sources */,
 				36CE99ED050785B5E96B72BB /* AuthCallbackRouter.swift in Sources */,
@@ -1504,6 +1534,7 @@
 				B900002FA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift in Sources */,
 				B900002EA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift in Sources */,
 				B9000033A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift in Sources */,
+				51M0000000000000000051D7 /* CMUXCLI+Simulator.swift in Sources */,
 				51M0000000000000000051C9 /* CMUXCLI+SimulatorTUI.swift in Sources */,
 				B9000027A1B2C3D4E5F60719 /* RemoteRelayZshBootstrap.swift in Sources */,
 			);
@@ -1558,6 +1589,7 @@
 				F4200000A1B2C3D4E5F60718 /* WindowAppearanceSnapshotTests.swift in Sources */,
 				F4100000A1B2C3D4E5F60718 /* PortScannerTests.swift in Sources */,
 				F5000000A1B2C3D4E5F60718 /* SessionPersistenceTests.swift in Sources */,
+				51M0000000000000000051D9 /* SimulatorSessionPersistenceTests.swift in Sources */,
 				FA100000A1B2C3D4E5F60718 /* BrowserImportMappingTests.swift in Sources */,
 				F6000000A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift in Sources */,
 				F6001000A1B2C3D4E5F60718 /* ShortcutUnbindingTests.swift in Sources */,
