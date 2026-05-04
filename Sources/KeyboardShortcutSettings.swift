@@ -1842,10 +1842,6 @@ struct ShortcutStroke: Equatable, Hashable {
 
 /// A keyboard shortcut that can be stored in UserDefaults
 struct StoredShortcut: Codable, Equatable, Hashable {
-    static var unbound: StoredShortcut {
-        StoredShortcut(key: "", command: false, shift: false, option: false, control: false)
-    }
-
     var key: String
     var command: Bool
     var shift: Bool
