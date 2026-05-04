@@ -10,6 +10,10 @@ knowledge_base:
       - ".github/llm-diff-lint/rules/*.md"
 
 reviews:
+  auto_review:
+    base_branches:
+      - ".*"
+
   path_instructions:
     - path: "**/*.swift"
       instructions: |
