@@ -6154,7 +6154,11 @@ async fn run_native_session(
                                 ],
                             );
                         }
-                        daemon.update_client_native_view(&session_id, terminals).await;
+                        if terminals.is_empty() {
+                            daemon.remove_client_view(&session_id).await;
+                        } else {
+                            daemon.update_client_native_view(&session_id, terminals).await;
+                        }
                         if has_native_layout {
                             match terminal_renderer {
                                 NativeTerminalRenderer::ServerGrid => {

@@ -1135,6 +1135,76 @@ async fn websocket_native_snapshot_reports_attached_client_layouts() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn websocket_native_empty_layout_detaches_visible_client() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("server.sock");
+    let (ws_listener, ws_addr) = bind_ws_listener().await;
+    let opts = ServerOptions {
+        socket_path: socket.clone(),
+        shell: "/bin/sh".into(),
+        cwd: Some(dir.path().to_path_buf()),
+        initial_viewport: (80, 24),
+        snapshot_path: None,
+        settings_path: None,
+        ws_bind: None,
+        auth_token: Some("sekrit".into()),
+    };
+    let server = tokio::spawn(async move {
+        let _ = run_with_websocket_listener(opts, HeartbeatConfig::default(), ws_listener).await;
+    });
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let mut ws = connect_ws(ws_addr).await;
+    send_client_msg(
+        &mut ws,
+        &ClientMsg::HelloNative {
+            version: PROTOCOL_VERSION,
+            viewport: Viewport { cols: 80, rows: 24 },
+            token: Some("sekrit".into()),
+            terminal_renderer: NativeTerminalRenderer::ServerGrid,
+        },
+    )
+    .await;
+    let client_id = match recv_server_msg(&mut ws).await {
+        ServerMsg::Welcome { session_id, .. } => session_id,
+        other => panic!("expected Welcome, got {other:?}"),
+    };
+    let tab_id = recv_native_snapshot(&mut ws).await.focused_tab_id;
+    send_client_msg(
+        &mut ws,
+        &ClientMsg::NativeLayout {
+            terminals: vec![cmux_cli_protocol::NativeTerminalViewport {
+                tab_id,
+                cols: 120,
+                rows: 40,
+            }],
+        },
+    )
+    .await;
+    let attached = recv_native_snapshot_until(&mut ws, "native client attached", |snapshot| {
+        snapshot
+            .attached_clients
+            .iter()
+            .any(|client| client.client_id == client_id && client.visible_terminal_count == 1)
+    })
+    .await;
+    assert_eq!(attached.attached_clients.len(), 1);
+
+    send_client_msg(&mut ws, &ClientMsg::NativeLayout { terminals: vec![] }).await;
+    let detached = recv_native_snapshot_until(&mut ws, "native client detached", |snapshot| {
+        snapshot
+            .attached_clients
+            .iter()
+            .all(|client| client.client_id != client_id)
+    })
+    .await;
+    assert!(detached.attached_clients.is_empty());
+
+    server.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn websocket_native_visible_client_times_out_without_heartbeat() {
     let dir = tempfile::tempdir().unwrap();
     let socket = dir.path().join("server.sock");

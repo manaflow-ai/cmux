@@ -299,6 +299,10 @@ private struct TerminalDetailView: View {
             }
             .onAppear {
                 store.refreshTerminalAppearance(colorPreference: CmxTerminalColorPreference(colorScheme: colorScheme))
+                store.terminalScreenDidAppear()
+            }
+            .onDisappear {
+                store.terminalScreenDidDisappear()
             }
             .onChange(of: colorScheme) { _, newValue in
                 store.refreshTerminalAppearance(colorPreference: CmxTerminalColorPreference(colorScheme: newValue))

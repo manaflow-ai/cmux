@@ -492,6 +492,75 @@ final class CmxBridgeTicketTests: XCTestCase {
     }
 
     @MainActor
+    func testTerminalScreenVisibilityControlsNativeLayoutAttachment() throws {
+        let sessionFactory = RecordingTerminalSessionFactory()
+        let store = CmxConnectionStore(
+            authSessionStore: MemoryStackAuthSessionStore(),
+            pairingSecretClient: RecordingPairingSecretClient(),
+            terminalSessionFactory: sessionFactory
+        )
+        store.ticketText = """
+        {
+          "version": 1,
+          "alpn": "/cmux/cmx/3",
+          "endpoint": { "id": "endpoint-public-key", "addrs": [] },
+          "auth": { "mode": "direct" }
+        }
+        """
+        store.connect()
+        sessionFactory.session.delegate?.terminalSession(
+            sessionFactory.session,
+            didReceive: .nativeSnapshot(CmxNativeSnapshot(
+                workspaces: [
+                    CmxNativeWorkspaceInfo(
+                        id: 11,
+                        title: "main",
+                        spaceCount: 1,
+                        tabCount: 1,
+                        terminalCount: 1,
+                        pinned: false,
+                        color: nil
+                    ),
+                ],
+                activeWorkspace: 0,
+                activeWorkspaceID: 11,
+                spaces: [
+                    CmxNativeSpaceInfo(id: 21, title: "space-1", paneCount: 1, terminalCount: 1),
+                ],
+                activeSpace: 0,
+                activeSpaceID: 21,
+                panels: .leaf(
+                    panelID: 31,
+                    tabs: [
+                        CmxNativeTabInfo(id: 41, title: "shell", hasActivity: false, bellCount: 0),
+                    ],
+                    active: 0,
+                    activeTabID: 41
+                ),
+                focusedPanelID: 31,
+                focusedTabID: 41
+            ))
+        )
+        XCTAssertTrue(sessionFactory.session.sentLayouts.isEmpty)
+
+        store.terminalScreenDidAppear()
+
+        XCTAssertEqual(sessionFactory.session.sentLayouts.last, [
+            CmxWireTerminalViewport(tabID: 41, cols: 80, rows: 24),
+        ])
+
+        sessionFactory.session.clearRecordedLayouts()
+        store.terminalScreenDidDisappear()
+
+        XCTAssertEqual(sessionFactory.session.sentLayouts, [[]])
+
+        sessionFactory.session.clearRecordedLayouts()
+        store.select(terminal: store.selectedTerminal)
+
+        XCTAssertTrue(sessionFactory.session.sentLayouts.isEmpty)
+    }
+
+    @MainActor
     func testDefaultSessionFactoryUsesIrohWhenTicketHasNoWebSocketRoute() throws {
         let rawTicket = """
         {
@@ -805,5 +874,9 @@ private final class RecordingTerminalSession: CmxTerminalSession {
 
     func clearRecordedResizes() {
         sentResizes = []
+    }
+
+    func clearRecordedLayouts() {
+        sentLayouts = []
     }
 }

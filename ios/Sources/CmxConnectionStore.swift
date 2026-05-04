@@ -49,6 +49,7 @@ final class CmxConnectionStore: ObservableObject {
     private var reconnectAllowed = false
     private var reconnectPending = false
     private var didUseImmediateReconnectForCurrentLoss = false
+    private var terminalScreenVisible = false
 
     private static var firstDemoTerminalID: UInt64? {
         CmxDemoState.workspaces
@@ -266,6 +267,16 @@ final class CmxConnectionStore: ObservableObject {
             terminalSession?.sendCommand(.selectTabInPanel(panelID: selection.panelID, index: selection.index))
         }
         syncNativeLayoutForVisibleTerminal()
+    }
+
+    func terminalScreenDidAppear() {
+        terminalScreenVisible = true
+        syncNativeLayoutForVisibleTerminal()
+    }
+
+    func terminalScreenDidDisappear() {
+        terminalScreenVisible = false
+        terminalSession?.sendNativeLayout([])
     }
 
     func node(for workspace: CmxWorkspace) -> CmxHiveNode {
@@ -493,6 +504,7 @@ final class CmxConnectionStore: ObservableObject {
     }
 
     private func syncNativeLayoutForVisibleTerminal() {
+        guard terminalScreenVisible else { return }
         let terminal = selectedTerminal
         guard terminal.id != Self.placeholderTerminalID else { return }
         terminalSession?.sendNativeLayout([
