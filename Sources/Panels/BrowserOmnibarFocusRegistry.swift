@@ -295,7 +295,7 @@ final class BrowserOmnibarFocusLatencyTracker {
     private func isTypingKey(_ event: NSEvent) -> Bool {
         guard event.type == .keyDown else { return false }
         let blockedModifiers: NSEvent.ModifierFlags = [.command, .control, .option]
-        guard event.modifierFlags.intersection(blockedModifiers).isEmpty else { return false }
+        guard event.modifierFlags.isDisjoint(with: blockedModifiers) else { return false }
         guard let characters = event.charactersIgnoringModifiers, !characters.isEmpty else { return false }
         return characters != "\u{1B}"
     }
