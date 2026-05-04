@@ -422,6 +422,31 @@ final class GhosttyConfigTests: XCTestCase {
         }
     }
 
+    func testCmuxAppSupportConfigURLsPreferConfigGhosttyOverLegacyConfigWhenBothExist() throws {
+        try withTemporaryAppSupportDirectory { appSupportDirectory in
+            _ = try writeAppSupportConfig(
+                appSupportDirectory: appSupportDirectory,
+                bundleIdentifier: "com.cmuxterm.app",
+                filename: "config",
+                contents: "background = #000000\n"
+            )
+            let preferredConfigURL = try writeAppSupportConfig(
+                appSupportDirectory: appSupportDirectory,
+                bundleIdentifier: "com.cmuxterm.app",
+                filename: "config.ghostty",
+                contents: "theme = light:3024 Day,dark:3024 Night\n"
+            )
+
+            XCTAssertEqual(
+                GhosttyApp.cmuxAppSupportConfigURLs(
+                    currentBundleIdentifier: "com.cmuxterm.app.debug.issue-3478",
+                    appSupportDirectory: appSupportDirectory
+                ),
+                [preferredConfigURL]
+            )
+        }
+    }
+
     func testCmuxAppSupportConfigURLsPreferCurrentBundleConfigWhenPresent() throws {
         try withTemporaryAppSupportDirectory { appSupportDirectory in
             _ = try writeAppSupportConfig(
@@ -444,6 +469,31 @@ final class GhosttyConfigTests: XCTestCase {
                 ),
                 [currentConfigURL]
             )
+        }
+    }
+
+    func testLoadedGhosttyConfigScanPathsOmitsReleaseLegacyConfigWhenPreferredConfigGhosttyExists() throws {
+        try withTemporaryAppSupportDirectory { appSupportDirectory in
+            let legacyConfigURL = try writeAppSupportConfig(
+                appSupportDirectory: appSupportDirectory,
+                bundleIdentifier: "com.cmuxterm.app",
+                filename: "config",
+                contents: "background = #000000\n"
+            )
+            let preferredConfigURL = try writeAppSupportConfig(
+                appSupportDirectory: appSupportDirectory,
+                bundleIdentifier: "com.cmuxterm.app",
+                filename: "config.ghostty",
+                contents: "theme = light:3024 Day,dark:3024 Night\n"
+            )
+
+            let paths = GhosttyApp.loadedGhosttyConfigScanPaths(
+                currentBundleIdentifier: "com.cmuxterm.app.debug.issue-3478",
+                appSupportDirectory: appSupportDirectory
+            )
+
+            XCTAssertTrue(paths.contains(preferredConfigURL.path))
+            XCTAssertFalse(paths.contains(legacyConfigURL.path))
         }
     }
 

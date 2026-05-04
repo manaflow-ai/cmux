@@ -2752,18 +2752,34 @@ class GhosttyApp {
 
         func existingConfigURLs(for bundleIdentifier: String) -> [URL] {
             let directory = appSupportDirectory.appendingPathComponent(bundleIdentifier, isDirectory: true)
-            return [
-                directory.appendingPathComponent("config", isDirectory: false),
-                directory.appendingPathComponent("config.ghostty", isDirectory: false)
-            ].filter { url in
+            let legacy = directory.appendingPathComponent("config", isDirectory: false)
+            let preferred = directory.appendingPathComponent("config.ghostty", isDirectory: false)
+
+            func regularFileSize(_ url: URL) -> Int? {
                 guard let attrs = try? fileManager.attributesOfItem(atPath: url.path),
                       let type = attrs[.type] as? FileAttributeType,
                       type == .typeRegular,
                       let size = attrs[.size] as? NSNumber else {
-                    return false
+                    return nil
                 }
-                return size.intValue > 0
+                return size.intValue
             }
+
+            let preferredSize = regularFileSize(preferred)
+            if let preferredSize, preferredSize > 0 {
+                // `config.ghostty` is the canonical app-support config. Do not also
+                // layer the legacy `config` underneath it: older cmux builds wrote
+                // explicit dark colors there, which pins the runtime background and
+                // prevents appearance-driven theme pairs from switching.
+                return [preferred]
+            }
+
+            let legacySize = regularFileSize(legacy)
+            if let legacySize, legacySize > 0 {
+                return [legacy]
+            }
+
+            return []
         }
 
         let currentURLs = existingConfigURLs(for: currentBundleIdentifier)
