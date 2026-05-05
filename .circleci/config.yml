@@ -41,6 +41,10 @@ commands:
           name: Install Bun
           command: |
             BUN_VERSION="1.3.3"
+            mkdir -p "$HOME/.npm-global"
+            npm config set prefix "$HOME/.npm-global"
+            echo 'export PATH="$HOME/.npm-global/bin:$PATH"' >> "$BASH_ENV"
+            . "$BASH_ENV"
             npm install --global "bun@$BUN_VERSION"
             test "$(bun --version)" = "$BUN_VERSION"
 
