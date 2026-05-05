@@ -1097,15 +1097,10 @@ final class TerminalNotificationStore: ObservableObject {
     /// Records that the bell rang in `surfaceId` of `tabId` so the sidebar can
     /// show a per-workspace attention indicator and the bonsplit tab strip can
     /// show a per-surface badge (matches ghostty's `bell-features = title`).
-    /// Suppressed when the user has eyes on this exact surface — no badge is
-    /// needed if they are already looking at it.
+    /// Pure write sink — visibility-based suppression lives at the call site
+    /// in `GhosttyApp.recordBellForTitleIndicator(tabId:surfaceId:)` so the
+    /// store doesn't reach into TabManager / AppFocusState.
     func noteBellRang(tabId: UUID, surfaceId: UUID) {
-        let owningManager = AppDelegate.shared?.tabManagerFor(tabId: tabId)
-            ?? AppDelegate.shared?.tabManager
-        let isCurrentlyVisible = owningManager?.selectedTabId == tabId
-            && owningManager?.focusedSurfaceId(for: tabId) == surfaceId
-            && AppFocusState.isAppActive()
-        guard !isCurrentlyVisible else { return }
         var current = bellRangSurfacesByTab[tabId] ?? []
         let (inserted, _) = current.insert(surfaceId)
         guard inserted else { return }

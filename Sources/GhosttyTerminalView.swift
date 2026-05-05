@@ -3353,13 +3353,29 @@ class GhosttyApp {
         // The app-target bell action (no surface context) skips this with a
         // DEBUG log rather than mis-attributing the bell.
         if (features & (1 << 3)) != 0, let tabId, let surfaceId {
-            TerminalNotificationStore.shared.noteBellRang(tabId: tabId, surfaceId: surfaceId)
+            Self.recordBellForTitleIndicator(tabId: tabId, surfaceId: surfaceId)
         }
 #if DEBUG
         if (features & (1 << 3)) != 0, (tabId == nil || surfaceId == nil) {
             cmuxDebugLog("bell.title.skipped reason=missingTabIdOrSurfaceId tab=\(tabId?.uuidString.prefix(5) ?? "nil") surface=\(surfaceId?.uuidString.prefix(5) ?? "nil")")
         }
 #endif
+    }
+
+    /// Visibility-aware entry point for recording a `bell-features = title`
+    /// indicator. Suppresses when the user has eyes on this exact surface so
+    /// no badge is needed. Centralizes the suppression logic at the bell
+    /// handling layer, keeping `TerminalNotificationStore` a pure write sink.
+    /// Also reused by the `bell.simulate` socket command for test coverage.
+    @MainActor
+    static func recordBellForTitleIndicator(tabId: UUID, surfaceId: UUID) {
+        let owningManager = AppDelegate.shared?.tabManagerFor(tabId: tabId)
+            ?? AppDelegate.shared?.tabManager
+        let isCurrentlyVisible = owningManager?.selectedTabId == tabId
+            && owningManager?.focusedSurfaceId(for: tabId) == surfaceId
+            && AppFocusState.isAppActive()
+        guard !isCurrentlyVisible else { return }
+        TerminalNotificationStore.shared.noteBellRang(tabId: tabId, surfaceId: surfaceId)
     }
 
     private func applyDefaultBackground(

@@ -864,6 +864,38 @@ class cmux:
     def clear_notifications(self) -> None:
         self._call("notification.clear")
 
+    def simulate_bell(self, surface: Union[str, int], workspace: Union[str, int, None] = None) -> dict:
+        sid = self._resolve_surface_id(surface)
+        if not sid:
+            raise cmuxError(f"Invalid surface: {surface!r}")
+        params: dict = {"surface_id": sid}
+        if workspace is not None:
+            wid = self._resolve_workspace_id(workspace) if isinstance(workspace, (str, int)) else None
+            if wid:
+                params["workspace_id"] = wid
+        return self._call("bell.simulate", params) or {}
+
+    def list_bell_surfaces(self, workspace: Union[str, int, None] = None) -> list[str]:
+        """Return the surface IDs that have an active bell-features=title indicator.
+
+        If `workspace` is provided, returns only surfaces in that workspace.
+        Otherwise returns surfaces across all workspaces.
+        """
+        res = self._call("bell.list") or {}
+        entries = res.get("workspaces") or []
+        if workspace is None:
+            out: list[str] = []
+            for entry in entries:
+                out.extend(entry.get("surface_ids") or [])
+            return sorted(out)
+        target = self._resolve_workspace_id(workspace) if isinstance(workspace, (str, int)) else None
+        if not target:
+            return []
+        for entry in entries:
+            if entry.get("workspace_id") == target:
+                return sorted(list(entry.get("surface_ids") or []))
+        return []
+
     def set_app_focus(self, active: Union[bool, None]) -> None:
         if active is None:
             state = "clear"
