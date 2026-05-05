@@ -262,6 +262,106 @@ final class ShortcutUnbindingParsingTests: XCTestCase {
         XCTAssertEqual(store.override(for: .splitRight), StoredShortcut.unbound)
     }
 
+    func testSwapShortcutConflictDoesNotPersistAgainstManagedConflict() throws {
+        let originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
+        let currentAction = KeyboardShortcutSettings.Action.openBrowser
+        let conflictingAction = KeyboardShortcutSettings.Action.newSurface
+        let originalCurrentData = UserDefaults.standard.data(forKey: currentAction.defaultsKey)
+        let originalConflictingData = UserDefaults.standard.data(forKey: conflictingAction.defaultsKey)
+        defer {
+            KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
+            restoreShortcutDefaultsData(originalCurrentData, for: currentAction)
+            restoreShortcutDefaultsData(originalConflictingData, for: conflictingAction)
+        }
+
+        UserDefaults.standard.removeObject(forKey: currentAction.defaultsKey)
+        UserDefaults.standard.removeObject(forKey: conflictingAction.defaultsKey)
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-managed-shortcut-swap-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try """
+        {
+          "shortcuts": {
+            "newSurface": "cmd+t"
+          }
+        }
+        """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        let previousShortcut = KeyboardShortcutSettings.Action.openBrowser.defaultShortcut
+        let proposedShortcut = KeyboardShortcutSettings.Action.newSurface.defaultShortcut
+
+        XCTAssertFalse(
+            KeyboardShortcutSettings.swapShortcutConflict(
+                proposedShortcut: proposedShortcut,
+                currentAction: currentAction,
+                conflictingAction: conflictingAction,
+                previousShortcut: previousShortcut
+            )
+        )
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: currentAction), previousShortcut)
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: conflictingAction), proposedShortcut)
+    }
+
+    func testSystemWideHotkeyShortcutPrefersManagedOverrideOverPersistedValue() throws {
+        let originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
+        let action = SystemWideHotkeySettings.action
+        let originalData = UserDefaults.standard.data(forKey: action.defaultsKey)
+        defer {
+            KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
+            restoreShortcutDefaultsData(originalData, for: action)
+        }
+
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-managed-global-hotkey-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+        UserDefaults.standard.removeObject(forKey: action.defaultsKey)
+        let persistedShortcut = StoredShortcut(
+            key: "h",
+            command: true,
+            shift: false,
+            option: false,
+            control: false
+        )
+        KeyboardShortcutSettings.setShortcut(persistedShortcut, for: action)
+
+        try """
+        {
+          "shortcuts": {
+            "showHideAllWindows": "ctrl+option+h"
+          }
+        }
+        """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(
+            SystemWideHotkeySettings.shortcut(),
+            StoredShortcut(key: "h", command: false, shift: false, option: true, control: true)
+        )
+    }
+
     func testUnboundShortcutNeverMatchesKeypress() {
         let shortcut = StoredShortcut.unbound
 
@@ -276,5 +376,34 @@ final class ShortcutUnbindingParsingTests: XCTestCase {
         XCTAssertNil(shortcut.keyEquivalent)
         XCTAssertNil(shortcut.menuItemKeyEquivalent)
         XCTAssertNil(shortcut.carbonHotKeyRegistration)
+    }
+
+    func testShortcutRecorderValidationPresentationSuppressesSwapForManagedConflicts() {
+        let presentation = ShortcutRecorderValidationPresentation(
+            attempt: ShortcutRecorderRejectedAttempt(
+                reason: .conflictsWithAction(.newSurface),
+                proposedShortcut: StoredShortcut(key: "t", command: true, shift: false, option: false, control: false)
+            ),
+            action: .openBrowser,
+            currentShortcut: KeyboardShortcutSettings.Action.openBrowser.defaultShortcut,
+            shortcutForAction: { $0.defaultShortcut },
+            isManagedBySettingsFile: { $0 == .newSurface }
+        )
+
+        XCTAssertEqual(presentation?.message, "This shortcut conflicts with New Surface (⌘T).")
+        XCTAssertNil(presentation?.swapButtonTitle)
+        XCTAssertFalse(presentation?.canSwap ?? true)
+        XCTAssertEqual(presentation?.undoButtonTitle, "Undo")
+    }
+
+    private func restoreShortcutDefaultsData(
+        _ data: Data?,
+        for action: KeyboardShortcutSettings.Action
+    ) {
+        if let data {
+            UserDefaults.standard.set(data, forKey: action.defaultsKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: action.defaultsKey)
+        }
     }
 }

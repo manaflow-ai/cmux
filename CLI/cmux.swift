@@ -2177,18 +2177,21 @@ struct CMUXCLI {
             return
         }
 
-        // Codex hooks management (no socket needed)
         if command == "codex" {
+            // Backwards compatibility for old hook setup docs/scripts. Hidden from help.
             let sub = commandArgs.first?.lowercased() ?? "help"
+            guard let codexDef = Self.agentDef(named: "codex") else { throw CLIError(message: "Codex hook integration is unavailable.") }
             if sub == "install-hooks" {
-                try installHooksForAgent(Self.agentDef(named: "codex")!, arguments: Array(commandArgs.dropFirst()))
+                try installHooksForAgent(codexDef, arguments: Array(commandArgs.dropFirst()))
                 return
             } else if sub == "uninstall-hooks" {
-                try uninstallHooksForAgent(Self.agentDef(named: "codex")!, arguments: Array(commandArgs.dropFirst()))
+                try uninstallHooksForAgent(codexDef, arguments: Array(commandArgs.dropFirst()))
                 return
             }
         }
-
+        if command == "setup-hooks" || command == "uninstall-hooks" { try runSetupHooks(uninstall: command == "uninstall-hooks"); return } // Backwards compatibility for old hook setup docs/scripts.
+        if (command == "codex-hook" || command == "feed-hook"), processEnv["CMUX_SURFACE_ID"]?.isEmpty != false, processEnv["CMUX_WORKSPACE_ID"]?.isEmpty != false,
+           !commandArgs.contains(where: { $0 == "--workspace" || $0 == "--surface" || $0.hasPrefix("--workspace=") || $0.hasPrefix("--surface=") }) { print("{}"); return } // Backwards compatibility for old installed hooks outside cmux terminals.
         if command == "hooks" {
             if try runHooksNoSocketCommand(commandArgs: commandArgs) {
                 return
@@ -2284,8 +2287,7 @@ struct CMUXCLI {
             }
         }
 
-        let capturesSocketErrorsInsideCommand = command == "claude-hook" || command == "hooks"
-
+        let capturesSocketErrorsInsideCommand = ["claude-hook", "codex-hook", "feed-hook", "hooks"].contains(command) // Backwards compatibility aliases stay hidden from help.
         do {
         switch command {
         case "ping":
@@ -3335,7 +3337,11 @@ struct CMUXCLI {
                 captureSocketTransportError(telemetry: cliTelemetry, stage: "claude_hook_dispatch", error: error, client: client)
                 throw error
             }
-
+        case "codex-hook": // Backwards compatibility for older installed Codex hooks. Hidden from help.
+            guard let codexDef = Self.agentDef(named: "codex") else { print("{}"); return }
+            try runGenericAgentHook(def: codexDef, commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
+        case "feed-hook": // Backwards compatibility for older installed Feed hooks. Hidden from help.
+            try runFeedHook(commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
         case "hooks":
             try runHooksSocketCommand(commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
 
@@ -4752,19 +4758,19 @@ struct CMUXCLI {
             target: sshOptions.displayDestination,
             relayPort: sshOptions.remoteRelayPort
         )
-        let combinedLocalCommand = combinedLocalShellCommand([
+        let combinedLocalCommandScript = combinedLocalShellScript([
             deferredRemoteReconnectCommand,
             sshConnectionTimingCommand,
         ])
         let configuredForegroundAuthToken = deferredRemoteReconnectCommand == nil ? nil : deferredRemoteReconnectToken
         let startupInitialSSHCommand = buildSSHCommandText(
             sshOptions,
-            localCommand: combinedLocalCommand
+            localCommandScript: combinedLocalCommandScript
         )
         let startupRemoteTerminalSSHCommand = buildSSHCommandText(
             sshOptions,
             remoteBootstrapScript: remoteTerminalBootstrapScript,
-            localCommand: combinedLocalCommand
+            localCommandScript: combinedLocalCommandScript
         )
         let initialSSHStartupCommand: String
         let remoteTerminalSSHStartupCommand: String
@@ -4774,14 +4780,14 @@ struct CMUXCLI {
                 remoteBootstrapScript: remoteTerminalBootstrapScript,
                 shellFeatures: shellFeaturesValue,
                 remoteRelayPort: sshOptions.remoteRelayPort,
-                localCommand: combinedLocalCommand
+                localCommandScript: combinedLocalCommandScript
             )
             remoteTerminalSSHStartupCommand = buildReusableBootstrapSSHStartupCommand(
                 options: sshOptions,
                 remoteBootstrapScript: remoteTerminalBootstrapScript,
                 shellFeatures: shellFeaturesValue,
                 remoteRelayPort: sshOptions.remoteRelayPort,
-                localCommand: combinedLocalCommand
+                localCommandScript: combinedLocalCommandScript
             )
         } else {
             initialSSHStartupCommand = try buildSSHStartupCommand(
@@ -5040,12 +5046,12 @@ struct CMUXCLI {
     func buildSSHCommandText(
         _ options: SSHCommandOptions,
         remoteBootstrapScript: String? = nil,
-        localCommand: String? = nil
+        localCommandScript: String? = nil
     ) -> String {
         buildSSHCommandArguments(
             options,
             remoteBootstrapScript: remoteBootstrapScript,
-            localCommand: localCommand
+            localCommandScript: localCommandScript
         )
         .map(shellQuote)
         .joined(separator: " ")
@@ -5054,16 +5060,16 @@ struct CMUXCLI {
     private func buildSSHCommandArguments(
         _ options: SSHCommandOptions,
         remoteBootstrapScript: String? = nil,
-        localCommand: String? = nil
+        localCommandScript: String? = nil
     ) -> [String] {
-        var parts = baseSSHArguments(options, localCommand: localCommand)
+        var parts = baseSSHArguments(options, localCommandScript: localCommandScript)
         let trimmedRemoteBootstrap = remoteBootstrapScript?
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
         if options.extraArguments.isEmpty {
             if let trimmedRemoteBootstrap, !trimmedRemoteBootstrap.isEmpty {
-                let remoteCommand = sshPercentEscapedRemoteCommand(
-                    encodedRemoteBootstrapCommand(
+                let remoteCommand = openSSHRemoteCommandValue(
+                    shellScript: encodedRemoteBootstrapCommand(
                         trimmedRemoteBootstrap,
                         remoteRelayPort: options.remoteRelayPort
                     )
@@ -5086,12 +5092,12 @@ struct CMUXCLI {
         remoteBootstrapScript: String,
         shellFeatures: String,
         remoteRelayPort: Int,
-        localCommand: String? = nil
+        localCommandScript: String? = nil
     ) throws -> String {
         let commandSnippet = buildSSHBootstrapCommandSnippet(
             options: options,
             remoteBootstrapScript: remoteBootstrapScript,
-            localCommand: localCommand
+            localCommandScript: localCommandScript
         )
         return try buildSSHStartupCommand(
             sshCommand: commandSnippet,
@@ -5106,12 +5112,12 @@ struct CMUXCLI {
         remoteBootstrapScript: String,
         shellFeatures: String,
         remoteRelayPort: Int,
-        localCommand: String? = nil
+        localCommandScript: String? = nil
     ) -> String {
         let commandSnippet = buildSSHBootstrapCommandSnippet(
             options: options,
             remoteBootstrapScript: remoteBootstrapScript,
-            localCommand: localCommand
+            localCommandScript: localCommandScript
         )
         return buildReusableSSHStartupCommand(
             sshCommand: commandSnippet,
@@ -5124,17 +5130,17 @@ struct CMUXCLI {
     private func buildSSHBootstrapCommandSnippet(
         options: SSHCommandOptions,
         remoteBootstrapScript: String,
-        localCommand: String? = nil
+        localCommandScript: String? = nil
     ) -> String {
         let encodedBootstrapScript = Data(remoteBootstrapScript.utf8).base64EncodedString()
-        let installSSHPrefix = baseSSHArguments(options, localCommand: localCommand).map(shellQuote).joined(separator: " ")
+        let installSSHPrefix = baseSSHArguments(options, localCommandScript: localCommandScript).map(shellQuote).joined(separator: " ")
         let sessionSSHPrefix = baseSSHArguments(options).map(shellQuote).joined(separator: " ")
-        let remoteCommandTemplate = sshPercentEscapedRemoteCommand(
-            stagedRemoteBootstrapCommandShell(
+        let remoteCommandTemplate = openSSHRemoteCommandValue(
+            shellScript: stagedRemoteBootstrapCommandShell(
                 remoteRelayPort: options.remoteRelayPort
             )
         )
-        let remoteBootstrapInstallCommand = "/bin/sh -c " + shellQuote(
+        let remoteBootstrapInstallCommand = posixShellCommand(
             remoteBootstrapInstallShell(remoteRelayPort: options.remoteRelayPort)
         )
         var lines: [String] = [
@@ -5435,7 +5441,7 @@ struct CMUXCLI {
             shellFeatures: shellFeatures,
             terminfoSource: terminfoSource
         )
-        return "/bin/sh -c \(shellQuote(script))"
+        return posixShellCommand(script)
     }
 
     private func interactiveRemoteTerminalSetupLines(terminfoSource: String?) -> [String] {
@@ -5513,7 +5519,7 @@ struct CMUXCLI {
         ]
     }
 
-    private func baseSSHArguments(_ options: SSHCommandOptions, localCommand: String? = nil) -> [String] {
+    private func baseSSHArguments(_ options: SSHCommandOptions, localCommandScript: String? = nil) -> [String] {
         let effectiveSSHOptions = effectiveSSHOptions(
             options.sshOptions,
             remoteRelayPort: options.remoteRelayPort
@@ -5543,8 +5549,7 @@ struct CMUXCLI {
         for option in effectiveSSHOptions {
             parts += ["-o", option]
         }
-        if let localCommand, !localCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let escapedLocalCommand = localCommand.replacingOccurrences(of: "%", with: "%%")
+        if let escapedLocalCommand = openSSHLocalCommandValue(shellScript: localCommandScript) {
             parts += ["-o", "PermitLocalCommand=yes"]
             parts += ["-o", "LocalCommand=\(escapedLocalCommand)"]
         }
@@ -5628,10 +5633,6 @@ struct CMUXCLI {
             "exit $cmux_status",
         ]
         return lines.joined(separator: "\n")
-    }
-
-    func sshPercentEscapedRemoteCommand(_ remoteCommand: String) -> String {
-        remoteCommand.replacingOccurrences(of: "%", with: "%%")
     }
 
     func buildSSHStartupCommand(
@@ -6662,23 +6663,14 @@ struct CMUXCLI {
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
         return [
-            "cmux_ssh_log_path=\"$(tr -d '\\r\\n' < /tmp/cmux-last-debug-log-path 2>/dev/null || true)\";",
+            "cmux_ssh_log_path=\"\";",
+            "if [ -r /tmp/cmux-last-debug-log-path ]; then cmux_ssh_log_path=\"$(tr -d '\\r\\n' < /tmp/cmux-last-debug-log-path 2>/dev/null || true)\"; fi;",
             "if [ -n \"$cmux_ssh_log_path\" ]; then",
             "cmux_ssh_ts=\"$(python3 -c 'from datetime import datetime, timezone; print(datetime.now(timezone.utc).isoformat(timespec=\"milliseconds\").replace(\"+00:00\", \"Z\"))' 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%SZ)\";",
             "printf '%s [cmux-cli] cli.ssh.handshake target=\(escapedTarget) relayPort=\(relayPort) stage=ssh.connected workspace=%s surface=%s\\n' \"$cmux_ssh_ts\" \"${CMUX_WORKSPACE_ID:-nil}\" \"${CMUX_SURFACE_ID:-nil}\" >> \"$cmux_ssh_log_path\";",
             "fi;",
             "unset cmux_ssh_log_path cmux_ssh_ts;",
         ].joined(separator: " ")
-    }
-
-    private func combinedLocalShellCommand(_ parts: [String?]) -> String? {
-        let filtered = parts.compactMap { raw -> String? in
-            guard let raw else { return nil }
-            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? nil : trimmed
-        }
-        guard !filtered.isEmpty else { return nil }
-        return filtered.joined(separator: " ")
     }
 
     private func shouldDeferRemoteReconnect(in options: [String]) -> Bool {
@@ -6725,7 +6717,7 @@ struct CMUXCLI {
         return trimmed
     }
 
-    private func shellQuote(_ value: String) -> String {
+    func shellQuote(_ value: String) -> String {
         let safePattern = "^[A-Za-z0-9_@%+=:,./-]+$"
         if value.range(of: safePattern, options: .regularExpression) != nil {
             return value
@@ -14072,15 +14064,12 @@ struct CMUXCLI {
         client: SocketClient
     ) throws -> String {
         if let preferred = nonEmptyClaudeHookIdentifier(preferred) {
-            if isUUID(preferred) {
-                return preferred
-            }
             return try resolveWorkspaceIdForClaudeHook(preferred, client: client)
         }
-        if let fallback = nonEmptyClaudeHookIdentifier(fallback), isUUID(fallback) {
-            return fallback
+        if let fallback = nonEmptyClaudeHookIdentifier(fallback) {
+            return try resolveWorkspaceIdForClaudeHook(fallback, client: client)
         }
-        return try resolveWorkspaceIdForClaudeHook(fallback, client: client)
+        return try resolveWorkspaceIdForClaudeHook(nil, client: client)
     }
 
     private func resolvePreferredSurfaceIdForClaudeHook(
@@ -14090,15 +14079,12 @@ struct CMUXCLI {
         client: SocketClient
     ) throws -> String {
         if let preferred = nonEmptyClaudeHookIdentifier(preferred) {
-            if isUUID(preferred) {
-                return preferred
-            }
             return try resolveSurfaceIdForClaudeHook(preferred, workspaceId: workspaceId, client: client)
         }
-        if let fallback = nonEmptyClaudeHookIdentifier(fallback), isUUID(fallback) {
-            return fallback
+        if let fallback = nonEmptyClaudeHookIdentifier(fallback) {
+            return try resolveSurfaceIdForClaudeHook(fallback, workspaceId: workspaceId, client: client)
         }
-        return try resolveSurfaceIdForClaudeHook(fallback, workspaceId: workspaceId, client: client)
+        return try resolveSurfaceIdForClaudeHook(nil, workspaceId: workspaceId, client: client)
     }
 
     private func nonEmptyClaudeHookIdentifier(_ value: String?) -> String? {
@@ -15612,12 +15598,27 @@ struct CMUXCLI {
         var result: [String: String] = [:]
         for key in allowedKeys {
             guard let value = env[key] else { continue }
-            result[key] = value
+            result[key] = key == "CLAUDE_CONFIG_DIR" ? normalizedClaudeConfigDirectory(value) : value
         }
         if let nodeOptions = selectedAgentLaunchNodeOptions(from: env) {
             result["NODE_OPTIONS"] = nodeOptions
         }
         return result
+    }
+
+    private func normalizedClaudeConfigDirectory(_ rawValue: String) -> String {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return rawValue }
+        let standardized = ((trimmed as NSString).expandingTildeInPath as NSString).standardizingPath
+        let home = ((NSHomeDirectory() as NSString).expandingTildeInPath as NSString).standardizingPath
+        let legacyRoot = ((home as NSString).appendingPathComponent(".subrouter/codex/claude") as NSString).standardizingPath
+        guard standardized == legacyRoot || standardized.hasPrefix(legacyRoot + "/") else { return standardized }
+        let accountRoot = ((home as NSString).appendingPathComponent(".codex-accounts/claude") as NSString).standardizingPath
+        let candidate = accountRoot + String(standardized.dropFirst(legacyRoot.count))
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: candidate, isDirectory: &isDirectory) && isDirectory.boolValue
+            ? candidate
+            : standardized
     }
 
     private func selectedAgentLaunchNodeOptions(from env: [String: String]) -> String? {
@@ -16645,35 +16646,35 @@ export default CMUXSessionRestore;
         }
     }
 
-    private func updateOpenCodePluginRegistration(configDir: URL, shouldInstall: Bool) throws {
-        let configURL = configDir.appendingPathComponent("opencode.json", isDirectory: false)
+    private func updateOpenCodePluginRegistration(configDir: URL, shouldInstall: Bool) throws -> Bool {
+        let configURL = configDir.appendingPathComponent("opencode.json", isDirectory: false); let existingData = try? Data(contentsOf: configURL)
         var config: [String: Any]
-        if let data = try? Data(contentsOf: configURL) {
-            guard let decoded = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                throw CLIError(message: "Failed to parse \(configURL.path). Fix the JSON syntax and retry.")
-            }
+        if let data = existingData {
+            guard let decoded = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw CLIError(message: "Failed to parse \(configURL.path). Fix the JSON syntax and retry.") }
             config = decoded
         } else {
             config = [:]
         }
-
         var plugins = Self.openCodePluginListRemovingSessionPlugin((config["plugin"] as? [Any]) ?? [])
-        if shouldInstall,
-           !Self.openCodePluginListContains(plugins, spec: Self.openCodeSessionPluginConfigSpec) {
-            plugins.append(Self.openCodeSessionPluginConfigSpec)
-        }
+        if shouldInstall, !Self.openCodePluginListContains(plugins, spec: Self.openCodeSessionPluginConfigSpec) { plugins.append(Self.openCodeSessionPluginConfigSpec) }
         config["plugin"] = plugins
-
         let output = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys])
+        if existingData == output { return false }
         try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
         try output.write(to: configURL, options: .atomic)
+        return true
     }
 
     private func installOpenCodePluginHooks(_ def: AgentHookDef) throws {
         let pluginURL = openCodeSessionPluginURL(for: def)
-        let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
-            || ProcessInfo.processInfo.arguments.contains("-y")
-
+        let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes") || ProcessInfo.processInfo.arguments.contains("-y")
+        let existing = (try? String(contentsOf: pluginURL, encoding: .utf8)) ?? ""
+        let configDir = URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true)
+        if existing == Self.openCodeSessionPluginSource {
+            print(try updateOpenCodePluginRegistration(configDir: configDir, shouldInstall: true) ? "OpenCode hooks installed at \(pluginURL.path)" : "OpenCode hooks already up to date at \(pluginURL.path)")
+            return
+        }
+        if !existing.isEmpty, !existing.contains(Self.openCodeSessionPluginMarker) { throw CLIError(message: "\(pluginURL.path) exists and is not a cmux plugin; leaving it alone") }
         if !skipConfirm {
             print("Will write OpenCode cmux plugin to \(pluginURL.path):")
             print(Self.openCodeSessionPluginSource)
@@ -16683,10 +16684,8 @@ export default CMUXSessionRestore;
                 return
             }
         }
-
-        let configDir = URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true)
         try writeOpenCodeSessionPlugin(in: configDir)
-        try updateOpenCodePluginRegistration(configDir: configDir, shouldInstall: true)
+        _ = try updateOpenCodePluginRegistration(configDir: configDir, shouldInstall: true)
         print("OpenCode hooks installed at \(pluginURL.path)")
     }
 
@@ -16697,21 +16696,18 @@ export default CMUXSessionRestore;
             print("No OpenCode cmux plugin found at \(pluginURL.path)")
             return
         }
-
         let existing = (try? String(contentsOf: pluginURL, encoding: .utf8)) ?? ""
         guard existing.contains(Self.openCodeSessionPluginMarker) else {
             print("Refusing to remove \(pluginURL.path): missing cmux marker")
             return
         }
-
         try fm.removeItem(at: pluginURL)
-        try updateOpenCodePluginRegistration(
+        _ = try updateOpenCodePluginRegistration(
             configDir: URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true),
             shouldInstall: false
         )
         print("Removed OpenCode cmux plugin from \(pluginURL.path)")
     }
-
     private func installAgentHooks(_ def: AgentHookDef) throws {
         if def.name == "opencode" {
             try installOpenCodePluginHooks(def)
@@ -17028,7 +17024,13 @@ export default CMUXSessionRestore;
 
         case .promptSubmit:
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
-            let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(preferred: mapped?.workspaceId, fallback: workspaceArg, client: client)
+            let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(preferred: workspaceArg, fallback: mapped?.workspaceId, client: client)
+            let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
+                preferred: surfaceArg,
+                fallback: mapped?.surfaceId,
+                workspaceId: workspaceId,
+                client: client
+            )
             sendAgentFeedTelemetry(workspaceId: workspaceId)
             let pid = mapped?.pid ?? inferredCodexAgentPID()
             let launchCommand = agentLaunchCommandFromEnvironment(
@@ -17041,7 +17043,7 @@ export default CMUXSessionRestore;
                 try? store.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
-                    surfaceId: mapped?.surfaceId ?? (surfaceArg ?? ""),
+                    surfaceId: surfaceId,
                     cwd: input.cwd ?? mapped?.cwd,
                     pid: pid,
                     launchCommand: launchCommand
@@ -17059,7 +17061,7 @@ export default CMUXSessionRestore;
                     transcriptPath: normalizedHookValue(input.transcriptPath),
                     cwd: input.cwd ?? mapped?.cwd,
                     workspaceId: workspaceId,
-                    surfaceId: mapped?.surfaceId ?? surfaceArg,
+                    surfaceId: surfaceId,
                     env: env
                 )
             }
@@ -17067,8 +17069,8 @@ export default CMUXSessionRestore;
         case .stop:
             do {
                 let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
-                let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(preferred: mapped?.workspaceId, fallback: workspaceArg, client: client)
-                let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(preferred: mapped?.surfaceId, fallback: surfaceArg, workspaceId: workspaceId, client: client)
+                let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(preferred: workspaceArg, fallback: mapped?.workspaceId, client: client)
+                let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(preferred: surfaceArg, fallback: mapped?.surfaceId, workspaceId: workspaceId, client: client)
                 sendAgentFeedTelemetry(workspaceId: workspaceId)
                 let pid = mapped?.pid ?? inferredCodexAgentPID()
                 let codexFailure: CodexHookFailureSummary?
@@ -20362,7 +20364,6 @@ export default CMUXSessionRestore;
           hooks setup|uninstall [--agent <name>]
           hooks <agent> <install|uninstall|event> [options; opencode supports --project]
           hooks feed --source <agent> [--event <event>]
-          codex <install-hooks|uninstall-hooks>   (compatibility alias)
           ping
           version
           capabilities
@@ -20427,7 +20428,6 @@ export default CMUXSessionRestore;
           clear-log [--workspace <id|ref>]
           list-log [--workspace <id|ref>] [--limit <n>]
           sidebar-state [--workspace <id|ref>]
-          claude-hook <session-start|stop|notification> [--workspace <id|ref>] [--surface <id|ref>]   (compatibility alias)
           set-app-focus <active|inactive|clear>
           simulate-app-active
 
