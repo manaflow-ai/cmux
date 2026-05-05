@@ -11441,6 +11441,212 @@ struct CMUXCLI {
         return pieces.joined(separator: " && ") + "\r"
     }
 
+    private func tmuxSplitSizeCells(_ raw: String?) -> Int? {
+        guard let raw else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !trimmed.contains("%") else { return nil }
+        return Int(trimmed)
+    }
+
+    private func tmuxBooleanValue(_ raw: Any?) -> Bool? {
+        if let bool = raw as? Bool {
+            return bool
+        }
+        if let number = raw as? NSNumber {
+            return number.intValue != 0
+        }
+        guard let string = raw as? String else {
+            return nil
+        }
+        switch string.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "1", "true", "yes", "on", "enabled":
+            return true
+        case "0", "false", "no", "off", "disabled":
+            return false
+        default:
+            return nil
+        }
+    }
+
+    private func tmuxDictionaryValue(_ raw: Any?) -> [String: Any]? {
+        if let dictionary = raw as? [String: Any] {
+            return dictionary
+        }
+        if let dictionary = raw as? NSDictionary {
+            return dictionary as? [String: Any]
+        }
+        return nil
+    }
+
+    private func tmuxHudConfigDictionaryDisablesHud(_ dictionary: [String: Any], allowTopLevelHUDKeys: Bool) -> Bool {
+        if allowTopLevelHUDKeys {
+            if tmuxBooleanValue(dictionary["enabled"]) == false {
+                return true
+            }
+            if tmuxBooleanValue(dictionary["disabled"]) == true {
+                return true
+            }
+        }
+
+        if tmuxBooleanValue(dictionary["hudEnabled"]) == false {
+            return true
+        }
+        if tmuxBooleanValue(dictionary["omxHudEnabled"]) == false {
+            return true
+        }
+        if tmuxBooleanValue(dictionary["hudDisabled"]) == true {
+            return true
+        }
+        if tmuxBooleanValue(dictionary["omxHudDisabled"]) == true {
+            return true
+        }
+
+        let nestedCandidates: [Any?] = [
+            dictionary["hud"],
+            dictionary["omxHud"],
+            dictionary["hudPane"],
+            tmuxDictionaryValue(dictionary["omx"])?["hud"]
+        ]
+        for candidate in nestedCandidates {
+            guard let nested = tmuxDictionaryValue(candidate) else { continue }
+            if tmuxBooleanValue(nested["enabled"]) == false {
+                return true
+            }
+            if tmuxBooleanValue(nested["disabled"]) == true {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private func tmuxHudConfigFileDisablesHud(_ url: URL, allowTopLevelHUDKeys: Bool) -> Bool {
+        guard let data = try? Data(contentsOf: url),
+              let object = try? JSONSerialization.jsonObject(with: data, options: []),
+              let dictionary = object as? [String: Any] else {
+            return false
+        }
+        return tmuxHudConfigDictionaryDisablesHud(dictionary, allowTopLevelHUDKeys: allowTopLevelHUDKeys)
+    }
+
+    private func tmuxOMXHudConfigDisablesHud(cwd: String?) -> Bool {
+        let environment = ProcessInfo.processInfo.environment
+        if tmuxBooleanValue(environment["OMX_HUD_ENABLED"]) == false
+            || tmuxBooleanValue(environment["CMUX_OMX_HUD_ENABLED"]) == false
+            || tmuxBooleanValue(environment["OMX_HUD_DISABLED"]) == true
+            || tmuxBooleanValue(environment["CMUX_OMX_HUD_DISABLED"]) == true {
+            return true
+        }
+
+        var candidates: [(URL, Bool)] = []
+        let fileManager = FileManager.default
+        if let cwd = cwd?.trimmingCharacters(in: .whitespacesAndNewlines), !cwd.isEmpty {
+            let cwdURL = URL(fileURLWithPath: resolvePath(cwd), isDirectory: true)
+            candidates.append((cwdURL.appendingPathComponent(".omx/hud-config.json"), true))
+            candidates.append((cwdURL.appendingPathComponent(".omx/config.json"), false))
+            candidates.append((cwdURL.appendingPathComponent(".omx-config.json"), false))
+        }
+
+        let homePath = environment["HOME"] ?? NSHomeDirectory()
+        let homeURL = URL(fileURLWithPath: homePath, isDirectory: true)
+        candidates.append((homeURL.appendingPathComponent(".omx/hud-config.json"), true))
+        candidates.append((homeURL.appendingPathComponent(".omx/config.json"), false))
+        candidates.append((homeURL.appendingPathComponent(".codex/.omx-config.json"), false))
+
+        for (url, allowTopLevelHUDKeys) in candidates where fileManager.isReadableFile(atPath: url.path) {
+            if tmuxHudConfigFileDisablesHud(url, allowTopLevelHUDKeys: allowTopLevelHUDKeys) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private func tmuxCommandTextContainsWord(_ commandText: String, word: String) -> Bool {
+        let escapedWord = NSRegularExpression.escapedPattern(for: word)
+        let pattern = "(^|[^A-Za-z0-9_-])\(escapedWord)([^A-Za-z0-9_-]|$)"
+        return commandText.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
+    }
+
+    private func tmuxCommandLooksLikeOMXHud(_ commandTokens: [String]) -> Bool {
+        let commandText = commandTokens.joined(separator: " ")
+        let lowered = commandText.lowercased()
+        guard tmuxCommandTextContainsWord(lowered, word: "hud") else {
+            return false
+        }
+
+        let environment = ProcessInfo.processInfo.environment
+        let launchedThroughOMXShim = environment["CMUX_OMX_CMUX_BIN"] != nil
+            || environment["CMUX_AGENT_LAUNCH_KIND"] == "omx"
+        if launchedThroughOMXShim {
+            return true
+        }
+
+        return lowered.contains("omx") || lowered.contains("oh-my-codex")
+    }
+
+    private func tmuxResizePaneToCells(
+        workspaceId: String,
+        paneId: String,
+        targetCells: Int,
+        currentCellsKey: String,
+        cellSizeKey: String,
+        growDirection: String,
+        shrinkDirection: String,
+        client: SocketClient
+    ) throws {
+        guard targetCells > 0 else { return }
+        let panePayload = try client.sendV2(method: "pane.list", params: ["workspace_id": workspaceId])
+        let panes = panePayload["panes"] as? [[String: Any]] ?? []
+        guard let matchingPane = panes.first(where: { ($0["id"] as? String) == paneId }),
+              let cellSize = intFromAny(matchingPane[cellSizeKey]), cellSize > 0,
+              let currentCells = intFromAny(matchingPane[currentCellsKey]) else {
+            return
+        }
+        let delta = targetCells - currentCells
+        guard delta != 0 else { return }
+        _ = try? client.sendV2(method: "pane.resize", params: [
+            "workspace_id": workspaceId,
+            "pane_id": paneId,
+            "direction": delta > 0 ? growDirection : shrinkDirection,
+            "amount": abs(delta) * cellSize
+        ])
+    }
+
+    private func tmuxInitialDividerPosition(
+        workspaceId: String,
+        paneId: String,
+        newPaneDirection: String,
+        targetCells: Int,
+        client: SocketClient
+    ) throws -> Double? {
+        guard targetCells > 0 else { return nil }
+        let panePayload = try client.sendV2(method: "pane.list", params: ["workspace_id": workspaceId])
+        let panes = panePayload["panes"] as? [[String: Any]] ?? []
+        guard let matchingPane = panes.first(where: { ($0["id"] as? String) == paneId }) else {
+            return nil
+        }
+
+        let currentCells: Int?
+        switch newPaneDirection {
+        case "left", "right":
+            currentCells = intFromAny(matchingPane["columns"])
+        default:
+            currentCells = intFromAny(matchingPane["rows"])
+        }
+
+        guard let currentCells, currentCells > 0 else { return nil }
+        let requested = min(targetCells, max(currentCells - 1, 1))
+        let rawPosition: Double
+        switch newPaneDirection {
+        case "left", "up":
+            rawPosition = Double(requested) / Double(currentCells)
+        default:
+            rawPosition = Double(currentCells - requested) / Double(currentCells)
+        }
+        return min(max(rawPosition, 0.1), 0.9)
+    }
+
     private func tmuxSpecialKeyText(_ token: String) -> String? {
         switch token.lowercased() {
         case "enter", "c-m", "kpenter":
@@ -12728,8 +12934,13 @@ struct CMUXCLI {
             let parsed = try parseTmuxArguments(
                 rawArgs,
                 valueFlags: ["-c", "-F", "-l", "-t"],
-                boolFlags: ["-P", "-b", "-d", "-h", "-v"]
+                boolFlags: ["-P", "-b", "-d", "-f", "-h", "-v"]
             )
+            let isOMXHud = tmuxCommandLooksLikeOMXHud(parsed.positional)
+            if isOMXHud && tmuxOMXHudConfigDisablesHud(cwd: parsed.value("-c")) {
+                return
+            }
+
             var target = try tmuxResolveSurfaceTarget(parsed.value("-t"), client: client)
             var direction: String
             var anchoredCallerSurfaceId: String?
@@ -12746,7 +12957,8 @@ struct CMUXCLI {
             // successfully. Falling back to target.workspaceId would pair
             // the caller's surface with a different workspace, creating an
             // invalid cross-workspace split.
-            if let callerWorkspace = tmuxCallerWorkspaceHandle(),
+            if parsed.hasFlag("-h"),
+               let callerWorkspace = tmuxCallerWorkspaceHandle(),
                let wsId = try? resolveWorkspaceId(callerWorkspace, client: client),
                let anchoredTarget = tmuxAnchoredSplitTarget(workspaceId: wsId, client: client) {
                 target = (wsId, nil, anchoredTarget.targetSurfaceId)
@@ -12757,19 +12969,31 @@ struct CMUXCLI {
             // Keep the leader pane focused while agents spawn beside it.
             // -d explicitly means "don't focus the new pane".
             let focusNewPane = !parsed.hasFlag("-d")
-            let created = try client.sendV2(method: "surface.split", params: [
+            var splitParams: [String: Any] = [
                 "workspace_id": target.workspaceId,
                 "surface_id": target.surfaceId,
                 "direction": direction,
                 "focus": focusNewPane
-            ])
+            ]
+            if let targetPaneId = target.paneId,
+               let targetCells = tmuxSplitSizeCells(parsed.value("-l")),
+               let dividerPosition = try? tmuxInitialDividerPosition(
+                    workspaceId: target.workspaceId,
+                    paneId: targetPaneId,
+                    newPaneDirection: direction,
+                    targetCells: targetCells,
+                    client: client
+               ) {
+                splitParams["initial_divider_position"] = dividerPosition
+            }
+            let created = try client.sendV2(method: "surface.split", params: splitParams)
             guard let surfaceId = created["surface_id"] as? String else {
                 throw CLIError(message: "surface.split did not return surface_id")
             }
             let paneId = created["pane_id"] as? String
 
             // Track the newly created pane for main-vertical layout.
-            do {
+            if !isOMXHud {
                 var updatedStore = loadTmuxCompatStore()
                 updatedStore.lastSplitSurface[target.workspaceId] = surfaceId
                 if updatedStore.mainVerticalLayouts[target.workspaceId] != nil {
@@ -12783,15 +13007,15 @@ struct CMUXCLI {
                     )
                 }
                 try saveTmuxCompatStore(updatedStore)
-            }
 
-            // Equalize vertical splits so teammate panes are evenly distributed.
-            // Use orientation: "vertical" to only equalize the agent column,
-            // preserving the leader/column horizontal divider position.
-            _ = try? client.sendV2(method: "workspace.equalize_splits", params: [
-                "workspace_id": target.workspaceId,
-                "orientation": "vertical"
-            ])
+                // Equalize vertical splits so teammate panes are evenly distributed.
+                // Use orientation: "vertical" to only equalize the agent column,
+                // preserving the leader/column horizontal divider position.
+                _ = try? client.sendV2(method: "workspace.equalize_splits", params: [
+                    "workspace_id": target.workspaceId,
+                    "orientation": "vertical"
+                ])
+            }
 
             if let text = tmuxShellCommandText(commandTokens: parsed.positional, cwd: parsed.value("-c")) {
                 _ = try client.sendV2(method: "surface.send_text", params: [
@@ -12975,21 +13199,27 @@ struct CMUXCLI {
             if !hasDirectionalFlags, let absWidth = parsed.value("-x").flatMap({ Int($0.replacingOccurrences(of: "%", with: "")) }) {
                 // Absolute width: resize-pane -t <pane> -x <columns>
                 // Compute pixel delta from current width to desired width.
-                let panePayload = try client.sendV2(method: "pane.list", params: ["workspace_id": target.workspaceId])
-                let panes = panePayload["panes"] as? [[String: Any]] ?? []
-                if let matchingPane = panes.first(where: { ($0["id"] as? String) == target.paneId }),
-                   let cellW = matchingPane["cell_width_px"] as? Int, cellW > 0,
-                   let currentCols = matchingPane["columns"] as? Int {
-                    let delta = absWidth - currentCols
-                    if delta != 0 {
-                        _ = try? client.sendV2(method: "pane.resize", params: [
-                            "workspace_id": target.workspaceId,
-                            "pane_id": target.paneId,
-                            "direction": delta > 0 ? "right" : "left",
-                            "amount": abs(delta) * cellW
-                        ])
-                    }
-                }
+                try? tmuxResizePaneToCells(
+                    workspaceId: target.workspaceId,
+                    paneId: target.paneId,
+                    targetCells: absWidth,
+                    currentCellsKey: "columns",
+                    cellSizeKey: "cell_width_px",
+                    growDirection: "right",
+                    shrinkDirection: "left",
+                    client: client
+                )
+            } else if !hasDirectionalFlags, let absHeight = parsed.value("-y").flatMap({ Int($0.replacingOccurrences(of: "%", with: "")) }) {
+                try? tmuxResizePaneToCells(
+                    workspaceId: target.workspaceId,
+                    paneId: target.paneId,
+                    targetCells: absHeight,
+                    currentCellsKey: "rows",
+                    cellSizeKey: "cell_height_px",
+                    growDirection: "down",
+                    shrinkDirection: "up",
+                    client: client
+                )
             } else if hasDirectionalFlags {
                 let direction: String
                 if parsed.hasFlag("-L") {

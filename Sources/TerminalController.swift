@@ -4038,6 +4038,14 @@ class TerminalController {
         return nil
     }
 
+    private func v2Double(_ params: [String: Any], _ key: String) -> Double? {
+        if let d = params[key] as? Double { return d }
+        if let f = params[key] as? Float { return Double(f) }
+        if let n = params[key] as? NSNumber { return n.doubleValue }
+        if let s = params[key] as? String { return Double(s) }
+        return nil
+    }
+
     private func v2HasNonNullParam(_ params: [String: Any], _ key: String) -> Bool {
         guard let raw = params[key] else { return false }
         return !(raw is NSNull)
@@ -7274,6 +7282,9 @@ class TerminalController {
 
         let orientation = direction.orientation
         let insertFirst = direction.insertFirst
+        let initialDividerPosition = v2Double(params, "initial_divider_position").map {
+            min(max($0, 0.1), 0.9)
+        }
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to create pane", data: nil)
         v2MainSync {
@@ -7312,6 +7323,15 @@ class TerminalController {
                 return
             }
             let paneUUID = ws.paneId(forPanelId: newPanelId)?.id
+            if let initialDividerPosition, let paneUUID {
+                _ = v2SetInitialSplitDividerPosition(
+                    workspace: ws,
+                    paneUUID: paneUUID,
+                    orientation: orientation,
+                    paneInFirstChild: insertFirst,
+                    position: initialDividerPosition
+                )
+            }
             let windowId = v2ResolveWindowId(tabManager: tabManager)
             result = .ok([
                 "window_id": v2OrNull(windowId?.uuidString),
@@ -7420,6 +7440,34 @@ class TerminalController {
 
             return V2PaneResizeTrace(containsTarget: containsTarget, bounds: combinedBounds)
         }
+    }
+
+    private func v2SetInitialSplitDividerPosition(
+        workspace: Workspace,
+        paneUUID: UUID,
+        orientation: SplitOrientation,
+        paneInFirstChild: Bool,
+        position: Double
+    ) -> Bool {
+        let orientationName = orientation == .horizontal ? "horizontal" : "vertical"
+        var candidates: [V2PaneResizeCandidate] = []
+        let trace = v2PaneResizeCollectCandidates(
+            node: workspace.bonsplitController.treeSnapshot(),
+            targetPaneId: paneUUID.uuidString,
+            candidates: &candidates
+        )
+        guard trace.containsTarget,
+              let candidate = candidates.first(where: {
+                $0.orientation == orientationName && $0.paneInFirstChild == paneInFirstChild
+              }) else {
+            return false
+        }
+        let clamped = min(max(CGFloat(position), 0.1), 0.9)
+        return workspace.bonsplitController.setDividerPosition(
+            clamped,
+            forSplit: candidate.splitId,
+            fromExternal: true
+        )
     }
 
     private func v2PaneResize(params: [String: Any]) -> V2CallResult {

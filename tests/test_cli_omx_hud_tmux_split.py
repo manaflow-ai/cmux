@@ -1,0 +1,340 @@
+#!/usr/bin/env python3
+"""
+Regression tests for OMX HUD panes through cmux's tmux compatibility shim.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import socketserver
+import subprocess
+import tempfile
+import threading
+from pathlib import Path
+
+from claude_teams_test_utils import resolve_cmux_cli
+
+WORKSPACE_ID = "11111111-1111-4111-8111-111111111111"
+PANE_ID = "33333333-3333-4333-8333-333333333333"
+SURFACE_ID = "44444444-4444-4444-8444-444444444444"
+HUD_PANE_ID = "66666666-6666-4666-8666-666666666666"
+HUD_SURFACE_ID = "77777777-7777-4777-8777-777777777777"
+
+
+class FakeCmuxState:
+    def __init__(self) -> None:
+        self.split_created = False
+        self.hud_rows = 12
+        self.split_params: list[dict[str, object]] = []
+        self.resize_params: list[dict[str, object]] = []
+        self.equalize_params: list[dict[str, object]] = []
+        self.sent_text: list[str] = []
+
+    def handle(self, method: str, params: dict[str, object]) -> dict[str, object]:
+        if method == "workspace.list":
+            return {
+                "workspaces": [
+                    {
+                        "id": WORKSPACE_ID,
+                        "ref": "workspace:1",
+                        "index": 1,
+                        "title": "demo",
+                    }
+                ]
+            }
+        if method == "surface.list":
+            surfaces = [
+                {
+                    "id": SURFACE_ID,
+                    "ref": "surface:1",
+                    "focused": True,
+                    "pane_id": PANE_ID,
+                    "pane_ref": "pane:1",
+                    "title": "leader",
+                }
+            ]
+            if self.split_created:
+                surfaces.append(
+                    {
+                        "id": HUD_SURFACE_ID,
+                        "ref": "surface:2",
+                        "focused": False,
+                        "pane_id": HUD_PANE_ID,
+                        "pane_ref": "pane:2",
+                        "title": "omx hud",
+                    }
+                )
+            return {"surfaces": surfaces}
+        if method == "surface.current":
+            return {
+                "workspace_id": WORKSPACE_ID,
+                "workspace_ref": "workspace:1",
+                "pane_id": PANE_ID,
+                "pane_ref": "pane:1",
+                "surface_id": SURFACE_ID,
+                "surface_ref": "surface:1",
+            }
+        if method == "pane.list":
+            panes = [
+                {
+                    "id": PANE_ID,
+                    "ref": "pane:1",
+                    "index": 1,
+                    "rows": 32,
+                    "columns": 120,
+                    "cell_height_px": 18,
+                    "cell_width_px": 9,
+                }
+            ]
+            if self.split_created:
+                panes.append(
+                    {
+                        "id": HUD_PANE_ID,
+                        "ref": "pane:2",
+                        "index": 2,
+                        "rows": self.hud_rows,
+                        "columns": 120,
+                        "cell_height_px": 18,
+                        "cell_width_px": 9,
+                    }
+                )
+            return {"panes": panes}
+        if method == "pane.surfaces":
+            pane_id = str(params.get("pane_id") or "")
+            if pane_id == PANE_ID:
+                return {"surfaces": [{"id": SURFACE_ID, "selected": True}]}
+            if pane_id == HUD_PANE_ID:
+                return {"surfaces": [{"id": HUD_SURFACE_ID, "selected": True}]}
+            raise RuntimeError(f"unknown pane: {pane_id}")
+        if method == "surface.split":
+            self.split_params.append(dict(params))
+            self.split_created = True
+            return {
+                "surface_id": HUD_SURFACE_ID,
+                "pane_id": HUD_PANE_ID,
+            }
+        if method == "pane.resize":
+            self.resize_params.append(dict(params))
+            if params.get("pane_id") == HUD_PANE_ID:
+                direction = str(params.get("direction") or "")
+                amount = int(params.get("amount") or 0)
+                if direction == "up":
+                    self.hud_rows -= amount // 18
+                elif direction == "down":
+                    self.hud_rows += amount // 18
+            return {"ok": True}
+        if method == "workspace.equalize_splits":
+            self.equalize_params.append(dict(params))
+            return {"ok": True}
+        if method == "surface.send_text":
+            self.sent_text.append(str(params.get("text") or ""))
+            return {"ok": True}
+        raise RuntimeError(f"Unsupported fake cmux method: {method}")
+
+
+class FakeCmuxHandler(socketserver.StreamRequestHandler):
+    def handle(self) -> None:
+        while True:
+            line = self.rfile.readline()
+            if not line:
+                return
+
+            request = json.loads(line.decode("utf-8"))
+            try:
+                result = self.server.state.handle(  # type: ignore[attr-defined]
+                    request["method"],
+                    request.get("params", {}),
+                )
+                response = {"ok": True, "result": result, "id": request.get("id")}
+            except Exception as exc:
+                response = {
+                    "ok": False,
+                    "error": {"code": "not_found", "message": str(exc)},
+                    "id": request.get("id"),
+                }
+
+            self.wfile.write((json.dumps(response) + "\n").encode("utf-8"))
+            self.wfile.flush()
+
+
+class FakeCmuxUnixServer(socketserver.ThreadingUnixStreamServer):
+    allow_reuse_address = True
+
+    def __init__(self, socket_path: str, state: FakeCmuxState) -> None:
+        self.state = state
+        super().__init__(socket_path, FakeCmuxHandler)
+
+
+def run_cli(
+    cli_path: str,
+    socket_path: Path,
+    fake_home: Path,
+    args: list[str],
+) -> subprocess.CompletedProcess[str]:
+    env = os.environ.copy()
+    env["CMUX_SOCKET_PATH"] = str(socket_path)
+    env["CMUX_WORKSPACE_ID"] = "workspace:1"
+    env["CMUX_SURFACE_ID"] = "surface:1"
+    env["TMUX_PANE"] = f"%{PANE_ID}"
+    env["HOME"] = str(fake_home)
+    env["CMUX_OMX_CMUX_BIN"] = cli_path
+    return subprocess.run(
+        [cli_path, "--socket", str(socket_path), *args],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=30,
+    )
+
+
+def omx_hud_split_args(cwd: Path) -> list[str]:
+    return [
+        "__tmux-compat",
+        "split-window",
+        "-v",
+        "-f",
+        "-l",
+        "3",
+        "-d",
+        "-t",
+        f"%{PANE_ID}",
+        "-c",
+        str(cwd),
+        "-P",
+        "-F",
+        "#{pane_id}",
+        "node '/opt/oh-my-codex/dist/omx.js' hud --watch",
+    ]
+
+
+def assert_omx_hud_splits_down_with_compact_size(
+    cli_path: str,
+    socket_path: Path,
+    fake_home: Path,
+    cwd: Path,
+    state: FakeCmuxState,
+) -> None:
+    proc = run_cli(cli_path, socket_path, fake_home, omx_hud_split_args(cwd))
+    if proc.returncode != 0:
+        raise AssertionError(
+            "HUD split returned non-zero\n"
+            f"stdout={proc.stdout.strip()}\n"
+            f"stderr={proc.stderr.strip()}"
+        )
+    if proc.stdout.strip() != f"%{HUD_PANE_ID}":
+        raise AssertionError(
+            f"expected split-window to print %{HUD_PANE_ID}, got {proc.stdout.strip()!r}"
+        )
+    if len(state.split_params) != 1:
+        raise AssertionError(f"expected one surface.split call, got {state.split_params!r}")
+    split = state.split_params[0]
+    if split.get("direction") != "down":
+        raise AssertionError(f"expected HUD direction down, got {split!r}")
+    if split.get("focus") is not False:
+        raise AssertionError(f"expected detached HUD split, got {split!r}")
+    divider = split.get("initial_divider_position")
+    if not isinstance(divider, (float, int)) or abs(float(divider) - 0.9) > 0.001:
+        raise AssertionError(f"expected HUD split to request a compact bottom divider, got {split!r}")
+    if state.equalize_params:
+        raise AssertionError(f"HUD split should not equalize teammate columns: {state.equalize_params!r}")
+    if not state.sent_text:
+        raise AssertionError("expected HUD command to be sent to the created pane")
+    if "-f" in state.sent_text[0]:
+        raise AssertionError(f"split-window -f leaked into HUD command text: {state.sent_text[0]!r}")
+
+
+def assert_disabled_omx_hud_does_not_split(
+    cli_path: str,
+    socket_path: Path,
+    fake_home: Path,
+    cwd: Path,
+    state: FakeCmuxState,
+) -> None:
+    config_dir = cwd / ".omx"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "hud-config.json").write_text('{"enabled": false}\n', encoding="utf-8")
+
+    proc = run_cli(cli_path, socket_path, fake_home, omx_hud_split_args(cwd))
+    if proc.returncode != 0:
+        raise AssertionError(
+            "disabled HUD split returned non-zero\n"
+            f"stdout={proc.stdout.strip()}\n"
+            f"stderr={proc.stderr.strip()}"
+        )
+    if proc.stdout.strip():
+        raise AssertionError(f"disabled HUD split should not print a pane id: {proc.stdout!r}")
+    if state.split_params:
+        raise AssertionError(f"disabled HUD should not create a split: {state.split_params!r}")
+    if state.resize_params or state.sent_text:
+        raise AssertionError("disabled HUD should not resize or launch a command")
+
+
+def main() -> int:
+    try:
+        cli_path = resolve_cmux_cli()
+    except Exception as exc:
+        print(f"FAIL: {exc}")
+        return 1
+
+    try:
+        with tempfile.TemporaryDirectory(prefix="cmux-omx-hud-split-") as td:
+            tmp = Path(td)
+            socket_path = tmp / "fake-cmux.sock"
+            fake_home = tmp / "home"
+            fake_home.mkdir(parents=True, exist_ok=True)
+            cwd = tmp / "project"
+            cwd.mkdir(parents=True, exist_ok=True)
+
+            state = FakeCmuxState()
+            server = FakeCmuxUnixServer(str(socket_path), state)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                assert_omx_hud_splits_down_with_compact_size(
+                    cli_path,
+                    socket_path,
+                    fake_home,
+                    cwd,
+                    state,
+                )
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+        with tempfile.TemporaryDirectory(prefix="cmux-omx-hud-disabled-") as td:
+            tmp = Path(td)
+            socket_path = tmp / "fake-cmux.sock"
+            fake_home = tmp / "home"
+            fake_home.mkdir(parents=True, exist_ok=True)
+            cwd = tmp / "project"
+            cwd.mkdir(parents=True, exist_ok=True)
+
+            state = FakeCmuxState()
+            server = FakeCmuxUnixServer(str(socket_path), state)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                assert_disabled_omx_hud_does_not_split(
+                    cli_path,
+                    socket_path,
+                    fake_home,
+                    cwd,
+                    state,
+                )
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+    except AssertionError as exc:
+        print(f"FAIL: {exc}")
+        return 1
+
+    print("PASS: OMX HUD tmux splits attach to the bottom and respect disabled config")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
