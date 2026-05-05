@@ -52238,13 +52238,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reveal Active Config"
+            "value": "Reveal Active Config in Finder"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "有効な設定を表示"
+            "value": "有効な設定をFinderで表示"
           }
         }
       }

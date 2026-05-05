@@ -168,7 +168,7 @@ struct ConfigSettingsView: View {
         if configSource == .synced {
             return String(
                 localized: "settings.config.action.revealActiveFinder",
-                defaultValue: "Reveal Active Config"
+                defaultValue: "Reveal Active Config in Finder"
             )
         }
         return String(localized: "settings.config.action.revealFinder", defaultValue: "Reveal in Finder")

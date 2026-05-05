@@ -148,6 +148,47 @@ final class GhosttyConfigPathResolverTests: XCTestCase {
         }
     }
 
+    func testSyncedConfigPreviewIncludesSymlinkedStandaloneGhosttyConfig() throws {
+        try withTemporaryHomeDirectory { homeDirectory in
+            let fileManager = FileManager.default
+            let ghosttyConfigDirectory = homeDirectory
+                .appendingPathComponent(".config", isDirectory: true)
+                .appendingPathComponent("ghostty", isDirectory: true)
+            try fileManager.createDirectory(at: ghosttyConfigDirectory, withIntermediateDirectories: true)
+
+            let dotfilesDirectory = homeDirectory
+                .appendingPathComponent("dotfiles", isDirectory: true)
+                .appendingPathComponent("ghostty", isDirectory: true)
+            try fileManager.createDirectory(at: dotfilesDirectory, withIntermediateDirectories: true)
+            let targetConfigURL = dotfilesDirectory.appendingPathComponent("config", isDirectory: false)
+            try "font-size = 17\n".write(to: targetConfigURL, atomically: true, encoding: .utf8)
+
+            let symlinkedConfigURL = ghosttyConfigDirectory.appendingPathComponent("config", isDirectory: false)
+            try fileManager.createSymbolicLink(
+                atPath: symlinkedConfigURL.path,
+                withDestinationPath: targetConfigURL.path
+            )
+
+            let snapshot = ConfigSource.synced.snapshot(
+                environment: ConfigSourceEnvironment(
+                    homeDirectoryURL: homeDirectory,
+                    currentBundleIdentifier: "com.cmuxterm.app"
+                )
+            )
+
+            XCTAssertTrue(snapshot.hasStandaloneGhosttyConfig)
+            XCTAssertTrue(snapshot.contents.contains("font-size = 17"))
+            XCTAssertEqual(snapshot.displayPaths, [
+                homeDirectory
+                    .appendingPathComponent("Library", isDirectory: true)
+                    .appendingPathComponent("Application Support", isDirectory: true)
+                    .appendingPathComponent("com.cmuxterm.app", isDirectory: true)
+                    .appendingPathComponent("config.synced-preview", isDirectory: false)
+                    .path,
+            ])
+        }
+    }
+
     func testCmuxAppSupportConfigURLsUseNightlyConfigWhenPresent() throws {
         try withTemporaryAppSupportDirectory { appSupportDirectory in
             _ = try writeAppSupportConfig(

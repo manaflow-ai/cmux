@@ -96,6 +96,22 @@ struct ConfigSourceEnvironment {
     }
 
     func isRegularFile(at url: URL) -> Bool {
+        if isDirectRegularFile(at: url) {
+            return true
+        }
+        guard let destination = try? fileManager.destinationOfSymbolicLink(atPath: url.path) else {
+            return false
+        }
+        let destinationURL: URL
+        if destination.hasPrefix("/") {
+            destinationURL = URL(fileURLWithPath: destination)
+        } else {
+            destinationURL = url.deletingLastPathComponent().appendingPathComponent(destination)
+        }
+        return isDirectRegularFile(at: destinationURL.standardizedFileURL.resolvingSymlinksInPath())
+    }
+
+    private func isDirectRegularFile(at url: URL) -> Bool {
         guard let attributes = try? fileManager.attributesOfItem(atPath: url.path),
               let type = attributes[.type] as? FileAttributeType else {
             return false

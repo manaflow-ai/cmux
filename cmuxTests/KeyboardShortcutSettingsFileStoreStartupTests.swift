@@ -74,7 +74,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         )
     }
 
-    func testSettingsFileShortcutNormalizationDoesNotUseRecorderConflictLookup() {
+    func testSettingsFileShortcutNormalizationAcceptsRecorderConflictingShortcut() {
         KeyboardShortcutSettings.resetAll()
         defer { KeyboardShortcutSettings.resetAll() }
 
