@@ -1336,6 +1336,52 @@ final class GhosttyTerminalStartupEnvironmentTests: XCTestCase {
         XCTAssertEqual(merged["ANTHROPIC_MODEL"], "")
         XCTAssertEqual(merged["CUSTOM_FLAG"], "1")
     }
+
+    func testMergedStartupEnvironmentNeutralizesAmbientClaudeAuthSelection() {
+        let merged = TerminalSurface.mergedStartupEnvironment(
+            base: [
+                "CUSTOM_FLAG": "1"
+            ],
+            protectedKeys: [],
+            additionalEnvironment: [:],
+            initialEnvironmentOverrides: [:],
+            ambientEnvironment: [
+                "CLAUDE_CONFIG_DIR": "/tmp/ambient-claude-config",
+                "ANTHROPIC_API_KEY": "ambient-api-key",
+                "ANTHROPIC_BASE_URL": "https://api.example.test",
+                "ANTHROPIC_MODEL": "ambient-model"
+            ]
+        )
+
+        XCTAssertEqual(merged["CLAUDE_CONFIG_DIR"], "")
+        XCTAssertEqual(merged["ANTHROPIC_API_KEY"], "")
+        XCTAssertEqual(merged["ANTHROPIC_BASE_URL"], "")
+        XCTAssertEqual(merged["ANTHROPIC_MODEL"], "")
+        XCTAssertEqual(merged["CUSTOM_FLAG"], "1")
+    }
+
+    func testMergedStartupEnvironmentAllowsExplicitClaudeAuthSelectionOverrides() {
+        let merged = TerminalSurface.mergedStartupEnvironment(
+            base: [
+                "CLAUDE_CONFIG_DIR": "/tmp/stale-claude-config",
+                "ANTHROPIC_API_KEY": "stale-api-key"
+            ],
+            protectedKeys: [],
+            additionalEnvironment: [
+                "CLAUDE_CONFIG_DIR": "/tmp/resume-claude-config"
+            ],
+            initialEnvironmentOverrides: [
+                "ANTHROPIC_API_KEY": "explicit-api-key"
+            ],
+            ambientEnvironment: [
+                "ANTHROPIC_MODEL": "ambient-model"
+            ]
+        )
+
+        XCTAssertEqual(merged["CLAUDE_CONFIG_DIR"], "/tmp/resume-claude-config")
+        XCTAssertEqual(merged["ANTHROPIC_API_KEY"], "explicit-api-key")
+        XCTAssertEqual(merged["ANTHROPIC_MODEL"], "")
+    }
 }
 
 @MainActor
