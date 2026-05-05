@@ -19,6 +19,13 @@ nonisolated func shouldSendText(_ text: String) -> Bool {
 /// Tracks raw numpad fallback sends that may be followed by a deferred IME
 /// commit for the same key. Each record is consumed once so rapid numpad input
 /// does not overwrite older in-flight commits.
+///
+/// AppKit does not expose a stable correlation token that ties an async
+/// `insertText` callback back to the originating `keyDown`, so this type keeps
+/// the fallback state narrowly scoped: plain numeric-pad fallback text, input
+/// method sources only, one-shot matching, and a short expiry window. If a
+/// future input pipeline can provide structural key/commit correlation, replace
+/// this timing heuristic with that source of truth.
 struct NumpadIMECommitDeduplicator {
     /// 250 ms covers observed AppKit deferred IME commits while keeping the
     /// suppression window short enough that unrelated text injection ages out.
