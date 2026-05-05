@@ -2898,6 +2898,8 @@ struct ContentView: View {
                 observedWindow.contentView?.layoutSubtreeIfNeeded()
                 TerminalWindowPortalRegistry.synchronizeExternalGeometryNow(for: observedWindow)
                 BrowserWindowPortalRegistry.synchronizeExternalGeometryNow(for: observedWindow)
+                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: observedWindow)
+                BrowserWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: observedWindow)
             } else {
                 TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: observedWindow)
                 BrowserWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: observedWindow)
