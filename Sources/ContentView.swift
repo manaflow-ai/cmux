@@ -3700,7 +3700,7 @@ struct ContentView: View {
             updateSidebarResizerBandState()
         })
 
-        view = AnyView(view.onChange(of: sidebarState.isVisible) { isVisible in
+        view = AnyView(view.onChange(of: sidebarState.isVisible) { _, isVisible in
             setMinimalModeSidebarTitlebarControlsAvailable(isVisible, in: observedWindow)
             if let observedWindow {
                 AppDelegate.shared?.applyWindowDecorations(to: observedWindow)
@@ -3709,16 +3709,16 @@ struct ContentView: View {
             updateSidebarResizerBandState()
             syncTrafficLightInset()
         })
-        view = AnyView(view.onChange(of: sidebarState.portalGeometrySyncRevision) { _ in
+        view = AnyView(view.onChange(of: sidebarState.portalGeometrySyncRevision) { _, _ in
             synchronizeSidebarPortalGeometry()
         })
-        view = AnyView(view.onChange(of: fileExplorerState.isVisible) { isVisible in
+        view = AnyView(view.onChange(of: fileExplorerState.isVisible) { _, isVisible in
             if !isVisible {
                 _ = AppDelegate.shared?.restoreTerminalFocusAfterRightSidebarHidden(in: observedWindow)
             }
             synchronizeSidebarPortalGeometry()
         })
-        view = AnyView(view.onChange(of: fileExplorerState.portalGeometrySyncRevision) { _ in
+        view = AnyView(view.onChange(of: fileExplorerState.portalGeometrySyncRevision) { _, _ in
             synchronizeSidebarPortalGeometry()
         })
         view = AnyView(view.onChange(of: sidebarMatchTerminalBackground) { _ in
