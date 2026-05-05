@@ -54,6 +54,7 @@ final class MainWindowVisibilityController {
         var canBecomeKey: @MainActor (NSWindow) -> Bool
         var deminiaturize: @MainActor (NSWindow) -> Void
         var makeKeyAndOrderFront: @MainActor (NSWindow) -> Void
+        var makeKey: @MainActor (NSWindow) -> Void
         var orderFront: @MainActor (NSWindow) -> Void
         var orderFrontRegardless: @MainActor (NSWindow) -> Void
         var orderOut: @MainActor (NSWindow) -> Void
@@ -66,6 +67,7 @@ final class MainWindowVisibilityController {
             canBecomeKey: { $0.canBecomeKey },
             deminiaturize: { $0.deminiaturize(nil) },
             makeKeyAndOrderFront: { $0.makeKeyAndOrderFront(nil) },
+            makeKey: { $0.makeKey() },
             orderFront: { $0.orderFront(nil) },
             orderFrontRegardless: { $0.orderFrontRegardless() },
             orderOut: { $0.orderOut(nil) }
@@ -281,12 +283,16 @@ final class MainWindowVisibilityController {
 
         trace("show.begin", reason: reason, windows: revealTargets)
 
-        return reveal(
+        let focusWindow = reveal(
             revealTargets,
             preferredWindow: nil,
             reason: reason,
             activation: activation
         )
+        dismissedWindowRestoreTargets.removeAll { dismissedWindow in
+            revealTargets.contains { $0 === dismissedWindow }
+        }
+        return focusWindow
     }
 
     @discardableResult
@@ -315,7 +321,8 @@ final class MainWindowVisibilityController {
         if let focusWindow {
             dependencies.setActiveMainWindow(focusWindow)
             trace("reveal.makeKey.begin", reason: reason, windows: [focusWindow])
-            dependencies.windowOperations.makeKeyAndOrderFront(focusWindow)
+            dependencies.windowOperations.orderFrontRegardless(focusWindow)
+            dependencies.windowOperations.makeKey(focusWindow)
             trace("reveal.makeKey.end", reason: reason, windows: [focusWindow])
         }
 

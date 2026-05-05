@@ -4,8 +4,19 @@ import Foundation
 
 private struct Sample {
     let dismissMs: Double
+    let dismissPressCallMs: Double
+    let dismissAfterPressMs: Double
     let restoreMs: Double
+    let restoreRequestCallMs: Double
+    let restoreActiveMs: Double?
+    let restoreCallToActiveMs: Double?
+    let restoreVisibleMs: Double
+    let restoreCallToVisibleMs: Double
+    let restoreFocusedMs: Double
+    let restoreCallToFocusedMs: Double
+    let restoreActiveToVisibleMs: Double?
     let minimizedAfterDismiss: Bool
+    let hiddenAfterDismiss: Bool
 }
 
 private func monotonicMs() -> Double {
@@ -138,6 +149,37 @@ private func focusedAXWindow(_ appElement: AXUIElement) -> AXUIElement? {
     return unsafeBitCast(value, to: AXUIElement?.self)
 }
 
+private func visibleCGWindows(processIdentifier: pid_t) -> [[String: Any]] {
+    guard let windowInfo = CGWindowListCopyWindowInfo(
+        [.optionOnScreenOnly, .excludeDesktopElements],
+        kCGNullWindowID
+    ) as? [[String: Any]] else {
+        return []
+    }
+
+    return windowInfo.filter { info in
+        guard (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == processIdentifier else {
+            return false
+        }
+        let layer = (info[kCGWindowLayer as String] as? NSNumber)?.intValue ?? 0
+        guard layer == 0 else { return false }
+        let alpha = (info[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1
+        guard alpha > 0 else { return false }
+        guard let boundsDictionary = info[kCGWindowBounds as String] as? NSDictionary else {
+            return true
+        }
+        var bounds = CGRect.zero
+        guard CGRectMakeWithDictionaryRepresentation(boundsDictionary as CFDictionary, &bounds) else {
+            return true
+        }
+        return bounds.width > 1 && bounds.height > 1
+    }
+}
+
+private func hasVisibleCGWindow(processIdentifier: pid_t) -> Bool {
+    !visibleCGWindows(processIdentifier: processIdentifier).isEmpty
+}
+
 private func minimizeButton(for window: AXUIElement) -> AXUIElement? {
     if let value = copyAXValue(window, kAXMinimizeButtonAttribute),
        let button = unsafeBitCast(value, to: AXUIElement?.self) {
@@ -198,6 +240,20 @@ private func openApplication(appURL: URL, bundleIdentifier: String) -> NSRunning
     return openedApp ?? NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).first
 }
 
+@discardableResult
+private func openBundleIdentifier(_ bundleIdentifier: String) -> Bool {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+    process.arguments = ["-b", bundleIdentifier]
+    do {
+        try process.run()
+        process.waitUntilExit()
+        return process.terminationStatus == 0
+    } catch {
+        return false
+    }
+}
+
 private func runningApplication(bundleIdentifier: String) -> NSRunningApplication? {
     NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).first
 }
@@ -254,17 +310,34 @@ private func main() {
     let bundleIdentifier = arguments[2]
     let verbose = arguments.contains("--verbose")
     let activateRestore = arguments.contains("--activate-restore")
+    let reuseRunning = arguments.contains("--reuse-running")
+    let useCGVisibility = arguments.contains("--cg-visibility")
     let sampleCount = arguments.dropFirst(3).first(where: { Int($0) != nil }).flatMap(Int.init) ?? 15
 
-    terminateExisting(bundleIdentifier: bundleIdentifier)
+    if !reuseRunning {
+        terminateExisting(bundleIdentifier: bundleIdentifier)
+    }
 
-    guard let app = openApplication(appURL: appURL, bundleIdentifier: bundleIdentifier) else {
+    let app = reuseRunning
+        ? runningApplication(bundleIdentifier: bundleIdentifier)
+        : openApplication(appURL: appURL, bundleIdentifier: bundleIdentifier)
+    guard let app else {
         fputs("Unable to launch app.\n", stderr)
         exit(1)
     }
 
     let appElement = AXUIElementCreateApplication(app.processIdentifier)
-    guard waitUntil(timeout: 20, { !visibleAXWindows(appElement).isEmpty }) else {
+    func hasVisibleBenchmarkWindow(_ runningApp: NSRunningApplication? = nil) -> Bool {
+        if useCGVisibility {
+            guard let processIdentifier = (runningApp ?? runningApplication(bundleIdentifier: bundleIdentifier))?.processIdentifier else {
+                return false
+            }
+            return hasVisibleCGWindow(processIdentifier: processIdentifier)
+        }
+        return !visibleAXWindows(appElement).isEmpty
+    }
+
+    guard waitUntil(timeout: 20, { hasVisibleBenchmarkWindow(app) }) else {
         fputs("Timed out waiting for initial visible window.\n", stderr)
         exit(1)
     }
@@ -274,14 +347,21 @@ private func main() {
 
     var samples: [Sample] = []
     var failuresByReason: [String: Int] = [:]
+    var phaseMissesByReason: [String: Int] = [:]
 
     func recordFailure(_ reason: String) {
         failuresByReason[reason, default: 0] += 1
     }
 
+    func recordPhaseMiss(_ reason: String) {
+        phaseMissesByReason[reason, default: 0] += 1
+    }
+
     for _ in 0..<sampleCount {
-        _ = openApplication(appURL: appURL, bundleIdentifier: bundleIdentifier)
-        guard waitUntil(timeout: 5, { !visibleAXWindows(appElement).isEmpty }) else {
+        if !hasVisibleBenchmarkWindow() {
+            _ = openApplication(appURL: appURL, bundleIdentifier: bundleIdentifier)
+        }
+        guard waitUntil(timeout: 5, { hasVisibleBenchmarkWindow() }) else {
             recordFailure("initial_visible_timeout")
             continue
         }
@@ -300,57 +380,138 @@ private func main() {
 
         let dismissStart = monotonicMs()
         let pressResult = AXUIElementPerformAction(button, kAXPressAction as CFString)
+        let dismissPressEnd = monotonicMs()
         guard pressResult == .success else {
             recordFailure("press_failed_\(pressResult.rawValue)")
             continue
         }
         guard waitUntil(timeout: 3, {
-            !containsAXElement(visibleAXWindows(appElement), window) ||
-                axBool(window, kAXMinimizedAttribute)
+            runningApplication(bundleIdentifier: bundleIdentifier)?.isHidden == true ||
+            (useCGVisibility
+                ? runningApplication(bundleIdentifier: bundleIdentifier).map { !hasVisibleCGWindow(processIdentifier: $0.processIdentifier) } ?? false
+                : !containsAXElement(visibleAXWindows(appElement), window)) ||
+                (!useCGVisibility && axBool(window, kAXMinimizedAttribute))
         }) else {
-            let visibleCount = visibleAXWindows(appElement).count
-            let minimizedCount = axWindows(appElement).filter { axBool($0, kAXMinimizedAttribute) }.count
+            let visibleCount = useCGVisibility
+                ? runningApplication(bundleIdentifier: bundleIdentifier)
+                    .map { visibleCGWindows(processIdentifier: $0.processIdentifier).count } ?? 0
+                : visibleAXWindows(appElement).count
+            let minimizedCount = useCGVisibility
+                ? 0
+                : axWindows(appElement).filter { axBool($0, kAXMinimizedAttribute) }.count
             recordFailure("dismiss_timeout_visible_\(visibleCount)_minimized_\(minimizedCount)")
             continue
         }
         let dismissEnd = monotonicMs()
-        let minimizedAfterDismiss = axWindows(appElement).contains { axBool($0, kAXMinimizedAttribute) }
+        let minimizedAfterDismiss = useCGVisibility
+            ? false
+            : axWindows(appElement).contains { axBool($0, kAXMinimizedAttribute) }
+        let hiddenAfterDismiss = runningApplication(bundleIdentifier: bundleIdentifier)?.isHidden == true
 
         let restoreStart: Double
+        let restoreRequestEnd: Double
+        let restoringApp: NSRunningApplication?
         if activateRestore, let running = runningApplication(bundleIdentifier: bundleIdentifier) {
             activateFinder(except: running)
             restoreStart = monotonicMs()
-            running.activate(options: [.activateAllWindows])
+            if running.isHidden {
+                _ = openBundleIdentifier(bundleIdentifier)
+                restoringApp = runningApplication(bundleIdentifier: bundleIdentifier)
+            } else {
+                running.activate(options: [.activateAllWindows])
+                restoringApp = running
+            }
+            restoreRequestEnd = monotonicMs()
         } else {
             restoreStart = monotonicMs()
-            _ = openApplication(appURL: appURL, bundleIdentifier: bundleIdentifier)
+            restoringApp = openApplication(appURL: appURL, bundleIdentifier: bundleIdentifier)
+            restoreRequestEnd = monotonicMs()
         }
-        guard waitUntil(timeout: 5, {
-            preferredBenchmarkWindow(appElement) != nil && focusedAXWindow(appElement) != nil
-        }) else {
-            recordFailure("restore_timeout")
+        guard let restoringApp else {
+            recordFailure("restore_missing_running_app")
             continue
         }
-        let restoreEnd = monotonicMs()
+        let activeEnd = waitUntil(timeout: 5, {
+            restoringApp.isActive || runningApplication(bundleIdentifier: bundleIdentifier)?.isActive == true
+        }) ? monotonicMs() : nil
+        if activeEnd == nil {
+            recordPhaseMiss("restore_active_timeout")
+        }
+        guard waitUntil(timeout: 5, {
+            restoringApp.isHidden == false && (
+                useCGVisibility
+                    ? hasVisibleCGWindow(processIdentifier: restoringApp.processIdentifier)
+                    : preferredBenchmarkWindow(appElement) != nil
+            )
+        }) else {
+            let hiddenValue = restoringApp.isHidden ? 1 : 0
+            let visibleCount = useCGVisibility
+                ? visibleCGWindows(processIdentifier: restoringApp.processIdentifier).count
+                : visibleAXWindows(appElement).count
+            let allWindowCount = useCGVisibility ? visibleCount : axWindows(appElement).count
+            recordFailure("restore_visible_timeout_hidden_\(hiddenValue)_visible_\(visibleCount)_windows_\(allWindowCount)")
+            continue
+        }
+        let visibleEnd = monotonicMs()
+        let focusedEnd: Double
+        if useCGVisibility {
+            focusedEnd = visibleEnd
+        } else {
+            guard waitUntil(timeout: 5, {
+                focusedAXWindow(appElement) != nil
+            }) else {
+                recordFailure("restore_focused_timeout")
+                continue
+            }
+            focusedEnd = monotonicMs()
+        }
 
         samples.append(
             Sample(
                 dismissMs: dismissEnd - dismissStart,
-                restoreMs: restoreEnd - restoreStart,
-                minimizedAfterDismiss: minimizedAfterDismiss
+                dismissPressCallMs: dismissPressEnd - dismissStart,
+                dismissAfterPressMs: dismissEnd - dismissPressEnd,
+                restoreMs: focusedEnd - restoreStart,
+                restoreRequestCallMs: restoreRequestEnd - restoreStart,
+                restoreActiveMs: activeEnd.map { $0 - restoreStart },
+                restoreCallToActiveMs: activeEnd.map { $0 - restoreRequestEnd },
+                restoreVisibleMs: visibleEnd - restoreStart,
+                restoreCallToVisibleMs: visibleEnd - restoreRequestEnd,
+                restoreFocusedMs: focusedEnd - restoreStart,
+                restoreCallToFocusedMs: focusedEnd - restoreRequestEnd,
+                restoreActiveToVisibleMs: activeEnd.map { visibleEnd - $0 },
+                minimizedAfterDismiss: minimizedAfterDismiss,
+                hiddenAfterDismiss: hiddenAfterDismiss
             )
         )
     }
 
     summarize("titlebar_dismiss_wall", samples.map(\.dismissMs))
+    summarize("titlebar_dismiss_press_call", samples.map(\.dismissPressCallMs))
+    summarize("titlebar_dismiss_after_press", samples.map(\.dismissAfterPressMs))
     summarize("titlebar_restore_wall", samples.map(\.restoreMs))
+    summarize("titlebar_restore_request_call", samples.map(\.restoreRequestCallMs))
+    summarize("titlebar_restore_active", samples.compactMap(\.restoreActiveMs))
+    summarize("titlebar_restore_call_to_active", samples.compactMap(\.restoreCallToActiveMs))
+    summarize("titlebar_restore_visible", samples.map(\.restoreVisibleMs))
+    summarize("titlebar_restore_call_to_visible", samples.map(\.restoreCallToVisibleMs))
+    summarize("titlebar_restore_focused", samples.map(\.restoreFocusedMs))
+    summarize("titlebar_restore_call_to_focused", samples.map(\.restoreCallToFocusedMs))
+    summarize("titlebar_restore_active_to_visible", samples.compactMap(\.restoreActiveToVisibleMs))
     let minimizedCount = samples.filter(\.minimizedAfterDismiss).count
     print("titlebar_dismiss_minimized_after count=\(minimizedCount) total=\(samples.count)")
+    let hiddenCount = samples.filter(\.hiddenAfterDismiss).count
+    print("titlebar_dismiss_hidden_after count=\(hiddenCount) total=\(samples.count)")
     let failureSummary = failuresByReason
         .sorted { $0.key < $1.key }
         .map { "\($0.key)=\($0.value)" }
         .joined(separator: ",")
     print("failures=\(failuresByReason.values.reduce(0, +)) \(failureSummary)")
+    let phaseMissSummary = phaseMissesByReason
+        .sorted { $0.key < $1.key }
+        .map { "\($0.key)=\($0.value)" }
+        .joined(separator: ",")
+    print("phase_misses=\(phaseMissesByReason.values.reduce(0, +)) \(phaseMissSummary)")
 }
 
 main()

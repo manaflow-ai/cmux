@@ -8373,12 +8373,22 @@ final class Workspace: Identifiable, ObservableObject {
     private func syncPinnedStateForTab(_ tabId: TabID, panelId: UUID) {
         let isPinned = pinnedPanelIds.contains(panelId)
         if let panel = panels[panelId] {
+            let kind = surfaceKind(for: panel)
+            if let tab = bonsplitController.tab(tabId),
+               tab.kind == kind,
+               tab.isPinned == isPinned {
+                return
+            }
             bonsplitController.updateTab(
                 tabId,
-                kind: .some(surfaceKind(for: panel)),
+                kind: .some(kind),
                 isPinned: isPinned
             )
         } else {
+            if let tab = bonsplitController.tab(tabId),
+               tab.isPinned == isPinned {
+                return
+            }
             bonsplitController.updateTab(tabId, isPinned: isPinned)
         }
     }
@@ -11439,6 +11449,10 @@ final class Workspace: Identifiable, ObservableObject {
             )
         }
 #endif
+        if shouldSuppressReentrantRefocus,
+           currentlyFocusedPanelId == panelId {
+            return
+        }
 
         if let targetPaneId, !selectionAlreadyConverged {
 #if DEBUG

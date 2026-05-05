@@ -1899,7 +1899,7 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
                         miniaturizedIds.remove(ObjectIdentifier(window))
                         deminiaturizedWindows.append(window)
                     },
-                    makeKeyAndOrderFront: { madeKeyWindows.append($0) },
+                    makeKey: { madeKeyWindows.append($0) },
                     orderFrontRegardless: { orderedRegardlessWindows.append($0) }
                 )
             )
@@ -1944,7 +1944,7 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
                         miniaturizedIds.remove(ObjectIdentifier(window))
                         deminiaturizedWindows.append(window)
                     },
-                    makeKeyAndOrderFront: { madeKeyWindows.append($0) }
+                    makeKey: { madeKeyWindows.append($0) }
                 )
             )
         )
@@ -1962,6 +1962,7 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
 
         let visibleIds: Set<ObjectIdentifier> = [ObjectIdentifier(window)]
         var orderedOutWindows: [NSWindow] = []
+        var orderedRegardlessWindows: [NSWindow] = []
         var deminiaturizedWindows: [NSWindow] = []
         var madeKeyWindows: [NSWindow] = []
         var activationCount = 0
@@ -1976,7 +1977,8 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
                     isVisible: { visibleIds.contains(ObjectIdentifier($0)) },
                     isMiniaturized: { _ in false },
                     deminiaturize: { deminiaturizedWindows.append($0) },
-                    makeKeyAndOrderFront: { madeKeyWindows.append($0) },
+                    makeKey: { madeKeyWindows.append($0) },
+                    orderFrontRegardless: { orderedRegardlessWindows.append($0) },
                     orderOut: { orderedOutWindows.append($0) }
                 )
             )
@@ -1986,6 +1988,7 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
         _ = controller.showApplicationWindows(windows: [window], reason: .applicationReopen)
 
         XCTAssertTrue(orderedOutWindows.contains { $0 === window })
+        XCTAssertTrue(orderedRegardlessWindows.contains { $0 === window })
         XCTAssertTrue(madeKeyWindows.contains { $0 === window })
         XCTAssertEqual(activationCount, 1)
         XCTAssertTrue(deminiaturizedWindows.isEmpty)
@@ -2013,7 +2016,7 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
                 isApplicationHidden: { false },
                 windowOperations: makeWindowOperations(
                     isVisible: { visibleIds.contains(ObjectIdentifier($0)) },
-                    makeKeyAndOrderFront: { madeKeyWindows.append($0) },
+                    makeKey: { madeKeyWindows.append($0) },
                     orderOut: { window in
                         visibleIds.remove(ObjectIdentifier(window))
                         orderedOutWindows.append(window)
@@ -2052,6 +2055,7 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
         canBecomeKey: @escaping (NSWindow) -> Bool = { _ in true },
         deminiaturize: @escaping (NSWindow) -> Void = { _ in },
         makeKeyAndOrderFront: @escaping (NSWindow) -> Void = { _ in },
+        makeKey: @escaping (NSWindow) -> Void = { _ in },
         orderFront: @escaping (NSWindow) -> Void = { _ in },
         orderFrontRegardless: @escaping (NSWindow) -> Void = { _ in },
         orderOut: @escaping (NSWindow) -> Void = { _ in }
@@ -2064,6 +2068,7 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
             canBecomeKey: canBecomeKey,
             deminiaturize: deminiaturize,
             makeKeyAndOrderFront: makeKeyAndOrderFront,
+            makeKey: makeKey,
             orderFront: orderFront,
             orderFrontRegardless: orderFrontRegardless,
             orderOut: orderOut

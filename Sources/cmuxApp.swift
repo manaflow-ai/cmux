@@ -4806,6 +4806,7 @@ final class AppIconAppearanceObserver: NSObject {
     private var observation: AppIconAppearanceObservation?
     private var launchObserver: NSObjectProtocol?
     private var hasDeferredStartPending = false
+    private var lastAppliedImageName: String?
 
     init(environment: Environment = .live()) {
         self.environment = environment
@@ -4832,6 +4833,7 @@ final class AppIconAppearanceObserver: NSObject {
     func stopObserving() {
         observation?.invalidate()
         observation = nil
+        lastAppliedImageName = nil
         cancelDeferredStart()
     }
 
@@ -4856,8 +4858,10 @@ final class AppIconAppearanceObserver: NSObject {
         guard environment.isApplicationFinishedLaunching() else { return }
         guard let isDark = environment.currentAppearanceIsDark() else { return }
         let imageName = isDark ? "AppIconDark" : "AppIconLight"
+        guard imageName != lastAppliedImageName else { return }
         if let icon = environment.imageForName(imageName) {
             environment.setApplicationIconImage(icon)
+            lastAppliedImageName = imageName
         }
     }
 }

@@ -10286,6 +10286,7 @@ final class GhosttySurfaceScrollView: NSView {
             queue: .main
         ) { [weak self] _ in
             guard let self else { return }
+            guard self.shouldRestoreFirstResponderAfterWindowBecameKey() else { return }
             let searchActive = self.surfaceView.terminalSurface?.searchState != nil
 #if DEBUG
             cmuxDebugLog("find.window.didBecomeKey surface=\(self.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") searchActive=\(searchActive) focusTarget=\(self.searchFocusTarget) firstResponder=\(String(describing: self.window?.firstResponder))")
@@ -10316,6 +10317,16 @@ final class GhosttySurfaceScrollView: NSView {
         if window.isKeyWindow {
             scheduleAutomaticFirstResponderApply(reason: "viewDidMoveToWindow")
         }
+    }
+
+    private func shouldRestoreFirstResponderAfterWindowBecameKey() -> Bool {
+        guard isActive,
+              surfaceView.isVisibleInUI,
+              let tabId = surfaceView.tabId,
+              let surfaceId = surfaceView.terminalSurface?.id else {
+            return false
+        }
+        return matchesCurrentTerminalFocusTarget(tabId: tabId, surfaceId: surfaceId)
     }
 
     func attachSurface(_ terminalSurface: TerminalSurface) {
