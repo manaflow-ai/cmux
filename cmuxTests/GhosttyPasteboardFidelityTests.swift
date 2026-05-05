@@ -111,6 +111,19 @@ final class GhosttyPasteboardFidelityTests: XCTestCase {
         )
     }
 
+    func testKeepsRichASCIIQuestionMarkWhenPlainTextLacksIt() throws {
+        let pasteboard = try makeMixedRichImagePasteboard(
+            namePrefix: "rich-preserves-question-mark",
+            plainText: "test",
+            html: "<p>test?</p>"
+        )
+
+        XCTAssertEqual(
+            cmuxPasteboardStringContentsForTesting(pasteboard),
+            "test?"
+        )
+    }
+
     func testImageHTMLWithOnlyHiddenBlocksFallsBackToImagePath() throws {
         let pasteboard = try makeImageHTMLPasteboard(
             namePrefix: "image-html-hidden-blocks",

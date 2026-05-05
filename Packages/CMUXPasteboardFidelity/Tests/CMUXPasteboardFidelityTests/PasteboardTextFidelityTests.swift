@@ -38,6 +38,15 @@ final class PasteboardTextFidelityTests: XCTestCase {
         )
     }
 
+    func testKeepsRichTextWhenQuestionMarkIsLegitimateASCIIContent() {
+        XCTAssertFalse(
+            PasteboardTextFidelity.shouldPreferPlainText(
+                "test",
+                overRichText: "test?"
+            )
+        )
+    }
+
     func testHTMLWithOnlyHiddenBlocksHasNoVisibleText() {
         let html = """
         <!-- comment -->

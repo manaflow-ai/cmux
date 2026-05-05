@@ -13,10 +13,12 @@ public enum PasteboardTextFidelity {
         let richTextHasLossySubstitution =
             richMetrics.replacementCharacters > plainMetrics.replacementCharacters ||
             richMetrics.questionMarks > plainMetrics.questionMarks
-        let plainTextPreservesAtLeastAsMuchNonASCII = plainMetrics.nonASCII >= richMetrics.nonASCII
+        let richTextSubstitutionIsRelevant =
+            plainMetrics.nonASCII > 0 &&
+            plainMetrics.nonASCII >= richMetrics.nonASCII
 
         return plainMetrics.nonASCII > richMetrics.nonASCII ||
-            (richTextHasLossySubstitution && plainTextPreservesAtLeastAsMuchNonASCII)
+            (richTextHasLossySubstitution && richTextSubstitutionIsRelevant)
     }
 
     public static func htmlHasNoVisibleText(_ html: String) -> Bool {
