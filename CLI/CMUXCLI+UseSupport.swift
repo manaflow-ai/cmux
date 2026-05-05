@@ -181,6 +181,9 @@ enum CmuxUseSupport {
         let installPath = inferredInstallPath(in: checkoutURL)
         let installCommand = inferredInstallCommand(in: checkoutURL, package: package)
         let launchCommand = try? detectLaunchCommand(in: checkoutURL)
+        let command = launchCommand?.command ?? installCommand
+        let commandSource = launchCommand.map { "generated:\($0.source)" }
+            ?? installCommand.map { _ in "generated:install.command" }
 
         return CmuxUseManifest(
             id: inferredExtensionID(for: repository),
@@ -190,11 +193,11 @@ enum CmuxUseSupport {
             generated: true,
             main: nil,
             engineRequirement: nil,
-            permissions: inferredPermissions(installPath: installPath, command: installCommand ?? launchCommand?.command),
+            permissions: inferredPermissions(installPath: installPath, command: command),
             installPath: installPath,
             installCommand: installCommand,
-            command: installCommand ?? launchCommand?.command,
-            commandSource: installCommand != nil ? "generated:install.command" : launchCommand.map { "generated:\($0.source)" },
+            command: command,
+            commandSource: commandSource,
             sourceFile: "generated"
         )
     }
@@ -371,20 +374,34 @@ enum CmuxUseSupport {
             throw CLIError(message: "cmux.extension.json install.path must be non-empty")
         }
 
-        if trimmed == "~" {
-            return homeURL
-        }
+        let relativePath: String
         if trimmed.hasPrefix("~/") {
-            return homeURL.appendingPathComponent(String(trimmed.dropFirst(2)), isDirectory: true)
-        }
-        if trimmed.hasPrefix("$HOME/") {
-            return homeURL.appendingPathComponent(String(trimmed.dropFirst("$HOME/".count)), isDirectory: true)
-        }
-        if trimmed.hasPrefix("/") {
-            return URL(fileURLWithPath: trimmed, isDirectory: true)
+            relativePath = String(trimmed.dropFirst(2))
+        } else if trimmed.hasPrefix("$HOME/") {
+            relativePath = String(trimmed.dropFirst("$HOME/".count))
+        } else {
+            throw CLIError(message: "cmux.extension.json install.path must start with ~/ or $HOME/ and include a subdirectory")
         }
 
-        throw CLIError(message: "cmux.extension.json install.path must be absolute or start with ~/")
+        let parts = relativePath
+            .split(separator: "/", omittingEmptySubsequences: true)
+            .map(String.init)
+        guard !parts.isEmpty,
+              parts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else {
+            throw CLIError(message: "cmux.extension.json install.path must include a subdirectory and must not contain '.' or '..'")
+        }
+
+        let home = homeURL.standardizedFileURL
+        var resolved = home
+        for part in parts {
+            resolved.appendPathComponent(part, isDirectory: true)
+        }
+        let standardized = resolved.standardizedFileURL
+        let homePrefix = home.path.hasSuffix("/") ? home.path : "\(home.path)/"
+        guard standardized.path.hasPrefix(homePrefix) else {
+            throw CLIError(message: "cmux.extension.json install.path must resolve inside the user's home directory")
+        }
+        return standardized
     }
 
     private static func stringArray(in object: [String: Any], key: String) -> [String] {
