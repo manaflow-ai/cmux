@@ -55,7 +55,7 @@ run_gate() {
     write_curl_stub "$curl_status"
   fi
 
-  env \
+  env -i \
     PATH="$TMP_DIR:/usr/bin:/bin:/usr/sbin:/sbin" \
     CURL_LOG="$log" \
     CURL_STATUS="${CURL_STATUS:-}" \
