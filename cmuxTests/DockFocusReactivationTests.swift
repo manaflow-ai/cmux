@@ -40,6 +40,27 @@ final class DockFocusReactivationTests: XCTestCase {
         XCTAssertEqual(restoredSurfaceId, surfaceId)
     }
 
+    func testDockHostResponderDoesNotEraseFocusedDockSurface() {
+        let fileExplorerState = FileExplorerState()
+        let coordinator = MainWindowFocusController(
+            windowId: UUID(),
+            window: nil,
+            tabManager: TabManager(),
+            fileExplorerState: fileExplorerState
+        )
+        let dockHost = DockKeyboardFocusView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        let surfaceId = UUID()
+        var restoredSurfaceId: UUID?
+        dockHost.focusSurface = { restoredSurfaceId = $0; return true }
+        coordinator.registerDockHost(dockHost)
+        coordinator.noteDockTerminalInteraction(surfaceId: surfaceId)
+
+        coordinator.debugSyncAfterResponderChange(responder: dockHost)
+
+        XCTAssertTrue(coordinator.restoreTargetAfterWindowBecameKey())
+        XCTAssertEqual(restoredSurfaceId, surfaceId)
+    }
+
     private func window(withId windowId: UUID) -> NSWindow? {
         let identifier = "cmux.main.\(windowId.uuidString)"
         return NSApp.windows.first(where: { $0.identifier?.rawValue == identifier })

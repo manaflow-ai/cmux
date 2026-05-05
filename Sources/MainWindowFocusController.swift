@@ -196,18 +196,7 @@ final class MainWindowFocusController {
 
     func noteDockTerminalInteraction(surfaceId: UUID) {
         rememberedRightSidebarMode = .dock
-        let target: RightSidebarFocusTarget = {
-            if let request = rightSidebarFocusState.request,
-               request.mode == .dock {
-                if case .dockSurface(let requestedSurfaceId) = request.target,
-                   requestedSurfaceId != surfaceId {
-                    return .dockSurface(surfaceId)
-                }
-                return request.target
-            }
-            return .dockSurface(surfaceId)
-        }()
-        rightSidebarFocusState = .focused(mode: .dock, target: target)
+        rightSidebarFocusState = .focused(mode: .dock, target: .dockSurface(surfaceId))
         intent = .rightSidebar(mode: .dock)
         feedSelectedItemId = nil
         publishFeedFocusSnapshot()
@@ -464,7 +453,7 @@ final class MainWindowFocusController {
                 return
             }
             rememberedRightSidebarMode = mode
-            completeRightSidebarFocusFromResponder(mode: mode, isFallbackSidebarHost: isFallbackSidebarHost)
+            completeRightSidebarFocusFromResponder(mode: mode, responder: responder, isFallbackSidebarHost: isFallbackSidebarHost)
             intent = .rightSidebar(mode: mode)
             if mode != .feed {
                 feedSelectedItemId = nil
@@ -501,9 +490,17 @@ final class MainWindowFocusController {
 
     private func completeRightSidebarFocusFromResponder(
         mode responderMode: RightSidebarMode,
+        responder: NSResponder,
         isFallbackSidebarHost: Bool
     ) {
         guard let request = rightSidebarFocusState.request else {
+            if case .focused(let focusedMode, let target) = rightSidebarFocusState,
+               focusedMode == responderMode,
+               responderMode == .dock,
+               case .dockSurface = target,
+               dockHost.map({ responder === $0 }) == true {
+                return
+            }
             rightSidebarFocusState = .focused(mode: responderMode, target: .host)
             return
         }

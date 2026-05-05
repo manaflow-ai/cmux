@@ -8650,7 +8650,7 @@ struct ContentView: View {
         recordCommandPaletteUsage(command.id)
         command.action()
         if command.dismissOnRun {
-            let focusTarget = commandPalettePostCommandFocusTarget(for: observedWindow)
+            let focusTarget = commandPaletteFocusTargetAfterRunningCommand(commandId: command.id, preCommandTarget: commandPaletteRestoreFocusTarget, for: observedWindow)
             dismissCommandPalette(restoreFocus: focusTarget != nil, preferredFocusTarget: focusTarget)
         }
     }

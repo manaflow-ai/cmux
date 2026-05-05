@@ -402,6 +402,13 @@ final class CommandPaletteRequestRoutingTests: XCTestCase {
             )
         )
     }
+
+    func testMatchTerminalBackgroundRestoresPreCommandFocus() {
+        XCTAssertTrue(
+            ContentView.commandPaletteRestoresPreCommandFocus(commandId: "palette.toggleMatchTerminalBackground")
+        )
+        XCTAssertFalse(ContentView.commandPaletteRestoresPreCommandFocus(commandId: "palette.enableMinimalMode"))
+    }
 }
 
 final class CommandPaletteBackNavigationTests: XCTestCase {

@@ -2,6 +2,26 @@ import AppKit
 import Foundation
 
 extension ContentView {
+    func commandPaletteFocusTargetAfterRunningCommand(
+        commandId: String,
+        preCommandTarget: MainWindowFocusRestoreTarget?,
+        for observedWindow: NSWindow?
+    ) -> MainWindowFocusRestoreTarget? {
+        if Self.commandPaletteRestoresPreCommandFocus(commandId: commandId) {
+            return preCommandTarget ?? commandPalettePostCommandFocusTarget(for: observedWindow)
+        }
+        return commandPalettePostCommandFocusTarget(for: observedWindow)
+    }
+
+    static func commandPaletteRestoresPreCommandFocus(commandId: String) -> Bool {
+        switch commandId {
+        case "palette.toggleMatchTerminalBackground":
+            return true
+        default:
+            return false
+        }
+    }
+
     func commandPalettePostCommandFocusTarget(for observedWindow: NSWindow?) -> MainWindowFocusRestoreTarget? {
         guard let window = observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow else {
             return nil

@@ -1403,16 +1403,16 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
             fileExplorerState: fileExplorerState
         )
         let dockHost = DockKeyboardFocusView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
-        dockHost.focusFirstControl = { false }
+        let dockSurfaceId = UUID(); var restoredSurfaceId: UUID?
+        dockHost.focusFirstControl = { false }; dockHost.focusSurface = { restoredSurfaceId = $0; return true }
         controller.registerDockHost(dockHost)
 
-        XCTAssertTrue(controller.focusRightSidebar(mode: .dock, focusFirstItem: true))
-        XCTAssertEqual(controller.debugPendingRightSidebarFocusMode, .dock)
+        XCTAssertTrue(controller.focusRightSidebar(mode: .dock, focusFirstItem: true)); XCTAssertEqual(controller.debugPendingRightSidebarFocusMode, .dock)
 
-        controller.noteDockTerminalInteraction(surfaceId: UUID())
+        controller.noteDockTerminalInteraction(surfaceId: dockSurfaceId)
 
         XCTAssertNil(controller.debugPendingRightSidebarFocusMode)
-        XCTAssertEqual(controller.intent, .rightSidebar(mode: .dock))
+        XCTAssertTrue(controller.restoreTargetAfterWindowBecameKey()); XCTAssertEqual(restoredSurfaceId, dockSurfaceId); XCTAssertEqual(controller.intent, .rightSidebar(mode: .dock))
     }
 
     @MainActor

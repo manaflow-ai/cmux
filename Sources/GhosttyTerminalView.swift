@@ -9476,8 +9476,7 @@ final class GhosttySurfaceScrollView: NSView {
     private var activeDropZone: DropZone?
     private var pendingDropZone: DropZone?
     private var dropZoneOverlayAnimationGeneration: UInt64 = 0
-    private var pendingAutomaticFirstResponderApply = false
-    // Intentionally no focus retry loops: rely on AppKit first-responder and bonsplit selection.
+    private var pendingAutomaticFirstResponderApply = false, preserveFirstResponderDuringTransientReattach = false
 
     /// Tracks whether keyboard focus should go to the search field or the terminal
     /// when the window becomes key while the find bar is open.
@@ -9657,8 +9656,11 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.terminalSurface?.preparePortalHostReplacementIfOwned(
             hostId: hostId,
             reason: reason
-        )
+        ); preserveFirstResponderDuringTransientReattach = isRightSidebarDockSurface && isSurfaceViewFirstResponder()
     }
+
+    func shouldPreservePortalHideDuringTransientReattach() -> Bool { preserveFirstResponderDuringTransientReattach && isRightSidebarDockSurface && isSurfaceViewFirstResponder() }
+    func clearTransientReattachFirstResponderPreservation() { preserveFirstResponderDuringTransientReattach = false }
 
     init(surfaceView: GhosttyNSView) {
         self.surfaceView = surfaceView
@@ -10978,7 +10980,7 @@ final class GhosttySurfaceScrollView: NSView {
         }
     }
 
-    func setVisibleInUI(_ visible: Bool) {
+    func setVisibleInUI(_ visible: Bool) { if !visible && shouldPreservePortalHideDuringTransientReattach() { return }
         let wasVisible = surfaceView.isVisibleInUI
         surfaceView.setVisibleInUI(visible)
         isHidden = !visible
@@ -11012,7 +11014,7 @@ final class GhosttySurfaceScrollView: NSView {
                fr === surfaceView || fr.isDescendant(of: surfaceView) {
                 window.makeFirstResponder(nil)
             }
-        } else if !wasVisible {
+        } else if !wasVisible { clearTransientReattachFirstResponderPreservation()
             // Workspace/sidebar selection can make an already-sized terminal visible again
             // without a portal frame delta or a focus handoff. Reuse the portal refresh
             // path so the Metal layer is nudged immediately on plain visibility restores.
@@ -11034,7 +11036,7 @@ final class GhosttySurfaceScrollView: NSView {
         return convert(bounds, to: nil)
     }
 
-    func setActive(_ active: Bool) {
+    func setActive(_ active: Bool) { if !active && shouldPreservePortalHideDuringTransientReattach() { return }; if active { clearTransientReattachFirstResponderPreservation() }
         let wasActive = isActive
         isActive = active
 #if DEBUG
@@ -13418,9 +13420,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
             )
         }
 
-        // SwiftUI can transiently dismantle/rebuild NSViewRepresentable instances during split
-        // tree updates. Do not drop the portal lease or force visible/active false here; that
-        // causes avoidable blackouts when the same hosted view is rebound moments later.
+        // SwiftUI can transiently rebuild hosts during split churn; keep the portal lease alive.
         hostedView?.setFocusHandler(nil)
         hostedView?.setTriggerFlashHandler(nil)
         hostedView?.setDropZoneOverlay(zone: nil)

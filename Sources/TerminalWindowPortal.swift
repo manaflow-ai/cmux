@@ -1070,13 +1070,11 @@ final class WindowTerminalPortal: NSObject {
         }
     }
 
-    /// Hide a portal entry without detaching it. Updates visibleInUI to false and
-    /// sets isHidden = true so subsequent synchronizeHostedView calls keep it hidden.
-    /// Used when a workspace is permanently unmounted (vs. transient bonsplit dismantles).
+    /// Hide a portal entry without detaching it for permanent workspace unmounts.
     func hideEntry(forHostedId hostedId: ObjectIdentifier) {
         guard var entry = entriesByHostedId[hostedId] else { return }
-        entry.visibleInUI = false
-        entry.transientRecoveryRetriesRemaining = 0
+        if entry.hostedView?.shouldPreservePortalHideDuringTransientReattach() == true { return }
+        entry.visibleInUI = false; entry.transientRecoveryRetriesRemaining = 0
         entriesByHostedId[hostedId] = entry
         entry.hostedView?.isHidden = true
 #if DEBUG
@@ -1205,6 +1203,7 @@ final class WindowTerminalPortal: NSObject {
         ensureDividerOverlayOnTop()
 
         synchronizeHostedView(withId: hostedId)
+        hostedView.clearTransientReattachFirstResponderPreservation()
         scheduleDeferredFullSynchronizeAll()
         pruneDeadEntries()
     }

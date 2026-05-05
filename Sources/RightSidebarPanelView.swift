@@ -169,6 +169,7 @@ struct RightSidebarPanelView: View {
             VStack(spacing: 0) {
                 modeBar
                     .rightSidebarChromeBottomBorder()
+                if fileExplorerState.mode == .dock { dockActionsBar.rightSidebarChromeBottomBorder() }
                 contentForMode
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -223,13 +224,6 @@ struct RightSidebarPanelView: View {
                 }
             }
             Spacer(minLength: 0)
-            if fileExplorerState.mode == .dock {
-                DockModeBarActions(
-                    rootDirectory: sessionIndexDirectory,
-                    workspaceId: workspaceId,
-                    store: dockStore
-                )
-            }
         }
         .rightSidebarChromeBar(leadingPadding: 4, trailingPadding: 6, height: titlebarHeight)
         .background(MinimalModeTitlebarControlHitRegionView())
@@ -239,6 +233,12 @@ struct RightSidebarPanelView: View {
             isVisible: true,
             titlebarHeight: titlebarHeight
         )
+    }
+
+    private var dockActionsBar: some View {
+        HStack(spacing: 6) {
+            DockModeBarActions(rootDirectory: sessionIndexDirectory, workspaceId: workspaceId, store: dockStore); Spacer(minLength: 0)
+        }.rightSidebarChromeBar()
     }
 
     @ViewBuilder
