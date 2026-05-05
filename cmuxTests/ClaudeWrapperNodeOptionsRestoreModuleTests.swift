@@ -160,13 +160,26 @@ final class ClaudeWrapperNodeOptionsRestoreModuleTests: XCTestCase {
     private func bindUnixSocket(at path: String) throws -> Int32 {
         unlink(path)
         let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
-        XCTAssertGreaterThanOrEqual(fd, 0)
+        guard fd >= 0 else {
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: Int(errno),
+                userInfo: [NSLocalizedDescriptionKey: "socket(AF_UNIX) failed"]
+            )
+        }
 
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
         let maxPathLength = MemoryLayout.size(ofValue: addr.sun_path)
         let utf8 = Array(path.utf8)
-        XCTAssertLessThan(utf8.count, maxPathLength)
+        guard utf8.count < maxPathLength else {
+            Darwin.close(fd)
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: Int(ENAMETOOLONG),
+                userInfo: [NSLocalizedDescriptionKey: "Unix socket path is too long: \(path)"]
+            )
+        }
         _ = withUnsafeMutablePointer(to: &addr.sun_path) { pointer in
             pointer.withMemoryRebound(to: CChar.self, capacity: maxPathLength) { buffer in
                 for index in 0..<utf8.count {
@@ -181,8 +194,24 @@ final class ClaudeWrapperNodeOptionsRestoreModuleTests: XCTestCase {
                 Darwin.bind(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
             }
         }
-        XCTAssertEqual(bindResult, 0)
-        XCTAssertEqual(Darwin.listen(fd, 1), 0)
+        guard bindResult == 0 else {
+            let code = errno
+            Darwin.close(fd)
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: Int(code),
+                userInfo: [NSLocalizedDescriptionKey: "bind(\(path)) failed"]
+            )
+        }
+        guard Darwin.listen(fd, 1) == 0 else {
+            let code = errno
+            Darwin.close(fd)
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: Int(code),
+                userInfo: [NSLocalizedDescriptionKey: "listen(\(path)) failed"]
+            )
+        }
         return fd
     }
 
