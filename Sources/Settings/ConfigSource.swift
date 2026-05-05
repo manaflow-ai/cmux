@@ -115,6 +115,7 @@ struct ConfigSourceEnvironment {
 
 enum CmuxGhosttyConfigPathResolver {
     static let releaseBundleIdentifier = "com.cmuxterm.app"
+    private static let releaseFallbackChannelSuffixes = ["debug", "nightly", "staging"]
 
     static func editableConfigURL(
         currentBundleIdentifier: String?,
@@ -236,24 +237,18 @@ enum CmuxGhosttyConfigPathResolver {
     }
 
     private static func allowsReleaseFallback(_ bundleIdentifier: String) -> Bool {
-        isDebugLikeBundleIdentifier(bundleIdentifier)
-            || isNightlyBundleIdentifier(bundleIdentifier)
-            || isStagingBundleIdentifier(bundleIdentifier)
+        releaseFallbackChannelSuffixes.contains { channelSuffix in
+            matchesChannelBundleIdentifier(bundleIdentifier, channelSuffix: channelSuffix)
+        }
     }
 
-    private static func isDebugLikeBundleIdentifier(_ bundleIdentifier: String) -> Bool {
-        bundleIdentifier == "com.cmuxterm.app.debug"
-            || bundleIdentifier.hasPrefix("com.cmuxterm.app.debug.")
-    }
-
-    private static func isNightlyBundleIdentifier(_ bundleIdentifier: String) -> Bool {
-        bundleIdentifier == "com.cmuxterm.app.nightly"
-            || bundleIdentifier.hasPrefix("com.cmuxterm.app.nightly.")
-    }
-
-    private static func isStagingBundleIdentifier(_ bundleIdentifier: String) -> Bool {
-        bundleIdentifier == "com.cmuxterm.app.staging"
-            || bundleIdentifier.hasPrefix("com.cmuxterm.app.staging.")
+    private static func matchesChannelBundleIdentifier(
+        _ bundleIdentifier: String,
+        channelSuffix: String
+    ) -> Bool {
+        let channelBundleIdentifier = "\(releaseBundleIdentifier).\(channelSuffix)"
+        return bundleIdentifier == channelBundleIdentifier
+            || bundleIdentifier.hasPrefix("\(channelBundleIdentifier).")
     }
 }
 
