@@ -94,6 +94,8 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             terminalStartupCommand: "ssh dev@example.com"
         )
         remoteWorkspace.configureRemoteConnection(configuration, autoConnect: false)
+        let remotePanelId = try XCTUnwrap(remoteWorkspace.focusedPanelId)
+        remoteWorkspace.updatePanelDirectory(panelId: remotePanelId, directory: "/home/dev/project")
 
         let snapshotURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ssh-session-restore-\(UUID().uuidString).json")
@@ -134,6 +136,9 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(restoredWorkspace.isRemoteWorkspace)
         XCTAssertEqual(restoredWorkspace.remoteDisplayTarget, "dev@example.com:2222")
         XCTAssertTrue(restoredWorkspace.hasActiveRemoteTerminalSessions)
+        let restoredPanelId = try XCTUnwrap(restoredWorkspace.focusedPanelId)
+        XCTAssertEqual(restoredWorkspace.panelDirectories[restoredPanelId], "/home/dev/project")
+        XCTAssertNil(restoredWorkspace.terminalPanel(for: restoredPanelId)?.requestedWorkingDirectory)
         XCTAssertEqual(
             restoredWorkspace.remoteConfiguration?.terminalStartupCommand,
             "ssh -p 2222 -i /Users/test/.ssh/id_ed25519 -o ControlPath=/tmp/cmux-ssh-%C -o StrictHostKeyChecking=accept-new -tt dev@example.com"
