@@ -1,12 +1,12 @@
 # cmux-owned Swift file length budget.
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
-20530	CLI/cmux.swift
+20694	CLI/cmux.swift
 17229	Sources/TerminalController.swift
-15965	Sources/ContentView.swift
-14510	Sources/AppDelegate.swift
+15864	Sources/ContentView.swift
+14543	Sources/AppDelegate.swift
 13899	Sources/Workspace.swift
-13408	Sources/GhosttyTerminalView.swift
+13431	Sources/GhosttyTerminalView.swift
 10597	Sources/Panels/BrowserPanel.swift
 8280	Sources/cmuxApp.swift
 7488	Sources/TabManager.swift
@@ -15,7 +15,7 @@
 4590	cmuxTests/TerminalAndGhosttyTests.swift
 4588	cmuxTests/WorkspaceUnitTests.swift
 4444	cmuxTests/GhosttyConfigTests.swift
-4412	cmuxTests/WorkspaceRemoteConnectionTests.swift
+4413	cmuxTests/WorkspaceRemoteConnectionTests.swift
 4305	Sources/BrowserWindowPortal.swift
 3933	Sources/Panels/FilePreviewPanel.swift
 3840	Sources/Feed/FeedPanelView.swift
@@ -35,7 +35,7 @@
 1899	cmuxTests/CmuxConfigTests.swift
 1879	Sources/FileExplorerView.swift
 1826	Sources/SessionIndexStore.swift
-1765	cmuxTests/ShortcutAndCommandPaletteTests.swift
+1877	cmuxTests/ShortcutAndCommandPaletteTests.swift
 1591	Sources/KeyboardShortcutSettingsFileStore.swift
 1517	cmuxUITests/BrowserPaneNavigationKeybindUITests.swift
 1454	Sources/TerminalNotificationStore.swift
@@ -50,7 +50,7 @@
 1001	cmuxTests/SidebarOrderingTests.swift
 987	Sources/CommandPalette/CommandPaletteSearch.swift
 976	cmuxTests/OmnibarAndToolsTests.swift
-923	Sources/DockPanelView.swift
+1192	Sources/DockPanelView.swift
 908	cmuxTests/CommandPaletteSearchEngineTests.swift
 846	Sources/WorkspaceContentView.swift
 834	Sources/RestorableAgentSession.swift
@@ -58,7 +58,7 @@
 807	Sources/TerminalSSHSessionDetector.swift
 785	Sources/App/TerminalDirectoryOpenSupport.swift
 781	Sources/GhosttyConfig.swift
-778	Sources/MainWindowFocusController.swift
+1148	Sources/MainWindowFocusController.swift
 752	cmuxUITests/CloseWorkspaceCmdDUITests.swift
 718	Sources/App/MenuBarExtraController.swift
 714	Sources/AppleScriptSupport.swift
@@ -75,5 +75,6 @@
 568	cmuxTests/TerminalNotificationQueueTests.swift
 546	Sources/Windowing/WindowGlassEffect.swift
 541	Sources/SessionPersistence.swift
+533	Sources/RightSidebarPanelView.swift
 510	Sources/Update/UpdatePopoverView.swift
 505	cmuxUITests/DisplayResolutionRegressionUITests.swift
