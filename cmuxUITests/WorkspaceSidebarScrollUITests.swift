@@ -43,6 +43,40 @@ final class WorkspaceSidebarScrollUITests: XCTestCase {
         )
     }
 
+    func testSidebarScrollerVisibilityFollowsWorkspaceOverflow() {
+        let app = XCUIApplication()
+        configureLaunch(app)
+        launchAndEnsureRunning(app)
+        XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 8.0), "Expected a main window")
+        XCTAssertTrue(
+            waitForWorkspaceRowHittable(index: 1, count: 1, app: app, timeout: 8.0),
+            "Expected the initial workspace row to be visible"
+        )
+
+        let sidebar = app.descendants(matching: .any)["Sidebar"].firstMatch
+        XCTAssertTrue(sidebar.waitForExistence(timeout: 5.0), "Expected the workspace sidebar to exist")
+        XCTAssertTrue(
+            waitForSidebarVerticalScrollerHidden(app: app, sidebar: sidebar, timeout: 4.0),
+            "Expected the sidebar scroller to hide when the workspace content fits"
+        )
+
+        let workspaceCount = 20
+        for expectedCount in 2...workspaceCount {
+            app.typeKey("n", modifierFlags: [.command])
+            XCTAssertTrue(
+                waitForWorkspaceRowHittable(index: expectedCount, count: expectedCount, app: app, timeout: 6.0),
+                "Expected the newly selected workspace \(expectedCount) to be visible"
+            )
+        }
+
+        sidebar.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.5)).hover()
+        sidebar.swipeUp()
+        XCTAssertTrue(
+            waitForSidebarVerticalScrollerVisible(app: app, sidebar: sidebar, timeout: 4.0),
+            "Expected the sidebar scroller to appear when the workspace content overflows"
+        )
+    }
+
     private func configureLaunch(_ app: XCUIApplication) {
         app.launchArguments += ["-newWorkspacePlacement", "end"]
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
@@ -86,6 +120,43 @@ final class WorkspaceSidebarScrollUITests: XCTestCase {
     private func waitForWindowCount(atLeast count: Int, app: XCUIApplication, timeout: TimeInterval) -> Bool {
         pollUntil(timeout: timeout) {
             app.windows.count >= count
+        }
+    }
+
+    private func waitForSidebarVerticalScrollerHidden(
+        app: XCUIApplication,
+        sidebar: XCUIElement,
+        timeout: TimeInterval
+    ) -> Bool {
+        pollUntil(timeout: timeout) {
+            visibleSidebarVerticalScrollers(app: app, sidebar: sidebar).isEmpty
+        }
+    }
+
+    private func waitForSidebarVerticalScrollerVisible(
+        app: XCUIApplication,
+        sidebar: XCUIElement,
+        timeout: TimeInterval
+    ) -> Bool {
+        pollUntil(timeout: timeout) {
+            !visibleSidebarVerticalScrollers(app: app, sidebar: sidebar).isEmpty
+        }
+    }
+
+    private func visibleSidebarVerticalScrollers(
+        app: XCUIApplication,
+        sidebar: XCUIElement
+    ) -> [XCUIElement] {
+        guard sidebar.exists else { return [] }
+        let sidebarFrame = sidebar.frame
+        return app.descendants(matching: .scrollBar).allElementsBoundByIndex.filter { scroller in
+            guard scroller.exists, scroller.isHittable else { return false }
+            let frame = scroller.frame
+            guard frame.width > 0, frame.height > frame.width else { return false }
+            return frame.midX >= sidebarFrame.minX
+                && frame.midX <= sidebarFrame.maxX
+                && frame.maxY > sidebarFrame.minY
+                && frame.minY < sidebarFrame.maxY
         }
     }
 
