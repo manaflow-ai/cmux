@@ -48,6 +48,7 @@ private final class CLISocketSentryTelemetry {
     private let subcommand: String
     private let socketPath: String
     private let envSocketPath: String?
+    private let processEnv: [String: String]
     private let workspaceId: String?
     private let surfaceId: String?
     private let disabledByEnv: Bool
@@ -134,6 +135,7 @@ private final class CLISocketSentryTelemetry {
         self.subcommand = commandArgs.first?.lowercased() ?? "help"
         self.socketPath = socketPath
         self.envSocketPath = CLISocketEnvironment.socketPathForTelemetry(in: processEnv)
+        self.processEnv = processEnv
         self.workspaceId = processEnv["CMUX_WORKSPACE_ID"]
         self.surfaceId = processEnv["CMUX_SURFACE_ID"]
         self.disabledByEnv =
@@ -241,7 +243,7 @@ private final class CLISocketSentryTelemetry {
             context["tmp_cmux_sockets"] = tmpSockets
         }
         let taggedSockets = tmpSockets.filter { $0 != CLISocketPathResolver.legacyDefaultSocketPath }
-        if CLISocketPathResolver.isImplicitDefaultPath(socketPath),
+        if CLISocketPathResolver.isImplicitDefaultPath(socketPath, environment: processEnv),
            (envSocketPath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
            !taggedSockets.isEmpty {
             context["possible_root_cause"] = "CMUX_SOCKET_PATH missing while tagged sockets exist"
@@ -1814,7 +1816,10 @@ struct CMUXCLI {
            settingsCommandDoesNotNeedSocket(commandArgs) {
             try runSettings(
                 commandArgs: commandArgs,
-                socketPath: CLISocketPathResolver.defaultSocketPath(bundleIdentifier: cliBundleIdentifier),
+                socketPath: CLISocketPathResolver.defaultSocketPath(
+                    bundleIdentifier: cliBundleIdentifier,
+                    environment: processEnv
+                ),
                 explicitPassword: socketPasswordArg,
                 jsonOutput: jsonOutput
             )
@@ -1825,7 +1830,8 @@ struct CMUXCLI {
             ? try CLISocketEnvironment.socketPath(in: processEnv)
             : CLISocketEnvironment.socketPathForTelemetry(in: processEnv)
         let socketPath = explicitSocketPath ?? envSocketPath ?? CLISocketPathResolver.defaultSocketPath(
-            bundleIdentifier: cliBundleIdentifier
+            bundleIdentifier: cliBundleIdentifier,
+            environment: processEnv
         )
         let socketPathSource: CLISocketPathSource
         if explicitSocketPath != nil {
@@ -1833,7 +1839,8 @@ struct CMUXCLI {
         } else if let envSocketPath {
             socketPathSource = CLISocketPathResolver.isImplicitDefaultPath(
                 envSocketPath,
-                bundleIdentifier: cliBundleIdentifier
+                bundleIdentifier: cliBundleIdentifier,
+                environment: processEnv
             ) ? .implicitDefault : .environment
         } else {
             socketPathSource = .implicitDefault
@@ -11148,10 +11155,16 @@ struct CMUXCLI {
     private func tmuxCompatResolvedSocketPath(processEnvironment: [String: String]) throws -> String {
         let envSocketPath = try CLISocketEnvironment.socketPath(in: processEnvironment)
 
-        let requestedSocketPath = envSocketPath ?? CLISocketPathResolver.defaultSocketPath
+        let requestedSocketPath = envSocketPath ?? CLISocketPathResolver.defaultSocketPath(
+            bundleIdentifier: CLISocketPathResolver.currentAppBundleIdentifier(),
+            environment: processEnvironment
+        )
         let source: CLISocketPathSource
         if let envSocketPath {
-            source = CLISocketPathResolver.isImplicitDefaultPath(envSocketPath) ? .implicitDefault : .environment
+            source = CLISocketPathResolver.isImplicitDefaultPath(
+                envSocketPath,
+                environment: processEnvironment
+            ) ? .implicitDefault : .environment
         } else {
             source = .implicitDefault
         }

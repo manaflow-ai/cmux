@@ -110,8 +110,11 @@ enum CLISocketPathResolver {
         defaultSocketPath(bundleIdentifier: currentAppBundleIdentifier())
     }
 
-    static func defaultSocketPath(bundleIdentifier: String?) -> String {
-        switch socketPathVariant(bundleIdentifier: bundleIdentifier, environment: ProcessInfo.processInfo.environment) {
+    static func defaultSocketPath(
+        bundleIdentifier: String?,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> String {
+        switch socketPathVariant(bundleIdentifier: bundleIdentifier, environment: environment) {
         case .stable:
             return stableDefaultSocketPath
         case .nightly(let slug):
@@ -143,8 +146,12 @@ enum CLISocketPathResolver {
         isImplicitDefaultPath(path, bundleIdentifier: currentAppBundleIdentifier())
     }
 
-    static func isImplicitDefaultPath(_ path: String, bundleIdentifier: String?) -> Bool {
-        knownImplicitDefaultPaths(bundleIdentifier: bundleIdentifier).contains(path)
+    static func isImplicitDefaultPath(
+        _ path: String,
+        bundleIdentifier: String?,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        knownImplicitDefaultPaths(bundleIdentifier: bundleIdentifier, environment: environment).contains(path)
     }
 
     static func resolve(
@@ -190,12 +197,12 @@ enum CLISocketPathResolver {
             candidates.append("/tmp/cmux-\(slug).sock")
         }
 
-        candidates.append(defaultSocketPath(bundleIdentifier: bundleIdentifier))
+        candidates.append(defaultSocketPath(bundleIdentifier: bundleIdentifier, environment: environment))
         if let last = readLastSocketPath(bundleIdentifier: bundleIdentifier, environment: environment) {
             candidates.append(last)
         }
         candidates.append(requestedPath)
-        candidates.append(contentsOf: knownImplicitDefaultPaths(bundleIdentifier: bundleIdentifier))
+        candidates.append(contentsOf: knownImplicitDefaultPaths(bundleIdentifier: bundleIdentifier, environment: environment))
         if variant.isDev {
             candidates.append(contentsOf: discoverTaggedSockets(limit: 12))
         }
@@ -319,20 +326,23 @@ enum CLISocketPathResolver {
         return sanitizeSocketSlug(suffix)
     }
 
-    private static func knownImplicitDefaultPaths(bundleIdentifier: String?) -> [String] {
+    private static func knownImplicitDefaultPaths(
+        bundleIdentifier: String?,
+        environment: [String: String]
+    ) -> [String] {
         let variant = socketPathVariant(
             bundleIdentifier: bundleIdentifier,
-            environment: ProcessInfo.processInfo.environment
+            environment: environment
         )
         switch variant {
         case .stable:
             return dedupe([
-                defaultSocketPath(bundleIdentifier: bundleIdentifier),
+                defaultSocketPath(bundleIdentifier: bundleIdentifier, environment: environment),
                 stableDefaultSocketPath,
                 legacyDefaultSocketPath,
             ])
         case .nightly, .staging, .dev:
-            return [defaultSocketPath(bundleIdentifier: bundleIdentifier)]
+            return [defaultSocketPath(bundleIdentifier: bundleIdentifier, environment: environment)]
         }
     }
 
