@@ -51,12 +51,6 @@ _LEGACY_STABLE_SOCKET_PATH = "/tmp/cmux.sock"
 _DEFAULT_DEBUG_BUNDLE_ID = "com.cmuxterm.app.debug"
 
 
-def _sanitize_tag_slug(raw: str) -> str:
-    cleaned = re.sub(r"[^a-z0-9]+", "-", (raw or "").strip().lower())
-    cleaned = re.sub(r"-+", "-", cleaned).strip("-")
-    return cleaned or "agent"
-
-
 def _sanitize_marker_slug(raw: str) -> Optional[str]:
     cleaned = re.sub(r"[^a-z0-9]+", "-", (raw or "").strip().lower())
     cleaned = re.sub(r"-+", "-", cleaned).strip("-")
@@ -145,7 +139,12 @@ def _variant_socket_candidates() -> List[str]:
             slug = _sanitize_marker_slug(tag) if tag else None
         else:
             slug = _sanitize_marker_slug(suffix)
-        return [f"/tmp/cmux-debug-{slug}.sock"] if slug else ["/tmp/cmux-debug.sock"]
+        if slug:
+            return [
+                f"/tmp/cmux-debug-{slug}.sock",
+                f"/tmp/cmux-{slug}.sock",
+            ]
+        return ["/tmp/cmux-debug.sock"]
     return [_STABLE_SOCKET_PATH, _LEGACY_STABLE_SOCKET_PATH]
 
 
@@ -181,23 +180,6 @@ def _can_connect(path: str, timeout: float = 0.15, retries: int = 4) -> bool:
 
 def _default_socket_path() -> str:
     bundle_id = _default_bundle_id()
-    tag = os.environ.get("CMUX_TAG")
-    if tag and bundle_id == _DEFAULT_DEBUG_BUNDLE_ID:
-        slug = _sanitize_tag_slug(tag)
-        tagged_candidates = [
-            f"/tmp/cmux-debug-{slug}.sock",
-            f"/tmp/cmux-{slug}.sock",
-        ]
-        for path in tagged_candidates:
-            if os.path.exists(path) and _can_connect(path):
-                return path
-        # If nothing is connectable yet (e.g. the app is still starting),
-        # fall back to the first existing candidate.
-        for path in tagged_candidates:
-            if os.path.exists(path):
-                return path
-        # Prefer the debug naming convention when we have to guess.
-        return tagged_candidates[0]
 
     override = os.environ.get("CMUX_SOCKET_PATH")
     if override:
