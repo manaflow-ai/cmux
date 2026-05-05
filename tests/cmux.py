@@ -84,31 +84,39 @@ def _default_bundle_id() -> str:
     return _DEFAULT_DEBUG_BUNDLE_ID
 
 
-def _last_socket_path_files() -> List[str]:
+def _socket_variant() -> Tuple[str, Optional[str]]:
     bundle_id = _default_bundle_id()
+    if bundle_id == "com.cmuxterm.app.nightly":
+        return ("nightly", None)
+    if bundle_id.startswith("com.cmuxterm.app.nightly."):
+        suffix = bundle_id.removeprefix("com.cmuxterm.app.nightly.")
+        return ("nightly", _sanitize_marker_slug(suffix))
+    if bundle_id == "com.cmuxterm.app.staging":
+        return ("staging", None)
+    if bundle_id.startswith("com.cmuxterm.app.staging."):
+        suffix = bundle_id.removeprefix("com.cmuxterm.app.staging.")
+        return ("staging", _sanitize_marker_slug(suffix))
+    if bundle_id == _DEFAULT_DEBUG_BUNDLE_ID:
+        tag = os.environ.get("CMUX_TAG", "").strip()
+        return ("dev", _sanitize_marker_slug(tag) if tag else None)
+    if bundle_id.startswith(f"{_DEFAULT_DEBUG_BUNDLE_ID}."):
+        suffix = bundle_id.removeprefix(f"{_DEFAULT_DEBUG_BUNDLE_ID}.")
+        return ("dev", _sanitize_marker_slug(suffix))
+    return ("stable", None)
+
+
+def _last_socket_path_files() -> List[str]:
+    variant, slug = _socket_variant()
     marker = "last-socket-path"
     tmp_marker = "/tmp/cmux-last-socket-path"
 
-    if bundle_id == "com.cmuxterm.app.nightly":
-        marker = "nightly-last-socket-path"
-        tmp_marker = "/tmp/cmux-nightly-last-socket-path"
-    elif bundle_id.startswith("com.cmuxterm.app.nightly."):
-        suffix = bundle_id.removeprefix("com.cmuxterm.app.nightly.")
-        slug = _sanitize_marker_slug(suffix)
+    if variant == "nightly":
         marker = f"nightly-{slug}-last-socket-path" if slug else "nightly-last-socket-path"
         tmp_marker = f"/tmp/cmux-nightly-{slug}-last-socket-path" if slug else "/tmp/cmux-nightly-last-socket-path"
-    elif bundle_id == "com.cmuxterm.app.staging" or bundle_id.startswith("com.cmuxterm.app.staging."):
-        suffix = bundle_id.removeprefix("com.cmuxterm.app.staging.")
-        slug = _sanitize_marker_slug(suffix) if suffix != bundle_id else ""
+    elif variant == "staging":
         marker = f"staging-{slug}-last-socket-path" if slug else "staging-last-socket-path"
         tmp_marker = f"/tmp/cmux-staging-{slug}-last-socket-path" if slug else "/tmp/cmux-staging-last-socket-path"
-    elif bundle_id == _DEFAULT_DEBUG_BUNDLE_ID or bundle_id.startswith(f"{_DEFAULT_DEBUG_BUNDLE_ID}."):
-        suffix = bundle_id.removeprefix(f"{_DEFAULT_DEBUG_BUNDLE_ID}.")
-        if suffix == bundle_id:
-            tag = os.environ.get("CMUX_TAG", "").strip()
-            slug = _sanitize_marker_slug(tag) if tag else None
-        else:
-            slug = _sanitize_marker_slug(suffix)
+    elif variant == "dev":
         marker = f"dev-{slug}-last-socket-path" if slug else "dev-last-socket-path"
         tmp_marker = f"/tmp/cmux-dev-{slug}-last-socket-path" if slug else "/tmp/cmux-dev-last-socket-path"
 
@@ -119,26 +127,12 @@ def _last_socket_path_files() -> List[str]:
 
 
 def _variant_socket_candidates() -> List[str]:
-    bundle_id = _default_bundle_id()
-    if bundle_id == "com.cmuxterm.app.nightly":
-        return ["/tmp/cmux-nightly.sock"]
-    if bundle_id.startswith("com.cmuxterm.app.nightly."):
-        suffix = bundle_id.removeprefix("com.cmuxterm.app.nightly.")
-        slug = _sanitize_marker_slug(suffix)
+    variant, slug = _socket_variant()
+    if variant == "nightly":
         return [f"/tmp/cmux-nightly-{slug}.sock"] if slug else ["/tmp/cmux-nightly.sock"]
-    if bundle_id == "com.cmuxterm.app.staging":
-        return ["/tmp/cmux-staging.sock"]
-    if bundle_id.startswith("com.cmuxterm.app.staging."):
-        suffix = bundle_id.removeprefix("com.cmuxterm.app.staging.")
-        slug = _sanitize_marker_slug(suffix)
+    if variant == "staging":
         return [f"/tmp/cmux-staging-{slug}.sock"] if slug else ["/tmp/cmux-staging.sock"]
-    if bundle_id == _DEFAULT_DEBUG_BUNDLE_ID or bundle_id.startswith(f"{_DEFAULT_DEBUG_BUNDLE_ID}."):
-        suffix = bundle_id.removeprefix(f"{_DEFAULT_DEBUG_BUNDLE_ID}.")
-        if suffix == bundle_id:
-            tag = os.environ.get("CMUX_TAG", "").strip()
-            slug = _sanitize_marker_slug(tag) if tag else None
-        else:
-            slug = _sanitize_marker_slug(suffix)
+    if variant == "dev":
         if slug:
             return [
                 f"/tmp/cmux-debug-{slug}.sock",

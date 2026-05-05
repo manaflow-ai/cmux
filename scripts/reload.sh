@@ -152,9 +152,6 @@ sanitize_path() {
   local raw="$1"
   local cleaned
   cleaned="$(echo "$raw" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//; s/-+/-/g')"
-  if [[ -z "$cleaned" ]]; then
-    cleaned="agent"
-  fi
   echo "$cleaned"
 }
 
@@ -341,6 +338,9 @@ fi
 if [[ -n "$TAG" ]]; then
   TAG_ID="$(sanitize_bundle "$TAG")"
   TAG_SLUG="$(sanitize_path "$TAG")"
+  if [[ -z "$TAG_SLUG" ]]; then
+    TAG_SLUG="$TAG_ID"
+  fi
   if [[ "$NAME_SET" -eq 0 ]]; then
     APP_NAME="cmux DEV ${TAG_SLUG}"
   fi
