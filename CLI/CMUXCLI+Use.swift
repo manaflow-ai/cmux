@@ -48,7 +48,7 @@ extension CmuxUseSupport {
             for target in ["start", "run", "use"] where makefile(contents, hasTarget: target) {
                 return CmuxUseLaunchCommand(command: "make \(target)", source: "\(filename):\(target)")
             }
-            return nil
+            continue
         }
         return nil
     }
@@ -351,21 +351,14 @@ extension CMUXCLI {
         process.arguments = ["-lc", command]
         process.currentDirectoryURL = cwd
 
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
+        process.standardOutput = FileHandle.standardOutput
+        process.standardError = FileHandle.standardError
 
         try process.run()
         process.waitUntilExit()
 
-        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard process.terminationStatus == 0 else {
-            let detail = stderr.isEmpty ? stdout : stderr
-            throw CLIError(message: "cmux use install command failed: \(detail.isEmpty ? "exit \(process.terminationStatus)" : detail)")
+            throw CLIError(message: "cmux use install command failed: exit \(process.terminationStatus)")
         }
     }
 
@@ -455,7 +448,8 @@ extension CMUXCLI {
             try authenticateClientIfNeeded(
                 client,
                 explicitPassword: explicitPassword,
-                socketPath: socketPath
+                socketPath: socketPath,
+                allowV2Fallback: true
             )
             return try body(client, false)
         }
@@ -467,7 +461,8 @@ extension CMUXCLI {
         try authenticateClientIfNeeded(
             launchedClient,
             explicitPassword: explicitPassword,
-            socketPath: socketPath
+            socketPath: socketPath,
+            allowV2Fallback: true
         )
         return try body(launchedClient, true)
     }

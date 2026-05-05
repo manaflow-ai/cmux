@@ -3,7 +3,7 @@ import Foundation
 extension CmuxUseSupport {
     static func stripControlCharacters(_ raw: String) -> String {
         String(raw.unicodeScalars.filter { scalar in
-            (scalar.value >= 0x20 && scalar.value != 0x7F) || scalar.value == 0x09
+            scalar.value == 0x09 || (scalar.value >= 0x20 && scalar.value < 0x7F) || scalar.value >= 0xA0
         })
     }
 
@@ -41,12 +41,12 @@ extension CmuxUseSupport {
             throw CLIError(message: "cmux.extension.json install.path must include a subdirectory and must not contain '.' or '..'")
         }
 
-        let home = homeURL.standardizedFileURL
+        let home = homeURL.standardizedFileURL.resolvingSymlinksInPath()
         var resolved = home
         for part in parts {
             resolved.appendPathComponent(part, isDirectory: true)
         }
-        let standardized = resolved.standardizedFileURL
+        let standardized = resolved.standardizedFileURL.resolvingSymlinksInPath()
         let homePrefix = home.path.hasSuffix("/") ? home.path : "\(home.path)/"
         guard standardized.path.hasPrefix(homePrefix) else {
             throw CLIError(message: "cmux.extension.json install.path must resolve inside the user's home directory")

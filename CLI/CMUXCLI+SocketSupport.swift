@@ -4,7 +4,8 @@ extension CMUXCLI {
     func authenticateClientIfNeeded(
         _ client: SocketClient,
         explicitPassword: String?,
-        socketPath: String
+        socketPath: String,
+        allowV2Fallback: Bool = false
     ) throws {
         if let socketPassword = SocketPasswordResolver.resolve(
             explicit: explicitPassword,
@@ -13,7 +14,14 @@ extension CMUXCLI {
             let authResponse = try client.send(command: "auth \(socketPassword)")
             if authResponse.hasPrefix("ERROR:"),
                authResponse.contains("Unknown command 'auth'") {
-                _ = try client.sendV2(method: "auth.login", params: ["password": socketPassword])
+                guard allowV2Fallback else {
+                    return
+                }
+                let v2Response = try client.sendV2(method: "auth.login", params: ["password": socketPassword])
+                if let authenticated = v2Response["authenticated"] as? Bool,
+                   !authenticated {
+                    throw CLIError(message: "auth.login failed")
+                }
             } else if authResponse.hasPrefix("ERROR:") {
                 throw CLIError(message: authResponse)
             }

@@ -1,6 +1,6 @@
 import Foundation
 
-struct CmuxUseRepository: Equatable {
+nonisolated struct CmuxUseRepository: Equatable {
     let owner: String
     let name: String
 
@@ -9,12 +9,12 @@ struct CmuxUseRepository: Equatable {
     var webURL: String { "https://github.com/\(fullName)" }
 }
 
-struct CmuxUseLaunchCommand: Equatable {
+nonisolated struct CmuxUseLaunchCommand: Equatable {
     let command: String
     let source: String
 }
 
-struct CmuxUseManifest: Equatable {
+nonisolated struct CmuxUseManifest: Equatable {
     let id: String
     let name: String
     let publisher: String
@@ -30,7 +30,7 @@ struct CmuxUseManifest: Equatable {
     let sourceFile: String
 }
 
-enum CmuxUseSupport {
+nonisolated enum CmuxUseSupport {
     static func parseGitHubRepository(_ raw: String) throws -> CmuxUseRepository {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
@@ -62,7 +62,8 @@ enum CmuxUseSupport {
         guard let parsed = try? parseGitHubRepository(remote) else {
             return false
         }
-        return parsed == repository
+        return parsed.owner.caseInsensitiveCompare(repository.owner) == .orderedSame
+            && parsed.name.caseInsensitiveCompare(repository.name) == .orderedSame
     }
 
     static func managedSourceCheckoutURL(
@@ -433,7 +434,7 @@ enum CmuxUseSupport {
     private static func stringValue(in object: [String: Any], keys: [String]) -> String? {
         for key in keys {
             guard let raw = object[key] as? String else { continue }
-            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            let trimmed = stripControlCharacters(raw).trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty {
                 return trimmed
             }
