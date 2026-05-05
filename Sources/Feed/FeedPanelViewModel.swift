@@ -3,15 +3,76 @@ import Foundation
 import Observation
 import SwiftUI
 
-/// Bridges the `@Observable` WorkstreamStore to a Combine `@Published`
-/// snapshot so SwiftUI reliably re-renders the Feed panel on every
-/// mutation.
+struct FeedActivityPaginationMetrics: Equatable {
+    var viewportHeight: CGFloat = 0
+    var contentHeight: CGFloat = 0
+
+    var normalized: FeedActivityPaginationMetrics {
+        FeedActivityPaginationMetrics(
+            viewportHeight: ceil(max(0, viewportHeight)),
+            contentHeight: ceil(max(0, contentHeight))
+        )
+    }
+}
+
+struct FeedActivityAutoPaginationState: Equatable {
+    var isActive = false
+    var automaticPagesRequested = 0
+    var lastRequestedMetrics: FeedActivityPaginationMetrics?
+
+    mutating func setActive(_ active: Bool) {
+        guard isActive != active else { return }
+        isActive = active
+        automaticPagesRequested = 0
+        lastRequestedMetrics = nil
+    }
+
+    mutating func recordRequest(metrics: FeedActivityPaginationMetrics) {
+        automaticPagesRequested += 1
+        lastRequestedMetrics = metrics
+    }
+}
+
+enum FeedActivityAutoPaginationPolicy {
+    static let preloadPadding: CGFloat = 80
+    static let maxAutomaticPagesPerActivation = 3
+
+    static func shouldRequestPage(
+        metrics rawMetrics: FeedActivityPaginationMetrics,
+        state: FeedActivityAutoPaginationState,
+        hasMorePersistedItems: Bool,
+        isLoadingOlderItems: Bool
+    ) -> Bool {
+        guard state.isActive,
+              hasMorePersistedItems,
+              !isLoadingOlderItems,
+              state.automaticPagesRequested < maxAutomaticPagesPerActivation
+        else { return false }
+
+        let metrics = rawMetrics.normalized
+        guard metrics.viewportHeight > 0, metrics.contentHeight > 0 else { return false }
+        guard state.lastRequestedMetrics != metrics else { return false }
+        return metrics.contentHeight <= metrics.viewportHeight + preloadPadding
+    }
+}
+
+/// Bridges the `@Observable` WorkstreamStore to a UI-facing snapshot so
+/// SwiftUI reliably re-renders the Feed panel on every mutation.
 @MainActor
-final class FeedPanelViewModel: ObservableObject {
-    @Published private(set) var items: [WorkstreamItem] = []
-    @Published private(set) var hasMorePersistedItems = false
-    @Published private(set) var isLoadingOlderItems = false
+@Observable
+final class FeedPanelViewModel {
+    private(set) var items: [WorkstreamItem] = []
+    private(set) var hasMorePersistedItems = false
+    private(set) var isLoadingOlderItems = false
+
+    @ObservationIgnored
     private var storeInstalledObserver: NSObjectProtocol?
+    @ObservationIgnored
+    private var activityPaginationState = FeedActivityAutoPaginationState()
+    @ObservationIgnored
+    private var activityPaginationMetrics = FeedActivityPaginationMetrics()
+    @ObservationIgnored
+    private var automaticLoadTask: Task<Void, Never>?
 
     init() {
         storeInstalledObserver = NotificationCenter.default.addObserver(
@@ -30,6 +91,7 @@ final class FeedPanelViewModel: ObservableObject {
         if let storeInstalledObserver {
             NotificationCenter.default.removeObserver(storeInstalledObserver)
         }
+        automaticLoadTask?.cancel()
     }
 
     private func arm() {
@@ -43,21 +105,107 @@ final class FeedPanelViewModel: ObservableObject {
                 self?.arm()
             }
         }
+#if DEBUG
+        recordActivityPaginationUITest(stage: "arm")
+#endif
+        requestAutomaticActivityPageIfNeeded()
     }
 
     nonisolated func loadOlderItems() {
         Task { @MainActor [weak self] in
-            guard let self, !self.isLoadingOlderItems, self.hasMorePersistedItems else { return }
-            await FeedCoordinator.shared.store?.loadOlderItems()
+            await self?.loadOlderItemsIfPossible()
         }
     }
+
+    func setActivityAutoPaginationActive(_ active: Bool) {
+        activityPaginationState.setActive(active)
+        if !active {
+            automaticLoadTask?.cancel()
+            automaticLoadTask = nil
+            return
+        }
+        requestAutomaticActivityPageIfNeeded()
+    }
+
+    func noteActivityViewportHeight(_ height: CGFloat) {
+        let next = FeedActivityPaginationMetrics(
+            viewportHeight: height,
+            contentHeight: activityPaginationMetrics.contentHeight
+        ).normalized
+        guard next != activityPaginationMetrics else { return }
+        activityPaginationMetrics = next
+        requestAutomaticActivityPageIfNeeded()
+    }
+
+    func noteActivityContentHeight(_ height: CGFloat) {
+        let next = FeedActivityPaginationMetrics(
+            viewportHeight: activityPaginationMetrics.viewportHeight,
+            contentHeight: height
+        ).normalized
+        guard next != activityPaginationMetrics else { return }
+        activityPaginationMetrics = next
+        requestAutomaticActivityPageIfNeeded()
+    }
+
+    func waitForActivityAutoPaginationIdleForTesting() async {
+        while let task = automaticLoadTask {
+            await task.value
+        }
+    }
+
+    private func requestAutomaticActivityPageIfNeeded() {
+        guard automaticLoadTask == nil else { return }
+        let metrics = activityPaginationMetrics.normalized
+        guard FeedActivityAutoPaginationPolicy.shouldRequestPage(
+            metrics: metrics,
+            state: activityPaginationState,
+            hasMorePersistedItems: hasMorePersistedItems,
+            isLoadingOlderItems: isLoadingOlderItems
+        ) else { return }
+
+        activityPaginationState.recordRequest(metrics: metrics)
+#if DEBUG
+        recordActivityPaginationUITest(stage: "auto.request")
+#endif
+        automaticLoadTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.loadOlderItemsIfPossible()
+            self.automaticLoadTask = nil
+#if DEBUG
+            self.recordActivityPaginationUITest(stage: "auto.idle")
+#endif
+            self.requestAutomaticActivityPageIfNeeded()
+        }
+    }
+
+    private func loadOlderItemsIfPossible() async {
+        guard !isLoadingOlderItems, hasMorePersistedItems else { return }
+        await FeedCoordinator.shared.store?.loadOlderItems()
+        arm()
+    }
+
+#if DEBUG
+    private func recordActivityPaginationUITest(stage: String) {
+        _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(
+            envKey: "CMUX_UI_TEST_FEED_ACTIVITY_PAGINATION_PATH"
+        ) { payload in
+            let metrics = activityPaginationMetrics.normalized
+            payload["stage"] = stage
+            payload["itemsCount"] = "\(items.count)"
+            payload["hasMorePersistedItems"] = hasMorePersistedItems ? "1" : "0"
+            payload["isLoadingOlderItems"] = isLoadingOlderItems ? "1" : "0"
+            payload["activityAutoPaginationActive"] = activityPaginationState.isActive ? "1" : "0"
+            payload["activityAutoPagesRequested"] = "\(activityPaginationState.automaticPagesRequested)"
+            payload["activityViewportHeight"] = "\(Int(metrics.viewportHeight.rounded()))"
+            payload["activityContentHeight"] = "\(Int(metrics.contentHeight.rounded()))"
+        }
+    }
+#endif
 }
 
 struct FeedHistoryLoadMoreRow: View {
     let isLoading: Bool
     let action: () -> Void
-
-    @State private var isVisible = false
 
     var body: some View {
         Button(action: action) {
@@ -77,17 +225,7 @@ struct FeedHistoryLoadMoreRow: View {
         }
         .buttonStyle(.plain)
         .disabled(isLoading)
-        .onAppear {
-            isVisible = true
-            requestLoadIfVisible()
-        }
-        .onDisappear {
-            isVisible = false
-        }
-        .onChange(of: isLoading) { _, loading in
-            guard !loading else { return }
-            requestLoadIfVisible()
-        }
+        .accessibilityIdentifier("FeedHistoryLoadMoreButton")
     }
 
     private var label: String {
@@ -97,8 +235,4 @@ struct FeedHistoryLoadMoreRow: View {
         return String(localized: "feed.history.loadOlder", defaultValue: "Load older activity")
     }
 
-    private func requestLoadIfVisible() {
-        guard isVisible, !isLoading else { return }
-        action()
-    }
 }

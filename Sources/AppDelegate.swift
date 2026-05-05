@@ -962,12 +962,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // wiring: the store is a plain singleton here, and the socket
         // `feed.*` V2 verbs in `TerminalController` push into it directly
         // via `FeedCoordinator`.
-        FeedCoordinator.shared.install(
-            store: WorkstreamStore(
-                transport: NullWorkstreamTransport(),
-                persistence: WorkstreamPersistence(fileURL: WorkstreamPersistence.defaultFileURL())
-            )
-        )
+        Self.installWorkstreamStoreForLaunch(env: env)
         Task { @MainActor in
             await FeedCoordinator.shared.store?.start()
 #if DEBUG
