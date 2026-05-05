@@ -1,4 +1,5 @@
 import Darwin
+import CMUXSocketPathDomain
 import Foundation
 #if canImport(Security)
 import Security
@@ -469,35 +470,33 @@ struct SocketControlSettings {
         currentUserID: uid_t = getuid(),
         probeStableDefaultPathEntry: (String) -> StableDefaultSocketPathEntry = inspectStableDefaultSocketPathEntry
     ) -> String {
-        if let taggedDebugPath = taggedDebugSocketPath(bundleIdentifier: bundleIdentifier, environment: [:]) {
-            return taggedDebugPath
+        let variant = SocketPathMarkerFiles.variant(
+            bundleIdentifier: bundleIdentifier,
+            environment: [:],
+            baseDebugBundleIdentifier: baseDebugBundleIdentifier
+        )
+        if case .dev(let slug) = variant, let slug {
+            return "/tmp/cmux-debug-\(slug).sock"
         }
-        if bundleIdentifier == "com.cmuxterm.app.nightly" {
+        if case .nightly(let slug) = variant {
+            if let slug {
+                return "/tmp/cmux-nightly-\(slug).sock"
+            }
             return "/tmp/cmux-nightly.sock"
-        }
-        if let slug = variantSlug(bundleIdentifier: bundleIdentifier, prefix: "com.cmuxterm.app.nightly.") {
-            return "/tmp/cmux-nightly-\(slug).sock"
         }
         if isDebugLikeBundleIdentifier(bundleIdentifier) || isDebugBuild {
             return "/tmp/cmux-debug.sock"
         }
-        if bundleIdentifier == "com.cmuxterm.app.staging" {
+        if case .staging(let slug) = variant {
+            if let slug {
+                return "/tmp/cmux-\(slug).sock"
+            }
             return "/tmp/cmux-staging.sock"
-        }
-        if let slug = variantSlug(bundleIdentifier: bundleIdentifier, prefix: "com.cmuxterm.app.staging.") {
-            return "/tmp/cmux-\(slug).sock"
         }
         return resolvedStableDefaultSocketPath(
             currentUserID: currentUserID,
             probeStableDefaultPathEntry: probeStableDefaultPathEntry
         )
-    }
-
-    private static func variantSlug(bundleIdentifier: String?, prefix: String) -> String? {
-        guard let bundleIdentifier,
-              bundleIdentifier.hasPrefix(prefix) else { return nil }
-        let suffix = String(bundleIdentifier.dropFirst(prefix.count))
-        return SocketPathMarkerFiles.sanitizeSocketSlug(suffix)
     }
 
     static func userScopedStableSocketPath(currentUserID: uid_t = getuid()) -> String {
@@ -553,21 +552,12 @@ struct SocketControlSettings {
         let bundleId = bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if bundleId.hasPrefix("\(baseDebugBundleIdentifier).") {
             let suffix = String(bundleId.dropFirst(baseDebugBundleIdentifier.count + 1))
-            let slug = suffix
-                .replacingOccurrences(of: ".", with: "-")
-                .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
-            if !slug.isEmpty {
+            if let slug = SocketPathMarkerFiles.sanitizeSocketSlug(suffix) {
                 return "/tmp/cmux-debug-\(slug).sock"
             }
         }
 
-        let tag = launchTag(environment: environment)?
-            .lowercased()
-            .replacingOccurrences(of: ".", with: "-")
-            .replacingOccurrences(of: "_", with: "-")
-            .components(separatedBy: CharacterSet.alphanumerics.inverted)
-            .filter { !$0.isEmpty }
-            .joined(separator: "-")
+        let tag = launchTag(environment: environment).flatMap(SocketPathMarkerFiles.sanitizeSocketSlug)
 
         guard bundleId == baseDebugBundleIdentifier,
               let tag,

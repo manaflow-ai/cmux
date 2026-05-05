@@ -110,7 +110,10 @@ def _last_socket_path_files() -> List[str]:
         tmp_marker = f"/tmp/cmux-staging-{slug}-last-socket-path" if slug else "/tmp/cmux-staging-last-socket-path"
     elif bundle_id == _DEFAULT_DEBUG_BUNDLE_ID or bundle_id.startswith(f"{_DEFAULT_DEBUG_BUNDLE_ID}."):
         suffix = bundle_id.removeprefix(f"{_DEFAULT_DEBUG_BUNDLE_ID}.")
-        slug = _sanitize_marker_slug(suffix) if suffix != bundle_id else ""
+        if suffix == bundle_id:
+            slug = _sanitize_marker_slug(os.environ.get("CMUX_TAG", ""))
+        else:
+            slug = _sanitize_marker_slug(suffix)
         marker = f"dev-{slug}-last-socket-path" if slug else "dev-last-socket-path"
         tmp_marker = f"/tmp/cmux-dev-{slug}-last-socket-path" if slug else "/tmp/cmux-dev-last-socket-path"
 

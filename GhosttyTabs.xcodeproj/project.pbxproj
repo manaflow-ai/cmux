@@ -180,7 +180,9 @@
 		A500120D /* UpdateLogStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001223 /* UpdateLogStore.swift */; };
 		A500120E /* UpdateTestURLProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001224 /* UpdateTestURLProtocol.swift */; };
 		A5001226 /* SocketControlSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001225 /* SocketControlSettings.swift */; };
-		A5354201A5354201A5354201 /* SocketPathMarkerFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5354202A5354202A5354202 /* SocketPathMarkerFiles.swift */; };
+		A5354301A5354301A5354301 /* SocketControlSettings+SocketPathMarkers.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5354302A5354302A5354302 /* SocketControlSettings+SocketPathMarkers.swift */; };
+		A5354303A5354303A5354303 /* CMUXSocketPathDomain in Frameworks */ = {isa = PBXBuildFile; productRef = A5354305A5354305A5354305 /* CMUXSocketPathDomain */; };
+		B900004CA1B2C3D4E5F60719 /* CMUXSocketPathDomain in Frameworks */ = {isa = PBXBuildFile; productRef = A5354305A5354305A5354305 /* CMUXSocketPathDomain */; };
 		A5001230 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = A5001231 /* Sparkle */; };
 		A5001240 /* WindowDecorationsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001241 /* WindowDecorationsController.swift */; };
 		A5001250 /* Sentry-Dynamic in Frameworks */ = {isa = PBXBuildFile; productRef = A5001253 /* Sentry-Dynamic */; };
@@ -610,7 +612,7 @@
 		A5001223 /* UpdateLogStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateLogStore.swift; sourceTree = "<group>"; };
 		A5001224 /* UpdateTestURLProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateTestURLProtocol.swift; sourceTree = "<group>"; };
 		A5001225 /* SocketControlSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketControlSettings.swift; sourceTree = "<group>"; };
-		A5354202A5354202A5354202 /* SocketPathMarkerFiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketPathMarkerFiles.swift; sourceTree = "<group>"; };
+		A5354302A5354302A5354302 /* SocketControlSettings+SocketPathMarkers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SocketControlSettings+SocketPathMarkers.swift"; sourceTree = "<group>"; };
 		A5001241 /* WindowDecorationsController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowDecorationsController.swift; sourceTree = "<group>"; };
 		A50012F0 /* Backport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Backport.swift; sourceTree = "<group>"; };
 		A50012F2 /* KeyboardShortcutSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSettings.swift; sourceTree = "<group>"; };
@@ -807,6 +809,7 @@
 				3069F1D10000000000000005 /* CMUXPasteboardFidelity in Frameworks */,
 				F53000A0A1B2C3D4E5F60718 /* CMUXRovoDevIndex in Frameworks */,
 				A5B00003A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */,
+				A5354303A5354303A5354303 /* CMUXSocketPathDomain in Frameworks */,
 				F20F85FC5900550685FA33AD /* StackAuth in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -824,6 +827,7 @@
 			files = (
 				B9000024A1B2C3D4E5F60719 /* Sentry-Dynamic in Frameworks */,
 				A5B00004A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */,
+				B900004CA1B2C3D4E5F60719 /* CMUXSocketPathDomain in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1050,7 +1054,7 @@
 				A5001544 /* TerminalImageTransfer.swift */,
 				A5001545 /* TerminalSSHSessionDetector.swift */,
 				A5001225 /* SocketControlSettings.swift */,
-				A5354202A5354202A5354202 /* SocketPathMarkerFiles.swift */,
+				A5354302A5354302A5354302 /* SocketControlSettings+SocketPathMarkers.swift */,
 				A5001600 /* SentryHelper.swift */,
 				A5001620 /* AppleScriptSupport.swift */,
 				D1320AA0D1320AA0D1320AA4 /* AppIconDockTilePlugin.swift */,
@@ -1310,6 +1314,7 @@
 				3069F1D10000000000000006 /* CMUXPasteboardFidelity */,
 				F53000A2A1B2C3D4E5F60718 /* CMUXRovoDevIndex */,
 				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
+				A5354305A5354305A5354305 /* CMUXSocketPathDomain */,
 				A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */,
 				A8BD195031FC4B82B4354297 /* StackAuth */,
 			);
@@ -1332,6 +1337,7 @@
 			packageProductDependencies = (
 				A5001253 /* Sentry-Dynamic */,
 				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
+				A5354305A5354305A5354305 /* CMUXSocketPathDomain */,
 			);
 			productName = cmux;
 			productReference = B9000004A1B2C3D4E5F60719 /* cmux */;
@@ -1441,6 +1447,7 @@
 				F53000A1A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXRovoDevIndex" */,
 				A5B00001A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXAgentLaunch" */,
 				A500D012A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXDebugLog" */,
+				A5354304A5354304A5354304 /* XCLocalSwiftPackageReference "CMUXSocketPathDomain" */,
 				28B798BB9086C8E6B60C3355 /* XCLocalSwiftPackageReference "stack-auth-swift-sdk-prerelease" */,
 			);
 			productRefGroup = A5001042 /* Products */;
@@ -1621,7 +1628,7 @@
 				A5001542 /* TerminalImageTransfer.swift in Sources */,
 				A5001543 /* TerminalSSHSessionDetector.swift in Sources */,
 				A5001226 /* SocketControlSettings.swift in Sources */,
-				A5354201A5354201A5354201 /* SocketPathMarkerFiles.swift in Sources */,
+				A5354301A5354301A5354301 /* SocketControlSettings+SocketPathMarkers.swift in Sources */,
 				A5001601 /* SentryHelper.swift in Sources */,
 				A5001621 /* AppleScriptSupport.swift in Sources */,
 				A5001093 /* AppDelegate.swift in Sources */,
@@ -2300,6 +2307,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CMUXDebugLog;
 		};
+		A5354304A5354304A5354304 /* XCLocalSwiftPackageReference "CMUXSocketPathDomain" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/CMUXSocketPathDomain;
+		};
 		A5001260 /* XCLocalSwiftPackageReference "bonsplit" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = vendor/bonsplit;
@@ -2371,6 +2382,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A500D012A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXDebugLog" */;
 			productName = CMUXDebugLog;
+		};
+		A5354305A5354305A5354305 /* CMUXSocketPathDomain */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A5354304A5354304A5354304 /* XCLocalSwiftPackageReference "CMUXSocketPathDomain" */;
+			productName = CMUXSocketPathDomain;
 		};
 		A5001231 /* Sparkle */ = {
 			isa = XCSwiftPackageProductDependency;

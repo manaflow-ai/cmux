@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import CMUXSocketPathDomain
 
 enum CLIExecutableLocator {
     static func currentExecutableURL() -> URL? {
@@ -43,68 +44,11 @@ enum CLISocketPathSource {
 enum CLISocketPathResolver {
     private static let appSupportDirectoryName = "cmux"
     private static let stableSocketFileName = "cmux.sock"
-    private static let lastSocketPathFileName = "last-socket-path"
     static let legacyDefaultSocketPath = "/tmp/cmux.sock"
     private static let fallbackSocketPath = "/tmp/cmux-debug.sock"
     private static let nightlySocketPath = "/tmp/cmux-nightly.sock"
     private static let stagingSocketPath = "/tmp/cmux-staging.sock"
-    private static let legacyLastSocketPathFile = "/tmp/cmux-last-socket-path"
-
-    private enum SocketPathVariant: Equatable {
-        case stable
-        case nightly(slug: String?)
-        case staging(slug: String?)
-        case dev(slug: String?)
-
-        var lastSocketPathFileName: String {
-            switch self {
-            case .stable:
-                return CLISocketPathResolver.lastSocketPathFileName
-            case .nightly(let slug):
-                if let slug {
-                    return "nightly-\(slug)-last-socket-path"
-                }
-                return "nightly-last-socket-path"
-            case .staging(let slug):
-                if let slug {
-                    return "staging-\(slug)-last-socket-path"
-                }
-                return "staging-last-socket-path"
-            case .dev(let slug):
-                if let slug {
-                    return "dev-\(slug)-last-socket-path"
-                }
-                return "dev-last-socket-path"
-            }
-        }
-
-        var tmpLastSocketPathFile: String {
-            switch self {
-            case .stable:
-                return CLISocketPathResolver.legacyLastSocketPathFile
-            case .nightly(let slug):
-                if let slug {
-                    return "/tmp/cmux-nightly-\(slug)-last-socket-path"
-                }
-                return "/tmp/cmux-nightly-last-socket-path"
-            case .staging(let slug):
-                if let slug {
-                    return "/tmp/cmux-staging-\(slug)-last-socket-path"
-                }
-                return "/tmp/cmux-staging-last-socket-path"
-            case .dev(let slug):
-                if let slug {
-                    return "/tmp/cmux-dev-\(slug)-last-socket-path"
-                }
-                return "/tmp/cmux-dev-last-socket-path"
-            }
-        }
-
-        var isDev: Bool {
-            if case .dev = self { return true }
-            return false
-        }
-    }
+    private static let legacyLastSocketPathFile = SocketPathMarkerFiles.stableTmpPath
 
     static var defaultSocketPath: String {
         defaultSocketPath(bundleIdentifier: currentAppBundleIdentifier())
@@ -114,7 +58,7 @@ enum CLISocketPathResolver {
         bundleIdentifier: String?,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> String {
-        switch socketPathVariant(bundleIdentifier: bundleIdentifier, environment: environment) {
+        switch SocketPathMarkerFiles.variant(bundleIdentifier: bundleIdentifier, environment: environment) {
         case .stable:
             return stableDefaultSocketPath
         case .nightly(let slug):
@@ -189,10 +133,10 @@ enum CLISocketPathResolver {
         bundleIdentifier: String?
     ) -> [String] {
         var candidates: [String] = []
-        let variant = socketPathVariant(bundleIdentifier: bundleIdentifier, environment: environment)
+        let variant = SocketPathMarkerFiles.variant(bundleIdentifier: bundleIdentifier, environment: environment)
 
         if let tag = normalized(environment["CMUX_TAG"]),
-           let slug = sanitizeSocketSlug(tag) {
+           let slug = SocketPathMarkerFiles.sanitizeSocketSlug(tag) {
             candidates.append("/tmp/cmux-debug-\(slug).sock")
             candidates.append("/tmp/cmux-\(slug).sock")
         }
@@ -280,57 +224,11 @@ enum CLISocketPathResolver {
         return result == 0
     }
 
-    private static func sanitizeSocketSlug(_ raw: String) -> String? {
-        let slug = raw
-            .lowercased()
-            .replacingOccurrences(of: ".", with: "-")
-            .replacingOccurrences(of: "_", with: "-")
-            .components(separatedBy: CharacterSet.alphanumerics.inverted)
-            .filter { !$0.isEmpty }
-            .joined(separator: "-")
-        return slug.isEmpty ? nil : slug
-    }
-
-    private static func socketPathVariant(
-        bundleIdentifier: String?,
-        environment: [String: String]
-    ) -> SocketPathVariant {
-        let bundleId = bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if bundleId == "com.cmuxterm.app.nightly" {
-            return .nightly(slug: nil)
-        }
-        if bundleId.hasPrefix("com.cmuxterm.app.nightly.") {
-            return .nightly(slug: bundleSuffixSlug(bundleId, prefix: "com.cmuxterm.app.nightly."))
-        }
-        if bundleId == "com.cmuxterm.app.staging" {
-            return .staging(slug: nil)
-        }
-        if bundleId.hasPrefix("com.cmuxterm.app.staging.") {
-            return .staging(slug: bundleSuffixSlug(bundleId, prefix: "com.cmuxterm.app.staging."))
-        }
-        if bundleId == "com.cmuxterm.app.debug" {
-            if let tag = normalized(environment["CMUX_TAG"]),
-               let slug = sanitizeSocketSlug(tag) {
-                return .dev(slug: slug)
-            }
-            return .dev(slug: nil)
-        }
-        if bundleId.hasPrefix("com.cmuxterm.app.debug.") {
-            return .dev(slug: bundleSuffixSlug(bundleId, prefix: "com.cmuxterm.app.debug."))
-        }
-        return .stable
-    }
-
-    private static func bundleSuffixSlug(_ bundleIdentifier: String, prefix: String) -> String? {
-        let suffix = String(bundleIdentifier.dropFirst(prefix.count))
-        return sanitizeSocketSlug(suffix)
-    }
-
     private static func knownImplicitDefaultPaths(
         bundleIdentifier: String?,
         environment: [String: String]
     ) -> [String] {
-        let variant = socketPathVariant(
+        let variant = SocketPathMarkerFiles.variant(
             bundleIdentifier: bundleIdentifier,
             environment: environment
         )
@@ -360,14 +258,15 @@ enum CLISocketPathResolver {
         bundleIdentifier: String?,
         environment: [String: String]
     ) -> [String] {
-        let variant = socketPathVariant(bundleIdentifier: bundleIdentifier, environment: environment)
+        let variant = SocketPathMarkerFiles.variant(bundleIdentifier: bundleIdentifier, environment: environment)
         var candidates: [String] = []
         if let appSupportPath = stableSocketDirectoryURL()?
-            .appendingPathComponent(variant.lastSocketPathFileName, isDirectory: false)
+            .appendingPathComponent(variant.appSupportFileName, isDirectory: false)
             .path {
             candidates.append(appSupportPath)
         }
-        candidates.append(variant.tmpLastSocketPathFile)
+        let tmpPath = variant == .stable ? legacyLastSocketPathFile : variant.tmpPath
+        candidates.append(tmpPath)
         return dedupe(candidates)
     }
 
