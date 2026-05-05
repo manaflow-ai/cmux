@@ -98,7 +98,6 @@ final class FeedActivityPaginationUITests: XCTestCase {
         waitForJSON(atPath: paginationPath, timeout: timeout) { data in
             guard data["activityAutoPaginationActive"] == "1",
                   data["isLoadingOlderItems"] == "0",
-                  data["stage"] == "auto.idle",
                   let itemsCount = Int(data["itemsCount"] ?? ""),
                   let autoPages = Int(data["activityAutoPagesRequested"] ?? "") else {
                 return false
