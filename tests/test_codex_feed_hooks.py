@@ -11,15 +11,17 @@ import socket
 import subprocess
 import tempfile
 import threading
+import time
 from pathlib import Path
 
 from claude_teams_test_utils import resolve_cmux_cli
 
 
 class FakeCmuxSocket:
-    def __init__(self, path: Path, decision: dict | None):
+    def __init__(self, path: Path, decision: dict | None, surfaces: list[dict] | None = None):
         self.path = path
         self.decision = decision
+        self.surfaces = surfaces if surfaces is not None else [{"id": "surface-codex-feed-test"}]
         self.frames: list[dict] = []
         self._ready = threading.Event()
         self._stop = threading.Event()
@@ -52,20 +54,32 @@ class FakeCmuxSocket:
                     conn, _ = server.accept()
                 except OSError:
                     continue
-                with conn:
-                    data = b""
-                    while b"\n" not in data:
-                        chunk = conn.recv(65536)
-                        if not chunk:
-                            break
-                        data += chunk
-                    line = data.split(b"\n", 1)[0]
+                threading.Thread(target=self._handle_conn, args=(conn,), daemon=True).start()
+
+    def _handle_conn(self, conn: socket.socket) -> None:
+        with conn:
+            data = b""
+            while not self._stop.is_set():
+                chunk = conn.recv(65536)
+                if not chunk:
+                    break
+                data += chunk
+                while b"\n" in data:
+                    line, data = data.split(b"\n", 1)
                     if not line:
                         continue
-                    frame = json.loads(line.decode("utf-8"))
+                    raw_line = line.decode("utf-8")
+                    try:
+                        frame = json.loads(raw_line)
+                    except json.JSONDecodeError:
+                        self.frames.append({"raw": raw_line})
+                        conn.sendall(b"OK\n")
+                        continue
                     self.frames.append(frame)
                     result: dict = {"status": "acknowledged"}
-                    if self.decision is not None:
+                    if frame.get("method") == "surface.list":
+                        result = {"surfaces": self.surfaces}
+                    elif self.decision is not None:
                         result = {
                             "status": "resolved",
                             "decision": self.decision,
@@ -76,6 +90,107 @@ class FakeCmuxSocket:
                         "result": result,
                     }
                     conn.sendall(json.dumps(response).encode("utf-8") + b"\n")
+
+
+def monitor_pids_for_session(session_id: str) -> list[int]:
+    result = subprocess.run(
+        ["ps", "-axo", "pid=,command="],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+    )
+    if result.returncode != 0:
+        raise AssertionError(f"ps failed: {result.stderr}")
+    pids: list[int] = []
+    for line in result.stdout.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        pid_text, _, command = stripped.partition(" ")
+        if (
+            " hooks codex monitor " in f" {command} "
+            and f"--session {session_id}" in command
+        ):
+            pids.append(int(pid_text))
+    return pids
+
+
+def wait_for_monitor_pids(session_id: str, *, present: bool, timeout: float) -> list[int]:
+    deadline = time.monotonic() + timeout
+    last: list[int] = []
+    while time.monotonic() < deadline:
+        last = monitor_pids_for_session(session_id)
+        if bool(last) is present:
+            return last
+        time.sleep(0.1)
+    state = "start" if present else "exit"
+    raise AssertionError(f"monitor for {session_id} did not {state}; last pids={last}")
+
+
+def test_codex_stop_reaps_transcript_monitor(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-monitor.sock"
+    state_dir = root / "hook-state"
+    transcript_path = root / "codex-session.jsonl"
+    state_dir.mkdir()
+    transcript_path.write_text("", encoding="utf-8")
+
+    session_id = f"codex-monitor-reap-session-{os.getpid()}"
+    turn_id = f"codex-monitor-reap-turn-{os.getpid()}"
+    env = os.environ.copy()
+    env["CMUX_SOCKET_PATH"] = str(socket_path)
+    env["CMUX_SURFACE_ID"] = "surface-codex-feed-test"
+    env["CMUX_WORKSPACE_ID"] = "workspace-codex-feed-test"
+    env["CMUX_AGENT_HOOK_STATE_DIR"] = str(state_dir)
+
+    with FakeCmuxSocket(socket_path, None):
+        prompt = {
+            "session_id": session_id,
+            "turn_id": turn_id,
+            "cwd": str(root),
+            "transcript_path": str(transcript_path),
+        }
+        result = subprocess.run(
+            [cli_path, "--socket", str(socket_path), "hooks", "codex", "prompt-submit"],
+            input=json.dumps(prompt),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            raise AssertionError(
+                f"hooks codex prompt-submit failed exit={result.returncode}\n"
+                f"stdout={result.stdout}\nstderr={result.stderr}"
+            )
+
+        pids = wait_for_monitor_pids(session_id, present=True, timeout=5)
+        stop = {
+            "session_id": session_id,
+            "turn_id": turn_id,
+            "cwd": str(root),
+            "transcript_path": str(transcript_path),
+        }
+        result = subprocess.run(
+            [cli_path, "--socket", str(socket_path), "hooks", "codex", "stop"],
+            input=json.dumps(stop),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            raise AssertionError(
+                f"hooks codex stop failed exit={result.returncode}\n"
+                f"stdout={result.stdout}\nstderr={result.stderr}"
+            )
+        try:
+            wait_for_monitor_pids(session_id, present=False, timeout=5)
+        finally:
+            for pid in monitor_pids_for_session(session_id):
+                subprocess.run(["kill", str(pid)], check=False)
 
 
 def run_feed_hook(cli_path: str, socket_path: Path, payload: dict, decision: dict | None) -> tuple[dict, dict]:
@@ -258,6 +373,7 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="cmux-codex-feed-hooks-") as td:
         root = Path(td)
         try:
+            test_codex_stop_reaps_transcript_monitor(cli_path, root)
             test_install_adds_codex_permission_request_hook(cli_path, root)
             test_permission_reply_uses_codex_permission_request_schema(cli_path, root)
             test_codex_persistent_permission_modes_degrade_to_once(cli_path, root)

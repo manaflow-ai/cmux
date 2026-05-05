@@ -390,6 +390,16 @@ private struct AgentHookLaunchCommandRecord: Codable {
     var source: String?
 }
 
+private struct CodexMonitorLeaseRecord: Codable {
+    var leaseId: String
+    var sessionId: String
+    var turnId: String?
+    var workspaceId: String
+    var surfaceId: String?
+    var createdAt: TimeInterval
+    var retiredAt: TimeInterval?
+}
+
 private struct ClaudeHookSessionStoreFile: Codable {
     var version: Int = 1
     var sessions: [String: ClaudeHookSessionRecord] = [:]
@@ -974,6 +984,24 @@ final class SocketClient {
 
     var socketPath: String {
         path
+    }
+
+    func connectionAppearsOpen() -> Bool {
+        guard socketFD >= 0 else { return false }
+        while true {
+            var descriptor = pollfd(
+                fd: socketFD,
+                events: Int16(POLLIN | POLLHUP | POLLERR),
+                revents: 0
+            )
+            let ready = Darwin.poll(&descriptor, 1, 0)
+            if ready < 0 {
+                if errno == EINTR { continue }
+                return false
+            }
+            let terminalEvents = Int16(POLLHUP | POLLERR | POLLNVAL)
+            return descriptor.revents & terminalEvents == 0
+        }
     }
 
     func operationTelemetryContext() -> [String: Any] {
@@ -15047,6 +15075,157 @@ struct CMUXCLI {
         return directories
     }
 
+    private static let codexMonitorLeaseDirectoryName = "codex-monitor-leases"
+    private static let codexMonitorLeaseMaxAgeSeconds: TimeInterval = 4 * 60 * 60
+
+    private func codexMonitorLeaseDirectory(env: [String: String]) -> URL {
+        let statePath = NSString(
+            string: agentHookStatePath(sessionStoreSuffix: "codex", env: env)
+        ).expandingTildeInPath
+        return URL(fileURLWithPath: statePath, isDirectory: false)
+            .deletingLastPathComponent()
+            .appendingPathComponent(Self.codexMonitorLeaseDirectoryName, isDirectory: true)
+    }
+
+    private func codexMonitorLeasePath(leaseId: String, env: [String: String]) -> String {
+        return codexMonitorLeaseDirectory(env: env)
+            .appendingPathComponent("\(leaseId).json", isDirectory: false)
+            .path
+    }
+
+    private func writeCodexMonitorLease(_ record: CodexMonitorLeaseRecord, to path: String) throws {
+        let url = URL(fileURLWithPath: path, isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true,
+            attributes: nil
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(record)
+        try data.write(to: url, options: .atomic)
+    }
+
+    private func readCodexMonitorLease(path: String) -> CodexMonitorLeaseRecord? {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path, isDirectory: false)) else {
+            return nil
+        }
+        return try? JSONDecoder().decode(CodexMonitorLeaseRecord.self, from: data)
+    }
+
+    private func createCodexMonitorLease(
+        sessionId: String,
+        turnId: String?,
+        workspaceId: String,
+        surfaceId: String?,
+        env: [String: String]
+    ) -> String? {
+        let leaseId = UUID().uuidString.lowercased()
+        let path = codexMonitorLeasePath(leaseId: leaseId, env: env)
+        let record = CodexMonitorLeaseRecord(
+            leaseId: leaseId,
+            sessionId: sessionId,
+            turnId: turnId,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            createdAt: Date().timeIntervalSince1970,
+            retiredAt: nil
+        )
+        do {
+            try pruneExpiredCodexMonitorLeases(env: env)
+            try writeCodexMonitorLease(record, to: path)
+            return path
+        } catch {
+            return nil
+        }
+    }
+
+    private func retireCodexMonitorLeases(sessionId: String, turnId: String?, env: [String: String]) {
+        let normalizedSessionId = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedSessionId.isEmpty else { return }
+
+        let fileManager = FileManager.default
+        let now = Date().timeIntervalSince1970
+        let normalizedTurnId = turnId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let shouldMatchTurn = normalizedTurnId?.isEmpty == false
+        let directory = codexMonitorLeaseDirectory(env: env)
+        let targetPaths = ((try? fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )) ?? []).map(\.path)
+
+        for path in targetPaths {
+            guard var record = readCodexMonitorLease(path: path),
+                  record.sessionId == normalizedSessionId,
+                  !shouldMatchTurn || record.turnId == normalizedTurnId || record.turnId == nil,
+                  record.retiredAt == nil else {
+                continue
+            }
+            record.retiredAt = now
+            try? writeCodexMonitorLease(record, to: path)
+        }
+        try? pruneExpiredCodexMonitorLeases(env: env)
+    }
+
+    private func pruneExpiredCodexMonitorLeases(env: [String: String]) throws {
+        let fileManager = FileManager.default
+        let directory = codexMonitorLeaseDirectory(env: env)
+        guard fileManager.fileExists(atPath: directory.path) else { return }
+        let cutoff = Date().timeIntervalSince1970 - Self.codexMonitorLeaseMaxAgeSeconds
+        let urls = try fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )
+        for url in urls {
+            guard let record = readCodexMonitorLease(path: url.path) else {
+                try? fileManager.removeItem(at: url)
+                continue
+            }
+            if record.createdAt < cutoff || (record.retiredAt ?? .infinity) < cutoff {
+                try? fileManager.removeItem(at: url)
+            }
+        }
+    }
+
+    private func isCodexMonitorLeaseRetired(path: String?) -> Bool {
+        guard let path, !path.isEmpty else { return false }
+        guard let record = readCodexMonitorLease(path: path) else { return true }
+        return record.retiredAt != nil
+    }
+
+    private func removeCodexMonitorLease(path: String?) {
+        guard let path, !path.isEmpty else { return }
+        try? FileManager.default.removeItem(atPath: path)
+    }
+
+    private func codexMonitorOwnerIsAlive(workspaceId: String, surfaceId: String?, client: SocketClient) -> Bool {
+        guard client.connectionAppearsOpen() else { return false }
+        guard let payload = try? client.sendV2(
+            method: "surface.list",
+            params: ["workspace_id": workspaceId],
+            responseTimeout: 5
+        ) else {
+            return false
+        }
+        guard let surfaceId, !surfaceId.isEmpty else { return true }
+        let surfaces = payload["surfaces"] as? [[String: Any]] ?? []
+        return surfaces.contains { surface in
+            (surface["id"] as? String) == surfaceId || (surface["ref"] as? String) == surfaceId
+        }
+    }
+
+    private func shouldStopCodexTranscriptMonitor(
+        leasePath: String?,
+        workspaceId: String,
+        surfaceId: String?,
+        client: SocketClient
+    ) -> Bool {
+        if isCodexMonitorLeaseRetired(path: leasePath) { return true }
+        return !codexMonitorOwnerIsAlive(workspaceId: workspaceId, surfaceId: surfaceId, client: client)
+    }
+
     private func startCodexTranscriptMonitor(
         sessionId: String,
         turnId: String?,
@@ -15054,6 +15233,7 @@ struct CMUXCLI {
         cwd: String?,
         workspaceId: String,
         surfaceId: String?,
+        leasePath: String?,
         env: [String: String]
     ) {
         guard !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -15084,6 +15264,9 @@ struct CMUXCLI {
         if let cwd, !cwd.isEmpty {
             monitorArgs += ["--cwd", cwd]
         }
+        if let leasePath, !leasePath.isEmpty {
+            monitorArgs += ["--lease", leasePath]
+        }
         process.arguments = monitorArgs
         process.environment = env.merging(["CMUX_CLI_SENTRY_DISABLED": "1"], uniquingKeysWith: { _, new in new })
         process.standardInput = FileHandle.nullDevice
@@ -15103,14 +15286,25 @@ struct CMUXCLI {
             ?? ""
         let turnId = optionValue(commandArgs, name: "--turn")
         var transcriptPath = optionValue(commandArgs, name: "--transcript")
+        let leasePath = optionValue(commandArgs, name: "--lease")
 
         guard !workspaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return
         }
 
+        defer { removeCodexMonitorLease(path: leasePath) }
         let deadline = Date().addingTimeInterval(4 * 60 * 60)
         while Date() < deadline {
+            if shouldStopCodexTranscriptMonitor(
+                leasePath: leasePath,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                client: client
+            ) {
+                return
+            }
+
             if transcriptPath == nil {
                 transcriptPath = findCodexTranscriptPath(sessionId: sessionId, env: env)
             }
@@ -15147,7 +15341,7 @@ struct CMUXCLI {
 
             let remaining = deadline.timeIntervalSinceNow
             guard remaining > 0 else { return }
-            waitForCodexTranscriptChange(path: transcriptPath, timeout: min(30, remaining))
+            waitForCodexTranscriptChange(path: transcriptPath, leasePath: leasePath, timeout: min(30, remaining))
         }
     }
 
@@ -15165,35 +15359,42 @@ struct CMUXCLI {
         _ = try? sendV1Command("set_status codex \(summary.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)", client: client)
     }
 
-    private func waitForCodexTranscriptChange(path: String?, timeout: TimeInterval) {
+    private func waitForCodexTranscriptChange(path: String?, leasePath: String?, timeout: TimeInterval) {
         guard timeout > 0 else { return }
-        guard let path, !path.isEmpty else {
-            _ = DispatchSemaphore(value: 0).wait(timeout: .now() + timeout)
-            return
-        }
-
-        let expandedPath = NSString(string: path).expandingTildeInPath
-        let fd = open(expandedPath, O_EVTONLY)
-        guard fd >= 0 else {
-            _ = DispatchSemaphore(value: 0).wait(timeout: .now() + timeout)
-            return
-        }
 
         let semaphore = DispatchSemaphore(value: 0)
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: [.write, .extend, .delete, .rename],
-            queue: DispatchQueue.global(qos: .utility)
-        )
-        source.setEventHandler {
-            semaphore.signal()
+        var sources: [DispatchSourceFileSystemObject] = []
+
+        func addFileSource(path: String?, eventMask: DispatchSource.FileSystemEvent) {
+            guard let path, !path.isEmpty else { return }
+            let expandedPath = NSString(string: path).expandingTildeInPath
+            let fd = open(expandedPath, O_EVTONLY)
+            guard fd >= 0 else { return }
+            let source = DispatchSource.makeFileSystemObjectSource(
+                fileDescriptor: fd,
+                eventMask: eventMask,
+                queue: DispatchQueue.global(qos: .utility)
+            )
+            source.setEventHandler {
+                semaphore.signal()
+            }
+            source.setCancelHandler {
+                close(fd)
+            }
+            source.resume()
+            sources.append(source)
         }
-        source.setCancelHandler {
-            close(fd)
+
+        addFileSource(path: path, eventMask: [.write, .extend, .delete, .rename])
+        addFileSource(path: leasePath, eventMask: [.write, .delete, .rename])
+
+        guard !sources.isEmpty else {
+            _ = DispatchSemaphore(value: 0).wait(timeout: .now() + timeout)
+            return
         }
-        source.resume()
+
         _ = semaphore.wait(timeout: .now() + timeout)
-        source.cancel()
+        sources.forEach { $0.cancel() }
     }
 
     private func extractMessageText(from message: [String: Any]) -> String? {
@@ -16627,6 +16828,13 @@ export default CMUXSessionRestore;
             _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
             _ = try sendV1Command("set_status \(def.statusKey) Running --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)", client: client)
             if def.name == "codex", !sessionId.isEmpty {
+                let leasePath = createCodexMonitorLease(
+                    sessionId: sessionId,
+                    turnId: input.turnId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    env: env
+                )
                 startCodexTranscriptMonitor(
                     sessionId: sessionId,
                     turnId: input.turnId,
@@ -16634,11 +16842,15 @@ export default CMUXSessionRestore;
                     cwd: hookCwd ?? mapped?.cwd,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
+                    leasePath: leasePath,
                     env: env
                 )
             }
 
         case .stop:
+            if def.name == "codex", !sessionId.isEmpty {
+                retireCodexMonitorLeases(sessionId: sessionId, turnId: input.turnId, env: env)
+            }
             do {
                 let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
                 let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(preferred: workspaceArg, fallback: mapped?.workspaceId, client: client)
@@ -16715,6 +16927,9 @@ export default CMUXSessionRestore;
             }
 
         case .sessionEnd:
+            if def.name == "codex", !sessionId.isEmpty {
+                retireCodexMonitorLeases(sessionId: sessionId, turnId: nil, env: env)
+            }
             if let mapped = try? store.consume(sessionId: sessionId, workspaceId: nil, surfaceId: nil) {
                 sendAgentFeedTelemetry(workspaceId: mapped.workspaceId)
                 _ = try? sendV1Command("clear_status \(def.statusKey) --tab=\(mapped.workspaceId)", client: client)
