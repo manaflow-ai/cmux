@@ -187,7 +187,7 @@ class CmuxPerfRunner:
                 proc.kill()
                 proc.wait(timeout=5)
         subprocess.run(
-            ["pkill", "-f", re.escape(f"cmux DEV {self.tag}.app/Contents/MacOS/cmux DEV")],
+            ["pkill", "-f", re.escape(f"cmux DEV {self.tag_slug}.app/Contents/MacOS/cmux DEV")],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             check=False,
