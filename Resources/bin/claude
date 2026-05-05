@@ -242,16 +242,16 @@ node_options_split() {
 
     for (( i = 0; i < ${#raw}; i++ )); do
         ch="${raw:i:1}"
-        if (( escaping )); then
-            current+="$ch"
-            escaping=0
-            continue
-        fi
-        if [[ "$ch" == "\\" ]]; then
-            escaping=1
-            continue
-        fi
         if [[ -n "$quote" ]]; then
+            if (( escaping )); then
+                current+="$ch"
+                escaping=0
+                continue
+            fi
+            if [[ "$ch" == "\\" ]]; then
+                escaping=1
+                continue
+            fi
             if [[ "$ch" == "$quote" ]]; then
                 quote=""
             else

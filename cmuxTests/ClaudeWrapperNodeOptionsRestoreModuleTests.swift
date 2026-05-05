@@ -32,6 +32,20 @@ final class ClaudeWrapperNodeOptionsRestoreModuleTests: XCTestCase {
         )
     }
 
+    func testNodeOptionsTokenizationPreservesUnquotedBackslashes() {
+        let nodeOptions = #"--require=/tmp/foo\bar/preload.cjs --trace-warnings"#
+        let tokens = NodeOptionsSupport.tokens(nodeOptions)
+
+        XCTAssertEqual(
+            tokens,
+            [#"--require=/tmp/foo\bar/preload.cjs"#, "--trace-warnings"]
+        )
+        XCTAssertEqual(
+            NodeOptionsSupport.tokens(NodeOptionsSupport.joinedTokens(tokens)),
+            tokens
+        )
+    }
+
     func testRestoreModulePathDetectionRequiresManagedTrailingComponents() {
         XCTAssertTrue(
             NodeOptionsSupport.isCmuxRestoreModulePath(

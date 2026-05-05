@@ -630,6 +630,44 @@ def test_live_socket_preserves_unquoted_apostrophe_require_path(failures: list[s
         )
 
 
+def test_live_socket_preserves_unquoted_backslash_require_path(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-existing-node-options-") as td:
+        preload_dir = Path(td) / r"foo\bar"
+        preload_dir.mkdir(parents=True, exist_ok=True)
+        preload = preload_dir / "preload.cjs"
+        preload.write_text("", encoding="utf-8")
+        existing = f"--require={preload} --trace-warnings"
+        code, _, _, stderr, _, node_options, runtime_node_options, child_node_options, _, _ = run_wrapper(
+            socket_state="live",
+            argv=["hello"],
+            node_options=existing,
+        )
+
+        expected_tokens = [f"--require={preload}", "--trace-warnings"]
+        expect(code == 0, f"unquoted backslash require path: wrapper exited {code}: {stderr}", failures)
+
+        _, remaining_flags = restore_require_and_remaining(node_options)
+        remaining_tokens = split_node_options(remaining_flags)
+        expect(
+            expected_tokens[0] in remaining_tokens,
+            "unquoted backslash require path: expected launcher NODE_OPTIONS to preserve backslash path, "
+            f"got {node_options!r}",
+            failures,
+        )
+        expect(
+            split_node_options(runtime_node_options) == expected_tokens,
+            "unquoted backslash require path: expected runtime NODE_OPTIONS to preserve original backslash path, "
+            f"got {runtime_node_options!r}",
+            failures,
+        )
+        expect(
+            split_node_options(child_node_options) == expected_tokens,
+            "unquoted backslash require path: expected child NODE_OPTIONS to preserve original backslash path, "
+            f"got {child_node_options!r}",
+            failures,
+        )
+
+
 def test_live_socket_bad_tmpdir_still_uses_durable_node_options_injection(failures: list[str]) -> None:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-bad-tmp-") as td:
         bad_tmpdir = Path(td) / "not-a-directory"
@@ -817,6 +855,7 @@ def main() -> int:
     test_live_socket_enforces_heap_cap_for_space_separated_flag(failures)
     test_live_socket_preserves_quoted_existing_require_path(failures)
     test_live_socket_preserves_unquoted_apostrophe_require_path(failures)
+    test_live_socket_preserves_unquoted_backslash_require_path(failures)
     test_live_socket_bad_tmpdir_still_uses_durable_node_options_injection(failures)
     test_live_socket_restore_dir_override_keeps_sanitizer_suffix(failures)
     test_live_socket_does_not_duplicate_bypass_availability_flag(failures)

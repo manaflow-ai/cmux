@@ -37,16 +37,16 @@ public enum NodeOptionsSupport {
         var escaping = false
 
         for character in rawValue {
-            if escaping {
-                current.append(character)
-                escaping = false
-                continue
-            }
-            if character == "\\" {
-                escaping = true
-                continue
-            }
             if let activeQuote = quote {
+                if escaping {
+                    current.append(character)
+                    escaping = false
+                    continue
+                }
+                if character == "\\" {
+                    escaping = true
+                    continue
+                }
                 if character == activeQuote {
                     quote = nil
                 } else {

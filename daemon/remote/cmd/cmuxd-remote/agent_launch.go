@@ -442,16 +442,16 @@ func nodeOptionsTokens(raw string) []string {
 	escaping := false
 
 	for _, r := range raw {
-		if escaping {
-			current.WriteRune(r)
-			escaping = false
-			continue
-		}
-		if r == '\\' {
-			escaping = true
-			continue
-		}
 		if quote != 0 {
+			if escaping {
+				current.WriteRune(r)
+				escaping = false
+				continue
+			}
+			if r == '\\' {
+				escaping = true
+				continue
+			}
 			if r == quote {
 				quote = 0
 			} else {
