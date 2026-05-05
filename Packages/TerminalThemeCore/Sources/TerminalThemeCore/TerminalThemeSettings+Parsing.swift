@@ -1,11 +1,17 @@
 import Foundation
 
 extension TerminalThemeSettings {
-    static func encodedThemeValue(light: String?, dark: String?) -> String? {
+    public static func encodedThemeValue(light: String?, dark: String?) -> String? {
         let normalizedLight = light?.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedDark = dark?.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        switch (normalizedLight?.isEmpty == false ? normalizedLight : nil, normalizedDark?.isEmpty == false ? normalizedDark : nil) {
+        let lightTheme = normalizedLight?.isEmpty == false ? normalizedLight : nil
+        let darkTheme = normalizedDark?.isEmpty == false ? normalizedDark : nil
+        if [lightTheme, darkTheme].compactMap({ $0 }).contains(where: { !isSupportedThemeName($0) }) {
+            return nil
+        }
+
+        switch (lightTheme, darkTheme) {
         case let (lightTheme?, darkTheme?):
             if lightTheme.caseInsensitiveCompare(darkTheme) == .orderedSame {
                 return lightTheme
@@ -20,7 +26,7 @@ extension TerminalThemeSettings {
         }
     }
 
-    static func parseSelection(rawValue: String?, sourcePath: String?) -> TerminalThemeSelection {
+    public static func parseSelection(rawValue: String?, sourcePath: String?) -> TerminalThemeSelection {
         guard let rawValue = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines), !rawValue.isEmpty else {
             return TerminalThemeSelection(
                 mode: .custom,
@@ -34,6 +40,7 @@ extension TerminalThemeSettings {
         var fallbackTheme: String?
         var lightTheme: String?
         var darkTheme: String?
+        var containsMalformedToken = false
 
         for token in rawValue.split(separator: ",").map(String.init) {
             let entry = token.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -41,7 +48,9 @@ extension TerminalThemeSettings {
 
             let parts = entry.split(separator: ":", maxSplits: 1).map(String.init)
             if parts.count != 2 {
-                if fallbackTheme == nil {
+                if rawValue.contains(",") || !isSupportedThemeName(entry) {
+                    containsMalformedToken = true
+                } else if fallbackTheme == nil {
                     fallbackTheme = entry
                 }
                 continue
@@ -49,7 +58,10 @@ extension TerminalThemeSettings {
 
             let key = parts[0].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             let value = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !value.isEmpty else { continue }
+            guard isSupportedThemeName(value) else {
+                containsMalformedToken = true
+                continue
+            }
 
             switch key {
             case "light":
@@ -65,6 +77,16 @@ extension TerminalThemeSettings {
                     fallbackTheme = value
                 }
             }
+        }
+
+        if containsMalformedToken {
+            return TerminalThemeSelection(
+                mode: .custom,
+                rawValue: rawValue,
+                light: nil,
+                dark: nil,
+                sourcePath: sourcePath
+            )
         }
 
         let resolvedLight = lightTheme ?? fallbackTheme

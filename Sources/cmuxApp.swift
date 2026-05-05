@@ -4,6 +4,7 @@ import Darwin
 import Bonsplit
 import UniformTypeIdentifiers
 import OSLog
+import TerminalThemeCore
 @main
 struct cmuxApp: App {
     @StateObject private var tabManager: TabManager

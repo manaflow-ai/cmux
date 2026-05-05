@@ -23,15 +23,12 @@
 		C2B6A97D1F2E4C71A8B9D001 /* BrowserOmnibarPerformanceSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2B6A97D1F2E4C71A8B9D002 /* BrowserOmnibarPerformanceSupportTests.swift */; };
 		3023A1003023A1003023A100 /* ConfigSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3023B1003023B1003023B100 /* ConfigSource.swift */; };
 		3023A1013023A1013023A101 /* ConfigSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3023B1013023B1013023B101 /* ConfigSettingsView.swift */; };
-		352300000000000000000002 /* TerminalThemeSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 352300000000000000000001 /* TerminalThemeSettings.swift */; };
-		352300000000000000000003 /* TerminalThemeSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 352300000000000000000001 /* TerminalThemeSettings.swift */; };
-		352300000000000000000004 /* TerminalThemeTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 352300000000000000000005 /* TerminalThemeTypes.swift */; };
-		352300000000000000000006 /* TerminalThemeTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 352300000000000000000005 /* TerminalThemeTypes.swift */; };
-		352300000000000000000007 /* TerminalThemeSettings+Parsing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 352300000000000000000008 /* TerminalThemeSettings+Parsing.swift */; };
-		352300000000000000000009 /* TerminalThemeSettings+Parsing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 352300000000000000000008 /* TerminalThemeSettings+Parsing.swift */; };
 		35230000000000000000000A /* TerminalThemePickerRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35230000000000000000000B /* TerminalThemePickerRow.swift */; };
 		35230000000000000000000C /* TerminalThemeSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35230000000000000000000D /* TerminalThemeSettingsTests.swift */; };
 		35230000000000000000000E /* AppAppearancePickerRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35230000000000000000000F /* AppAppearancePickerRow.swift */; };
+		3523C0DE0000000000000003 /* TerminalThemeCore in Frameworks */ = {isa = PBXBuildFile; productRef = 3523C0DE0000000000000002 /* TerminalThemeCore */; };
+		3523C0DE0000000000000004 /* TerminalThemeCore in Frameworks */ = {isa = PBXBuildFile; productRef = 3523C0DE0000000000000002 /* TerminalThemeCore */; };
+		3523C0DE0000000000000005 /* TerminalThemeCore in Frameworks */ = {isa = PBXBuildFile; productRef = 3523C0DE0000000000000002 /* TerminalThemeCore */; };
 		350DAC5EBD38642A3E81471A /* AuthManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 312DE7503B4658DD173121B8 /* AuthManager.swift */; };
 		36CE99ED050785B5E96B72BB /* AuthCallbackRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61A19A4145F034965110CF87 /* AuthCallbackRouter.swift */; };
 		4378399A7C0245EF8186F306 /* OmnibarAndToolsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B09C007F42697761B5F1A2AB /* OmnibarAndToolsTests.swift */; };
@@ -445,9 +442,6 @@
 		B7F9A603B7F9A603B7F9A603 /* WindowChromeMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowChromeMetrics.swift; sourceTree = "<group>"; };
 		B7F9A605B7F9A605B7F9A605 /* RightSidebarChromeStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarChromeStyle.swift; sourceTree = "<group>"; };
 		A11EAB000000000000000001 /* AppearanceSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceSettings.swift; sourceTree = "<group>"; };
-		352300000000000000000001 /* TerminalThemeSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalThemeSettings.swift; sourceTree = "<group>"; };
-		352300000000000000000005 /* TerminalThemeTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalThemeTypes.swift; sourceTree = "<group>"; };
-		352300000000000000000008 /* TerminalThemeSettings+Parsing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalThemeSettings+Parsing.swift"; sourceTree = "<group>"; };
 		35230000000000000000000B /* TerminalThemePickerRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalThemePickerRow.swift; sourceTree = "<group>"; };
 		35230000000000000000000F /* AppAppearancePickerRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppAppearancePickerRow.swift; sourceTree = "<group>"; };
 		A11EAC000000000000000001 /* GhosttyTerminalAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalAppearance.swift; sourceTree = "<group>"; };
@@ -712,6 +706,7 @@
 				A5001290 /* MarkdownUI in Frameworks */,
 				5EDB6027B346C46521A93C74 /* CMUXAuthCore in Frameworks */,
 				AA11BB22CC33DD44EE550001 /* CMUXWorkstream in Frameworks */,
+				3523C0DE0000000000000003 /* TerminalThemeCore in Frameworks */,
 				F20F85FC5900550685FA33AD /* StackAuth in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -728,6 +723,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				B9000024A1B2C3D4E5F60719 /* Sentry-Dynamic in Frameworks */,
+				3523C0DE0000000000000004 /* TerminalThemeCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -735,6 +731,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				3523C0DE0000000000000005 /* TerminalThemeCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -854,9 +851,6 @@
 					3023B1003023B1003023B100 /* ConfigSource.swift */,
 					3023B1013023B1013023B101 /* ConfigSettingsView.swift */,
 					A11EAB000000000000000001 /* AppearanceSettings.swift */,
-					352300000000000000000005 /* TerminalThemeTypes.swift */,
-					352300000000000000000001 /* TerminalThemeSettings.swift */,
-					352300000000000000000008 /* TerminalThemeSettings+Parsing.swift */,
 					35230000000000000000000F /* AppAppearancePickerRow.swift */,
 					35230000000000000000000B /* TerminalThemePickerRow.swift */,
 					A11EAC000000000000000001 /* GhosttyTerminalAppearance.swift */,
@@ -1166,6 +1160,7 @@
 				29813FE5A6CBC1019289A251 /* CMUXAuthCore */,
 				AA11BB22CC33DD44EE550002 /* CMUXWorkstream */,
 				A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */,
+				3523C0DE0000000000000002 /* TerminalThemeCore */,
 				A8BD195031FC4B82B4354297 /* StackAuth */,
 			);
 			productName = GhosttyTabs;
@@ -1186,6 +1181,7 @@
 			name = "cmux-cli";
 			packageProductDependencies = (
 				A5001253 /* Sentry-Dynamic */,
+				3523C0DE0000000000000002 /* TerminalThemeCore */,
 			);
 			productName = cmux;
 			productReference = B9000004A1B2C3D4E5F60719 /* cmux */;
@@ -1240,6 +1236,9 @@
 				F1000009A1B2C3D4E5F60718 /* PBXTargetDependency */,
 			);
 			name = cmuxTests;
+			packageProductDependencies = (
+				3523C0DE0000000000000002 /* TerminalThemeCore */,
+			);
 			productName = cmuxTests;
 			productReference = F1000002A1B2C3D4E5F60718 /* cmuxTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
@@ -1289,6 +1288,7 @@
 				40B63BB4A170F0BD2D1DEFD1 /* XCLocalSwiftPackageReference "CMUXAuthCore" */,
 				AA11BB22CC33DD44EE550003 /* XCLocalSwiftPackageReference "CMUXWorkstream" */,
 				A500D012A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXDebugLog" */,
+				3523C0DE0000000000000001 /* XCLocalSwiftPackageReference "TerminalThemeCore" */,
 				28B798BB9086C8E6B60C3355 /* XCLocalSwiftPackageReference "stack-auth-swift-sdk-prerelease" */,
 			);
 			productRefGroup = A5001042 /* Products */;
@@ -1371,9 +1371,6 @@
 				3023A1003023A1003023A100 /* ConfigSource.swift in Sources */,
 					3023A1013023A1013023A101 /* ConfigSettingsView.swift in Sources */,
 					A11EAB000000000000000000 /* AppearanceSettings.swift in Sources */,
-					352300000000000000000004 /* TerminalThemeTypes.swift in Sources */,
-					352300000000000000000002 /* TerminalThemeSettings.swift in Sources */,
-					352300000000000000000007 /* TerminalThemeSettings+Parsing.swift in Sources */,
 					35230000000000000000000E /* AppAppearancePickerRow.swift in Sources */,
 					35230000000000000000000A /* TerminalThemePickerRow.swift in Sources */,
 					A11EAC000000000000000000 /* GhosttyTerminalAppearance.swift in Sources */,
@@ -1560,9 +1557,6 @@
 					B9000034A1B2C3D4E5F60719 /* cmux_open.swift in Sources */,
 					D7AB0000000000000000000D /* CMUXCLI+MoveTabToNewWorkspace.swift in Sources */,
 					B9000035A1B2C3D4E5F60719 /* CMUXCLI+DocsSettings.swift in Sources */,
-					352300000000000000000006 /* TerminalThemeTypes.swift in Sources */,
-					352300000000000000000003 /* TerminalThemeSettings.swift in Sources */,
-					352300000000000000000009 /* TerminalThemeSettings+Parsing.swift in Sources */,
 					B900002FA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift in Sources */,
 				B900002EA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift in Sources */,
 				B9000033A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift in Sources */,
@@ -2082,6 +2076,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = "vendor/stack-auth-swift-sdk-prerelease";
 		};
+		3523C0DE0000000000000001 /* XCLocalSwiftPackageReference "TerminalThemeCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/TerminalThemeCore;
+		};
 		40B63BB4A170F0BD2D1DEFD1 /* XCLocalSwiftPackageReference "CMUXAuthCore" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CMUXAuthCore;
@@ -2140,6 +2138,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 40B63BB4A170F0BD2D1DEFD1 /* XCLocalSwiftPackageReference "CMUXAuthCore" */;
 			productName = CMUXAuthCore;
+		};
+		3523C0DE0000000000000002 /* TerminalThemeCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 3523C0DE0000000000000001 /* XCLocalSwiftPackageReference "TerminalThemeCore" */;
+			productName = TerminalThemeCore;
 		};
 		AA11BB22CC33DD44EE550002 /* CMUXWorkstream */ = {
 			isa = XCSwiftPackageProductDependency;

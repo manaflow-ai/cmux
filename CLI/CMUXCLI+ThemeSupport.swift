@@ -1,4 +1,5 @@
 import Foundation
+import TerminalThemeCore
 
 extension CMUXCLI {
     func availableThemeNames() -> [String] {
@@ -11,6 +12,9 @@ extension CMUXCLI {
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             throw CLIError(message: "Theme name cannot be empty")
+        }
+        guard TerminalThemeSettings.isSupportedThemeName(trimmed) else {
+            throw CLIError(message: "Theme names cannot contain ':' or ','")
         }
         if let matched = availableThemes.first(where: { $0.caseInsensitiveCompare(trimmed) == .orderedSame }) {
             return matched

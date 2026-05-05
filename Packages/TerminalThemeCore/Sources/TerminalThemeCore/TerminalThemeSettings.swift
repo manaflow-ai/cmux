@@ -1,12 +1,12 @@
 import Darwin
 import Foundation
 
-enum TerminalThemeSettings {
-    static let defaultManagedBundleIdentifier = "com.cmuxterm.app"
-    static let managedBlockStart = "# cmux themes start"
-    static let managedBlockEnd = "# cmux themes end"
+public enum TerminalThemeSettings {
+    public static let defaultManagedBundleIdentifier = "com.cmuxterm.app"
+    public static let managedBlockStart = "# cmux themes start"
+    public static let managedBlockEnd = "# cmux themes end"
 
-    static func availableThemeNames(
+    public static func availableThemeNames(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         bundleResourceURL: URL? = Bundle.main.resourceURL,
         resolvedExecutableURL: URL? = nil,
@@ -34,6 +34,7 @@ enum TerminalThemeSettings {
                 guard values?.isDirectory != true else { continue }
                 guard values?.isRegularFile == true || values?.isRegularFile == nil else { continue }
                 let name = entry.lastPathComponent
+                guard isSupportedThemeName(name) else { continue }
                 let folded = name.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
                 if seen.insert(folded).inserted {
                     themes.append(name)
@@ -44,7 +45,12 @@ enum TerminalThemeSettings {
         return themes.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
     }
 
-    static func managedConfigURL(
+    public static func isSupportedThemeName(_ name: String) -> Bool {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmed.isEmpty && !trimmed.contains(",") && !trimmed.contains(":")
+    }
+
+    public static func managedConfigURL(
         appSupportDirectory: URL,
         bundleIdentifier: String = defaultManagedBundleIdentifier
     ) -> URL {
@@ -53,7 +59,7 @@ enum TerminalThemeSettings {
             .appendingPathComponent("config.ghostty", isDirectory: false)
     }
 
-    static func managedConfigURLs(
+    public static func managedConfigURLs(
         appSupportDirectory: URL,
         bundleIdentifier: String = defaultManagedBundleIdentifier
     ) -> [URL] {
@@ -64,7 +70,7 @@ enum TerminalThemeSettings {
         ]
     }
 
-    static func managedConfigURL(
+    public static func managedConfigURL(
         fileManager: FileManager = .default,
         bundleIdentifier: String = defaultManagedBundleIdentifier
     ) throws -> URL {
@@ -74,7 +80,7 @@ enum TerminalThemeSettings {
         return managedConfigURL(appSupportDirectory: appSupport, bundleIdentifier: bundleIdentifier)
     }
 
-    static func themeConfigSearchURLs(
+    public static func themeConfigSearchURLs(
         currentBundleIdentifier: String? = Bundle.main.bundleIdentifier,
         appSupportDirectory: URL? = FileManager.default.urls(
             for: .applicationSupportDirectory,
@@ -120,10 +126,14 @@ enum TerminalThemeSettings {
                 appSupportDirectory: appSupportDirectory,
                 bundleIdentifier: currentBundleIdentifier
             )
+            let legacyCurrentManagedURL = currentManagedURL
+                .deletingLastPathComponent()
+                .appendingPathComponent("config")
+            if includeLegacyManagedConfig,
+               fileManager.fileExists(atPath: legacyCurrentManagedURL.path) {
+                urls.append(legacyCurrentManagedURL)
+            }
             if isNonEmptyRegularFile(currentManagedURL, fileManager: fileManager) {
-                if includeLegacyManagedConfig {
-                    urls.append(currentManagedURL.deletingLastPathComponent().appendingPathComponent("config"))
-                }
                 urls.append(currentManagedURL)
             }
         }
@@ -136,7 +146,7 @@ enum TerminalThemeSettings {
         return urls
     }
 
-    static func currentSelection(
+    public static func currentSelection(
         appSupportDirectory: URL? = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
@@ -153,7 +163,7 @@ enum TerminalThemeSettings {
         )
     }
 
-    static func managedSelection(
+    public static func managedSelection(
         appSupportDirectory: URL? = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
@@ -169,7 +179,7 @@ enum TerminalThemeSettings {
         )
     }
 
-    static func currentSelection(configURLs: [URL]) -> TerminalThemeSelection {
+    public static func currentSelection(configURLs: [URL]) -> TerminalThemeSelection {
         var rawValue: String?
         var sourcePath: String?
 
@@ -186,7 +196,7 @@ enum TerminalThemeSettings {
     }
 
     @discardableResult
-    static func apply(
+    public static func apply(
         _ mode: TerminalThemeMode,
         appSupportDirectory: URL? = FileManager.default.urls(
             for: .applicationSupportDirectory,
@@ -219,7 +229,7 @@ enum TerminalThemeSettings {
         return configURL
     }
 
-    static func lastThemeDirective(in contents: String) -> String? {
+    public static func lastThemeDirective(in contents: String) -> String? {
         var lastValue: String?
 
         for line in contents.components(separatedBy: .newlines) {
@@ -244,7 +254,7 @@ enum TerminalThemeSettings {
     }
 
     @discardableResult
-    static func writeManagedThemeOverride(
+    public static func writeManagedThemeOverride(
         rawThemeValue: String,
         appSupportDirectory: URL? = FileManager.default.urls(
             for: .applicationSupportDirectory,
@@ -275,7 +285,7 @@ enum TerminalThemeSettings {
     }
 
     @discardableResult
-    static func clearManagedThemeOverride(
+    public static func clearManagedThemeOverride(
         appSupportDirectory: URL? = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
@@ -309,7 +319,7 @@ enum TerminalThemeSettings {
         return configURL
     }
 
-    static func removingManagedThemeState(from contents: String) -> String {
+    public static func removingManagedThemeState(from contents: String) -> String {
         let pattern = #"(?ms)\n?# cmux themes start\n.*?\n# cmux themes end\n?"#
         guard let regex = try? NSRegularExpression(pattern: pattern) else {
             return contents

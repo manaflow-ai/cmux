@@ -1,5 +1,6 @@
 import Foundation
 import Darwin
+import TerminalThemeCore
 
 extension CMUXCLI {
     static let cmuxThemeOverrideBundleIdentifier = "com.cmuxterm.app"

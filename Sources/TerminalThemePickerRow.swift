@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import TerminalThemeCore
 
 struct TerminalThemePickerRow: View {
     struct Option: Identifiable, Hashable {
@@ -42,7 +43,14 @@ struct TerminalThemePickerRow: View {
         result.append(
             Option(
                 id: "adaptive:\(adaptivePair.light):\(adaptivePair.dark)",
-                title: "\(String(localized: "settings.app.terminalTheme.adaptivePrefix", defaultValue: "Adaptive")): \(adaptivePair.light) / \(adaptivePair.dark)",
+                title: String(
+                    format: String(
+                        localized: "settings.app.terminalTheme.adaptiveTitle",
+                        defaultValue: "Adaptive: %@ / %@"
+                    ),
+                    adaptivePair.light,
+                    adaptivePair.dark
+                ),
                 mode: .adaptive(light: adaptivePair.light, dark: adaptivePair.dark)
             )
         )
@@ -114,7 +122,7 @@ struct TerminalThemePickerRow: View {
         seenThemeNames: inout Set<String>
     ) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard TerminalThemeSettings.isSupportedThemeName(trimmed) else { return }
         let folded = trimmed.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
         guard seenThemeNames.insert(folded).inserted else { return }
         options.append(
