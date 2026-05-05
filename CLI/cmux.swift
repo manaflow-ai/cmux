@@ -15588,123 +15588,7 @@ struct CMUXCLI {
     }
 
     private func selectedAgentLaunchEnvironment(from env: [String: String]) -> [String: String] {
-        let allowedKeys = [
-            "ANTHROPIC_MODEL",
-            "CLAUDE_CONFIG_DIR",
-            "CMUX_CUSTOM_CLAUDE_PATH",
-            "CODEX_HOME",
-            "GEMINI_CLI_HOME",
-            "OPENCODE_CONFIG_DIR"
-        ]
-        var result: [String: String] = [:]
-        for key in allowedKeys {
-            guard let value = env[key] else { continue }
-            result[key] = key == "CLAUDE_CONFIG_DIR" ? normalizedClaudeConfigDirectory(value) : value
-        }
-        if let nodeOptions = selectedAgentLaunchNodeOptions(from: env) {
-            result["NODE_OPTIONS"] = nodeOptions
-        }
-        return result
-    }
-
-    private func normalizedClaudeConfigDirectory(_ rawValue: String) -> String {
-        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return rawValue }
-        let standardized = ((trimmed as NSString).expandingTildeInPath as NSString).standardizingPath
-        let home = ((NSHomeDirectory() as NSString).expandingTildeInPath as NSString).standardizingPath
-        let legacyRoot = ((home as NSString).appendingPathComponent(".subrouter/codex/claude") as NSString).standardizingPath
-        guard standardized == legacyRoot || standardized.hasPrefix(legacyRoot + "/") else { return standardized }
-        let accountRoot = ((home as NSString).appendingPathComponent(".codex-accounts/claude") as NSString).standardizingPath
-        let candidate = accountRoot + String(standardized.dropFirst(legacyRoot.count))
-        var isDirectory: ObjCBool = false
-        return FileManager.default.fileExists(atPath: candidate, isDirectory: &isDirectory) && isDirectory.boolValue
-            ? candidate
-            : standardized
-    }
-
-    private func selectedAgentLaunchNodeOptions(from env: [String: String]) -> String? {
-        switch normalizedHookValue(env["CMUX_ORIGINAL_NODE_OPTIONS_PRESENT"]) {
-        case "1":
-            return sanitizedAgentLaunchNodeOptions(env["CMUX_ORIGINAL_NODE_OPTIONS"])
-        case "0":
-            return nil
-        default:
-            return sanitizedAgentLaunchNodeOptions(env["NODE_OPTIONS"])
-        }
-    }
-
-    private func sanitizedAgentLaunchNodeOptions(_ rawValue: String?) -> String? {
-        let tokens = rawValue?
-            .split(whereSeparator: \.isWhitespace)
-            .map(String.init) ?? []
-        guard !tokens.isEmpty else { return nil }
-
-        var sanitized: [String] = []
-        var index = 0
-        var shouldDropInjectedHeapCap = false
-        while index < tokens.count {
-            let token = tokens[index]
-
-            if shouldDropInjectedHeapCap, isInjectedNodeHeapCap(tokens, index: index) {
-                index += nodeHeapCapWidth(tokens, index: index)
-                shouldDropInjectedHeapCap = false
-                continue
-            }
-            shouldDropInjectedHeapCap = false
-
-            if isRequireOption(token), index + 1 < tokens.count,
-               isCmuxNodeOptionsRestoreModulePath(tokens[index + 1]) {
-                index += 2
-                shouldDropInjectedHeapCap = true
-                continue
-            }
-            if let path = inlineRequireOptionPath(token),
-               isCmuxNodeOptionsRestoreModulePath(path) {
-                index += 1
-                shouldDropInjectedHeapCap = true
-                continue
-            }
-
-            sanitized.append(token)
-            index += 1
-        }
-
-        let joined = sanitized.joined(separator: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return joined.isEmpty ? nil : joined
-    }
-
-    private func isRequireOption(_ token: String) -> Bool {
-        token == "--require" || token == "-r"
-    }
-
-    private func inlineRequireOptionPath(_ token: String) -> String? {
-        for prefix in ["--require=", "-r="] where token.hasPrefix(prefix) {
-            return String(token.dropFirst(prefix.count))
-        }
-        return nil
-    }
-
-    private func isCmuxNodeOptionsRestoreModulePath(_ value: String) -> Bool {
-        let trimmed = value.trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
-        guard URL(fileURLWithPath: trimmed).lastPathComponent == "restore-node-options.cjs" else {
-            return false
-        }
-        return trimmed.contains("/cmux-")
-    }
-
-    private func isInjectedNodeHeapCap(_ tokens: [String], index: Int) -> Bool {
-        guard index < tokens.count else { return false }
-        let token = tokens[index]
-        if token == "--max-old-space-size" {
-            return index + 1 < tokens.count && tokens[index + 1] == "4096"
-        }
-        return token == "--max-old-space-size=4096"
-    }
-
-    private func nodeHeapCapWidth(_ tokens: [String], index: Int) -> Int {
-        guard index < tokens.count else { return 1 }
-        return tokens[index] == "--max-old-space-size" ? min(2, tokens.count - index) : 1
+        AgentLaunchEnvironmentPolicy.selectedEnvironment(from: env)
     }
 
     private func normalizedHookValue(_ value: String?) -> String? {
@@ -15843,7 +15727,7 @@ struct CMUXCLI {
         ),
         AgentHookDef(
             name: "cursor", displayName: "Cursor", statusKey: "cursor",
-            configDir: ".cursor", configFile: "hooks.json",
+            configDir: ".cursor", configFile: "hooks.json", binaryName: "cursor-agent",
             sessionStoreSuffix: "cursor", disableEnvVar: "CMUX_CURSOR_HOOKS_DISABLED",
             hookMarker: "cmux hooks cursor", format: .flat,
             events: [
@@ -15881,7 +15765,7 @@ struct CMUXCLI {
         ),
         AgentHookDef(
             name: "copilot", displayName: "Copilot", statusKey: "copilot",
-            configDir: ".copilot", configFile: "config.json",
+            configDir: ".copilot", configFile: "config.json", configDirEnvOverride: "COPILOT_HOME",
             sessionStoreSuffix: "copilot", disableEnvVar: "CMUX_COPILOT_HOOKS_DISABLED",
             hookMarker: "cmux hooks copilot", format: .nested(timeoutMs: 5000),
             events: [
@@ -15894,7 +15778,7 @@ struct CMUXCLI {
         ),
         AgentHookDef(
             name: "codebuddy", displayName: "CodeBuddy", statusKey: "codebuddy",
-            configDir: ".codebuddy", configFile: "settings.json",
+            configDir: ".codebuddy", configFile: "settings.json", configDirEnvOverride: "CODEBUDDY_CONFIG_DIR",
             sessionStoreSuffix: "codebuddy", disableEnvVar: "CMUX_CODEBUDDY_HOOKS_DISABLED",
             hookMarker: "cmux hooks codebuddy", format: .nested(timeoutMs: 5000),
             events: [
@@ -15907,7 +15791,7 @@ struct CMUXCLI {
         ),
         AgentHookDef(
             name: "factory", displayName: "Factory", statusKey: "factory",
-            configDir: ".factory", configFile: "settings.json",
+            configDir: ".factory", configFile: "settings.json", binaryName: "droid",
             sessionStoreSuffix: "factory", disableEnvVar: "CMUX_FACTORY_HOOKS_DISABLED",
             hookMarker: "cmux hooks factory", format: .nested(timeoutMs: 5000),
             events: [
@@ -15920,7 +15804,7 @@ struct CMUXCLI {
         ),
         AgentHookDef(
             name: "qoder", displayName: "Qoder", statusKey: "qoder",
-            configDir: ".qoder", configFile: "settings.json",
+            configDir: ".qoder", configFile: "settings.json", configDirEnvOverride: "QODER_CONFIG_DIR", binaryName: "qodercli",
             sessionStoreSuffix: "qoder", disableEnvVar: "CMUX_QODER_HOOKS_DISABLED",
             hookMarker: "cmux hooks qoder", format: .nested(timeoutMs: 5000),
             events: [

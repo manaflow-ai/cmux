@@ -53,9 +53,9 @@ enum AgentResumeCommandBuilder {
 
         var environmentParts: [String] = []
         var preservedClaudeAuthSelectionEnvironmentKeys: [String] = []
-        for key in environment.keys.sorted() {
-            guard isSafeEnvironmentKey(key),
-                  let value = sanitizedEnvironmentValue(key: key, value: environment[key]) else { continue }
+        let selectedEnvironment = AgentLaunchEnvironmentPolicy.selectedEnvironment(from: environment)
+        for key in selectedEnvironment.keys.sorted() {
+            guard let value = selectedEnvironment[key] else { continue }
             environmentParts.append("\(key)=\(value)")
             if kind == .claude,
                claudeAuthSelectionEnvironmentKeys.contains(key) {
@@ -107,17 +107,33 @@ enum AgentResumeCommandBuilder {
 
         switch kind {
         case .claude:
-            let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "claude")
-            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "claude", args: original.tail) else { return nil }
-            return [original.executable, "--resume", sessionId] + preserved
+            return resumeWithOption(
+                kind: "claude",
+                launchCommand: launchCommand,
+                fallbackExecutable: "claude",
+                option: "--resume",
+                sessionId: sessionId
+            )
         case .codex:
             let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "codex")
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "codex", args: original.tail) else { return nil }
             return [original.executable, "resume"] + preserved + [sessionId]
+        case .cursor:
+            return resumeWithOption(
+                kind: "cursor",
+                launchCommand: launchCommand,
+                fallbackExecutable: "cursor-agent",
+                option: "--resume",
+                sessionId: sessionId
+            )
         case .gemini:
-            let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "gemini")
-            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "gemini", args: original.tail) else { return nil }
-            return [original.executable, "--resume", sessionId] + preserved
+            return resumeWithOption(
+                kind: "gemini",
+                launchCommand: launchCommand,
+                fallbackExecutable: "gemini",
+                option: "--resume",
+                sessionId: sessionId
+            )
         case .opencode:
             let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "opencode")
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "opencode", args: original.tail) else { return nil }
@@ -126,7 +142,53 @@ enum AgentResumeCommandBuilder {
             let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "acli")
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "rovodev", args: original.tail) else { return nil }
             return [original.executable, "rovodev", "run", "--restore", sessionId] + preserved
+        case .copilot:
+            return resumeWithOption(
+                kind: "copilot",
+                launchCommand: launchCommand,
+                fallbackExecutable: "copilot",
+                option: "--resume",
+                sessionId: sessionId
+            )
+        case .codebuddy:
+            return resumeWithOption(
+                kind: "codebuddy",
+                launchCommand: launchCommand,
+                fallbackExecutable: "codebuddy",
+                option: "--resume",
+                sessionId: sessionId
+            )
+        case .factory:
+            return resumeWithOption(
+                kind: "factory",
+                launchCommand: launchCommand,
+                fallbackExecutable: "droid",
+                option: "--resume",
+                sessionId: sessionId
+            )
+        case .qoder:
+            return resumeWithOption(
+                kind: "qoder",
+                launchCommand: launchCommand,
+                fallbackExecutable: "qodercli",
+                option: "--resume",
+                sessionId: sessionId
+            )
         }
+    }
+
+    private static func resumeWithOption(
+        kind: String,
+        launchCommand: AgentLaunchCommandSnapshot?,
+        fallbackExecutable: String,
+        option: String,
+        sessionId: String
+    ) -> [String]? {
+        let original = commandParts(launchCommand: launchCommand, fallbackExecutable: fallbackExecutable)
+        guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: kind, args: original.tail) else {
+            return nil
+        }
+        return [original.executable, option, sessionId] + preserved
     }
 
     private static func commandParts(
@@ -139,106 +201,6 @@ enum AgentResumeCommandBuilder {
             ?? fallbackExecutable
         let tail = arguments.isEmpty ? [] : Array(arguments.dropFirst())
         return (executable, tail)
-    }
-
-    private static func isSafeEnvironmentKey(_ key: String) -> Bool {
-        switch key {
-        case "ANTHROPIC_MODEL",
-             "CLAUDE_CONFIG_DIR",
-             "CMUX_CUSTOM_CLAUDE_PATH",
-             "CODEX_HOME",
-             "GEMINI_CLI_HOME",
-             "NODE_OPTIONS",
-             "OPENCODE_CONFIG_DIR":
-            return true
-        default:
-            return false
-        }
-    }
-
-    private static func sanitizedEnvironmentValue(key: String, value: String?) -> String? {
-        switch key {
-        case "CLAUDE_CONFIG_DIR":
-            return value.map { ClaudeConfigDirectoryPath.preferredPath($0) }
-        case "NODE_OPTIONS":
-            return sanitizedNodeOptions(value)
-        default:
-            return value
-        }
-    }
-
-    private static func sanitizedNodeOptions(_ rawValue: String?) -> String? {
-        let tokens = rawValue?
-            .split(whereSeparator: \.isWhitespace)
-            .map(String.init) ?? []
-        guard !tokens.isEmpty else { return nil }
-
-        var sanitized: [String] = []
-        var index = 0
-        var shouldDropInjectedHeapCap = false
-        while index < tokens.count {
-            let token = tokens[index]
-
-            if shouldDropInjectedHeapCap, isInjectedNodeHeapCap(tokens, index: index) {
-                index += nodeHeapCapWidth(tokens, index: index)
-                shouldDropInjectedHeapCap = false
-                continue
-            }
-            shouldDropInjectedHeapCap = false
-
-            if isRequireOption(token), index + 1 < tokens.count,
-               isCmuxNodeOptionsRestoreModulePath(tokens[index + 1]) {
-                index += 2
-                shouldDropInjectedHeapCap = true
-                continue
-            }
-            if let path = inlineRequireOptionPath(token),
-               isCmuxNodeOptionsRestoreModulePath(path) {
-                index += 1
-                shouldDropInjectedHeapCap = true
-                continue
-            }
-
-            sanitized.append(token)
-            index += 1
-        }
-
-        let joined = sanitized.joined(separator: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return joined.isEmpty ? nil : joined
-    }
-
-    private static func isRequireOption(_ token: String) -> Bool {
-        token == "--require" || token == "-r"
-    }
-
-    private static func inlineRequireOptionPath(_ token: String) -> String? {
-        for prefix in ["--require=", "-r="] where token.hasPrefix(prefix) {
-            return String(token.dropFirst(prefix.count))
-        }
-        return nil
-    }
-
-    private static func isCmuxNodeOptionsRestoreModulePath(_ value: String) -> Bool {
-        let trimmed = value.trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
-        guard URL(fileURLWithPath: trimmed).lastPathComponent == "restore-node-options.cjs" else {
-            return false
-        }
-        return trimmed.contains("/cmux-")
-    }
-
-    private static func isInjectedNodeHeapCap(_ tokens: [String], index: Int) -> Bool {
-        guard index < tokens.count else { return false }
-        let token = tokens[index]
-        if token == "--max-old-space-size" {
-            return index + 1 < tokens.count && tokens[index + 1] == "4096"
-        }
-        return token == "--max-old-space-size=4096"
-    }
-
-    private static func nodeHeapCapWidth(_ tokens: [String], index: Int) -> Int {
-        guard index < tokens.count else { return 1 }
-        return tokens[index] == "--max-old-space-size" ? min(2, tokens.count - index) : 1
     }
 
     private static func normalized(_ value: String?) -> String? {

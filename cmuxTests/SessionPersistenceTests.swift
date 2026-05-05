@@ -1140,6 +1140,14 @@ final class SessionPersistenceTests: XCTestCase {
                 ]
             ),
             (
+                .cursor,
+                [
+                    "/usr/local/bin/cursor-agent",
+                    "--model",
+                    "gpt-5.4",
+                ]
+            ),
+            (
                 .gemini,
                 [
                     "/usr/local/bin/gemini",
@@ -1162,6 +1170,38 @@ final class SessionPersistenceTests: XCTestCase {
                     "rovodev",
                     "run",
                     "--yolo",
+                ]
+            ),
+            (
+                .copilot,
+                [
+                    "/usr/local/bin/copilot",
+                    "--model",
+                    "gpt-5.4",
+                ]
+            ),
+            (
+                .codebuddy,
+                [
+                    "/usr/local/bin/codebuddy",
+                    "--model",
+                    "gpt-5.4",
+                ]
+            ),
+            (
+                .factory,
+                [
+                    "/usr/local/bin/droid",
+                    "--cwd",
+                    "/tmp/repo",
+                ]
+            ),
+            (
+                .qoder,
+                [
+                    "/usr/local/bin/qodercli",
+                    "--model",
+                    "gemini-2.5-pro",
                 ]
             ),
         ]
@@ -1280,12 +1320,22 @@ final class SessionPersistenceTests: XCTestCase {
                 resolvedEnvironment = ["CLAUDE_CONFIG_DIR": "/tmp/claude"]
             case .codex:
                 resolvedEnvironment = ["CODEX_HOME": "/tmp/codex"]
+            case .cursor:
+                resolvedEnvironment = [:]
             case .gemini:
                 resolvedEnvironment = ["GEMINI_CLI_HOME": "/tmp/gemini"]
             case .opencode:
                 resolvedEnvironment = ["OPENCODE_CONFIG_DIR": "/tmp/opencode"]
             case .rovodev:
                 resolvedEnvironment = [:]
+            case .copilot:
+                resolvedEnvironment = ["COPILOT_HOME": "/tmp/copilot"]
+            case .codebuddy:
+                resolvedEnvironment = ["CODEBUDDY_CONFIG_DIR": "/tmp/codebuddy"]
+            case .factory:
+                resolvedEnvironment = [:]
+            case .qoder:
+                resolvedEnvironment = ["QODER_CONFIG_DIR": "/tmp/qoder"]
             }
         }
         let resolvedExecutablePath = executablePath ?? arguments.first ?? "/usr/local/bin/\(kind.rawValue)"
@@ -1956,6 +2006,163 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
     }
 
+    func testAdditionalHookAgentResumeCommandsUseVerifiedCLIResumeFlags() {
+        let cursor = SessionRestorableAgentSnapshot(
+            kind: .cursor,
+            sessionId: "cursor-chat-123",
+            workingDirectory: "/tmp/cursor repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "cursor",
+                executablePath: "/Users/example/.local/bin/cursor-agent",
+                arguments: [
+                    "/Users/example/.local/bin/cursor-agent",
+                    "agent",
+                    "--model",
+                    "gpt-5.4",
+                    "--resume",
+                    "old-chat",
+                    "--workspace",
+                    "/tmp/old repo",
+                    "--sandbox",
+                    "enabled",
+                    "initial prompt should not replay"
+                ],
+                workingDirectory: "/tmp/cursor repo",
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+        let copilot = SessionRestorableAgentSnapshot(
+            kind: .copilot,
+            sessionId: "copilot-session-123",
+            workingDirectory: "/tmp/copilot repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "copilot",
+                executablePath: "/tmp/cmux-agent-upstreams/copilot-install/bin/copilot",
+                arguments: [
+                    "/tmp/cmux-agent-upstreams/copilot-install/bin/copilot",
+                    "--model",
+                    "gpt-5.4",
+                    "--resume=old-session",
+                    "--allow-all-tools",
+                    "-i",
+                    "old prompt",
+                    "initial prompt should not replay"
+                ],
+                workingDirectory: "/tmp/copilot repo",
+                environment: [
+                    "COPILOT_HOME": "/tmp/copilot home",
+                    "COPILOT_GITHUB_TOKEN": "secret"
+                ],
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+        let codeBuddy = SessionRestorableAgentSnapshot(
+            kind: .codebuddy,
+            sessionId: "codebuddy-session-123",
+            workingDirectory: "/tmp/codebuddy repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codebuddy",
+                executablePath: "/Users/example/.npm/bin/codebuddy",
+                arguments: [
+                    "/Users/example/.npm/bin/codebuddy",
+                    "--model",
+                    "gpt-5.4",
+                    "--resume",
+                    "old-session",
+                    "--permission-mode",
+                    "plan",
+                    "--worktree",
+                    "scratch",
+                    "initial prompt should not replay"
+                ],
+                workingDirectory: "/tmp/codebuddy repo",
+                environment: [
+                    "CODEBUDDY_CONFIG_DIR": "/tmp/codebuddy config",
+                    "CODEBUDDY_API_KEY": "secret"
+                ],
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+        let factory = SessionRestorableAgentSnapshot(
+            kind: .factory,
+            sessionId: "factory-session-123",
+            workingDirectory: "/tmp/factory repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "factory",
+                executablePath: "/Users/example/.npm/bin/droid",
+                arguments: [
+                    "/Users/example/.npm/bin/droid",
+                    "--resume",
+                    "old-session",
+                    "--cwd",
+                    "/tmp/factory repo",
+                    "--append-system-prompt",
+                    "be terse",
+                    "initial prompt should not replay"
+                ],
+                workingDirectory: "/tmp/factory repo",
+                environment: [
+                    "FACTORY_API_KEY": "secret"
+                ],
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+        let qoder = SessionRestorableAgentSnapshot(
+            kind: .qoder,
+            sessionId: "qoder-session-123",
+            workingDirectory: "/tmp/qoder repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "qoder",
+                executablePath: "/Users/example/.npm/bin/qodercli",
+                arguments: [
+                    "/Users/example/.npm/bin/qodercli",
+                    "--model",
+                    "gemini-2.5-pro",
+                    "--resume",
+                    "old-session",
+                    "--permission-mode",
+                    "plan",
+                    "--workspace",
+                    "/tmp/qoder repo",
+                    "initial prompt should not replay"
+                ],
+                workingDirectory: "/tmp/qoder repo",
+                environment: [
+                    "QODER_CONFIG_DIR": "/tmp/qoder config",
+                    "GEMINI_API_KEY": "secret"
+                ],
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        XCTAssertEqual(
+            cursor.resumeCommand,
+            "cd '/tmp/cursor repo' && '/Users/example/.local/bin/cursor-agent' '--resume' 'cursor-chat-123' '--model' 'gpt-5.4' '--sandbox' 'enabled'"
+        )
+        XCTAssertEqual(
+            copilot.resumeCommand,
+            "cd '/tmp/copilot repo' && 'env' 'COPILOT_HOME=/tmp/copilot home' '/tmp/cmux-agent-upstreams/copilot-install/bin/copilot' '--resume' 'copilot-session-123' '--model' 'gpt-5.4' '--allow-all-tools'"
+        )
+        XCTAssertEqual(
+            codeBuddy.resumeCommand,
+            "cd '/tmp/codebuddy repo' && 'env' 'CODEBUDDY_CONFIG_DIR=/tmp/codebuddy config' '/Users/example/.npm/bin/codebuddy' '--resume' 'codebuddy-session-123' '--model' 'gpt-5.4' '--permission-mode' 'plan'"
+        )
+        XCTAssertEqual(
+            factory.resumeCommand,
+            "cd '/tmp/factory repo' && '/Users/example/.npm/bin/droid' '--resume' 'factory-session-123' '--cwd' '/tmp/factory repo' '--append-system-prompt' 'be terse'"
+        )
+        XCTAssertEqual(
+            qoder.resumeCommand,
+            "cd '/tmp/qoder repo' && 'env' 'QODER_CONFIG_DIR=/tmp/qoder config' '/Users/example/.npm/bin/qodercli' '--resume' 'qoder-session-123' '--model' 'gemini-2.5-pro' '--permission-mode' 'plan' '--workspace' '/tmp/qoder repo'"
+        )
+    }
+
     func testAgentLaunchSanitizerMatchesGeminiAndRovoResumePolicies() {
         XCTAssertEqual(
             AgentLaunchSanitizer.sanitizedLaunchArguments(
@@ -1999,6 +2206,132 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                 "rovodev",
                 "run",
                 "--yolo"
+            ]
+        )
+    }
+
+    func testAgentLaunchSanitizerMatchesAdditionalHookAgentResumePolicies() {
+        XCTAssertEqual(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "/Users/example/.local/bin/cursor-agent",
+                    "agent",
+                    "--model",
+                    "gpt-5.4",
+                    "--resume",
+                    "old-chat",
+                    "--workspace",
+                    "/tmp/old repo",
+                    "--sandbox",
+                    "enabled",
+                    "initial prompt should not replay"
+                ],
+                launcher: "cursor",
+                fallbackKind: "cursor"
+            ),
+            [
+                "/Users/example/.local/bin/cursor-agent",
+                "--model",
+                "gpt-5.4",
+                "--sandbox",
+                "enabled"
+            ]
+        )
+        XCTAssertEqual(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "/tmp/cmux-agent-upstreams/copilot-install/bin/copilot",
+                    "--model",
+                    "gpt-5.4",
+                    "--resume=old-session",
+                    "--allow-all-tools",
+                    "-i",
+                    "old prompt",
+                    "initial prompt should not replay"
+                ],
+                launcher: "copilot",
+                fallbackKind: "copilot"
+            ),
+            [
+                "/tmp/cmux-agent-upstreams/copilot-install/bin/copilot",
+                "--model",
+                "gpt-5.4",
+                "--allow-all-tools"
+            ]
+        )
+        XCTAssertEqual(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "/Users/example/.npm/bin/codebuddy",
+                    "--model",
+                    "gpt-5.4",
+                    "--resume",
+                    "old-session",
+                    "--permission-mode",
+                    "plan",
+                    "--worktree",
+                    "scratch",
+                    "initial prompt should not replay"
+                ],
+                launcher: "codebuddy",
+                fallbackKind: "codebuddy"
+            ),
+            [
+                "/Users/example/.npm/bin/codebuddy",
+                "--model",
+                "gpt-5.4",
+                "--permission-mode",
+                "plan"
+            ]
+        )
+        XCTAssertEqual(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "/Users/example/.npm/bin/droid",
+                    "--resume",
+                    "old-session",
+                    "--cwd",
+                    "/tmp/factory repo",
+                    "--append-system-prompt",
+                    "be terse",
+                    "initial prompt should not replay"
+                ],
+                launcher: "factory",
+                fallbackKind: "factory"
+            ),
+            [
+                "/Users/example/.npm/bin/droid",
+                "--cwd",
+                "/tmp/factory repo",
+                "--append-system-prompt",
+                "be terse"
+            ]
+        )
+        XCTAssertEqual(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "/Users/example/.npm/bin/qodercli",
+                    "--model",
+                    "gemini-2.5-pro",
+                    "--resume",
+                    "old-session",
+                    "--permission-mode",
+                    "plan",
+                    "--workspace",
+                    "/tmp/qoder repo",
+                    "initial prompt should not replay"
+                ],
+                launcher: "qoder",
+                fallbackKind: "qoder"
+            ),
+            [
+                "/Users/example/.npm/bin/qodercli",
+                "--model",
+                "gemini-2.5-pro",
+                "--permission-mode",
+                "plan",
+                "--workspace",
+                "/tmp/qoder repo"
             ]
         )
     }
@@ -2215,6 +2548,76 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                 source: nil
             )
         )
+        let cursorPrint = SessionRestorableAgentSnapshot(
+            kind: .cursor,
+            sessionId: "cursor-session-123",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "cursor",
+                executablePath: "cursor-agent",
+                arguments: ["cursor-agent", "--print", "fix this"],
+                workingDirectory: nil,
+                environment: nil,
+                capturedAt: nil,
+                source: nil
+            )
+        )
+        let copilotPrompt = SessionRestorableAgentSnapshot(
+            kind: .copilot,
+            sessionId: "copilot-session-123",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "copilot",
+                executablePath: "copilot",
+                arguments: ["copilot", "--prompt", "fix this"],
+                workingDirectory: nil,
+                environment: nil,
+                capturedAt: nil,
+                source: nil
+            )
+        )
+        let codeBuddyPrint = SessionRestorableAgentSnapshot(
+            kind: .codebuddy,
+            sessionId: "codebuddy-session-123",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codebuddy",
+                executablePath: "codebuddy",
+                arguments: ["codebuddy", "--print", "fix this"],
+                workingDirectory: nil,
+                environment: nil,
+                capturedAt: nil,
+                source: nil
+            )
+        )
+        let factoryExec = SessionRestorableAgentSnapshot(
+            kind: .factory,
+            sessionId: "factory-session-123",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "factory",
+                executablePath: "droid",
+                arguments: ["droid", "exec", "fix this"],
+                workingDirectory: nil,
+                environment: nil,
+                capturedAt: nil,
+                source: nil
+            )
+        )
+        let qoderPrint = SessionRestorableAgentSnapshot(
+            kind: .qoder,
+            sessionId: "qoder-session-123",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "qoder",
+                executablePath: "qodercli",
+                arguments: ["qodercli", "--print", "fix this"],
+                workingDirectory: nil,
+                environment: nil,
+                capturedAt: nil,
+                source: nil
+            )
+        )
 
         XCTAssertNil(claudePrint.resumeCommand)
         XCTAssertNil(claudePrintEquals.resumeCommand)
@@ -2223,6 +2626,11 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertNil(opencodePR.resumeCommand)
         XCTAssertNil(geminiPrompt.resumeCommand)
         XCTAssertNil(rovoDevAuth.resumeCommand)
+        XCTAssertNil(cursorPrint.resumeCommand)
+        XCTAssertNil(copilotPrompt.resumeCommand)
+        XCTAssertNil(codeBuddyPrint.resumeCommand)
+        XCTAssertNil(factoryExec.resumeCommand)
+        XCTAssertNil(qoderPrint.resumeCommand)
     }
 
     func testRestorableAgentIndexLoadsLaunchCommandFromHookStore() throws {
