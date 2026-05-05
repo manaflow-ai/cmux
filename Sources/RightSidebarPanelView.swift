@@ -46,35 +46,6 @@ enum RightSidebarMode: String, CaseIterable {
         case .dock: return .switchRightSidebarToDock
         }
     }
-
-    static func availableModes(defaults: UserDefaults = .standard) -> [RightSidebarMode] {
-        availableModes(
-            feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
-            dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults)
-        )
-    }
-
-    static func availableModes(feedEnabled: Bool, dockEnabled: Bool) -> [RightSidebarMode] {
-        allCases.filter { $0.isAvailable(feedEnabled: feedEnabled, dockEnabled: dockEnabled) }
-    }
-
-    func isAvailable(defaults: UserDefaults = .standard) -> Bool {
-        isAvailable(
-            feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
-            dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults)
-        )
-    }
-
-    func isAvailable(feedEnabled: Bool, dockEnabled: Bool) -> Bool {
-        switch self {
-        case .files, .find, .sessions:
-            return true
-        case .feed:
-            return feedEnabled
-        case .dock:
-            return dockEnabled
-        }
-    }
 }
 
 extension RightSidebarMode {
@@ -203,12 +174,6 @@ struct RightSidebarPanelView: View {
         RightSidebarMode.availableModes(feedEnabled: feedEnabled, dockEnabled: dockEnabled)
     }
 
-    private var effectiveMode: RightSidebarMode {
-        fileExplorerState.mode.isAvailable(feedEnabled: feedEnabled, dockEnabled: dockEnabled)
-            ? fileExplorerState.mode
-            : .files
-    }
-
     var body: some View {
         ZStack(alignment: .topLeading) {
             VStack(spacing: 0) {
@@ -237,19 +202,18 @@ struct RightSidebarPanelView: View {
         .onAppear {
             modeShortcutHintMonitor.start()
             focusShortcutHintMonitor.start()
-            ensureSelectedModeIsAvailable()
+            fileExplorerState.refreshModeAvailability()
         }
         .onDisappear {
             modeShortcutHintMonitor.stop()
             focusShortcutHintMonitor.stop()
         }
         .onChange(of: fileExplorerState.mode) { _, mode in
-            ensureSelectedModeIsAvailable()
             if mode != .dock { dockStore.deactivate() }
         }
         .onChange(of: fileExplorerState.isVisible) { _, visible in if !visible { dockStore.deactivate() } }
-        .onChange(of: feedEnabled) { _, _ in ensureSelectedModeIsAvailable() }
-        .onChange(of: dockEnabled) { _, _ in ensureSelectedModeIsAvailable() }
+        .onChange(of: feedEnabled) { _, _ in fileExplorerState.refreshModeAvailability() }
+        .onChange(of: dockEnabled) { _, _ in fileExplorerState.refreshModeAvailability() }
     }
 
     private var modeBar: some View {
@@ -259,7 +223,7 @@ struct RightSidebarPanelView: View {
             ForEach(availableModes, id: \.rawValue) { mode in
                 ModeBarButton(
                     mode: mode,
-                    isSelected: effectiveMode == mode,
+                    isSelected: fileExplorerState.mode == mode,
                     badgeCount: mode == .feed ? feedPendingCount : 0,
                     shortcutHint: KeyboardShortcutSettings.shortcut(for: mode.shortcutAction),
                     showsShortcutHint: showsModeShortcutHints
@@ -309,7 +273,7 @@ struct RightSidebarPanelView: View {
 
     @ViewBuilder
     private var contentForMode: some View {
-        switch effectiveMode {
+        switch fileExplorerState.mode {
         case .files:
             FileExplorerPanelView(
                 store: fileExplorerStore,
@@ -341,21 +305,13 @@ struct RightSidebarPanelView: View {
     }
 
     private func selectMode(_ mode: RightSidebarMode) {
-        let nextMode = mode.isAvailable(feedEnabled: feedEnabled, dockEnabled: dockEnabled) ? mode : .files
-        if fileExplorerState.mode != nextMode {
-            fileExplorerState.mode = nextMode
-        }
-        if nextMode == .sessions {
+        fileExplorerState.mode = mode
+        if fileExplorerState.mode == .sessions {
             sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)
             if sessionIndexStore.entries.isEmpty {
                 sessionIndexStore.reload()
             }
         }
-    }
-
-    private func ensureSelectedModeIsAvailable() {
-        guard !fileExplorerState.mode.isAvailable(feedEnabled: feedEnabled, dockEnabled: dockEnabled) else { return }
-        fileExplorerState.mode = .files
     }
 }
 

@@ -5441,32 +5441,6 @@ struct SettingsView: View {
         return String(localized: "settings.browser.enabled.subtitleOn", defaultValue: "Browser tabs, terminal link clicks, and intercepted open commands can use the embedded browser.")
     }
 
-    private var rightSidebarFeedSubtitle: String {
-        if rightSidebarFeedEnabled {
-            return String(
-                localized: "settings.betaFeatures.feed.subtitleOn",
-                defaultValue: "Shows Feed in the right sidebar mode switcher for inline agent decisions."
-            )
-        }
-        return String(
-            localized: "settings.betaFeatures.feed.subtitleOff",
-            defaultValue: "Hides Feed from the right sidebar until you enable it here."
-        )
-    }
-
-    private var rightSidebarDockSubtitle: String {
-        if rightSidebarDockEnabled {
-            return String(
-                localized: "settings.betaFeatures.dock.subtitleOn",
-                defaultValue: "Shows Dock in the right sidebar mode switcher for custom terminal controls."
-            )
-        }
-        return String(
-            localized: "settings.betaFeatures.dock.subtitleOff",
-            defaultValue: "Hides Dock from the right sidebar until you enable it here."
-        )
-    }
-
     @ViewBuilder
     private var browserEnabledSettingsRows: some View {
         SettingsCardRow(
@@ -6483,50 +6457,10 @@ struct SettingsView: View {
                         .disabled(sidebarHideAllDetails)
                     }
 
-                    SettingsSectionHeader(title: String(localized: "settings.section.betaFeatures", defaultValue: "Beta Features"))
-                        .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .betaFeatures))
-                    SettingsCard {
-                        SettingsWarningNote(
-                            String(
-                                localized: "settings.betaFeatures.warning",
-                                defaultValue: "These features are unstable and may change or break. Enable them only when you are testing them."
-                            )
-                        )
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
-                            configurationReview: .settingsOnly,
-                            String(localized: "settings.betaFeatures.feed", defaultValue: "Feed"),
-                            subtitle: rightSidebarFeedSubtitle,
-                            searchAnchorID: SettingsSearchIndex.settingID(for: .betaFeatures, idSuffix: "feed")
-                        ) {
-                            Toggle("", isOn: $rightSidebarFeedEnabled)
-                                .labelsHidden()
-                                .controlSize(.small)
-                                .accessibilityIdentifier("SettingsBetaFeedToggle")
-                                .accessibilityLabel(
-                                    String(localized: "settings.betaFeatures.feed", defaultValue: "Feed")
-                                )
-                        }
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
-                            configurationReview: .settingsOnly,
-                            String(localized: "settings.betaFeatures.dock", defaultValue: "Dock"),
-                            subtitle: rightSidebarDockSubtitle,
-                            searchAnchorID: SettingsSearchIndex.settingID(for: .betaFeatures, idSuffix: "dock")
-                        ) {
-                            Toggle("", isOn: $rightSidebarDockEnabled)
-                                .labelsHidden()
-                                .controlSize(.small)
-                                .accessibilityIdentifier("SettingsBetaDockToggle")
-                                .accessibilityLabel(
-                                    String(localized: "settings.betaFeatures.dock", defaultValue: "Dock")
-                                )
-                        }
-                    }
+                    BetaFeaturesSettingsView(
+                        feedEnabled: $rightSidebarFeedEnabled,
+                        dockEnabled: $rightSidebarDockEnabled
+                    )
 
                     SettingsSectionHeader(title: String(localized: "settings.section.automation", defaultValue: "Automation"))
                         .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .automation))
@@ -7438,6 +7372,8 @@ struct SettingsView: View {
         browserImportHintVariantRaw = BrowserImportHintSettings.defaultVariant.rawValue
         showBrowserImportHintOnBlankTabs = BrowserImportHintSettings.defaultShowOnBlankTabs
         isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed
+        rightSidebarFeedEnabled = RightSidebarBetaFeatureSettings.defaultFeedEnabled
+        rightSidebarDockEnabled = RightSidebarBetaFeatureSettings.defaultDockEnabled
         openTerminalLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser
         interceptTerminalOpenCommandInCmuxBrowser = BrowserLinkOpenSettings.defaultInterceptTerminalOpenCommandInCmuxBrowser
         browserHostWhitelist = BrowserLinkOpenSettings.defaultBrowserHostWhitelist
@@ -7565,7 +7501,7 @@ struct SettingsView: View {
     }
 }
 
-private struct SettingsSectionHeader: View {
+struct SettingsSectionHeader: View {
     let title: String
 
     var body: some View {
@@ -7655,7 +7591,7 @@ private struct AuthSettingsRow: View {
     }
 }
 
-private struct SettingsCard<Content: View>: View {
+struct SettingsCard<Content: View>: View {
     @ViewBuilder let content: Content
 
     init(@ViewBuilder content: () -> Content) {
@@ -7677,7 +7613,7 @@ private struct SettingsCard<Content: View>: View {
     }
 }
 
-private struct SettingsCardRow<Trailing: View>: View {
+struct SettingsCardRow<Trailing: View>: View {
     let configurationReview: SettingsConfigurationReview
     let title: String
     let subtitle: String?
@@ -7797,7 +7733,7 @@ extension SettingsPickerRow where ExtraTrailing == EmptyView {
     }
 }
 
-private enum SettingsConfigurationReview: Equatable {
+enum SettingsConfigurationReview: Equatable {
     case settingsFile([String])
     case settingsOnly
     case action
@@ -7835,53 +7771,11 @@ private extension View {
     }
 }
 
-private struct SettingsCardDivider: View {
+struct SettingsCardDivider: View {
     var body: some View {
         Rectangle()
             .fill(Color(nsColor: NSColor.separatorColor).opacity(0.5))
             .frame(height: 1)
-    }
-}
-
-private struct SettingsCardNote: View {
-    let text: String
-
-    init(_ text: String) {
-        self.text = text
-    }
-
-    var body: some View {
-        Text(text)
-            .font(.caption)
-            .foregroundColor(.secondary)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-private struct SettingsWarningNote: View {
-    let text: String
-
-    init(_ text: String) {
-        self.text = text
-    }
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.yellow)
-                .accessibilityHidden(true)
-
-            Text(text)
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
