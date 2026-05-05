@@ -7882,6 +7882,10 @@ struct ContentView: View {
         }
         for mode in RightSidebarMode.allCases {
             registry.register(commandId: Self.commandPaletteRightSidebarModeCommandID(mode)) {
+                guard mode.isAvailable() else {
+                    NSSound.beep()
+                    return
+                }
                 if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
                     mode: mode,
                     focusFirstItem: true,

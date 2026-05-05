@@ -423,7 +423,6 @@ enum FileExplorerError: LocalizedError {
 
 final class FileExplorerState: ObservableObject {
     private static let modeKey = "rightSidebar.mode"
-    private static let feedDockMigrationKey = "rightSidebar.feedDockMigrationApplied"
 
     @Published var isVisible: Bool {
         didSet { UserDefaults.standard.set(isVisible, forKey: "fileExplorer.isVisible") }
@@ -457,14 +456,12 @@ final class FileExplorerState: ObservableObject {
         self.dividerPosition = storedPosition > 0 ? CGFloat(storedPosition) : 0.6
         let storedShowHidden = defaults.object(forKey: "fileExplorer.showHidden")
         self.showHiddenFiles = storedShowHidden == nil ? true : defaults.bool(forKey: "fileExplorer.showHidden")
-        let storedMode = defaults.string(forKey: Self.modeKey) ?? RightSidebarMode.files.rawValue
-        if storedMode == RightSidebarMode.feed.rawValue,
-           defaults.bool(forKey: Self.feedDockMigrationKey) == false {
-            self.mode = .dock
-            defaults.set(RightSidebarMode.dock.rawValue, forKey: Self.modeKey)
-            defaults.set(true, forKey: Self.feedDockMigrationKey)
+        let storedMode = RightSidebarMode(rawValue: defaults.string(forKey: Self.modeKey) ?? "") ?? .files
+        if storedMode.isAvailable(defaults: defaults) {
+            self.mode = storedMode
         } else {
-            self.mode = RightSidebarMode(rawValue: storedMode) ?? .files
+            self.mode = .files
+            defaults.set(RightSidebarMode.files.rawValue, forKey: Self.modeKey)
         }
     }
 

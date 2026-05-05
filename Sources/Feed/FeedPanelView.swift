@@ -56,6 +56,7 @@ struct FeedPanelView: View {
     enum Filter: String, CaseIterable, Identifiable {
         case actionable
         case activity
+        static let visibleCases: [Filter] = [.actionable]
         var id: String { rawValue }
         var label: String {
             switch self {
@@ -110,7 +111,7 @@ struct FeedPanelView: View {
 
     private var controlBarContent: some View {
         HStack(spacing: 6) {
-            ForEach(Filter.allCases) { f in
+            ForEach(Filter.visibleCases) { f in
                 FeedSecondaryFilterButton(
                     filter: f,
                     isSelected: filter == f

@@ -409,7 +409,12 @@ final class MainWindowFocusController {
     @discardableResult
     func focusRightSidebar(mode requestedMode: RightSidebarMode? = nil, focusFirstItem: Bool = true) -> Bool {
         guard let state = fileExplorerState else { return false }
-        let mode = requestedMode ?? rememberedRightSidebarMode ?? state.mode
+        let desiredMode = requestedMode ?? rememberedRightSidebarMode ?? state.mode
+        guard desiredMode.isAvailable() else {
+            guard requestedMode == nil else { return false }
+            return focusRightSidebar(mode: .files, focusFirstItem: focusFirstItem)
+        }
+        let mode = desiredMode
         let target = rightSidebarFocusTarget(mode: mode, focusFirstItem: focusFirstItem)
         return focusRightSidebar(mode: mode, target: target, terminalYieldReason: "rightSidebarFocus")
     }
@@ -421,6 +426,7 @@ final class MainWindowFocusController {
         terminalYieldReason: String = "rightSidebarFocus"
     ) -> Bool {
         guard let state = fileExplorerState else { return false }
+        guard mode.isAvailable() else { return false }
         rememberedRightSidebarMode = mode
         beginRightSidebarFocusRequest(mode: mode, target: target)
         intent = .rightSidebar(mode: mode)

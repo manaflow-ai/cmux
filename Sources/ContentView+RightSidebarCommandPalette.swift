@@ -83,7 +83,7 @@ extension ContentView {
             { _ in value }
         }
 
-        return RightSidebarMode.allCases.map { mode in
+        return RightSidebarMode.availableModes().map { mode in
             CommandPaletteCommandContribution(
                 commandId: Self.commandPaletteRightSidebarModeCommandID(mode),
                 title: constant(mode.shortcutAction.label),
@@ -111,7 +111,7 @@ extension ContentView {
     private static func commandPaletteRightSidebarModeShortcutAction(
         forCommandID commandID: String
     ) -> KeyboardShortcutSettings.Action? {
-        RightSidebarMode.allCases.first { mode in
+        RightSidebarMode.availableModes().first { mode in
             Self.commandPaletteRightSidebarModeCommandID(mode) == commandID
         }?.shortcutAction
     }

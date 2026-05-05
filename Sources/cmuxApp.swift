@@ -5270,6 +5270,10 @@ struct SettingsView: View {
     @AppStorage("sidebarTintHexDark") private var sidebarTintHexDark: String?
     @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = SidebarTintDefaults.opacity
     @AppStorage("sidebarMatchTerminalBackground") private var sidebarMatchTerminalBackground = false
+    @AppStorage(RightSidebarBetaFeatureSettings.feedEnabledKey)
+    private var rightSidebarFeedEnabled = RightSidebarBetaFeatureSettings.defaultFeedEnabled
+    @AppStorage(RightSidebarBetaFeatureSettings.dockEnabledKey)
+    private var rightSidebarDockEnabled = RightSidebarBetaFeatureSettings.defaultDockEnabled
 
     @ObservedObject private var notificationStore = TerminalNotificationStore.shared
     @ObservedObject private var authManager = AuthManager.shared
@@ -5435,6 +5439,32 @@ struct SettingsView: View {
             return String(localized: "settings.browser.enabled.subtitleOff", defaultValue: "Browser tabs and link interception are disabled. Links open in your default browser.")
         }
         return String(localized: "settings.browser.enabled.subtitleOn", defaultValue: "Browser tabs, terminal link clicks, and intercepted open commands can use the embedded browser.")
+    }
+
+    private var rightSidebarFeedSubtitle: String {
+        if rightSidebarFeedEnabled {
+            return String(
+                localized: "settings.betaFeatures.feed.subtitleOn",
+                defaultValue: "Shows Feed in the right sidebar mode switcher for inline agent decisions."
+            )
+        }
+        return String(
+            localized: "settings.betaFeatures.feed.subtitleOff",
+            defaultValue: "Hides Feed from the right sidebar until you enable it here."
+        )
+    }
+
+    private var rightSidebarDockSubtitle: String {
+        if rightSidebarDockEnabled {
+            return String(
+                localized: "settings.betaFeatures.dock.subtitleOn",
+                defaultValue: "Shows Dock in the right sidebar mode switcher for custom terminal controls."
+            )
+        }
+        return String(
+            localized: "settings.betaFeatures.dock.subtitleOff",
+            defaultValue: "Hides Dock from the right sidebar until you enable it here."
+        )
     }
 
     @ViewBuilder
@@ -6451,6 +6481,51 @@ struct SettingsView: View {
                                 .controlSize(.small)
                         }
                         .disabled(sidebarHideAllDetails)
+                    }
+
+                    SettingsSectionHeader(title: String(localized: "settings.section.betaFeatures", defaultValue: "Beta Features"))
+                        .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .betaFeatures))
+                    SettingsCard {
+                        SettingsWarningNote(
+                            String(
+                                localized: "settings.betaFeatures.warning",
+                                defaultValue: "These features are unstable and may change or break. Enable them only when you are testing them."
+                            )
+                        )
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .settingsOnly,
+                            String(localized: "settings.betaFeatures.feed", defaultValue: "Feed"),
+                            subtitle: rightSidebarFeedSubtitle,
+                            searchAnchorID: SettingsSearchIndex.settingID(for: .betaFeatures, idSuffix: "feed")
+                        ) {
+                            Toggle("", isOn: $rightSidebarFeedEnabled)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsBetaFeedToggle")
+                                .accessibilityLabel(
+                                    String(localized: "settings.betaFeatures.feed", defaultValue: "Feed")
+                                )
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .settingsOnly,
+                            String(localized: "settings.betaFeatures.dock", defaultValue: "Dock"),
+                            subtitle: rightSidebarDockSubtitle,
+                            searchAnchorID: SettingsSearchIndex.settingID(for: .betaFeatures, idSuffix: "dock")
+                        ) {
+                            Toggle("", isOn: $rightSidebarDockEnabled)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsBetaDockToggle")
+                                .accessibilityLabel(
+                                    String(localized: "settings.betaFeatures.dock", defaultValue: "Dock")
+                                )
+                        }
                     }
 
                     SettingsSectionHeader(title: String(localized: "settings.section.automation", defaultValue: "Automation"))
@@ -7782,6 +7857,31 @@ private struct SettingsCardNote: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct SettingsWarningNote: View {
+    let text: String
+
+    init(_ text: String) {
+        self.text = text
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.yellow)
+                .accessibilityHidden(true)
+
+            Text(text)
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
