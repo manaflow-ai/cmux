@@ -1,6 +1,8 @@
 import XCTest
 
 final class BundledCLILinkageTests: XCTestCase {
+    deinit {}
+
     func testBundledCLIDoesNotDependOnPrivateRPathFrameworks() throws {
         let cliURL = try bundledCLIURL()
         let linkedLibraries = try linkedLibraries(for: cliURL)
@@ -37,21 +39,20 @@ final class BundledCLILinkageTests: XCTestCase {
 
     private func linkedLibraries(for executableURL: URL) throws -> [String] {
         let process = Process()
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
+        let outputPipe = Pipe()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/otool")
         process.arguments = ["-L", executableURL.path]
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
+        process.standardOutput = outputPipe
+        process.standardError = outputPipe
 
         try process.run()
+        let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
 
-        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        XCTAssertEqual(process.terminationStatus, 0, "otool failed: \(stderr)")
+        let output = String(data: outputData, encoding: .utf8) ?? ""
+        XCTAssertEqual(process.terminationStatus, 0, "otool failed: \(output)")
 
-        return stdout
+        return output
             .split(separator: "\n")
             .dropFirst()
             .compactMap { line -> String? in
