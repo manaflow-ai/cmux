@@ -48,7 +48,7 @@ enum JSONCSettingsPatcher {
             return replacing(object.close..<object.close, with: insertion, in: source)
         }
 
-        let insertion = "\n\(childIndent)\(renderString(key)): \(valueJSON)"
+        let insertion = "\n\(childIndent)\(renderString(key)): \(valueJSON)\n\(indent)"
         let insertAt = source.index(after: object.open)
         return replacing(insertAt..<insertAt, with: insertion, in: source)
     }

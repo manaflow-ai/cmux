@@ -301,7 +301,7 @@ enum CmuxSettingsJSONPersistence {
             attributes: [.posixPermissions: 0o755]
         )
         try Data(patchedSource.utf8).write(to: fileURL, options: [.atomic])
-        try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+        try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
     }
 
     private static func boolValue(_ key: String, defaultValue: Bool, defaults: UserDefaults) -> Bool {

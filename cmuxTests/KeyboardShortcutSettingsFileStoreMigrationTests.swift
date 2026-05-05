@@ -273,6 +273,46 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
         withExtendedLifetime(store) {}
     }
 
+    func testSettingsUISocketPasswordChangePersistsManagedAutomationPasswordToConfig() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let primaryURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "automation": {
+                "socketPassword": "old-secret"
+              }
+            }
+            """,
+            to: primaryURL
+        )
+
+        var storedPassword: String?
+        let notificationCenter = NotificationCenter()
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: primaryURL.path,
+            fallbackPath: nil,
+            notificationCenter: notificationCenter,
+            loadSocketPassword: { storedPassword },
+            saveSocketPassword: { storedPassword = $0 },
+            clearSocketPassword: { storedPassword = nil },
+            startWatching: true
+        )
+        XCTAssertEqual(storedPassword, "old-secret")
+
+        storedPassword = "new-secret"
+        notificationCenter.post(name: SocketControlPasswordStore.didChangeNotification, object: nil)
+        try waitForAutomationSocketPassword("new-secret", in: primaryURL)
+
+        storedPassword = nil
+        notificationCenter.post(name: SocketControlPasswordStore.didChangeNotification, object: nil)
+        try waitForAutomationSocketPassword(nil, in: primaryURL)
+
+        withExtendedLifetime(store) {}
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-settings-migration-\(UUID().uuidString)",
@@ -302,5 +342,24 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.02))
         }
         XCTFail("Timed out waiting for sidebarAppearance.matchTerminalBackground to persist")
+    }
+
+    private func waitForAutomationSocketPassword(_ expectedValue: String?, in url: URL) throws {
+        let deadline = Date().addingTimeInterval(2)
+        while Date() < deadline {
+            let sanitized = try JSONCParser.preprocess(data: Data(contentsOf: url))
+            if let root = try JSONSerialization.jsonObject(with: sanitized) as? [String: Any],
+               let automation = root["automation"] as? [String: Any] {
+                let actual = automation["socketPassword"]
+                if let expectedValue, actual as? String == expectedValue {
+                    return
+                }
+                if expectedValue == nil, actual is NSNull {
+                    return
+                }
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+        }
+        XCTFail("Timed out waiting for automation.socketPassword to persist")
     }
 }

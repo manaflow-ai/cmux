@@ -133,6 +133,9 @@ final class CmuxSettingsFileStore {
     private let fileManager: FileManager
     private let userDefaults: UserDefaults
     private let notificationCenter: NotificationCenter
+    private let loadSocketPassword: () throws -> String?
+    private let saveSocketPassword: (String) throws -> Void
+    private let clearSocketPassword: () throws -> Void
     private let stateLock = NSLock()
 
     private var primaryWatcher: ShortcutSettingsFileWatcher?
@@ -154,6 +157,9 @@ final class CmuxSettingsFileStore {
         fileManager: FileManager = .default,
         userDefaults: UserDefaults = .standard,
         notificationCenter: NotificationCenter = .default,
+        loadSocketPassword: @escaping () throws -> String? = { try SocketControlPasswordStore.loadPassword() },
+        saveSocketPassword: @escaping (String) throws -> Void = { try SocketControlPasswordStore.savePassword($0) },
+        clearSocketPassword: @escaping () throws -> Void = { try SocketControlPasswordStore.clearPassword() },
         startWatching: Bool = true
     ) {
         self.primaryPath = primaryPath
@@ -162,6 +168,9 @@ final class CmuxSettingsFileStore {
         self.fileManager = fileManager
         self.userDefaults = userDefaults
         self.notificationCenter = notificationCenter
+        self.loadSocketPassword = loadSocketPassword
+        self.saveSocketPassword = saveSocketPassword
+        self.clearSocketPassword = clearSocketPassword
 
         bootstrapPrimaryTemplateIfNeeded()
         reload()
@@ -196,7 +205,7 @@ final class CmuxSettingsFileStore {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.reapplyManagedSettingsIfNeeded()
+            self?.persistSocketPasswordSettingsChangeIfNeeded()
         }
     }
 
@@ -214,7 +223,9 @@ final class CmuxSettingsFileStore {
         let previousActiveSourcePath = synchronized { activeSourcePath }
         let resolved = resolveSettings()
         applyManagedSettings(snapshot: resolved)
-        let currentSettingsValues = currentSettingsJSONValuesFromUserDefaults()
+        let currentSettingsValues = currentSettingsJSONValues(
+            managedCustomSettings: resolved.managedCustomSettings
+        )
         synchronized {
             shortcutsByAction = resolved.shortcuts
             activeManagedUserDefaults = resolved.managedUserDefaults
@@ -300,7 +311,7 @@ final class CmuxSettingsFileStore {
     }
 
     private func persistUserDefaultsSettingsChangeIfNeeded() {
-        let currentValues = currentSettingsJSONValuesFromUserDefaults()
+        let currentValues = currentSettingsJSONValues(includingManagedCustomSettings: false)
         let changedValues: [String: ManagedSettingsValue] = synchronized {
             return currentValues.filter { path, value in
                 lastPersistedSettingsValues[path] != value
@@ -311,10 +322,39 @@ final class CmuxSettingsFileStore {
         do {
             try persistSettingsJSONValues(changedValues)
             synchronized {
-                lastPersistedSettingsValues = currentValues
+                for (path, value) in currentValues {
+                    lastPersistedSettingsValues[path] = value
+                }
             }
         } catch {
             NSLog("[CmuxSettingsFileStore] failed to persist Settings UI change: %@", String(describing: error))
+            reapplyManagedSettingsIfNeeded()
+        }
+    }
+
+    private func persistSocketPasswordSettingsChangeIfNeeded() {
+        let isManaged = synchronized {
+            !isApplyingManagedSettings && activeManagedCustomSettings.socketPassword != nil
+        }
+        guard isManaged else { return }
+
+        let currentValues = currentSettingsJSONValues()
+        guard let currentValue = currentValues["automation.socketPassword"] else { return }
+        let changedValues: [String: ManagedSettingsValue] = synchronized {
+            guard lastPersistedSettingsValues["automation.socketPassword"] != currentValue else {
+                return [:]
+            }
+            return ["automation.socketPassword": currentValue]
+        }
+        guard !changedValues.isEmpty else { return }
+
+        do {
+            try persistSettingsJSONValues(changedValues)
+            synchronized {
+                lastPersistedSettingsValues["automation.socketPassword"] = currentValue
+            }
+        } catch {
+            NSLog("[CmuxSettingsFileStore] failed to persist socket password Settings UI change: %@", String(describing: error))
             reapplyManagedSettingsIfNeeded()
         }
     }
@@ -964,14 +1004,14 @@ final class CmuxSettingsFileStore {
         if let socketPassword = settings.socketPassword {
             switch socketPassword {
             case .set(let value):
-                let current = (try? SocketControlPasswordStore.loadPassword()) ?? nil
+                let current = (try? loadSocketPassword()) ?? nil
                 if current != value {
-                    try? SocketControlPasswordStore.savePassword(value)
+                    try? saveSocketPassword(value)
                 }
             case .clear:
-                let current = (try? SocketControlPasswordStore.loadPassword()) ?? nil
+                let current = (try? loadSocketPassword()) ?? nil
                 if current != nil {
-                    try? SocketControlPasswordStore.clearPassword()
+                    try? clearSocketPassword()
                 }
             }
         }
@@ -982,9 +1022,9 @@ final class CmuxSettingsFileStore {
         case Self.socketPasswordBackupIdentifier:
             switch backup {
             case .string(let value):
-                try? SocketControlPasswordStore.savePassword(value)
+                try? saveSocketPassword(value)
             case .absent:
-                try? SocketControlPasswordStore.clearPassword()
+                try? clearSocketPassword()
             default:
                 break
             }
@@ -1026,7 +1066,7 @@ final class CmuxSettingsFileStore {
     }
 
     private func currentSocketPasswordBackupValue() -> BackupValue {
-        guard let current = try? SocketControlPasswordStore.loadPassword() else {
+        guard let current = try? loadSocketPassword() else {
             return .absent
         }
         return .string(current)
@@ -1190,8 +1230,17 @@ final class CmuxSettingsFileStore {
         )
     }
 
-    private func currentSettingsJSONValuesFromUserDefaults() -> [String: ManagedSettingsValue] {
-        CmuxSettingsJSONPersistence.currentSettingsJSONValuesFromUserDefaults(defaults: userDefaults)
+    private func currentSettingsJSONValues(
+        managedCustomSettings: ManagedCustomSettings? = nil,
+        includingManagedCustomSettings: Bool = true
+    ) -> [String: ManagedSettingsValue] {
+        var values = CmuxSettingsJSONPersistence.currentSettingsJSONValuesFromUserDefaults(defaults: userDefaults)
+        guard includingManagedCustomSettings else { return values }
+        let customSettings = managedCustomSettings ?? synchronized { activeManagedCustomSettings }
+        if customSettings.socketPassword != nil {
+            values["automation.socketPassword"] = .nullableString((try? loadSocketPassword()) ?? nil)
+        }
+        return values
     }
 
     private func jsonString(_ rawValue: Any?) -> String? {
