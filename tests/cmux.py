@@ -111,7 +111,8 @@ def _last_socket_path_files() -> List[str]:
     elif bundle_id == _DEFAULT_DEBUG_BUNDLE_ID or bundle_id.startswith(f"{_DEFAULT_DEBUG_BUNDLE_ID}."):
         suffix = bundle_id.removeprefix(f"{_DEFAULT_DEBUG_BUNDLE_ID}.")
         if suffix == bundle_id:
-            slug = _sanitize_marker_slug(os.environ.get("CMUX_TAG", ""))
+            tag = os.environ.get("CMUX_TAG", "").strip()
+            slug = _sanitize_marker_slug(tag) if tag else None
         else:
             slug = _sanitize_marker_slug(suffix)
         marker = f"dev-{slug}-last-socket-path" if slug else "dev-last-socket-path"
@@ -140,7 +141,8 @@ def _variant_socket_candidates() -> List[str]:
     if bundle_id == _DEFAULT_DEBUG_BUNDLE_ID or bundle_id.startswith(f"{_DEFAULT_DEBUG_BUNDLE_ID}."):
         suffix = bundle_id.removeprefix(f"{_DEFAULT_DEBUG_BUNDLE_ID}.")
         if suffix == bundle_id:
-            slug = _sanitize_marker_slug(os.environ.get("CMUX_TAG", ""))
+            tag = os.environ.get("CMUX_TAG", "").strip()
+            slug = _sanitize_marker_slug(tag) if tag else None
         else:
             slug = _sanitize_marker_slug(suffix)
         return [f"/tmp/cmux-debug-{slug}.sock"] if slug else ["/tmp/cmux-debug.sock"]
@@ -180,7 +182,7 @@ def _can_connect(path: str, timeout: float = 0.15, retries: int = 4) -> bool:
 def _default_socket_path() -> str:
     bundle_id = _default_bundle_id()
     tag = os.environ.get("CMUX_TAG")
-    if tag and bundle_id.startswith(_DEFAULT_DEBUG_BUNDLE_ID):
+    if tag and bundle_id == _DEFAULT_DEBUG_BUNDLE_ID:
         slug = _sanitize_tag_slug(tag)
         tagged_candidates = [
             f"/tmp/cmux-debug-{slug}.sock",
@@ -218,7 +220,11 @@ def _default_socket_path() -> str:
     if bundle_id.startswith(_DEFAULT_DEBUG_BUNDLE_ID):
         tagged = glob.glob("/tmp/cmux-debug-*.sock")
         tagged.extend(glob.glob(os.path.join(_APP_SUPPORT_DIR, "cmux*.sock")))
-        tagged = [p for p in tagged if os.path.exists(p)]
+        tagged = [
+            p for p in tagged
+            if os.path.exists(p)
+            and os.path.basename(p).startswith("cmux-debug-")
+        ]
         if tagged:
             tagged.sort(key=lambda p: os.path.getmtime(p), reverse=True)
             for p in tagged:
