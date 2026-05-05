@@ -41,8 +41,14 @@ enum JSONCSettingsPatcher {
     ) -> String {
         let indent = lineIndent(in: source, at: object.open)
         let childIndent = indent + "  "
-        let comma = object.hasProperties ? "," : ""
-        let insertion = "\n\(childIndent)\(renderString(key)): \(valueJSON)\(comma)"
+        if object.hasProperties {
+            let closeIndent = lineIndent(in: source, at: object.close)
+            let closeChildIndent = closeIndent + "  "
+            let insertion = ",\n\(closeChildIndent)\(renderString(key)): \(valueJSON)\n\(closeIndent)"
+            return replacing(object.close..<object.close, with: insertion, in: source)
+        }
+
+        let insertion = "\n\(childIndent)\(renderString(key)): \(valueJSON)"
         let insertAt = source.index(after: object.open)
         return replacing(insertAt..<insertAt, with: insertion, in: source)
     }

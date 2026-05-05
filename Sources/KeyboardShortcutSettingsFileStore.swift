@@ -183,7 +183,7 @@ final class CmuxSettingsFileStore {
         defaultsCancellable = notificationCenter.publisher(for: UserDefaults.didChangeNotification)
             .filter { [weak self] notification in
                 guard let self else { return false }
-                guard let changedDefaults = notification.object as? UserDefaults else { return true }
+                guard let changedDefaults = notification.object as? UserDefaults else { return false }
                 return changedDefaults === self.userDefaults
             }
             .receive(on: DispatchQueue.main)
