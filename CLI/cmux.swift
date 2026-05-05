@@ -11541,10 +11541,11 @@ struct CMUXCLI {
     """
 
     private struct ClaudeNodeOptionsCachePathError: LocalizedError {
+        let reason: String
         let path: String
 
         var errorDescription: String? {
-            "Claude NODE_OPTIONS restore module path is unsafe for --require: \(path)"
+            "Claude NODE_OPTIONS restore module \(reason): \(path)"
         }
     }
 
@@ -11687,7 +11688,10 @@ struct CMUXCLI {
 #endif
         let root = cacheRoot.appendingPathComponent("cmux-claude-node-options", isDirectory: true)
         guard !Self.pathIsUnsafeForNodeOptions(root.path) else {
-            throw ClaudeNodeOptionsCachePathError(path: root.path)
+            throw ClaudeNodeOptionsCachePathError(
+                reason: "path is unsafe for --require",
+                path: root.path
+            )
         }
         return root
     }
@@ -11697,7 +11701,10 @@ struct CMUXCLI {
         let privateBase = URL(fileURLWithPath: "/var/tmp", isDirectory: true)
             .appendingPathComponent("cmux-\(uid)", isDirectory: true)
         guard (try? FileManager.default.destinationOfSymbolicLink(atPath: privateBase.path)) == nil else {
-            throw ClaudeNodeOptionsCachePathError(path: privateBase.path)
+            throw ClaudeNodeOptionsCachePathError(
+                reason: "fallback cache base is a symlink",
+                path: privateBase.path
+            )
         }
         try FileManager.default.createDirectory(
             at: privateBase,
@@ -11708,19 +11715,34 @@ struct CMUXCLI {
         let attributes = try FileManager.default.attributesOfItem(atPath: privateBase.path)
         let owner = (attributes[.ownerAccountID] as? NSNumber)?.uint32Value
         guard owner == uid else {
-            throw ClaudeNodeOptionsCachePathError(path: privateBase.path)
+            throw ClaudeNodeOptionsCachePathError(
+                reason: "fallback cache base is owned by a different uid",
+                path: privateBase.path
+            )
         }
         let values = try privateBase.resourceValues(forKeys: [.isSymbolicLinkKey])
         guard values.isSymbolicLink != true else {
-            throw ClaudeNodeOptionsCachePathError(path: privateBase.path)
+            throw ClaudeNodeOptionsCachePathError(
+                reason: "fallback cache base is a symlink",
+                path: privateBase.path
+            )
         }
 
         var root = privateBase
         if appScoped {
             root = root.appendingPathComponent("com.cmuxterm.app", isDirectory: true)
+            try FileManager.default.createDirectory(
+                at: root,
+                withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700]
+            )
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: root.path)
         }
         guard !Self.pathIsUnsafeForNodeOptions(root.path) else {
-            throw ClaudeNodeOptionsCachePathError(path: root.path)
+            throw ClaudeNodeOptionsCachePathError(
+                reason: "path is unsafe for --require",
+                path: root.path
+            )
         }
         return root
     }

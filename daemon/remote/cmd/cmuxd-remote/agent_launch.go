@@ -339,8 +339,14 @@ func ensureClaudeNodeOptionsRestoreModule() (string, error) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return "", err
 	}
-	if err := os.Chmod(dir, 0700); err != nil {
-		return "", err
+	if fallbackBase != "" {
+		if err := chmodNodeOptionsFallbackDirs(dir, fallbackBase); err != nil {
+			return "", err
+		}
+	} else {
+		if err := os.Chmod(dir, 0700); err != nil {
+			return "", err
+		}
 	}
 	restoreModulePath := filepath.Join(dir, "restore-node-options.cjs")
 	if err := writeShimIfChanged(restoreModulePath, claudeNodeOptionsRestoreModuleScript); err != nil {
@@ -405,6 +411,15 @@ func ensurePrivateNodeOptionsCacheBase(path string, uid int) error {
 		return fmt.Errorf("NODE_OPTIONS fallback cache base owner is %d, expected %d: %s", stat.Uid, uid, path)
 	}
 	return os.Chmod(path, 0700)
+}
+
+func chmodNodeOptionsFallbackDirs(dir, fallbackBase string) error {
+	for path := dir; strings.HasPrefix(path, fallbackBase+string(os.PathSeparator)); path = filepath.Dir(path) {
+		if err := os.Chmod(path, 0700); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func pathUnsafeForNodeOptions(path string) bool {

@@ -447,6 +447,14 @@ func TestClaudeNodeOptionsCacheDir(t *testing.T) {
 			wantFallback: filepath.Join("/var/tmp", "cmux-501"),
 		},
 		{
+			name:         "mac empty home fallback",
+			goos:         "darwin",
+			xdgCacheHome: "",
+			homeDir:      "",
+			wantDir:      filepath.Join("/var/tmp", "cmux-501", "com.cmuxterm.app", "cmux-claude-node-options"),
+			wantFallback: filepath.Join("/var/tmp", "cmux-501"),
+		},
+		{
 			name:         "linux XDG",
 			goos:         "linux",
 			xdgCacheHome: "/home/tester/.xdg-cache",

@@ -8,6 +8,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import stat
 import shutil
 import socket
 import subprocess
@@ -18,6 +19,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_WRAPPER = ROOT / "Resources" / "bin" / "claude"
+UNSET_XDG_CACHE_HOME = "__CMUX_TEST_UNSET_XDG_CACHE_HOME__"
 
 
 def make_executable(path: Path, content: str) -> None:
@@ -29,6 +31,19 @@ def read_lines(path: Path) -> list[str]:
     if not path.exists():
         return []
     return [line.rstrip("\n") for line in path.read_text(encoding="utf-8").splitlines()]
+
+
+def expect_restore_module_hardened(require_path: str, label: str, failures: list[str]) -> None:
+    restore = Path(require_path)
+    expect(restore.exists(), f"{label}: restore module missing at {require_path!r}", failures)
+    if not restore.exists():
+        return
+
+    restore_mode = stat.S_IMODE(restore.stat().st_mode)
+    expect(restore_mode == 0o600, f"{label}: expected restore module mode 0600, got {oct(restore_mode)}", failures)
+    for directory in [restore.parent, restore.parent.parent]:
+        dir_mode = stat.S_IMODE(directory.stat().st_mode)
+        expect(dir_mode == 0o700, f"{label}: expected {directory} mode 0700, got {oct(dir_mode)}", failures)
 
 
 def parse_settings_arg(argv: list[str]) -> dict:
@@ -207,10 +222,13 @@ exit 0
         env.pop("NODE_OPTIONS", None)
         if tmpdir is not None:
             env["TMPDIR"] = tmpdir
-        # Always pin XDG_CACHE_HOME to a deterministic per-test path so
-        # tests don't leak into the host's real ~/.cache or
-        # ~/Library/Caches when an explicit override isn't provided.
-        env["XDG_CACHE_HOME"] = xdg_cache_home if xdg_cache_home is not None else str(tmp / "xdg-cache")
+        # By default, pin XDG_CACHE_HOME to a deterministic per-test path so
+        # tests don't leak into the host's real ~/.cache. A sentinel lets
+        # fallback coverage exercise a truly unset environment variable.
+        if xdg_cache_home == UNSET_XDG_CACHE_HOME:
+            env.pop("XDG_CACHE_HOME", None)
+        else:
+            env["XDG_CACHE_HOME"] = xdg_cache_home if xdg_cache_home is not None else str(tmp / "xdg-cache")
         if node_options is not None:
             env["NODE_OPTIONS"] = node_options
 
@@ -594,7 +612,7 @@ def test_live_socket_whitespace_home_uses_safe_cache_fallback(failures: list[str
             socket_state="live",
             argv=["hello"],
             home=str(Path(td) / "home with spaces"),
-            xdg_cache_home="",
+            xdg_cache_home=UNSET_XDG_CACHE_HOME,
             fake_gnu_stat_probe=True,
         )
     expect(code == 0, f"whitespace HOME fallback: wrapper exited {code}: {stderr}", failures)
@@ -621,6 +639,7 @@ def test_live_socket_whitespace_home_uses_safe_cache_fallback(failures: list[str
             f"whitespace HOME fallback: expected Linux fallback cache path, got {require_path!r}",
             failures,
         )
+    expect_restore_module_hardened(require_path, "whitespace HOME fallback", failures)
     expect(runtime_node_options == "__UNSET__", f"whitespace HOME fallback: expected runtime NODE_OPTIONS restored, got {runtime_node_options!r}", failures)
     expect(child_node_options == "__UNSET__", f"whitespace HOME fallback: expected child NODE_OPTIONS restored, got {child_node_options!r}", failures)
 
@@ -632,7 +651,7 @@ def test_live_socket_quoted_linux_home_uses_safe_cache_fallback(failures: list[s
             socket_state="live",
             argv=["hello"],
             home=home,
-            xdg_cache_home="",
+            xdg_cache_home=UNSET_XDG_CACHE_HOME,
             fake_uname="Linux",
             fake_gnu_stat_probe=True,
         )
@@ -649,6 +668,7 @@ def test_live_socket_quoted_linux_home_uses_safe_cache_fallback(failures: list[s
         f"quoted HOME fallback: expected Linux fallback cache path, got {require_path!r}",
         failures,
     )
+    expect_restore_module_hardened(require_path, "quoted HOME fallback", failures)
     expect(runtime_node_options == "__UNSET__", f"quoted HOME fallback: expected runtime NODE_OPTIONS restored, got {runtime_node_options!r}", failures)
     expect(child_node_options == "__UNSET__", f"quoted HOME fallback: expected child NODE_OPTIONS restored, got {child_node_options!r}", failures)
 

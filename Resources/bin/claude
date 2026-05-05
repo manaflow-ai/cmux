@@ -231,10 +231,17 @@ ensure_node_options_restore_module() {
         ensure_private_node_options_cache_base "$fallback_base" || return 1
     fi
     mkdir -p "$guard_dir" || return 1
+    if [[ -n "${fallback_base:-}" ]]; then
+        local mode_path="$guard_dir"
+        while [[ "$mode_path" == "$fallback_base"/* ]]; do
+            chmod 0700 "$mode_path" || return 1
+            mode_path="$(dirname "$mode_path")"
+        done
+    fi
     chmod 0700 "$guard_dir" || return 1
     local temp_path
     temp_path="$(mktemp "$guard_dir/restore-node-options.cjs.XXXXXX")" || return 1
-    cat >"$temp_path" <<'EOF'
+    if ! cat >"$temp_path" <<'EOF'
 const hadOriginalNodeOptions = process.env.CMUX_ORIGINAL_NODE_OPTIONS_PRESENT === "1";
 if (hadOriginalNodeOptions) {
   process.env.NODE_OPTIONS = process.env.CMUX_ORIGINAL_NODE_OPTIONS ?? "";
@@ -244,6 +251,10 @@ if (hadOriginalNodeOptions) {
 delete process.env.CMUX_ORIGINAL_NODE_OPTIONS;
 delete process.env.CMUX_ORIGINAL_NODE_OPTIONS_PRESENT;
 EOF
+    then
+        rm -f "$temp_path"
+        return 1
+    fi
     chmod 0600 "$temp_path" || {
         rm -f "$temp_path"
         return 1
