@@ -60,6 +60,32 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
         XCTAssertLessThanOrEqual(abs(rolledRSS - expectedRSS), 8 * 1024 * 1024)
     }
 
+    func testApplicationProcessAttachesToKeyWindow() {
+        var windows: [[String: Any]] = [
+            ["kind": "window", "id": "first", "key": false],
+            ["kind": "window", "id": "second", "key": true],
+            ["kind": "window", "id": "third", "key": false]
+        ]
+
+        TerminalController.shared.v2AttachTopApplicationProcess(to: &windows)
+
+        XCTAssertEqual(intArray(windows[0]["app_process_pids"]), [])
+        XCTAssertEqual(intArray(windows[1]["app_process_pids"]), [Int(Darwin.getpid())])
+        XCTAssertEqual(intArray(windows[2]["app_process_pids"]), [])
+    }
+
+    func testApplicationProcessFallsBackToFirstWindowWithoutKeyWindow() {
+        var windows: [[String: Any]] = [
+            ["kind": "window", "id": "first", "key": false],
+            ["kind": "window", "id": "second", "key": false]
+        ]
+
+        TerminalController.shared.v2AttachTopApplicationProcess(to: &windows)
+
+        XCTAssertEqual(intArray(windows[0]["app_process_pids"]), [Int(Darwin.getpid())])
+        XCTAssertEqual(intArray(windows[1]["app_process_pids"]), [])
+    }
+
     func testKernProcArgsWorkspaceID() {
         let workspaceID = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
         let bytes = kernProcArgs(environment: [

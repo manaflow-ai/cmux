@@ -284,10 +284,18 @@ extension TerminalController {
         guard let firstIndex = windows.indices.first else { return }
 
         let appProcessID = Int(Darwin.getpid())
-        guard appProcessID > 0 else { return }
+        let targetIndex = windows.indices.first { index in
+            if let isKeyWindow = windows[index]["key"] as? Bool {
+                return isKeyWindow
+            }
+            if let isKeyWindow = windows[index]["key"] as? NSNumber {
+                return isKeyWindow.boolValue
+            }
+            return false
+        } ?? firstIndex
 
-        windows[firstIndex]["app_process_pids"] = [appProcessID]
-        for index in windows.indices where index != firstIndex {
+        windows[targetIndex]["app_process_pids"] = [appProcessID]
+        for index in windows.indices where index != targetIndex {
             windows[index]["app_process_pids"] = []
         }
     }
