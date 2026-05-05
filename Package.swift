@@ -10,6 +10,7 @@ let package = Package(
         .executable(name: "cmux", targets: ["cmux"])
     ],
     dependencies: [
+        .package(path: "Packages/CMUXAgentLaunch"),
         .package(path: "Packages/CMUXNodeOptions"),
         .package(path: "Packages/CMUXRovoDevIndex"),
         .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", from: "1.2.0")
@@ -17,7 +18,7 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "cmux",
-            dependencies: ["CMUXNodeOptions", "CMUXRovoDevIndex", "SwiftTerm"],
+            dependencies: ["CMUXAgentLaunch", "CMUXNodeOptions", "CMUXRovoDevIndex", "SwiftTerm"],
             path: "Sources"
         )
     ]
