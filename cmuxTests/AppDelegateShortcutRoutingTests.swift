@@ -97,6 +97,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         AppDelegate.shared?.shortcutLayoutCharacterProvider = KeyboardLayout.character(forKeyCode:modifierFlags:)
         AppDelegate.shared?.debugCloseMainWindowConfirmationHandler = nil
         AppDelegate.shared?.debugCreateMainWindowSourceIsNativeFullScreenOverride = nil
+#if DEBUG
+        AppDelegate.shared?.debugBringToFrontObserver = nil
+#endif
         AppDelegate.shared?.dismissNotificationsPopoverIfShown()
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         for action in KeyboardShortcutSettings.Action.allCases {
@@ -134,6 +137,60 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertFalse(appDelegate.debugHandleShortcutMonitorEvent(event: event))
 #else
         XCTFail("debugHandleShortcutMonitorEvent is only available in DEBUG")
+#endif
+    }
+
+    func testApplicationReopenBringsVisibleMainWindowToFront() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow(shouldActivate: false)
+        defer { closeWindow(withId: windowId) }
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected created main window")
+            return
+        }
+        window.makeKeyAndOrderFront(nil)
+
+#if DEBUG
+        var observedWindow: NSWindow?
+        appDelegate.debugBringToFrontObserver = { observedWindow = $0 }
+        defer { appDelegate.debugBringToFrontObserver = nil }
+
+        XCTAssertTrue(appDelegate.applicationShouldHandleReopen(NSApp, hasVisibleWindows: true))
+        XCTAssertTrue(observedWindow === window)
+#else
+        XCTFail("debugBringToFrontObserver is only available in DEBUG")
+#endif
+    }
+
+    func testDidBecomeActiveRepairsVisibleMainWindowOrdering() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow(shouldActivate: false)
+        defer { closeWindow(withId: windowId) }
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected created main window")
+            return
+        }
+        window.makeKeyAndOrderFront(nil)
+
+#if DEBUG
+        var observedWindow: NSWindow?
+        appDelegate.debugBringToFrontObserver = { observedWindow = $0 }
+        defer { appDelegate.debugBringToFrontObserver = nil }
+
+        appDelegate.applicationDidBecomeActive(
+            Notification(name: NSApplication.didBecomeActiveNotification, object: NSApp)
+        )
+        XCTAssertTrue(observedWindow === window)
+#else
+        XCTFail("debugBringToFrontObserver is only available in DEBUG")
 #endif
     }
 

@@ -761,6 +761,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
     var debugCloseMainWindowConfirmationHandler: ((NSWindow) -> Bool)?
     var debugCreateMainWindowSourceIsNativeFullScreenOverride: Bool?
+    var debugBringToFrontObserver: ((NSWindow) -> Void)?
     // Keep debug-only windows alive when tests intentionally inject key mismatches.
     private var debugDetachedContextWindows: [NSWindow] = []
 
@@ -937,8 +938,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if hasVisibleMainTerminalWindow() {
-            _ = synchronizeActiveMainWindowContext(preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow)
+        if foregroundPreferredMainWindowForAppActivation() {
             return true
         }
         ensureInitialMainWindowIfNeeded()
@@ -1417,6 +1417,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sentryBreadcrumb("app.didBecomeActive", category: "lifecycle", data: [
             "tabCount": tabManager?.tabs.count ?? 0
         ])
+        repairMainWindowOrderingAfterAppActivation()
+
         if TelemetrySettings.enabledForCurrentLaunch && !isRunningUnderXCTestCached {
             PostHogAnalytics.shared.trackActive(reason: "didBecomeActive")
         }
@@ -5874,11 +5876,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return createMainWindow(shouldActivate: shouldActivate)
     }
 
-    private func hasVisibleMainTerminalWindow() -> Bool {
-        mainWindowContexts.values.contains { context in
-            guard let window = resolvedWindow(for: context) else { return false }
-            return window.isVisible && !window.isMiniaturized
+    @discardableResult
+    private func foregroundPreferredMainWindowForAppActivation() -> Bool {
+        guard let window = preferredMainWindowForAppActivation() else {
+            return false
         }
+
+        _ = synchronizeActiveMainWindowContext(preferredWindow: window)
+        bringToFront(window)
+        return true
+    }
+
+    private func repairMainWindowOrderingAfterAppActivation() {
+        guard NSApp.modalWindow == nil else { return }
+        if let keyWindow = NSApp.keyWindow,
+           keyWindow.isVisible,
+           !isMainTerminalWindow(keyWindow) {
+            return
+        }
+        _ = foregroundPreferredMainWindowForAppActivation()
+    }
+
+    private func preferredMainWindowForAppActivation() -> NSWindow? {
+        if let keyWindow = NSApp.keyWindow,
+           isMainTerminalWindow(keyWindow) {
+            return keyWindow
+        }
+
+        if let mainWindow = NSApp.mainWindow,
+           isMainTerminalWindow(mainWindow) {
+            return mainWindow
+        }
+
+        return sortedMainWindowContextsForSessionSnapshot().compactMap { context in
+            guard let window = resolvedWindow(for: context),
+                  window.isVisible,
+                  !window.isMiniaturized else {
+                return nil
+            }
+            return window
+        }.first
     }
 
     @discardableResult
@@ -13529,6 +13566,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
            !TerminalController.socketCommandAllowsInAppFocusMutations() {
             return
         }
+#if DEBUG
+        debugBringToFrontObserver?(window)
+#endif
         setActiveMainWindow(window)
         if window.isMiniaturized {
             window.deminiaturize(nil)
