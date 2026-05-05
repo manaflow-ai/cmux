@@ -8,6 +8,8 @@ import AppKit
 #endif
 
 final class CJKIMEMarkedSelectionTests: XCTestCase {
+    deinit {}
+
     func testSelectedRangeReturnsEmptyRangeWithoutSelectionOrMarkedText() {
         let view = GhosttyNSView(frame: .zero)
         let range = view.selectedRange()
