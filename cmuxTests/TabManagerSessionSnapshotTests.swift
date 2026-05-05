@@ -103,14 +103,43 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertNil(snapshot.selectedWorkspaceIndex)
     }
 
+    func testRestoringLocalWorkspaceSnapshotClearsStaleRemoteState() throws {
+        let localSnapshot = try XCTUnwrap(TabManager().selectedWorkspace)
+            .sessionSnapshot(includeScrollback: false)
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64001,
+            relayID: "relay-test",
+            relayToken: String(repeating: "c", count: 64),
+            localSocketPath: "/tmp/cmux-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+        workspace.configureRemoteConnection(configuration, autoConnect: false)
+        XCTAssertTrue(workspace.isRemoteWorkspace)
+
+        workspace.restoreSessionSnapshot(localSnapshot)
+
+        XCTAssertFalse(workspace.isRemoteWorkspace)
+        XCTAssertNil(workspace.remoteConfiguration)
+        XCTAssertFalse(workspace.hasActiveRemoteTerminalSessions)
+    }
+
     func testSessionSnapshotRestoresSSHWorkspaceDescriptor() throws {
         let manager = TabManager()
         let remoteWorkspace = manager.addWorkspace(select: true)
         remoteWorkspace.setCustomTitle("Remote Mac mini")
+        let identityFile = "~/.ssh/id_ed25519"
+        let expandedIdentityFile = (identityFile as NSString).expandingTildeInPath
         let configuration = WorkspaceRemoteConfiguration(
             destination: "dev@example.com",
             port: 2222,
-            identityFile: "/Users/test/.ssh/id_ed25519",
+            identityFile: identityFile,
             sshOptions: [
                 "ControlPath=/tmp/cmux-ssh-%C",
                 "ControlMaster=auto",
@@ -152,7 +181,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         )
         XCTAssertEqual(remoteSnapshot.destination, "dev@example.com")
         XCTAssertEqual(remoteSnapshot.port, 2222)
-        XCTAssertEqual(remoteSnapshot.identityFile, "/Users/test/.ssh/id_ed25519")
+        XCTAssertEqual(remoteSnapshot.identityFile, expandedIdentityFile)
         XCTAssertEqual(remoteSnapshot.sshOptions, [
             "StrictHostKeyChecking=accept-new",
         ])
@@ -171,7 +200,23 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertNil(restoredWorkspace.terminalPanel(for: restoredPanelId)?.requestedWorkingDirectory)
         XCTAssertEqual(
             restoredWorkspace.remoteConfiguration?.terminalStartupCommand,
-            "ssh -p 2222 -i /Users/test/.ssh/id_ed25519 -o StrictHostKeyChecking=accept-new -tt dev@example.com"
+            "ssh -p 2222 -i \(expandedIdentityFile) -o StrictHostKeyChecking=accept-new -tt dev@example.com"
         )
+    }
+
+    func testSessionRemoteWorkspaceSnapshotDropsInvalidSSHPortFromReconnectCommand() throws {
+        let snapshot = SessionRemoteWorkspaceSnapshot(
+            transport: .ssh,
+            destination: "dev@example.com",
+            port: 99_999,
+            identityFile: nil,
+            sshOptions: [],
+            skipDaemonBootstrap: nil
+        )
+
+        let configuration = try XCTUnwrap(snapshot.workspaceConfiguration())
+
+        XCTAssertNil(configuration.port)
+        XCTAssertEqual(configuration.terminalStartupCommand, "ssh -tt dev@example.com")
     }
 }

@@ -17,6 +17,18 @@ private enum WorkspaceRemoteSSHOptionFilter {
         }
     }
 
+    static func normalizedOptional(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    static func normalizedIdentityPath(_ value: String?) -> String? {
+        guard let trimmed = normalizedOptional(value) else { return nil }
+        guard trimmed.hasPrefix("~") else { return trimmed }
+        return normalizedOptional((trimmed as NSString).expandingTildeInPath) ?? trimmed
+    }
+
     static func hasOptionKey(_ options: [String], key: String) -> Bool {
         let loweredKey = key.lowercased()
         return options.contains { option in
@@ -128,7 +140,7 @@ struct WorkspaceRemoteConfiguration: Equatable {
         let normalizedBootstrapMode = skipDaemonBootstrap ? "vm-baked" : "bootstrap"
         let normalizedDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedPort = port.map(String.init) ?? ""
-        let normalizedIdentity = identityFile?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let normalizedIdentity = WorkspaceRemoteSSHOptionFilter.normalizedIdentityPath(identityFile) ?? ""
         let normalizedLocalProxyPort = localProxyPort.map(String.init) ?? ""
         let normalizedOptions = Self.proxyBrokerSSHOptions(sshOptions).joined(separator: "\u{1f}")
         let normalizedWebSocketDaemon = daemonWebSocketEndpoint?.proxyBrokerKeyComponent ?? ""
@@ -163,26 +175,32 @@ extension SessionRemoteWorkspaceSnapshot {
             transport: transport,
             destination: normalizedDestination,
             port: normalizedPort,
-            identityFile: Self.normalizedOptional(identityFile),
+            identityFile: Self.normalizedIdentityPath(identityFile),
             sshOptions: Self.normalizedSSHOptions(sshOptions),
             localProxyPort: nil,
             relayPort: nil,
             relayID: nil,
             relayToken: nil,
             localSocketPath: nil,
-            terminalStartupCommand: sshReconnectCommand(destination: normalizedDestination),
+            terminalStartupCommand: sshReconnectCommand(
+                destination: normalizedDestination,
+                port: normalizedPort
+            ),
             foregroundAuthToken: nil,
             daemonWebSocketEndpoint: nil,
             skipDaemonBootstrap: skipDaemonBootstrap == true
         )
     }
 
-    private func sshReconnectCommand(destination normalizedDestination: String) -> String? {
+    private func sshReconnectCommand(
+        destination normalizedDestination: String,
+        port normalizedPort: Int?
+    ) -> String? {
         var arguments = ["ssh"]
-        if let port, port > 0 {
-            arguments += ["-p", String(port)]
+        if let normalizedPort {
+            arguments += ["-p", String(normalizedPort)]
         }
-        if let identityFile = Self.normalizedOptional(identityFile) {
+        if let identityFile = Self.normalizedIdentityPath(identityFile) {
             arguments += ["-i", identityFile]
         }
         let normalizedOptions = Self.normalizedSSHOptions(sshOptions)
@@ -196,10 +214,8 @@ extension SessionRemoteWorkspaceSnapshot {
         return arguments.map(Self.shellQuote).joined(separator: " ")
     }
 
-    private static func normalizedOptional(_ value: String?) -> String? {
-        guard let value else { return nil }
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+    private static func normalizedIdentityPath(_ value: String?) -> String? {
+        WorkspaceRemoteSSHOptionFilter.normalizedIdentityPath(value)
     }
 
     private static func normalizedSSHOptions(_ options: [String]) -> [String] {
@@ -224,13 +240,12 @@ extension WorkspaceRemoteConfiguration {
         guard transport == .ssh else { return nil }
         let normalizedDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedDestination.isEmpty else { return nil }
-        let normalizedIdentity = identityFile?.trimmingCharacters(in: .whitespacesAndNewlines)
 
         return SessionRemoteWorkspaceSnapshot(
             transport: transport,
             destination: normalizedDestination,
             port: port,
-            identityFile: normalizedIdentity?.isEmpty == false ? normalizedIdentity : nil,
+            identityFile: WorkspaceRemoteSSHOptionFilter.normalizedIdentityPath(identityFile),
             sshOptions: WorkspaceRemoteSSHOptionFilter.durableOptions(sshOptions),
             skipDaemonBootstrap: skipDaemonBootstrap
         )

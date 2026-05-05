@@ -249,6 +249,8 @@ extension Workspace {
                 restoredRemoteConfiguration,
                 autoConnect: !SessionRestorePolicy.isRunningUnderAutomatedTests()
             )
+        } else {
+            disconnectRemoteConnection(clearConfiguration: true)
         }
 
         let normalizedCurrentDirectory = snapshot.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
