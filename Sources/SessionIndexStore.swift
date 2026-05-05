@@ -209,11 +209,11 @@ struct SessionEntry: Identifiable, Hashable {
                 return String(localized: "sessionIndex.localCommand", defaultValue: "Local command")
             }
             if Self.isClaudeSyntheticEnvelope(trimmed) {
-                return String(localized: "sessionIndex.untitled", defaultValue: "Untitled session")
+                return String(localized: "sessionIndex.untitled", defaultValue: "Untitled chat")
             }
         }
         if trimmed.isEmpty {
-            return String(localized: "sessionIndex.untitled", defaultValue: "Untitled session")
+            return String(localized: "sessionIndex.untitled", defaultValue: "Untitled chat")
         }
         return trimmed
     }

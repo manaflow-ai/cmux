@@ -87,7 +87,7 @@ struct SessionIndexView: View {
                     .font(.system(size: 10, weight: .medium))
             }
             .buttonStyle(.borderless)
-            .help(String(localized: "sessionIndex.reload.tooltip", defaultValue: "Reload sessions"))
+            .help(String(localized: "sessionIndex.reload.tooltip", defaultValue: "Reload Vault"))
             .disabled(store.isLoading)
         }
         .rightSidebarChromeBar()
@@ -98,7 +98,7 @@ struct SessionIndexView: View {
     private var loadingView: some View {
         VStack(spacing: 6) {
             ProgressView().controlSize(.small)
-            Text(String(localized: "sessionIndex.loading", defaultValue: "Scanning sessions…"))
+            Text(String(localized: "sessionIndex.loading", defaultValue: "Loading Vault…"))
                 .font(.system(size: 11))
                 .foregroundColor(.secondary)
         }
@@ -107,11 +107,11 @@ struct SessionIndexView: View {
 
     private var emptyView: some View {
         VStack(spacing: 4) {
-            Text(String(localized: "sessionIndex.empty.title", defaultValue: "No sessions found"))
+            Text(String(localized: "sessionIndex.empty.title", defaultValue: "Vault is empty"))
                 .font(.system(size: 12))
                 .foregroundColor(.secondary)
             Text(String(localized: "sessionIndex.empty.subtitle",
-                                   defaultValue: "Sessions from Claude Code, Codex, and OpenCode will appear here."))
+                                   defaultValue: "Claude Code, Codex, and OpenCode history will appear here."))
                 .font(.system(size: 11))
                 .foregroundColor(.secondary.opacity(0.7))
                 .multilineTextAlignment(.center)
@@ -1895,7 +1895,7 @@ private struct SectionPopoverView: View {
                     .foregroundColor(.secondary)
                 TextField(
                     String(localized: "sessionIndex.popover.searchPlaceholder",
-                           defaultValue: "Search sessions"),
+                           defaultValue: "Search Vault"),
                     text: $query
                 )
                 .textFieldStyle(.plain)
