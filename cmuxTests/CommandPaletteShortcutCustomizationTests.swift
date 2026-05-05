@@ -74,6 +74,35 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
         )
     }
 
+    func testFieldEditorMoveCommandWithoutEventHonorsClearedCommandPalettePreviousShortcut() {
+        XCTAssertNil(
+            commandPaletteSelectionDeltaForFieldEditorCommand(
+                #selector(NSResponder.moveUp(_:)),
+                event: nil,
+                previousShortcut: nil
+            ),
+            "The field editor must not use AppKit moveUp fallback after Ctrl+P is cleared"
+        )
+    }
+
+    func testFieldEditorMoveCommandWithoutEventOnlyUsesDefaultCommandPalettePreviousShortcut() {
+        let remappedPrevious = StoredShortcut(key: "u", command: false, shift: false, option: false, control: true)
+        XCTAssertNil(
+            commandPaletteSelectionDeltaForFieldEditorCommand(
+                #selector(NSResponder.moveUp(_:)),
+                event: nil,
+                previousShortcut: remappedPrevious
+            )
+        )
+        XCTAssertEqual(
+            commandPaletteSelectionDeltaForFieldEditorCommand(
+                #selector(NSResponder.moveUp(_:)),
+                event: nil
+            ),
+            -1
+        )
+    }
+
     func testFieldEditorMoveCommandHonorsRemappedCommandPalettePreviousShortcut() {
         let remappedPrevious = StoredShortcut(
             key: "u",

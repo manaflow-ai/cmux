@@ -62,7 +62,11 @@ func commandPaletteSelectionDeltaForFieldEditorCommand(
     }
 
     guard let event else {
-        return selectorDelta
+        let shortcut = selectorDelta == 1 ? nextShortcut : previousShortcut
+        let defaultShortcut = selectorDelta == 1
+            ? KeyboardShortcutSettings.Action.commandPaletteNext.defaultShortcut
+            : KeyboardShortcutSettings.Action.commandPalettePrevious.defaultShortcut
+        return shortcut == defaultShortcut ? selectorDelta : nil
     }
 
     if let eventDelta = commandPaletteSelectionDeltaForKeyboardNavigation(
