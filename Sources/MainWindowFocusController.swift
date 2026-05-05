@@ -1,33 +1,4 @@
 import AppKit
-import Foundation
-
-struct FeedFocusSnapshot: Equatable {
-    var selectedItemId: UUID?
-    var isKeyboardActive: Bool
-
-    init(selectedItemId: UUID? = nil, isKeyboardActive: Bool = false) {
-        self.selectedItemId = selectedItemId
-        self.isKeyboardActive = isKeyboardActive
-    }
-}
-
-protocol FeedKeyboardFocusResponder: AnyObject {}
-
-enum MainWindowKeyboardFocusIntent: Equatable {
-    case mainPanel(workspaceId: UUID, panelId: UUID)
-    case rightSidebar(mode: RightSidebarMode)
-}
-
-enum MainWindowFocusToggleDestination: Equatable {
-    case terminal
-    case rightSidebar
-}
-
-enum MainWindowFindShortcutTarget: Equatable {
-    case mainPanelFind
-    case rightSidebarFileSearch
-    case none
-}
 
 @MainActor
 final class MainWindowFocusController {
@@ -409,7 +380,12 @@ final class MainWindowFocusController {
     @discardableResult
     func focusRightSidebar(mode requestedMode: RightSidebarMode? = nil, focusFirstItem: Bool = true) -> Bool {
         guard let state = fileExplorerState else { return false }
-        let mode = requestedMode ?? rememberedRightSidebarMode ?? state.mode
+        let desiredMode = requestedMode ?? rememberedRightSidebarMode ?? state.mode
+        guard desiredMode.isAvailable() else {
+            guard requestedMode == nil else { return false }
+            return focusRightSidebar(mode: .files, focusFirstItem: focusFirstItem)
+        }
+        let mode = desiredMode
         let target = rightSidebarFocusTarget(mode: mode, focusFirstItem: focusFirstItem)
         return focusRightSidebar(mode: mode, target: target, terminalYieldReason: "rightSidebarFocus")
     }
@@ -421,6 +397,7 @@ final class MainWindowFocusController {
         terminalYieldReason: String = "rightSidebarFocus"
     ) -> Bool {
         guard let state = fileExplorerState else { return false }
+        guard mode.isAvailable() else { return false }
         rememberedRightSidebarMode = mode
         beginRightSidebarFocusRequest(mode: mode, target: target)
         intent = .rightSidebar(mode: mode)
