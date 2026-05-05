@@ -108,15 +108,10 @@ struct SessionEntry: Identifiable, Hashable {
             if let permissionMode, !permissionMode.isEmpty {
                 parts.append("--permission-mode \(Self.shellQuote(permissionMode))")
             }
-            var environment = claudeConfigDirectoryForResume.map { ["CLAUDE_CONFIG_DIR": $0] } ?? [:]
-            if !environment.isEmpty {
-                environment["CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV"] = "1"
-                environment["CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS"] = "CLAUDE_CONFIG_DIR"
-            }
-            return Self.withShellEnvironment(
-                environment,
-                command: parts.joined(separator: " ")
-            )
+            let environment = claudeConfigDirectoryForResume.map {
+                ["CLAUDE_CONFIG_DIR": $0, "CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV": "1", "CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS": "CLAUDE_CONFIG_DIR"]
+            } ?? [:]
+            return Self.withShellEnvironment(environment, command: parts.joined(separator: " "))
         case let .codex(model, approval, sandbox, effort):
             var parts = ["codex resume \(sessionId)"]
             if let model, !model.isEmpty {

@@ -297,6 +297,8 @@ exit 0
             test_socket.bind(socket_path)
 
             env = os.environ.copy()
+            env.pop("CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV", None)
+            env.pop("CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS", None)
             env["PATH"] = f"{wrapper_dir}:{real_dir}:{env.get('PATH', '/usr/bin:/bin')}"
             env["CMUX_SURFACE_ID"] = "surface:test"
             env["CMUX_SOCKET_PATH"] = socket_path

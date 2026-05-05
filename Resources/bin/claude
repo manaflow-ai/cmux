@@ -130,6 +130,7 @@ clear_inherited_claude_auth_selection_env() {
             unset "$key"
         done
     fi
+    # Safe outside cmux: this only rewrites an existing subrouter path when the account alias exists.
     normalize_claude_config_dir
 }
 

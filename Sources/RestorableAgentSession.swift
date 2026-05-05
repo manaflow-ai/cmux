@@ -1,91 +1,10 @@
 import Foundation
 
-enum RestorableAgentKind: String, Codable, CaseIterable, Sendable {
-    case claude
-    case codex
-    case opencode
-
-    private var hookStoreFilename: String {
-        "\(rawValue)-hook-sessions.json"
-    }
-
-    func resumeCommand(
-        sessionId: String,
-        launchCommand: AgentLaunchCommandSnapshot?,
-        workingDirectory: String?
-    ) -> String? {
-        AgentResumeCommandBuilder.resumeShellCommand(
-            kind: self,
-            sessionId: sessionId,
-            launchCommand: launchCommand,
-            workingDirectory: workingDirectory
-        )
-    }
-
-    func hookStoreFileURL(
-        homeDirectory: String = NSHomeDirectory(),
-        environment: [String: String] = ProcessInfo.processInfo.environment
-    ) -> URL {
-        let directory: URL
-        if let override = environment["CMUX_AGENT_HOOK_STATE_DIR"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-           !override.isEmpty {
-            directory = URL(fileURLWithPath: NSString(string: override).expandingTildeInPath, isDirectory: true)
-        } else {
-            directory = URL(fileURLWithPath: homeDirectory, isDirectory: true)
-                .appendingPathComponent(".cmuxterm", isDirectory: true)
-        }
-        return directory
-            .appendingPathComponent(hookStoreFilename, isDirectory: false)
-    }
-}
-
-struct AgentLaunchCommandSnapshot: Codable, Equatable, Sendable {
-    var launcher: String?
-    var executablePath: String?
-    var arguments: [String]
-    var workingDirectory: String?
-    var environment: [String: String]?
-    var capturedAt: TimeInterval?
-    var source: String?
-}
-
 fileprivate func shellSingleQuoted(_ value: String) -> String {
     "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
 }
 
-enum ClaudeConfigDirectoryPath {
-    static func preferredPath(
-        _ rawPath: String,
-        fileManager: FileManager = .default,
-        homeDirectory: String = NSHomeDirectory()
-    ) -> String {
-        let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            return rawPath
-        }
-
-        let expanded = (trimmed as NSString).expandingTildeInPath
-        let standardized = (expanded as NSString).standardizingPath
-        let home = ((homeDirectory as NSString).expandingTildeInPath as NSString).standardizingPath
-        let legacyRoot = ((home as NSString).appendingPathComponent(".subrouter/codex/claude") as NSString).standardizingPath
-        guard standardized == legacyRoot || standardized.hasPrefix(legacyRoot + "/") else {
-            return standardized
-        }
-
-        let accountRoot = ((home as NSString).appendingPathComponent(".codex-accounts/claude") as NSString).standardizingPath
-        let suffix = String(standardized.dropFirst(legacyRoot.count))
-        let candidate = accountRoot + suffix
-        var isDirectory: ObjCBool = false
-        if fileManager.fileExists(atPath: candidate, isDirectory: &isDirectory),
-           isDirectory.boolValue {
-            return candidate
-        }
-        return standardized
-    }
-}
-
-private enum AgentResumeCommandBuilder {
+enum AgentResumeCommandBuilder {
     private static let claudeValueOptions: Set<String> = [
         "--add-dir",
         "--agent",
@@ -161,7 +80,13 @@ private enum AgentResumeCommandBuilder {
     ]
 
     private static let claudeAuthSelectionEnvironmentKeys: Set<String> = [
+        "ANTHROPIC_API_KEY",
+        "ANTHROPIC_AUTH_TOKEN",
+        "ANTHROPIC_BASE_URL",
         "ANTHROPIC_MODEL",
+        "ANTHROPIC_SMALL_FAST_MODEL",
+        "CLAUDE_CODE_USE_BEDROCK",
+        "CLAUDE_CODE_USE_VERTEX",
         "CLAUDE_CONFIG_DIR"
     ]
 
@@ -263,28 +188,10 @@ private enum AgentResumeCommandBuilder {
         }
 
         var commandParts: [String] = []
-        if let env = launchCommand?.environment, !env.isEmpty {
-            var environmentParts: [String] = []
-            var preservedClaudeAuthSelectionEnvironmentKeys: [String] = []
-            for key in env.keys.sorted() {
-                guard isSafeEnvironmentKey(key),
-                      let value = sanitizedEnvironmentValue(key: key, value: env[key]) else { continue }
-                environmentParts.append("\(key)=\(value)")
-                if kind == .claude,
-                   claudeAuthSelectionEnvironmentKeys.contains(key) {
-                    preservedClaudeAuthSelectionEnvironmentKeys.append(key)
-                }
-            }
-            if !preservedClaudeAuthSelectionEnvironmentKeys.isEmpty {
-                environmentParts.append("CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1")
-                environmentParts.append(
-                    "CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=\(preservedClaudeAuthSelectionEnvironmentKeys.joined(separator: ","))"
-                )
-            }
-            if !environmentParts.isEmpty {
-                commandParts.append("env")
-                commandParts.append(contentsOf: environmentParts)
-            }
+        let environmentParts = launchEnvironmentParts(kind: kind, environment: launchCommand?.environment)
+        if !environmentParts.isEmpty {
+            commandParts.append("env")
+            commandParts.append(contentsOf: environmentParts)
         }
         commandParts.append(contentsOf: argv)
 
@@ -294,6 +201,34 @@ private enum AgentResumeCommandBuilder {
             shellCommand = "cd \(shellSingleQuoted(cwd)) && \(shellCommand)"
         }
         return shellCommand
+    }
+
+    private static func launchEnvironmentParts(
+        kind: RestorableAgentKind,
+        environment: [String: String]?
+    ) -> [String] {
+        guard let environment, !environment.isEmpty else {
+            return []
+        }
+
+        var environmentParts: [String] = []
+        var preservedClaudeAuthSelectionEnvironmentKeys: [String] = []
+        for key in environment.keys.sorted() {
+            guard isSafeEnvironmentKey(key),
+                  let value = sanitizedEnvironmentValue(key: key, value: environment[key]) else { continue }
+            environmentParts.append("\(key)=\(value)")
+            if kind == .claude,
+               claudeAuthSelectionEnvironmentKeys.contains(key) {
+                preservedClaudeAuthSelectionEnvironmentKeys.append(key)
+            }
+        }
+        if !preservedClaudeAuthSelectionEnvironmentKeys.isEmpty {
+            environmentParts.append("CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1")
+            environmentParts.append(
+                "CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=\(preservedClaudeAuthSelectionEnvironmentKeys.joined(separator: ","))"
+            )
+        }
+        return environmentParts
     }
 
     private static func resumeArguments(

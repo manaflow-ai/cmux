@@ -15598,11 +15598,7 @@ struct CMUXCLI {
         var result: [String: String] = [:]
         for key in allowedKeys {
             guard let value = env[key] else { continue }
-            if key == "CLAUDE_CONFIG_DIR" {
-                result[key] = normalizedClaudeConfigDirectory(value)
-            } else {
-                result[key] = value
-            }
+            result[key] = key == "CLAUDE_CONFIG_DIR" ? normalizedClaudeConfigDirectory(value) : value
         }
         if let nodeOptions = selectedAgentLaunchNodeOptions(from: env) {
             result["NODE_OPTIONS"] = nodeOptions
@@ -15612,27 +15608,17 @@ struct CMUXCLI {
 
     private func normalizedClaudeConfigDirectory(_ rawValue: String) -> String {
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            return rawValue
-        }
-
-        let expanded = (trimmed as NSString).expandingTildeInPath
-        let standardized = (expanded as NSString).standardizingPath
+        guard !trimmed.isEmpty else { return rawValue }
+        let standardized = ((trimmed as NSString).expandingTildeInPath as NSString).standardizingPath
         let home = ((NSHomeDirectory() as NSString).expandingTildeInPath as NSString).standardizingPath
         let legacyRoot = ((home as NSString).appendingPathComponent(".subrouter/codex/claude") as NSString).standardizingPath
-        guard standardized == legacyRoot || standardized.hasPrefix(legacyRoot + "/") else {
-            return standardized
-        }
-
+        guard standardized == legacyRoot || standardized.hasPrefix(legacyRoot + "/") else { return standardized }
         let accountRoot = ((home as NSString).appendingPathComponent(".codex-accounts/claude") as NSString).standardizingPath
-        let suffix = String(standardized.dropFirst(legacyRoot.count))
-        let candidate = accountRoot + suffix
+        let candidate = accountRoot + String(standardized.dropFirst(legacyRoot.count))
         var isDirectory: ObjCBool = false
-        if FileManager.default.fileExists(atPath: candidate, isDirectory: &isDirectory),
-           isDirectory.boolValue {
-            return candidate
-        }
-        return standardized
+        return FileManager.default.fileExists(atPath: candidate, isDirectory: &isDirectory) && isDirectory.boolValue
+            ? candidate
+            : standardized
     }
 
     private func selectedAgentLaunchNodeOptions(from env: [String: String]) -> String? {
