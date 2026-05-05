@@ -633,7 +633,7 @@
             ]
           },
           "additionalProperties": {
-            "$ref": "#/$defs/shortcutBinding"
+            "$ref": "#/$defs/shortcutBindingNullable"
           }
         }
       }
@@ -678,6 +678,13 @@
             }
           ],
           "description": "Chorded shortcut. Example: [\"ctrl+b\", \"c\"]."
+        }
+      ]
+    },
+    "shortcutBindingNullable": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/shortcutBinding"
         },
         {
           "type": "null",
