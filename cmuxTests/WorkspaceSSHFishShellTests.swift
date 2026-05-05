@@ -13,6 +13,7 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
     func testSSHBootstrapStartupCommandPassesRemoteInstallScriptAsSingleSSHCommand() throws {
         let cliPath = try bundledCLIPath()
         let python3Path = try requireExecutable(["/opt/homebrew/bin/python3", "/usr/local/bin/python3", "/usr/bin/python3"], name: "python3")
+        let fishExecutable = try requireExecutable(["/opt/homebrew/bin/fish", "/usr/local/bin/fish", "/usr/bin/fish", "/bin/fish"], name: "fish")
         let socketPath = makeSocketPath("sshboot")
         let listenerFD = try bindUnixSocket(at: socketPath)
         let state = MockSocketServerState()
@@ -137,7 +138,7 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
 
         if local_command:
             local_command = local_command.replace("%%", "%")
-            subprocess.run(["/bin/sh", "-c", local_command], check=False, env=os.environ.copy())
+            subprocess.run([os.environ["CMUX_TEST_LOCAL_SHELL"], "-c", local_command], check=False, env=os.environ.copy())
         PY
         cat >/dev/null
         exit 0
@@ -150,6 +151,7 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
         startupEnvironment["PATH"] = "\(fakeBin.path):/usr/bin:/bin:/usr/sbin:/sbin"
         startupEnvironment["CMUX_FAKE_SSH_LOG"] = fakeSSHLog.path
         startupEnvironment["CMUX_TEST_PYTHON3"] = python3Path
+        startupEnvironment["CMUX_TEST_LOCAL_SHELL"] = fishExecutable
         startupEnvironment["CMUX_SOCKET_PATH"] = socketPath
         startupEnvironment["CMUX_WORKSPACE_ID"] = workspaceID
         startupEnvironment["CMUX_CLI_SENTRY_DISABLED"] = "1"
@@ -230,7 +232,6 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
             0,
             "Expected LocalCommand shell snippet to parse cleanly, stderr: \(localCommandSyntaxCheck.stderr)"
         )
-        let fishExecutable = try requireExecutable(["/opt/homebrew/bin/fish", "/usr/local/bin/fish", "/usr/bin/fish", "/bin/fish"], name: "fish")
         let fishLocalCommandCheck = runProcess(
             executablePath: fishExecutable,
             arguments: ["-n", "-c", localCommand],
@@ -254,7 +255,6 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
         XCTAssertTrue(remoteCommandArgs[0].contains("set -eu"), "Expected installer command body in \(remoteCommandArgs)")
         XCTAssertFalse(remoteCommandArgs.contains("sh"))
         XCTAssertFalse(remoteCommandArgs.contains("-c"))
-
         let secondInvocationData = try XCTUnwrap(logLines.dropFirst().first?.data(using: .utf8))
         let secondInvocation = try XCTUnwrap(
             JSONSerialization.jsonObject(with: secondInvocationData, options: []) as? [String]
