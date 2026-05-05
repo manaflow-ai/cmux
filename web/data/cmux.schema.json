@@ -656,19 +656,55 @@
     "shortcutBinding": {
       "oneOf": [
         {
-          "type": "string",
-          "description": "Single-stroke shortcut, for example cmd+n. Use an empty string, none, clear, or unbound to unbind."
+          "$ref": "#/$defs/unboundShortcutBinding",
+          "description": "Unbind this shortcut. Accepted values are an empty string, none, clear, or unbound."
+        },
+        {
+          "$ref": "#/$defs/shortcutFirstStroke",
+          "description": "Single-stroke shortcut, for example cmd+n or cmd+space."
         },
         {
           "type": "array",
           "minItems": 1,
           "maxItems": 2,
-          "items": {
-            "type": "string"
-          },
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/shortcutFirstStroke"
+            },
+            {
+              "$ref": "#/$defs/shortcutStroke"
+            }
+          ],
           "description": "Chorded shortcut. Example: [\"ctrl+b\", \"c\"]."
         }
       ]
+    },
+    "unboundShortcutBinding": {
+      "type": "string",
+      "enum": ["", "none", "clear", "unbound"]
+    },
+    "shortcutFirstStroke": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/shortcutStroke"
+        },
+        {
+          "anyOf": [
+            {
+              "pattern": "^(?:(?:[cC][mM][dD]|[cC][oO][mM][mM][aA][nN][dD]|[sS][hH][iI][fF][tT]|[oO][pP][tT]|[oO][pP][tT][iI][oO][nN]|[aA][lL][tT]|[cC][tT][rR][lL]|[cC][oO][nN][tT][rR][oO][lL]|[cC][tT][lL]|⌘|⇧|⌥|⌃)\\+)+"
+            },
+            {
+              "pattern": "^(?: |[sS][pP][aA][cC][eE]|[sS][pP][aA][cC][eE][bB][aA][rR]|<[sS][pP][aA][cC][eE]>)$"
+            }
+          ]
+        }
+      ],
+      "description": "First or only shortcut stroke. Must include a modifier unless the key is Space."
+    },
+    "shortcutStroke": {
+      "type": "string",
+      "pattern": "^(?:(?:[cC][mM][dD]|[cC][oO][mM][mM][aA][nN][dD]|[sS][hH][iI][fF][tT]|[oO][pP][tT]|[oO][pP][tT][iI][oO][nN]|[aA][lL][tT]|[cC][tT][rR][lL]|[cC][oO][nN][tT][rR][oO][lL]|[cC][tT][lL]|⌘|⇧|⌥|⌃)\\+)*(?: |[A-Za-z0-9]|[lL][eE][fF][tT]|[aA][rR][rR][oO][wW][lL][eE][fF][tT]|[lL][eE][fF][tT][aA][rR][rR][oO][wW]|←|[rR][iI][gG][hH][tT]|[aA][rR][rR][oO][wW][rR][iI][gG][hH][tT]|[rR][iI][gG][hH][tT][aA][rR][rR][oO][wW]|→|[uU][pP]|[aA][rR][rR][oO][wW][uU][pP]|[uU][pP][aA][rR][rR][oO][wW]|↑|[dD][oO][wW][nN]|[aA][rR][rR][oO][wW][dD][oO][wW][nN]|[dD][oO][wW][nN][aA][rR][rR][oO][wW]|↓|[tT][aA][bB]|[rR][eE][tT][uU][rR][nN]|[eE][nN][tT][eE][rR]|↩|[sS][pP][aA][cC][eE]|[sS][pP][aA][cC][eE][bB][aA][rR]|<[sS][pP][aA][cC][eE]>|[,./\\\\;'`=\\[\\]-]|[cC][oO][mM][mM][aA]|[pP][eE][rR][iI][oO][dD]|[dD][oO][tT]|[sS][lL][aA][sS][hH]|[bB][aA][cC][kK][sS][lL][aA][sS][hH]|[sS][eE][mM][iI][cC][oO][lL][oO][nN]|[qQ][uU][oO][tT][eE]|[aA][pP][oO][sS][tT][rR][oO][pP][hH][eE]|[bB][aA][cC][kK][tT][iI][cC][kK]|[gG][rR][aA][vV][eE]|[mM][iI][nN][uU][sS]|[hH][yY][pP][hH][eE][nN]|[pP][lL][uU][sS]|[eE][qQ][uU][aA][lL][sS]|[lL][eE][fF][tT][bB][rR][aA][cC][kK][eE][tT]|[oO][pP][eE][nN][bB][rR][aA][cC][kK][eE][tT]|[rR][iI][gG][hH][tT][bB][rR][aA][cC][kK][eE][tT]|[cC][lL][oO][sS][eE][bB][rR][aA][cC][kK][eE][tT]|[fF](?:[1-9]|1[0-9]|20)|[vV][oO][lL][uU][mM][eE][uU][pP]|[mM][eE][dD][iI][aA][vV][oO][lL][uU][mM][eE][uU][pP]|[mM][eE][dD][iI][aA]\\.[vV][oO][lL][uU][mM][eE][uU][pP]|[vV][oO][lL][uU][mM][eE][dD][oO][wW][nN]|[mM][eE][dD][iI][aA][vV][oO][lL][uU][mM][eE][dD][oO][wW][nN]|[mM][eE][dD][iI][aA]\\.[vV][oO][lL][uU][mM][eE][dD][oO][wW][nN]|[bB][rR][iI][gG][hH][tT][nN][eE][sS][sS][uU][pP]|[mM][eE][dD][iI][aA][bB][rR][iI][gG][hH][tT][nN][eE][sS][sS][uU][pP]|[mM][eE][dD][iI][aA]\\.[bB][rR][iI][gG][hH][tT][nN][eE][sS][sS][uU][pP]|[bB][rR][iI][gG][hH][tT][nN][eE][sS][sS][dD][oO][wW][nN]|[mM][eE][dD][iI][aA][bB][rR][iI][gG][hH][tT][nN][eE][sS][sS][dD][oO][wW][nN]|[mM][eE][dD][iI][aA]\\.[bB][rR][iI][gG][hH][tT][nN][eE][sS][sS][dD][oO][wW][nN]|[mM][uU][tT][eE]|[mM][eE][dD][iI][aA][mM][uU][tT][eE]|[mM][eE][dD][iI][aA]\\.[mM][uU][tT][eE]|[pP][lL][aA][yY][pP][aA][uU][sS][eE]|[mM][eE][dD][iI][aA][pP][lL][aA][yY][pP][aA][uU][sS][eE]|[mM][eE][dD][iI][aA]\\.[pP][lL][aA][yY][pP][aA][uU][sS][eE]|[nN][eE][xX][tT][tT][rR][aA][cC][kK]|[mM][eE][dD][iI][aA][nN][eE][xX][tT]|[mM][eE][dD][iI][aA]\\.[nN][eE][xX][tT]|[mM][eE][dD][iI][aA]\\.[nN][eE][xX][tT][tT][rR][aA][cC][kK]|[pP][rR][eE][vV][iI][oO][uU][sS][tT][rR][aA][cC][kK]|[mM][eE][dD][iI][aA][pP][rR][eE][vV][iI][oO][uU][sS]|[mM][eE][dD][iI][aA]\\.[pP][rR][eE][vV][iI][oO][uU][sS]|[mM][eE][dD][iI][aA]\\.[pP][rR][eE][vV][iI][oO][uU][sS][tT][rR][aA][cC][kK])$",
+      "description": "One keyboard shortcut stroke using modifier+key syntax. Supported key names include space, Space, <space>, and <Space>."
     }
   }
 }

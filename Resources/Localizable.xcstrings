@@ -83250,6 +83250,23 @@
         }
       }
     },
+    "shortcut.key.space": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Space"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スペース"
+          }
+        }
+      }
+    },
     "shortcut.pressShortcut.prompt": {
       "extractionState": "manual",
       "localizations": {

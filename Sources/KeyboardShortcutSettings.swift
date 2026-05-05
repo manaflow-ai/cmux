@@ -705,6 +705,14 @@ enum KeyboardShortcutSettings {
         conflictingAction: Action,
         previousShortcut: StoredShortcut
     ) {
+        guard conflictingAction.conflicts(
+            with: proposedShortcut,
+            proposedAction: currentAction,
+            configuredShortcut: shortcut(for: conflictingAction)
+        ) else {
+            return
+        }
+
         guard
             let resolvedCurrentShortcut = storedShortcutForReplacement(
                 proposedShortcut,
@@ -1192,6 +1200,7 @@ struct ShortcutStroke: Equatable, Hashable {
         switch key {
         case "\t":
             return String(localized: "shortcut.key.tab", defaultValue: "Tab")
+        case "space": return String(localized: "shortcut.key.space", defaultValue: "Space")
         case "\r":
             return "↩"
         case "media.brightnessDown":
@@ -1232,6 +1241,8 @@ struct ShortcutStroke: Equatable, Hashable {
     }
 
     var keyEquivalent: KeyEquivalent? {
+        if key == "space" { return KeyEquivalent(Character(" ")) }
+
         if Self.usesDirectKeyCodeMatching(key) {
             return nil
         }
@@ -1274,6 +1285,8 @@ struct ShortcutStroke: Equatable, Hashable {
     }
 
     var menuItemKeyEquivalent: String? {
+        if key == "space" { return " " }
+
         if Self.usesDirectKeyCodeMatching(key) {
             return nil
         }
@@ -1499,6 +1512,7 @@ struct ShortcutStroke: Equatable, Hashable {
         case 125: return "↓" // down arrow
         case 126: return "↑" // up arrow
         case 48: return "\t" // tab
+        case 49: return "space" // kVK_Space
         case 36, 76: return "\r" // return, keypad enter
         case 33: return "["  // kVK_ANSI_LeftBracket
         case 30: return "]"  // kVK_ANSI_RightBracket
@@ -1666,6 +1680,7 @@ struct ShortcutStroke: Equatable, Hashable {
         case "media.playPause": return 16
         case "media.next": return 17
         case "media.previous": return 18
+        case "space": return 49
         case "a": return 0
         case "s": return 1
         case "d": return 2
@@ -1725,7 +1740,7 @@ struct ShortcutStroke: Equatable, Hashable {
     }
 
     private static func usesDirectKeyCodeMatching(_ key: String) -> Bool {
-        functionKeyDisplayString(for: key) != nil || key.hasPrefix("media.")
+        key == "space" || functionKeyDisplayString(for: key) != nil || key.hasPrefix("media.")
     }
 
     private static func functionKeyDisplayString(for key: String) -> String? {
@@ -1796,7 +1811,7 @@ struct ShortcutStroke: Equatable, Hashable {
     private static let supportedShortcutKeyCodes: [UInt16] = [
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17,
         18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32,
-        33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48,
+        33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49,
         50, 123, 124, 125, 126,
     ]
 }
@@ -2023,12 +2038,12 @@ struct StoredShortcut: Codable, Equatable, Hashable {
 
 extension ShortcutStroke {
     static func parseConfig(_ rawValue: String) -> ShortcutStroke? {
-        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
+        guard !rawValue.isEmpty else { return nil }
 
-        let parts = trimmed.split(separator: "+", omittingEmptySubsequences: false)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-        guard !parts.isEmpty, let lastPart = parts.last, !lastPart.isEmpty else {
+        let rawParts = rawValue.split(separator: "+", omittingEmptySubsequences: false)
+            .map(String.init)
+        let parts = rawParts.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        guard !parts.isEmpty, let lastRawPart = rawParts.last, !lastRawPart.isEmpty else {
             return nil
         }
 
@@ -2052,7 +2067,7 @@ extension ShortcutStroke {
             }
         }
 
-        guard let key = parseConfigKeyToken(lastPart) else { return nil }
+        guard let key = parseConfigKeyToken(lastRawPart) else { return nil }
         return ShortcutStroke(
             key: key,
             command: command,
@@ -2083,7 +2098,12 @@ extension ShortcutStroke {
     }
 
     private static func parseConfigKeyToken(_ rawValue: String) -> String? {
-        let lowered = rawValue.lowercased()
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return !rawValue.isEmpty && rawValue.allSatisfy { $0 == " " } ? "space" : nil
+        }
+
+        let lowered = trimmed.lowercased()
         switch lowered {
         case "left", "arrowleft", "leftarrow", "←":
             return "←"
@@ -2097,8 +2117,8 @@ extension ShortcutStroke {
             return "\t"
         case "return", "enter", "↩":
             return "\r"
-        case "space":
-            return " "
+        case "space", "spacebar", "<space>":
+            return "space"
         case "comma":
             return ","
         case "period", "dot":
@@ -2166,7 +2186,7 @@ extension StoredShortcut {
         guard parsedStrokes.count == strokes.count, let firstStroke = parsedStrokes.first else {
             return nil
         }
-        guard !firstStroke.modifierFlags.isEmpty else { return nil }
+        guard !firstStroke.modifierFlags.isEmpty || firstStroke.key == "space" else { return nil }
         let secondStroke = parsedStrokes.count == 2 ? parsedStrokes[1] : nil
         return StoredShortcut(first: firstStroke, second: secondStroke)
     }
@@ -2180,8 +2200,9 @@ extension StoredShortcut {
     }
 
     private static func isUnboundConfigToken(_ rawValue: String) -> Bool {
+        if rawValue.isEmpty { return true }
         let normalized = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return normalized.isEmpty || normalized == "none" || normalized == "clear" || normalized == "unbound"
+        return normalized == "none" || normalized == "clear" || normalized == "unbound"
     }
 }
 
@@ -2219,101 +2240,4 @@ enum KeyboardShortcutRecorderActivity {
 struct ShortcutRecorderRejectedAttempt: Equatable {
     let reason: KeyboardShortcutSettings.ShortcutRecordingRejection
     let proposedShortcut: StoredShortcut?
-}
-
-struct ShortcutRecorderValidationPresentation: Equatable {
-    let message: String
-    let swapButtonTitle: String?
-    let undoButtonTitle: String
-    let canSwap: Bool
-
-    init?(
-        attempt: ShortcutRecorderRejectedAttempt?,
-        action: KeyboardShortcutSettings.Action,
-        currentShortcut: StoredShortcut,
-        shortcutForAction: (KeyboardShortcutSettings.Action) -> StoredShortcut = KeyboardShortcutSettings.shortcut(for:)
-    ) {
-        guard let attempt else { return nil }
-
-        let canSwap = Self.canSwapConflict(
-            attempt: attempt,
-            action: action,
-            currentShortcut: currentShortcut
-        )
-
-        self.message = Self.message(
-            for: attempt.reason,
-            canSwap: canSwap,
-            shortcutForAction: shortcutForAction
-        )
-        self.swapButtonTitle = canSwap
-            ? String(localized: "shortcut.recorder.swap", defaultValue: "Swap")
-            : nil
-        self.undoButtonTitle = String(localized: "shortcut.recorder.undo", defaultValue: "Undo")
-        self.canSwap = canSwap
-    }
-
-    private static func message(
-        for reason: KeyboardShortcutSettings.ShortcutRecordingRejection,
-        canSwap: Bool,
-        shortcutForAction: (KeyboardShortcutSettings.Action) -> StoredShortcut
-    ) -> String {
-        switch reason {
-        case .bareKeyNotAllowed:
-            return String(
-                localized: "shortcut.recorder.error.bareKeyNotAllowed",
-                defaultValue: "Shortcuts must include ⌘ ⌥ ⌃ or ⇧"
-            )
-        case let .conflictsWithAction(conflictingAction):
-            let conflictingShortcut = conflictingAction.displayedShortcutString(
-                for: shortcutForAction(conflictingAction)
-            )
-            let format: String
-            if canSwap {
-                format = String(
-                    localized: "shortcut.recorder.error.conflictsWithAction.swap",
-                    defaultValue: "This shortcut conflicts with %@ (%@). Swap shortcuts?"
-                )
-            } else {
-                format = String(
-                    localized: "shortcut.recorder.error.conflictsWithAction",
-                    defaultValue: "This shortcut conflicts with %@ (%@)."
-                )
-            }
-            return String.localizedStringWithFormat(format, conflictingAction.label, conflictingShortcut)
-        case .reservedBySystem:
-            return String(
-                localized: "shortcut.recorder.error.reservedBySystem",
-                defaultValue: "This keystroke is reserved by macOS."
-            )
-        case .numberedShortcutRequiresDigit:
-            return String(
-                localized: "shortcut.recorder.error.numberedShortcutRequiresDigit",
-                defaultValue: "Use a digit from 1 through 9."
-            )
-        case .systemWideHotkeyRequiresModifier:
-            return String(
-                localized: "shortcut.recorder.error.systemWideHotkeyRequiresModifier",
-                defaultValue: "System-wide hotkeys must include Command, Option, or Control."
-            )
-        }
-    }
-
-    private static func canSwapConflict(
-        attempt: ShortcutRecorderRejectedAttempt,
-        action: KeyboardShortcutSettings.Action,
-        currentShortcut: StoredShortcut
-    ) -> Bool {
-        guard case let .conflictsWithAction(conflictingAction) = attempt.reason,
-              let proposedShortcut = attempt.proposedShortcut else {
-            return false
-        }
-
-        guard case .accepted = action.resolvedRecordedShortcutIgnoringConflicts(proposedShortcut),
-              case .accepted = conflictingAction.resolvedRecordedShortcutIgnoringConflicts(currentShortcut) else {
-            return false
-        }
-
-        return true
-    }
 }

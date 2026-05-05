@@ -36,6 +36,89 @@ final class KeyboardShortcutContextTests: XCTestCase {
         )
     }
 
+    func testRenameTabCanReassignCommandRAfterUnbindingWithoutBrowserReloadConflict() throws {
+        let originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
+        let directoryURL = try makeTemporaryDirectory()
+        defer {
+            KeyboardShortcutSettings.resetAll()
+            KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
+            try? FileManager.default.removeItem(at: directoryURL)
+        }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile("{}", to: settingsFileURL)
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+        KeyboardShortcutSettings.resetAll()
+
+        let commandR = StoredShortcut(key: "r", command: true, shift: false, option: false, control: false)
+        XCTAssertEqual(commandR, KeyboardShortcutSettings.Action.renameTab.defaultShortcut)
+        XCTAssertEqual(commandR, KeyboardShortcutSettings.Action.browserReload.defaultShortcut)
+
+        KeyboardShortcutSettings.setShortcut(commandR, for: .renameTab)
+        KeyboardShortcutSettings.clearShortcut(for: .renameTab)
+
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .renameTab), .unbound)
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .browserReload), commandR)
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.renameTab.normalizedRecordedShortcutResult(commandR),
+            .accepted(commandR)
+        )
+
+        KeyboardShortcutSettings.setShortcut(commandR, for: .renameTab)
+
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .renameTab), commandR)
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .browserReload), commandR)
+    }
+
+    func testSwapPathIgnoresNonOverlappingShortcutContexts() throws {
+        let originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
+        let directoryURL = try makeTemporaryDirectory()
+        defer {
+            KeyboardShortcutSettings.resetAll()
+            KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
+            try? FileManager.default.removeItem(at: directoryURL)
+        }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile("{}", to: settingsFileURL)
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+        KeyboardShortcutSettings.resetAll()
+
+        let commandR = KeyboardShortcutSettings.Action.renameTab.defaultShortcut
+        KeyboardShortcutSettings.clearShortcut(for: .renameTab)
+
+        KeyboardShortcutSettings.swapShortcutConflict(
+            proposedShortcut: commandR,
+            currentAction: .renameTab,
+            conflictingAction: .browserReload,
+            previousShortcut: .unbound
+        )
+
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .renameTab), .unbound)
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .browserReload), commandR)
+        XCTAssertNil(
+            ShortcutRecorderValidationPresentation(
+                attempt: ShortcutRecorderRejectedAttempt(
+                    reason: .conflictsWithAction(.browserReload),
+                    proposedShortcut: commandR
+                ),
+                action: .renameTab,
+                currentShortcut: .unbound,
+                shortcutForAction: { $0.defaultShortcut }
+            )
+        )
+    }
+
     func testRenameWorkspaceIsScopedOutsideBrowserPanels() {
         XCTAssertEqual(KeyboardShortcutSettings.Action.renameWorkspace.shortcutContext, .nonBrowserPanel)
     }
