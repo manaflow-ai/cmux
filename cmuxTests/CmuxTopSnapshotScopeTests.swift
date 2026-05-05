@@ -1,4 +1,6 @@
 import XCTest
+import Foundation
+import Darwin
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -7,6 +9,57 @@ import XCTest
 #endif
 
 final class CmuxTopSnapshotScopeTests: XCTestCase {
+    @MainActor
+    func testWindowRollupMatchesPSForApplicationProcessTree() throws {
+        let fixture = try SpawnedProcessTree.start()
+        defer { fixture.terminate() }
+
+        let snapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: false)
+        var windows: [[String: Any]] = [[
+            "kind": "window",
+            "id": UUID().uuidString,
+            "index": 0,
+            "key": true,
+            "visible": true,
+            "app_process_pids": [fixture.parentPID],
+            "workspaces": [[
+                "kind": "workspace",
+                "id": UUID().uuidString,
+                "index": 0,
+                "title": "process tree fixture",
+                "selected": true,
+                "pinned": false,
+                "panes": [],
+                "tags": fixture.childPIDs.enumerated().map { index, pid in
+                    [
+                        "kind": "tag",
+                        "id": "fixture:\(index)",
+                        "index": index,
+                        "key": "fixture-\(index)",
+                        "value": "",
+                        "visible": true,
+                        "pid": pid
+                    ] as [String: Any]
+                }
+            ] as [String: Any]]
+        ]]
+
+        let totalPIDs = TerminalController.shared.v2AnnotateTopWindows(
+            &windows,
+            processSnapshot: snapshot,
+            browserPIDOccurrences: [:],
+            includeProcesses: false
+        )
+        let resources = try XCTUnwrap(windows[0]["resources"] as? [String: Any])
+        let rolledRSS = int64(resources["resident_bytes"])
+        let expectedRSS = try psResidentBytesForRecursiveTree(rootPID: fixture.parentPID)
+        let processIDs = Set(intArray(resources["pids"]))
+
+        XCTAssertTrue(processIDs.contains(fixture.parentPID))
+        XCTAssertTrue(totalPIDs.contains(fixture.parentPID))
+        XCTAssertLessThanOrEqual(abs(rolledRSS - expectedRSS), 8 * 1024 * 1024)
+    }
+
     func testKernProcArgsWorkspaceID() {
         let workspaceID = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
         let bytes = kernProcArgs(environment: [
@@ -77,5 +130,159 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
     private func appendCString(_ string: String, to bytes: inout [UInt8]) {
         bytes.append(contentsOf: string.utf8)
         bytes.append(0)
+    }
+
+    private struct SpawnedProcessTree {
+        let process: Process
+        let childPIDs: [Int]
+
+        var parentPID: Int {
+            Int(process.processIdentifier)
+        }
+
+        static func start() throws -> SpawnedProcessTree {
+            let directory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+                .appendingPathComponent("cmux-top-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+            let scriptURL = directory.appendingPathComponent("process_tree.py")
+            let pidURL = directory.appendingPathComponent("children.txt")
+            try processTreeScript.write(to: scriptURL, atomically: true, encoding: .utf8)
+
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+            process.arguments = [scriptURL.path, pidURL.path]
+            try process.run()
+
+            let childPIDs = try waitForChildPIDs(at: pidURL)
+            return SpawnedProcessTree(process: process, childPIDs: childPIDs)
+        }
+
+        func terminate() {
+            for pid in childPIDs {
+                Darwin.kill(pid_t(pid), SIGTERM)
+            }
+            if process.isRunning {
+                process.terminate()
+            }
+        }
+
+        private static let processTreeScript = #"""
+import os
+import signal
+import sys
+import time
+
+pid_file = sys.argv[1]
+allocations = []
+
+def touch(size):
+    data = bytearray(size)
+    for index in range(0, len(data), 4096):
+        data[index] = 1
+    return data
+
+allocations.append(touch(16 * 1024 * 1024))
+children = []
+for offset in range(2):
+    pid = os.fork()
+    if pid == 0:
+        child_data = touch((8 + offset) * 1024 * 1024)
+        while child_data:
+            time.sleep(1)
+    children.append(pid)
+
+with open(pid_file, "w", encoding="utf-8") as handle:
+    handle.write(" ".join(str(pid) for pid in children))
+    handle.flush()
+
+def terminate(signum, frame):
+    for child in children:
+        try:
+            os.kill(child, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    sys.exit(0)
+
+signal.signal(signal.SIGTERM, terminate)
+while allocations:
+    time.sleep(1)
+"""#
+
+        private static func waitForChildPIDs(at url: URL) throws -> [Int] {
+            let deadline = Date().addingTimeInterval(5)
+            while Date() < deadline {
+                if let raw = try? String(contentsOf: url, encoding: .utf8) {
+                    let pids = raw
+                        .split(separator: " ")
+                        .compactMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+                    if pids.count == 2 {
+                        return pids
+                    }
+                }
+                Thread.sleep(forTimeInterval: 0.05)
+            }
+            throw XCTSkip("Timed out waiting for process tree fixture")
+        }
+    }
+
+    private func psResidentBytesForRecursiveTree(rootPID: Int) throws -> Int64 {
+        let output = try runPS(arguments: ["-A", "-o", "pid=,ppid=,rss="])
+        var rssByPID: [Int: Int64] = [:]
+        var childrenByParent: [Int: [Int]] = [:]
+
+        for line in output.split(separator: "\n") {
+            let columns = line.split(whereSeparator: { $0 == " " || $0 == "\t" })
+            guard columns.count >= 3,
+                  let pid = Int(columns[0]),
+                  let parentPID = Int(columns[1]),
+                  let rssKB = Int64(columns[2]) else {
+                continue
+            }
+            rssByPID[pid] = rssKB * 1024
+            childrenByParent[parentPID, default: []].append(pid)
+        }
+
+        var treePIDs: Set<Int> = []
+        var stack = [rootPID]
+        while let pid = stack.popLast() {
+            guard treePIDs.insert(pid).inserted else { continue }
+            stack.append(contentsOf: childrenByParent[pid] ?? [])
+        }
+
+        return treePIDs.reduce(Int64(0)) { partial, pid in
+            partial + (rssByPID[pid] ?? 0)
+        }
+    }
+
+    private func runPS(arguments: [String]) throws -> String {
+        let process = Process()
+        let pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/bin/ps")
+        process.arguments = arguments
+        process.standardOutput = pipe
+        try process.run()
+        process.waitUntilExit()
+
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+
+    private func int64(_ raw: Any?) -> Int64 {
+        if let value = raw as? Int64 { return value }
+        if let value = raw as? Int { return Int64(value) }
+        if let value = raw as? NSNumber { return value.int64Value }
+        return 0
+    }
+
+    private func intArray(_ raw: Any?) -> [Int] {
+        if let values = raw as? [Int] { return values }
+        guard let values = raw as? [Any] else { return [] }
+        return values.compactMap { raw in
+            if let value = raw as? Int { return value }
+            if let value = raw as? NSNumber { return value.intValue }
+            if let value = raw as? String { return Int(value) }
+            return nil
+        }
     }
 }
