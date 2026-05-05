@@ -1332,6 +1332,118 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
     }
 
     @MainActor
+    func testFocusRestoreTargetRestoresFocusedDockSurface() {
+        let fileExplorerState = FileExplorerState()
+        fileExplorerState.mode = .dock
+        let controller = MainWindowFocusController(
+            windowId: UUID(),
+            window: nil,
+            tabManager: TabManager(),
+            fileExplorerState: fileExplorerState
+        )
+
+        let dockHost = DockKeyboardFocusView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        let dockResponder = TestRightSidebarResponder(frame: NSRect(x: 0, y: 30, width: 24, height: 24))
+        let dockSurfaceId = UUID()
+        var restoredSurfaceId: UUID?
+        dockHost.debugFocusedSurfaceId = { responder in
+            responder === dockResponder ? dockSurfaceId : nil
+        }
+        dockHost.focusSurface = { surfaceId in
+            restoredSurfaceId = surfaceId
+            return true
+        }
+
+        controller.registerDockHost(dockHost)
+
+        guard let target = controller.captureFocusRestoreTarget(owning: dockResponder) else {
+            XCTFail("Expected Dock focus restore target")
+            return
+        }
+
+        XCTAssertTrue(controller.restoreFocus(target))
+
+        XCTAssertEqual(restoredSurfaceId, dockSurfaceId)
+        XCTAssertEqual(fileExplorerState.mode, .dock)
+        XCTAssertEqual(controller.intent, .rightSidebar(mode: .dock))
+    }
+
+    @MainActor
+    func testDockFocusFirstItemUsesTerminalEndpointOnce() {
+        let fileExplorerState = FileExplorerState()
+        let controller = MainWindowFocusController(
+            windowId: UUID(),
+            window: nil,
+            tabManager: TabManager(),
+            fileExplorerState: fileExplorerState
+        )
+        let dockHost = DockKeyboardFocusView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        var focusCount = 0
+        dockHost.focusFirstControl = {
+            focusCount += 1
+            return true
+        }
+        controller.registerDockHost(dockHost)
+
+        XCTAssertTrue(controller.focusRightSidebar(mode: .dock, focusFirstItem: true))
+
+        XCTAssertEqual(focusCount, 1)
+        XCTAssertNil(controller.debugPendingRightSidebarFocusMode)
+        XCTAssertEqual(fileExplorerState.mode, .dock)
+        XCTAssertEqual(controller.intent, .rightSidebar(mode: .dock))
+    }
+
+    @MainActor
+    func testDockTerminalInteractionCompletesPendingTerminalFocus() {
+        let fileExplorerState = FileExplorerState()
+        let controller = MainWindowFocusController(
+            windowId: UUID(),
+            window: nil,
+            tabManager: TabManager(),
+            fileExplorerState: fileExplorerState
+        )
+        let dockHost = DockKeyboardFocusView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        dockHost.focusFirstControl = { false }
+        controller.registerDockHost(dockHost)
+
+        XCTAssertTrue(controller.focusRightSidebar(mode: .dock, focusFirstItem: true))
+        XCTAssertEqual(controller.debugPendingRightSidebarFocusMode, .dock)
+
+        controller.noteDockTerminalInteraction(surfaceId: UUID())
+
+        XCTAssertNil(controller.debugPendingRightSidebarFocusMode)
+        XCTAssertEqual(controller.intent, .rightSidebar(mode: .dock))
+    }
+
+    @MainActor
+    func testPendingDockFocusCompletesWhenDockSurfaceBecomesResponder() {
+        let fileExplorerState = FileExplorerState()
+        let controller = MainWindowFocusController(
+            windowId: UUID(),
+            window: nil,
+            tabManager: TabManager(),
+            fileExplorerState: fileExplorerState
+        )
+        let dockHost = DockKeyboardFocusView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        let dockResponder = TestRightSidebarResponder(frame: NSRect(x: 0, y: 30, width: 24, height: 24))
+        let dockSurfaceId = UUID()
+        dockHost.focusFirstControl = { false }
+        dockHost.debugFocusedSurfaceId = { responder in
+            responder === dockResponder ? dockSurfaceId : nil
+        }
+        controller.registerDockHost(dockHost)
+
+        XCTAssertTrue(controller.focusRightSidebar(mode: .dock, focusFirstItem: true))
+        XCTAssertEqual(controller.debugPendingRightSidebarFocusMode, .dock)
+
+        controller.debugSyncAfterResponderChange(responder: dockResponder)
+
+        XCTAssertNil(controller.debugPendingRightSidebarFocusMode)
+        XCTAssertEqual(controller.intent, .rightSidebar(mode: .dock))
+        XCTAssertEqual(fileExplorerState.mode, .dock)
+    }
+
+    @MainActor
     func testFocusShortcutToggleClearsRightSidebarIntentWhenTerminalIsUnavailable() {
         let controller = MainWindowFocusController(
             windowId: UUID(),

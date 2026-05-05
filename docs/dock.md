@@ -63,7 +63,13 @@ Use `~/.config/cmux/dock.json` for personal defaults, machines without a repo, o
 
 Nested project configs apply to their directory tree. If a nested project has its own `.cmux/dock.json`, use that nearest config for work inside the nested project. Do not put unrelated project controls into the global config just because a repo is absent.
 
-If neither file exists, Dock opens empty and offers a prompt to create a starter config. cmux does not add Dock controls automatically.
+If neither file exists, or a Dock config has no controls, Dock opens a normal right-side terminal. The first default Dock terminal prints a short welcome message with setup pointers. Hide it for future default Dock terminals with:
+
+```sh
+cmux dock welcome dismiss
+```
+
+Run `cmux dock welcome show` to show the message again. cmux does not add Dock controls automatically.
 
 Relative `cwd` values resolve from the config base. For `.cmux/dock.json`, that base is the project directory containing `.cmux`. For the global config, that base is the home directory.
 

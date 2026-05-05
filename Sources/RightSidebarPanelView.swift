@@ -142,6 +142,7 @@ struct RightSidebarPanelView: View {
     @ObservedObject var fileExplorerStore: FileExplorerStore
     @ObservedObject var fileExplorerState: FileExplorerState
     @ObservedObject var sessionIndexStore: SessionIndexStore
+    @ObservedObject var dockStore: DockControlsStore
     let titlebarHeight: CGFloat
     let workspaceId: UUID?
     let onResumeSession: ((SessionEntry) -> Void)?
@@ -152,7 +153,6 @@ struct RightSidebarPanelView: View {
         return AppDelegate.shared?.isRightSidebarFocusResponder(responder, in: window) == true
     }
     @StateObject private var focusShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
-    @StateObject private var dockStore = DockControlsStore()
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey)
     private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
@@ -223,6 +223,13 @@ struct RightSidebarPanelView: View {
                 }
             }
             Spacer(minLength: 0)
+            if fileExplorerState.mode == .dock {
+                DockModeBarActions(
+                    rootDirectory: sessionIndexDirectory,
+                    workspaceId: workspaceId,
+                    store: dockStore
+                )
+            }
         }
         .rightSidebarChromeBar(leadingPadding: 4, trailingPadding: 6, height: titlebarHeight)
         .background(MinimalModeTitlebarControlHitRegionView())
@@ -299,6 +306,60 @@ struct RightSidebarPanelView: View {
                 sessionIndexStore.reload()
             }
         }
+    }
+}
+
+private struct DockModeBarActions: View {
+    let rootDirectory: String?
+    let workspaceId: UUID?
+    @ObservedObject var store: DockControlsStore
+
+    var body: some View {
+        HStack(spacing: 6) {
+            actionButton(
+                systemName: "doc.text",
+                label: String(localized: "dock.action.openConfig", defaultValue: "Open Dock Config")
+            ) {
+                store.activate(rootDirectory: rootDirectory, workspaceId: workspaceId)
+                store.openConfiguration()
+            }
+
+            actionButton(
+                systemName: "questionmark.circle",
+                label: String(localized: "dock.action.openDocs", defaultValue: "Open Dock Documentation")
+            ) {
+                openDockDocs()
+            }
+
+            actionButton(
+                systemName: "arrow.clockwise",
+                label: String(localized: "dock.action.reload", defaultValue: "Reload Dock")
+            ) {
+                store.reload(rootDirectory: rootDirectory, workspaceId: workspaceId)
+            }
+        }
+        .layoutPriority(1)
+        .accessibilityIdentifier("DockModeBarActions")
+    }
+
+    private func actionButton(systemName: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 11, weight: .medium))
+                .frame(
+                    width: RightSidebarChromeMetrics.controlHeight,
+                    height: RightSidebarChromeMetrics.controlHeight
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(label)
+        .accessibilityLabel(label)
+    }
+
+    private func openDockDocs() {
+        guard let url = URL(string: "https://cmux.com/docs/dock") else { return }
+        NSWorkspace.shared.open(url)
     }
 }
 

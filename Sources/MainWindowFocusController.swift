@@ -29,6 +29,34 @@ enum MainWindowFindShortcutTarget: Equatable {
     case none
 }
 
+struct MainWindowFocusRestoreTarget: Equatable {
+    fileprivate struct MainPanelTarget: Equatable {
+        let workspaceId: UUID
+        let panelId: UUID
+        let intent: PanelFocusIntent
+    }
+
+    fileprivate enum RightSidebarTarget: Equatable {
+        case host
+        case outline
+        case searchField
+        case firstItem
+        case dockSurface(UUID)
+    }
+
+    fileprivate struct RightSidebarDestination: Equatable {
+        let mode: RightSidebarMode
+        let target: RightSidebarTarget
+    }
+
+    fileprivate enum Destination: Equatable {
+        case mainPanel(MainPanelTarget)
+        case rightSidebar(RightSidebarDestination)
+    }
+
+    fileprivate let destination: Destination
+}
+
 @MainActor
 final class MainWindowFocusController {
     private enum EffectiveFocusOwner {
@@ -42,6 +70,7 @@ final class MainWindowFocusController {
         case outline
         case searchField
         case firstItem
+        case dockSurface(UUID)
     }
 
     private struct RightSidebarFocusRequest: Equatable {
@@ -165,6 +194,25 @@ final class MainWindowFocusController {
         publishFeedFocusSnapshot()
     }
 
+    func noteDockTerminalInteraction(surfaceId: UUID) {
+        rememberedRightSidebarMode = .dock
+        let target: RightSidebarFocusTarget = {
+            if let request = rightSidebarFocusState.request,
+               request.mode == .dock {
+                if case .dockSurface(let requestedSurfaceId) = request.target,
+                   requestedSurfaceId != surfaceId {
+                    return .dockSurface(surfaceId)
+                }
+                return request.target
+            }
+            return .dockSurface(surfaceId)
+        }()
+        rightSidebarFocusState = .focused(mode: .dock, target: target)
+        intent = .rightSidebar(mode: .dock)
+        feedSelectedItemId = nil
+        publishFeedFocusSnapshot()
+    }
+
     func noteTerminalInteraction(workspaceId: UUID, panelId: UUID) {
         noteMainPanelInteraction(workspaceId: workspaceId, panelId: panelId)
     }
@@ -173,6 +221,66 @@ final class MainWindowFocusController {
         rightSidebarFocusState = .inactive
         intent = .mainPanel(workspaceId: workspaceId, panelId: panelId)
         publishFeedFocusSnapshot()
+    }
+
+    func captureFocusRestoreTarget() -> MainWindowFocusRestoreTarget? {
+        if let responder = window?.firstResponder,
+           let target = captureFocusRestoreTarget(owning: responder) {
+            return target
+        }
+
+        if let target = captureFocusRestoreTargetFromIntent() {
+            return target
+        }
+
+        return captureSelectedMainPanelFocusRestoreTarget()
+    }
+
+    func captureFocusRestoreTarget(owning responder: NSResponder) -> MainWindowFocusRestoreTarget? {
+        if let dockSurfaceId = dockHost?.focusedSurfaceIdFromCoordinator(for: responder) {
+            return rightSidebarFocusRestoreTarget(mode: .dock, target: .dockSurface(dockSurfaceId))
+        }
+
+        if let mode = rightSidebarModeOwning(responder) {
+            return rightSidebarFocusRestoreTarget(
+                mode: mode,
+                target: rightSidebarRestoreTarget(mode: mode, responder: responder)
+            )
+        }
+
+        return captureMainPanelFocusRestoreTarget(owning: responder)
+    }
+
+    func captureFocusRestoreTarget(
+        workspaceId: UUID,
+        panelId: UUID,
+        fallbackIntent: PanelFocusIntent
+    ) -> MainWindowFocusRestoreTarget? {
+        guard let panel = tabManager?.tabs
+            .first(where: { $0.id == workspaceId })?
+            .panels[panelId] else {
+            return nil
+        }
+        let capturedIntent = panel.captureFocusIntent(in: window)
+        return mainPanelFocusRestoreTarget(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            intent: capturedIntent == .panel ? fallbackIntent : capturedIntent
+        )
+    }
+
+    @discardableResult
+    func restoreFocus(_ target: MainWindowFocusRestoreTarget) -> Bool {
+        switch target.destination {
+        case .mainPanel(let panel):
+            return restoreMainPanelFocus(
+                workspaceId: panel.workspaceId,
+                panelId: panel.panelId,
+                intent: panel.intent
+            )
+        case .rightSidebar(let sidebar):
+            return restoreRightSidebarFocus(mode: sidebar.mode, target: sidebar.target)
+        }
     }
 
     func allowsTerminalFocus(workspaceId: UUID, panelId: UUID) -> Bool {
@@ -562,6 +670,123 @@ final class MainWindowFocusController {
         return nil
     }
 
+    private func captureMainPanelFocusRestoreTarget(owning responder: NSResponder) -> MainWindowFocusRestoreTarget? {
+        guard let window,
+              let tabManager else {
+            return nil
+        }
+
+        if let workspace = tabManager.selectedWorkspace,
+           let target = captureMainPanelFocusRestoreTarget(in: workspace, owning: responder, window: window) {
+            return target
+        }
+
+        let selectedWorkspaceId = tabManager.selectedTabId
+        for workspace in tabManager.tabs where workspace.id != selectedWorkspaceId {
+            if let target = captureMainPanelFocusRestoreTarget(in: workspace, owning: responder, window: window) {
+                return target
+            }
+        }
+
+        return nil
+    }
+
+    private func captureMainPanelFocusRestoreTarget(
+        in workspace: Workspace,
+        owning responder: NSResponder,
+        window: NSWindow
+    ) -> MainWindowFocusRestoreTarget? {
+        if let panelId = workspace.focusedPanelId,
+           let panel = workspace.panels[panelId],
+           let focusIntent = panel.ownedFocusIntent(for: responder, in: window) {
+            return mainPanelFocusRestoreTarget(
+                workspaceId: workspace.id,
+                panelId: panelId,
+                intent: focusIntent
+            )
+        }
+
+        for (panelId, panel) in workspace.panels where panelId != workspace.focusedPanelId {
+            guard let focusIntent = panel.ownedFocusIntent(for: responder, in: window) else {
+                continue
+            }
+            return mainPanelFocusRestoreTarget(
+                workspaceId: workspace.id,
+                panelId: panelId,
+                intent: focusIntent
+            )
+        }
+
+        return nil
+    }
+
+    private func captureSelectedMainPanelFocusRestoreTarget() -> MainWindowFocusRestoreTarget? {
+        guard let tabManager,
+              let workspace = tabManager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let panel = workspace.panels[panelId] else {
+            return nil
+        }
+        return mainPanelFocusRestoreTarget(
+            workspaceId: workspace.id,
+            panelId: panelId,
+            intent: panel.captureFocusIntent(in: window)
+        )
+    }
+
+    private func captureFocusRestoreTargetFromIntent() -> MainWindowFocusRestoreTarget? {
+        switch intent {
+        case .mainPanel(let workspaceId, let panelId):
+            guard let panel = tabManager?.tabs
+                .first(where: { $0.id == workspaceId })?
+                .panels[panelId] else {
+                return nil
+            }
+            return mainPanelFocusRestoreTarget(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                intent: panel.captureFocusIntent(in: window)
+            )
+        case .rightSidebar(let mode):
+            return rightSidebarFocusRestoreTarget(
+                mode: mode,
+                target: rightSidebarRestoreTargetFromState(mode: mode) ?? .host
+            )
+        case nil:
+            return nil
+        }
+    }
+
+    private func mainPanelFocusRestoreTarget(
+        workspaceId: UUID,
+        panelId: UUID,
+        intent: PanelFocusIntent
+    ) -> MainWindowFocusRestoreTarget {
+        MainWindowFocusRestoreTarget(
+            destination: .mainPanel(
+                MainWindowFocusRestoreTarget.MainPanelTarget(
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    intent: intent
+                )
+            )
+        )
+    }
+
+    private func rightSidebarFocusRestoreTarget(
+        mode: RightSidebarMode,
+        target: MainWindowFocusRestoreTarget.RightSidebarTarget
+    ) -> MainWindowFocusRestoreTarget {
+        MainWindowFocusRestoreTarget(
+            destination: .rightSidebar(
+                MainWindowFocusRestoreTarget.RightSidebarDestination(
+                    mode: mode,
+                    target: target
+                )
+            )
+        )
+    }
+
     private func selectedFocusedBrowserPanelRequest() -> FocusedPanelRequest? {
         guard let tabManager,
               let workspace = tabManager.selectedWorkspace,
@@ -593,6 +818,76 @@ final class MainWindowFocusController {
         }
         publishFeedFocusSnapshot()
         return false
+    }
+
+    @discardableResult
+    private func restoreMainPanelFocus(
+        workspaceId: UUID,
+        panelId: UUID,
+        intent focusIntent: PanelFocusIntent
+    ) -> Bool {
+        guard let tabManager,
+              let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }),
+              let panel = workspace.panels[panelId] else {
+            return false
+        }
+
+        if let window, !window.isKeyWindow {
+            window.makeKeyAndOrderFront(nil)
+        }
+
+        rightSidebarFocusState = .inactive
+        intent = .mainPanel(workspaceId: workspaceId, panelId: panelId)
+        publishFeedFocusSnapshot()
+
+        tabManager.focusTab(
+            workspaceId,
+            surfaceId: panelId,
+            suppressFlash: true,
+            focusIntent: focusIntent
+        )
+        return panel.restoreFocusIntent(focusIntent)
+    }
+
+    @discardableResult
+    private func restoreRightSidebarFocus(
+        mode: RightSidebarMode,
+        target: MainWindowFocusRestoreTarget.RightSidebarTarget
+    ) -> Bool {
+        if case .dockSurface(let surfaceId) = target {
+            return restoreDockSurfaceFocus(surfaceId: surfaceId)
+        }
+
+        return focusRightSidebar(
+            mode: mode,
+            target: rightSidebarFocusTarget(for: target),
+            terminalYieldReason: "restoreRightSidebarFocus"
+        )
+    }
+
+    @discardableResult
+    private func restoreDockSurfaceFocus(surfaceId: UUID) -> Bool {
+        guard let state = fileExplorerState else { return false }
+
+        rememberedRightSidebarMode = .dock
+        beginRightSidebarFocusRequest(mode: .dock, target: .dockSurface(surfaceId))
+        intent = .rightSidebar(mode: .dock)
+        feedSelectedItemId = nil
+        publishFeedFocusSnapshot()
+        yieldCurrentTerminalSurfaceFocus(reason: "restoreDockSurfaceFocus")
+        state.setVisible(true)
+        if state.mode != .dock {
+            state.mode = .dock
+        }
+
+        if dockHost?.focusSurfaceFromCoordinator(surfaceId) == true {
+            rightSidebarFocusState = .focused(mode: .dock, target: .dockSurface(surfaceId))
+            publishFeedFocusSnapshot()
+            return true
+        }
+
+        publishFeedFocusSnapshot()
+        return rightSidebarFocusState.request?.mode == .dock
     }
 
     private func effectiveFocusOwner(currentResponder: NSResponder? = nil) -> EffectiveFocusOwner {
@@ -665,6 +960,75 @@ final class MainWindowFocusController {
         }
     }
 
+    private func rightSidebarRestoreTarget(
+        mode: RightSidebarMode,
+        responder: NSResponder
+    ) -> MainWindowFocusRestoreTarget.RightSidebarTarget {
+        if mode == .files {
+            return .outline
+        }
+        if mode == .find {
+            return .searchField
+        }
+        if mode == .dock,
+           let dockSurfaceId = dockHost?.focusedSurfaceIdFromCoordinator(for: responder) {
+            return .dockSurface(dockSurfaceId)
+        }
+        if let stateTarget = rightSidebarRestoreTargetFromState(mode: mode) {
+            return stateTarget
+        }
+        return .host
+    }
+
+    private func rightSidebarRestoreTargetFromState(
+        mode: RightSidebarMode
+    ) -> MainWindowFocusRestoreTarget.RightSidebarTarget? {
+        switch rightSidebarFocusState {
+        case .inactive:
+            return nil
+        case .requested(let request):
+            guard request.mode == mode else { return nil }
+            return rightSidebarRestoreTarget(for: request.target)
+        case .focused(let focusedMode, let target):
+            guard focusedMode == mode else { return nil }
+            return rightSidebarRestoreTarget(for: target)
+        }
+    }
+
+    private func rightSidebarRestoreTarget(
+        for target: RightSidebarFocusTarget
+    ) -> MainWindowFocusRestoreTarget.RightSidebarTarget {
+        switch target {
+        case .host:
+            return .host
+        case .outline:
+            return .outline
+        case .searchField:
+            return .searchField
+        case .firstItem:
+            return .firstItem
+        case .dockSurface(let surfaceId):
+            return .dockSurface(surfaceId)
+        }
+    }
+
+    private func rightSidebarFocusTarget(
+        for target: MainWindowFocusRestoreTarget.RightSidebarTarget
+    ) -> RightSidebarFocusTarget {
+        switch target {
+        case .host:
+            return .host
+        case .outline:
+            return .outline
+        case .searchField:
+            return .searchField
+        case .firstItem:
+            return .firstItem
+        case .dockSurface(let surfaceId):
+            return .dockSurface(surfaceId)
+        }
+    }
+
     private func focusRightSidebarEndpoint(
         mode: RightSidebarMode,
         target: RightSidebarFocusTarget
@@ -682,10 +1046,16 @@ final class MainWindowFocusController {
             }
             return feedHost?.focusHostFromCoordinator() == true
         case .dock:
-            if target == .firstItem {
-                dockHost?.focusFirstItemFromCoordinator()
+            switch target {
+            case .firstItem:
+                return dockHost?.focusFirstItemFromCoordinator() == true
+            case .host:
+                return dockHost?.focusHostFromCoordinator() == true
+            case .dockSurface(let surfaceId):
+                return dockHost?.focusSurfaceFromCoordinator(surfaceId) == true
+            case .outline, .searchField:
+                return false
             }
-            return dockHost?.focusHostFromCoordinator() == true
         }
     }
 
@@ -750,11 +1120,11 @@ final class MainWindowFocusController {
         if fileSearchHost?.ownsKeyboardFocus(responder) == true {
             return .find
         }
-        if feedHost?.ownsKeyboardFocus(responder) == true || responder is FeedKeyboardFocusResponder {
-            return .feed
-        }
         if dockHost?.ownsKeyboardFocus(responder) == true {
             return .dock
+        }
+        if feedHost?.ownsKeyboardFocus(responder) == true || responder is FeedKeyboardFocusResponder {
+            return .feed
         }
         return nil
     }

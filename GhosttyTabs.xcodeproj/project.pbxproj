@@ -61,6 +61,7 @@
 		D7AB34300000000000000005 /* SidebarWorkspaceDropPlannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB34300000000000000006 /* SidebarWorkspaceDropPlannerTests.swift */; };
 		D7AB34400000000000000001 /* WorkspaceSurfaceConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB34400000000000000002 /* WorkspaceSurfaceConfig.swift */; };
 		D7AB34400000000000000003 /* GhosttyTerminalViewVisibilityPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB34400000000000000004 /* GhosttyTerminalViewVisibilityPolicyTests.swift */; };
+		D0C0A001D0C0A001D0C0A001 /* DockControlsStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C0A002D0C0A002D0C0A002 /* DockControlsStoreTests.swift */; };
 		5EDB6027B346C46521A93C74 /* CMUXAuthCore in Frameworks */ = {isa = PBXBuildFile; productRef = 29813FE5A6CBC1019289A251 /* CMUXAuthCore */; };
 		AA11BB22CC33DD44EE550001 /* CMUXWorkstream in Frameworks */ = {isa = PBXBuildFile; productRef = AA11BB22CC33DD44EE550002 /* CMUXWorkstream */; };
 		3069F1D10000000000000005 /* CMUXPasteboardFidelity in Frameworks */ = {isa = PBXBuildFile; productRef = 3069F1D10000000000000006 /* CMUXPasteboardFidelity */; };
@@ -434,6 +435,7 @@
 		51D800000000000000000002 /* SidebarIdentifierFormattingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarIdentifierFormattingTests.swift; sourceTree = "<group>"; };
 		D7AB34300000000000000006 /* SidebarWorkspaceDropPlannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorkspaceDropPlannerTests.swift; sourceTree = "<group>"; };
 		D7AB34400000000000000004 /* GhosttyTerminalViewVisibilityPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalViewVisibilityPolicyTests.swift; sourceTree = "<group>"; };
+		D0C0A002D0C0A002D0C0A002 /* DockControlsStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockControlsStoreTests.swift; sourceTree = "<group>"; };
 		9C1BEA3D2E6F49709A71C021 /* TerminalControllerSocketWriteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalControllerSocketWriteTests.swift; sourceTree = "<group>"; };
 		58C7B1B978620BE162CC057E /* BrowserPanelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPanelTests.swift; sourceTree = "<group>"; };
 		5B1EA8948C5F126FE63CFB4E /* AuthSettingsStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AuthSettingsStore.swift; sourceTree = "<group>"; };
@@ -1155,6 +1157,7 @@
 				A11EAA000000000000000001 /* AppearanceSettingsTests.swift */,
 				6083A7DAD962E287FC2FFE94 /* ShortcutAndCommandPaletteTests.swift */,
 				C3408A000000000000000004 /* RightSidebarCommandPaletteTests.swift */,
+				D0C0A002D0C0A002D0C0A002 /* DockControlsStoreTests.swift */,
 				BC39DE4B96D1931C52AF7D68 /* SidebarOrderingTests.swift */,
 				B09C007F42697761B5F1A2AB /* OmnibarAndToolsTests.swift */,
 				D2C075029771815DD5DA1332 /* NotificationAndMenuBarTests.swift */,
@@ -1728,6 +1731,7 @@
 				A11EAA000000000000000000 /* AppearanceSettingsTests.swift in Sources */,
 				1521D55DC63D5E5FC4955E31 /* ShortcutAndCommandPaletteTests.swift in Sources */,
 				C3408A000000000000000003 /* RightSidebarCommandPaletteTests.swift in Sources */,
+				D0C0A001D0C0A001D0C0A001 /* DockControlsStoreTests.swift in Sources */,
 				CB23911D7E131E8FBC9B82B6 /* SidebarOrderingTests.swift in Sources */,
 					4378399A7C0245EF8186F306 /* OmnibarAndToolsTests.swift in Sources */,
 					C2B6A97D1F2E4C71A8B9D001 /* BrowserOmnibarPerformanceSupportTests.swift in Sources */,

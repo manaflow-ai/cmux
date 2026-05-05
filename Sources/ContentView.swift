@@ -1636,6 +1636,7 @@ struct ContentView: View {
     @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
     @StateObject private var fileExplorerStore = FileExplorerStore()
     @StateObject private var sessionIndexStore = SessionIndexStore()
+    @StateObject private var dockStore = DockControlsStore()
     @StateObject private var selectedWorkspaceDirectoryObserver = SelectedWorkspaceDirectoryObserver()
     @State private var fileExplorerWidth: CGFloat = 220
     @State private var fileExplorerDragStartWidth: CGFloat?
@@ -1663,7 +1664,7 @@ struct ContentView: View {
     @State private var commandPaletteHoveredResultIndex: Int?
     @State private var commandPaletteScrollTargetIndex: Int?
     @State private var commandPaletteScrollTargetAnchor: UnitPoint?
-    @State private var commandPaletteRestoreFocusTarget: CommandPaletteRestoreFocusTarget?
+    @State private var commandPaletteRestoreFocusTarget: MainWindowFocusRestoreTarget?
     @State private var commandPaletteSearchCorpus: [CommandPaletteSearchCorpusEntry<String>] = []
     @State private var commandPaletteSearchCorpusByID: [String: CommandPaletteSearchCorpusEntry<String>] = [:]
     @State private var commandPaletteSearchCommandsByID: [String: CommandPaletteCommand] = [:]
@@ -1673,8 +1674,6 @@ struct ContentView: View {
     @State private var commandPaletteVisibleResultsFingerprint: Int?
     @State private var cachedCommandPaletteScope: CommandPaletteListScope?
     @State private var cachedCommandPaletteFingerprint: Int?
-    @State private var commandPalettePendingDismissFocusTarget: CommandPaletteRestoreFocusTarget?
-    @State private var commandPaletteRestoreTimeoutWorkItem: DispatchWorkItem?
     @State private var commandPalettePendingTextSelectionBehavior: CommandPaletteTextSelectionBehavior?
     @State private var commandPaletteSearchTask: Task<Void, Never>?
     @State private var commandPaletteSearchRequestID: UInt64 = 0
@@ -1773,12 +1772,6 @@ struct ContentView: View {
                 defaultValue: "Press Enter to save. Press Shift-Enter for a new line, or Escape to cancel."
             )
         }
-    }
-
-    private struct CommandPaletteRestoreFocusTarget {
-        let workspaceId: UUID
-        let panelId: UUID
-        let intent: PanelFocusIntent
     }
 
     private enum CommandPaletteInputFocusTarget {
@@ -2739,6 +2732,7 @@ struct ContentView: View {
             fileExplorerStore: fileExplorerStore,
             fileExplorerState: fileExplorerState,
             sessionIndexStore: sessionIndexStore,
+            dockStore: dockStore,
             titlebarHeight: RightSidebarChromeMetrics.titlebarHeight,
             workspaceId: tabManager.selectedTabId,
             onResumeSession: { entry in
@@ -3354,7 +3348,6 @@ struct ContentView: View {
             guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
                   tabId == tabManager.selectedTabId else { return }
             completeWorkspaceHandoffIfNeeded(focusedTabId: tabId, reason: "focus")
-            attemptCommandPaletteFocusRestoreIfNeeded()
             scheduleTitlebarTextRefresh()
         })
 
@@ -3369,7 +3362,6 @@ struct ContentView: View {
             guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
                   tabId == tabManager.selectedTabId else { return }
             completeWorkspaceHandoffIfNeeded(focusedTabId: tabId, reason: "first_responder")
-            attemptCommandPaletteFocusRestoreIfNeeded()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .browserDidBecomeFirstResponderWebView)) { notification in
@@ -3385,7 +3377,6 @@ struct ContentView: View {
                 in: observedWindow ?? webView.window
             )
             completeWorkspaceHandoffIfNeeded(focusedTabId: selectedTabId, reason: "browser_first_responder")
-            attemptCommandPaletteFocusRestoreIfNeeded()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .webViewDidReceiveClick)) { notification in
@@ -3413,14 +3404,12 @@ struct ContentView: View {
                 in: observedWindow ?? focusedBrowser.webView.window
             )
             completeWorkspaceHandoffIfNeeded(focusedTabId: selectedTabId, reason: "browser_address_bar")
-            attemptCommandPaletteFocusRestoreIfNeeded()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(
             for: NSWindow.didBecomeKeyNotification,
             object: observedWindow
         )) { _ in
-            attemptCommandPaletteFocusRestoreIfNeeded()
             attemptCommandPaletteTextSelectionIfNeeded()
         })
 
@@ -8798,15 +8787,8 @@ struct ContentView: View {
     }
 
     private func presentCommandPalette(initialQuery: String) {
-        if let panelContext = focusedPanelContext {
-            commandPaletteRestoreFocusTarget = CommandPaletteRestoreFocusTarget(
-                workspaceId: panelContext.workspace.id,
-                panelId: panelContext.panelId,
-                intent: panelContext.panel.captureFocusIntent(in: observedWindow)
-            )
-        } else {
-            commandPaletteRestoreFocusTarget = nil
-        }
+        commandPaletteRestoreFocusTarget = AppDelegate.shared?
+            .captureMainWindowKeyboardFocusRestoreTarget(in: observedWindow)
         isCommandPalettePresented = true
         refreshCommandPaletteUsageHistory()
         resetCommandPaletteListState(initialQuery: initialQuery)
@@ -8835,7 +8817,7 @@ struct ContentView: View {
 
     private func dismissCommandPalette(
         restoreFocus: Bool,
-        preferredFocusTarget: CommandPaletteRestoreFocusTarget?
+        preferredFocusTarget: MainWindowFocusRestoreTarget?
     ) {
         let focusTarget = preferredFocusTarget ?? commandPaletteRestoreFocusTarget
 #if DEBUG
@@ -8892,7 +8874,7 @@ struct ContentView: View {
         syncCommandPaletteDebugStateForObservedWindow()
 
         guard restoreFocus, let focusTarget else { return }
-        requestCommandPaletteFocusRestore(target: focusTarget)
+        _ = AppDelegate.shared?.restoreMainWindowKeyboardFocus(focusTarget, in: observedWindow)
     }
 
     private func handleCommandPaletteBackdropClick(atContentPoint contentPoint: CGPoint) {
@@ -8900,8 +8882,7 @@ struct ContentView: View {
 #if DEBUG
         if let clickedFocusTarget {
             cmuxDebugLog(
-                "palette.dismiss.backdrop focusTarget panel=\(clickedFocusTarget.panelId.uuidString.prefix(5)) " +
-                "workspace=\(clickedFocusTarget.workspaceId.uuidString.prefix(5)) intent=\(debugCommandPaletteFocusIntent(clickedFocusTarget.intent))"
+                "palette.dismiss.backdrop focusTarget=mainWindow"
             )
         } else {
             cmuxDebugLog("palette.dismiss.backdrop focusTarget=nil")
@@ -8910,7 +8891,7 @@ struct ContentView: View {
         dismissCommandPalette(restoreFocus: true, preferredFocusTarget: clickedFocusTarget)
     }
 
-    private func commandPaletteBackdropFocusTarget(atContentPoint contentPoint: CGPoint) -> CommandPaletteRestoreFocusTarget? {
+    private func commandPaletteBackdropFocusTarget(atContentPoint contentPoint: CGPoint) -> MainWindowFocusRestoreTarget? {
         guard let window = observedWindow,
               let contentView = window.contentView else {
             return nil
@@ -8924,7 +8905,7 @@ struct ContentView: View {
     private func commandPaletteBackdropFocusTarget(
         atWindowPoint windowPoint: NSPoint,
         in window: NSWindow
-    ) -> CommandPaletteRestoreFocusTarget? {
+    ) -> MainWindowFocusRestoreTarget? {
         let overlayController = commandPaletteWindowOverlayController(for: window)
         if let responder = overlayController.underlyingResponder(atWindowPoint: windowPoint),
            let target = commandPaletteBackdropFocusTarget(for: responder) {
@@ -8937,31 +8918,22 @@ struct ContentView: View {
         }
 
         if let terminalView = TerminalWindowPortalRegistry.terminalViewAtWindowPoint(windowPoint, in: window),
-           let workspaceId = terminalView.tabId,
-           let panelId = terminalView.terminalSurface?.id,
-           tabManager.tabs.contains(where: { $0.id == workspaceId }) {
-            return commandPaletteRestoreFocusTarget(
-                workspaceId: workspaceId,
-                panelId: panelId,
-                fallbackIntent: .terminal(.surface),
+           let target = AppDelegate.shared?.captureMainWindowKeyboardFocusRestoreTarget(
+                owning: terminalView,
                 in: window
-            )
+           ) {
+            return target
         }
 
         return nil
     }
 
-    private func commandPaletteBackdropFocusTarget(for responder: NSResponder) -> CommandPaletteRestoreFocusTarget? {
-        if let terminalView = cmuxOwningGhosttyView(for: responder),
-           let workspaceId = terminalView.tabId,
-           let panelId = terminalView.terminalSurface?.id,
-           tabManager.tabs.contains(where: { $0.id == workspaceId }) {
-            return commandPaletteRestoreFocusTarget(
-                workspaceId: workspaceId,
-                panelId: panelId,
-                fallbackIntent: .terminal(.surface),
-                in: observedWindow
-            )
+    private func commandPaletteBackdropFocusTarget(for responder: NSResponder) -> MainWindowFocusRestoreTarget? {
+        if let target = AppDelegate.shared?.captureMainWindowKeyboardFocusRestoreTarget(
+            owning: responder,
+            in: observedWindow
+        ) {
+            return target
         }
 
         if let webView = commandPaletteOwningWebView(for: responder),
@@ -8972,7 +8944,7 @@ struct ContentView: View {
         return nil
     }
 
-    private func commandPaletteBrowserFocusTarget(for webView: WKWebView) -> CommandPaletteRestoreFocusTarget? {
+    private func commandPaletteBrowserFocusTarget(for webView: WKWebView) -> MainWindowFocusRestoreTarget? {
         if let selectedWorkspace = tabManager.selectedWorkspace,
            let target = commandPaletteBrowserFocusTarget(in: selectedWorkspace, for: webView) {
             return target
@@ -8991,7 +8963,7 @@ struct ContentView: View {
     private func commandPaletteBrowserFocusTarget(
         in workspace: Workspace,
         for webView: WKWebView
-    ) -> CommandPaletteRestoreFocusTarget? {
+    ) -> MainWindowFocusRestoreTarget? {
         for (panelId, panel) in workspace.panels {
             guard let browserPanel = panel as? BrowserPanel,
                   browserPanel.webView === webView else {
@@ -9014,89 +8986,16 @@ struct ContentView: View {
         panelId: UUID,
         fallbackIntent: PanelFocusIntent,
         in window: NSWindow?
-    ) -> CommandPaletteRestoreFocusTarget {
-        let intent = tabManager.tabs
-            .first(where: { $0.id == workspaceId })?
-            .panels[panelId]?
-            .captureFocusIntent(in: window) ?? fallbackIntent
-
-        return CommandPaletteRestoreFocusTarget(
+    ) -> MainWindowFocusRestoreTarget? {
+        AppDelegate.shared?.captureMainWindowKeyboardFocusRestoreTarget(
             workspaceId: workspaceId,
             panelId: panelId,
-            intent: intent
+            fallbackIntent: fallbackIntent,
+            in: window
         )
     }
 
-    private func requestCommandPaletteFocusRestore(target: CommandPaletteRestoreFocusTarget) {
-        commandPalettePendingDismissFocusTarget = target
-        commandPaletteRestoreTimeoutWorkItem?.cancel()
-        let timeoutWork = DispatchWorkItem {
-            commandPalettePendingDismissFocusTarget = nil
-            commandPaletteRestoreTimeoutWorkItem = nil
-        }
-        commandPaletteRestoreTimeoutWorkItem = timeoutWork
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: timeoutWork)
-        attemptCommandPaletteFocusRestoreIfNeeded()
-    }
-
-    private func attemptCommandPaletteFocusRestoreIfNeeded() {
-        guard !isCommandPalettePresented else { return }
-        guard let target = commandPalettePendingDismissFocusTarget else { return }
-        guard tabManager.tabs.contains(where: { $0.id == target.workspaceId }) else {
-            commandPalettePendingDismissFocusTarget = nil
-            commandPaletteRestoreTimeoutWorkItem?.cancel()
-            commandPaletteRestoreTimeoutWorkItem = nil
-            return
-        }
-
-        if let window = observedWindow, !window.isKeyWindow {
-            window.makeKeyAndOrderFront(nil)
-        }
-        tabManager.focusTab(target.workspaceId, surfaceId: target.panelId, suppressFlash: true)
-
-        guard let context = focusedPanelContext,
-              context.workspace.id == target.workspaceId,
-              context.panelId == target.panelId else {
-            return
-        }
-        guard context.panel.restoreFocusIntent(target.intent) else { return }
-        commandPalettePendingDismissFocusTarget = nil
-        commandPaletteRestoreTimeoutWorkItem?.cancel()
-        commandPaletteRestoreTimeoutWorkItem = nil
-    }
-
 #if DEBUG
-    private func debugCommandPaletteFocusIntent(_ intent: PanelFocusIntent) -> String {
-        switch intent {
-        case .panel:
-            return "panel"
-        case .terminal(.surface):
-            return "terminal.surface"
-        case .terminal(.findField):
-            return "terminal.findField"
-        case .browser(.webView):
-            return "browser.webView"
-        case .browser(.addressBar):
-            return "browser.addressBar"
-        case .browser(.findField):
-            return "browser.findField"
-        case .filePreview(.textEditor):
-            return "filePreview.textEditor"
-        case .filePreview(.pdfCanvas):
-            return "filePreview.pdfCanvas"
-        case .filePreview(.pdfThumbnails):
-            return "filePreview.pdfThumbnails"
-        case .filePreview(.pdfOutline):
-            return "filePreview.pdfOutline"
-        case .filePreview(.imageCanvas):
-            return "filePreview.imageCanvas"
-        case .filePreview(.mediaPlayer):
-            return "filePreview.mediaPlayer"
-        case .filePreview(.quickLook):
-            return "filePreview.quickLook"
-        }
-    }
-
     private func debugCommandPaletteModeLabel(_ mode: CommandPaletteMode) -> String {
         switch mode {
         case .commands:
