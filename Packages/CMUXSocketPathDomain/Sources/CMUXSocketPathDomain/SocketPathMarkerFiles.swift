@@ -166,11 +166,8 @@ public enum SocketPathMarkerFiles {
     public static func sanitizeSocketSlug(_ raw: String) -> String? {
         let slug = raw
             .lowercased()
-            .replacingOccurrences(of: ".", with: "-")
-            .replacingOccurrences(of: "_", with: "-")
-            .components(separatedBy: CharacterSet.alphanumerics.inverted)
-            .filter { !$0.isEmpty }
-            .joined(separator: "-")
+            .replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
         return slug.isEmpty ? nil : slug
     }
 

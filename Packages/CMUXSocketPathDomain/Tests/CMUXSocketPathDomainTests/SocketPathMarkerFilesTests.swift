@@ -18,6 +18,10 @@ import Testing
         bundleIdentifier: "com.cmuxterm.app.debug",
         environment: ["CMUX_TAG": "Issue 3542"]
     ) == .dev(slug: "issue-3542"))
+    #expect(SocketPathMarkerFiles.variant(
+        bundleIdentifier: "com.cmuxterm.app.debug",
+        environment: ["CMUX_TAG": "café"]
+    ) == .dev(slug: "caf"))
 }
 
 @Test func defaultSocketPathsStayVariantScoped() {
