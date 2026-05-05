@@ -136,7 +136,7 @@ node_options_restore_dir() {
 
 node_options_require_flag() {
     local path="$1"
-    if [[ "$path" == *[[:space:]\"\\]* ]]; then
+    if [[ "$path" == *[[:space:]\"\\\']* ]]; then
         local escaped="${path//\\/\\\\}"
         escaped="${escaped//\"/\\\"}"
         printf '%s' "--require=\"$escaped\""

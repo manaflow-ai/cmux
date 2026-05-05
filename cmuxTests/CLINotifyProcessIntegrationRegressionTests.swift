@@ -1,5 +1,6 @@
 import XCTest
 import Darwin
+import CMUXNodeOptions
 
 final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     private struct ProcessRunResult {
@@ -492,6 +493,16 @@ final class ClaudeWrapperNodeOptionsRestoreModuleTests: XCTestCase {
         let timedOut: Bool
     }
 
+    func testNodeOptionsRequirePathQuotesApostrophesForRoundTripTokenization() {
+        let path = "/Users/oconnor's/cmux/node-options/restore-node-options.cjs"
+        let nodeOptions = "--require=\(NodeOptionsSupport.requirePath(path)) --trace-warnings"
+
+        XCTAssertEqual(
+            NodeOptionsSupport.tokens(nodeOptions),
+            ["--require=\(path)", "--trace-warnings"]
+        )
+    }
+
     func testRestoreModuleIsRecreatedUnderApplicationSupportAfterDeletion() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-claude-node-options-\(UUID().uuidString)", isDirectory: true)
@@ -596,56 +607,9 @@ final class ClaudeWrapperNodeOptionsRestoreModuleTests: XCTestCase {
     }
 
     private func restoreModulePath(from nodeOptions: String) throws -> String {
-        let tokens = shellLikeTokens(nodeOptions)
+        let tokens = NodeOptionsSupport.tokens(nodeOptions)
         let requireToken = try XCTUnwrap(tokens.first { $0.hasPrefix("--require=") })
         return String(requireToken.dropFirst("--require=".count))
-    }
-
-    private func shellLikeTokens(_ value: String) -> [String] {
-        var tokens: [String] = []
-        var current = ""
-        var quote: Character?
-        var escaping = false
-
-        for character in value {
-            if escaping {
-                current.append(character)
-                escaping = false
-                continue
-            }
-            if character == "\\" {
-                escaping = true
-                continue
-            }
-            if let activeQuote = quote {
-                if character == activeQuote {
-                    quote = nil
-                } else {
-                    current.append(character)
-                }
-                continue
-            }
-            if character == "\"" || character == "'" {
-                quote = character
-                continue
-            }
-            if character.isWhitespace {
-                if !current.isEmpty {
-                    tokens.append(current)
-                    current = ""
-                }
-                continue
-            }
-            current.append(character)
-        }
-
-        if escaping {
-            current.append("\\")
-        }
-        if !current.isEmpty {
-            tokens.append(current)
-        }
-        return tokens
     }
 
     private func lastLine(in url: URL) throws -> String {

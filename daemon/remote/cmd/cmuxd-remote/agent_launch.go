@@ -408,7 +408,7 @@ func mergeNodeOptions(existing string, restoreModulePath string) string {
 }
 
 func nodeOptionsRequirePath(path string) string {
-	if !strings.ContainsAny(path, " \t\r\n\"\\") {
+	if !strings.ContainsAny(path, " \t\r\n\"\\'") {
 		return path
 	}
 	escaped := strings.ReplaceAll(path, "\\", "\\\\")
