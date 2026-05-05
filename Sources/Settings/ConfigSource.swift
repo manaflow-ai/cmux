@@ -69,13 +69,19 @@ struct ConfigSourceEnvironment {
     func materializeCmuxConfigFileIfNeeded() throws -> URL {
         let url = cmuxConfigURL
         guard !fileManager.fileExists(atPath: url.path) else { return url }
+        try writeCmuxConfigContents("")
+        return url
+    }
+
+    func writeCmuxConfigContents(_ contents: String) throws {
+        let url = cmuxConfigURL
+        let writeURL = configWriteURL(for: url)
         try fileManager.createDirectory(
-            at: url.deletingLastPathComponent(),
+            at: writeURL.deletingLastPathComponent(),
             withIntermediateDirectories: true,
             attributes: nil
         )
-        try "".write(to: url, atomically: true, encoding: .utf8)
-        return url
+        try contents.write(to: writeURL, atomically: true, encoding: .utf8)
     }
 
     func abbreviatedPath(for url: URL) -> String {
@@ -110,6 +116,19 @@ struct ConfigSourceEnvironment {
 
     private func existingRegularFileURL(in urls: [URL]) -> URL? {
         urls.first(where: isRegularFile(at:))
+    }
+
+    private func configWriteURL(for url: URL) -> URL {
+        guard let destination = try? fileManager.destinationOfSymbolicLink(atPath: url.path) else {
+            return url
+        }
+        let destinationURL: URL
+        if destination.hasPrefix("/") {
+            destinationURL = URL(fileURLWithPath: destination)
+        } else {
+            destinationURL = url.deletingLastPathComponent().appendingPathComponent(destination)
+        }
+        return destinationURL.standardizedFileURL.resolvingSymlinksInPath()
     }
 }
 

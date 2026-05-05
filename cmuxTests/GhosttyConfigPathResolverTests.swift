@@ -107,6 +107,47 @@ final class GhosttyConfigPathResolverTests: XCTestCase {
         }
     }
 
+    func testConfigSourceEnvironmentSaveWritesThroughSymlinkedCmuxConfig() throws {
+        try withTemporaryHomeDirectory { homeDirectory in
+            let fileManager = FileManager.default
+            let appSupportDirectory = homeDirectory
+                .appendingPathComponent("Library", isDirectory: true)
+                .appendingPathComponent("Application Support", isDirectory: true)
+            let bundleDirectory = appSupportDirectory
+                .appendingPathComponent("com.cmuxterm.app.debug.issue-3518", isDirectory: true)
+            try fileManager.createDirectory(at: bundleDirectory, withIntermediateDirectories: true)
+
+            let dotfilesDirectory = homeDirectory
+                .appendingPathComponent("dotfiles", isDirectory: true)
+                .appendingPathComponent("ghostty", isDirectory: true)
+            try fileManager.createDirectory(at: dotfilesDirectory, withIntermediateDirectories: true)
+            let targetConfigURL = dotfilesDirectory.appendingPathComponent("config.ghostty", isDirectory: false)
+            try "font-size = 16\n".write(to: targetConfigURL, atomically: true, encoding: .utf8)
+
+            let symlinkedConfigURL = bundleDirectory.appendingPathComponent("config.ghostty", isDirectory: false)
+            try fileManager.createSymbolicLink(
+                atPath: symlinkedConfigURL.path,
+                withDestinationPath: targetConfigURL.path
+            )
+
+            let environment = ConfigSourceEnvironment(
+                homeDirectoryURL: homeDirectory,
+                currentBundleIdentifier: "com.cmuxterm.app.debug.issue-3518"
+            )
+            try environment.writeCmuxConfigContents("theme = light:Andromeda,dark:3024 Day\n")
+
+            XCTAssertEqual(
+                try String(contentsOf: targetConfigURL, encoding: .utf8),
+                "theme = light:Andromeda,dark:3024 Day\n"
+            )
+            XCTAssertEqual(
+                try symlinkedConfigURL.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink,
+                true
+            )
+            XCTAssertEqual(environment.cmuxConfigURL, symlinkedConfigURL)
+        }
+    }
+
     func testCmuxAppSupportConfigURLsUseNightlyConfigWhenPresent() throws {
         try withTemporaryAppSupportDirectory { appSupportDirectory in
             _ = try writeAppSupportConfig(
@@ -303,6 +344,17 @@ final class GhosttyConfigPathResolverTests: XCTestCase {
         let fileManager = FileManager.default
         let directory = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-app-support-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directory) }
+        try body(directory)
+    }
+
+    private func withTemporaryHomeDirectory(
+        _ body: (URL) throws -> Void
+    ) throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-home-\(UUID().uuidString)", isDirectory: true)
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: directory) }
         try body(directory)

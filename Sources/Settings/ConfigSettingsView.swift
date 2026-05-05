@@ -212,15 +212,9 @@ struct ConfigSettingsView: View {
 
     private func saveCmuxConfig() {
         let environment = ConfigSourceEnvironment.live()
-        let url = environment.cmuxConfigURL
 
         do {
-            try FileManager.default.createDirectory(
-                at: url.deletingLastPathComponent(),
-                withIntermediateDirectories: true,
-                attributes: nil
-            )
-            try cmuxDraft.write(to: url, atomically: true, encoding: .utf8)
+            try environment.writeCmuxConfigContents(cmuxDraft)
             cmuxLastLoadedContents = cmuxDraft
             refreshSnapshots(preserveCmuxDraft: true)
             GhosttyApp.shared.reloadConfiguration(source: "settings.configWindow.save")
