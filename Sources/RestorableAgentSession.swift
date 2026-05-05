@@ -1,4 +1,5 @@
 import Foundation
+import CMUXAgentLaunch
 
 fileprivate func shellSingleQuoted(_ value: String) -> String {
     "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"

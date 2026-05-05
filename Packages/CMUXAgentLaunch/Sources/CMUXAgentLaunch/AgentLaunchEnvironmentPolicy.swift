@@ -1,7 +1,7 @@
 import Foundation
 
-enum ClaudeConfigDirectoryPath {
-    static func preferredPath(
+public enum ClaudeConfigDirectoryPath {
+    public static func preferredPath(
         _ rawPath: String,
         fileManager: FileManager = .default,
         homeDirectory: String = NSHomeDirectory()
@@ -23,7 +23,7 @@ enum ClaudeConfigDirectoryPath {
     }
 }
 
-enum AgentLaunchEnvironmentPolicy {
+public enum AgentLaunchEnvironmentPolicy {
     private static let safeEnvironmentKeys: Set<String> = [
         "ANTHROPIC_MODEL",
         "CLAUDE_CONFIG_DIR",
@@ -55,7 +55,7 @@ enum AgentLaunchEnvironmentPolicy {
         "USE_BUILTIN_RIPGREP"
     ]
 
-    static func selectedEnvironment(from env: [String: String]) -> [String: String] {
+    public static func selectedEnvironment(from env: [String: String]) -> [String: String] {
         var result: [String: String] = [:]
         for key in safeEnvironmentKeys.sorted() where key != "NODE_OPTIONS" {
             guard let value = sanitizedValue(key: key, value: env[key]) else { continue }
@@ -67,7 +67,7 @@ enum AgentLaunchEnvironmentPolicy {
         return result
     }
 
-    static func sanitizedValue(key: String, value: String?) -> String? {
+    public static func sanitizedValue(key: String, value: String?) -> String? {
         guard safeEnvironmentKeys.contains(key) else { return nil }
         switch key {
         case "CLAUDE_CONFIG_DIR":

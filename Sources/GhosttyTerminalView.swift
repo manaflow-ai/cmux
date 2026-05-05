@@ -9,6 +9,7 @@ import Darwin
 import Carbon.HIToolbox
 import Sentry
 import Bonsplit
+import CMUXAgentLaunch
 import CMUXPasteboardFidelity
 import IOSurface
 import UniformTypeIdentifiers

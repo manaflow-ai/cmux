@@ -6,7 +6,7 @@ import XCTest
 @testable import cmux
 #endif
 
-extension SocketListenerAcceptPolicyTests {
+final class RestorableAgentNonInteractiveTests: XCTestCase {
     func testHookStoreDirectoryCanBeOverriddenForTests() {
         let url = RestorableAgentKind.codex.hookStoreFileURL(
             homeDirectory: "/Users/example",

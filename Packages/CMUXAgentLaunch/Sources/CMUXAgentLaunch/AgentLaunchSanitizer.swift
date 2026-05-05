@@ -1,6 +1,6 @@
 import Foundation
 
-enum AgentLaunchSanitizer {
+public enum AgentLaunchSanitizer {
     struct Policy {
         var valueOptions: Set<String>
         var optionalValueOptions: Set<String> = []
@@ -14,7 +14,7 @@ enum AgentLaunchSanitizer {
         var skipClaudeHookSettings: Bool = false
     }
 
-    static func sanitizedLaunchArguments(
+    public static func sanitizedLaunchArguments(
         _ arguments: [String],
         launcher: String,
         fallbackKind: String
@@ -51,7 +51,7 @@ enum AgentLaunchSanitizer {
         }
     }
 
-    static func preservedArguments(kind: String, args: [String]) -> [String]? {
+    public static func preservedArguments(kind: String, args: [String]) -> [String]? {
         switch kind {
         case "claude":
             return preserveOptions(args, policy: claudePolicy)
@@ -194,7 +194,7 @@ enum AgentLaunchSanitizer {
               value.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else {
             return false
         }
-        return value.contains(",") || (following?.hasPrefix("-") == true)
+        return following == nil || value.contains(",") || (following?.hasPrefix("-") == true)
     }
 
     private static func isClaudeHookSettingsOption(_ args: [String], index: Int) -> Bool {

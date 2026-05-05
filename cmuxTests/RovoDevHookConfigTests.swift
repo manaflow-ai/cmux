@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -56,6 +57,24 @@ final class RovoDevHookConfigTests: XCTestCase {
 
         XCTAssertTrue(installed.contains("eventHooks:\n  # cmux hooks rovodev begin\n  events:"))
         XCTAssertTrue(installed.contains("  enabled: true"))
+        XCTAssertEqual(RovoDevHookConfig.uninstalling(from: installed), existing)
+    }
+
+    func testInstallIgnoresNestedEventsThatAreNotDirectEventHooksChildren() {
+        let existing = """
+        eventHooks:
+          nested:
+            events:
+              - name: user_hook
+                commands:
+                  - command: "echo user"
+
+        """
+
+        let installed = RovoDevHookConfig.installing(events: Self.events, in: existing)
+
+        XCTAssertTrue(installed.contains("eventHooks:\n  # cmux hooks rovodev begin\n  events:"))
+        XCTAssertTrue(installed.contains("    events:\n      - name: user_hook"))
         XCTAssertEqual(RovoDevHookConfig.uninstalling(from: installed), existing)
     }
 

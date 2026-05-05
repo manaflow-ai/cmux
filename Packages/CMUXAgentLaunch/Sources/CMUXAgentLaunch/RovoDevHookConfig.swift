@@ -1,15 +1,20 @@
 import Foundation
 
-enum RovoDevHookConfig {
-    struct Event: Equatable {
-        var name: String
-        var command: String
+public enum RovoDevHookConfig {
+    public struct Event: Equatable {
+        public var name: String
+        public var command: String
+
+        public init(name: String, command: String) {
+            self.name = name
+            self.command = command
+        }
     }
 
     private static let beginMarker = "# cmux hooks rovodev begin"
     private static let endMarker = "# cmux hooks rovodev end"
 
-    static func installing(events: [Event], in existing: String) -> String {
+    public static func installing(events: [Event], in existing: String) -> String {
         var lines = normalizedLines(existing)
         lines = removingMarkedBlock(lines)
 
@@ -40,7 +45,7 @@ enum RovoDevHookConfig {
         return serialized(lines)
     }
 
-    static func uninstalling(from existing: String) -> String {
+    public static func uninstalling(from existing: String) -> String {
         serialized(removingMarkedBlock(normalizedLines(existing)))
     }
 
@@ -110,12 +115,15 @@ enum RovoDevHookConfig {
 
     private static func eventsLineIndex(in lines: [String]) -> Int? {
         guard let eventHooksIndex = eventHooksLineIndex(in: lines) else { return nil }
+        let eventsIndent = leadingWhitespace(lines[eventHooksIndex]) + "  "
         for index in (eventHooksIndex + 1)..<lines.count {
             let line = lines[index]
             if line.range(of: #"^\S"#, options: .regularExpression) != nil {
                 return nil
             }
-            if line.range(of: #"^\s+events:\s*(#.*)?$"#, options: .regularExpression) != nil {
+            guard line.hasPrefix(eventsIndent) else { continue }
+            let suffix = String(line.dropFirst(eventsIndent.count))
+            if suffix.range(of: #"^events:\s*(#.*)?$"#, options: .regularExpression) != nil {
                 return index
             }
         }

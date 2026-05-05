@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -384,6 +385,26 @@ extension SocketListenerAcceptPolicyTests {
                 "--model",
                 "gpt-5.4",
                 "--allow-all-tools"
+            ]
+        )
+        XCTAssertEqual(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "/tmp/cmux-agent-upstreams/copilot-install/bin/copilot",
+                    "--model",
+                    "gpt-5.4",
+                    "--allow-tool",
+                    "Read"
+                ],
+                launcher: "copilot",
+                fallbackKind: "copilot"
+            ),
+            [
+                "/tmp/cmux-agent-upstreams/copilot-install/bin/copilot",
+                "--model",
+                "gpt-5.4",
+                "--allow-tool",
+                "Read"
             ]
         )
         XCTAssertEqual(

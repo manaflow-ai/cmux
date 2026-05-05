@@ -13,19 +13,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let sessionsRoot = root.appendingPathComponent("sessions", isDirectory: true)
         let workspaceId = "55555555-5555-5555-5555-555555555555"
         let surfaceId = "66666666-6666-6666-6666-666666666666"
-        let olderSessionId = "rovo-older-session"
-        let newestSessionId = "rovo-newest-session"
+        let sessionId = "rovo-session"
 
         try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
         try writeRovoDevSessionMetadata(
             sessionsRoot: sessionsRoot,
-            sessionId: olderSessionId,
-            workspacePath: workspace.path,
-            modified: Date(timeIntervalSince1970: 100)
-        )
-        try writeRovoDevSessionMetadata(
-            sessionsRoot: sessionsRoot,
-            sessionId: newestSessionId,
+            sessionId: sessionId,
             workspacePath: workspace.path,
             modified: Date(timeIntervalSince1970: 200)
         )
@@ -61,7 +54,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "rovodev",
             "run",
             "--restore",
-            olderSessionId,
+            sessionId,
             "--yolo",
             "prompt that should not persist",
         ])
@@ -84,8 +77,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let storeURL = root.appendingPathComponent("rovodev-hook-sessions.json", isDirectory: false)
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
         let sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
-        let session = try XCTUnwrap(sessions[newestSessionId] as? [String: Any])
-        XCTAssertNil(sessions[olderSessionId] as? [String: Any])
+        let session = try XCTUnwrap(sessions[sessionId] as? [String: Any])
         XCTAssertEqual(session["workspaceId"] as? String, workspaceId)
         XCTAssertEqual(session["surfaceId"] as? String, surfaceId)
         XCTAssertEqual(session["cwd"] as? String, workspace.path)
@@ -101,6 +93,80 @@ extension CLINotifyProcessIntegrationRegressionTests {
             state.commands.contains { $0.contains("set_status rovodev Running") && $0.contains("--tab=\(workspaceId)") },
             "Expected Rovo Dev prompt status to target current workspace, saw \(state.commands)"
         )
+    }
+
+    func testRovoDevPromptSubmitDoesNotInferAmbiguousWorkspaceMetadata() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("rovo-ambiguous")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-rovo-ambiguous-hook-\(UUID().uuidString)", isDirectory: true)
+        let workspace = root.appendingPathComponent("repo", isDirectory: true)
+        let sessionsRoot = root.appendingPathComponent("sessions", isDirectory: true)
+        let workspaceId = "55555555-5555-5555-5555-555555555555"
+        let surfaceId = "66666666-6666-6666-6666-666666666666"
+
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        try writeRovoDevSessionMetadata(
+            sessionsRoot: sessionsRoot,
+            sessionId: "rovo-older-session",
+            workspacePath: workspace.path,
+            modified: Date(timeIntervalSince1970: 100)
+        )
+        try writeRovoDevSessionMetadata(
+            sessionsRoot: sessionsRoot,
+            sessionId: "rovo-newer-session",
+            workspacePath: workspace.path,
+            modified: Date(timeIntervalSince1970: 200)
+        )
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let state = MockSocketServerState()
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line) else {
+                return "OK"
+            }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            if method == "surface.list" {
+                return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+            }
+            if method == "feed.push" {
+                return self.v2Response(id: id, ok: true, result: [:])
+            }
+            return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+        }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "rovodev", "prompt-submit"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_WORKSPACE_ID": workspaceId,
+                "CMUX_SURFACE_ID": surfaceId,
+                "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+                "CMUX_ROVODEV_SESSIONS_DIR": sessionsRoot.path,
+                "CMUX_AGENT_LAUNCH_CWD": workspace.path,
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            standardInput: #"{"cwd":"\#(workspace.path)","hook_event_name":"on_tool_permission"}"#,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "{}\n")
+
+        let storeURL = root.appendingPathComponent("rovodev-hook-sessions.json", isDirectory: false)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: storeURL.path))
     }
 
     func testRovoDevPromptSubmitReadsConfiguredPersistenceDirWithCommentsHashAndApostrophePath() throws {

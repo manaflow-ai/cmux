@@ -1,4 +1,5 @@
 import Foundation
+import CMUXAgentLaunch
 import CryptoKit
 import Darwin
 #if canImport(LocalAuthentication)
@@ -16592,7 +16593,7 @@ export default CMUXSessionRestore;
             }
             candidates.append((sessionURL.lastPathComponent, normalizedWorkspace, modified))
         }
-        candidates.sort { $0.modified > $1.modified }
+        guard candidates.count == 1 else { return nil }
         return candidates.first?.id
     }
 
@@ -16629,8 +16630,6 @@ export default CMUXSessionRestore;
         guard let cwd, !cwd.isEmpty else { return false }
         guard let workspace, !workspace.isEmpty else { return false }
         return cwd == workspace
-            || cwd.hasPrefix(workspace + "/")
-            || workspace.hasPrefix(cwd + "/")
     }
 
     private static func rovoDevPersistenceDir(fromConfig config: String) -> String? {
