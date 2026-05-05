@@ -422,6 +422,12 @@ func TestMergeNodeOptions(t *testing.T) {
 		t.Fatalf("mergeNodeOptions should quote restore paths with apostrophes = %q", got)
 	}
 
+	apostropheExisting := "--require=/Users/oconnor's/preload.cjs --trace-warnings"
+	expectedApostropheExisting := "--require=/tmp/restore-node-options.cjs --max-old-space-size=4096 --require=/Users/oconnor's/preload.cjs --trace-warnings"
+	if got := mergeNodeOptions(apostropheExisting, restoreModulePath); got != expectedApostropheExisting {
+		t.Fatalf("mergeNodeOptions should preserve unquoted apostrophes in existing options = %q", got)
+	}
+
 	existingQuotedRequire := "--require=\"/Users/example/Library/Application Support/--max-old-space-size 2048/restore-node-options.cjs\" --trace-warnings"
 	expectedQuotedRequire := "--require=/tmp/restore-node-options.cjs --max-old-space-size=4096 \"--require=/Users/example/Library/Application Support/--max-old-space-size 2048/restore-node-options.cjs\" --trace-warnings"
 	if got := mergeNodeOptions(existingQuotedRequire, restoreModulePath); got != expectedQuotedRequire {
