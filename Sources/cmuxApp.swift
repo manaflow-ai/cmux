@@ -5972,6 +5972,7 @@ struct SettingsView: View {
                                 Text(String(localized: "settings.app.configWindow.openButton", defaultValue: "Open Config"))
                             }
                             .buttonStyle(.bordered)
+                            .controlSize(.small)
                         }
 
                         SettingsCardDivider()
