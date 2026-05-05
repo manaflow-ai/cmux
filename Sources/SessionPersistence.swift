@@ -227,16 +227,6 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var agent: SessionRestorableAgentSnapshot?
     var tmuxStartCommand: String?
 }
-
-struct SessionRemoteWorkspaceSnapshot: Codable, Equatable, Sendable {
-    var transport: WorkspaceRemoteTransport
-    var destination: String
-    var port: Int?
-    var identityFile: String?
-    var sshOptions: [String]
-    var skipDaemonBootstrap: Bool?
-}
-
 struct SessionBrowserPanelSnapshot: Codable, Sendable {
     var urlString: String?
     var profileID: UUID?
@@ -246,7 +236,6 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
     var backHistoryURLStrings: [String]?
     var forwardHistoryURLStrings: [String]?
 }
-
 struct SessionMarkdownPanelSnapshot: Codable, Sendable {
     var filePath: String
 }
