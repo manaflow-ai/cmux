@@ -131,6 +131,7 @@ final class CmuxSettingsFileStore {
     private let primaryPath: String
     private let fallbackPaths: [String]
     private let fileManager: FileManager
+    private let userDefaults: UserDefaults
     private let notificationCenter: NotificationCenter
     private let stateLock = NSLock()
 
@@ -152,6 +153,7 @@ final class CmuxSettingsFileStore {
         fallbackPath: String? = CmuxSettingsFileStore.defaultFallbackPath,
         additionalFallbackPaths: [String] = [CmuxSettingsFileStore.defaultApplicationSupportFallbackPath].compactMap { $0 },
         fileManager: FileManager = .default,
+        userDefaults: UserDefaults = .standard,
         notificationCenter: NotificationCenter = .default,
         startWatching: Bool = true
     ) {
@@ -159,6 +161,7 @@ final class CmuxSettingsFileStore {
         self.fallbackPaths = ([fallbackPath].compactMap { $0 } + additionalFallbackPaths)
             .filter { $0 != primaryPath }
         self.fileManager = fileManager
+        self.userDefaults = userDefaults
         self.notificationCenter = notificationCenter
 
         bootstrapPrimaryTemplateIfNeeded()
@@ -179,6 +182,11 @@ final class CmuxSettingsFileStore {
         }
 
         defaultsCancellable = notificationCenter.publisher(for: UserDefaults.didChangeNotification)
+            .filter { [weak self] notification in
+                guard let self else { return false }
+                guard let changedDefaults = notification.object as? UserDefaults else { return true }
+                return changedDefaults === self.userDefaults
+            }
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.scheduleUserDefaultsSettingsPersist()
@@ -998,7 +1006,7 @@ final class CmuxSettingsFileStore {
     }
 
     private func backupValueForUserDefaultsKey(_ defaultsKey: String, managedValue: ManagedSettingsValue) -> BackupValue {
-        let defaults = UserDefaults.standard
+        let defaults = userDefaults
         switch managedValue {
         case .bool:
             guard defaults.object(forKey: defaultsKey) != nil else { return .absent }
@@ -1037,7 +1045,7 @@ final class CmuxSettingsFileStore {
     }
 
     private func applyManagedUserDefaultsValue(_ value: ManagedSettingsValue, for defaultsKey: String) {
-        let defaults = UserDefaults.standard
+        let defaults = userDefaults
         if defaultsKey == WorkspaceTabColorSettings.paletteKey,
            case .stringDictionary(let next) = value {
             let current = WorkspaceTabColorSettings.resolvedPaletteMap(defaults: defaults)
@@ -1103,10 +1111,10 @@ final class CmuxSettingsFileStore {
 
         switch defaultsKey {
         case LanguageSettings.languageKey:
-            let language = AppLanguage(rawValue: UserDefaults.standard.string(forKey: defaultsKey) ?? "") ?? .system
+            let language = AppLanguage(rawValue: userDefaults.string(forKey: defaultsKey) ?? "") ?? .system
             LanguageSettings.apply(language)
         case AppearanceSettings.appearanceModeKey:
-            AppearanceSettings.applyStoredMode(rawValue: UserDefaults.standard.string(forKey: defaultsKey), source: "cmuxConfig.applyManagedDefault")
+            AppearanceSettings.applyStoredMode(rawValue: userDefaults.string(forKey: defaultsKey), source: "cmuxConfig.applyManagedDefault")
         case AppIconSettings.modeKey:
             AppIconSettings.applyIcon(AppIconSettings.resolvedMode())
         default:
@@ -1115,7 +1123,7 @@ final class CmuxSettingsFileStore {
     }
 
     private func restoreUserDefaultsBackup(_ backup: BackupValue, for defaultsKey: String) {
-        let defaults = UserDefaults.standard
+        let defaults = userDefaults
         if defaultsKey == WorkspaceTabColorSettings.paletteKey {
             switch backup {
             case .absent:
@@ -1151,10 +1159,10 @@ final class CmuxSettingsFileStore {
 
         switch defaultsKey {
         case LanguageSettings.languageKey:
-            let language = AppLanguage(rawValue: UserDefaults.standard.string(forKey: defaultsKey) ?? "") ?? .system
+            let language = AppLanguage(rawValue: userDefaults.string(forKey: defaultsKey) ?? "") ?? .system
             LanguageSettings.apply(language)
         case AppearanceSettings.appearanceModeKey:
-            AppearanceSettings.applyStoredMode(rawValue: UserDefaults.standard.string(forKey: defaultsKey), source: "cmuxConfig.restoreUserDefault")
+            AppearanceSettings.applyStoredMode(rawValue: userDefaults.string(forKey: defaultsKey), source: "cmuxConfig.restoreUserDefault")
         case AppIconSettings.modeKey:
             AppIconSettings.applyIcon(AppIconSettings.resolvedMode())
         default:
@@ -1163,7 +1171,7 @@ final class CmuxSettingsFileStore {
     }
 
     private func loadBackups() -> [String: BackupValue] {
-        let defaults = UserDefaults.standard
+        let defaults = userDefaults
         guard let data = defaults.data(forKey: Self.backupsDefaultsKey),
               let backups = try? JSONDecoder().decode([String: BackupValue].self, from: data) else {
             return [:]
@@ -1172,7 +1180,7 @@ final class CmuxSettingsFileStore {
     }
 
     private func saveBackups(_ backups: [String: BackupValue]) {
-        let defaults = UserDefaults.standard
+        let defaults = userDefaults
         if backups.isEmpty {
             defaults.removeObject(forKey: Self.backupsDefaultsKey)
             return
@@ -1194,8 +1202,8 @@ final class CmuxSettingsFileStore {
         )
     }
 
-    private func currentSettingsJSONValuesFromUserDefaults(defaults: UserDefaults = .standard) -> [String: ManagedSettingsValue] {
-        CmuxSettingsJSONPersistence.currentSettingsJSONValuesFromUserDefaults(defaults: defaults)
+    private func currentSettingsJSONValuesFromUserDefaults() -> [String: ManagedSettingsValue] {
+        CmuxSettingsJSONPersistence.currentSettingsJSONValuesFromUserDefaults(defaults: userDefaults)
     }
 
     private func jsonString(_ rawValue: Any?) -> String? {

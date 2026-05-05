@@ -246,25 +246,25 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
         )
 
         let defaultsKey = "sidebarMatchTerminalBackground"
-        let backupsKey = "cmux.settingsFile.backups.v1"
-        let previousDefaultsValue = UserDefaults.standard.object(forKey: defaultsKey)
-        let previousBackupsValue = UserDefaults.standard.object(forKey: backupsKey)
+        let defaultsSuiteName = "cmux.settings-file-store.ui-persist.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsSuiteName))
+        defaults.removePersistentDomain(forName: defaultsSuiteName)
         defer {
-            restoreDefaultsValue(previousDefaultsValue, key: defaultsKey)
-            restoreDefaultsValue(previousBackupsValue, key: backupsKey)
+            defaults.removePersistentDomain(forName: defaultsSuiteName)
         }
 
         let notificationCenter = NotificationCenter()
         let store = KeyboardShortcutSettingsFileStore(
             primaryPath: primaryURL.path,
             fallbackPath: nil,
+            userDefaults: defaults,
             notificationCenter: notificationCenter,
             startWatching: true
         )
-        XCTAssertTrue(UserDefaults.standard.bool(forKey: defaultsKey))
+        XCTAssertTrue(defaults.bool(forKey: defaultsKey))
 
-        UserDefaults.standard.set(false, forKey: defaultsKey)
-        notificationCenter.post(name: UserDefaults.didChangeNotification, object: UserDefaults.standard)
+        defaults.set(false, forKey: defaultsKey)
+        notificationCenter.post(name: UserDefaults.didChangeNotification, object: defaults)
         try waitForSidebarAppearanceMatchTerminalBackground(false, in: primaryURL)
         let updatedContents = try String(contentsOf: primaryURL, encoding: .utf8)
         XCTAssertTrue(updatedContents.contains("User comments in cmux.json must survive Settings UI writes."))
@@ -287,14 +287,6 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
             withIntermediateDirectories: true
         )
         try contents.write(to: url, atomically: true, encoding: .utf8)
-    }
-
-    private func restoreDefaultsValue(_ value: Any?, key: String) {
-        if let value {
-            UserDefaults.standard.set(value, forKey: key)
-        } else {
-            UserDefaults.standard.removeObject(forKey: key)
-        }
     }
 
     private func waitForSidebarAppearanceMatchTerminalBackground(_ expectedValue: Bool, in url: URL) throws {
