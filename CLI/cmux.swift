@@ -5688,7 +5688,11 @@ struct CMUXCLI {
             "rm -f -- \"$0\" 2>/dev/null || true",
             "CMUX_SSH_SESSION_ENDED=0",
             "cmux_ssh_session_end() { if [ \"${CMUX_SSH_SESSION_ENDED:-0}\" = 1 ]; then return; fi; CMUX_SSH_SESSION_ENDED=1; \(lifecycleCleanup); }",
-            "trap 'cmux_ssh_session_end' EXIT HUP INT TERM",
+            "cmux_ssh_signal_exit() { cmux_ssh_signal_status=\"$1\"; trap - EXIT HUP INT TERM; exit \"$cmux_ssh_signal_status\"; }",
+            "trap 'cmux_ssh_session_end' EXIT",
+            "trap 'cmux_ssh_signal_exit 129' HUP",
+            "trap 'cmux_ssh_signal_exit 130' INT",
+            "trap 'cmux_ssh_signal_exit 143' TERM",
         ]
         if isShellSnippet {
             scriptLines.append(sshCommand)
