@@ -50565,6 +50565,23 @@
         }
       }
     },
+    "settings.app.appearanceMode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App Appearance"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリの外観"
+          }
+        }
+      }
+    },
     "settings.app.appIcon.subtitle": {
       "extractionState": "manual",
       "localizations": {
@@ -57104,6 +57121,125 @@
           "stringUnit": {
             "state": "translated",
             "value": "Тема"
+          }
+        }
+      }
+    },
+    "settings.app.terminalTheme": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal Theme"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルテーマ"
+          }
+        }
+      }
+    },
+    "settings.app.terminalTheme.adaptivePrefix": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adaptive"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アダプティブ"
+          }
+        }
+      }
+    },
+    "settings.app.terminalTheme.adaptiveTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adaptive: %@ / %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アダプティブ：%@ / %@"
+          }
+        }
+      }
+    },
+    "settings.app.terminalTheme.custom": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom (use my config)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタム（自分の設定を使用）"
+          }
+        }
+      }
+    },
+    "settings.app.terminalTheme.subtitleAdaptive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uses separate light and dark Ghostty themes."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライト用とダーク用に別々の Ghostty テーマを使用します。"
+          }
+        }
+      }
+    },
+    "settings.app.terminalTheme.subtitleCustom": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Ghostty config controls terminal colors."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルの色は Ghostty 設定で制御されます。"
+          }
+        }
+      }
+    },
+    "settings.app.terminalTheme.subtitleNamed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal colors are set by the selected theme."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルの色は選択したテーマで設定されます。"
           }
         }
       }
@@ -71572,121 +71708,138 @@
     "settings.search.alias.setting.app.appearance": {
         "extractionState": "manual",
         "localizations": {
-            "en": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "app.appearance theme color scheme light mode dark mode system mode"
-                }
-            },
-            "ja": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "app.appearance theme color scheme light mode dark mode system mode 外観 テーマ 配色 ライトモード ダークモード システムモード"
-                }
-            },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.appearance chrome color scheme light mode dark mode system mode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.appearance chrome color scheme light mode dark mode system mode 外観 クローム 配色 ライトモード ダークモード システムモード"
+          }
+        },
             "ar": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.appearance theme color scheme light mode dark system تطبيق عام تفضيلات سلوك شريط القائمة حالة الشريط الجانبي مظهر سمة لون ألوان مخطط فاتح داكن نظام وضع النظام المظهر التطبيق"
+            "value": "app.appearance chrome color scheme light mode dark mode system mode تطبيق عام تفضيلات سلوك شريط القائمة حالة الشريط الجانبي مظهر لون ألوان مخطط فاتح داكن نظام وضع النظام المظهر التطبيق"
                 }
             },
             "bs": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.appearance theme color scheme light mode dark system aplikacija opće postavke ponašanje dock traka menija status bočna izgled tema boja boje shema svijetlo tamno sistem način Tamna Svijetla Sistemski"
+            "value": "app.appearance chrome color scheme light mode dark mode system mode aplikacija opće postavke ponašanje dock traka menija status bočna izgled boja boje shema svijetlo tamno sistem način Tamna Svijetla Sistemski"
                 }
             },
             "da": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.appearance theme color scheme light mode dark system app generelt indstillinger adfærd dock menulinje status sidepanel udseende tema farve farver skema lys mørk tilstand"
+            "value": "app.appearance chrome color scheme light mode dark mode system mode app generelt indstillinger adfærd dock menulinje status sidepanel udseende farve farver skema lys mørk tilstand"
                 }
             },
             "de": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.appearance theme color scheme light mode dark system app allgemein einstellungen verhalten dock menüleiste status seitenleiste darstellung design farbe farben schema hell dunkel modus"
+            "value": "app.appearance chrome color scheme light mode dark mode system mode app allgemein einstellungen verhalten dock menüleiste status seitenleiste darstellung farbe farben schema hell dunkel modus"
                 }
             },
             "es": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.appearance theme color scheme light mode dark system aplicación general preferencias comportamiento dock barra de menú estado lateral apariencia tema colores esquema claro oscuro sistema modo App"
+            "value": "app.appearance chrome color scheme light mode dark mode system mode aplicación general preferencias comportamiento dock barra de menú estado lateral apariencia colores esquema claro oscuro sistema modo App"
                 }
             },
             "fr": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.appearance theme color scheme light mode dark system application général préférences comportement dock barre de menus état latérale apparence thème couleur couleurs schéma clair sombre système App"
+            "value": "app.appearance chrome color scheme light mode dark mode system mode application général préférences comportement dock barre de menus état latérale apparence couleur couleurs schéma clair sombre système App"
                 }
             },
             "it": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.appearance theme color scheme light mode dark system app generale preferenze comportamento dock barra menu stato laterale aspetto tema colore colori schema chiaro scuro sistema modalità Scura Chiara"
+            "value": "app.appearance chrome color scheme light mode dark mode system mode app generale preferenze comportamento dock barra menu stato laterale aspetto colore colori schema chiaro scuro sistema modalità Scura Chiara"
                 }
             },
             "ko": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.appearance theme color scheme light mode dark system 앱 일반 환경설정 동작 독 메뉴 막대 상태 사이드바 외관 테마 색상 색 구성표 라이트 다크 시스템 모드"
+            "value": "app.appearance chrome color scheme light mode dark mode system mode 앱 일반 환경설정 동작 독 메뉴 막대 상태 사이드바 외관 색상 색 구성표 라이트 다크 시스템 모드"
                 }
             },
             "nb": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.appearance theme color scheme light mode dark system app generelt innstillinger oppførsel dock menylinje status sidepanel utseende tema farge farger skjema lys mørk modus"
+            "value": "app.appearance chrome color scheme light mode dark mode system mode app generelt innstillinger oppførsel dock menylinje status sidepanel utseende farge farger skjema lys mørk modus"
                 }
             },
             "pl": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.appearance theme color scheme light mode dark system aplikacja ogólne preferencje zachowanie dock pasek menu status boczny wygląd motyw kolor kolory schemat jasny ciemny tryb Ciemna Jasna Systemowy"
+            "value": "app.appearance chrome color scheme light mode dark mode system mode aplikacja ogólne preferencje zachowanie dock pasek menu status boczny wygląd kolor kolory schemat jasny ciemny tryb Ciemna Jasna Systemowy"
                 }
             },
             "pt-BR": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.appearance theme color scheme light mode dark system app geral preferências comportamento dock barra de menu status lateral aparência tema cor cores esquema claro escuro sistema modo"
+            "value": "app.appearance chrome color scheme light mode dark mode system mode app geral preferências comportamento dock barra de menu status lateral aparência cor cores esquema claro escuro sistema modo"
                 }
             },
             "ru": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.appearance theme color scheme light mode dark system приложение общие настройки поведение док строка меню статус боковая панель внешний вид тема цвет цвета схема светлый темный система режим Темная Светлая Темное Светлое Системное Системный Системная"
+            "value": "app.appearance chrome color scheme light mode dark mode system mode приложение общие настройки поведение док строка меню статус боковая панель внешний вид цвет цвета схема светлый темный система режим Темная Светлая Темное Светлое Системное Системный Системная"
                 }
             },
             "th": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.appearance theme color scheme light mode dark system แอป ทั่วไป ค่ากำหนด พฤติกรรม ด็อก แถบเมนู สถานะ แถบด้านข้าง ลักษณะ ธีม สี โครงร่าง สว่าง มืด ระบบ โหมด"
+            "value": "app.appearance chrome color scheme light mode dark mode system mode แอป ทั่วไป ค่ากำหนด พฤติกรรม ด็อก แถบเมนู สถานะ แถบด้านข้าง ลักษณะ สี โครงร่าง สว่าง มืด ระบบ โหมด"
                 }
             },
             "tr": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.appearance theme color scheme light mode dark system uygulama genel tercihler davranış dock menü çubuğu durum kenar görünüm tema renk renkler şema açık koyu sistem mod"
+            "value": "app.appearance chrome color scheme light mode dark mode system mode uygulama genel tercihler davranış dock menü çubuğu durum kenar görünüm renk renkler şema açık koyu sistem mod"
                 }
             },
             "zh-Hans": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.appearance theme color scheme light mode dark system 应用 通用 偏好设置 行为 程序坞 菜单栏 状态 侧边栏 外观 主题 颜色 配色 浅色 深色 系统 模式"
+            "value": "app.appearance chrome color scheme light mode dark mode system mode 应用 通用 偏好设置 行为 程序坞 菜单栏 状态 侧边栏 外观 颜色 配色 浅色 深色 系统 模式"
                 }
             },
             "zh-Hant": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.appearance theme color scheme light mode dark system 應用程式 一般 偏好設定 行為 Dock 選單列 狀態 側邊欄 外觀 主題 顏色 配色 淺色 深色 系統 模式 App"
+            "value": "app.appearance chrome color scheme light mode dark mode system mode 應用程式 一般 偏好設定 行為 Dock 選單列 狀態 側邊欄 外觀 顏色 配色 淺色 深色 系統 模式 App"
                 }
             },
             "uk": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.appearance theme color scheme light mode dark system програма загальні параметри поведінка док рядок меню статус бічна панель вигляд тема колір кольори схема світлий темний система режим Темна Світла Системна"
+            "value": "app.appearance chrome color scheme light mode dark mode system mode програма загальні параметри поведінка док рядок меню статус бічна панель вигляд колір кольори схема світлий темний система режим Темна Світла Системна"
                 }
-            }
         }
+      }
+    },
+    "settings.search.alias.setting.app.terminal-theme": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal theme ghostty colors palette background foreground custom config"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal theme ghostty colors palette background foreground custom config ターミナル テーマ Ghostty 色 パレット 背景 前景 カスタム 設定"
+          }
+        }
+      }
     },
     "settings.search.alias.setting.app.app-icon": {
         "extractionState": "manual",

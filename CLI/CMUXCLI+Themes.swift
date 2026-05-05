@@ -1,18 +1,12 @@
 import Foundation
 import Darwin
+import TerminalThemeCore
 
 extension CMUXCLI {
     static let cmuxThemeOverrideBundleIdentifier = "com.cmuxterm.app"
-    static let cmuxThemesBlockStart = "# cmux themes start"
-    static let cmuxThemesBlockEnd = "# cmux themes end"
     static let cmuxThemesReloadNotificationName = "com.cmuxterm.themes.reload-config"
 
-    struct ThemeSelection {
-        let rawValue: String?
-        let light: String?
-        let dark: String?
-        let sourcePath: String?
-    }
+    typealias ThemeSelection = TerminalThemeSelection
 
     struct ThemeReloadStatus {
         let requested: Bool
@@ -295,7 +289,7 @@ extension CMUXCLI {
             darkTheme = try darkOpt.map { try validatedThemeName($0, availableThemes: availableThemes) } ?? current.dark
         }
 
-        guard let rawThemeValue = encodedThemeValue(light: lightTheme, dark: darkTheme) else {
+        guard let rawThemeValue = TerminalThemeSettings.encodedThemeValue(light: lightTheme, dark: darkTheme) else {
             throw CLIError(message: "themes set requires at least one theme")
         }
 
@@ -341,80 +335,8 @@ extension CMUXCLI {
     }
 
     private func currentThemeSelection() -> ThemeSelection {
-        var rawValue: String?
-        var sourcePath: String?
-
-        for url in themeConfigSearchURLs() {
-            guard let contents = try? String(contentsOf: url, encoding: .utf8),
-                  let nextValue = lastThemeDirective(in: contents) else {
-                continue
-            }
-            rawValue = nextValue
-            sourcePath = url.path
-        }
-
-        return parseThemeSelection(rawValue: rawValue, sourcePath: sourcePath)
-    }
-
-    private func parseThemeSelection(rawValue: String?, sourcePath: String?) -> ThemeSelection {
-        guard let rawValue = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines), !rawValue.isEmpty else {
-            return ThemeSelection(rawValue: nil, light: nil, dark: nil, sourcePath: sourcePath)
-        }
-
-        var fallbackTheme: String?
-        var lightTheme: String?
-        var darkTheme: String?
-
-        for token in rawValue.split(separator: ",").map(String.init) {
-            let entry = token.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !entry.isEmpty else { continue }
-
-            let parts = entry.split(separator: ":", maxSplits: 1).map(String.init)
-            if parts.count != 2 {
-                if fallbackTheme == nil {
-                    fallbackTheme = entry
-                }
-                continue
-            }
-
-            let key = parts[0].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            let value = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !value.isEmpty else { continue }
-
-            switch key {
-            case "light":
-                if lightTheme == nil {
-                    lightTheme = value
-                }
-            case "dark":
-                if darkTheme == nil {
-                    darkTheme = value
-                }
-            default:
-                if fallbackTheme == nil {
-                    fallbackTheme = value
-                }
-            }
-        }
-
-        let resolvedLight = lightTheme ?? fallbackTheme
-        let resolvedDark = darkTheme ?? fallbackTheme
-        return ThemeSelection(rawValue: rawValue, light: resolvedLight, dark: resolvedDark, sourcePath: sourcePath)
-    }
-
-    private func encodedThemeValue(light: String?, dark: String?) -> String? {
-        let normalizedLight = light?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedDark = dark?.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        switch (normalizedLight?.isEmpty == false ? normalizedLight : nil, normalizedDark?.isEmpty == false ? normalizedDark : nil) {
-        case let (lightTheme?, darkTheme?):
-            return "light:\(lightTheme),dark:\(darkTheme)"
-        case let (lightTheme?, nil):
-            return "light:\(lightTheme)"
-        case let (nil, darkTheme?):
-            return "dark:\(darkTheme)"
-        case (nil, nil):
-            return nil
-        }
+        TerminalThemeSettings.currentSelection(
+            currentBundleIdentifier: currentCmuxAppBundleIdentifier()
+        )
     }
 }

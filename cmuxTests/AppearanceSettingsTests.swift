@@ -93,7 +93,7 @@ final class AppearanceSettingsTests: XCTestCase {
         XCTAssertEqual(AppearanceSettings.colorScheme(for: AppearanceMode.system.rawValue, fallback: .dark), .dark)
     }
 
-    func testSelectingDarkModeAppliesRuntimeAppearanceAndSynchronizesTerminalTheme() {
+    func testSelectingDarkModeAppliesRuntimeAppearanceWithoutSynchronizingTerminalTheme() {
         let suiteName = "AppearanceSettingsTests.SelectDark.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             XCTFail("Failed to create isolated UserDefaults suite")
@@ -102,15 +102,9 @@ final class AppearanceSettingsTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         var appliedAppearanceName: NSAppearance.Name?
-        var synchronizedAppearanceName: NSAppearance.Name?
-        var synchronizedSource: String?
         let environment = AppearanceSettings.LiveApplyEnvironment(
             setApplicationAppearance: { appearance in
                 appliedAppearanceName = appearance?.bestMatch(from: [.darkAqua, .aqua])
-            },
-            synchronizeTerminalThemeWithAppearance: { appearance, source in
-                synchronizedAppearanceName = appearance?.bestMatch(from: [.darkAqua, .aqua])
-                synchronizedSource = source
             },
             systemAppearance: {
                 XCTFail("Dark mode should not resolve system appearance")
@@ -121,15 +115,13 @@ final class AppearanceSettingsTests: XCTestCase {
         let selected = AppearanceSettings.selectMode(
             .dark,
             defaults: defaults,
-            source: "settings.themePicker",
+            source: "settings.appAppearancePicker",
             environment: environment
         )
 
         XCTAssertEqual(selected, .dark)
         XCTAssertEqual(defaults.string(forKey: AppearanceSettings.appearanceModeKey), AppearanceMode.dark.rawValue)
         XCTAssertEqual(appliedAppearanceName, .darkAqua)
-        XCTAssertEqual(synchronizedAppearanceName, .darkAqua)
-        XCTAssertEqual(synchronizedSource, "settings.themePicker")
     }
 
     func testSelectingSystemModeClearsRuntimeAppearanceOverrideForSystemFollow() {
@@ -141,13 +133,9 @@ final class AppearanceSettingsTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         var appliedAppearanceWasCleared = false
-        var synchronizedAppearanceWasCleared = false
         let environment = AppearanceSettings.LiveApplyEnvironment(
             setApplicationAppearance: { appearance in
                 appliedAppearanceWasCleared = appearance == nil
-            },
-            synchronizeTerminalThemeWithAppearance: { appearance, _ in
-                synchronizedAppearanceWasCleared = appearance == nil
             },
             systemAppearance: {
                 XCTFail("System mode should clear the app override after launch")
@@ -158,14 +146,13 @@ final class AppearanceSettingsTests: XCTestCase {
         let selected = AppearanceSettings.selectMode(
             .system,
             defaults: defaults,
-            source: "settings.themePicker",
+            source: "settings.appAppearancePicker",
             environment: environment
         )
 
         XCTAssertEqual(selected, .system)
         XCTAssertEqual(defaults.string(forKey: AppearanceSettings.appearanceModeKey), AppearanceMode.system.rawValue)
         XCTAssertTrue(appliedAppearanceWasCleared)
-        XCTAssertTrue(synchronizedAppearanceWasCleared)
     }
 
     private func withTemporaryAppearanceDefaults(
