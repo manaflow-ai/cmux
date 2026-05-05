@@ -39,17 +39,8 @@ struct cmuxApp: App {
         let startupAppearance = AppearanceSettings.resolvedMode()
         Self.applyAppearance(startupAppearance, duringLaunch: true)
         _tabManager = StateObject(wrappedValue: TabManager())
-        // Migrate legacy and old-format socket mode values to the new enum.
         let defaults = UserDefaults.standard
-        if let stored = defaults.string(forKey: SocketControlSettings.appStorageKey) {
-            let migrated = SocketControlSettings.migrateMode(stored)
-            if migrated.rawValue != stored {
-                defaults.set(migrated.rawValue, forKey: SocketControlSettings.appStorageKey)
-            }
-        } else if let legacy = defaults.object(forKey: SocketControlSettings.legacyEnabledKey) as? Bool {
-            defaults.set(legacy ? SocketControlMode.cmuxOnly.rawValue : SocketControlMode.off.rawValue,
-                         forKey: SocketControlSettings.appStorageKey)
-        }
+        SocketControlSettings.migratePersistedModeIfNeeded(defaults: defaults)
         // Skip keychain migration for DEV/staging builds. Each tagged build gets a
         // unique bundle ID with its own UserDefaults domain, so migration would run
         // on every launch and trigger a macOS keychain access prompt (the legacy
