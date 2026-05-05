@@ -10,6 +10,7 @@ enum SessionAgent: String, CaseIterable, Identifiable, Hashable, Codable, Sendab
     case claude
     case codex
     case opencode
+    case rovodev
 
     var id: String { rawValue }
 
@@ -18,6 +19,7 @@ enum SessionAgent: String, CaseIterable, Identifiable, Hashable, Codable, Sendab
         case .claude: return String(localized: "sessionIndex.agent.claude", defaultValue: "Claude Code")
         case .codex: return String(localized: "sessionIndex.agent.codex", defaultValue: "Codex")
         case .opencode: return String(localized: "sessionIndex.agent.opencode", defaultValue: "OpenCode")
+        case .rovodev: return String(localized: "sessionIndex.agent.rovodev", defaultValue: "Rovo Dev")
         }
     }
 
@@ -27,6 +29,7 @@ enum SessionAgent: String, CaseIterable, Identifiable, Hashable, Codable, Sendab
         case .claude: return "AgentIcons/Claude"
         case .codex: return "AgentIcons/Codex"
         case .opencode: return "AgentIcons/OpenCode"
+        case .rovodev: return "AgentIcons/RovoDev"
         }
     }
 }
@@ -96,6 +99,7 @@ enum AgentSpecifics: Hashable {
     case claude(model: String?, permissionMode: String?)
     case codex(model: String?, approvalPolicy: String?, sandboxMode: String?, effort: String?)
     case opencode(providerModel: String?, agentName: String?)
+    case rovodev
 }
 
 struct SessionEntry: Identifiable, Hashable {
@@ -151,6 +155,8 @@ struct SessionEntry: Identifiable, Hashable {
                 parts.append("--agent \(Self.shellQuote(agentName))")
             }
             return parts.joined(separator: " ")
+        case .rovodev:
+            return "acli rovodev run --restore \(Self.shellQuote(sessionId))"
         }
     }
 
@@ -731,7 +737,11 @@ final class SessionIndexStore: ObservableObject {
             needle: "", agent: .opencode, cwdFilter: cwdFilter,
             offset: 0, limit: bigLimit, errorBag: bag
         )
-        var merged = (await c) + (await x) + (await o)
+        async let r = Self.timedAgent(
+            needle: "", agent: .rovodev, cwdFilter: cwdFilter,
+            offset: 0, limit: bigLimit, errorBag: bag
+        )
+        var merged = (await c) + (await x) + (await o) + (await r)
         if Task.isCancelled {
             return DirectorySnapshot(cwd: key, entries: [], errors: [])
         }
@@ -802,7 +812,8 @@ final class SessionIndexStore: ObservableObject {
         async let claude = loadClaudeEntries(needle: "", cwdFilter: nil, offset: 0, limit: perAgentLimit)
         async let codex = loadCodexEntries(needle: "", cwdFilter: nil, offset: 0, limit: perAgentLimit, errorBag: bag)
         async let opencode = loadOpenCodeEntries(needle: "", cwdFilter: nil, offset: 0, limit: perAgentLimit, errorBag: bag)
-        let combined = await claude + codex + opencode
+        async let rovodev = loadRovoDevEntries(needle: "", cwdFilter: nil, offset: 0, limit: perAgentLimit, errorBag: bag)
+        let combined = await claude + codex + opencode + rovodev
         return combined.sorted { $0.modified > $1.modified }
     }
 
@@ -1310,7 +1321,11 @@ final class SessionIndexStore: ObservableObject {
                 needle: needle, agent: .opencode, cwdFilter: cwdFilter,
                 offset: 0, limit: target, errorBag: bag
             )
-            let merged = (await c) + (await x) + (await o)
+            async let r = Self.timedAgent(
+                needle: needle, agent: .rovodev, cwdFilter: cwdFilter,
+                offset: 0, limit: target, errorBag: bag
+            )
+            let merged = (await c) + (await x) + (await o) + (await r)
             let sorted = merged.sorted { $0.modified > $1.modified }
             entries = Array(sorted.dropFirst(offset).prefix(limit))
         }
@@ -1340,6 +1355,7 @@ final class SessionIndexStore: ObservableObject {
         case .claude: return await loadClaudeEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit)
         case .codex: return await loadCodexEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
         case .opencode: return loadOpenCodeEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
+        case .rovodev: return loadRovoDevEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
         }
     }
 
@@ -1784,6 +1800,143 @@ final class SessionIndexStore: ObservableObject {
         }
         return results
     }
+
+    // MARK: Rovo Dev
+
+    private struct RovoDevMetadata: Decodable {
+        let title: String?
+        let workspacePath: String?
+
+        private enum CodingKeys: String, CodingKey {
+            case title
+            case workspacePath = "workspace_path"
+            case workspacePathCamel = "workspacePath"
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            title = try container.decodeIfPresent(String.self, forKey: .title)
+            workspacePath = try container.decodeIfPresent(String.self, forKey: .workspacePath)
+                ?? container.decodeIfPresent(String.self, forKey: .workspacePathCamel)
+        }
+    }
+
+    private struct RovoDevSessionCandidate: Sendable {
+        let sessionId: String
+        let metadataURL: URL
+        let mtime: Date
+    }
+
+    /// Returns Rovo Dev session entries paginated by metadata.json mtime desc.
+    /// Sessions live at `~/.rovodev/sessions/<id>/metadata.json`.
+    nonisolated private static func loadRovoDevEntries(
+        needle: String,
+        cwdFilter: String?,
+        offset: Int,
+        limit: Int,
+        errorBag _: ErrorBag,
+        sessionsRoot: String = ("~/.rovodev/sessions" as NSString).expandingTildeInPath
+    ) -> [SessionEntry] {
+        guard limit > 0 else { return [] }
+
+        let fileManager = FileManager.default
+        let rootURL = URL(fileURLWithPath: sessionsRoot, isDirectory: true)
+        guard let sessionURLs = try? fileManager.contentsOfDirectory(
+            at: rootURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+
+        var candidates: [RovoDevSessionCandidate] = []
+        candidates.reserveCapacity(sessionURLs.count)
+        for sessionURL in sessionURLs {
+            let sessionValues = try? sessionURL.resourceValues(forKeys: [.isDirectoryKey])
+            guard sessionValues?.isDirectory == true else { continue }
+
+            let metadataURL = sessionURL.appendingPathComponent("metadata.json", isDirectory: false)
+            let metadataValues = try? metadataURL.resourceValues(
+                forKeys: [.contentModificationDateKey, .isRegularFileKey]
+            )
+            guard metadataValues?.isRegularFile == true,
+                  let mtime = metadataValues?.contentModificationDate else {
+                continue
+            }
+            candidates.append(RovoDevSessionCandidate(
+                sessionId: sessionURL.lastPathComponent,
+                metadataURL: metadataURL,
+                mtime: mtime
+            ))
+        }
+        candidates.sort { $0.mtime > $1.mtime }
+
+        let target = offset + limit
+        var matchedCount = 0
+        var results: [SessionEntry] = []
+        results.reserveCapacity(limit)
+
+        for candidate in candidates {
+            if Task.isCancelled { break }
+            if matchedCount >= target { break }
+            guard let data = try? Data(contentsOf: candidate.metadataURL),
+                  let metadata = try? JSONDecoder().decode(RovoDevMetadata.self, from: data) else {
+                continue
+            }
+
+            let title = metadata.title ?? ""
+            let cwd = metadata.workspacePath
+            if let cwdFilter, cwd != cwdFilter {
+                continue
+            }
+            if !needle.isEmpty {
+                let haystack = [candidate.sessionId, title, cwd ?? ""]
+                    .joined(separator: " ")
+                    .lowercased()
+                guard haystack.range(of: needle, options: [.literal]) != nil else {
+                    continue
+                }
+            }
+
+            if matchedCount >= offset {
+                results.append(SessionEntry(
+                    id: "rovodev:" + candidate.sessionId,
+                    agent: .rovodev,
+                    sessionId: candidate.sessionId,
+                    title: title,
+                    cwd: cwd,
+                    gitBranch: nil,
+                    pullRequest: nil,
+                    modified: candidate.mtime,
+                    fileURL: candidate.metadataURL,
+                    specifics: .rovodev
+                ))
+            }
+            matchedCount += 1
+        }
+        return results
+    }
+
+    #if DEBUG
+    nonisolated static func loadRovoDevEntriesForTesting(
+        sessionsRoot: String,
+        needle: String = "",
+        cwdFilter: String? = nil,
+        offset: Int = 0,
+        limit: Int = 100
+    ) -> SearchOutcome {
+        let bag = ErrorBag()
+        let entries = loadRovoDevEntries(
+            needle: needle.lowercased(),
+            cwdFilter: cwdFilter,
+            offset: offset,
+            limit: limit,
+            errorBag: bag,
+            sessionsRoot: sessionsRoot
+        )
+        return SearchOutcome(entries: entries, errors: bag.snapshot())
+    }
+    #endif
 
     // MARK: Helpers
 

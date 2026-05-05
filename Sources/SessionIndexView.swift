@@ -111,7 +111,7 @@ struct SessionIndexView: View {
                 .font(.system(size: 12))
                 .foregroundColor(.secondary)
             Text(String(localized: "sessionIndex.empty.subtitle",
-                                   defaultValue: "Claude Code, Codex, and OpenCode history will appear here."))
+                                   defaultValue: "Claude Code, Codex, OpenCode, and Rovo Dev history will appear here."))
                 .font(.system(size: 11))
                 .foregroundColor(.secondary.opacity(0.7))
                 .multilineTextAlignment(.center)
@@ -1313,8 +1313,8 @@ private enum SessionTranscriptLoader {
             return parseClaudeLine(object, id: id)
         case .codex:
             return parseCodexLine(object, id: id)
-        case .opencode:
-            return parseGenericLine(object, id: id)
+        case .opencode, .rovodev:
+            return parseGenericLine(object, agent: agent, id: id)
         }
     }
 
@@ -1358,27 +1358,35 @@ private enum SessionTranscriptLoader {
         return nil
     }
 
-    private static func parseGenericLine(_ object: [String: Any], id: Int) -> SessionTranscriptTurn? {
-        if let parsed = parseGenericMessage(object, id: id) {
+    private static func parseGenericLine(
+        _ object: [String: Any],
+        agent: SessionAgent,
+        id: Int
+    ) -> SessionTranscriptTurn? {
+        if let parsed = parseGenericMessage(object, agent: agent, id: id) {
             return parsed
         }
         if let payload = object["payload"] as? [String: Any],
-           let parsed = parseGenericMessage(payload, id: id) {
+           let parsed = parseGenericMessage(payload, agent: agent, id: id) {
             return parsed
         }
         if let message = object["message"] as? [String: Any],
-           let parsed = parseGenericMessage(message, id: id) {
+           let parsed = parseGenericMessage(message, agent: agent, id: id) {
             return parsed
         }
         return nil
     }
 
-    private static func parseGenericMessage(_ object: [String: Any], id: Int) -> SessionTranscriptTurn? {
+    private static func parseGenericMessage(
+        _ object: [String: Any],
+        agent: SessionAgent,
+        id: Int
+    ) -> SessionTranscriptTurn? {
         guard let role = transcriptRole(from: object["role"] as? String) else {
             return nil
         }
         let content = object["content"] ?? object["text"] ?? object["message"]
-        guard let text = normalizedText(from: content, role: role, agent: .opencode) else {
+        guard let text = normalizedText(from: content, role: role, agent: agent) else {
             return nil
         }
         return SessionTranscriptTurn(id: id, role: role, text: text)
@@ -1585,7 +1593,7 @@ private enum SessionTranscriptLoader {
         case .codex:
             return containsAny(data, needles: codexResponseItemNeedles)
                 && containsAny(data, needles: codexPreviewNeedles)
-        case .opencode:
+        case .opencode, .rovodev:
             return containsAny(data, needles: genericRoleNeedles)
         }
     }
@@ -1599,7 +1607,7 @@ private enum SessionTranscriptLoader {
             if containsAny(data, needles: [Data(#""type":"user""#.utf8), Data(#""type": "user""#.utf8)]) {
                 return .user
             }
-        case .codex, .opencode:
+        case .codex, .opencode, .rovodev:
             if containsAny(data, needles: [Data(#""role":"assistant""#.utf8), Data(#""role": "assistant""#.utf8)]) {
                 return .assistant
             }

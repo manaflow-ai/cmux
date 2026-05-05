@@ -1867,6 +1867,64 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(url.path, "/tmp/cmux hook state/codex-hook-sessions.json")
     }
 
+    func testRovoDevSessionIndexReadsMetadataAndResumeCommand() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-rovodev-session-index-\(UUID().uuidString)", isDirectory: true)
+        let sessionsRoot = tempDir.appendingPathComponent("sessions", isDirectory: true)
+        try FileManager.default.createDirectory(at: sessionsRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        func writeSession(id: String, title: String, cwd: String, modified: Date) throws {
+            let sessionDir = sessionsRoot.appendingPathComponent(id, isDirectory: true)
+            try FileManager.default.createDirectory(at: sessionDir, withIntermediateDirectories: true)
+            let metadataURL = sessionDir.appendingPathComponent("metadata.json")
+            let data = try JSONSerialization.data(
+                withJSONObject: [
+                    "title": title,
+                    "workspace_path": cwd,
+                ],
+                options: [.sortedKeys]
+            )
+            try data.write(to: metadataURL)
+            try FileManager.default.setAttributes(
+                [.modificationDate: modified],
+                ofItemAtPath: metadataURL.path
+            )
+        }
+
+        try writeSession(
+            id: "older-session",
+            title: "Unrelated chat",
+            cwd: "/tmp/other repo",
+            modified: Date(timeIntervalSince1970: 100)
+        )
+        try writeSession(
+            id: "session with space",
+            title: "Ship Rovo Dev support",
+            cwd: "/tmp/rovo repo",
+            modified: Date(timeIntervalSince1970: 200)
+        )
+
+        let outcome = SessionIndexStore.loadRovoDevEntriesForTesting(
+            sessionsRoot: sessionsRoot.path,
+            needle: "rovo",
+            cwdFilter: "/tmp/rovo repo"
+        )
+
+        XCTAssertEqual(outcome.errors, [])
+        let entry = try XCTUnwrap(outcome.entries.first)
+        XCTAssertEqual(outcome.entries.count, 1)
+        XCTAssertEqual(entry.agent, .rovodev)
+        XCTAssertEqual(entry.sessionId, "session with space")
+        XCTAssertEqual(entry.title, "Ship Rovo Dev support")
+        XCTAssertEqual(entry.cwd, "/tmp/rovo repo")
+        XCTAssertEqual(entry.resumeCommand, "acli rovodev run --restore 'session with space'")
+        XCTAssertEqual(
+            entry.resumeCommandWithCwd,
+            "cd '/tmp/rovo repo' && acli rovodev run --restore 'session with space'"
+        )
+    }
+
     func testOpenCodeWrapperResumeCommandAndUnsupportedOhMyLaunchers() {
         let direct = SessionRestorableAgentSnapshot(
             kind: .opencode,
