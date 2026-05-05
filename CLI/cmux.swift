@@ -11541,6 +11541,39 @@ struct CMUXCLI {
         return "node omx.js hud --watch"
     }
 
+    private func tmuxPaneLooksLikeOMXHud(workspaceId: String, paneId: String, client: SocketClient) -> Bool {
+        guard let surfaceId = try? tmuxSelectedSurfaceId(
+            workspaceId: workspaceId,
+            paneId: paneId,
+            client: client
+        ) else {
+            return false
+        }
+
+        if let payload = try? client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId]),
+           let surfaces = payload["surfaces"] as? [[String: Any]],
+           let surface = surfaces.first(where: { ($0["id"] as? String) == surfaceId }) {
+            let paneStartCommand = [
+                surface["tmux_start_command"],
+                surface["pane_start_command"],
+                surface["initial_command"]
+            ]
+                .compactMap { ($0 as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .first { !$0.isEmpty }
+
+            if let paneStartCommand,
+               tmuxCommandLooksLikeOMXHud(tmuxShellWords(paneStartCommand)) {
+                return true
+            }
+        }
+
+        return tmuxLegacyOMXHudStartCommand(
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            client: client
+        ) != nil
+    }
+
     private func tmuxStartupScript(commandTokens: [String], cwd: String?) -> String? {
         let commandText = commandTokens.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !commandText.isEmpty else {
@@ -13380,6 +13413,16 @@ struct CMUXCLI {
                 || parsed.hasFlag("-U")
                 || parsed.hasFlag("-D")
             let target = try tmuxResolvePaneTarget(parsed.value("-t"), client: client)
+            let isAbsoluteResize = !hasDirectionalFlags
+                && (parsed.value("-x") != nil || parsed.value("-y") != nil)
+            if isAbsoluteResize,
+               tmuxPaneLooksLikeOMXHud(
+                    workspaceId: target.workspaceId,
+                    paneId: target.paneId,
+                    client: client
+               ) {
+                return
+            }
 
             if !hasDirectionalFlags, let absWidth = parsed.value("-x").flatMap({ Int($0.replacingOccurrences(of: "%", with: "")) }) {
                 // Absolute width: resize-pane -t <pane> -x <columns>

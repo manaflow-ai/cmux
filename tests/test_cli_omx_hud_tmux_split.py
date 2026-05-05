@@ -307,7 +307,7 @@ def assert_omx_hud_is_visible_to_tmux_pane_formats(
         raise AssertionError(f"expected pane_start_command to expose HUD watch command, got {hud_lines[0]!r}")
 
 
-def assert_omx_hud_absolute_height_resize_is_stable(
+def assert_omx_hud_absolute_height_resize_does_not_override_user_layout(
     cli_path: str,
     socket_path: Path,
     fake_home: Path,
@@ -325,17 +325,10 @@ def assert_omx_hud_absolute_height_resize_is_stable(
             f"stdout={proc.stdout.strip()}\n"
             f"stderr={proc.stderr.strip()}"
         )
-    if not state.resize_params:
-        raise AssertionError("expected HUD absolute resize to call pane.resize")
-    resize = state.resize_params[-1]
-    if resize.get("absolute_axis") != "vertical":
-        raise AssertionError(f"expected absolute vertical resize, got {resize!r}")
-    if resize.get("direction") is not None:
-        raise AssertionError(f"absolute HUD resize should not use directional movement, got {resize!r}")
-    if resize.get("target_pixels") != 72:
-        raise AssertionError(f"expected 4 rows at 18px per cell, got {resize!r}")
-    if state.hud_rows != 4:
-        raise AssertionError(f"expected fake HUD rows to be set exactly, got {state.hud_rows}")
+    if state.resize_params:
+        raise AssertionError(f"HUD absolute resize should not override an existing layout: {state.resize_params!r}")
+    if state.hud_rows != 12:
+        raise AssertionError(f"expected fake HUD rows to remain user-controlled, got {state.hud_rows}")
 
 
 def assert_omx_hud_feature_probe_is_supported(
@@ -426,7 +419,7 @@ def main() -> int:
                     socket_path,
                     fake_home,
                 )
-                assert_omx_hud_absolute_height_resize_is_stable(
+                assert_omx_hud_absolute_height_resize_does_not_override_user_layout(
                     cli_path,
                     socket_path,
                     fake_home,

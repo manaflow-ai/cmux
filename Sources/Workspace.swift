@@ -9828,7 +9828,8 @@ final class Workspace: Identifiable, ObservableObject {
         focus: Bool = true,
         workingDirectory: String? = nil,
         initialCommand: String? = nil,
-        tmuxStartCommand: String? = nil
+        tmuxStartCommand: String? = nil,
+        initialDividerPosition: CGFloat? = nil
     ) -> TerminalPanel? {
 #if DEBUG
         let splitTimingStart = ProcessInfo.processInfo.systemUptime
@@ -9944,7 +9945,13 @@ final class Workspace: Identifiable, ObservableObject {
         // Create the split with the new tab already present in the new pane.
         isProgrammaticSplit = true
         defer { isProgrammaticSplit = false }
-        guard bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) != nil else {
+        guard bonsplitController.splitPane(
+            paneId,
+            orientation: orientation,
+            withTab: newTab,
+            insertFirst: insertFirst,
+            initialDividerPosition: initialDividerPosition
+        ) != nil else {
             panels.removeValue(forKey: newPanel.id)
             panelTitles.removeValue(forKey: newPanel.id)
             surfaceIdToPanelId.removeValue(forKey: newTab.id)
@@ -10111,7 +10118,8 @@ final class Workspace: Identifiable, ObservableObject {
         url: URL? = nil,
         preferredProfileID: UUID? = nil,
         focus: Bool = true,
-        creationPolicy: BrowserPanelCreationPolicy = .userInitiated
+        creationPolicy: BrowserPanelCreationPolicy = .userInitiated,
+        initialDividerPosition: CGFloat? = nil
     ) -> BrowserPanel? {
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
         guard browserEnabled || creationPolicy.permitsCreationWhenBrowserDisabled else {
@@ -10166,7 +10174,13 @@ final class Workspace: Identifiable, ObservableObject {
         // Mark this split as programmatic so didSplitPane doesn't auto-create a terminal.
         isProgrammaticSplit = true
         defer { isProgrammaticSplit = false }
-        guard bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) != nil else {
+        guard bonsplitController.splitPane(
+            paneId,
+            orientation: orientation,
+            withTab: newTab,
+            insertFirst: insertFirst,
+            initialDividerPosition: initialDividerPosition
+        ) != nil else {
             surfaceIdToPanelId.removeValue(forKey: newTab.id)
             panels.removeValue(forKey: browserPanel.id)
             panelTitles.removeValue(forKey: browserPanel.id)

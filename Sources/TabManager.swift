@@ -5476,7 +5476,8 @@ class TabManager: ObservableObject {
         focus: Bool = true,
         workingDirectory: String? = nil,
         initialCommand: String? = nil,
-        tmuxStartCommand: String? = nil
+        tmuxStartCommand: String? = nil,
+        initialDividerPosition: CGFloat? = nil
     ) -> UUID? {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
         return tab.newTerminalSplit(
@@ -5486,7 +5487,8 @@ class TabManager: ObservableObject {
             focus: focus,
             workingDirectory: workingDirectory,
             initialCommand: initialCommand,
-            tmuxStartCommand: tmuxStartCommand
+            tmuxStartCommand: tmuxStartCommand,
+            initialDividerPosition: initialDividerPosition
         )?.id
     }
 
@@ -5627,7 +5629,8 @@ class TabManager: ObservableObject {
         insertFirst: Bool = false,
         url: URL? = nil,
         preferredProfileID: UUID? = nil,
-        focus: Bool = true
+        focus: Bool = true,
+        initialDividerPosition: CGFloat? = nil
     ) -> UUID? {
         guard BrowserAvailabilitySettings.isEnabled() else { return nil }
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
@@ -5637,7 +5640,8 @@ class TabManager: ObservableObject {
             insertFirst: insertFirst,
             url: url,
             preferredProfileID: preferredProfileID,
-            focus: focus
+            focus: focus,
+            initialDividerPosition: initialDividerPosition
         )?.id
     }
 

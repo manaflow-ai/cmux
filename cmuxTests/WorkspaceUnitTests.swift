@@ -14,6 +14,15 @@ import Combine
 @testable import cmux
 #endif
 
+private func workspaceSplitNodes(in node: ExternalTreeNode) -> [ExternalSplitNode] {
+    switch node {
+    case .pane:
+        return []
+    case .split(let split):
+        return [split] + workspaceSplitNodes(in: split.first) + workspaceSplitNodes(in: split.second)
+    }
+}
+
 @MainActor
 func makeTemporaryBrowserProfile(named prefix: String) throws -> BrowserProfileDefinition {
     try XCTUnwrap(
@@ -3057,6 +3066,7 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
         let requestedDirectory = "/tmp/cmux-split-startup-\(UUID().uuidString)"
         let startupCommand = "/tmp/cmux-tmux-command-\(UUID().uuidString).sh"
         let tmuxStartCommand = "node /opt/oh-my-codex/dist/omx.js hud --watch"
+        let initialDividerPosition = 0.875
         guard let splitPanelId = manager.newSplit(
             tabId: workspace.id,
             surfaceId: sourcePanelId,
@@ -3064,7 +3074,8 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
             focus: false,
             workingDirectory: requestedDirectory,
             initialCommand: startupCommand,
-            tmuxStartCommand: tmuxStartCommand
+            tmuxStartCommand: tmuxStartCommand,
+            initialDividerPosition: initialDividerPosition
         ) else {
             XCTFail("Expected split terminal panel to be created")
             return
@@ -3081,6 +3092,17 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
             splitPanel?.surface.debugTmuxStartCommand(),
             tmuxStartCommand,
             "Programmatic tmux-compatible splits must preserve the original tmux command for pane format queries"
+        )
+        guard let split = workspaceSplitNodes(in: workspace.bonsplitController.treeSnapshot()).first else {
+            XCTFail("Expected split terminal panel to create a split node")
+            return
+        }
+        XCTAssertEqual(split.orientation, "vertical")
+        XCTAssertEqual(
+            split.dividerPosition,
+            initialDividerPosition,
+            accuracy: 0.000_1,
+            "Programmatic tmux-compatible splits should enter layout with their requested divider"
         )
     }
 

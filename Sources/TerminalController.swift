@@ -6002,7 +6002,8 @@ class TerminalController {
                     orientation: orientation,
                     insertFirst: insertFirst,
                     url: url,
-                    focus: focus
+                    focus: focus,
+                    initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
                 )?.id
             } else {
                 newId = tabManager.newSplit(
@@ -6012,21 +6013,13 @@ class TerminalController {
                     focus: focus,
                     workingDirectory: workingDirectory,
                     initialCommand: initialCommand,
-                    tmuxStartCommand: tmuxStartCommand
+                    tmuxStartCommand: tmuxStartCommand,
+                    initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
                 )
             }
 
             if let newId {
                 let paneUUID = ws.paneId(forPanelId: newId)?.id
-                if let initialDividerPosition, let paneUUID {
-                    _ = v2SetInitialSplitDividerPosition(
-                        workspace: ws,
-                        paneUUID: paneUUID,
-                        orientation: orientation,
-                        paneInFirstChild: insertFirst,
-                        position: initialDividerPosition
-                    )
-                }
                 let windowId = v2ResolveWindowId(tabManager: tabManager)
                 result = .ok([
                     "window_id": v2OrNull(windowId?.uuidString),
@@ -7386,7 +7379,8 @@ class TerminalController {
                     orientation: orientation,
                     insertFirst: insertFirst,
                     url: url,
-                    focus: focus
+                    focus: focus,
+                    initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
                 )?.id
             } else {
                 newPanelId = ws.newTerminalSplit(
@@ -7396,7 +7390,8 @@ class TerminalController {
                     focus: focus,
                     workingDirectory: workingDirectory,
                     initialCommand: initialCommand,
-                    tmuxStartCommand: tmuxStartCommand
+                    tmuxStartCommand: tmuxStartCommand,
+                    initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
                 )?.id
             }
 
@@ -7405,15 +7400,6 @@ class TerminalController {
                 return
             }
             let paneUUID = ws.paneId(forPanelId: newPanelId)?.id
-            if let initialDividerPosition, let paneUUID {
-                _ = v2SetInitialSplitDividerPosition(
-                    workspace: ws,
-                    paneUUID: paneUUID,
-                    orientation: orientation,
-                    paneInFirstChild: insertFirst,
-                    position: initialDividerPosition
-                )
-            }
             let windowId = v2ResolveWindowId(tabManager: tabManager)
             result = .ok([
                 "window_id": v2OrNull(windowId?.uuidString),
@@ -7522,34 +7508,6 @@ class TerminalController {
 
             return V2PaneResizeTrace(containsTarget: containsTarget, bounds: combinedBounds)
         }
-    }
-
-    private func v2SetInitialSplitDividerPosition(
-        workspace: Workspace,
-        paneUUID: UUID,
-        orientation: SplitOrientation,
-        paneInFirstChild: Bool,
-        position: Double
-    ) -> Bool {
-        let orientationName = orientation == .horizontal ? "horizontal" : "vertical"
-        var candidates: [V2PaneResizeCandidate] = []
-        let trace = v2PaneResizeCollectCandidates(
-            node: workspace.bonsplitController.treeSnapshot(),
-            targetPaneId: paneUUID.uuidString,
-            candidates: &candidates
-        )
-        guard trace.containsTarget,
-              let candidate = candidates.first(where: {
-                $0.orientation == orientationName && $0.paneInFirstChild == paneInFirstChild
-              }) else {
-            return false
-        }
-        let clamped = min(max(CGFloat(position), 0.1), 0.9)
-        return workspace.bonsplitController.setDividerPosition(
-            clamped,
-            forSplit: candidate.splitId,
-            fromExternal: true
-        )
     }
 
     private func v2SetAbsolutePaneSize(
