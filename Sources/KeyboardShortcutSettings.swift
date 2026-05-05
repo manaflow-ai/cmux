@@ -402,6 +402,13 @@ enum KeyboardShortcutSettings {
             }
             return normalized
         }
+
+        func normalizedSettingsFileShortcut(_ shortcut: StoredShortcut) -> StoredShortcut? {
+            guard case let .accepted(normalized) = resolvedRecordedShortcutIgnoringConflicts(shortcut) else {
+                return usesNumberedDigitMatching ? nil : shortcut
+            }
+            return normalized
+        }
     }
 
     private static func normalizedSystemWideHotkeyShortcutResult(_ shortcut: StoredShortcut) -> RecordedShortcutResolution {

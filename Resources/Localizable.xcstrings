@@ -51109,13 +51109,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open the cmux config, standalone Ghostty config, and merged preview in one utility window."
+            "value": "Open the cmux terminal config and generated preview in one utility window."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux の設定、単体の Ghostty 設定、マージ後のプレビューを 1 つのユーティリティウインドウで開きます。"
+            "value": "cmux の端末設定と生成プレビューを 1 つのユーティリティウインドウで開きます。"
           }
         }
       }
@@ -51194,47 +51194,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This is the config file cmux reads. Edit it here, then Save to reload cmux."
+            "value": "This is the cmux Ghostty config selected for this build. Edit it here, then Save to reload cmux."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "これは cmux が読み込む設定ファイルです。ここで編集し、保存すると cmux が再読み込みされます。"
-          }
-        }
-      }
-    },
-    "settings.config.banner.ghostty": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This file belongs to standalone Ghostty. cmux does not read it, so edits here do not affect cmux."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このファイルは単体の Ghostty 用です。cmux はこれを読み込まないため、ここでの編集は cmux に反映されません。"
-          }
-        }
-      }
-    },
-    "settings.config.banner.ghosttyMissing": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No standalone Ghostty config file was found at the preferred path. cmux still does not read standalone Ghostty config."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "優先パスに単体の Ghostty 設定ファイルが見つかりませんでした。cmux は単体の Ghostty 設定を読み込みません。"
+            "value": "これはこのビルドで選択されている cmux Ghostty 設定です。ここで編集し、保存すると cmux が再読み込みされます。"
           }
         }
       }
@@ -51262,13 +51228,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This is a generated preview of the effective config. No standalone Ghostty config file was found, so only cmux overrides are shown."
+            "value": "This is a generated preview of the effective config. No base Ghostty config file was found, so only cmux overrides are shown."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "これは実効設定の生成プレビューです。単体の Ghostty 設定ファイルが見つからなかったため、cmux の上書き設定のみを表示しています。"
+            "value": "これは実効設定の生成プレビューです。ベースの Ghostty 設定ファイルが見つからなかったため、cmux の上書き設定のみを表示しています。"
           }
         }
       }
@@ -51286,23 +51252,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux"
-          }
-        }
-      }
-    },
-    "settings.config.source.ghostty": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ghostty"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ghostty"
           }
         }
       }
@@ -51354,6 +51303,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "ディスクから構成を再読み込みしました。"
+          }
+        }
+      }
+    },
+    "settings.config.status.openFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't open the cmux config."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 設定を開けませんでした。"
           }
         }
       }

@@ -11,7 +11,6 @@ struct GhosttyConfig {
     static let cmuxDefaultLightThemeName = "Apple System Colors Light"
     static let cmuxDefaultDarkThemeName = "Apple System Colors"
 
-    private static let cmuxReleaseBundleIdentifier = "com.cmuxterm.app"
     private static let loadCacheLock = NSLock()
     private static var cachedConfigsByColorScheme: [ColorSchemePreference: GhosttyConfig] = [:]
 
@@ -109,42 +108,12 @@ struct GhosttyConfig {
             return []
         }
 
-        func paths(for bundleIdentifier: String) -> [String] {
-            let directory = appSupport.appendingPathComponent(bundleIdentifier, isDirectory: true)
-            return [
-                directory.appendingPathComponent("config", isDirectory: false).path,
-                directory.appendingPathComponent("config.ghostty", isDirectory: false).path,
-            ]
-        }
-
-        func hasConfig(_ paths: [String]) -> Bool {
-            paths.contains { path in
-                guard let attributes = try? fileManager.attributesOfItem(atPath: path),
-                      let type = attributes[.type] as? FileAttributeType,
-                      type == .typeRegular,
-                      let size = attributes[.size] as? NSNumber else {
-                    return false
-                }
-                return size.intValue > 0
-            }
-        }
-
-        let releasePaths = paths(for: cmuxReleaseBundleIdentifier)
-        guard let currentBundleIdentifier, !currentBundleIdentifier.isEmpty else {
-            return releasePaths
-        }
-        if currentBundleIdentifier == cmuxReleaseBundleIdentifier {
-            return releasePaths
-        }
-
-        let currentPaths = paths(for: currentBundleIdentifier)
-        if hasConfig(currentPaths) {
-            return currentPaths
-        }
-        if SocketControlSettings.isDebugLikeBundleIdentifier(currentBundleIdentifier) {
-            return releasePaths
-        }
-        return []
+        return CmuxGhosttyConfigPathResolver.loadConfigURLs(
+            currentBundleIdentifier: currentBundleIdentifier,
+            appSupportDirectory: appSupport,
+            fileManager: fileManager
+        )
+        .map(\.path)
     }
 
     mutating func resolveSidebarBackground(preferredColorScheme: ColorSchemePreference) {

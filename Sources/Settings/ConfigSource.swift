@@ -4,29 +4,42 @@ struct ConfigSourceEnvironment {
     let homeDirectoryURL: URL
     let previewDirectoryURL: URL
     let fileManager: FileManager
+    let currentBundleIdentifier: String?
 
     init(
         homeDirectoryURL: URL,
+        currentBundleIdentifier: String? = CmuxGhosttyConfigPathResolver.releaseBundleIdentifier,
         previewDirectoryURL: URL? = nil,
         fileManager: FileManager = .default
     ) {
         let standardizedHome = homeDirectoryURL.standardizedFileURL
         self.homeDirectoryURL = standardizedHome
         self.fileManager = fileManager
+        self.currentBundleIdentifier = currentBundleIdentifier
         self.previewDirectoryURL = previewDirectoryURL?.standardizedFileURL
-            ?? standardizedHome
-                .appendingPathComponent("Library", isDirectory: true)
-                .appendingPathComponent("Application Support", isDirectory: true)
-                .appendingPathComponent("com.cmuxterm.app", isDirectory: true)
+            ?? CmuxGhosttyConfigPathResolver.configDirectoryURL(
+                currentBundleIdentifier: currentBundleIdentifier,
+                appSupportDirectory: standardizedHome
+                    .appendingPathComponent("Library", isDirectory: true)
+                    .appendingPathComponent("Application Support", isDirectory: true),
+                fileManager: fileManager
+            )
     }
 
     static func live(fileManager: FileManager = .default) -> Self {
-        Self(homeDirectoryURL: fileManager.homeDirectoryForCurrentUser, fileManager: fileManager)
+        Self(
+            homeDirectoryURL: fileManager.homeDirectoryForCurrentUser,
+            currentBundleIdentifier: Bundle.main.bundleIdentifier,
+            fileManager: fileManager
+        )
     }
 
     var cmuxConfigURL: URL {
-        applicationSupportDirectoryURL(forBundleIdentifier: "com.cmuxterm.app")
-            .appendingPathComponent("config", isDirectory: false)
+        CmuxGhosttyConfigPathResolver.activeOrEditableConfigURL(
+            currentBundleIdentifier: currentBundleIdentifier,
+            appSupportDirectory: appSupportDirectoryURL,
+            fileManager: fileManager
+        )
     }
 
     var standaloneGhosttyDisplayURL: URL {
@@ -54,6 +67,18 @@ struct ConfigSourceEnvironment {
         previewDirectoryURL.appendingPathComponent("config.synced-preview", isDirectory: false)
     }
 
+    func materializeCmuxConfigFileIfNeeded() throws -> URL {
+        let url = cmuxConfigURL
+        guard !fileManager.fileExists(atPath: url.path) else { return url }
+        try fileManager.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true,
+            attributes: nil
+        )
+        try "".write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+
     func abbreviatedPath(for url: URL) -> String {
         let path = url.path
         let homePath = homeDirectoryURL.path
@@ -73,15 +98,148 @@ struct ConfigSourceEnvironment {
         return type == .typeRegular
     }
 
-    private func applicationSupportDirectoryURL(forBundleIdentifier bundleIdentifier: String) -> URL {
+    var appSupportDirectoryURL: URL {
         homeDirectoryURL
             .appendingPathComponent("Library", isDirectory: true)
             .appendingPathComponent("Application Support", isDirectory: true)
+    }
+
+    private func applicationSupportDirectoryURL(forBundleIdentifier bundleIdentifier: String) -> URL {
+        appSupportDirectoryURL
             .appendingPathComponent(bundleIdentifier, isDirectory: true)
     }
 
     private func existingRegularFileURL(in urls: [URL]) -> URL? {
         urls.first(where: isRegularFile(at:))
+    }
+}
+
+enum CmuxGhosttyConfigPathResolver {
+    static let releaseBundleIdentifier = "com.cmuxterm.app"
+
+    static func editableConfigURL(
+        currentBundleIdentifier: String?,
+        appSupportDirectory: URL,
+        fileManager: FileManager = .default
+    ) -> URL {
+        _ = fileManager
+        return configDirectoryURL(
+            currentBundleIdentifier: currentBundleIdentifier,
+            appSupportDirectory: appSupportDirectory
+        )
+        .appendingPathComponent("config.ghostty", isDirectory: false)
+    }
+
+    static func activeOrEditableConfigURL(
+        currentBundleIdentifier: String?,
+        appSupportDirectory: URL,
+        fileManager: FileManager = .default
+    ) -> URL {
+        loadConfigURLs(
+            currentBundleIdentifier: currentBundleIdentifier,
+            appSupportDirectory: appSupportDirectory,
+            fileManager: fileManager
+        )
+        .first
+        ?? editableConfigURL(
+            currentBundleIdentifier: currentBundleIdentifier,
+            appSupportDirectory: appSupportDirectory,
+            fileManager: fileManager
+        )
+    }
+
+    static func loadConfigURLs(
+        currentBundleIdentifier: String?,
+        appSupportDirectory: URL,
+        fileManager: FileManager = .default
+    ) -> [URL] {
+        guard let currentBundleIdentifier, !currentBundleIdentifier.isEmpty else {
+            return preferredExistingConfigURLs(
+                for: releaseBundleIdentifier,
+                appSupportDirectory: appSupportDirectory,
+                fileManager: fileManager
+            )
+        }
+
+        let currentURLs = preferredExistingConfigURLs(
+            for: currentBundleIdentifier,
+            appSupportDirectory: appSupportDirectory,
+            fileManager: fileManager
+        )
+        if !currentURLs.isEmpty {
+            return currentURLs
+        }
+        if allowsReleaseFallback(currentBundleIdentifier) {
+            let releaseURLs = preferredExistingConfigURLs(
+                for: releaseBundleIdentifier,
+                appSupportDirectory: appSupportDirectory,
+                fileManager: fileManager
+            )
+            if !releaseURLs.isEmpty {
+                return releaseURLs
+            }
+        }
+        return []
+    }
+
+    static func configDirectoryURL(
+        currentBundleIdentifier: String?,
+        appSupportDirectory: URL,
+        fileManager: FileManager = .default
+    ) -> URL {
+        _ = fileManager
+        guard let currentBundleIdentifier, !currentBundleIdentifier.isEmpty else {
+            return appSupportDirectory.appendingPathComponent(releaseBundleIdentifier, isDirectory: true)
+        }
+        return appSupportDirectory.appendingPathComponent(currentBundleIdentifier, isDirectory: true)
+    }
+
+    private static func preferredExistingConfigURLs(
+        for bundleIdentifier: String,
+        appSupportDirectory: URL,
+        fileManager: FileManager
+    ) -> [URL] {
+        let directory = appSupportDirectory.appendingPathComponent(bundleIdentifier, isDirectory: true)
+        let legacyConfig = directory.appendingPathComponent("config", isDirectory: false)
+        let configGhostty = directory.appendingPathComponent("config.ghostty", isDirectory: false)
+        if isNonEmptyRegularFile(configGhostty, fileManager: fileManager) {
+            return [configGhostty]
+        }
+        if isNonEmptyRegularFile(legacyConfig, fileManager: fileManager) {
+            return [legacyConfig]
+        }
+        return []
+    }
+
+    private static func isNonEmptyRegularFile(_ url: URL, fileManager: FileManager) -> Bool {
+        guard let attrs = try? fileManager.attributesOfItem(atPath: url.path),
+              let type = attrs[.type] as? FileAttributeType,
+              type == .typeRegular,
+              let size = attrs[.size] as? NSNumber else {
+            return false
+        }
+        return size.intValue > 0
+    }
+
+    private static func allowsReleaseFallback(_ bundleIdentifier: String) -> Bool {
+        isDebugLikeBundleIdentifier(bundleIdentifier)
+            || isNightlyBundleIdentifier(bundleIdentifier)
+            || isStagingBundleIdentifier(bundleIdentifier)
+    }
+
+    private static func isDebugLikeBundleIdentifier(_ bundleIdentifier: String) -> Bool {
+        bundleIdentifier == "com.cmuxterm.app.debug"
+            || bundleIdentifier.hasPrefix("com.cmuxterm.app.debug.")
+    }
+
+    private static func isNightlyBundleIdentifier(_ bundleIdentifier: String) -> Bool {
+        bundleIdentifier == "com.cmuxterm.app.nightly"
+            || bundleIdentifier.hasPrefix("com.cmuxterm.app.nightly.")
+    }
+
+    private static func isStagingBundleIdentifier(_ bundleIdentifier: String) -> Bool {
+        bundleIdentifier == "com.cmuxterm.app.staging"
+            || bundleIdentifier.hasPrefix("com.cmuxterm.app.staging.")
     }
 }
 
@@ -97,7 +255,6 @@ struct ConfigSourceSnapshot {
 
 enum ConfigSource: String, CaseIterable, Identifiable {
     case cmux
-    case ghostty
     case synced
 
     var id: Self { self }
@@ -119,24 +276,16 @@ enum ConfigSource: String, CaseIterable, Identifiable {
                 hasBackingFile: environment.isRegularFile(at: url),
                 hasStandaloneGhosttyConfig: environment.isRegularFile(at: environment.standaloneGhosttyDisplayURL)
             )
-        case .ghostty:
-            let url = environment.standaloneGhosttyDisplayURL
-            let hasBackingFile = environment.isRegularFile(at: url)
-            return ConfigSourceSnapshot(
-                source: self,
-                primaryURL: url,
-                displayPaths: [url.path],
-                contents: Self.readContents(at: url),
-                isEditable: false,
-                hasBackingFile: hasBackingFile,
-                hasStandaloneGhosttyConfig: hasBackingFile
-            )
         case .synced:
             let ghosttyURL = environment.standaloneGhosttyDisplayURL
             let hasStandaloneGhosttyConfig = environment.isRegularFile(at: ghosttyURL)
             let renderedContents = Self.renderSyncedPreview(
                 ghosttyURL: hasStandaloneGhosttyConfig ? ghosttyURL : nil,
-                cmuxURL: environment.cmuxConfigURL,
+                cmuxURLs: CmuxGhosttyConfigPathResolver.loadConfigURLs(
+                    currentBundleIdentifier: environment.currentBundleIdentifier,
+                    appSupportDirectory: environment.appSupportDirectoryURL,
+                    fileManager: environment.fileManager
+                ),
                 environment: environment
             )
             Self.materializeSyncedPreview(
@@ -182,14 +331,14 @@ enum ConfigSource: String, CaseIterable, Identifiable {
 
     private static func renderSyncedPreview(
         ghosttyURL: URL?,
-        cmuxURL: URL,
+        cmuxURLs: [URL],
         environment: ConfigSourceEnvironment
     ) -> String {
         // Preserve Ghostty key order, then overlay cmux entries using last-wins precedence.
         var effectiveEntriesByKey: [String: ParsedConfigEntry] = [:]
         var orderedKeys: [String] = []
 
-        for sourceURL in [ghosttyURL, cmuxURL].compactMap({ $0 }) {
+        for sourceURL in ([ghosttyURL].compactMap { $0 } + cmuxURLs) {
             for entry in parsedEntries(from: sourceURL) {
                 if effectiveEntriesByKey[entry.key] == nil {
                     orderedKeys.append(entry.key)
