@@ -3705,7 +3705,6 @@ struct ContentView: View {
             if let observedWindow {
                 AppDelegate.shared?.applyWindowDecorations(to: observedWindow)
             }
-            synchronizeSidebarPortalGeometry()
             updateSidebarResizerBandState()
             syncTrafficLightInset()
         })
@@ -3716,7 +3715,6 @@ struct ContentView: View {
             if !isVisible {
                 _ = AppDelegate.shared?.restoreTerminalFocusAfterRightSidebarHidden(in: observedWindow)
             }
-            synchronizeSidebarPortalGeometry()
         })
         view = AnyView(view.onChange(of: fileExplorerState.portalGeometrySyncRevision) { _, _ in
             synchronizeSidebarPortalGeometry()
