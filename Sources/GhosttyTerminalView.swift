@@ -455,9 +455,10 @@ enum GhosttyPasteboardHelper {
         let plainMetrics = textFidelityMetrics(plainText)
         let richMetrics = textFidelityMetrics(richText)
 
-        guard plainMetrics.nonASCII > richMetrics.nonASCII else { return false }
-        return richMetrics.questionMarks > plainMetrics.questionMarks ||
-            richMetrics.replacementCharacters > plainMetrics.replacementCharacters
+        // Prefer plain text when rich-text conversion substitutes or drops non-ASCII scalars.
+        return richMetrics.replacementCharacters > plainMetrics.replacementCharacters ||
+            richMetrics.questionMarks > plainMetrics.questionMarks ||
+            plainMetrics.nonASCII > richMetrics.nonASCII
     }
 
     private static func textFidelityMetrics(

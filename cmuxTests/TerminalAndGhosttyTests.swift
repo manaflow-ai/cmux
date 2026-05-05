@@ -34,6 +34,22 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         return "<html><body><pre>\(escaped)</pre></body></html>"
     }
 
+    private func makeMixedRichImagePasteboard(
+        namePrefix: String,
+        plainText: String,
+        html: String
+    ) throws -> NSPasteboard {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-\(namePrefix)-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+
+        pasteboard.declareTypes([.html, .png, .string], owner: nil)
+        XCTAssertTrue(pasteboard.setString(html, forType: .html))
+        XCTAssertTrue(pasteboard.setData(try make1x1PNG(color: .systemPink), forType: .png))
+        XCTAssertTrue(pasteboard.setString(plainText, forType: .string))
+
+        return pasteboard
+    }
+
     func testHTMLOnlyPasteboardExtractsPlainText() {
         let pasteboard = NSPasteboard(name: .init("cmux-test-html-\(UUID().uuidString)"))
         pasteboard.clearContents()
@@ -106,13 +122,40 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
     /// the UTF-8 plain text for terminal paste instead of reconstructing text
     /// from the lossy HTML/RTF path and turning CJK into literal question marks.
     func testPrefersUTF8PlainTextOverLossyRichTextWhenImagePayloadAlsoExists() throws {
-        let pasteboard = NSPasteboard(name: .init("cmux-test-lossy-rich-image-\(UUID().uuidString)"))
-        pasteboard.clearContents()
-
         let koreanText = "한글 테스트 paste"
-        pasteboard.setString(koreanText, forType: .string)
-        pasteboard.setString("<p>?? ?? paste</p>", forType: .html)
-        pasteboard.setData(try make1x1PNG(color: .systemPink), forType: .png)
+        let pasteboard = try makeMixedRichImagePasteboard(
+            namePrefix: "lossy-rich-image",
+            plainText: koreanText,
+            html: "<p>?? ?? paste</p>"
+        )
+
+        XCTAssertEqual(
+            cmuxPasteboardStringContentsForTesting(pasteboard),
+            koreanText
+        )
+    }
+
+    func testPrefersUTF8PlainTextWhenRichTextUsesReplacementCharacters() throws {
+        let koreanText = "한글 paste"
+        let pasteboard = try makeMixedRichImagePasteboard(
+            namePrefix: "lossy-rich-replacement",
+            plainText: koreanText,
+            html: "<p>\u{FFFD}\u{FFFD} paste</p>"
+        )
+
+        XCTAssertEqual(
+            cmuxPasteboardStringContentsForTesting(pasteboard),
+            koreanText
+        )
+    }
+
+    func testPrefersUTF8PlainTextWhenRichTextDropsNonASCIICharacters() throws {
+        let koreanText = "한글 paste"
+        let pasteboard = try makeMixedRichImagePasteboard(
+            namePrefix: "lossy-rich-omission",
+            plainText: koreanText,
+            html: "<p> paste</p>"
+        )
 
         XCTAssertEqual(
             cmuxPasteboardStringContentsForTesting(pasteboard),
