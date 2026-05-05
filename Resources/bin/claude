@@ -134,15 +134,88 @@ node_options_restore_dir() {
     printf '%s' "${home%/}/Library/Application Support/cmux/node-options"
 }
 
+node_options_split() {
+    local raw="${1:-}"
+    local current=""
+    local quote=""
+    local escaping=0
+    local ch
+    local i
+    node_options_split_tokens=()
+
+    for (( i = 0; i < ${#raw}; i++ )); do
+        ch="${raw:i:1}"
+        if (( escaping )); then
+            current+="$ch"
+            escaping=0
+            continue
+        fi
+        if [[ "$ch" == "\\" ]]; then
+            escaping=1
+            continue
+        fi
+        if [[ -n "$quote" ]]; then
+            if [[ "$ch" == "$quote" ]]; then
+                quote=""
+            else
+                current+="$ch"
+            fi
+            continue
+        fi
+        if [[ "$ch" == "\"" || "$ch" == "'" ]]; then
+            quote="$ch"
+            continue
+        fi
+        if [[ "$ch" =~ [[:space:]] ]]; then
+            if [[ -n "$current" ]]; then
+                node_options_split_tokens+=("$current")
+                current=""
+            fi
+            continue
+        fi
+        current+="$ch"
+    done
+
+    if (( escaping )); then
+        current+="\\"
+    fi
+    if [[ -n "$current" ]]; then
+        node_options_split_tokens+=("$current")
+    fi
+}
+
+node_options_quote_token() {
+    local value="$1"
+    if [[ "$value" == *[[:space:]\"\\\']* ]]; then
+        local escaped="${value//\\/\\\\}"
+        escaped="${escaped//\"/\\\"}"
+        printf '%s' "\"$escaped\""
+    else
+        printf '%s' "$value"
+    fi
+}
+
+node_options_join_tokens() {
+    local first=1
+    local token
+    local quoted
+
+    for token in "$@"; do
+        quoted="$(node_options_quote_token "$token")"
+        if (( first )); then
+            printf '%s' "$quoted"
+            first=0
+        else
+            printf ' %s' "$quoted"
+        fi
+    done
+}
+
 node_options_require_flag() {
     local path="$1"
-    if [[ "$path" == *[[:space:]\"\\\']* ]]; then
-        local escaped="${path//\\/\\\\}"
-        escaped="${escaped//\"/\\\"}"
-        printf '%s' "--require=\"$escaped\""
-    else
-        printf '%s' "--require=$path"
-    fi
+    local quoted
+    quoted="$(node_options_quote_token "$path")"
+    printf '%s' "--require=$quoted"
 }
 
 merge_node_options() {
@@ -161,7 +234,8 @@ merge_node_options() {
         return 0
     fi
 
-    read -r -a tokens <<<"$existing"
+    node_options_split "$existing"
+    tokens=("${node_options_split_tokens[@]}")
     for token in "${tokens[@]}"; do
         if (( skip_next )); then
             skip_next=0
@@ -181,8 +255,12 @@ merge_node_options() {
         printf '%s %s' "$require_flag" "$memory_flag"
         return 0
     fi
+    local joined
+    joined="$(node_options_join_tokens "${filtered[@]}")"
     printf '%s %s' "$require_flag" "$memory_flag"
-    printf ' %s' "${filtered[@]}"
+    if [[ -n "$joined" ]]; then
+        printf ' %s' "$joined"
+    fi
 }
 
 normalize_node_options_for_restore() {
@@ -192,7 +270,8 @@ normalize_node_options_for_restore() {
     local token
     local index=0
 
-    read -r -a tokens <<<"$existing"
+    node_options_split "$existing"
+    tokens=("${node_options_split_tokens[@]}")
     while (( index < ${#tokens[@]} )); do
         token="${tokens[$index]}"
         if [[ "$token" == "--max-old-space-size" && $((index + 1)) -lt ${#tokens[@]} ]]; then
@@ -207,10 +286,7 @@ normalize_node_options_for_restore() {
     if (( ${#normalized[@]} == 0 )); then
         return 0
     fi
-    printf '%s' "${normalized[0]}"
-    if (( ${#normalized[@]} > 1 )); then
-        printf ' %s' "${normalized[@]:1}"
-    fi
+    node_options_join_tokens "${normalized[@]}"
 }
 
 encode_launch_argv() {

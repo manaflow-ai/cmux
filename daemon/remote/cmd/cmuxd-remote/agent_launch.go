@@ -9,6 +9,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode"
 )
 
 const claudeNodeOptionsRestoreModuleScript = `const hadOriginalNodeOptions = process.env.CMUX_ORIGINAL_NODE_OPTIONS_PRESENT === "1";
@@ -408,16 +409,11 @@ func mergeNodeOptions(existing string, restoreModulePath string) string {
 }
 
 func nodeOptionsRequirePath(path string) string {
-	if !strings.ContainsAny(path, " \t\r\n\"\\'") {
-		return path
-	}
-	escaped := strings.ReplaceAll(path, "\\", "\\\\")
-	escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
-	return "\"" + escaped + "\""
+	return quoteNodeOptionsToken(path)
 }
 
 func cleanedNodeOptions(existing string) string {
-	tokens := strings.Fields(existing)
+	tokens := nodeOptionsTokens(existing)
 	if len(tokens) == 0 {
 		return ""
 	}
@@ -436,7 +432,71 @@ func cleanedNodeOptions(existing string) string {
 		}
 		filtered = append(filtered, token)
 	}
-	return strings.Join(filtered, " ")
+	return joinNodeOptionsTokens(filtered)
+}
+
+func nodeOptionsTokens(raw string) []string {
+	var tokens []string
+	var current strings.Builder
+	var quote rune
+	escaping := false
+
+	for _, r := range raw {
+		if escaping {
+			current.WriteRune(r)
+			escaping = false
+			continue
+		}
+		if r == '\\' {
+			escaping = true
+			continue
+		}
+		if quote != 0 {
+			if r == quote {
+				quote = 0
+			} else {
+				current.WriteRune(r)
+			}
+			continue
+		}
+		if r == '"' || r == '\'' {
+			quote = r
+			continue
+		}
+		if unicode.IsSpace(r) {
+			if current.Len() > 0 {
+				tokens = append(tokens, current.String())
+				current.Reset()
+			}
+			continue
+		}
+		current.WriteRune(r)
+	}
+
+	if escaping {
+		current.WriteRune('\\')
+	}
+	if current.Len() > 0 {
+		tokens = append(tokens, current.String())
+	}
+	return tokens
+}
+
+func joinNodeOptionsTokens(tokens []string) string {
+	quoted := make([]string, 0, len(tokens))
+	for _, token := range tokens {
+		quoted = append(quoted, quoteNodeOptionsToken(token))
+	}
+	return strings.Join(quoted, " ")
+}
+
+func quoteNodeOptionsToken(value string) string {
+	if !strings.ContainsAny(value, "\"\\'") && strings.IndexFunc(value, unicode.IsSpace) == -1 {
+		return value
+	}
+	escaped := strings.ReplaceAll(value, "\\", "\\\\")
+	escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
+	return "\"" + escaped + "\""
 }
 
 func stringFromAny(values ...any) string {
