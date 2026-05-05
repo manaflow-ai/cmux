@@ -19,6 +19,24 @@ final class ClaudeWrapperNodeOptionsRestoreModuleTests: XCTestCase {
         )
     }
 
+    func testRestoreModulePathDetectionRequiresManagedTrailingComponents() {
+        XCTAssertTrue(
+            NodeOptionsSupport.isCmuxRestoreModulePath(
+                "/Users/example/Library/Application Support/cmux/node-options/restore-node-options.cjs"
+            )
+        )
+        XCTAssertTrue(
+            NodeOptionsSupport.isCmuxRestoreModulePath(
+                "/var/folders/example/T/cmux-claude-node-options/restore-node-options.cjs"
+            )
+        )
+        XCTAssertFalse(
+            NodeOptionsSupport.isCmuxRestoreModulePath(
+                "/tmp/cmux/node-options/archive/restore-node-options.cjs"
+            )
+        )
+    }
+
     func testRestoreModuleIsRecreatedUnderApplicationSupportAfterDeletion() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-claude-node-options-\(UUID().uuidString)", isDirectory: true)

@@ -125,7 +125,33 @@ EOF
 
 node_options_restore_dir() {
     if [[ -n "${CMUX_NODE_OPTIONS_RESTORE_DIR:-}" ]]; then
-        printf '%s' "${CMUX_NODE_OPTIONS_RESTORE_DIR%/}"
+        local override="${CMUX_NODE_OPTIONS_RESTORE_DIR:-}"
+        override="${override#"${override%%[![:space:]]*}"}"
+        override="${override%"${override##*[![:space:]]}"}"
+        [[ -n "$override" ]] || return 1
+
+        if [[ "$override" == "~" || "$override" == "~/"* ]]; then
+            local home="${HOME:-}"
+            [[ -n "$home" ]] || return 1
+            if [[ "$override" == "~" ]]; then
+                override="$home"
+            else
+                override="${home%/}/${override#~/}"
+            fi
+        elif [[ "$override" == "~"* ]]; then
+            return 1
+        fi
+
+        if [[ "$override" != /* ]]; then
+            local cwd="${PWD:-}"
+            [[ -n "$cwd" ]] || return 1
+            override="${cwd%/}/$override"
+        fi
+
+        while [[ "$override" == */ && "$override" != "/" ]]; do
+            override="${override%/}"
+        done
+        printf '%s' "$override"
         return 0
     fi
 

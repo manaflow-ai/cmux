@@ -83,12 +83,13 @@ public enum NodeOptionsSupport {
 
     public static func isCmuxRestoreModulePath(_ value: String) -> Bool {
         let trimmed = value.trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
-        guard URL(fileURLWithPath: trimmed).lastPathComponent == restoreModuleFilename else {
+        let url = URL(fileURLWithPath: trimmed).standardizedFileURL
+        guard url.lastPathComponent == restoreModuleFilename else {
             return false
         }
-        let path = URL(fileURLWithPath: trimmed).standardizedFileURL.path
-        return path.contains("/cmux-claude-node-options/")
-            || path.contains("/cmux/node-options/")
+        let components = url.pathComponents
+        return components.suffix(3) == ["cmux", "node-options", restoreModuleFilename]
+            || components.suffix(2) == ["cmux-claude-node-options", restoreModuleFilename]
     }
 
     private static func quoteTokenIfNeeded(_ value: String) -> String {

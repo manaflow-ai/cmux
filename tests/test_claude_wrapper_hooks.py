@@ -48,7 +48,7 @@ def restore_require_and_remaining(value: str) -> tuple[str, str]:
     tokens = split_node_options(value)
     if not tokens:
         return "", ""
-    return tokens[0], " ".join(tokens[1:])
+    return tokens[0], shlex.join(tokens[1:])
 
 
 def run_wrapper(

@@ -723,7 +723,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				C3512A010000000000000003 /* CMUXNodeOptions in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -731,6 +730,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C3512A010000000000000003 /* CMUXNodeOptions in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
