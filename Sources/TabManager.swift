@@ -983,6 +983,13 @@ class TabManager: ObservableObject {
                 self.updateWindowTitleForSelectedTab()
                 if let selectedTabId = self.selectedTabId {
                     self.dismissFocusedPanelNotificationIfActive(tabId: selectedTabId)
+                    // Clear the per-tab bell badge when the user actually has eyes on
+                    // the workspace. Gate on AppFocusState so background/programmatic
+                    // selection changes (session restore, etc.) don't dismiss the
+                    // badge before the user sees it.
+                    if AppFocusState.isAppActive() {
+                        AppDelegate.shared?.notificationStore?.clearBell(forTabId: selectedTabId)
+                    }
                 }
 #if DEBUG
                 let dtMs = self.debugWorkspaceSwitchStartTime > 0

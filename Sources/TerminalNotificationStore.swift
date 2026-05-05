@@ -705,6 +705,7 @@ final class TerminalNotificationStore: ObservableObject {
     // manual unread remains owned by Workspace.manualUnreadPanelIds.
     @Published private(set) var manualUnreadWorkspaceIds: Set<UUID> = []
     @Published private(set) var focusedReadIndicatorByTabId: [UUID: UUID] = [:]
+    @Published private(set) var bellRangTabIds: Set<UUID> = []
     @Published private(set) var authorizationState: NotificationAuthorizationState = .unknown
     private var suppressNotificationDiffPublishing = false
 
@@ -1093,6 +1094,29 @@ final class TerminalNotificationStore: ObservableObject {
         focusedReadIndicatorByTabId.removeValue(forKey: tabId)
     }
 
+    /// Records that the bell rang for `tabId` so the sidebar can show a per-tab
+    /// attention indicator (matches ghostty's `bell-features = title` behavior).
+    /// Suppressed when the bell rings on a tab the user is already looking at —
+    /// no badge is needed if the user has eyes on the workspace right now.
+    func noteBellRang(tabId: UUID) {
+        let owningManager = AppDelegate.shared?.tabManagerFor(tabId: tabId)
+            ?? AppDelegate.shared?.tabManager
+        let isCurrentlyVisible = owningManager?.selectedTabId == tabId
+            && AppFocusState.isAppActive()
+        guard !isCurrentlyVisible else { return }
+        guard !bellRangTabIds.contains(tabId) else { return }
+        bellRangTabIds.insert(tabId)
+    }
+
+    func clearBell(forTabId tabId: UUID) {
+        guard bellRangTabIds.contains(tabId) else { return }
+        bellRangTabIds.remove(tabId)
+    }
+
+    func hasBell(forTabId tabId: UUID) -> Bool {
+        bellRangTabIds.contains(tabId)
+    }
+
     func markAllRead() {
         var updated = notifications
         var idsToClear: [String] = []
@@ -1127,11 +1151,13 @@ final class TerminalNotificationStore: ObservableObject {
 
     func clearAll(discardQueuedNotifications: Bool = true) {
         if discardQueuedNotifications { TerminalMutationBus.shared.discardPendingNotifications() }
-        guard !notifications.isEmpty || !focusedReadIndicatorByTabId.isEmpty || !manualUnreadWorkspaceIds.isEmpty else { return }
+        let hadBells = !bellRangTabIds.isEmpty
+        guard !notifications.isEmpty || !focusedReadIndicatorByTabId.isEmpty || !manualUnreadWorkspaceIds.isEmpty || hadBells else { return }
         let ids = notifications.map { $0.id.uuidString }
         replaceNotificationsForClear([])
         clearWorkspaceManualUnread()
         focusedReadIndicatorByTabId.removeAll()
+        bellRangTabIds.removeAll()
         CmuxEventBus.shared.publishNotificationCleared(ids: ids, workspaceId: nil, surfaceId: nil)
         center.removeDeliveredNotificationsOffMain(withIdentifiers: ids)
         center.removePendingNotificationRequestsOffMain(withIdentifiers: ids)
@@ -1202,6 +1228,7 @@ final class TerminalNotificationStore: ObservableObject {
     func clearNotifications(forTabId tabId: UUID, discardQueuedNotifications: Bool = true) {
         if discardQueuedNotifications { TerminalMutationBus.shared.discardPendingNotifications(forTabId: tabId) }
         let hadFocusedReadIndicator = focusedReadIndicatorByTabId[tabId] != nil
+        clearBell(forTabId: tabId)
         var updated: [TerminalNotification] = []
         updated.reserveCapacity(notifications.count)
         var idsToClear: [String] = []

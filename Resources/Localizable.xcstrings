@@ -88190,6 +88190,23 @@
         }
       }
     },
+    "sidebar.workspace.bellRang.accessibilityLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bell rang in this workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このワークスペースでベルが鳴りました"
+          }
+        }
+      }
+    },
     "sidebar.remote.badge": {
       "extractionState": "manual",
       "localizations": {

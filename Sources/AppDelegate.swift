@@ -1490,6 +1490,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let tabManager else { return }
         guard let tabId = tabManager.selectedTabId else { return }
         let surfaceId = tabManager.focusedSurfaceId(for: tabId)
+        // Clear the bell-attention badge for the workspace the user is returning
+        // to. This is the path for "bell rang while the ringing tab was already
+        // selected but the app was inactive" — selectedTabId.didSet won't fire
+        // because selection didn't change, so we have to clear it here too.
+        notificationStore.clearBell(forTabId: tabId)
         guard notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId) else { return }
 
         if let surfaceId,

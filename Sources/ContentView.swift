@@ -9021,6 +9021,7 @@ private struct SidebarTabItemPresentationSnapshot: Equatable {
     let unreadCount: Int
     let latestNotificationText: String?
     let showsModifierShortcutHints: Bool
+    let hasBell: Bool
 }
 
 struct VerticalTabsSidebar: View {
@@ -9481,6 +9482,7 @@ struct VerticalTabsSidebar: View {
             target: contextMenuPinTarget
         )
         let liveUnreadCount = notificationStore.unreadCount(forTabId: tab.id)
+        let liveHasBell = notificationStore.hasBell(forTabId: tab.id)
         let liveLatestNotificationText: String? = {
             guard showsSidebarNotificationMessage,
                   let notification = notificationStore.latestNotification(forTabId: tab.id) else {
@@ -9495,7 +9497,8 @@ struct VerticalTabsSidebar: View {
             tabId: tab.id,
             unreadCount: liveUnreadCount,
             latestNotificationText: liveLatestNotificationText,
-            showsModifierShortcutHints: liveShowsModifierShortcutHints
+            showsModifierShortcutHints: liveShowsModifierShortcutHints,
+            hasBell: liveHasBell
         )
         let frozenPresentation = frozenTabItemPresentation?.tabId == tab.id
             ? frozenTabItemPresentation
@@ -9516,6 +9519,7 @@ struct VerticalTabsSidebar: View {
             accessibilityWorkspaceCount: renderContext.workspaceCount,
             unreadCount: frozenPresentation?.unreadCount ?? liveUnreadCount,
             latestNotificationText: frozenPresentation?.latestNotificationText ?? liveLatestNotificationText,
+            hasBell: frozenPresentation?.hasBell ?? liveHasBell,
             rowSpacing: tabRowSpacing,
             setSelectionToTabs: { selection = .tabs },
             selectedTabIds: $selectedTabIds,
@@ -11940,6 +11944,7 @@ private struct TabItemView: View, Equatable {
         lhs.accessibilityWorkspaceCount == rhs.accessibilityWorkspaceCount &&
         lhs.unreadCount == rhs.unreadCount &&
         lhs.latestNotificationText == rhs.latestNotificationText &&
+        lhs.hasBell == rhs.hasBell &&
         lhs.rowSpacing == rhs.rowSpacing &&
         lhs.showsModifierShortcutHints == rhs.showsModifierShortcutHints &&
         lhs.contextMenuWorkspaceIds == rhs.contextMenuWorkspaceIds &&
@@ -11966,6 +11971,7 @@ private struct TabItemView: View, Equatable {
     let accessibilityWorkspaceCount: Int
     let unreadCount: Int
     let latestNotificationText: String?
+    let hasBell: Bool
     let rowSpacing: CGFloat
     let setSelectionToTabs: () -> Void
     @Binding var selectedTabIds: Set<UUID>
@@ -12253,6 +12259,17 @@ private struct TabItemView: View, Equatable {
                             .foregroundColor(.white)
                     }
                     .frame(width: 16, height: 16)
+                } else if hasBell {
+                    Image(systemName: "bell.fill")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(activeUnreadBadgeFillColor)
+                        .frame(width: 16, height: 16)
+                        .accessibilityLabel(
+                            String(
+                                localized: "sidebar.workspace.bellRang.accessibilityLabel",
+                                defaultValue: "Bell rang in this workspace"
+                            )
+                        )
                 }
 
                 if workspaceSnapshot.isPinned {

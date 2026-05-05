@@ -3325,7 +3325,7 @@ class GhosttyApp {
         return Float(min(1.0, max(0.0, value)))
     }
 
-    private func ringBell() {
+    private func ringBell(tabId: UUID?) {
         let features = bellFeatures()
 
         if (features & (1 << 0)) != 0 {
@@ -3345,6 +3345,20 @@ class GhosttyApp {
         if (features & (1 << 2)) != 0 {
             NSApp.requestUserAttention(.informationalRequest)
         }
+
+        // Bit 3 = `title`: per-tab visual indicator. cmux renders this as a bell
+        // badge on the workspace's sidebar row instead of prepending an emoji to
+        // the surface title (cmux owns the tab UI). When ringBell is invoked
+        // without a tabId (app-target bell action with no surface context), we
+        // skip the title indicator rather than mis-attribute the bell.
+        if (features & (1 << 3)) != 0, let tabId {
+            TerminalNotificationStore.shared.noteBellRang(tabId: tabId)
+        }
+#if DEBUG
+        if (features & (1 << 3)) != 0, tabId == nil {
+            cmuxDebugLog("bell.title.skipped reason=missingTabId")
+        }
+#endif
     }
 
     private func applyDefaultBackground(
@@ -3695,7 +3709,7 @@ class GhosttyApp {
 
             if action.tag == GHOSTTY_ACTION_RING_BELL {
                 performOnMain {
-                    self.ringBell()
+                    self.ringBell(tabId: nil)
                 }
                 return true
             }
@@ -3798,7 +3812,10 @@ class GhosttyApp {
             }
         case GHOSTTY_ACTION_RING_BELL:
             performOnMain {
-                self.ringBell()
+                // Prefer callbackContext.tabId (still valid during view churn /
+                // reparenting) and fall back to surfaceView.tabId.
+                let bellTabId = callbackTabId ?? surfaceView.tabId
+                self.ringBell(tabId: bellTabId)
             }
             return true
         case GHOSTTY_ACTION_GOTO_SPLIT:
