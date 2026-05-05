@@ -1140,11 +1140,28 @@ final class SessionPersistenceTests: XCTestCase {
                 ]
             ),
             (
+                .gemini,
+                [
+                    "/usr/local/bin/gemini",
+                    "--model",
+                    "gemini-2.5-pro",
+                ]
+            ),
+            (
                 .opencode,
                 [
                     "/usr/local/bin/opencode",
                     "--model",
                     "anthropic/claude-sonnet-4-5",
+                ]
+            ),
+            (
+                .rovodev,
+                [
+                    "/usr/local/bin/acli",
+                    "rovodev",
+                    "run",
+                    "--yolo",
                 ]
             ),
         ]
@@ -1263,8 +1280,12 @@ final class SessionPersistenceTests: XCTestCase {
                 resolvedEnvironment = ["CLAUDE_CONFIG_DIR": "/tmp/claude"]
             case .codex:
                 resolvedEnvironment = ["CODEX_HOME": "/tmp/codex"]
+            case .gemini:
+                resolvedEnvironment = ["GEMINI_CLI_HOME": "/tmp/gemini"]
             case .opencode:
                 resolvedEnvironment = ["OPENCODE_CONFIG_DIR": "/tmp/opencode"]
+            case .rovodev:
+                resolvedEnvironment = [:]
             }
         }
         let resolvedExecutablePath = executablePath ?? arguments.first ?? "/usr/local/bin/\(kind.rawValue)"
@@ -1867,6 +1888,121 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(url.path, "/tmp/cmux hook state/codex-hook-sessions.json")
     }
 
+    func testGeminiResumeCommandPreservesSafeFlagsAndDropsSessionSelectors() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .gemini,
+            sessionId: "5839bed1-0a60-4c05-b6d1-2410d7a3741e",
+            workingDirectory: "/tmp/gemini repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "gemini",
+                executablePath: "/Users/example/.bun/bin/gemini",
+                arguments: [
+                    "/Users/example/.bun/bin/gemini",
+                    "--model",
+                    "gemini-2.5-pro",
+                    "--resume",
+                    "old-session",
+                    "--sandbox",
+                    "danger-full-access",
+                    "--approval-mode",
+                    "yolo",
+                    "initial prompt should not replay"
+                ],
+                workingDirectory: "/tmp/gemini repo",
+                environment: [
+                    "GEMINI_CLI_HOME": "/tmp/gemini home",
+                    "GEMINI_API_KEY": "secret"
+                ],
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "cd '/tmp/gemini repo' && 'env' 'GEMINI_CLI_HOME=/tmp/gemini home' '/Users/example/.bun/bin/gemini' '--resume' '5839bed1-0a60-4c05-b6d1-2410d7a3741e' '--model' 'gemini-2.5-pro' '--sandbox' 'danger-full-access' '--approval-mode' 'yolo'"
+        )
+    }
+
+    func testRovoDevResumeCommandUsesRestoreAndPreservesYolo() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .rovodev,
+            sessionId: "session with space",
+            workingDirectory: "/tmp/rovo repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "rovodev",
+                executablePath: "/opt/homebrew/bin/acli",
+                arguments: [
+                    "/opt/homebrew/bin/acli",
+                    "rovodev",
+                    "run",
+                    "--restore",
+                    "old-session",
+                    "--yolo",
+                    "initial prompt should not replay"
+                ],
+                workingDirectory: "/tmp/rovo repo",
+                environment: [
+                    "ATLASSIAN_TOKEN": "secret"
+                ],
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "cd '/tmp/rovo repo' && '/opt/homebrew/bin/acli' 'rovodev' 'run' '--restore' 'session with space' '--yolo'"
+        )
+    }
+
+    func testAgentLaunchSanitizerMatchesGeminiAndRovoResumePolicies() {
+        XCTAssertEqual(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "/Users/example/.bun/bin/gemini",
+                    "--model",
+                    "gemini-2.5-pro",
+                    "--resume",
+                    "old-session",
+                    "--sandbox",
+                    "danger-full-access",
+                    "initial prompt should not replay"
+                ],
+                launcher: "gemini",
+                fallbackKind: "gemini"
+            ),
+            [
+                "/Users/example/.bun/bin/gemini",
+                "--model",
+                "gemini-2.5-pro",
+                "--sandbox",
+                "danger-full-access"
+            ]
+        )
+        XCTAssertEqual(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "/opt/homebrew/bin/acli",
+                    "rovodev",
+                    "run",
+                    "--restore",
+                    "old-session",
+                    "--yolo",
+                    "initial prompt should not replay"
+                ],
+                launcher: "rovodev",
+                fallbackKind: "rovodev"
+            ),
+            [
+                "/opt/homebrew/bin/acli",
+                "rovodev",
+                "run",
+                "--yolo"
+            ]
+        )
+    }
+
     func testOpenCodeWrapperResumeCommandAndUnsupportedOhMyLaunchers() {
         let direct = SessionRestorableAgentSnapshot(
             kind: .opencode,
@@ -2051,12 +2187,42 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                 source: nil
             )
         )
+        let geminiPrompt = SessionRestorableAgentSnapshot(
+            kind: .gemini,
+            sessionId: "gemini-session-123",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "gemini",
+                executablePath: "gemini",
+                arguments: ["gemini", "--prompt", "fix this"],
+                workingDirectory: nil,
+                environment: nil,
+                capturedAt: nil,
+                source: nil
+            )
+        )
+        let rovoDevAuth = SessionRestorableAgentSnapshot(
+            kind: .rovodev,
+            sessionId: "rovo-session-123",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "rovodev",
+                executablePath: "acli",
+                arguments: ["acli", "rovodev", "auth", "login"],
+                workingDirectory: nil,
+                environment: nil,
+                capturedAt: nil,
+                source: nil
+            )
+        )
 
         XCTAssertNil(claudePrint.resumeCommand)
         XCTAssertNil(claudePrintEquals.resumeCommand)
         XCTAssertNil(codexExec.resumeCommand)
         XCTAssertNil(opencodeRun.resumeCommand)
         XCTAssertNil(opencodePR.resumeCommand)
+        XCTAssertNil(geminiPrompt.resumeCommand)
+        XCTAssertNil(rovoDevAuth.resumeCommand)
     }
 
     func testRestorableAgentIndexLoadsLaunchCommandFromHookStore() throws {

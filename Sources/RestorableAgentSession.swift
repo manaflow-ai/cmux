@@ -3,7 +3,9 @@ import Foundation
 enum RestorableAgentKind: String, Codable, CaseIterable, Sendable {
     case claude
     case codex
+    case gemini
     case opencode
+    case rovodev
 
     private var hookStoreFilename: String {
         "\(rawValue)-hook-sessions.json"
@@ -55,165 +57,6 @@ fileprivate func shellSingleQuoted(_ value: String) -> String {
 }
 
 private enum AgentResumeCommandBuilder {
-    private static let claudeValueOptions: Set<String> = [
-        "--add-dir",
-        "--agent",
-        "--agents",
-        "--allowedTools",
-        "--allowed-tools",
-        "--append-system-prompt",
-        "--betas",
-        "--debug-file",
-        "--disallowedTools",
-        "--disallowed-tools",
-        "--effort",
-        "--fallback-model",
-        "--file",
-        "--fork-session",
-        "--from-pr",
-        "--input-format",
-        "--json-schema",
-        "--max-budget-usd",
-        "--mcp-config",
-        "--model",
-        "--name",
-        "-n",
-        "--output-format",
-        "--permission-mode",
-        "--plugin-dir",
-        "--remote-control-session-name-prefix",
-        "--resume",
-        "-r",
-        "--session-id",
-        "--setting-sources",
-        "--settings",
-        "--system-prompt",
-        "--teammate-mode",
-        "--tmux",
-        "--tools",
-        "--worktree",
-        "-w"
-    ]
-
-    private static let claudeOptionalValueOptions: Set<String> = [
-        "--debug"
-    ]
-
-    private static let claudeVariadicOptions: Set<String> = [
-        "--add-dir",
-        "--allowedTools",
-        "--allowed-tools",
-        "--betas",
-        "--disallowedTools",
-        "--disallowed-tools",
-        "--file",
-        "--mcp-config",
-        "--tools"
-    ]
-
-    private static let claudeNonRestorableCommands: Set<String> = [
-        "agents",
-        "auth",
-        "auto-mode",
-        "api-key",
-        "config",
-        "doctor",
-        "install",
-        "mcp",
-        "plugin",
-        "plugins",
-        "rc",
-        "remote-control",
-        "setup-token",
-        "update",
-        "upgrade"
-    ]
-
-    private static let codexValueOptions: Set<String> = [
-        "--config",
-        "-c",
-        "--remote",
-        "--remote-auth-token-env",
-        "--image",
-        "-i",
-        "--model",
-        "-m",
-        "--local-provider",
-        "--profile",
-        "-p",
-        "--sandbox",
-        "-s",
-        "--ask-for-approval",
-        "-a",
-        "--cd",
-        "-C",
-        "--add-dir",
-        "--enable",
-        "--disable"
-    ]
-
-    private static let codexNonRestorableCommands: Set<String> = [
-        "exec",
-        "e",
-        "review",
-        "login",
-        "logout",
-        "mcp",
-        "mcp-server",
-        "app-server",
-        "app",
-        "completion",
-        "sandbox",
-        "debug",
-        "apply",
-        "a",
-        "fork",
-        "cloud",
-        "exec-server",
-        "features",
-        "help"
-    ]
-
-    private static let opencodeValueOptions: Set<String> = [
-        "--log-level",
-        "--port",
-        "--hostname",
-        "--mdns-domain",
-        "--cors",
-        "--model",
-        "-m",
-        "--session",
-        "-s",
-        "--prompt",
-        "--agent"
-    ]
-
-    private static let opencodeNonRestorableCommands: Set<String> = [
-        "completion",
-        "acp",
-        "mcp",
-        "attach",
-        "run",
-        "debug",
-        "providers",
-        "auth",
-        "agent",
-        "upgrade",
-        "uninstall",
-        "serve",
-        "web",
-        "models",
-        "stats",
-        "export",
-        "import",
-        "pr",
-        "github",
-        "session",
-        "plugin",
-        "plug",
-        "db"
-    ]
-
     static func resumeShellCommand(
         kind: RestorableAgentKind,
         sessionId: String,
@@ -264,7 +107,7 @@ private enum AgentResumeCommandBuilder {
             if args.first == "claude-teams" {
                 args.removeFirst()
             }
-            guard let preserved = preservedClaudeArguments(args) else { return nil }
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "claude", args: args) else { return nil }
             return [original.executable, "claude-teams", "--resume", sessionId] + preserved
         case "omo":
             let original = commandParts(
@@ -275,7 +118,7 @@ private enum AgentResumeCommandBuilder {
             if args.first == "omo" {
                 args.removeFirst()
             }
-            guard let preserved = preservedOpenCodeArguments(args) else { return nil }
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "opencode", args: args) else { return nil }
             return [original.executable, "omo", "--session", sessionId] + preserved
         case "omx", "omc":
             return nil
@@ -286,16 +129,24 @@ private enum AgentResumeCommandBuilder {
         switch kind {
         case .claude:
             let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "claude")
-            guard let preserved = preservedClaudeArguments(original.tail) else { return nil }
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "claude", args: original.tail) else { return nil }
             return [original.executable, "--resume", sessionId] + preserved
         case .codex:
             let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "codex")
-            guard let preserved = preservedCodexArguments(original.tail) else { return nil }
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "codex", args: original.tail) else { return nil }
             return [original.executable, "resume"] + preserved + [sessionId]
+        case .gemini:
+            let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "gemini")
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "gemini", args: original.tail) else { return nil }
+            return [original.executable, "--resume", sessionId] + preserved
         case .opencode:
             let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "opencode")
-            guard let preserved = preservedOpenCodeArguments(original.tail) else { return nil }
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "opencode", args: original.tail) else { return nil }
             return [original.executable, "--session", sessionId] + preserved
+        case .rovodev:
+            let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "acli")
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "rovodev", args: original.tail) else { return nil }
+            return [original.executable, "rovodev", "run", "--restore", sessionId] + preserved
         }
     }
 
@@ -311,250 +162,13 @@ private enum AgentResumeCommandBuilder {
         return (executable, tail)
     }
 
-    private static func preservedClaudeArguments(_ args: [String]) -> [String]? {
-        preserveOptions(
-            args,
-            valueOptions: claudeValueOptions,
-            optionalValueOptions: claudeOptionalValueOptions,
-            variadicOptions: claudeVariadicOptions,
-            nonRestorableCommands: claudeNonRestorableCommands,
-            droppedOptions: [
-                "--continue",
-                "-c",
-                "--fork-session",
-                "--from-pr",
-                "--resume",
-                "-r",
-                "--session-id",
-                "--tmux",
-                "--worktree",
-                "-w"
-            ],
-            droppedOptionPrefixes: [
-                "--fork-session=",
-                "--from-pr=",
-                "--resume=",
-                "--session-id=",
-                "--tmux=",
-                "--worktree="
-            ],
-            rejectOptions: [
-                "--print",
-                "-p",
-                "--no-session-persistence"
-            ],
-            skipHookSettings: true,
-            resumeSubcommand: nil
-        )
-    }
-
-    private static func preservedCodexArguments(_ args: [String]) -> [String]? {
-        preserveOptions(
-            args,
-            valueOptions: codexValueOptions,
-            optionalValueOptions: [],
-            variadicOptions: ["--image", "-i", "--add-dir"],
-            nonRestorableCommands: codexNonRestorableCommands,
-            droppedOptions: [
-                "--last",
-                "--all"
-            ],
-            droppedOptionPrefixes: [],
-            rejectOptions: [],
-            skipHookSettings: false,
-            resumeSubcommand: "resume"
-        )
-    }
-
-    private static func preservedOpenCodeArguments(_ args: [String]) -> [String]? {
-        let sanitizedArgs = args.filter { !isOpenCodeInternalWorkerArgument($0) }
-        return preserveOptions(
-            sanitizedArgs,
-            valueOptions: opencodeValueOptions,
-            optionalValueOptions: [],
-            variadicOptions: ["--cors"],
-            nonRestorableCommands: opencodeNonRestorableCommands,
-            droppedOptions: [
-                "--continue",
-                "-c",
-                "--fork",
-                "--session",
-                "-s",
-                "--prompt"
-            ],
-            droppedOptionPrefixes: [
-                "--session=",
-                "--prompt="
-            ],
-            rejectOptions: [],
-            skipHookSettings: false,
-            resumeSubcommand: nil,
-            preserveFirstPositional: true
-        )
-    }
-
-    private static func isOpenCodeInternalWorkerArgument(_ value: String) -> Bool {
-        let normalized = value.replacingOccurrences(of: "\\", with: "/")
-        return normalized.contains("/$bunfs/") &&
-            normalized.contains("/src/cli/cmd/tui/worker.js")
-    }
-
-    private static func preserveOptions(
-        _ args: [String],
-        valueOptions: Set<String>,
-        optionalValueOptions: Set<String>,
-        variadicOptions: Set<String>,
-        nonRestorableCommands: Set<String>,
-        droppedOptions: Set<String>,
-        droppedOptionPrefixes: [String],
-        rejectOptions: Set<String>,
-        skipHookSettings: Bool,
-        resumeSubcommand: String?,
-        preserveFirstPositional: Bool = false
-    ) -> [String]? {
-        var result: [String] = []
-        var index = 0
-        var consumedFirstPositional = false
-        var skippingResumePositionals = false
-
-        while index < args.count {
-            let arg = args[index]
-            if arg == "--" {
-                break
-            }
-
-            if !arg.hasPrefix("-") || arg == "-" {
-                if let resumeSubcommand, arg == resumeSubcommand {
-                    skippingResumePositionals = true
-                    index += 1
-                    continue
-                }
-                if skippingResumePositionals {
-                    break
-                }
-                if nonRestorableCommands.contains(arg) {
-                    return nil
-                }
-                if preserveFirstPositional && !consumedFirstPositional {
-                    result.append(arg)
-                    consumedFirstPositional = true
-                    index += 1
-                    continue
-                }
-                break
-            }
-
-            if shouldDropOption(arg, droppedOptions: rejectOptions) {
-                return nil
-            }
-
-            if droppedOptionPrefixes.contains(where: { arg.hasPrefix($0) }) {
-                index += 1
-                continue
-            }
-
-            if shouldDropOption(arg, droppedOptions: droppedOptions) {
-                index += optionWidth(
-                    args,
-                    index: index,
-                    valueOptions: valueOptions,
-                    optionalValueOptions: optionalValueOptions,
-                    variadicOptions: variadicOptions
-                )
-                continue
-            }
-
-            if skipHookSettings, isHookSettingsOption(args, index: index) {
-                index += optionWidth(
-                    args,
-                    index: index,
-                    valueOptions: valueOptions,
-                    optionalValueOptions: optionalValueOptions,
-                    variadicOptions: variadicOptions
-                )
-                continue
-            }
-
-            let width = optionWidth(
-                args,
-                index: index,
-                valueOptions: valueOptions,
-                optionalValueOptions: optionalValueOptions,
-                variadicOptions: variadicOptions
-            )
-            result.append(contentsOf: args[index..<min(args.count, index + width)])
-            index += width
-        }
-
-        return result
-    }
-
-    private static func shouldDropOption(_ arg: String, droppedOptions: Set<String>) -> Bool {
-        if droppedOptions.contains(arg) { return true }
-        guard let equals = arg.firstIndex(of: "=") else { return false }
-        return droppedOptions.contains(String(arg[..<equals]))
-    }
-
-    private static func optionWidth(
-        _ args: [String],
-        index: Int,
-        valueOptions: Set<String>,
-        optionalValueOptions: Set<String>,
-        variadicOptions: Set<String>
-    ) -> Int {
-        let arg = args[index]
-        if arg.contains("=") {
-            return 1
-        }
-        if optionalValueOptions.contains(arg) {
-            guard index + 1 < args.count,
-                  looksLikeOptionalValue(
-                    args[index + 1],
-                    following: index + 2 < args.count ? args[index + 2] : nil
-                  ) else {
-                return 1
-            }
-            return 2
-        }
-        guard valueOptions.contains(arg), index + 1 < args.count else {
-            return 1
-        }
-        if variadicOptions.contains(arg) {
-            var end = index + 1
-            while end < args.count, !args[end].hasPrefix("-") {
-                end += 1
-            }
-            return max(1, end - index)
-        }
-        return 2
-    }
-
-    private static func looksLikeOptionalValue(_ value: String, following: String?) -> Bool {
-        guard !value.isEmpty,
-              !value.hasPrefix("-"),
-              value.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else {
-            return false
-        }
-        return value.contains(",") || (following?.hasPrefix("-") == true)
-    }
-
-    private static func isHookSettingsOption(_ args: [String], index: Int) -> Bool {
-        let arg = args[index]
-        if arg.hasPrefix("--settings=") {
-            return arg.contains("claude-hook") || arg.contains("hooks claude")
-        }
-        guard arg == "--settings", index + 1 < args.count else {
-            return false
-        }
-        return args[index + 1].contains("claude-hook") || args[index + 1].contains("hooks claude")
-    }
-
     private static func isSafeEnvironmentKey(_ key: String) -> Bool {
         switch key {
         case "ANTHROPIC_MODEL",
              "CLAUDE_CONFIG_DIR",
              "CMUX_CUSTOM_CLAUDE_PATH",
              "CODEX_HOME",
+             "GEMINI_CLI_HOME",
              "NODE_OPTIONS",
              "OPENCODE_CONFIG_DIR":
             return true

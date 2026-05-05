@@ -8397,7 +8397,7 @@ struct CMUXCLI {
             agent. Claude Code hooks are injected automatically by the cmux Claude wrapper.
 
             Agents:
-              codex, opencode, cursor, gemini, copilot, codebuddy, factory, qoder
+              codex, opencode, cursor, gemini, rovodev, copilot, codebuddy, factory, qoder
 
             Hook targets:
               setup              Install hooks for all supported agents on PATH
@@ -15593,6 +15593,7 @@ struct CMUXCLI {
             "CLAUDE_CONFIG_DIR",
             "CMUX_CUSTOM_CLAUDE_PATH",
             "CODEX_HOME",
+            "GEMINI_CLI_HOME",
             "OPENCODE_CONFIG_DIR"
         ]
         var result: [String: String] = [:]
@@ -15714,427 +15715,12 @@ struct CMUXCLI {
         launcher: String,
         fallbackKind: String
     ) -> [String]? {
-        guard let executable = arguments.first, !executable.isEmpty else { return nil }
-        var tail = Array(arguments.dropFirst())
-
-        switch launcher {
-        case "claudeTeams":
-            if tail.first == "claude-teams" {
-                tail.removeFirst()
-            }
-            guard let preserved = sanitizedAgentOptions(
-                tail,
-                valueOptions: Self.claudeLaunchValueOptions,
-                optionalValueOptions: Self.claudeLaunchOptionalValueOptions,
-                variadicOptions: Self.claudeLaunchVariadicOptions,
-                nonRestorableCommands: Self.claudeLaunchNonRestorableCommands,
-                droppedOptions: Self.claudeLaunchDroppedOptions,
-                droppedOptionPrefixes: Self.claudeLaunchDroppedOptionPrefixes,
-                rejectOptions: Self.claudeLaunchRejectOptions,
-                preserveFirstPositional: false
-            ) else {
-                return nil
-            }
-            return [executable, "claude-teams"] + preserved
-        case "omo":
-            if tail.first == "omo" {
-                tail.removeFirst()
-            }
-            guard let preserved = sanitizedAgentOptions(
-                tail,
-                valueOptions: Self.openCodeLaunchValueOptions,
-                optionalValueOptions: [],
-                variadicOptions: ["--cors"],
-                nonRestorableCommands: Self.openCodeLaunchNonRestorableCommands,
-                droppedOptions: Self.openCodeLaunchDroppedOptions,
-                droppedOptionPrefixes: Self.openCodeLaunchDroppedOptionPrefixes,
-                rejectOptions: [],
-                preserveFirstPositional: true
-            ) else {
-                return nil
-            }
-            return [executable, "omo"] + preserved
-        case "omx", "omc":
-            return nil
-        default:
-            break
-        }
-
-        switch fallbackKind {
-        case "claude":
-            return sanitizedAgentOptions(
-                tail,
-                valueOptions: Self.claudeLaunchValueOptions,
-                optionalValueOptions: Self.claudeLaunchOptionalValueOptions,
-                variadicOptions: Self.claudeLaunchVariadicOptions,
-                nonRestorableCommands: Self.claudeLaunchNonRestorableCommands,
-                droppedOptions: Self.claudeLaunchDroppedOptions,
-                droppedOptionPrefixes: Self.claudeLaunchDroppedOptionPrefixes,
-                rejectOptions: Self.claudeLaunchRejectOptions,
-                preserveFirstPositional: false
-            ).map { [executable] + $0 }
-        case "codex":
-            return sanitizedAgentOptions(
-                tail,
-                valueOptions: Self.codexLaunchValueOptions,
-                optionalValueOptions: [],
-                variadicOptions: ["--image", "-i", "--add-dir"],
-                nonRestorableCommands: Self.codexLaunchNonRestorableCommands,
-                droppedOptions: ["--last", "--all"],
-                droppedOptionPrefixes: [],
-                rejectOptions: [],
-                resumeSubcommand: "resume",
-                preserveFirstPositional: false
-            ).map { [executable] + $0 }
-        case "opencode":
-            return sanitizedAgentOptions(
-                tail,
-                valueOptions: Self.openCodeLaunchValueOptions,
-                optionalValueOptions: [],
-                variadicOptions: ["--cors"],
-                nonRestorableCommands: Self.openCodeLaunchNonRestorableCommands,
-                droppedOptions: Self.openCodeLaunchDroppedOptions,
-                droppedOptionPrefixes: Self.openCodeLaunchDroppedOptionPrefixes,
-                rejectOptions: [],
-                preserveFirstPositional: true
-            ).map { [executable] + $0 }
-        default:
-            return nil
-        }
+        AgentLaunchSanitizer.sanitizedLaunchArguments(
+            arguments,
+            launcher: launcher,
+            fallbackKind: fallbackKind
+        )
     }
-
-    private func sanitizedAgentOptions(
-        _ args: [String],
-        valueOptions: Set<String>,
-        optionalValueOptions: Set<String>,
-        variadicOptions: Set<String>,
-        nonRestorableCommands: Set<String>,
-        droppedOptions: Set<String>,
-        droppedOptionPrefixes: [String],
-        rejectOptions: Set<String>,
-        resumeSubcommand: String? = nil,
-        preserveFirstPositional: Bool
-    ) -> [String]? {
-        var result: [String] = []
-        var index = 0
-        var consumedFirstPositional = false
-        var skippingResumePositionals = false
-
-        while index < args.count {
-            let arg = args[index]
-            if arg == "--" {
-                break
-            }
-            if !arg.hasPrefix("-") || arg == "-" {
-                if let resumeSubcommand, arg == resumeSubcommand {
-                    skippingResumePositionals = true
-                    index += 1
-                    continue
-                }
-                if skippingResumePositionals {
-                    break
-                }
-                if nonRestorableCommands.contains(arg) {
-                    return nil
-                }
-                if preserveFirstPositional && !consumedFirstPositional {
-                    result.append(arg)
-                    consumedFirstPositional = true
-                    index += 1
-                    continue
-                }
-                break
-            }
-            if Self.shouldDropAgentOption(arg, droppedOptions: rejectOptions) {
-                return nil
-            }
-
-            if droppedOptionPrefixes.contains(where: { arg.hasPrefix($0) }) {
-                index += 1
-                continue
-            }
-            let width = Self.agentOptionWidth(
-                args,
-                index: index,
-                valueOptions: valueOptions,
-                optionalValueOptions: optionalValueOptions,
-                variadicOptions: variadicOptions
-            )
-            if Self.shouldDropAgentOption(arg, droppedOptions: droppedOptions) {
-                index += width
-                continue
-            }
-            if Self.isClaudeHookSettingsOption(args, index: index) {
-                index += width
-                continue
-            }
-            result.append(contentsOf: args[index..<min(args.count, index + width)])
-            index += width
-        }
-
-        return result
-    }
-
-    private static func shouldDropAgentOption(_ arg: String, droppedOptions: Set<String>) -> Bool {
-        if droppedOptions.contains(arg) { return true }
-        guard let equals = arg.firstIndex(of: "=") else { return false }
-        return droppedOptions.contains(String(arg[..<equals]))
-    }
-
-    private static func agentOptionWidth(
-        _ args: [String],
-        index: Int,
-        valueOptions: Set<String>,
-        optionalValueOptions: Set<String>,
-        variadicOptions: Set<String>
-    ) -> Int {
-        let arg = args[index]
-        if arg.contains("=") {
-            return 1
-        }
-        if optionalValueOptions.contains(arg) {
-            guard index + 1 < args.count,
-                  Self.looksLikeOptionalAgentOptionValue(
-                    args[index + 1],
-                    following: index + 2 < args.count ? args[index + 2] : nil
-                  ) else {
-                return 1
-            }
-            return 2
-        }
-        guard valueOptions.contains(arg), index + 1 < args.count else {
-            return 1
-        }
-        if variadicOptions.contains(arg) {
-            var end = index + 1
-            while end < args.count, !args[end].hasPrefix("-") {
-                end += 1
-            }
-            return max(1, end - index)
-        }
-        return 2
-    }
-
-    private static func looksLikeOptionalAgentOptionValue(_ value: String, following: String?) -> Bool {
-        guard !value.isEmpty,
-              !value.hasPrefix("-"),
-              value.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else {
-            return false
-        }
-        return value.contains(",") || (following?.hasPrefix("-") == true)
-    }
-
-    private static func isClaudeHookSettingsOption(_ args: [String], index: Int) -> Bool {
-        let arg = args[index]
-        if arg.hasPrefix("--settings=") {
-            return arg.contains("claude-hook") || arg.contains("hooks claude")
-        }
-        guard arg == "--settings", index + 1 < args.count else {
-            return false
-        }
-        return args[index + 1].contains("claude-hook") || args[index + 1].contains("hooks claude")
-    }
-
-    private static let claudeLaunchValueOptions: Set<String> = [
-        "--add-dir",
-        "--agent",
-        "--agents",
-        "--allowedTools",
-        "--allowed-tools",
-        "--append-system-prompt",
-        "--betas",
-        "--debug-file",
-        "--disallowedTools",
-        "--disallowed-tools",
-        "--effort",
-        "--fallback-model",
-        "--file",
-        "--fork-session",
-        "--from-pr",
-        "--input-format",
-        "--json-schema",
-        "--max-budget-usd",
-        "--mcp-config",
-        "--model",
-        "--name",
-        "-n",
-        "--output-format",
-        "--permission-mode",
-        "--plugin-dir",
-        "--remote-control-session-name-prefix",
-        "--resume",
-        "-r",
-        "--session-id",
-        "--setting-sources",
-        "--settings",
-        "--system-prompt",
-        "--teammate-mode",
-        "--tmux",
-        "--tools",
-        "--worktree",
-        "-w"
-    ]
-
-    private static let claudeLaunchOptionalValueOptions: Set<String> = [
-        "--debug"
-    ]
-
-    private static let claudeLaunchVariadicOptions: Set<String> = [
-        "--add-dir",
-        "--allowedTools",
-        "--allowed-tools",
-        "--betas",
-        "--disallowedTools",
-        "--disallowed-tools",
-        "--file",
-        "--mcp-config",
-        "--tools"
-    ]
-
-    private static let claudeLaunchNonRestorableCommands: Set<String> = [
-        "agents",
-        "auth",
-        "auto-mode",
-        "api-key",
-        "config",
-        "doctor",
-        "install",
-        "mcp",
-        "plugin",
-        "plugins",
-        "rc",
-        "remote-control",
-        "setup-token",
-        "update",
-        "upgrade"
-    ]
-
-    private static let claudeLaunchDroppedOptions: Set<String> = [
-        "--continue",
-        "-c",
-        "--fork-session",
-        "--from-pr",
-        "--resume",
-        "-r",
-        "--session-id",
-        "--tmux",
-        "--worktree",
-        "-w"
-    ]
-
-    private static let claudeLaunchDroppedOptionPrefixes = [
-        "--fork-session=",
-        "--from-pr=",
-        "--resume=",
-        "--session-id=",
-        "--tmux=",
-        "--worktree="
-    ]
-
-    private static let claudeLaunchRejectOptions: Set<String> = [
-        "--print",
-        "-p",
-        "--no-session-persistence"
-    ]
-
-    private static let codexLaunchValueOptions: Set<String> = [
-        "--config",
-        "-c",
-        "--remote",
-        "--remote-auth-token-env",
-        "--image",
-        "-i",
-        "--model",
-        "-m",
-        "--local-provider",
-        "--profile",
-        "-p",
-        "--sandbox",
-        "-s",
-        "--ask-for-approval",
-        "-a",
-        "--cd",
-        "-C",
-        "--add-dir",
-        "--enable",
-        "--disable"
-    ]
-
-    private static let codexLaunchNonRestorableCommands: Set<String> = [
-        "exec",
-        "e",
-        "review",
-        "login",
-        "logout",
-        "mcp",
-        "mcp-server",
-        "app-server",
-        "app",
-        "completion",
-        "sandbox",
-        "debug",
-        "apply",
-        "a",
-        "fork",
-        "cloud",
-        "exec-server",
-        "features",
-        "help"
-    ]
-
-    private static let openCodeLaunchValueOptions: Set<String> = [
-        "--log-level",
-        "--port",
-        "--hostname",
-        "--mdns-domain",
-        "--cors",
-        "--model",
-        "-m",
-        "--session",
-        "-s",
-        "--prompt",
-        "--agent"
-    ]
-
-    private static let openCodeLaunchNonRestorableCommands: Set<String> = [
-        "completion",
-        "acp",
-        "mcp",
-        "attach",
-        "run",
-        "debug",
-        "providers",
-        "auth",
-        "agent",
-        "upgrade",
-        "uninstall",
-        "serve",
-        "web",
-        "models",
-        "stats",
-        "export",
-        "import",
-        "pr",
-        "github",
-        "session",
-        "plugin",
-        "plug",
-        "db"
-    ]
-
-    private static let openCodeLaunchDroppedOptions: Set<String> = [
-        "--continue",
-        "-c",
-        "--fork",
-        "--session",
-        "-s",
-        "--prompt"
-    ]
-
-    private static let openCodeLaunchDroppedOptionPrefixes = [
-        "--session=",
-        "--prompt="
-    ]
 
     // MARK: - Generic agent hook system
 
@@ -16149,6 +15735,7 @@ struct CMUXCLI {
         let sessionStoreSuffix: String // e.g. "cursor" -> ~/.cmuxterm/cursor-hook-sessions.json
         let disableEnvVar: String   // e.g. "CMUX_CURSOR_HOOKS_DISABLED"
         let hookMarker: String      // Marker in commands: "cmux hooks cursor"
+        let binaryName: String
         let format: HookFormat
         let events: [HookEvent]
         /// Feed-hook events. Each entry installs a second hook for
@@ -16162,6 +15749,7 @@ struct CMUXCLI {
         enum HookFormat {
             case flat       // Cursor: {"hooks": {"event": [{"command": "..."}]}, "version": 1}
             case nested(timeoutMs: Int)  // Codex/Gemini: nested with type/command/timeout
+            case rovoDevYAML
         }
 
         struct HookEvent {
@@ -16185,6 +15773,7 @@ struct CMUXCLI {
 
         init(name: String, displayName: String, statusKey: String,
              configDir: String, configFile: String, configDirEnvOverride: String? = nil,
+             binaryName: String? = nil,
              sessionStoreSuffix: String, disableEnvVar: String, hookMarker: String,
              format: HookFormat, events: [HookEvent],
              feedHookEvents: [String] = [],
@@ -16192,6 +15781,7 @@ struct CMUXCLI {
             self.name = name; self.displayName = displayName; self.statusKey = statusKey
             self.configDir = configDir; self.configFile = configFile
             self.configDirEnvOverride = configDirEnvOverride
+            self.binaryName = binaryName ?? name
             self.sessionStoreSuffix = sessionStoreSuffix; self.disableEnvVar = disableEnvVar
             self.hookMarker = hookMarker; self.format = format; self.events = events
             self.feedHookEvents = feedHookEvents
@@ -16262,6 +15852,17 @@ struct CMUXCLI {
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
             feedHookEvents: ["PreToolUse"]
+        ),
+        AgentHookDef(
+            name: "rovodev", displayName: "Rovo Dev", statusKey: "rovodev",
+            configDir: ".rovodev", configFile: "config.yml", binaryName: "acli",
+            sessionStoreSuffix: "rovodev", disableEnvVar: "CMUX_ROVODEV_HOOKS_DISABLED",
+            hookMarker: "cmux hooks rovodev", format: .rovoDevYAML,
+            events: [
+                .init(agentEvent: "on_complete", cmuxSubcommand: "stop"),
+                .init(agentEvent: "on_error", cmuxSubcommand: "stop"),
+                .init(agentEvent: "on_tool_permission", cmuxSubcommand: "prompt-submit"),
+            ]
         ),
         AgentHookDef(
             name: "copilot", displayName: "Copilot", statusKey: "copilot",
@@ -16367,6 +15968,8 @@ struct CMUXCLI {
                     "hooks": [["type": "command", "command": cmd, "timeout": timeoutMs] as [String: Any]]
                 ] as [String: Any])
                 result[event.agentEvent] = groups
+            case .rovoDevYAML:
+                break
             }
         }
         // Layer in Feed bridge entries with a long (120000 ms = 120s)
@@ -16386,6 +15989,8 @@ struct CMUXCLI {
                     "hooks": [["type": "command", "command": feedCmd, "timeout": feedTimeoutMs] as [String: Any]]
                 ] as [String: Any])
                 result[agentEvent] = groups
+            case .rovoDevYAML:
+                break
             }
         }
         return result
@@ -16693,9 +16298,83 @@ export default CMUXSessionRestore;
         )
         print("Removed OpenCode cmux plugin from \(pluginURL.path)")
     }
+
+    private func installRovoDevHooks(_ def: AgentHookDef) throws {
+        let fm = FileManager.default
+        let configDir = def.resolvedConfigDir()
+        let filePath = "\(configDir)/\(def.configFile)"
+        let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
+            || ProcessInfo.processInfo.arguments.contains("-y")
+
+        guard fm.fileExists(atPath: configDir) else {
+            print("~/\(def.configDir)/ does not exist. Install \(def.displayName) first.")
+            return
+        }
+
+        let oldString = (try? String(contentsOfFile: filePath, encoding: .utf8)) ?? ""
+        let newString = try rovoDevHooksContent(existing: oldString, def: def, shouldInstall: true)
+        if oldString == newString {
+            print("\(def.displayName) hooks already up to date at \(filePath)")
+            return
+        }
+
+        if !skipConfirm {
+            Self.printInstallPreview(
+                path: filePath,
+                oldContent: oldString,
+                newContent: newString,
+                fallbackContent: newString
+            )
+            print("\nProceed? [y/N] ", terminator: "")
+            guard readLine()?.lowercased().hasPrefix("y") == true else {
+                print("Aborted.")
+                return
+            }
+        }
+        try newString.write(toFile: filePath, atomically: true, encoding: .utf8)
+        print("\(def.displayName) hooks installed at \(filePath)")
+    }
+
+    private func uninstallRovoDevHooks(_ def: AgentHookDef) throws {
+        let configDir = def.resolvedConfigDir()
+        let filePath = "\(configDir)/\(def.configFile)"
+        guard let oldString = try? String(contentsOfFile: filePath, encoding: .utf8) else {
+            print("No \(def.configFile) found at \(filePath)")
+            return
+        }
+        let newString = try rovoDevHooksContent(existing: oldString, def: def, shouldInstall: false)
+        guard oldString != newString else {
+            print("Removed 0 cmux hook(s) from \(filePath)")
+            return
+        }
+        try newString.write(toFile: filePath, atomically: true, encoding: .utf8)
+        print("Removed Rovo Dev cmux hooks from \(filePath)")
+    }
+
+    private func rovoDevHooksContent(
+        existing: String,
+        def: AgentHookDef,
+        shouldInstall: Bool
+    ) throws -> String {
+        let events = def.events.map { event in
+            RovoDevHookConfig.Event(
+                name: event.agentEvent,
+                command: hookCommand(for: def, event: event)
+            )
+        }
+        if shouldInstall {
+            return RovoDevHookConfig.installing(events: events, in: existing)
+        }
+        return RovoDevHookConfig.uninstalling(from: existing)
+    }
+
     private func installAgentHooks(_ def: AgentHookDef) throws {
         if def.name == "opencode" {
             try installOpenCodePluginHooks(def)
+            return
+        }
+        if def.name == "rovodev" {
+            try installRovoDevHooks(def)
             return
         }
 
@@ -16755,6 +16434,8 @@ export default CMUXSessionRestore;
                     rewrittenGroups.append(group)
                 }
                 hooks[event] = rewrittenGroups.isEmpty ? nil : rewrittenGroups
+            case .rovoDevYAML:
+                break
             }
         }
 
@@ -16769,6 +16450,8 @@ export default CMUXSessionRestore;
                 var groups = hooks[event] as? [[String: Any]] ?? []
                 if let newGroups = value as? [[String: Any]] { groups.append(contentsOf: newGroups) }
                 hooks[event] = groups
+            case .rovoDevYAML:
+                break
             }
         }
 
@@ -16861,6 +16544,10 @@ export default CMUXSessionRestore;
             try uninstallOpenCodePluginHooks(def)
             return
         }
+        if def.name == "rovodev" {
+            try uninstallRovoDevHooks(def)
+            return
+        }
 
         let fm = FileManager.default
         let configDir = def.resolvedConfigDir()
@@ -16903,6 +16590,8 @@ export default CMUXSessionRestore;
                     rewrittenGroups.append(group)
                 }
                 hooks[event] = rewrittenGroups.isEmpty ? nil : rewrittenGroups
+            case .rovoDevYAML:
+                break
             }
         }
 
@@ -16935,6 +16624,114 @@ export default CMUXSessionRestore;
 
     // MARK: Generic hook handler
 
+    private func resolvedAgentHookSessionId(
+        def: AgentHookDef,
+        input: ClaudeHookParsedInput,
+        env: [String: String],
+        cwd: String?
+    ) -> String {
+        if let sessionId = normalizedHookValue(input.sessionId) {
+            return sessionId
+        }
+        if def.name == "rovodev" {
+            return inferredRovoDevSessionId(cwd: cwd, env: env) ?? ""
+        }
+        return normalizedHookValue(env["CMUX_SURFACE_ID"]) ?? ""
+    }
+
+    private func inferredRovoDevSessionId(cwd: String?, env: [String: String]) -> String? {
+        let sessionsRoot = rovoDevSessionsRoot(env: env)
+        let rootURL = URL(fileURLWithPath: sessionsRoot, isDirectory: true)
+        let fileManager = FileManager.default
+        guard let sessionURLs = try? fileManager.contentsOfDirectory(
+            at: rootURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return nil
+        }
+
+        let normalizedCwd = cwd.map { URL(fileURLWithPath: NSString(string: $0).expandingTildeInPath).standardizedFileURL.path }
+        var candidates: [(id: String, workspace: String?, modified: Date)] = []
+        candidates.reserveCapacity(sessionURLs.count)
+        for sessionURL in sessionURLs {
+            guard (try? sessionURL.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else {
+                continue
+            }
+            let metadataURL = sessionURL.appendingPathComponent("metadata.json", isDirectory: false)
+            guard let values = try? metadataURL.resourceValues(forKeys: [.contentModificationDateKey]),
+                  let modified = values.contentModificationDate,
+                  let data = try? Data(contentsOf: metadataURL),
+                  let metadata = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                continue
+            }
+            let workspace = (metadata["workspace_path"] as? String)
+                ?? (metadata["workspacePath"] as? String)
+            let normalizedWorkspace = workspace.map {
+                URL(fileURLWithPath: NSString(string: $0).expandingTildeInPath).standardizedFileURL.path
+            }
+            guard Self.rovoDevWorkspace(normalizedWorkspace, matches: normalizedCwd) else {
+                continue
+            }
+            candidates.append((sessionURL.lastPathComponent, normalizedWorkspace, modified))
+        }
+        candidates.sort { $0.modified > $1.modified }
+        return candidates.first?.id
+    }
+
+    private func rovoDevSessionsRoot(env: [String: String]) -> String {
+        if let override = normalizedHookValue(env["CMUX_ROVODEV_SESSIONS_DIR"]) {
+            return NSString(string: override).expandingTildeInPath
+        }
+        let configURL = URL(
+            fileURLWithPath: NSString(string: "~/.rovodev/config.yml").expandingTildeInPath,
+            isDirectory: false
+        )
+        guard let config = try? String(contentsOf: configURL, encoding: .utf8),
+              let persistenceDir = Self.rovoDevPersistenceDir(fromConfig: config) else {
+            return NSString(string: "~/.rovodev/sessions").expandingTildeInPath
+        }
+        return NSString(string: persistenceDir).expandingTildeInPath
+    }
+
+    private static func rovoDevWorkspace(_ workspace: String?, matches cwd: String?) -> Bool {
+        guard let cwd, !cwd.isEmpty else { return workspace != nil }
+        guard let workspace, !workspace.isEmpty else { return false }
+        return cwd == workspace
+            || cwd.hasPrefix(workspace + "/")
+            || workspace.hasPrefix(cwd + "/")
+    }
+
+    private static func rovoDevPersistenceDir(fromConfig config: String) -> String? {
+        let lines = config.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        guard let sessionsIndex = lines.firstIndex(where: {
+            $0.range(of: #"^sessions:\s*(#.*)?$"#, options: .regularExpression) != nil
+        }) else {
+            return nil
+        }
+        for index in (sessionsIndex + 1)..<lines.count {
+            let line = lines[index]
+            if line.range(of: #"^\S"#, options: .regularExpression) != nil {
+                return nil
+            }
+            guard let range = line.range(of: #"^\s+persistenceDir:\s*(.+?)\s*(#.*)?$"#, options: .regularExpression) else {
+                continue
+            }
+            let suffix = String(line[range])
+            guard let valueRange = suffix.range(of: #":\s*(.+?)\s*(#.*)?$"#, options: .regularExpression) else {
+                continue
+            }
+            var value = String(suffix[valueRange].dropFirst())
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if let comment = value.firstIndex(of: "#") {
+                value = String(value[..<comment]).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            value = value.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+            return value.isEmpty ? nil : value
+        }
+        return nil
+    }
+
     private func runGenericAgentHook(def: AgentHookDef, commandArgs: [String], client: SocketClient, telemetry: CLISocketSentryTelemetry) throws {
         let env = ProcessInfo.processInfo.environment
         let subcommand = commandArgs.first?.lowercased() ?? ""
@@ -16961,7 +16758,10 @@ export default CMUXSessionRestore;
             )
         )
 
-        let sessionId = input.sessionId ?? env["CMUX_SURFACE_ID"] ?? ""
+        let hookCwd = input.cwd
+            ?? normalizedHookValue(env["CMUX_AGENT_LAUNCH_CWD"])
+            ?? normalizedHookValue(env["PWD"])
+        let sessionId = resolvedAgentHookSessionId(def: def, input: input, env: env, cwd: hookCwd)
         let action = Self.subcommandActions[subcommand] ?? .noop
         let pidKey = "\(def.statusKey).\(sessionId.isEmpty ? "default" : sessionId)"
         var didSendFeedTelemetry = false
@@ -16991,14 +16791,14 @@ export default CMUXSessionRestore;
                 env,
                 fallbackPID: pid,
                 fallbackKind: def.name,
-                cwd: input.cwd
+                cwd: hookCwd
             )
             if !sessionId.isEmpty {
                 try? store.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    cwd: input.cwd,
+                    cwd: hookCwd,
                     pid: pid,
                     launchCommand: launchCommand
                 )
@@ -17022,14 +16822,14 @@ export default CMUXSessionRestore;
                 env,
                 fallbackPID: pid,
                 fallbackKind: def.name,
-                cwd: input.cwd ?? mapped?.cwd
+                cwd: hookCwd ?? mapped?.cwd
             )
             if !sessionId.isEmpty {
                 try? store.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    cwd: input.cwd ?? mapped?.cwd,
+                    cwd: hookCwd ?? mapped?.cwd,
                     pid: pid,
                     launchCommand: launchCommand
                 )
@@ -17044,7 +16844,7 @@ export default CMUXSessionRestore;
                     sessionId: sessionId,
                     turnId: input.turnId,
                     transcriptPath: normalizedHookValue(input.transcriptPath),
-                    cwd: input.cwd ?? mapped?.cwd,
+                    cwd: hookCwd ?? mapped?.cwd,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     env: env
@@ -17067,7 +16867,7 @@ export default CMUXSessionRestore;
 
                 let lastMsg = input.object?["last_assistant_message"] as? String
                     ?? input.object?["lastAssistantMessage"] as? String
-                let cwd = input.cwd ?? mapped?.cwd
+                let cwd = hookCwd ?? mapped?.cwd
                 let projectName: String? = {
                     guard let cwd, !cwd.isEmpty else { return nil }
                     return URL(fileURLWithPath: NSString(string: cwd).expandingTildeInPath).lastPathComponent
@@ -19237,6 +19037,7 @@ export default CMUXSessionRestore;
             case "codex":    envKey = "CMUX_CODEX_PID"
             case "cursor":   envKey = "CMUX_CURSOR_PID"
             case "gemini":   envKey = "CMUX_GEMINI_PID"
+            case "rovodev":  envKey = "CMUX_ROVODEV_PID"
             case "copilot":  envKey = "CMUX_COPILOT_PID"
             default:         envKey = ""
             }
@@ -19914,7 +19715,7 @@ export default CMUXSessionRestore;
             // On install, also skip agents whose binary isn't on PATH.
             // On uninstall, always proceed so stale configs can be
             // cleaned up regardless of whether the binary still exists.
-            if !isUninstall && !Self.isBinaryOnPath(def.name) {
+            if !isUninstall && !Self.isBinaryOnPath(def.binaryName) {
                 print("  \(def.name): skipped (binary not found on PATH)")
                 skipped += 1
                 skippedNoBinary.append(def.name)
