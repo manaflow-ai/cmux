@@ -353,7 +353,7 @@ struct SocketControlSettings {
     }
 
     static var defaultMode: SocketControlMode {
-        return .cmuxOnly
+        return .automation
     }
 
     private static var isDebugBuild: Bool {
@@ -671,7 +671,7 @@ struct SocketControlSettings {
             if let overrideMode = envOverrideMode(environment: environment) {
                 return overrideMode
             }
-            return userMode == .off ? .cmuxOnly : userMode
+            return userMode == .off ? defaultMode : userMode
         }
 
         if let overrideMode = envOverrideMode(environment: environment) {

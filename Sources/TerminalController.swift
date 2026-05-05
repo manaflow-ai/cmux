@@ -60,7 +60,7 @@ class TerminalController {
     private nonisolated(unsafe) var acceptSourceConsecutiveFailures = 0
     private var clientHandlers: [Int32: Thread] = [:]
     private var tabManager: TabManager?
-    private nonisolated(unsafe) var accessMode: SocketControlMode = .cmuxOnly
+    private nonisolated(unsafe) var accessMode: SocketControlMode = SocketControlSettings.defaultMode
     private nonisolated let myPid = getpid()
     private nonisolated static let socketCommandFocusAllowanceStackKey = "cmux.socketCommandFocusAllowanceStack"
     private nonisolated static let socketListenBacklog: Int32 = 128

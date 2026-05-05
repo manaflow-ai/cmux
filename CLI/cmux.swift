@@ -917,7 +917,7 @@ private enum CLISocketPathResolver {
 }
 
 final class SocketClient {
-    private struct RelayEndpoint {
+    struct RelayEndpoint {
         let host: String
         let port: UInt16
     }
@@ -928,7 +928,7 @@ final class SocketClient {
     }
 
     private let path: String
-    private var socketFD: Int32 = -1
+    private(set) var socketFD: Int32 = -1
     private var lastOperationTelemetry: CLISocketOperationTelemetry.State?
     private static let defaultResponseTimeoutSeconds: TimeInterval = 15.0
     private static let multilineResponseIdleTimeoutSeconds: TimeInterval = 0.12
@@ -982,7 +982,7 @@ final class SocketClient {
 
     func hasUnfinishedOperationTelemetry() -> Bool { lastOperationTelemetry.map { $0.phase != .completed } ?? false }
 
-    private var relayEndpoint: RelayEndpoint? {
+    var relayEndpoint: RelayEndpoint? {
         Self.parseRelayEndpoint(path)
     }
 
@@ -994,7 +994,7 @@ final class SocketClient {
         return trimmed
     }
 
-    private static func socketTimeval(for timeout: TimeInterval) -> timeval {
+    static func socketTimeval(for timeout: TimeInterval) -> timeval {
         let sanitizedTimeout = timeout.isFinite ? timeout : defaultResponseTimeoutSeconds
         let clampedTimeout = min(max(sanitizedTimeout, 0.01), maxSocketTimeoutSeconds)
         let seconds = floor(clampedTimeout)
@@ -1049,7 +1049,8 @@ final class SocketClient {
         try writeAll(
             Data(payload.utf8),
             timeoutMessage: "Command timed out",
-            failureMessage: "Failed to write to socket"
+            failureMessage: "Failed to write to socket",
+            failureContext: .localCommand
         )
 
         var data = Data()
@@ -1310,7 +1311,8 @@ final class SocketClient {
         try writeAll(
             authPayload + Data([0x0A]),
             timeoutMessage: "Relay command timed out",
-            failureMessage: "Failed to write to relay socket"
+            failureMessage: "Failed to write to relay socket",
+            failureContext: .relay
         )
 
         let authResponseLine = try readLine()
@@ -1324,7 +1326,8 @@ final class SocketClient {
     private func writeAll(
         _ data: Data,
         timeoutMessage: String,
-        failureMessage: String
+        failureMessage: String,
+        failureContext: SocketWriteFailureContext
     ) throws {
         try data.withUnsafeBytes { rawBuffer in
             guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
@@ -1338,14 +1341,15 @@ final class SocketClient {
                     if errorCode == EINTR {
                         continue
                     }
-                    close()
                     if errorCode == EAGAIN || errorCode == EWOULDBLOCK || errorCode == ETIMEDOUT {
-                        throw CLIError(message: timeoutMessage)
+                        close(); throw CLIError(message: timeoutMessage)
                     }
+                    if let recoveredMessage = recoveredLocalSocketWriteFailure(errorCode: errorCode, failureContext: failureContext) {
+                        close(); throw CLIError(message: recoveredMessage)
+                    }
+                    close()
                     let reason = String(cString: strerror(errorCode))
-                    throw CLIError(
-                        message: "\(failureMessage) (\(reason), errno \(errorCode))"
-                    )
+                    throw CLIError(message: "\(failureMessage) (\(reason), errno \(errorCode))")
                 }
                 if written == 0 {
                     close()
@@ -1421,22 +1425,6 @@ final class SocketClient {
             throw CLIError(message: "Invalid UTF-8 relay response")
         }
         return line.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private func configureReceiveTimeout(_ timeout: TimeInterval) throws {
-        var interval = Self.socketTimeval(for: timeout)
-        let result = withUnsafePointer(to: &interval) { ptr in
-            setsockopt(
-                socketFD,
-                SOL_SOCKET,
-                SO_RCVTIMEO,
-                ptr,
-                socklen_t(MemoryLayout<timeval>.size)
-            )
-        }
-        guard result == 0 else {
-            throw CLIError(message: "Failed to configure socket receive timeout")
-        }
     }
 
     static func waitForConnectableSocket(path: String, timeout: TimeInterval) throws -> SocketClient {
@@ -19911,6 +19899,7 @@ export default CMUXSessionRestore;
           Output defaults to refs; pass --id-format uuids or --id-format both to include UUIDs.
 
         Socket Auth:
+          Local Unix sockets default to same-user automation access. Change Socket Control Mode in Settings > Automation to require cmux-only ancestry or password auth.
           --password takes precedence, then CMUX_SOCKET_PASSWORD env var, then password saved in Settings.
 
         Agent Help:
