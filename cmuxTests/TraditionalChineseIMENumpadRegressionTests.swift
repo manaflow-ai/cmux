@@ -53,6 +53,130 @@ final class TraditionalChineseIMENumpadRegressionTests: XCTestCase {
         )
     }
 
+    private func keypadEvent(
+        text: String,
+        keyCode: UInt16,
+        modifierFlags: NSEvent.ModifierFlags = [.numericPad],
+        windowNumber: Int = 0
+    ) throws -> NSEvent {
+        try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: modifierFlags,
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: windowNumber,
+            context: nil,
+            characters: text,
+            charactersIgnoringModifiers: text,
+            isARepeat: false,
+            keyCode: keyCode
+        ))
+    }
+
+    func testDeduplicatorRecordsOnlyRawNumpadFallbacks() throws {
+        var deduplicator = NumpadIMECommitDeduplicator()
+
+        let plainKeyboardEvent = try keypadEvent(text: "1", keyCode: 83)
+        deduplicator.recordFallback(
+            text: "1",
+            event: plainKeyboardEvent,
+            sourceId: "com.apple.keylayout.US"
+        )
+        XCTAssertFalse(deduplicator.shouldSuppressCommit(
+            "1",
+            currentEvent: nil,
+            sourceId: "com.apple.keylayout.US",
+            externalCommittedTextDepth: 0,
+            keyTextAccumulatorIsActive: false
+        ))
+
+        let shiftedEvent = try keypadEvent(
+            text: "1",
+            keyCode: 83,
+            modifierFlags: [.numericPad, .shift]
+        )
+        deduplicator.recordFallback(
+            text: "1",
+            event: shiftedEvent,
+            sourceId: "com.apple.inputmethod.TCIM.Pinyin"
+        )
+        XCTAssertFalse(deduplicator.shouldSuppressCommit(
+            "1",
+            currentEvent: nil,
+            sourceId: "com.apple.inputmethod.TCIM.Pinyin",
+            externalCommittedTextDepth: 0,
+            keyTextAccumulatorIsActive: false
+        ))
+
+        let rawEvent = try keypadEvent(text: "1", keyCode: 83)
+        deduplicator.recordFallback(
+            text: "1",
+            event: rawEvent,
+            sourceId: "com.apple.inputmethod.TCIM.Pinyin"
+        )
+        XCTAssertTrue(deduplicator.shouldSuppressCommit(
+            "1",
+            currentEvent: nil,
+            sourceId: "com.apple.inputmethod.TCIM.Pinyin",
+            externalCommittedTextDepth: 0,
+            keyTextAccumulatorIsActive: false
+        ))
+    }
+
+    func testDeduplicatorClearsPendingFallbackAfterMismatch() throws {
+        var deduplicator = NumpadIMECommitDeduplicator()
+        let event = try keypadEvent(text: "1", keyCode: 83)
+        deduplicator.recordFallback(
+            text: "1",
+            event: event,
+            sourceId: "com.apple.inputmethod.TCIM.Pinyin"
+        )
+
+        XCTAssertFalse(deduplicator.shouldSuppressCommit(
+            "2",
+            currentEvent: nil,
+            sourceId: "com.apple.inputmethod.TCIM.Pinyin",
+            externalCommittedTextDepth: 0,
+            keyTextAccumulatorIsActive: false
+        ))
+        XCTAssertFalse(deduplicator.shouldSuppressCommit(
+            "1",
+            currentEvent: nil,
+            sourceId: "com.apple.inputmethod.TCIM.Pinyin",
+            externalCommittedTextDepth: 0,
+            keyTextAccumulatorIsActive: false
+        ))
+    }
+
+    func testDeduplicatorKeepsRapidNumpadFallbacksIndependent() throws {
+        var deduplicator = NumpadIMECommitDeduplicator()
+        deduplicator.recordFallback(
+            text: "1",
+            event: try keypadEvent(text: "1", keyCode: 83),
+            sourceId: "com.apple.inputmethod.TCIM.Pinyin"
+        )
+        deduplicator.recordFallback(
+            text: "2",
+            event: try keypadEvent(text: "2", keyCode: 84),
+            sourceId: "com.apple.inputmethod.TCIM.Pinyin"
+        )
+
+        XCTAssertTrue(deduplicator.shouldSuppressCommit(
+            "1",
+            currentEvent: nil,
+            sourceId: "com.apple.inputmethod.TCIM.Pinyin",
+            externalCommittedTextDepth: 0,
+            keyTextAccumulatorIsActive: false
+        ))
+        XCTAssertTrue(deduplicator.shouldSuppressCommit(
+            "2",
+            currentEvent: nil,
+            sourceId: "com.apple.inputmethod.TCIM.Pinyin",
+            externalCommittedTextDepth: 0,
+            keyTextAccumulatorIsActive: false
+        ))
+    }
+
     func testKeypadDigitDoesNotDuplicateWhenTraditionalChineseIMECommitsAfterKeyDown() throws {
         let hostedTerminal = try makeHostedTerminalWindow()
         let terminalSurface = hostedTerminal.surface
@@ -80,32 +204,27 @@ final class TraditionalChineseIMENumpadRegressionTests: XCTestCase {
         }
 
         var pressedText: [String] = []
+        let firstPress = expectation(description: "raw keypad fallback is sent once")
+        let duplicatePress = expectation(description: "deferred IME duplicate is not sent")
+        duplicatePress.isInverted = true
         GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
             previousKeyEventObserver?(keyEvent)
             guard keyEvent.action == GHOSTTY_ACTION_PRESS, let text = keyEvent.text else { return }
-            pressedText.append(String(cString: text))
+            let value = String(cString: text)
+            pressedText.append(value)
+            if value == "1", pressedText.count == 1 {
+                firstPress.fulfill()
+            } else if value == "1" {
+                duplicatePress.fulfill()
+            }
         }
 
-        guard let event = NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
-            modifierFlags: [.numericPad],
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: window.windowNumber,
-            context: nil,
-            characters: "1",
-            charactersIgnoringModifiers: "1",
-            isARepeat: false,
-            keyCode: 83
-        ) else {
-            XCTFail("Failed to create keypad 1 event")
-            return
-        }
+        let event = try keypadEvent(text: "1", keyCode: 83, windowNumber: window.windowNumber)
 
         window.makeFirstResponder(surfaceView)
         withExtendedLifetime(terminalSurface) {
             surfaceView.keyDown(with: event)
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            wait(for: [firstPress, duplicatePress], timeout: 1.0)
         }
 
         XCTAssertEqual(

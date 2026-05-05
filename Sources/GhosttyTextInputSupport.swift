@@ -1,10 +1,14 @@
 import AppKit
 
-func isControlCharacterScalar(_ scalar: UnicodeScalar) -> Bool {
+/// Returns true for Unicode scalars that represent terminal control input rather
+/// than printable text.
+nonisolated func isControlCharacterScalar(_ scalar: UnicodeScalar) -> Bool {
     scalar.value < 0x20 || scalar.value == 0x7F
 }
 
-func shouldSendText(_ text: String) -> Bool {
+/// Filters AppKit text fallback payloads down to printable text that should be
+/// forwarded as Ghostty key text.
+nonisolated func shouldSendText(_ text: String) -> Bool {
     guard !text.isEmpty else { return false }
     if text.count == 1, let scalar = text.unicodeScalars.first {
         return !isControlCharacterScalar(scalar)
@@ -12,7 +16,15 @@ func shouldSendText(_ text: String) -> Bool {
     return true
 }
 
+/// Tracks raw numpad fallback sends that may be followed by a deferred IME
+/// commit for the same key. Each record is consumed once so rapid numpad input
+/// does not overwrite older in-flight commits.
 struct NumpadIMECommitDeduplicator {
+    /// 250 ms covers observed AppKit deferred IME commits while keeping the
+    /// suppression window short enough that unrelated text injection ages out.
+    private static let commitSuppressionWindow: TimeInterval = 0.25
+    private static let maxPendingCommits = 8
+
     private struct PendingCommit {
         let text: String
         let keyCode: UInt16
@@ -20,23 +32,36 @@ struct NumpadIMECommitDeduplicator {
         let timestamp: TimeInterval
     }
 
-    private var pendingCommit: PendingCommit?
+    private var pendingCommits: [PendingCommit] = []
 
+    /// Records a Ghostty-accepted raw numpad fallback that is eligible to absorb
+    /// the matching deferred IME commit.
     mutating func recordFallback(text: String, event: NSEvent, sourceId: String?) {
+        let now = ProcessInfo.processInfo.systemUptime
+        pruneExpiredCommits(now: now)
+
         let flags = normalizedNumpadFlags(event.modifierFlags)
-        guard flags == [.numericPad], text.allSatisfy(\.isNumber) else {
-            pendingCommit = nil
+        // Plain key layouts do not emit deferred IME commits; keep this state
+        // owned by input-method fallback sends instead of every numpad digit.
+        guard flags == [.numericPad],
+              isDeferredCommitInputSource(sourceId),
+              text.allSatisfy(\.isNumber) else {
             return
         }
 
-        pendingCommit = PendingCommit(
+        pendingCommits.append(PendingCommit(
             text: text,
             keyCode: event.keyCode,
             sourceId: sourceId,
-            timestamp: ProcessInfo.processInfo.systemUptime
-        )
+            timestamp: now
+        ))
+        if pendingCommits.count > Self.maxPendingCommits {
+            pendingCommits.removeFirst(pendingCommits.count - Self.maxPendingCommits)
+        }
     }
 
+    /// Returns true when an AppKit IME commit matches a pending raw numpad
+    /// fallback and should be consumed instead of sent to Ghostty again.
     mutating func shouldSuppressCommit(
         _ text: String,
         currentEvent: NSEvent?,
@@ -44,31 +69,54 @@ struct NumpadIMECommitDeduplicator {
         externalCommittedTextDepth: Int,
         keyTextAccumulatorIsActive: Bool
     ) -> Bool {
-        guard externalCommittedTextDepth == 0,
-              !keyTextAccumulatorIsActive,
-              let pendingCommit else {
+        if externalCommittedTextDepth > 0 {
+            pendingCommits.removeAll()
+            return false
+        }
+
+        guard !keyTextAccumulatorIsActive else {
             return false
         }
 
         let now = ProcessInfo.processInfo.systemUptime
-        guard now - pendingCommit.timestamp <= 0.25 else {
-            self.pendingCommit = nil
+        pruneExpiredCommits(now: now)
+
+        guard !pendingCommits.isEmpty else {
             return false
         }
 
-        guard pendingCommit.text == text, pendingCommit.sourceId == sourceId else {
+        guard let index = pendingCommits.firstIndex(where: { pendingCommit in
+            pendingCommit.text == text && pendingCommit.sourceId == sourceId
+        }) else {
+            pendingCommits.removeAll()
             return false
         }
 
-        if let currentEvent, currentEvent.type == .keyDown {
+        let pendingCommit = pendingCommits[index]
+        if let currentEvent {
+            guard currentEvent.type == .keyDown else {
+                pendingCommits.remove(at: index)
+                return false
+            }
+
             let currentFlags = normalizedNumpadFlags(currentEvent.modifierFlags)
             guard currentFlags == [.numericPad], currentEvent.keyCode == pendingCommit.keyCode else {
+                pendingCommits.remove(at: index)
                 return false
             }
         }
 
-        self.pendingCommit = nil
+        pendingCommits.remove(at: index)
         return true
+    }
+
+    private mutating func pruneExpiredCommits(now: TimeInterval) {
+        pendingCommits.removeAll { now - $0.timestamp > Self.commitSuppressionWindow }
+    }
+
+    private func isDeferredCommitInputSource(_ sourceId: String?) -> Bool {
+        guard let sourceId else { return false }
+        return sourceId.localizedCaseInsensitiveContains("inputmethod")
     }
 
     private func normalizedNumpadFlags(_ flags: NSEvent.ModifierFlags) -> NSEvent.ModifierFlags {
