@@ -118,6 +118,16 @@ final class DockControlRuntime: ObservableObject, Identifiable {
 
     fileprivate var terminalAttachment: DockTerminalAttachment { .init(paneId: paneId, panelId: panel.id, terminalSurface: panel.surface, searchState: panel.searchState, reattachToken: panel.viewReattachToken) }
 
+    fileprivate func matches(
+        definition: DockControlDefinition,
+        baseDirectory: String,
+        workspaceId: UUID
+    ) -> Bool {
+        self.definition == definition &&
+            self.baseDirectory == baseDirectory &&
+            self.workspaceId == workspaceId
+    }
+
     @discardableResult
     func focus() -> Bool {
         panel.hostedView.ensureFocusAndReport(
@@ -248,6 +258,10 @@ final class DockDefaultTerminalRuntime: ObservableObject {
             searchState: panel.searchState,
             reattachToken: panel.viewReattachToken
         )
+    }
+
+    fileprivate func matches(baseDirectory: String, workspaceId: UUID) -> Bool {
+        self.baseDirectory == baseDirectory && self.workspaceId == workspaceId
     }
 
     @discardableResult
@@ -467,16 +481,11 @@ final class DockControlsStore: ObservableObject {
                 trustRequest = request
                 return
             }
-            let resolvedControls = resolution.controls.map {
-                DockControlRuntime(definition: $0, baseDirectory: resolution.baseDirectory, workspaceId: workspaceId)
-            }
-            let defaultTerminal = resolvedControls.isEmpty
-                ? DockDefaultTerminalRuntime(
-                    baseDirectory: resolution.baseDirectory,
-                    workspaceId: workspaceId
-                )
-                : nil
-            replaceContent(controls: resolvedControls, defaultTerminal: defaultTerminal)
+            reconcileContent(
+                definitions: resolution.controls,
+                baseDirectory: resolution.baseDirectory,
+                workspaceId: workspaceId
+            )
             sourceLabel = Self.sourceLabel(for: resolution)
         } catch {
             replaceContent(controls: [], defaultTerminal: nil)
@@ -550,6 +559,61 @@ final class DockControlsStore: ObservableObject {
 
     func triggerDefaultTerminalFlash() {
         defaultTerminal?.triggerFlash()
+    }
+
+    private func reconcileContent(
+        definitions: [DockControlDefinition],
+        baseDirectory: String,
+        workspaceId: UUID
+    ) {
+        if definitions.isEmpty {
+            reconcileDefaultTerminal(baseDirectory: baseDirectory, workspaceId: workspaceId)
+            return
+        }
+
+        var reusableControls = controls
+        let oldDefaultTerminal = defaultTerminal
+        let nextControls = definitions.map { definition in
+            if let index = reusableControls.firstIndex(where: {
+                $0.matches(definition: definition, baseDirectory: baseDirectory, workspaceId: workspaceId)
+            }) {
+                return reusableControls.remove(at: index)
+            }
+            return DockControlRuntime(
+                definition: definition,
+                baseDirectory: baseDirectory,
+                workspaceId: workspaceId
+            )
+        }
+
+        controls = nextControls
+        defaultTerminal = nil
+        nextControls.forEach { $0.setVisibleInUI(controlsVisibleInUI) }
+        reusableControls.forEach { $0.close() }
+        oldDefaultTerminal?.close()
+    }
+
+    private func reconcileDefaultTerminal(baseDirectory: String, workspaceId: UUID) {
+        let oldControls = controls
+        let oldDefaultTerminal = defaultTerminal
+        let nextDefaultTerminal: DockDefaultTerminalRuntime
+        if let oldDefaultTerminal,
+           oldDefaultTerminal.matches(baseDirectory: baseDirectory, workspaceId: workspaceId) {
+            nextDefaultTerminal = oldDefaultTerminal
+        } else {
+            nextDefaultTerminal = DockDefaultTerminalRuntime(
+                baseDirectory: baseDirectory,
+                workspaceId: workspaceId
+            )
+        }
+
+        controls = []
+        defaultTerminal = nextDefaultTerminal
+        nextDefaultTerminal.setVisibleInUI(controlsVisibleInUI)
+        oldControls.forEach { $0.close() }
+        if oldDefaultTerminal !== nextDefaultTerminal {
+            oldDefaultTerminal?.close()
+        }
     }
 
     private func replaceContent(controls newControls: [DockControlRuntime], defaultTerminal newDefaultTerminal: DockDefaultTerminalRuntime?) {
