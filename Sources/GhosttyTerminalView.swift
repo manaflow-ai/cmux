@@ -12718,6 +12718,12 @@ extension GhosttyNSView: NSTextInputClient {
 
     func selectedRange() -> NSRange {
         if markedText.length > 0 {
+#if DEBUG
+            assert(
+                markedSelectedRange.location != NSNotFound,
+                "markedSelectedRange must be valid when markedText is non-empty"
+            )
+#endif
             return markedSelectedRange
         }
         return readSelectionSnapshot()?.range ?? NSRange(location: 0, length: 0)
@@ -12814,7 +12820,7 @@ extension GhosttyNSView: NSTextInputClient {
 
     func attributedSubstring(forProposedRange range: NSRange, actualRange: NSRangePointer?) -> NSAttributedString? {
         if markedText.length > 0 {
-            guard let substringRange = clampedMarkedTextRange(range) else { return nil }
+            guard let substringRange = clampedMarkedTextRange(range, markedLength: markedText.length) else { return nil }
             actualRange?.pointee = substringRange
             return markedText.attributedSubstring(from: substringRange)
         }
@@ -12823,33 +12829,6 @@ extension GhosttyNSView: NSTextInputClient {
               let snapshot = readSelectionSnapshot() else { return nil }
         actualRange?.pointee = snapshot.range
         return NSAttributedString(string: snapshot.string)
-    }
-
-    private func normalizedMarkedSelectionRange(_ range: NSRange, markedLength: Int) -> NSRange {
-        guard markedLength > 0 else {
-            return NSRange(location: NSNotFound, length: 0)
-        }
-        guard range.location != NSNotFound else {
-            return NSRange(location: markedLength, length: 0)
-        }
-
-        let clampedLocation = min(max(range.location, 0), markedLength)
-        let clampedLength = min(max(range.length, 0), markedLength - clampedLocation)
-        return NSRange(location: clampedLocation, length: clampedLength)
-    }
-
-    private func clampedMarkedTextRange(_ range: NSRange) -> NSRange? {
-        guard range.length > 0, range.location != NSNotFound else { return nil }
-        let markedLength = markedText.length
-        guard markedLength > 0 else { return nil }
-
-        let location = min(max(range.location, 0), markedLength)
-        let maxLength = markedLength - location
-        guard maxLength > 0 else { return nil }
-
-        let length = min(max(range.length, 0), maxLength)
-        guard length > 0 else { return nil }
-        return NSRange(location: location, length: length)
     }
 
     func characterIndex(for point: NSPoint) -> Int {
