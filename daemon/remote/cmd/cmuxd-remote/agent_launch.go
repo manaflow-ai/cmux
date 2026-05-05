@@ -360,7 +360,7 @@ func claudeNodeOptionsCacheDir(goos, xdgCacheHome, homeDir string, uid int) (dir
 				return dir, ""
 			}
 		}
-		fallbackBase := claudeNodeOptionsFallbackBase(uid)
+		fallbackBase = claudeNodeOptionsFallbackBase(uid)
 		return filepath.Join(fallbackBase, "com.cmuxterm.app", "cmux-claude-node-options"), fallbackBase
 	}
 
@@ -373,7 +373,7 @@ func claudeNodeOptionsCacheDir(goos, xdgCacheHome, homeDir string, uid int) (dir
 			return dir, ""
 		}
 	}
-	fallbackBase := claudeNodeOptionsFallbackBase(uid)
+	fallbackBase = claudeNodeOptionsFallbackBase(uid)
 	return filepath.Join(fallbackBase, "cmux-claude-node-options"), fallbackBase
 }
 
