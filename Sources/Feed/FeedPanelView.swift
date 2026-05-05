@@ -85,7 +85,7 @@ struct FeedPanelView: View {
     }
 
     @State private var filter: Filter = .actionable
-    @StateObject private var viewModel = FeedPanelViewModel()
+    @State private var viewModel = FeedPanelViewModel()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -95,8 +95,19 @@ struct FeedPanelView: View {
                 items: viewModel.items,
                 hasMorePersistedItems: viewModel.hasMorePersistedItems,
                 isLoadingOlderItems: viewModel.isLoadingOlderItems,
-                onLoadOlderItems: viewModel.loadOlderItems
+                onLoadOlderItems: viewModel.loadOlderItems,
+                onActivityViewportHeightChange: viewModel.noteActivityViewportHeight,
+                onActivityContentHeightChange: viewModel.noteActivityContentHeight
             )
+        }
+        .onAppear {
+            viewModel.setActivityAutoPaginationActive(filter == .activity)
+        }
+        .onDisappear {
+            viewModel.setActivityAutoPaginationActive(false)
+        }
+        .onChange(of: filter) { _, newFilter in
+            viewModel.setActivityAutoPaginationActive(newFilter == .activity)
         }
     }
 
@@ -170,6 +181,8 @@ private struct FeedListView: View {
     let hasMorePersistedItems: Bool
     let isLoadingOlderItems: Bool
     let onLoadOlderItems: () -> Void
+    let onActivityViewportHeightChange: (CGFloat) -> Void
+    let onActivityContentHeightChange: (CGFloat) -> Void
 
     @State private var focusSnapshot = FeedFocusSnapshot()
     @State private var scrollRequest: FeedScrollRequest?
@@ -306,34 +319,30 @@ private struct FeedListView: View {
         actions: FeedRowActions,
         showsLoadMore: Bool
     ) -> some View {
-        List {
-            // Single chronological history stream. The plain List keeps
-            // virtualization for older feed rows while active decision
-            // surfaces live above it in a stable stack.
-            ForEach(Array(snapshots.enumerated()), id: \.element.id) { idx, snapshot in
-                rowSurface(
-                    snapshot: snapshot,
-                    actions: actions,
-                    showsDivider: idx < snapshots.count - 1
-                )
-                .listRowInsets(EdgeInsets())
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
+        ScrollView(.vertical) {
+            // Single chronological history stream. LazyVStack keeps
+            // history rows lazy while giving the view model an explicit
+            // content-height signal for bounded auto-pagination.
+            LazyVStack(spacing: 0) {
+                ForEach(Array(snapshots.enumerated()), id: \.element.id) { idx, snapshot in
+                    rowSurface(
+                        snapshot: snapshot,
+                        actions: actions,
+                        showsDivider: idx < snapshots.count - 1
+                    )
+                }
+                if showsLoadMore {
+                    FeedHistoryLoadMoreRow(
+                        isLoading: isLoadingOlderItems,
+                        action: onLoadOlderItems
+                    )
+                }
             }
-            if showsLoadMore {
-                FeedHistoryLoadMoreRow(
-                    isLoading: isLoadingOlderItems,
-                    action: onLoadOlderItems
-                )
-                .listRowInsets(EdgeInsets())
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
-            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .feedReportHeight(onActivityContentHeightChange)
         }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
         .feedZeroScrollContentMargins()
-        .environment(\.defaultMinListRowHeight, 0)
+        .feedReportHeight(onActivityViewportHeightChange)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
@@ -680,6 +689,14 @@ private extension View {
             contentMargins(.all, 0, for: .scrollContent)
         } else {
             self
+        }
+    }
+
+    func feedReportHeight(_ action: @escaping (CGFloat) -> Void) -> some View {
+        onGeometryChange(for: CGFloat.self, of: { proxy in
+            proxy.size.height
+        }) { height in
+            action(height)
         }
     }
 }
