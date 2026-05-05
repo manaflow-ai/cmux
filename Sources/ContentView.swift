@@ -2907,6 +2907,10 @@ struct ContentView: View {
             BrowserWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
         }
     }
+
+    private func synchronizeSidebarPortalGeometry() {
+        PortalGeometrySyncUrgency.requestImmediateExternalGeometrySyncForNextLayoutPass(); synchronizePortalGeometry(immediately: true)
+    }
     private func refreshWindowChromeMetrics(for window: NSWindow) {
         // Keep native measurements around for minimal WindowGroup safe-area cancellation.
         // Standard mode uses cmux's visual chrome height for layout.
@@ -3701,15 +3705,21 @@ struct ContentView: View {
             if let observedWindow {
                 AppDelegate.shared?.applyWindowDecorations(to: observedWindow)
             }
-            synchronizePortalGeometry(immediately: true)
+            synchronizeSidebarPortalGeometry()
             updateSidebarResizerBandState()
             syncTrafficLightInset()
+        })
+        view = AnyView(view.onChange(of: sidebarState.portalGeometrySyncRevision) { _ in
+            synchronizeSidebarPortalGeometry()
         })
         view = AnyView(view.onChange(of: fileExplorerState.isVisible) { isVisible in
             if !isVisible {
                 _ = AppDelegate.shared?.restoreTerminalFocusAfterRightSidebarHidden(in: observedWindow)
             }
-            synchronizePortalGeometry(immediately: true)
+            synchronizeSidebarPortalGeometry()
+        })
+        view = AnyView(view.onChange(of: fileExplorerState.portalGeometrySyncRevision) { _ in
+            synchronizeSidebarPortalGeometry()
         })
         view = AnyView(view.onChange(of: sidebarMatchTerminalBackground) { _ in
             tabManager.applyWindowBackdropModeForAllTabs(reason: "sidebarMatchTerminalBackgroundChanged")

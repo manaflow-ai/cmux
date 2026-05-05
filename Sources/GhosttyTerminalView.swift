@@ -13040,12 +13040,17 @@ struct GhosttyTerminalView: NSViewRepresentable {
         guard coordinator.lastSynchronizedHostGeometryRevision != geometryRevision else { return }
         coordinator.lastSynchronizedHostGeometryRevision = geometryRevision
         let window = host.window
+        let shouldUseImmediateVisibilitySync = PortalGeometrySyncUrgency
+            .shouldSynchronizeNextExternalGeometryChangeImmediately
         if shouldSynchronizePortalGeometryImmediately(
             hostInLiveResize: host.inLiveResize,
             windowInLiveResize: window?.inLiveResize == true,
             interactiveGeometryResizeActive: TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive
-        ) {
+        ) || shouldUseImmediateVisibilitySync {
             TerminalWindowPortalRegistry.synchronizeForAnchor(host)
+            if shouldUseImmediateVisibilitySync {
+                PortalGeometrySyncUrgency.noteImmediateExternalGeometrySyncUsed()
+            }
             return
         }
         // Avoid synchronizing the terminal portal while AppKit is still inside

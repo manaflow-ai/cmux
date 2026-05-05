@@ -14478,8 +14478,8 @@ class TerminalController {
 	                }
 
                 if let tp = panel as? TerminalPanel {
-                    let viewRect = windowFrame(for: tp.hostedView).map { PixelRect(from: $0) }
                     let splitViews = splitViewInfos(for: tp.hostedView)
+                    let viewRect = windowFrame(for: tp.hostedView).map { PixelRect(from: $0) }
 		                    return LayoutDebugSelectedPanel(
 	                        paneId: paneIdStr,
 	                        paneFrame: paneFrame,
@@ -14494,8 +14494,8 @@ class TerminalController {
 	                }
 
                 if let bp = panel as? BrowserPanel {
-                    let viewRect = windowFrame(for: bp.webView).map { PixelRect(from: $0) }
                     let splitViews = splitViewInfos(for: bp.webView)
+                    let viewRect = windowFrame(for: bp.webView).map { PixelRect(from: $0) }
 		                    return LayoutDebugSelectedPanel(
 	                        paneId: paneIdStr,
 	                        paneFrame: paneFrame,

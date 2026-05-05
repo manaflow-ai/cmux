@@ -422,10 +422,10 @@ enum FileExplorerError: LocalizedError {
 // MARK: - State (visibility toggle)
 
 final class FileExplorerState: ObservableObject {
-    private static let modeKey = "rightSidebar.mode"
-    private static let feedDockMigrationKey = "rightSidebar.feedDockMigrationApplied"
+    private static let modeKey = "rightSidebar.mode", feedDockMigrationKey = "rightSidebar.feedDockMigrationApplied"
 
-    @Published var isVisible: Bool {
+    @Published private(set) var portalGeometrySyncRevision: UInt64 = 0
+    @Published private(set) var isVisible: Bool {
         didSet { UserDefaults.standard.set(isVisible, forKey: "fileExplorer.isVisible") }
     }
     @Published var width: CGFloat {
@@ -478,10 +478,6 @@ final class FileExplorerState: ObservableObject {
         // Suppress both SwiftUI transactions and AppKit/Core Animation implicit layout changes.
         NSAnimationContext.beginGrouping()
         CATransaction.begin()
-        defer {
-            CATransaction.commit()
-            NSAnimationContext.endGrouping()
-        }
 
         NSAnimationContext.current.duration = 0
         NSAnimationContext.current.allowsImplicitAnimation = false
@@ -492,6 +488,9 @@ final class FileExplorerState: ObservableObject {
         withTransaction(transaction) {
             isVisible = nextValue
         }
+        CATransaction.commit()
+        NSAnimationContext.endGrouping()
+        portalGeometrySyncRevision &+= 1
     }
 }
 

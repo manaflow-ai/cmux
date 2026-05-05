@@ -1,8 +1,21 @@
 import Combine
 import CoreGraphics
+import Foundation
+
+@MainActor
+enum PortalGeometrySyncUrgency {
+    private static var immediateExternalGeometrySyncRequested = false, immediateExternalGeometrySyncGeneration: UInt64 = 0
+    static var shouldSynchronizeNextExternalGeometryChangeImmediately: Bool { immediateExternalGeometrySyncRequested }
+    static func requestImmediateExternalGeometrySyncForNextLayoutPass() { immediateExternalGeometrySyncRequested = true; immediateExternalGeometrySyncGeneration &+= 1 }
+    static func noteImmediateExternalGeometrySyncUsed() {
+        let generation = immediateExternalGeometrySyncGeneration
+        DispatchQueue.main.async { if immediateExternalGeometrySyncGeneration == generation { immediateExternalGeometrySyncRequested = false } }
+    }
+}
 
 final class SidebarState: ObservableObject {
-    @Published var isVisible: Bool
+    @Published private(set) var portalGeometrySyncRevision: UInt64 = 0
+    @Published private(set) var isVisible: Bool
     @Published var persistedWidth: CGFloat
 
     init(isVisible: Bool = true, persistedWidth: CGFloat = CGFloat(SessionPersistencePolicy.defaultSidebarWidth)) {
@@ -12,7 +25,13 @@ final class SidebarState: ObservableObject {
     }
 
     func toggle() {
-        isVisible.toggle()
+        setVisible(!isVisible)
+    }
+
+    func setVisible(_ nextValue: Bool) {
+        guard isVisible != nextValue else { return }
+        isVisible = nextValue
+        portalGeometrySyncRevision &+= 1
     }
 }
 
