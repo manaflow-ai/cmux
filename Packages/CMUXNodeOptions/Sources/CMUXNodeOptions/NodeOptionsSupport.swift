@@ -54,7 +54,7 @@ public enum NodeOptionsSupport {
                 }
                 continue
             }
-            if character == "\"" || character == "'" {
+            if character == "\"" {
                 quote = character
                 continue
             }
@@ -94,7 +94,7 @@ public enum NodeOptionsSupport {
 
     private static func quoteTokenIfNeeded(_ value: String) -> String {
         let charactersRequiringQuotes = CharacterSet.whitespacesAndNewlines
-            .union(CharacterSet(charactersIn: "\\\"'"))
+            .union(CharacterSet(charactersIn: "\\\""))
         guard value.rangeOfCharacter(from: charactersRequiringQuotes) != nil else {
             return value
         }

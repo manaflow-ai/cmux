@@ -418,8 +418,8 @@ func TestMergeNodeOptions(t *testing.T) {
 	}
 
 	apostrophePath := "/Users/oconnor's/cmux/node-options/restore-node-options.cjs"
-	if got := mergeNodeOptions("--trace-warnings", apostrophePath); got != "--require=\"/Users/oconnor's/cmux/node-options/restore-node-options.cjs\" --max-old-space-size=4096 --trace-warnings" {
-		t.Fatalf("mergeNodeOptions should quote restore paths with apostrophes = %q", got)
+	if got := mergeNodeOptions("--trace-warnings", apostrophePath); got != "--require=/Users/oconnor's/cmux/node-options/restore-node-options.cjs --max-old-space-size=4096 --trace-warnings" {
+		t.Fatalf("mergeNodeOptions should preserve apostrophes in restore paths = %q", got)
 	}
 
 	apostropheExisting := "--require=/Users/oconnor's/preload.cjs --trace-warnings"

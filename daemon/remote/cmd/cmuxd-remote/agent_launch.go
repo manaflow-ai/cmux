@@ -459,7 +459,7 @@ func nodeOptionsTokens(raw string) []string {
 			}
 			continue
 		}
-		if r == '"' || r == '\'' {
+		if r == '"' {
 			quote = r
 			continue
 		}
@@ -491,7 +491,7 @@ func joinNodeOptionsTokens(tokens []string) string {
 }
 
 func quoteNodeOptionsToken(value string) string {
-	if !strings.ContainsAny(value, "\"\\'") && strings.IndexFunc(value, unicode.IsSpace) == -1 {
+	if !strings.ContainsAny(value, "\"\\") && strings.IndexFunc(value, unicode.IsSpace) == -1 {
 		return value
 	}
 	escaped := strings.ReplaceAll(value, "\\", "\\\\")

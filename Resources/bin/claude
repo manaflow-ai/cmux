@@ -259,7 +259,7 @@ node_options_split() {
             fi
             continue
         fi
-        if [[ "$ch" == "\"" || "$ch" == "'" ]]; then
+        if [[ "$ch" == "\"" ]]; then
             quote="$ch"
             continue
         fi
@@ -283,7 +283,7 @@ node_options_split() {
 
 node_options_quote_token() {
     local value="$1"
-    if [[ "$value" == *[[:space:]\"\\\']* ]]; then
+    if [[ "$value" == *[[:space:]]* || "$value" == *\"* || "$value" == *\\* ]]; then
         local escaped="${value//\\/\\\\}"
         escaped="${escaped//\"/\\\"}"
         printf '%s' "\"$escaped\""

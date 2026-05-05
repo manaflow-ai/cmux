@@ -9,7 +9,7 @@ final class ClaudeWrapperNodeOptionsRestoreModuleTests: XCTestCase {
         let timedOut: Bool
     }
 
-    func testNodeOptionsRequirePathQuotesApostrophesForRoundTripTokenization() {
+    func testNodeOptionsRequirePathRoundTripsApostrophes() {
         let path = "/Users/oconnor's/cmux/node-options/restore-node-options.cjs"
         let nodeOptions = "--require=\(NodeOptionsSupport.requirePath(path)) --trace-warnings"
 
