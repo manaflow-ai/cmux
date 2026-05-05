@@ -2,6 +2,27 @@
 
 All notable changes to cmux are documented here.
 
+## [0.64.2] - 2026-05-05
+
+### Fixed
+- Fix launch crash on v0.64.1 caused by the bundled CLI failing to load the Sentry framework ([#3565](https://github.com/manaflow-ai/cmux/pull/3565)) -- thanks @hyi1233 for the report!
+- Keep SSH sessions alive when closing a pane ([#3566](https://github.com/manaflow-ai/cmux/pull/3566)) -- thanks @kylejcaron for the report!
+- Restore sidebar scroller visibility to reflect real overflow state ([#3570](https://github.com/manaflow-ai/cmux/pull/3570)) -- thanks @ibagur for the report!
+- Fix Finder image drops into Claude Code terminals ([#3567](https://github.com/manaflow-ai/cmux/pull/3567)) -- thanks @streeyt for the report!
+- Open links in the Markdown panel via an explicit OpenURLAction ([#3558](https://github.com/manaflow-ai/cmux/pull/3558)) -- thanks @psh4607!
+- Prevent recursive lock crash on cmd-clicked Markdown viewer route and stop dropping fragment/query URLs ([#3559](https://github.com/manaflow-ai/cmux/pull/3559)) -- thanks @psh4607! Reported by @addisonlynch.
+- Stop the Claude wrapper from auto-adding bypass-permissions flags and preserve user-provided `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` through terminal startup ([#3564](https://github.com/manaflow-ai/cmux/pull/3564))
+
+### Thanks to 7 contributors!
+
+- [@addisonlynch](https://github.com/addisonlynch)
+- [@austinywang](https://github.com/austinywang)
+- [@hyi1233](https://github.com/hyi1233)
+- [@ibagur](https://github.com/ibagur)
+- [@kylejcaron](https://github.com/kylejcaron)
+- [@psh4607](https://github.com/psh4607)
+- [@streeyt](https://github.com/streeyt)
+
 ## [0.64.1] - 2026-05-05
 
 ### Fixed
