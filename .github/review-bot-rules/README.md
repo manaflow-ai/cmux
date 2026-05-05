@@ -13,6 +13,7 @@ Current rules:
 - `swift-blocking-runtime.md`
 - `swift-concurrency-modernization.md`
 - `swift-concurrent-annotation.md`
+- `swift-file-package-boundaries.md`
 - `swift-logging.md`
 - `swiftui-state-layout.md`
 

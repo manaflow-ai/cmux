@@ -26,6 +26,11 @@
       "scope": ["**/*.swift", "**/Package.swift"]
     },
     {
+      "path": ".github/review-bot-rules/swift-file-package-boundaries.md",
+      "description": "Source-of-truth cmux lint rule for Swift file size and SwiftPM package boundary review.",
+      "scope": ["**/*.swift", "**/Package.swift", "GhosttyTabs.xcodeproj/**"]
+    },
+    {
       "path": ".github/review-bot-rules/swift-logging.md",
       "description": "Source-of-truth cmux lint rule for production Swift logging review.",
       "scope": ["**/*.swift", "**/Package.swift"]
