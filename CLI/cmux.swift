@@ -4758,19 +4758,19 @@ struct CMUXCLI {
             target: sshOptions.displayDestination,
             relayPort: sshOptions.remoteRelayPort
         )
-        let combinedLocalCommand = combinedLocalCommandForSSH([
+        let combinedLocalCommandScript = combinedLocalShellScript([
             deferredRemoteReconnectCommand,
             sshConnectionTimingCommand,
         ])
         let configuredForegroundAuthToken = deferredRemoteReconnectCommand == nil ? nil : deferredRemoteReconnectToken
         let startupInitialSSHCommand = buildSSHCommandText(
             sshOptions,
-            localCommand: combinedLocalCommand
+            localCommandScript: combinedLocalCommandScript
         )
         let startupRemoteTerminalSSHCommand = buildSSHCommandText(
             sshOptions,
             remoteBootstrapScript: remoteTerminalBootstrapScript,
-            localCommand: combinedLocalCommand
+            localCommandScript: combinedLocalCommandScript
         )
         let initialSSHStartupCommand: String
         let remoteTerminalSSHStartupCommand: String
@@ -4780,14 +4780,14 @@ struct CMUXCLI {
                 remoteBootstrapScript: remoteTerminalBootstrapScript,
                 shellFeatures: shellFeaturesValue,
                 remoteRelayPort: sshOptions.remoteRelayPort,
-                localCommand: combinedLocalCommand
+                localCommandScript: combinedLocalCommandScript
             )
             remoteTerminalSSHStartupCommand = buildReusableBootstrapSSHStartupCommand(
                 options: sshOptions,
                 remoteBootstrapScript: remoteTerminalBootstrapScript,
                 shellFeatures: shellFeaturesValue,
                 remoteRelayPort: sshOptions.remoteRelayPort,
-                localCommand: combinedLocalCommand
+                localCommandScript: combinedLocalCommandScript
             )
         } else {
             initialSSHStartupCommand = try buildSSHStartupCommand(
@@ -5046,12 +5046,12 @@ struct CMUXCLI {
     func buildSSHCommandText(
         _ options: SSHCommandOptions,
         remoteBootstrapScript: String? = nil,
-        localCommand: String? = nil
+        localCommandScript: String? = nil
     ) -> String {
         buildSSHCommandArguments(
             options,
             remoteBootstrapScript: remoteBootstrapScript,
-            localCommand: localCommand
+            localCommandScript: localCommandScript
         )
         .map(shellQuote)
         .joined(separator: " ")
@@ -5060,16 +5060,16 @@ struct CMUXCLI {
     private func buildSSHCommandArguments(
         _ options: SSHCommandOptions,
         remoteBootstrapScript: String? = nil,
-        localCommand: String? = nil
+        localCommandScript: String? = nil
     ) -> [String] {
-        var parts = baseSSHArguments(options, localCommand: localCommand)
+        var parts = baseSSHArguments(options, localCommandScript: localCommandScript)
         let trimmedRemoteBootstrap = remoteBootstrapScript?
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
         if options.extraArguments.isEmpty {
             if let trimmedRemoteBootstrap, !trimmedRemoteBootstrap.isEmpty {
-                let remoteCommand = sshPercentEscapedRemoteCommand(
-                    encodedRemoteBootstrapCommand(
+                let remoteCommand = openSSHRemoteCommandValue(
+                    shellScript: encodedRemoteBootstrapCommand(
                         trimmedRemoteBootstrap,
                         remoteRelayPort: options.remoteRelayPort
                     )
@@ -5092,12 +5092,12 @@ struct CMUXCLI {
         remoteBootstrapScript: String,
         shellFeatures: String,
         remoteRelayPort: Int,
-        localCommand: String? = nil
+        localCommandScript: String? = nil
     ) throws -> String {
         let commandSnippet = buildSSHBootstrapCommandSnippet(
             options: options,
             remoteBootstrapScript: remoteBootstrapScript,
-            localCommand: localCommand
+            localCommandScript: localCommandScript
         )
         return try buildSSHStartupCommand(
             sshCommand: commandSnippet,
@@ -5112,12 +5112,12 @@ struct CMUXCLI {
         remoteBootstrapScript: String,
         shellFeatures: String,
         remoteRelayPort: Int,
-        localCommand: String? = nil
+        localCommandScript: String? = nil
     ) -> String {
         let commandSnippet = buildSSHBootstrapCommandSnippet(
             options: options,
             remoteBootstrapScript: remoteBootstrapScript,
-            localCommand: localCommand
+            localCommandScript: localCommandScript
         )
         return buildReusableSSHStartupCommand(
             sshCommand: commandSnippet,
@@ -5130,19 +5130,17 @@ struct CMUXCLI {
     private func buildSSHBootstrapCommandSnippet(
         options: SSHCommandOptions,
         remoteBootstrapScript: String,
-        localCommand: String? = nil
+        localCommandScript: String? = nil
     ) -> String {
         let encodedBootstrapScript = Data(remoteBootstrapScript.utf8).base64EncodedString()
-        let installSSHPrefix = baseSSHArguments(options, localCommand: localCommand).map(shellQuote).joined(separator: " ")
+        let installSSHPrefix = baseSSHArguments(options, localCommandScript: localCommandScript).map(shellQuote).joined(separator: " ")
         let sessionSSHPrefix = baseSSHArguments(options).map(shellQuote).joined(separator: " ")
-        let remoteCommandTemplate = sshPercentEscapedRemoteCommand(
-            posixShellRemoteCommand(
-                stagedRemoteBootstrapCommandShell(
-                    remoteRelayPort: options.remoteRelayPort
-                )
+        let remoteCommandTemplate = openSSHRemoteCommandValue(
+            shellScript: stagedRemoteBootstrapCommandShell(
+                remoteRelayPort: options.remoteRelayPort
             )
         )
-        let remoteBootstrapInstallCommand = "/bin/sh -c " + shellQuote(
+        let remoteBootstrapInstallCommand = posixShellCommand(
             remoteBootstrapInstallShell(remoteRelayPort: options.remoteRelayPort)
         )
         var lines: [String] = [
@@ -5443,7 +5441,7 @@ struct CMUXCLI {
             shellFeatures: shellFeatures,
             terminfoSource: terminfoSource
         )
-        return "/bin/sh -c \(shellQuote(script))"
+        return posixShellCommand(script)
     }
 
     private func interactiveRemoteTerminalSetupLines(terminfoSource: String?) -> [String] {
@@ -5521,7 +5519,7 @@ struct CMUXCLI {
         ]
     }
 
-    private func baseSSHArguments(_ options: SSHCommandOptions, localCommand: String? = nil) -> [String] {
+    private func baseSSHArguments(_ options: SSHCommandOptions, localCommandScript: String? = nil) -> [String] {
         let effectiveSSHOptions = effectiveSSHOptions(
             options.sshOptions,
             remoteRelayPort: options.remoteRelayPort
@@ -5551,8 +5549,7 @@ struct CMUXCLI {
         for option in effectiveSSHOptions {
             parts += ["-o", option]
         }
-        if let localCommand, !localCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let escapedLocalCommand = localCommand.replacingOccurrences(of: "%", with: "%%")
+        if let escapedLocalCommand = openSSHLocalCommandValue(shellScript: localCommandScript) {
             parts += ["-o", "PermitLocalCommand=yes"]
             parts += ["-o", "LocalCommand=\(escapedLocalCommand)"]
         }

@@ -12,6 +12,7 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
     @MainActor
     func testSSHBootstrapStartupCommandPassesRemoteInstallScriptAsSingleSSHCommand() throws {
         let cliPath = try bundledCLIPath()
+        let python3Path = try requireExecutable(["/opt/homebrew/bin/python3", "/usr/local/bin/python3", "/usr/bin/python3"], name: "python3")
         let socketPath = makeSocketPath("sshboot")
         let listenerFD = try bindUnixSocket(at: socketPath)
         let state = MockSocketServerState()
@@ -118,7 +119,7 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
 
         let fakeSSHScript = """
         #!/bin/sh
-        python3 - "$@" <<'PY'
+        "$CMUX_TEST_PYTHON3" - "$@" <<'PY'
         import json
         import os
         import subprocess
@@ -147,6 +148,7 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
         startupEnvironment["HOME"] = tempRoot.path
         startupEnvironment["PATH"] = "\(fakeBin.path):/usr/bin:/bin:/usr/sbin:/sbin"
         startupEnvironment["CMUX_FAKE_SSH_LOG"] = fakeSSHLog.path
+        startupEnvironment["CMUX_TEST_PYTHON3"] = python3Path
         startupEnvironment["CMUX_SOCKET_PATH"] = socketPath
         startupEnvironment["CMUX_WORKSPACE_ID"] = workspaceID
         startupEnvironment["CMUX_CLI_SENTRY_DISABLED"] = "1"
@@ -227,13 +229,7 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
             0,
             "Expected LocalCommand shell snippet to parse cleanly, stderr: \(localCommandSyntaxCheck.stderr)"
         )
-        let fishExecutable = [
-            "/opt/homebrew/bin/fish",
-            "/usr/local/bin/fish",
-            "/usr/bin/fish",
-            "/bin/fish",
-        ].first { FileManager.default.isExecutableFile(atPath: $0) }
-        guard let fishExecutable else { throw XCTSkip("fish is not installed") }
+        let fishExecutable = try requireExecutable(["/opt/homebrew/bin/fish", "/usr/local/bin/fish", "/usr/bin/fish", "/bin/fish"], name: "fish")
         let fishLocalCommandCheck = runProcess(
             executablePath: fishExecutable,
             arguments: ["-n", "-c", localCommand],
@@ -330,6 +326,11 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
         }
 
         throw XCTSkip("Bundled cmux CLI not found in \(appBundleURL.path)")
+    }
+
+    private func requireExecutable(_ candidates: [String], name: String) throws -> String {
+        guard let path = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else { throw XCTSkip("\(name) is not installed") }
+        return path
     }
 
     private func runProcess(
