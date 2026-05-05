@@ -41,9 +41,22 @@ def expect_restore_module_hardened(require_path: str, label: str, failures: list
 
     restore_mode = stat.S_IMODE(restore.stat().st_mode)
     expect(restore_mode == 0o600, f"{label}: expected restore module mode 0600, got {oct(restore_mode)}", failures)
-    for directory in [restore.parent, restore.parent.parent]:
+    guard_dir_mode = stat.S_IMODE(restore.parent.stat().st_mode)
+    expect(guard_dir_mode == 0o700, f"{label}: expected {restore.parent} mode 0700, got {oct(guard_dir_mode)}", failures)
+
+    fallback_base = Path(f"/var/tmp/cmux-{os.getuid()}")  # noqa: S108
+    try:
+        relative_to_fallback = restore.relative_to(fallback_base)
+    except ValueError:
+        relative_to_fallback = None
+    if relative_to_fallback is None:
+        return
+
+    directory = restore.parent
+    while directory != fallback_base:
+        directory = directory.parent
         dir_mode = stat.S_IMODE(directory.stat().st_mode)
-        expect(dir_mode == 0o700, f"{label}: expected {directory} mode 0700, got {oct(dir_mode)}", failures)
+        expect(dir_mode == 0o700, f"{label}: expected fallback directory {directory} mode 0700, got {oct(dir_mode)}", failures)
 
 
 def parse_settings_arg(argv: list[str]) -> dict:
