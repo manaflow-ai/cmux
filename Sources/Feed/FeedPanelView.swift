@@ -79,8 +79,13 @@ struct FeedPanelView: View {
     var body: some View {
         VStack(spacing: 0) {
             controlBar
-            Divider()
-            FeedListView(filter: filter, items: viewModel.items)
+            FeedListView(
+                filter: filter,
+                items: viewModel.items,
+                hasMorePersistedItems: viewModel.hasMorePersistedItems,
+                isLoadingOlderItems: viewModel.isLoadingOlderItems,
+                onLoadOlderItems: viewModel.loadOlderItems
+            )
         }
     }
 
@@ -98,19 +103,16 @@ struct FeedPanelView: View {
             controlBarContent
             #endif
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 3)
-        .frame(height: 29)
+        .rightSidebarChromeBar()
+        .rightSidebarChromeBottomBorder()
+        .reportRightSidebarChromeGeometryForBonsplitUITest(role: .secondaryBar, isVisible: true, titlebarHeight: RightSidebarChromeMetrics.secondaryBarHeight)
     }
 
     private var controlBarContent: some View {
         HStack(spacing: 6) {
-            ForEach(Filter.allCases) { f in
-                FeedButton(
-                    label: f.label,
-                    leadingIcon: f.symbolName,
-                    kind: .ghost,
-                    size: .compact,
+            ForEach([Filter.actionable]) { f in
+                FeedSecondaryFilterButton(
+                    filter: f,
                     isSelected: filter == f
                 ) {
                     filter = f
@@ -121,48 +123,29 @@ struct FeedPanelView: View {
     }
 }
 
-/// Bridges the `@Observable` WorkstreamStore to a Combine `@Published`
-/// snapshot so SwiftUI reliably re-renders the Feed panel on every
-/// mutation. This is the documented pattern for observing an
-/// Observable from outside SwiftUI's implicit body-tracking (singleton
-/// access + optional chain breaks the implicit path in our case).
-///
-/// Re-arms `withObservationTracking` after every change so the next
-/// mutation also fires. If the view is created before the store is
-/// installed, it waits for the coordinator's install notification.
-@MainActor
-final class FeedPanelViewModel: ObservableObject {
-    @Published private(set) var items: [WorkstreamItem] = []
-    private var storeInstalledObserver: NSObjectProtocol?
+private struct FeedSecondaryFilterButton: View {
+    let filter: FeedPanelView.Filter
+    let isSelected: Bool
+    let action: () -> Void
+    @State private var isHovered = false
 
-    init() {
-        storeInstalledObserver = NotificationCenter.default.addObserver(
-            forName: FeedCoordinator.storeInstalledNotification,
-            object: FeedCoordinator.shared,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.arm()
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 3) {
+                Image(systemName: filter.symbolName)
+                    .font(.system(size: 10, weight: .medium))
+                Text(filter.label)
+                    .font(.system(size: 11, weight: .medium))
             }
+            .rightSidebarChromePill(
+                isSelected: isSelected,
+                isHovered: isHovered,
+                geometryKeyPrefix: "rightSidebarSecondaryControl_feed_\(filter.rawValue)"
+            )
         }
-        arm()
-    }
-
-    deinit {
-        if let storeInstalledObserver {
-            NotificationCenter.default.removeObserver(storeInstalledObserver)
-        }
-    }
-
-    private func arm() {
-        guard let store = FeedCoordinator.shared.store else { return }
-        withObservationTracking {
-            items = store.items
-        } onChange: { [weak self] in
-            Task { @MainActor in
-                self?.arm()
-            }
-        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .help(filter.label)
     }
 }
 
@@ -173,6 +156,9 @@ final class FeedPanelViewModel: ObservableObject {
 private struct FeedListView: View {
     let filter: FeedPanelView.Filter
     let items: [WorkstreamItem]
+    let hasMorePersistedItems: Bool
+    let isLoadingOlderItems: Bool
+    let onLoadOlderItems: () -> Void
 
     @State private var focusSnapshot = FeedFocusSnapshot()
     @State private var scrollRequest: FeedScrollRequest?
@@ -183,7 +169,7 @@ private struct FeedListView: View {
         let rowActions = FeedRowActions.bound()
         ScrollViewReader { proxy in
             Group {
-                if snapshots.isEmpty {
+                if snapshots.isEmpty && !shouldShowActivityHistoryLoader {
                     emptyState
                 } else {
                     contentBody(
@@ -244,7 +230,7 @@ private struct FeedListView: View {
         case .activity:
             let stable = snapshots.filter(prefersStableSurface)
             let history = snapshots.filter { !prefersStableSurface($0) }
-            if history.isEmpty {
+            if history.isEmpty && !hasMorePersistedItems {
                 stableScrollSurface(
                     snapshots: stable,
                     actions: actions
@@ -260,7 +246,8 @@ private struct FeedListView: View {
                     }
                     historyList(
                         snapshots: history,
-                        actions: actions
+                        actions: actions,
+                        showsLoadMore: hasMorePersistedItems
                     )
                 }
             }
@@ -305,7 +292,8 @@ private struct FeedListView: View {
 
     private func historyList(
         snapshots: [FeedItemSnapshot],
-        actions: FeedRowActions
+        actions: FeedRowActions,
+        showsLoadMore: Bool
     ) -> some View {
         List {
             // Single chronological history stream. The plain List keeps
@@ -316,6 +304,15 @@ private struct FeedListView: View {
                     snapshot: snapshot,
                     actions: actions,
                     showsDivider: idx < snapshots.count - 1
+                )
+                .listRowInsets(EdgeInsets())
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+            }
+            if showsLoadMore {
+                FeedHistoryLoadMoreRow(
+                    isLoading: isLoadingOlderItems,
+                    action: onLoadOlderItems
                 )
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
@@ -363,8 +360,7 @@ private struct FeedListView: View {
     /// "You: …" echo line at the top of their card.
     private static func lastPromptByWorkstream(_ items: [WorkstreamItem]) -> [String: String] {
         var out: [String: String] = [:]
-        let sorted = items.sorted { $0.createdAt < $1.createdAt }
-        for item in sorted {
+        for item in items {
             if case .userPrompt(let text) = item.payload, !text.isEmpty {
                 out[item.workstreamId] = text
             }
@@ -395,7 +391,7 @@ private struct FeedListView: View {
         // in the chronological slot where they arrived so the user's
         // mental map of "this was the second request I got" doesn't
         // get shuffled when they answer it.
-        return base.sorted { $0.createdAt > $1.createdAt }
+        return Array(base.reversed())
     }
 
     private func visibleSnapshots(_ items: [WorkstreamItem]) -> [FeedItemSnapshot] {
@@ -410,6 +406,10 @@ private struct FeedListView: View {
 
     private func prefersStableSurface(_ snapshot: FeedItemSnapshot) -> Bool {
         snapshot.status.isPending || snapshot.kind == .stop
+    }
+
+    private var shouldShowActivityHistoryLoader: Bool {
+        filter == .activity && hasMorePersistedItems
     }
 
     private func selectRow(_ id: UUID, focusFeed: Bool) {
@@ -1180,6 +1180,7 @@ struct FeedItemRow: View, Equatable {
             PermissionActionArea(
                 toolName: toolName,
                 toolInputJSON: toolInputJSON,
+                source: snapshot.source,
                 status: snapshot.status,
                 onApprove: { mode in
                     actions.approvePermission(snapshot.id, mode)
@@ -1370,6 +1371,7 @@ private struct FeedLabeledTextRow: View {
 private struct PermissionActionArea: View {
     let toolName: String
     let toolInputJSON: String
+    let source: WorkstreamSource
     let status: WorkstreamStatus
     let onApprove: (WorkstreamPermissionMode) -> Void
 
@@ -1379,22 +1381,20 @@ private struct PermissionActionArea: View {
             codeBlock
             if status.isPending {
                 HStack(spacing: 6) {
-                    FeedButton(
-                        label: String(localized: "feed.permission.deny", defaultValue: "Deny"),
-                        kind: .dark, size: .medium, fullWidth: true
-                    ) { onApprove(.deny) }
-                    FeedButton(
-                        label: String(localized: "feed.permission.once", defaultValue: "Allow Once"),
-                        kind: .light, size: .medium, fullWidth: true
-                    ) { onApprove(.once) }
-                    FeedButton(
-                        label: String(localized: "feed.permission.always", defaultValue: "Always Allow"),
-                        kind: .primary, size: .medium, fullWidth: true
-                    ) { onApprove(.always) }
-                    FeedButton(
-                        label: String(localized: "feed.permission.bypass", defaultValue: "Bypass"),
-                        kind: .destructive, size: .medium, fullWidth: true
-                    ) { onApprove(.bypass) }
+                    FeedButton(label: String(localized: "feed.permission.deny", defaultValue: "Deny"),
+                               kind: .dark, size: .medium, fullWidth: true) { onApprove(.deny) }
+                        .accessibilityIdentifier("FeedPermissionDenyButton")
+                    FeedButton(label: String(localized: "feed.permission.once", defaultValue: "Allow Once"),
+                               kind: .light, size: .medium, fullWidth: true) { onApprove(.once) }
+                        .accessibilityIdentifier("FeedPermissionAllowOnceButton")
+                    if source != .codex {
+                        FeedButton(label: String(localized: "feed.permission.always", defaultValue: "Always Allow"),
+                                   kind: .primary, size: .medium, fullWidth: true) { onApprove(.always) }
+                            .accessibilityIdentifier("FeedPermissionAlwaysAllowButton")
+                        FeedButton(label: String(localized: "feed.permission.bypass", defaultValue: "Bypass"),
+                                   kind: .destructive, size: .medium, fullWidth: true) { onApprove(.bypass) }
+                            .accessibilityIdentifier("FeedPermissionBypassButton")
+                    }
                 }
             } else if let badge = submittedBadge {
                 FeedButton(

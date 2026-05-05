@@ -388,7 +388,7 @@ final class FullScreenShortcutTests: XCTestCase {
 }
 
 
-final class CommandPaletteKeyboardNavigationTests: XCTestCase {
+@MainActor final class CommandPaletteKeyboardNavigationTests: XCTestCase {
     func testArrowKeysMoveSelectionWithoutModifiers() {
         XCTAssertEqual(
             commandPaletteSelectionDeltaForKeyboardNavigation(
@@ -1081,6 +1081,7 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         .switchRightSidebarToFind,
         .switchRightSidebarToSessions,
         .switchRightSidebarToFeed,
+        .switchRightSidebarToDock,
     ]
     private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore!
     private var savedShortcutData: [KeyboardShortcutSettings.Action: Data?] = [:]
@@ -1100,7 +1101,7 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         temporaryDirectoryURL = directoryURL
         KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
-            primaryPath: directoryURL.appendingPathComponent("settings.json", isDirectory: false).path,
+            primaryPath: directoryURL.appendingPathComponent("cmux.json", isDirectory: false).path,
             fallbackPath: nil,
             startWatching: false
         )
@@ -1131,6 +1132,7 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         XCTAssertEqual(RightSidebarMode.find.shortcutAction, .switchRightSidebarToFind)
         XCTAssertEqual(RightSidebarMode.sessions.shortcutAction, .switchRightSidebarToSessions)
         XCTAssertEqual(RightSidebarMode.feed.shortcutAction, .switchRightSidebarToFeed)
+        XCTAssertEqual(RightSidebarMode.dock.shortcutAction, .switchRightSidebarToDock)
     }
 
     func testModeShortcutUsesConfiguredBindings() {
@@ -1277,6 +1279,59 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
     }
 
     @MainActor
+    func testPendingSessionsFocusSurvivesStaleFeedResponderDuringModeSwitch() {
+        let fileExplorerState = FileExplorerState()
+        let controller = MainWindowFocusController(
+            windowId: UUID(),
+            window: nil,
+            tabManager: TabManager(),
+            fileExplorerState: fileExplorerState
+        )
+        let staleFeedResponder = TestRightSidebarResponder(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+
+        XCTAssertTrue(controller.selectFeedItem(UUID(), focusFeed: false))
+        XCTAssertTrue(controller.focusRightSidebar(mode: .sessions, focusFirstItem: true))
+        XCTAssertEqual(controller.intent, .rightSidebar(mode: .sessions))
+        XCTAssertEqual(fileExplorerState.mode, .sessions)
+        XCTAssertEqual(controller.debugPendingRightSidebarFocusMode, .sessions)
+
+        controller.debugSyncAfterResponderChange(responder: staleFeedResponder)
+
+        XCTAssertEqual(controller.intent, .rightSidebar(mode: .sessions))
+        XCTAssertEqual(controller.debugPendingRightSidebarFocusMode, .sessions)
+    }
+
+    @MainActor
+    func testPendingSessionsFocusCompletesWhenRightSidebarHostRegisters() {
+        let fileExplorerState = FileExplorerState()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 240, height: 180),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: window.contentView?.bounds ?? .zero)
+        window.contentView = contentView
+        let controller = MainWindowFocusController(
+            windowId: UUID(),
+            window: window,
+            tabManager: TabManager(),
+            fileExplorerState: fileExplorerState
+        )
+
+        XCTAssertTrue(controller.focusRightSidebar(mode: .sessions, focusFirstItem: true))
+        XCTAssertEqual(controller.debugPendingRightSidebarFocusMode, .sessions)
+
+        let focusHost = RightSidebarKeyboardFocusView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        defer { _ = window.makeFirstResponder(nil); focusHost.removeFromSuperview(); window.contentView = nil; window.close() }
+        contentView.addSubview(focusHost)
+        controller.registerRightSidebarHost(focusHost)
+
+        XCTAssertNil(controller.debugPendingRightSidebarFocusMode)
+        XCTAssertTrue(window.firstResponder === focusHost)
+    }
+
+    @MainActor
     func testFocusShortcutToggleClearsRightSidebarIntentWhenTerminalIsUnavailable() {
         let controller = MainWindowFocusController(
             windowId: UUID(),
@@ -1294,7 +1349,6 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
         XCTAssertTrue(controller.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId))
     }
 }
-
 
 final class ShortcutHintDebugSettingsTests: XCTestCase {
     func testClampKeepsValuesWithinSupportedRange() {
@@ -1491,25 +1545,6 @@ final class LastSurfaceCloseShortcutSettingsTests: XCTestCase {
         XCTAssertFalse(LastSurfaceCloseShortcutSettings.closesWorkspace(defaults: defaults))
     }
 }
-
-
-final class AppearanceSettingsTests: XCTestCase {
-    func testResolvedModeDefaultsToSystemWhenUnset() {
-        let suiteName = "AppearanceSettingsTests.Default.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        defaults.removeObject(forKey: AppearanceSettings.appearanceModeKey)
-
-        let resolved = AppearanceSettings.resolvedMode(defaults: defaults)
-        XCTAssertEqual(resolved, .system)
-        XCTAssertEqual(defaults.string(forKey: AppearanceSettings.appearanceModeKey), AppearanceMode.system.rawValue)
-    }
-}
-
 
 final class QuitWarningSettingsTests: XCTestCase {
     func testDefaultWarnBeforeQuitIsEnabledWhenUnset() {

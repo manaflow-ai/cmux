@@ -32,6 +32,18 @@ export const shortcutCategories: ShortcutCategory[] = [
         note: { en: "system-wide hotkey", ja: "システム全体のホットキー" },
       },
       { id: "commandPalette", combos: [["⌘", "⇧", "P"]], description: { en: "Command palette", ja: "コマンドパレット" } },
+      {
+        id: "commandPaletteNext",
+        combos: [["⌃", "N"]],
+        description: { en: "Command palette next result", ja: "コマンドパレットの次の結果" },
+        note: { en: "when the command palette is open", ja: "コマンドパレットを開いている間" },
+      },
+      {
+        id: "commandPalettePrevious",
+        combos: [["⌃", "P"]],
+        description: { en: "Command palette previous result", ja: "コマンドパレットの前の結果" },
+        note: { en: "when the command palette is open", ja: "コマンドパレットを開いている間" },
+      },
       { id: "newWindow", combos: [["⌘", "⇧", "N"]], description: { en: "New window", ja: "新規ウインドウ" } },
       { id: "closeWindow", combos: [["⌃", "⌘", "W"]], description: { en: "Close window", ja: "ウインドウを閉じる" } },
       { id: "toggleFullScreen", combos: [["⌃", "⌘", "F"]], description: { en: "Toggle full screen", ja: "フルスクリーンを切り替え" } },
@@ -66,8 +78,8 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "focusRightSidebar", combos: [["⌘", "⇧", "E"]], description: { en: "Focus right sidebar", ja: "右サイドバーにフォーカス" } },
       {
         id: "switchRightSidebarMode",
-        combos: [["⌃", "1 / 2 / 3 / 4"]],
-        description: { en: "Switch Files / Find / Sessions / Feed", ja: "ファイル / 検索 / セッション / フィードを切り替え" },
+        combos: [["⌃", "1 / 2 / 3 / 4 / 5"]],
+        description: { en: "Switch Files / Find / Sessions / Feed / Dock", ja: "ファイル / 検索 / セッション / フィード / Dockを切り替え" },
         note: { en: "when the right sidebar is focused", ja: "右サイドバーにフォーカス中" },
       },
       {
@@ -96,6 +108,12 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "closeOtherTabsInPane", combos: [["⌥", "⌘", "T"]], description: { en: "Close other tabs in pane", ja: "ペイン内の他のタブを閉じる" } },
       { id: "reopenClosedBrowserPanel", combos: [["⌘", "⇧", "T"]], description: { en: "Reopen closed browser panel", ja: "閉じたブラウザパネルを再度開く" } },
       { id: "toggleTerminalCopyMode", combos: [["⌘", "⇧", "M"]], description: { en: "Toggle terminal copy mode", ja: "ターミナルコピーモードを切り替え" } },
+      {
+        id: "saveFilePreview",
+        combos: [["⌘", "S"]],
+        description: { en: "Save file preview", ja: "ファイルプレビューを保存" },
+        note: { en: "focused text preview", ja: "フォーカス中のテキストプレビュー" },
+      },
     ],
   },
   {
@@ -111,6 +129,7 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "splitBrowserRight", combos: [["⌥", "⌘", "D"]], description: { en: "Split browser right", ja: "右にブラウザ分割" } },
       { id: "splitBrowserDown", combos: [["⌥", "⌘", "⇧", "D"]], description: { en: "Split browser down", ja: "下にブラウザ分割" } },
       { id: "toggleSplitZoom", combos: [["⌘", "⇧", "↩"]], description: { en: "Toggle pane zoom", ja: "ペインズームを切り替え" } },
+      { id: "equalizeSplits", combos: [["⌃", "⌘", "="]], description: { en: "Equalize split sizes", ja: "分割サイズを均等にする" } },
     ],
   },
   {
@@ -148,9 +167,10 @@ export const shortcutCategories: ShortcutCategory[] = [
     titleKey: "find",
     shortcuts: [
       { id: "find", combos: [["⌘", "F"]], description: { en: "Find", ja: "検索" } },
+      { id: "findInDirectory", combos: [["⌘", "⇧", "F"]], description: { en: "Find in directory", ja: "ディレクトリ内を検索" } },
       { id: "findNext", combos: [["⌘", "G"]], description: { en: "Find next", ja: "次を検索" } },
       { id: "findPrevious", combos: [["⌥", "⌘", "G"]], description: { en: "Find previous", ja: "前を検索" } },
-      { id: "hideFind", combos: [["⌘", "⇧", "F"]], description: { en: "Hide find bar", ja: "検索バーを隠す" } },
+      { id: "hideFind", combos: [["⌥", "⌘", "⇧", "F"]], description: { en: "Hide find bar", ja: "検索バーを隠す" } },
       { id: "useSelectionForFind", combos: [["⌘", "E"]], description: { en: "Use selection for find", ja: "選択範囲で検索" } },
     ],
   },

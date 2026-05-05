@@ -52,6 +52,38 @@ struct WorkstreamPersistenceTests {
         #expect(loaded.last?.workstreamId == "s4")
     }
 
+    @Test("loadPage pages older rows before a stable byte cursor")
+    func loadPageBeforeCursor() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-page-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let persistence = WorkstreamPersistence(fileURL: tmp)
+        for i in 0..<5 {
+            try await persistence.append(WorkstreamItem(
+                workstreamId: "s\(i)",
+                source: .claude,
+                kind: .permissionRequest,
+                payload: .permissionRequest(requestId: "r\(i)", toolName: "t", toolInputJSON: "{}", pattern: nil)
+            ))
+        }
+
+        let newest = try await persistence.loadPage(limit: 2)
+        #expect(newest.items.map(\.workstreamId) == ["s3", "s4"])
+        #expect(newest.hasMoreBefore)
+        let cursor = try #require(newest.startOffset)
+
+        try await persistence.append(WorkstreamItem(
+            workstreamId: "s5",
+            source: .claude,
+            kind: .permissionRequest,
+            payload: .permissionRequest(requestId: "r5", toolName: "t", toolInputJSON: "{}", pattern: nil)
+        ))
+
+        let older = try await persistence.loadPage(endingBefore: cursor, limit: 2)
+        #expect(older.items.map(\.workstreamId) == ["s1", "s2"])
+        #expect(older.hasMoreBefore)
+    }
+
     @Test("append redacts sensitive tool input before writing JSONL")
     func appendRedactsSensitiveToolInput() async throws {
         let tmp = FileManager.default.temporaryDirectory

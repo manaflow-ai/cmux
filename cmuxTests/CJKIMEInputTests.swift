@@ -9,7 +9,7 @@ import ObjectiveC.runtime
 #endif
 
 private var cjkIMEInterpretKeyEventsSwizzled = false
-private var cjkIMEInterpretKeyEventsHook: ((GhosttyNSView, [NSEvent]) -> Bool)?
+var cjkIMEInterpretKeyEventsHook: ((GhosttyNSView, [NSEvent]) -> Bool)?
 private var ghosttyPasteActionSwizzled = false
 private var ghosttyPasteActionHook: ((GhosttyNSView, Any?) -> Void)?
 private var ghosttyPasteAsPlainTextActionSwizzled = false
@@ -34,7 +34,7 @@ private extension GhosttyNSView {
     }
 }
 
-private func installCJKIMEInterpretKeyEventsSwizzle() {
+func installCJKIMEInterpretKeyEventsSwizzle() {
     guard !cjkIMEInterpretKeyEventsSwizzled else { return }
 
     let originalSelector = #selector(GhosttyNSView.interpretKeyEvents(_:))
@@ -128,7 +128,7 @@ private func installGhosttyPasteActionSwizzle() {
     ghosttyPasteAsPlainTextActionSwizzled = true
 }
 
-private func findGhosttyNSView(in view: NSView) -> GhosttyNSView? {
+func findGhosttyNSView(in view: NSView) -> GhosttyNSView? {
     if let view = view as? GhosttyNSView {
         return view
     }

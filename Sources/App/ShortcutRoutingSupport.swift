@@ -122,35 +122,6 @@ func shouldToggleMainWindowFullScreenForCommandControlFShortcut(
     return keyCode == 3
 }
 
-func commandPaletteSelectionDeltaForKeyboardNavigation(
-    flags: NSEvent.ModifierFlags,
-    chars: String,
-    keyCode: UInt16
-) -> Int? {
-    let normalizedFlags = flags
-        .intersection(.deviceIndependentFlagsMask)
-        .subtracting([.numericPad, .function, .capsLock])
-    let normalizedChars = chars.lowercased()
-
-    if normalizedFlags == [] {
-        switch keyCode {
-        case 125: return 1    // Down arrow
-        case 126: return -1   // Up arrow
-        default: break
-        }
-    }
-
-    if normalizedFlags == [.control] {
-        // Control modifiers can surface as either printable chars or ASCII control chars.
-        // Keep Emacs-style next/previous navigation, but leave other control bindings
-        // (for example Ctrl+K text editing in the palette search field) to AppKit.
-        if keyCode == 45 || normalizedChars == "n" || normalizedChars == "\u{0e}" { return 1 }    // Ctrl+N
-        if keyCode == 35 || normalizedChars == "p" || normalizedChars == "\u{10}" { return -1 }   // Ctrl+P
-    }
-
-    return nil
-}
-
 func shouldRouteCommandPaletteSelectionNavigation(
     delta: Int?,
     isInteractive: Bool,
@@ -334,7 +305,6 @@ func shouldSuppressSplitShortcutForTransientTerminalFocusInputs(
     let tinyGeometry = hostedSize.width <= 1 || hostedSize.height <= 1
     return tinyGeometry || hostedHiddenInHierarchy || !hostedAttachedToWindow
 }
-
 func focusedTerminalKeyRepairNeeded(
     responderIsWindow: Bool,
     responderHasViableKeyRoutingOwner: Bool,
@@ -342,7 +312,6 @@ func focusedTerminalKeyRepairNeeded(
 ) -> Bool {
     responderIsWindow || !responderHasViableKeyRoutingOwner || !responderMatchesPreferredKeyboardFocus
 }
-
 func shouldRepairFocusedTerminalCommandEquivalentInputs(
     flags: NSEvent.ModifierFlags,
     responderIsWindow: Bool,
@@ -355,7 +324,6 @@ func shouldRepairFocusedTerminalCommandEquivalentInputs(
     // that responder rather than retargeting to the selected terminal pane.
     return responderIsWindow || !responderHasViableKeyRoutingOwner
 }
-
 func shouldRouteTerminalFontZoomShortcutToGhostty(
     firstResponderIsGhostty: Bool,
     flags: NSEvent.ModifierFlags,
@@ -371,29 +339,32 @@ func shouldRouteTerminalFontZoomShortcutToGhostty(
         literalChars: literalChars
     ) != nil
 }
-
 @discardableResult
 func startOrFocusTerminalSearch(
     _ terminalSurface: TerminalSurface,
+    initialNeedle: String = "",
     searchFocusNotifier: @escaping (TerminalSurface) -> Void = {
         NotificationCenter.default.post(name: .ghosttySearchFocus, object: $0)
     }
 ) -> Bool {
     if terminalSurface.searchState != nil {
+        if !initialNeedle.isEmpty { terminalSurface.searchState?.needle = initialNeedle }
         searchFocusNotifier(terminalSurface)
         return true
     }
-
     if terminalSurface.performBindingAction("start_search") {
         DispatchQueue.main.async { [weak terminalSurface] in
-            guard let terminalSurface, terminalSurface.searchState == nil else { return }
-            terminalSurface.searchState = TerminalSurface.SearchState()
+            guard let terminalSurface else { return }
+            if let searchState = terminalSurface.searchState {
+                if !initialNeedle.isEmpty { searchState.needle = initialNeedle }
+            } else {
+                terminalSurface.searchState = TerminalSurface.SearchState(needle: initialNeedle)
+            }
             searchFocusNotifier(terminalSurface)
         }
         return true
     }
-
-    terminalSurface.searchState = TerminalSurface.SearchState()
+    terminalSurface.searchState = TerminalSurface.SearchState(needle: initialNeedle)
     searchFocusNotifier(terminalSurface)
     return true
 }
@@ -415,6 +386,7 @@ func shouldRouteCommandEquivalentDirectlyToMainMenu(_ event: NSEvent) -> Bool {
 
 private enum BrowserFindCommandEquivalent {
     case find
+    case findInDirectory
     case findNext
     case findPrevious
     case hideFind
@@ -424,7 +396,7 @@ private enum BrowserFindCommandEquivalent {
         switch self {
         case .find, .findNext, .findPrevious, .hideFind:
             return true
-        case .useSelection:
+        case .findInDirectory, .useSelection:
             return false
         }
     }
@@ -482,10 +454,15 @@ private func browserFindCommandEquivalent(for event: NSEvent) -> BrowserFindComm
         return nil
     case [.command, .shift]:
         if matches("f", keyCode: 3) { // kVK_ANSI_F
-            return .hideFind
+            return .findInDirectory
         }
         if matches("g", keyCode: 5) { // kVK_ANSI_G
             return .findPrevious
+        }
+        return nil
+    case [.command, .option, .shift]:
+        if matches("f", keyCode: 3) { // kVK_ANSI_F
+            return .hideFind
         }
         return nil
     default:
@@ -506,6 +483,10 @@ func shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(
     }
 
     if case .find = shortcut {
+        return false
+    }
+
+    if case .findInDirectory = shortcut {
         return false
     }
 
@@ -562,7 +543,7 @@ func cmuxOwningGhosttyView(for responder: NSResponder?) -> GhosttyNSView? {
 
 func cmuxFieldEditorOwnerView(_ editor: NSTextView) -> NSView? {
     guard editor.isFieldEditor else { return nil }
-
+    if let owner = cmuxTrackedFindFieldEditorOwner(editor) { return owner }
     var current = editor.nextResponder
     while let next = current {
         if let view = next as? NSView {

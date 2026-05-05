@@ -419,72 +419,6 @@ enum FileExplorerError: LocalizedError {
     }
 }
 
-// MARK: - State (visibility toggle)
-
-final class FileExplorerState: ObservableObject {
-    @Published var isVisible: Bool {
-        didSet { UserDefaults.standard.set(isVisible, forKey: "fileExplorer.isVisible") }
-    }
-    @Published var width: CGFloat {
-        didSet { UserDefaults.standard.set(Double(width), forKey: "fileExplorer.width") }
-    }
-
-    /// Proportion of sidebar height allocated to the tab list (0.0-1.0).
-    /// The file explorer gets the remaining space below.
-    @Published var dividerPosition: CGFloat {
-        didSet { UserDefaults.standard.set(Double(dividerPosition), forKey: "fileExplorer.dividerPosition") }
-    }
-
-    /// Whether hidden files (dotfiles) are shown in the tree.
-    @Published var showHiddenFiles: Bool {
-        didSet { UserDefaults.standard.set(showHiddenFiles, forKey: "fileExplorer.showHidden") }
-    }
-
-    /// Active mode for the right sidebar (file tree or session index).
-    @Published var mode: RightSidebarMode {
-        didSet { UserDefaults.standard.set(mode.rawValue, forKey: "rightSidebar.mode") }
-    }
-
-    init() {
-        let defaults = UserDefaults.standard
-        self.isVisible = defaults.bool(forKey: "fileExplorer.isVisible")
-        let storedWidth = defaults.double(forKey: "fileExplorer.width")
-        self.width = storedWidth > 0 ? CGFloat(storedWidth) : 220
-        let storedPosition = defaults.double(forKey: "fileExplorer.dividerPosition")
-        self.dividerPosition = storedPosition > 0 ? CGFloat(storedPosition) : 0.6
-        let storedShowHidden = defaults.object(forKey: "fileExplorer.showHidden")
-        self.showHiddenFiles = storedShowHidden == nil ? true : defaults.bool(forKey: "fileExplorer.showHidden")
-        let storedMode = defaults.string(forKey: "rightSidebar.mode") ?? RightSidebarMode.files.rawValue
-        self.mode = RightSidebarMode(rawValue: storedMode) ?? .files
-    }
-
-    func toggle() {
-        setVisible(!isVisible)
-    }
-
-    func setVisible(_ nextValue: Bool) {
-        guard isVisible != nextValue else { return }
-
-        // Suppress both SwiftUI transactions and AppKit/Core Animation implicit layout changes.
-        NSAnimationContext.beginGrouping()
-        CATransaction.begin()
-        defer {
-            CATransaction.commit()
-            NSAnimationContext.endGrouping()
-        }
-
-        NSAnimationContext.current.duration = 0
-        NSAnimationContext.current.allowsImplicitAnimation = false
-        CATransaction.setDisableActions(true)
-
-        var transaction = Transaction(animation: nil)
-        transaction.disablesAnimations = true
-        withTransaction(transaction) {
-            isVisible = nextValue
-        }
-    }
-}
-
 // MARK: - Store
 
 /// All access must happen on the main thread. Properties are not marked @MainActor
@@ -495,6 +429,7 @@ final class FileExplorerStore: ObservableObject {
     @Published var rootNodes: [FileExplorerNode] = []
     @Published private(set) var isRootLoading: Bool = false
     @Published private(set) var gitStatusByPath: [String: GitFileStatus] = [:]
+    @Published private(set) var contentRevision = 0
 
     var provider: FileExplorerProvider?
 
@@ -610,6 +545,7 @@ final class FileExplorerStore: ObservableObject {
         #if DEBUG
         NSLog("[FileExplorer] reload() path=\(rootPath) provider=\(type(of: provider).self)")
         #endif
+        contentRevision &+= 1
         cancelAllLoads()
         rootNodes = []
         nodesByPath = [:]
