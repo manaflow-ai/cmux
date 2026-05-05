@@ -28,7 +28,7 @@ enum KeyboardShortcutBareStartCache {
         observer = NotificationCenter.default.addObserver(
             forName: KeyboardShortcutSettings.didChangeNotification,
             object: nil,
-            queue: nil
+            queue: .main
         ) { _ in
             configuredKeys = nil
         }
