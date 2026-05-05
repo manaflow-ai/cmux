@@ -92,8 +92,8 @@ fi
 REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
 
 ensure_node_options_restore_module() {
-    local guard_dir="${TMPDIR:-/tmp}"
-    guard_dir="${guard_dir%/}/cmux-claude-node-options"
+    local guard_dir
+    guard_dir="$(node_options_restore_dir)" || return 1
     local guard_path="$guard_dir/restore-node-options.cjs"
     mkdir -p "$guard_dir" || return 1
     local temp_path
@@ -123,9 +123,32 @@ EOF
     printf '%s' "$guard_path"
 }
 
+node_options_restore_dir() {
+    if [[ -n "${CMUX_NODE_OPTIONS_RESTORE_DIR:-}" ]]; then
+        printf '%s' "${CMUX_NODE_OPTIONS_RESTORE_DIR%/}"
+        return 0
+    fi
+
+    local home="${HOME:-}"
+    [[ -n "$home" ]] || return 1
+    printf '%s' "${home%/}/Library/Application Support/cmux/node-options"
+}
+
+node_options_require_flag() {
+    local path="$1"
+    if [[ "$path" == *[[:space:]\"\\]* ]]; then
+        local escaped="${path//\\/\\\\}"
+        escaped="${escaped//\"/\\\"}"
+        printf '%s' "--require=\"$escaped\""
+    else
+        printf '%s' "--require=$path"
+    fi
+}
+
 merge_node_options() {
     local guard_path="$1"
-    local require_flag="--require=$guard_path"
+    local require_flag
+    require_flag="$(node_options_require_flag "$guard_path")"
     local memory_flag="--max-old-space-size=4096"
     local existing="${NODE_OPTIONS:-}"
     local -a filtered=()

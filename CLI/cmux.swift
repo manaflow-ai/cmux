@@ -11782,12 +11782,30 @@ struct CMUXCLI {
     }
 
     private func createClaudeNodeOptionsRestoreModule() throws -> URL {
-        let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-            .appendingPathComponent("cmux-claude-node-options", isDirectory: true)
+        let root = claudeNodeOptionsRestoreDirectory()
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: nil)
         let restoreModuleURL = root.appendingPathComponent("restore-node-options.cjs", isDirectory: false)
         try writeShimIfChanged(Self.claudeNodeOptionsRestoreModule, to: restoreModuleURL)
         return restoreModuleURL
+    }
+
+    private func claudeNodeOptionsRestoreDirectory() -> URL {
+        let homePath = ProcessInfo.processInfo.environment["HOME"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let appSupport: URL
+        if let homePath, !homePath.isEmpty {
+            appSupport = URL(fileURLWithPath: homePath, isDirectory: true)
+                .appendingPathComponent("Library/Application Support", isDirectory: true)
+        } else {
+            appSupport = FileManager.default.urls(
+                for: .applicationSupportDirectory,
+                in: .userDomainMask
+            ).first ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+                .appendingPathComponent("Library/Application Support", isDirectory: true)
+        }
+        return appSupport
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent("node-options", isDirectory: true)
     }
 
     private func runClaudeTeams(
@@ -15366,7 +15384,7 @@ struct CMUXCLI {
     }
 
     private func mergedNodeOptions(existing: String?, restoreModulePath: String) -> String {
-        let requireOption = "--require=\(restoreModulePath)"
+        let requireOption = "--require=\(nodeOptionsRequirePath(restoreModulePath))"
         let memoryOption = "--max-old-space-size=4096"
         let cleanedExisting = cleanedNodeOptions(existing)
         guard !cleanedExisting.isEmpty else {
@@ -15375,10 +15393,20 @@ struct CMUXCLI {
         return "\(requireOption) \(memoryOption) \(cleanedExisting)"
     }
 
+    private func nodeOptionsRequirePath(_ path: String) -> String {
+        let charactersRequiringQuotes = CharacterSet.whitespacesAndNewlines
+            .union(CharacterSet(charactersIn: "\\\""))
+        guard path.rangeOfCharacter(from: charactersRequiringQuotes) != nil else {
+            return path
+        }
+        let escaped = path
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        return "\"\(escaped)\""
+    }
+
     private func cleanedNodeOptions(_ existing: String?) -> String {
-        let tokens = (existing ?? "")
-            .split(whereSeparator: \.isWhitespace)
-            .map(String.init)
+        let tokens = nodeOptionsTokens(existing)
         guard !tokens.isEmpty else { return "" }
 
         var filtered: [String] = []
@@ -15400,9 +15428,7 @@ struct CMUXCLI {
     }
 
     private func normalizedNodeOptionsForRestore(_ existing: String) -> String {
-        let tokens = existing
-            .split(whereSeparator: \.isWhitespace)
-            .map(String.init)
+        let tokens = nodeOptionsTokens(existing)
         guard !tokens.isEmpty else { return "" }
 
         var normalized: [String] = []
@@ -15418,6 +15444,55 @@ struct CMUXCLI {
             index += 1
         }
         return normalized.joined(separator: " ")
+    }
+
+    private func nodeOptionsTokens(_ rawValue: String?) -> [String] {
+        guard let rawValue else { return [] }
+
+        var tokens: [String] = []
+        var current = ""
+        var quote: Character?
+        var escaping = false
+
+        for character in rawValue {
+            if escaping {
+                current.append(character)
+                escaping = false
+                continue
+            }
+            if character == "\\" {
+                escaping = true
+                continue
+            }
+            if let activeQuote = quote {
+                if character == activeQuote {
+                    quote = nil
+                } else {
+                    current.append(character)
+                }
+                continue
+            }
+            if character == "\"" || character == "'" {
+                quote = character
+                continue
+            }
+            if character.isWhitespace {
+                if !current.isEmpty {
+                    tokens.append(current)
+                    current = ""
+                }
+                continue
+            }
+            current.append(character)
+        }
+
+        if escaping {
+            current.append("\\")
+        }
+        if !current.isEmpty {
+            tokens.append(current)
+        }
+        return tokens
     }
 
     // MARK: - Codex hooks
@@ -15632,9 +15707,7 @@ struct CMUXCLI {
     }
 
     private func sanitizedAgentLaunchNodeOptions(_ rawValue: String?) -> String? {
-        let tokens = rawValue?
-            .split(whereSeparator: \.isWhitespace)
-            .map(String.init) ?? []
+        let tokens = nodeOptionsTokens(rawValue)
         guard !tokens.isEmpty else { return nil }
 
         var sanitized: [String] = []
@@ -15688,7 +15761,9 @@ struct CMUXCLI {
         guard URL(fileURLWithPath: trimmed).lastPathComponent == "restore-node-options.cjs" else {
             return false
         }
-        return trimmed.contains("/cmux-")
+        let path = URL(fileURLWithPath: trimmed).standardizedFileURL.path
+        return path.contains("/cmux-claude-node-options/")
+            || path.contains("/cmux/node-options/")
     }
 
     private func isInjectedNodeHeapCap(_ tokens: [String], index: Int) -> Bool {

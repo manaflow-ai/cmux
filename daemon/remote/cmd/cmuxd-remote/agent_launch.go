@@ -314,7 +314,10 @@ func writeShimIfChanged(path string, content string) error {
 }
 
 func ensureClaudeNodeOptionsRestoreModule() (string, error) {
-	dir := filepath.Join(os.TempDir(), "cmux-claude-node-options")
+	dir, err := claudeNodeOptionsRestoreDir()
+	if err != nil {
+		return "", err
+	}
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", err
 	}
@@ -323,6 +326,14 @@ func ensureClaudeNodeOptionsRestoreModule() (string, error) {
 		return "", err
 	}
 	return restoreModulePath, nil
+}
+
+func claudeNodeOptionsRestoreDir() (string, error) {
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(configDir, "cmux", "node-options"), nil
 }
 
 // --- Focused context ---
@@ -387,13 +398,22 @@ func configureClaudeNodeOptions(restoreModulePath string) {
 }
 
 func mergeNodeOptions(existing string, restoreModulePath string) string {
-	requireFlag := "--require=" + restoreModulePath
+	requireFlag := "--require=" + nodeOptionsRequirePath(restoreModulePath)
 	const memoryFlag = "--max-old-space-size=4096"
 	cleaned := cleanedNodeOptions(existing)
 	if cleaned == "" {
 		return requireFlag + " " + memoryFlag
 	}
 	return requireFlag + " " + memoryFlag + " " + cleaned
+}
+
+func nodeOptionsRequirePath(path string) string {
+	if !strings.ContainsAny(path, " \t\r\n\"\\") {
+		return path
+	}
+	escaped := strings.ReplaceAll(path, "\\", "\\\\")
+	escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
+	return "\"" + escaped + "\""
 }
 
 func cleanedNodeOptions(existing string) string {

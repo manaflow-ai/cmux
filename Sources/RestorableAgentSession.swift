@@ -571,9 +571,7 @@ private enum AgentResumeCommandBuilder {
     }
 
     private static func sanitizedNodeOptions(_ rawValue: String?) -> String? {
-        let tokens = rawValue?
-            .split(whereSeparator: \.isWhitespace)
-            .map(String.init) ?? []
+        let tokens = nodeOptionsTokens(rawValue)
         guard !tokens.isEmpty else { return nil }
 
         var sanitized: [String] = []
@@ -627,7 +625,58 @@ private enum AgentResumeCommandBuilder {
         guard URL(fileURLWithPath: trimmed).lastPathComponent == "restore-node-options.cjs" else {
             return false
         }
-        return trimmed.contains("/cmux-")
+        let path = URL(fileURLWithPath: trimmed).standardizedFileURL.path
+        return path.contains("/cmux-claude-node-options/")
+            || path.contains("/cmux/node-options/")
+    }
+
+    private static func nodeOptionsTokens(_ rawValue: String?) -> [String] {
+        guard let rawValue else { return [] }
+
+        var tokens: [String] = []
+        var current = ""
+        var quote: Character?
+        var escaping = false
+
+        for character in rawValue {
+            if escaping {
+                current.append(character)
+                escaping = false
+                continue
+            }
+            if character == "\\" {
+                escaping = true
+                continue
+            }
+            if let activeQuote = quote {
+                if character == activeQuote {
+                    quote = nil
+                } else {
+                    current.append(character)
+                }
+                continue
+            }
+            if character == "\"" || character == "'" {
+                quote = character
+                continue
+            }
+            if character.isWhitespace {
+                if !current.isEmpty {
+                    tokens.append(current)
+                    current = ""
+                }
+                continue
+            }
+            current.append(character)
+        }
+
+        if escaping {
+            current.append("\\")
+        }
+        if !current.isEmpty {
+            tokens.append(current)
+        }
+        return tokens
     }
 
     private static func isInjectedNodeHeapCap(_ tokens: [String], index: Int) -> Bool {

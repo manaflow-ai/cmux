@@ -411,6 +411,11 @@ func TestMergeNodeOptions(t *testing.T) {
 	if got := mergeNodeOptions(spaceSeparated, restoreModulePath); got != "--require=/tmp/restore-node-options.cjs --max-old-space-size=4096 --trace-warnings" {
 		t.Fatalf("mergeNodeOptions should replace space-separated size flag = %q", got)
 	}
+
+	appSupportPath := "/Users/example/Library/Application Support/cmux/node-options/restore-node-options.cjs"
+	if got := mergeNodeOptions("--trace-warnings", appSupportPath); got != "--require=\"/Users/example/Library/Application Support/cmux/node-options/restore-node-options.cjs\" --max-old-space-size=4096 --trace-warnings" {
+		t.Fatalf("mergeNodeOptions should quote restore paths with spaces = %q", got)
+	}
 }
 
 func TestTmuxWaitForSignalRoundTrip(t *testing.T) {
