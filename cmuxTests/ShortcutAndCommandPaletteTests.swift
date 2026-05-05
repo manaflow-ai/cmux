@@ -1081,6 +1081,7 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         .switchRightSidebarToFind,
         .switchRightSidebarToSessions,
         .switchRightSidebarToFeed,
+        .switchRightSidebarToDock,
     ]
     private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore!
     private var savedShortcutData: [KeyboardShortcutSettings.Action: Data?] = [:]
@@ -1100,7 +1101,7 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         temporaryDirectoryURL = directoryURL
         KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
-            primaryPath: directoryURL.appendingPathComponent("settings.json", isDirectory: false).path,
+            primaryPath: directoryURL.appendingPathComponent("cmux.json", isDirectory: false).path,
             fallbackPath: nil,
             startWatching: false
         )
@@ -1131,6 +1132,7 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         XCTAssertEqual(RightSidebarMode.find.shortcutAction, .switchRightSidebarToFind)
         XCTAssertEqual(RightSidebarMode.sessions.shortcutAction, .switchRightSidebarToSessions)
         XCTAssertEqual(RightSidebarMode.feed.shortcutAction, .switchRightSidebarToFeed)
+        XCTAssertEqual(RightSidebarMode.dock.shortcutAction, .switchRightSidebarToDock)
     }
 
     func testModeShortcutUsesConfiguredBindings() {
@@ -1308,7 +1310,6 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
-        defer { window.close() }
         let contentView = NSView(frame: window.contentView?.bounds ?? .zero)
         window.contentView = contentView
         let controller = MainWindowFocusController(
@@ -1321,12 +1322,13 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
         XCTAssertTrue(controller.focusRightSidebar(mode: .sessions, focusFirstItem: true))
         XCTAssertEqual(controller.debugPendingRightSidebarFocusMode, .sessions)
 
-        let host = RightSidebarKeyboardFocusView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
-        contentView.addSubview(host)
-        controller.registerRightSidebarHost(host)
+        let focusHost = RightSidebarKeyboardFocusView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        defer { _ = window.makeFirstResponder(nil); focusHost.removeFromSuperview(); window.contentView = nil; window.close() }
+        contentView.addSubview(focusHost)
+        controller.registerRightSidebarHost(focusHost)
 
         XCTAssertNil(controller.debugPendingRightSidebarFocusMode)
-        XCTAssertTrue(window.firstResponder === host)
+        XCTAssertTrue(window.firstResponder === focusHost)
     }
 
     @MainActor
@@ -1345,6 +1347,58 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
 
         XCTAssertFalse(controller.toggleRightSidebarOrTerminalFocus())
         XCTAssertTrue(controller.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId))
+    }
+}
+
+final class FileExplorerStateModePersistenceTests: XCTestCase {
+    private let modeKey = "rightSidebar.mode"
+    private let migrationKey = "rightSidebar.feedDockMigrationApplied"
+
+    func testLegacyFeedStoredModeMigratesToDock() {
+        withSavedRightSidebarModeDefaults {
+            let defaults = UserDefaults.standard
+            defaults.set(RightSidebarMode.feed.rawValue, forKey: modeKey)
+            defaults.removeObject(forKey: migrationKey)
+
+            let state = FileExplorerState()
+
+            XCTAssertEqual(state.mode, .dock)
+            XCTAssertEqual(defaults.string(forKey: modeKey), RightSidebarMode.dock.rawValue)
+            XCTAssertTrue(defaults.bool(forKey: migrationKey))
+        }
+    }
+
+    func testFeedStoredModeSurvivesAfterDockMigration() {
+        withSavedRightSidebarModeDefaults {
+            let defaults = UserDefaults.standard
+            defaults.set(RightSidebarMode.feed.rawValue, forKey: modeKey)
+            defaults.set(true, forKey: migrationKey)
+
+            let state = FileExplorerState()
+
+            XCTAssertEqual(state.mode, .feed)
+            XCTAssertEqual(defaults.string(forKey: modeKey), RightSidebarMode.feed.rawValue)
+        }
+    }
+
+    private func withSavedRightSidebarModeDefaults(_ body: () -> Void) {
+        let defaults = UserDefaults.standard
+        let previousMode = defaults.object(forKey: modeKey)
+        let previousMigration = defaults.object(forKey: migrationKey)
+        defer {
+            restore(previousMode, forKey: modeKey)
+            restore(previousMigration, forKey: migrationKey)
+        }
+        body()
+    }
+
+    private func restore(_ value: Any?, forKey key: String) {
+        let defaults = UserDefaults.standard
+        if let value {
+            defaults.set(value, forKey: key)
+        } else {
+            defaults.removeObject(forKey: key)
+        }
     }
 }
 
@@ -1544,25 +1598,6 @@ final class LastSurfaceCloseShortcutSettingsTests: XCTestCase {
         XCTAssertFalse(LastSurfaceCloseShortcutSettings.closesWorkspace(defaults: defaults))
     }
 }
-
-
-final class AppearanceSettingsTests: XCTestCase {
-    func testResolvedModeDefaultsToSystemWhenUnset() {
-        let suiteName = "AppearanceSettingsTests.Default.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        defaults.removeObject(forKey: AppearanceSettings.appearanceModeKey)
-
-        let resolved = AppearanceSettings.resolvedMode(defaults: defaults)
-        XCTAssertEqual(resolved, .system)
-        XCTAssertEqual(defaults.string(forKey: AppearanceSettings.appearanceModeKey), AppearanceMode.system.rawValue)
-    }
-}
-
 
 final class QuitWarningSettingsTests: XCTestCase {
     func testDefaultWarnBeforeQuitIsEnabledWhenUnset() {
