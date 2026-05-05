@@ -301,32 +301,24 @@ private struct IndexSectionView: View, Equatable {
         VStack(alignment: .leading, spacing: 0) {
             sectionHeader
             if !isCollapsed {
-                if section.entries.isEmpty {
-                    Text(String(localized: "sessionIndex.section.noChats", defaultValue: "No chats"))
-                        .font(.system(size: 12))
-                        .foregroundColor(.secondary.opacity(0.6))
-                        .padding(.leading, 32)
-                        .padding(.vertical, 4)
-                } else {
-                    ForEach(Array(section.entries.prefix(rowLimit))) { entry in
-                        SessionRow(
-                            entry: entry,
-                            isPreviewPresented: previewEntryId == entry.id,
-                            onPreviewPresentationChange: { isPresented in
-                                if isPresented {
-                                    actions.onPreviewEntry(entry)
-                                } else {
-                                    actions.onDismissPreview(entry.id)
-                                }
-                            },
-                            onResume: actions.onResume
-                        )
-                            .equatable()
-                            .id(entry.id)
-                    }
-                    if section.entries.count > rowLimit {
-                        showMoreButton
-                    }
+                ForEach(Array(section.entries.prefix(rowLimit))) { entry in
+                    SessionRow(
+                        entry: entry,
+                        isPreviewPresented: previewEntryId == entry.id,
+                        onPreviewPresentationChange: { isPresented in
+                            if isPresented {
+                                actions.onPreviewEntry(entry)
+                            } else {
+                                actions.onDismissPreview(entry.id)
+                            }
+                        },
+                        onResume: actions.onResume
+                    )
+                        .equatable()
+                        .id(entry.id)
+                }
+                if section.entries.count > rowLimit {
+                    showMoreButton
                 }
                 Spacer(minLength: 2)
             }

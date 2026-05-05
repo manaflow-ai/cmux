@@ -520,12 +520,14 @@ final class SessionIndexStore: ObservableObject {
         let sections: [IndexSection]
         switch grouping {
         case .agent:
-            sections = agentOrder.map { agent in
-                IndexSection(
+            let buckets = Dictionary(grouping: visible, by: \.agent)
+            sections = agentOrder.compactMap { agent in
+                guard let entries = buckets[agent], !entries.isEmpty else { return nil }
+                return IndexSection(
                     key: .agent(agent),
                     title: agent.displayName,
                     icon: .agent(agent),
-                    entries: visible.filter { $0.agent == agent }
+                    entries: entries
                 )
             }
         case .directory:
