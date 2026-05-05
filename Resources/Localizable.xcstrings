@@ -56989,6 +56989,363 @@
         }
       }
     },
+    "settings.app.sshFileUpload": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH File Upload"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSHファイルアップロード"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 文件上传"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 檔案上傳"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 파일 업로드"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH-Dateiupload"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carga de archivos por SSH"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transfert de fichiers SSH"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Caricamento file SSH"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH-filopload"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przesyłanie plików SSH"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Загрузка файлов по SSH"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH prijenos datoteka"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رفع الملفات عبر SSH"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH-filopplasting"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upload de arquivos SSH"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อัปโหลดไฟล์ผ่าน SSH"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH Dosya Yükleme"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Завантаження файлів через SSH"
+          }
+        }
+      }
+    },
+    "settings.app.sshFileUpload.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH file upload is disabled. Dragged files insert their local path instead."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSHファイルアップロードは無効です。ドラッグされたファイルはローカルパスとして挿入されます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 文件上传已禁用。拖放的文件将插入本地路径。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 檔案上傳已停用。拖放的檔案將插入本機路徑。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 파일 업로드가 비활성화되었습니다. 드래그한 파일은 로컬 경로로 삽입됩니다."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH-Dateiupload ist deaktiviert. Gezogene Dateien werden als lokaler Pfad eingefügt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La carga SSH está desactivada. Los archivos arrastrados insertan su ruta local."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le transfert SSH est désactivé. Les fichiers glissés insèrent leur chemin local."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il caricamento SSH è disabilitato. I file trascinati inseriscono il loro percorso locale."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH-filopload er deaktiveret. Trukne filer indsætter deres lokale sti."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przesyłanie plików SSH jest wyłączone. Przeciągnięte pliki wstawiają lokalną ścieżkę."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Загрузка файлов по SSH отключена. Перетащенные файлы вставляют локальный путь."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH prijenos datoteka je onemogućen. Prevučene datoteke umjesto toga umeću lokalni put."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رفع الملفات عبر SSH معطّل. تُدرج الملفات المسحوبة مسارها المحلي بدلاً من ذلك."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH-filopplasting er deaktivert. Dragte filer setter inn den lokale banen i stedet."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upload SSH está desativado. Arquivos arrastados inserem o caminho local."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การอัปโหลดไฟล์ผ่าน SSH ถูกปิดใช้งาน ไฟล์ที่ลากจะแทรกเส้นทางในเครื่องแทน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH dosya yükleme devre dışı. Sürüklenen dosyalar yerel yollarını ekler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Завантаження файлів через SSH вимкнено. Перетягнуті файли вставляють локальний шлях."
+          }
+        }
+      }
+    },
+    "settings.app.sshFileUpload.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Files dragged into SSH sessions are uploaded via scp."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSHセッションにドラッグされたファイルはscpでアップロードされます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拖放到 SSH 会话的文件将通过 scp 上传。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拖放到 SSH 工作階段的檔案將透過 scp 上傳。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 세션으로 드래그한 파일은 scp를 통해 업로드됩니다."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In SSH-Sitzungen gezogene Dateien werden per scp hochgeladen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los archivos arrastrados a sesiones SSH se suben mediante scp."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les fichiers glissés dans les sessions SSH sont téléversés via scp."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I file trascinati nelle sessioni SSH vengono caricati tramite scp."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filer trukket ind i SSH-sessioner uploades via scp."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pliki przeciągnięte do sesji SSH są przesyłane przez scp."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Файлы, перетащенные в SSH-сессии, загружаются по scp."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Datoteke prevučene u SSH sesije prenose se putem scp."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتم رفع الملفات المسحوبة إلى جلسات SSH عبر scp."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filer dradd inn i SSH-sesjoner lastes opp via scp."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arquivos arrastados para sessões SSH são enviados via scp."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไฟล์ที่ลากเข้าไปในเซสชัน SSH จะถูกอัปโหลดผ่าน scp"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH oturumlarına sürüklenen dosyalar scp aracılığıyla yüklenir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Файли, перетягнуті в SSH-сесії, завантажуються через scp."
+          }
+        }
+      }
+    },
     "settings.app.theme": {
       "extractionState": "manual",
       "localizations": {

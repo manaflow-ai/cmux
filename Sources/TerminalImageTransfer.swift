@@ -386,6 +386,14 @@ extension TerminalSurface {
     @MainActor
     func resolvedImageTransferTarget() -> TerminalImageTransferTarget {
         guard let workspace = owningWorkspace() else { return .local }
+        // Both remote paths below are scp-backed: the workspace-remote path
+        // goes through `uploadDroppedFilesLocked` in Workspace.swift, which
+        // calls scp, and the detected-SSH path goes through
+        // TerminalSSHSessionDetector.uploadDroppedFiles, which also calls scp.
+        // So the upload toggle must be evaluated *before* picking either
+        // remote branch, otherwise the workspace-remote path silently
+        // bypasses the setting.
+        guard SSHFileUploadSettings.isEnabled() else { return .local }
         if workspace.isRemoteTerminalSurface(id) {
             return .remote(.workspaceRemote)
         }
