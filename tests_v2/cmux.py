@@ -900,10 +900,17 @@ class cmux:
                 ref_index = int(ref_index_str)
             except ValueError:
                 ref_index = -1
+            resolved: Optional[str] = None
             for row in ws_items:
                 if int(row.get("index", -1)) == ref_index:
-                    target = str(row.get("id"))
+                    resolved = str(row.get("id"))
                     break
+            if resolved is None:
+                # Fail fast on unknown ref so caller mistakes don't masquerade
+                # as "no bells" — matches the behavior of other workspace-scoped
+                # helpers that raise on bad indexes.
+                raise cmuxError(f"Workspace index not found: {ref_index}")
+            target = resolved
         if not target:
             return []
         for entry in entries:
