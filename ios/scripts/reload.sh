@@ -29,6 +29,34 @@ run_with_timeout() {
     return "$command_status"
 }
 
+terminate_installed_simulator_cmux_dev_apps() {
+    local simulator_id="$1"
+    local app_container_dir="$HOME/Library/Developer/CoreSimulator/Devices/$simulator_id/data/Containers/Bundle/Application"
+    [ -d "$app_container_dir" ] || return 0
+
+    # Simulator foregrounding is per app process, not per bundle prefix. Kill old
+    # tagged iOS dev builds so screenshots and taps always hit the requested tag.
+    local had_nullglob=0
+    if shopt -q nullglob; then
+        had_nullglob=1
+    fi
+    shopt -s nullglob
+
+    local plist_path installed_bundle_id
+    for plist_path in "$app_container_dir"/*/*.app/Info.plist; do
+        installed_bundle_id="$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$plist_path" 2>/dev/null || true)"
+        case "$installed_bundle_id" in
+            dev.cmux.ios.*)
+                run_with_timeout 8 xcrun simctl terminate "$simulator_id" "$installed_bundle_id" >/dev/null 2>&1 || true
+                ;;
+        esac
+    done
+
+    if [ "$had_nullglob" -eq 0 ]; then
+        shopt -u nullglob
+    fi
+}
+
 merge_status() {
     local current="$1"
     local next="$2"
@@ -260,6 +288,7 @@ if [ -n "$BOOTED_SIMS" ]; then
     SIMULATOR_STATUS="succeeded"
     while IFS= read -r SIM_ID; do
         [ -n "$SIM_ID" ] || continue
+        terminate_installed_simulator_cmux_dev_apps "$SIM_ID"
         run_with_timeout 8 xcrun simctl terminate "$SIM_ID" "$BUNDLE_ID" >/dev/null 2>&1 || true
         if ! run_with_timeout 30 xcrun simctl install "$SIM_ID" "$SIM_APP_PATH"; then
             echo "Simulator install failed for $SIM_ID" >&2
