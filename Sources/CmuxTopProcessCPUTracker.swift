@@ -6,8 +6,44 @@ struct CmuxTopProcessCPUSample: Sendable {
     let sampledAtNanoseconds: UInt64
 }
 
-private let cmuxTopCPUSampleLock = NSLock()
-private var cmuxTopCPUSamples: [CmuxTopProcessScopeCacheKey: CmuxTopProcessCPUSample] = [:]
+// CmuxTopProcessSnapshot.capture is intentionally synchronous because it backs
+// both async task-manager sampling and sync v2 system.top socket handling. Keep
+// this tiny lock isolated to dictionary reads/writes; proc/sysctl work must
+// happen outside the critical section.
+private final class CmuxTopCPUSampleStore: @unchecked Sendable {
+    private let lock = NSLock()
+    private var samples: [CmuxTopProcessScopeCacheKey: CmuxTopProcessCPUSample] = [:]
+
+    func previousSamplesForCapture() -> [CmuxTopProcessScopeCacheKey: CmuxTopProcessCPUSample] {
+        lock.lock()
+        defer { lock.unlock() }
+        return samples
+    }
+
+    func recordSamples(
+        _ currentSamples: [CmuxTopProcessScopeCacheKey: CmuxTopProcessCPUSample],
+        activeKeys: Set<CmuxTopProcessScopeCacheKey>,
+        sampledAtNanoseconds: UInt64
+    ) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        for (key, sample) in currentSamples {
+            guard activeKeys.contains(key) else { continue }
+            if let existing = samples[key],
+               existing.sampledAtNanoseconds > sample.sampledAtNanoseconds {
+                continue
+            }
+            samples[key] = sample
+        }
+
+        samples = samples.filter { entry in
+            activeKeys.contains(entry.key) || entry.value.sampledAtNanoseconds > sampledAtNanoseconds
+        }
+    }
+}
+
+private let cmuxTopCPUSampleStore = CmuxTopCPUSampleStore()
 private let cmuxTopAbsoluteTimeNanosecondsRatio: Double = {
     var info = mach_timebase_info_data_t()
     guard mach_timebase_info(&info) == KERN_SUCCESS, info.denom > 0 else {
@@ -22,28 +58,19 @@ extension CmuxTopProcessSnapshot {
     }
 
     static func previousCPUSamplesForCapture() -> [CmuxTopProcessScopeCacheKey: CmuxTopProcessCPUSample] {
-        cmuxTopCPUSampleLock.lock()
-        let samples = cmuxTopCPUSamples
-        cmuxTopCPUSampleLock.unlock()
-        return samples
+        cmuxTopCPUSampleStore.previousSamplesForCapture()
     }
 
     static func recordCPUSamples(
         _ samples: [CmuxTopProcessScopeCacheKey: CmuxTopProcessCPUSample],
-        activeKeys: Set<CmuxTopProcessScopeCacheKey>
+        activeKeys: Set<CmuxTopProcessScopeCacheKey>,
+        sampledAtNanoseconds: UInt64
     ) {
-        cmuxTopCPUSampleLock.lock()
-        var nextSamples = cmuxTopCPUSamples.filter { activeKeys.contains($0.key) }
-        for (key, sample) in samples {
-            guard activeKeys.contains(key) else { continue }
-            if let existing = nextSamples[key],
-               existing.sampledAtNanoseconds > sample.sampledAtNanoseconds {
-                continue
-            }
-            nextSamples[key] = sample
-        }
-        cmuxTopCPUSamples = nextSamples
-        cmuxTopCPUSampleLock.unlock()
+        cmuxTopCPUSampleStore.recordSamples(
+            samples,
+            activeKeys: activeKeys,
+            sampledAtNanoseconds: sampledAtNanoseconds
+        )
     }
 
     static func cpuSample(
@@ -62,7 +89,9 @@ extension CmuxTopProcessSnapshot {
     ) -> Double {
         guard let previous,
               current.sampledAtNanoseconds > previous.sampledAtNanoseconds,
-              current.totalTimeTicks >= previous.totalTimeTicks else {
+              current.totalTimeTicks >= previous.totalTimeTicks,
+              current.totalTimeTicks != UInt64.max,
+              previous.totalTimeTicks != UInt64.max else {
             return 0
         }
 

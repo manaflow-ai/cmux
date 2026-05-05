@@ -285,7 +285,11 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
                     }
                     processInfos.append(processInfo)
                 }
-                recordCPUSamples(currentCPUSamples, activeKeys: activeScopeKeys)
+                recordCPUSamples(
+                    currentCPUSamples,
+                    activeKeys: activeScopeKeys,
+                    sampledAtNanoseconds: sampledAtNanoseconds
+                )
                 pruneCMUXScopeCache(activeKeys: activeScopeKeys)
                 return processInfos
             }

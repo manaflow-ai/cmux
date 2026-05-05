@@ -8,6 +8,19 @@ import XCTest
 #endif
 
 final class CmuxTopProcessCPUTests: XCTestCase {
+    func testOverflowSentinelReportsZeroCPUPercent() {
+        let previous = CmuxTopProcessCPUSample(
+            totalTimeTicks: 100,
+            sampledAtNanoseconds: 1_000
+        )
+        let current = CmuxTopProcessCPUSample(
+            totalTimeTicks: UInt64.max,
+            sampledAtNanoseconds: 2_000
+        )
+
+        XCTAssertEqual(CmuxTopProcessSnapshot.cpuPercent(current: current, previous: previous), 0)
+    }
+
     func testBusyChildProcessReportsNonZeroCPUPercent() throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
