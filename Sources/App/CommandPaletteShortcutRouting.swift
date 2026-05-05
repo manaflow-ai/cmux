@@ -4,8 +4,8 @@ func commandPaletteSelectionDeltaForKeyboardNavigation(
     flags: NSEvent.ModifierFlags,
     chars: String,
     keyCode: UInt16,
-    nextShortcut: StoredShortcut? = KeyboardShortcutSettings.Action.commandPaletteNext.defaultShortcut,
-    previousShortcut: StoredShortcut? = KeyboardShortcutSettings.Action.commandPalettePrevious.defaultShortcut,
+    nextShortcut: StoredShortcut?,
+    previousShortcut: StoredShortcut?,
     layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
 ) -> Int? {
     let normalizedFlags = flags
@@ -41,6 +41,23 @@ func commandPaletteSelectionDeltaForKeyboardNavigation(
     }
 
     return nil
+}
+
+@MainActor
+func commandPaletteSelectionDeltaForKeyboardNavigation(
+    flags: NSEvent.ModifierFlags,
+    chars: String,
+    keyCode: UInt16,
+    layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
+) -> Int? {
+    commandPaletteSelectionDeltaForKeyboardNavigation(
+        flags: flags,
+        chars: chars,
+        keyCode: keyCode,
+        nextShortcut: KeyboardShortcutSettings.shortcutIfBound(for: .commandPaletteNext),
+        previousShortcut: KeyboardShortcutSettings.shortcutIfBound(for: .commandPalettePrevious),
+        layoutCharacterProvider: layoutCharacterProvider
+    )
 }
 
 @MainActor

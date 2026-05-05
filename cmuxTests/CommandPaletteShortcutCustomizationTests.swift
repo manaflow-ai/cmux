@@ -74,6 +74,45 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
         )
     }
 
+    func testKeyboardNavigationDefaultLookupHonorsClearedCommandPalettePreviousShortcut() {
+        withTemporaryCommandPalettePreviousShortcut {
+            KeyboardShortcutSettings.unbindShortcut(for: .commandPalettePrevious)
+            XCTAssertNil(KeyboardShortcutSettings.shortcutIfBound(for: .commandPalettePrevious))
+
+            XCTAssertNil(
+                commandPaletteSelectionDeltaForKeyboardNavigation(
+                    flags: [.control],
+                    chars: "\u{10}",
+                    keyCode: 35
+                ),
+                "Default keyboard-navigation lookup must not fall back to hardcoded Ctrl+P after unbinding"
+            )
+        }
+    }
+
+    func testKeyboardNavigationDefaultLookupHonorsRemappedCommandPalettePreviousShortcut() {
+        withTemporaryCommandPalettePreviousShortcut {
+            let remappedPrevious = StoredShortcut(key: "u", command: false, shift: false, option: false, control: true)
+            KeyboardShortcutSettings.setShortcut(remappedPrevious, for: .commandPalettePrevious)
+
+            XCTAssertNil(
+                commandPaletteSelectionDeltaForKeyboardNavigation(
+                    flags: [.control],
+                    chars: "\u{10}",
+                    keyCode: 35
+                )
+            )
+            XCTAssertEqual(
+                commandPaletteSelectionDeltaForKeyboardNavigation(
+                    flags: [.control],
+                    chars: "\u{15}",
+                    keyCode: 32
+                ),
+                -1
+            )
+        }
+    }
+
     func testFieldEditorMoveCommandWithoutEventHonorsClearedCommandPalettePreviousShortcut() {
         XCTAssertNil(
             commandPaletteSelectionDeltaForFieldEditorCommand(
