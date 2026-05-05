@@ -19,6 +19,16 @@ private struct Sample {
     let hiddenAfterDismiss: Bool
 }
 
+private struct CmdTabActivationSample {
+    let requestCallMs: Double
+    let activeMs: Double
+    let callToActiveMs: Double
+    let visibleMs: Double
+    let callToVisibleMs: Double
+    let focusedMs: Double
+    let callToFocusedMs: Double
+}
+
 private func monotonicMs() -> Double {
     Double(DispatchTime.now().uptimeNanoseconds) / 1_000_000
 }
@@ -289,6 +299,123 @@ private func terminateExisting(bundleIdentifier: String) {
     }
 }
 
+private func runCmdTabActivationBenchmark(
+    appURL: URL,
+    bundleIdentifier: String,
+    app: NSRunningApplication,
+    appElement: AXUIElement,
+    sampleCount: Int,
+    useCGVisibility: Bool,
+    activateAllWindows: Bool
+) {
+    func hasVisibleBenchmarkWindow(_ runningApp: NSRunningApplication? = nil) -> Bool {
+        if useCGVisibility {
+            guard let processIdentifier = (runningApp ?? runningApplication(bundleIdentifier: bundleIdentifier))?.processIdentifier else {
+                return false
+            }
+            return hasVisibleCGWindow(processIdentifier: processIdentifier)
+        }
+        return !visibleAXWindows(appElement).isEmpty
+    }
+
+    var samples: [CmdTabActivationSample] = []
+    var failuresByReason: [String: Int] = [:]
+
+    func recordFailure(_ reason: String) {
+        failuresByReason[reason, default: 0] += 1
+    }
+
+    for _ in 0..<sampleCount {
+        if !hasVisibleBenchmarkWindow(app) {
+            _ = openApplication(appURL: appURL, bundleIdentifier: bundleIdentifier)
+        }
+        guard waitUntil(timeout: 5, { hasVisibleBenchmarkWindow(app) }) else {
+            recordFailure("initial_visible_timeout")
+            continue
+        }
+        if !useCGVisibility, let window = preferredBenchmarkWindow(appElement) {
+            _ = AXUIElementPerformAction(window, kAXRaiseAction as CFString)
+        }
+
+        activateFinder(except: app)
+        guard waitUntil(timeout: 2, {
+            runningApplication(bundleIdentifier: bundleIdentifier)?.isActive == false
+        }) else {
+            recordFailure("deactivate_timeout")
+            continue
+        }
+        guard let running = runningApplication(bundleIdentifier: bundleIdentifier) else {
+            recordFailure("missing_running_app")
+            continue
+        }
+
+        let requestStart = monotonicMs()
+        let options: NSApplication.ActivationOptions = activateAllWindows ? [.activateAllWindows] : []
+        let activated = running.activate(options: options)
+        let requestEnd = monotonicMs()
+        guard activated else {
+            recordFailure("activate_returned_false")
+            continue
+        }
+
+        guard waitUntil(timeout: 5, {
+            running.isActive || runningApplication(bundleIdentifier: bundleIdentifier)?.isActive == true
+        }) else {
+            recordFailure("active_timeout")
+            continue
+        }
+        let activeEnd = monotonicMs()
+
+        guard waitUntil(timeout: 5, {
+            running.isHidden == false && (
+                useCGVisibility
+                    ? hasVisibleCGWindow(processIdentifier: running.processIdentifier)
+                    : preferredBenchmarkWindow(appElement) != nil
+            )
+        }) else {
+            recordFailure("visible_timeout")
+            continue
+        }
+        let visibleEnd = monotonicMs()
+
+        let focusedEnd: Double
+        if useCGVisibility {
+            focusedEnd = visibleEnd
+        } else {
+            guard waitUntil(timeout: 5, { focusedAXWindow(appElement) != nil }) else {
+                recordFailure("focused_timeout")
+                continue
+            }
+            focusedEnd = monotonicMs()
+        }
+
+        samples.append(
+            CmdTabActivationSample(
+                requestCallMs: requestEnd - requestStart,
+                activeMs: activeEnd - requestStart,
+                callToActiveMs: activeEnd - requestEnd,
+                visibleMs: visibleEnd - requestStart,
+                callToVisibleMs: visibleEnd - requestEnd,
+                focusedMs: focusedEnd - requestStart,
+                callToFocusedMs: focusedEnd - requestEnd
+            )
+        )
+    }
+
+    summarize("cmdtab_activate_request_call", samples.map(\.requestCallMs))
+    summarize("cmdtab_activate_active", samples.map(\.activeMs))
+    summarize("cmdtab_activate_call_to_active", samples.map(\.callToActiveMs))
+    summarize("cmdtab_activate_visible", samples.map(\.visibleMs))
+    summarize("cmdtab_activate_call_to_visible", samples.map(\.callToVisibleMs))
+    summarize("cmdtab_activate_focused", samples.map(\.focusedMs))
+    summarize("cmdtab_activate_call_to_focused", samples.map(\.callToFocusedMs))
+    let failureSummary = failuresByReason
+        .sorted { $0.key < $1.key }
+        .map { "\($0.key)=\($0.value)" }
+        .joined(separator: ",")
+    print("failures=\(failuresByReason.values.reduce(0, +)) \(failureSummary)")
+}
+
 private func requireTrustedAccessibility() {
     let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: false] as CFDictionary
     guard AXIsProcessTrustedWithOptions(options) else {
@@ -304,15 +431,18 @@ private func main() {
         exit(64)
     }
 
-    requireTrustedAccessibility()
-
     let appURL = URL(fileURLWithPath: arguments[1])
     let bundleIdentifier = arguments[2]
     let verbose = arguments.contains("--verbose")
     let activateRestore = arguments.contains("--activate-restore")
+    let cmdTabActivation = arguments.contains("--cmd-tab-activation")
+    let cmdTabActivateAllWindows = arguments.contains("--cmd-tab-activate-all-windows")
     let reuseRunning = arguments.contains("--reuse-running")
     let useCGVisibility = arguments.contains("--cg-visibility")
     let sampleCount = arguments.dropFirst(3).first(where: { Int($0) != nil }).flatMap(Int.init) ?? 15
+    if !cmdTabActivation || !useCGVisibility || verbose {
+        requireTrustedAccessibility()
+    }
 
     if !reuseRunning {
         terminateExisting(bundleIdentifier: bundleIdentifier)
@@ -343,6 +473,19 @@ private func main() {
     }
     if verbose {
         debugWindowList(appElement)
+    }
+
+    if cmdTabActivation {
+        runCmdTabActivationBenchmark(
+            appURL: appURL,
+            bundleIdentifier: bundleIdentifier,
+            app: app,
+            appElement: appElement,
+            sampleCount: sampleCount,
+            useCGVisibility: useCGVisibility,
+            activateAllWindows: cmdTabActivateAllWindows
+        )
+        return
     }
 
     var samples: [Sample] = []

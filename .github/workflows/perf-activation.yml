@@ -112,6 +112,19 @@ jobs:
             --output perf-results/activation-session.json \
             --junit perf-results/activation-session.junit.xml
 
+      - name: Run Cmd-Tab activation benchmark
+        run: |
+          set -euo pipefail
+          APP_PATH="$HOME/Library/Developer/Xcode/DerivedData/cmux-$PERF_TAG/Build/Products/Debug/cmux DEV $PERF_TAG.app"
+          swift scripts/bench-window-visibility.swift \
+            "$APP_PATH" \
+            "com.cmuxterm.app.debug.$PERF_TAG" \
+            30 \
+            --cmd-tab-activation \
+            --cg-visibility \
+            > perf-results/cmd-tab-activation.txt
+          cat perf-results/cmd-tab-activation.txt
+
       - name: Write benchmark summary
         if: always()
         run: |
@@ -146,6 +159,14 @@ jobs:
           print(f"- Snapshot with scrollback: {with_scroll.get('elapsed_ms')} ms")
           print(f"- Scrollback chars captured: {with_scroll.get('shape', {}).get('scrollback_chars')}")
           print(f"- Restore socket ready: {measurements.get('restore_socket_ready_ms')} ms")
+          cmd_tab_path = Path("perf-results/cmd-tab-activation.txt")
+          if cmd_tab_path.exists():
+            print("")
+            print("## Cmd-Tab Activation Performance")
+            print("")
+            for line in cmd_tab_path.read_text().splitlines():
+              if line:
+                print(f"- `{line}`")
           failures = result.get("failures") or []
           if failures:
             print("")
