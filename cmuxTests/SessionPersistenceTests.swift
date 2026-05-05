@@ -1893,6 +1893,8 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                 arguments: ["claude"],
                 workingDirectory: nil,
                 environment: [
+                    "ANTHROPIC_AUTH_TOKEN": "third-party-auth-token",
+                    "ANTHROPIC_BASE_URL": "https://api.example.test",
                     "ANTHROPIC_MODEL": "",
                     "PATH": " /tmp/bin ",
                     "UNSAFE_TOKEN": "secret"
@@ -1904,8 +1906,9 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "'env' 'ANTHROPIC_MODEL=' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=ANTHROPIC_MODEL' 'claude' '--resume' 'claude-session-env'"
+            "'env' 'ANTHROPIC_BASE_URL=https://api.example.test' 'ANTHROPIC_MODEL=' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=ANTHROPIC_BASE_URL,ANTHROPIC_MODEL' 'claude' '--resume' 'claude-session-env'"
         )
+        XCTAssertFalse(snapshot.resumeCommand?.contains("ANTHROPIC_AUTH_TOKEN") ?? true)
     }
 
     func testClaudeResumeCommandStripsStaleCmuxNodeOptionsRestoreModule() {

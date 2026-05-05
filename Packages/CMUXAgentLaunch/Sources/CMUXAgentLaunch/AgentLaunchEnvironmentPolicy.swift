@@ -25,6 +25,7 @@ public enum ClaudeConfigDirectoryPath {
 
 public enum AgentLaunchEnvironmentPolicy {
     private static let safeEnvironmentKeys: Set<String> = [
+        "ANTHROPIC_BASE_URL",
         "ANTHROPIC_MODEL",
         "CLAUDE_CONFIG_DIR",
         "CMUX_CUSTOM_CLAUDE_PATH",
