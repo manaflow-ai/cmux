@@ -16,12 +16,7 @@ struct CmuxConfigFile: Codable, Sendable {
     var vault: CmuxVaultConfigDefinition?
 
     private enum CodingKeys: String, CodingKey {
-        case actions
-        case ui
-        case newWorkspaceCommand
-        case surfaceTabBarButtons
-        case commands
-        case vault
+        case actions, ui, newWorkspaceCommand, surfaceTabBarButtons, commands, vault
     }
 
     init(

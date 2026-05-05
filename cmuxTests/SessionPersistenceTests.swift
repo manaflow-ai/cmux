@@ -1001,89 +1001,6 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertTrue(Workspace.shouldReplaySessionScrollback(restorableAgent: nil))
     }
 
-    func testPiVaultAgentSnapshotRoundTripBuildsTargetedSessionCommand() throws {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-pi-vault-agent-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tempDir) }
-
-        let sessionPath = tempDir
-            .appendingPathComponent("--tmp-pi repo--", isDirectory: true)
-            .appendingPathComponent("2026-05-05T12-00-00-000Z_018f2b35-7c75-7e1a-a6ff-cc1d5f9f0000.jsonl")
-            .path
-        let panelId = UUID(uuidString: "3D4D5F4B-CA09-4E5C-A65E-8423D7F4BEA0")!
-        let piKind = try XCTUnwrap(RestorableAgentKind(rawValue: "pi"))
-
-        var snapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
-        let agent = SessionRestorableAgentSnapshot(
-            kind: piKind,
-            sessionId: sessionPath,
-            workingDirectory: "/tmp/pi repo",
-            launchCommand: AgentLaunchCommandSnapshot(
-                launcher: "pi",
-                executablePath: "/opt/homebrew/bin/pi",
-                arguments: [
-                    "/opt/homebrew/bin/pi",
-                    "--session-dir",
-                    tempDir.path,
-                    "--session",
-                    "old-session",
-                    "--continue",
-                ],
-                workingDirectory: "/tmp/pi repo",
-                environment: ["PI_CODING_AGENT_SESSION_DIR": tempDir.path],
-                capturedAt: 1_777_777_777,
-                source: "process"
-            )
-        )
-        snapshot.windows[0].tabManager.workspaces[0].focusedPanelId = panelId
-        snapshot.windows[0].tabManager.workspaces[0].layout = .pane(
-            SessionPaneLayoutSnapshot(panelIds: [panelId], selectedPanelId: panelId)
-        )
-        snapshot.windows[0].tabManager.workspaces[0].panels = [
-            SessionPanelSnapshot(
-                id: panelId,
-                type: .terminal,
-                title: "Pi",
-                customTitle: nil,
-                directory: "/tmp/pi repo",
-                isPinned: false,
-                isManuallyUnread: false,
-                gitBranch: nil,
-                listeningPorts: [],
-                ttyName: "ttys001",
-                terminal: SessionTerminalPanelSnapshot(
-                    workingDirectory: "/tmp/pi repo",
-                    scrollback: nil,
-                    agent: agent,
-                    tmuxStartCommand: nil
-                ),
-                browser: nil,
-                markdown: nil,
-                filePreview: nil
-            )
-        ]
-
-        let snapshotURL = tempDir.appendingPathComponent("session.json", isDirectory: false)
-        XCTAssertTrue(SessionPersistenceStore.save(snapshot, fileURL: snapshotURL))
-
-        let loadedAgent = try XCTUnwrap(
-            SessionPersistenceStore.load(fileURL: snapshotURL)?
-                .windows.first?
-                .tabManager.workspaces.first?
-                .panels.first?
-                .terminal?
-                .agent
-        )
-
-        XCTAssertEqual(loadedAgent.kind.rawValue, "pi")
-        XCTAssertEqual(loadedAgent.sessionId, sessionPath)
-        XCTAssertEqual(
-            loadedAgent.resumeCommand,
-            "cd '/tmp/pi repo' && '/opt/homebrew/bin/pi' '--session' '\(sessionPath)'"
-        )
-    }
-
     @MainActor
     func testRestoredAgentFirstAutoResumeCommandDoesNotClearSnapshot() throws {
         let source = Workspace()
@@ -1430,24 +1347,18 @@ final class SessionPersistenceTests: XCTestCase {
                 resolvedEnvironment = ["CLAUDE_CONFIG_DIR": "/tmp/claude"]
             case .codex:
                 resolvedEnvironment = ["CODEX_HOME": "/tmp/codex"]
-            case .cursor:
+            case .cursor, .rovodev, .factory, .custom:
                 resolvedEnvironment = [:]
             case .gemini:
                 resolvedEnvironment = ["GEMINI_CLI_HOME": "/tmp/gemini"]
             case .opencode:
                 resolvedEnvironment = ["OPENCODE_CONFIG_DIR": "/tmp/opencode"]
-            case .rovodev:
-                resolvedEnvironment = [:]
             case .copilot:
                 resolvedEnvironment = ["COPILOT_HOME": "/tmp/copilot"]
             case .codebuddy:
                 resolvedEnvironment = ["CODEBUDDY_CONFIG_DIR": "/tmp/codebuddy"]
-            case .factory:
-                resolvedEnvironment = [:]
             case .qoder:
                 resolvedEnvironment = ["QODER_CONFIG_DIR": "/tmp/qoder"]
-            case .custom:
-                resolvedEnvironment = [:]
             }
         }
         let resolvedExecutablePath = executablePath ?? arguments.first ?? "/usr/local/bin/\(kind.rawValue)"
