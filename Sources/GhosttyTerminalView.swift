@@ -4340,38 +4340,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
         return merged
     }
 
-    static let managedTerminalType = "xterm-256color"
-    static let managedTerminalProgram = "ghostty"
-    static let managedColorTerm = "truecolor"
-
-    static func applyManagedTerminalIdentityEnvironment(
-        to environment: inout [String: String],
-        protectedKeys: inout Set<String>
-    ) {
-        environment["TERM"] = managedTerminalType
-        protectedKeys.insert("TERM")
-        environment["COLORTERM"] = managedColorTerm
-        protectedKeys.insert("COLORTERM")
-        environment["TERM_PROGRAM"] = managedTerminalProgram
-        protectedKeys.insert("TERM_PROGRAM")
-    }
-
-    static func mergedStartupEnvironment(
-        base: [String: String],
-        protectedKeys: Set<String>,
-        additionalEnvironment: [String: String],
-        initialEnvironmentOverrides: [String: String]
-    ) -> [String: String] {
-        var merged = base
-        for (key, value) in additionalEnvironment where !key.isEmpty && !value.isEmpty && !protectedKeys.contains(key) {
-            merged[key] = value
-        }
-        for (key, value) in initialEnvironmentOverrides where !protectedKeys.contains(key) {
-            merged[key] = value
-        }
-        return merged
-    }
-
     func isAttached(to view: GhosttyNSView) -> Bool {
         attachedView === view && surface != nil
     }
@@ -4929,7 +4897,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
         setManagedEnvironmentValue("CMUX_TAB_ID", tabId.uuidString)
         let socketPath = SocketControlSettings.socketPath()
         setManagedEnvironmentValue("CMUX_SOCKET_PATH", socketPath)
-        env.removeValue(forKey: "CMUX_SOCKET")
+        setManagedEnvironmentValue("CMUX_SOCKET", "")
+        if let inheritedClaudeConfigDir = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"],
+           !inheritedClaudeConfigDir.isEmpty {
+            env["CLAUDE_CONFIG_DIR"] = ClaudeConfigDirectoryPath.preferredPath(inheritedClaudeConfigDir)
+        }
         if let bundledCLIURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux"),
            FileManager.default.isExecutableFile(atPath: bundledCLIURL.path) {
             setManagedEnvironmentValue("CMUX_BUNDLED_CLI_PATH", bundledCLIURL.path)
@@ -5036,7 +5008,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             additionalEnvironment: additionalEnvironment,
             initialEnvironmentOverrides: initialEnvironmentOverrides
         )
-        env.removeValue(forKey: "CMUX_SOCKET")
+        env["CMUX_SOCKET"] = ""
 
         if !env.isEmpty {
             envVars.reserveCapacity(env.count)
@@ -7065,10 +7037,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     // For NSTextInputClient - accumulates text during key events
-    private var keyTextAccumulator: [String]? = nil
+    private(set) var keyTextAccumulator: [String]? = nil
     private var markedText = NSMutableAttributedString()
     private var lastPerformKeyEvent: TimeInterval?
-    private var externalCommittedTextDepth = 0
+    private(set) var externalCommittedTextDepth = 0
+    var numpadIMECommitDeduplicator = NumpadIMECommitDeduplicator()
     private struct SelectionSnapshot {
         let range: NSRange
         let string: String
@@ -7648,6 +7621,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                    !suppressShiftSpaceFallbackText,
                    !suppressComposingFallbackText {
                     shouldRefreshAfterTextInput = true
+                    var handled = false
 #if DEBUG
                     let sendTimingStart = CmuxTypingTiming.start()
                     let ghosttySendStart = ProcessInfo.processInfo.systemUptime
@@ -7655,7 +7629,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     text.withCString { ptr in
                         keyEvent.text = ptr
                         #if DEBUG
-                        _ = sendTimedGhosttyKey(
+                        handled = sendTimedGhosttyKey(
                             surface,
                             keyEvent,
                             path: "terminal.keyDown.ghosttySend",
@@ -7663,8 +7637,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                             extra: "textBytes=\(text.utf8.count)"
                         )
                         #else
-                        _ = sendGhosttyKey(surface, keyEvent)
+                        handled = sendGhosttyKey(surface, keyEvent)
                         #endif
+                    }
+                    if handled {
+                        notePotentialDeferredNumpadIMECommit(text: text, event: event)
                     }
 #if DEBUG
                     ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
@@ -7672,7 +7649,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                         path: "terminal.keyDown.ghosttySend.total",
                         startedAt: sendTimingStart,
                         event: event,
-                        extra: "textBytes=\(text.utf8.count)"
+                        extra: "handled=\(handled ? 1 : 0) textBytes=\(text.utf8.count)"
                     )
 #endif
                 } else {
@@ -7955,18 +7932,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard let chars = (event.characters(byApplyingModifiers: []) ?? event.charactersIgnoringModifiers ?? event.characters),
               let scalar = chars.unicodeScalars.first else { return 0 }
         return scalar.value
-    }
-
-    private func isControlCharacterScalar(_ scalar: UnicodeScalar) -> Bool {
-        scalar.value < 0x20 || scalar.value == 0x7F
-    }
-
-    private func shouldSendText(_ text: String) -> Bool {
-        guard !text.isEmpty else { return false }
-        if text.count == 1, let scalar = text.unicodeScalars.first {
-            return !isControlCharacterScalar(scalar)
-        }
-        return true
     }
 
     /// If AppKit consumed Shift+Space for IME/input-source switching, interpretKeyEvents
@@ -9481,6 +9446,11 @@ final class GhosttySurfaceScrollView: NSView {
     var isRightSidebarDockSurface: Bool {
         surfaceView.terminalSurface?.focusPlacement == .rightSidebarDock
     }
+
+    func forwardKeyDownToSurface(_ event: NSEvent) {
+        surfaceView.keyDown(with: event)
+    }
+
     private var lastFlashStyle: FlashStyle = .navigation
     private let keyboardCopyModeBadgeContainerView: GhosttyFlashOverlayView
     private let keyboardCopyModeBadgeView: GhosttyPassthroughVisualEffectView
@@ -12945,6 +12915,10 @@ extension GhosttyNSView: NSTextInputClient {
         // Some IME/input-method paths call insertText with an empty payload to
         // flush state. There is no terminal text to send in that case.
         guard !chars.isEmpty else { return }
+
+        if shouldSuppressDeferredNumpadIMECommit(chars) {
+            return
+        }
 
 #if DEBUG
         if NSApp.currentEvent == nil {
