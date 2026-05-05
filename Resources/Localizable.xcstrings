@@ -83250,6 +83250,23 @@
         }
       }
     },
+    "shortcut.key.space": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Space"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スペース"
+          }
+        }
+      }
+    },
     "shortcut.pressShortcut.prompt": {
       "extractionState": "manual",
       "localizations": {
@@ -104871,19 +104888,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show Sidebar Sessions"
+            "value": "Show Sidebar Vault"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サイドバーのセッションを表示"
+            "value": "サイドバーのボールトを表示"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사이드바 세션 표시"
+            "value": "사이드바 볼트 표시"
           }
         }
       }
@@ -105378,13 +105395,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sessions"
+            "value": "Vault"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "セッション"
+            "value": "ボールト"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "볼트"
           }
         }
       }
@@ -105446,13 +105469,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Untitled session"
+            "value": "Untitled chat"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "無題のセッション"
+            "value": "無題のチャット"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제목 없는 채팅"
           }
         }
       }
@@ -105497,13 +105526,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reload sessions"
+            "value": "Reload Vault"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "セッションを再読み込み"
+            "value": "ボールトを再読み込み"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "볼트 새로고침"
           }
         }
       }
@@ -105514,13 +105549,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Scanning sessions…"
+            "value": "Loading Vault…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "セッションをスキャン中…"
+            "value": "ボールトを読み込み中…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "볼트를 불러오는 중…"
           }
         }
       }
@@ -105531,13 +105572,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No sessions found"
+            "value": "Vault is empty"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "セッションが見つかりません"
+            "value": "ボールトは空です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "볼트가 비어 있습니다"
           }
         }
       }
@@ -105548,13 +105595,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sessions from Claude Code, Codex, and OpenCode will appear here."
+            "value": "Claude Code, Codex, and OpenCode history will appear here."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude Code、Codex、OpenCode のセッションがここに表示されます。"
+            "value": "Claude Code、Codex、OpenCode の履歴がここに表示されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code, Codex 및 OpenCode의 기록이 여기에 표시됩니다."
           }
         }
       }
@@ -105565,13 +105618,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No sessions"
+            "value": "No chats"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "セッションなし"
+            "value": "チャットなし"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대화 없음"
           }
         }
       }
@@ -105820,13 +105879,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Search sessions"
+            "value": "Search Vault"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "セッションを検索"
+            "value": "ボールトを検索"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "볼트 검색"
           }
         }
       }
@@ -110563,6 +110628,90 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Open a workspace, terminal, or browser surface to see it here." } },
         "ja": { "stringUnit": { "state": "translated", "value": "ワークスペース、ターミナル、またはブラウザサーフェスを開くとここに表示されます。" } }
+      }
+    },
+    "taskManager.contextMenu.viewWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "View Workspace" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースを表示" } }
+      }
+    },
+    "taskManager.contextMenu.viewTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "View Terminal" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルを表示" } }
+      }
+    },
+    "taskManager.contextMenu.killProcess": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Kill Process..." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プロセスを終了..." } }
+      }
+    },
+    "taskManager.killProcess.title.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Kill process?" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プロセスを終了しますか？" } }
+      }
+    },
+    "taskManager.killProcess.message.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Ask %@ (PID %lld) to terminate gracefully. cmux will force-kill it if it is still running after a short grace period." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@（PID %lld）に正常終了を要求します。短い猶予時間の後も実行中の場合、cmux が強制終了します。" } }
+      }
+    },
+    "taskManager.killProcess.title.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Kill processes?" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プロセスを終了しますか？" } }
+      }
+    },
+    "taskManager.killProcess.message.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Ask %lld processes to terminate gracefully. cmux will force-kill remaining processes after a short grace period. PIDs: %@." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%lld 個のプロセスに正常終了を要求します。短い猶予時間の後も残っているプロセスは cmux が強制終了します。PID: %@。" } }
+      }
+    },
+    "taskManager.killProcess.confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Kill" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "終了" } }
+      }
+    },
+    "taskManager.killProcess.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Cancel" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "キャンセル" } }
+      }
+    },
+    "taskManager.killProcess.error": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unable to kill process: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プロセスを終了できません: %@" } }
+      }
+    },
+    "taskManager.killProcess.target.processGroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "process group %lld" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プロセスグループ %lld" } }
+      }
+    },
+    "taskManager.killProcess.target.pid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "PID %lld" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "PID %lld" } }
       }
     },
     "taskManager.updated.never": {
