@@ -7578,7 +7578,7 @@ private struct AuthSettingsRow: View {
     }
 }
 
-private struct SettingsCard<Content: View>: View {
+struct SettingsCard<Content: View>: View {
     @ViewBuilder let content: Content
 
     init(@ViewBuilder content: () -> Content) {
@@ -7600,7 +7600,7 @@ private struct SettingsCard<Content: View>: View {
     }
 }
 
-private struct SettingsCardRow<Trailing: View>: View {
+struct SettingsCardRow<Trailing: View>: View {
     let configurationReview: SettingsConfigurationReview
     let title: String
     let subtitle: String?
@@ -7725,7 +7725,7 @@ extension SettingsPickerRow where ExtraTrailing == EmptyView {
     }
 }
 
-private enum SettingsConfigurationReview: Equatable {
+enum SettingsConfigurationReview: Equatable {
     case settingsFile([String])
     case settingsOnly
     case action
@@ -7763,7 +7763,7 @@ private extension View {
     }
 }
 
-private struct SettingsCardDivider: View {
+struct SettingsCardDivider: View {
     var body: some View {
         Rectangle()
             .fill(Color(nsColor: NSColor.separatorColor).opacity(0.5))
@@ -7771,7 +7771,7 @@ private struct SettingsCardDivider: View {
     }
 }
 
-private struct SettingsCardNote: View {
+struct SettingsCardNote: View {
     let text: String
 
     init(_ text: String) {
@@ -7785,117 +7785,6 @@ private struct SettingsCardNote: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-private struct AgentHooksSettingsCard: View {
-    @AppStorage(AgentHookIntegrationSettings.promptEnabledKey)
-    private var promptEnabled = AgentHookIntegrationSettings.defaultPromptEnabled
-    @State private var refreshToken: UInt64 = 0
-
-    var body: some View {
-        let _ = refreshToken
-        SettingsCard {
-            SettingsCardRow(
-                configurationReview: .settingsOnly,
-                String(localized: "settings.automation.agentHooks.title", defaultValue: "Agent hooks"),
-                subtitle: String(localized: "settings.automation.agentHooks.subtitle", defaultValue: "Install hooks for notifications and session restore."),
-                searchAnchorID: "automation:agent-hooks"
-            ) {
-                Toggle("", isOn: $promptEnabled)
-                    .labelsHidden()
-                    .controlSize(.small)
-                    .accessibilityIdentifier("SettingsAgentHookPromptToggle")
-            }
-
-            SettingsCardDivider()
-
-            SettingsCardNote(String(localized: "settings.automation.agentHooks.note", defaultValue: "Hooks let cmux show agent notifications and restore sessions after cmux restarts. The prompt only appears after you run a supported agent command."))
-
-            ForEach(AgentHookIntegrationSettings.allAgents) { agent in
-                SettingsCardDivider()
-                AgentHookSettingsRow(agent: agent, refreshToken: $refreshToken)
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: AgentHookIntegrationSettings.statusDidChangeNotification)) { _ in
-            refreshToken &+= 1
-        }
-    }
-}
-
-private struct AgentHookSettingsRow: View {
-    let agent: AgentHookIntegration
-    @Binding var refreshToken: UInt64
-    @State private var reviewAgent: AgentHookIntegration?
-
-    private var status: AgentHookIntegrationStatus {
-        let _ = refreshToken
-        return AgentHookIntegrationSettings.status(for: agent)
-    }
-
-    var body: some View {
-        let currentStatus = status
-        SettingsCardRow(
-            configurationReview: .settingsOnly,
-            agent.displayName,
-            subtitle: AgentHookIntegrationSettings.statusSubtitle(for: agent, status: currentStatus)
-        ) {
-            HStack(spacing: 8) {
-                AgentHookStatusPill(
-                    text: AgentHookIntegrationSettings.statusLabel(for: currentStatus),
-                    isActive: currentStatus.isActive,
-                    isUpdateAvailable: currentStatus.isUpdateAvailable
-                )
-                Button(buttonTitle(for: currentStatus)) {
-                    reviewAgent = agent
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .disabled(currentStatus.isActive)
-            }
-        }
-        .sheet(item: $reviewAgent) { agent in
-            AgentHookDiffReviewView(agent: agent) {
-                refreshToken &+= 1
-            }
-        }
-    }
-
-    private func buttonTitle(for status: AgentHookIntegrationStatus) -> String {
-        if status.isActive {
-            return String(localized: "settings.automation.agentHooks.installed", defaultValue: "Installed")
-        }
-        return String(localized: "settings.automation.agentHooks.review", defaultValue: "Review")
-    }
-}
-
-private struct AgentHookStatusPill: View {
-    let text: String
-    let isActive: Bool
-    let isUpdateAvailable: Bool
-
-    var body: some View {
-        Text(text)
-            .font(.caption.weight(.medium))
-            .foregroundStyle(foregroundColor)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(backgroundColor)
-            )
-    }
-
-    private var foregroundColor: Color {
-        if isActive { return .green }
-        if isUpdateAvailable { return .orange }
-        return .secondary
-    }
-
-    private var backgroundColor: Color {
-        if isActive { return Color.green.opacity(0.12) }
-        if isUpdateAvailable { return Color.orange.opacity(0.12) }
-        return Color.secondary.opacity(0.12)
     }
 }
 

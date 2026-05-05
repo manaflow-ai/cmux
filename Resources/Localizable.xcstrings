@@ -59419,7 +59419,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agent hooks"
+            "value": "Agent Hooks"
           }
         },
         "ja": {
@@ -59436,13 +59436,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "agent hooks codex opencode cursor gemini copilot codebuddy factory qoder notifications session restore"
+            "value": "agent hooks claude claudecode claude code codex opencode open-code open code cursor gemini copilot codebuddy factory qoder notifications session restore"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "agent hooks codex opencode cursor gemini copilot codebuddy factory qoder notifications session restore エージェント フック 通知 セッション 復元"
+            "value": "agent hooks claude claudecode claude code codex opencode open-code open code cursor gemini copilot codebuddy factory qoder notifications session restore エージェント フック 通知 セッション 復元"
           }
         }
       }

@@ -1108,8 +1108,29 @@ _cmux_agent_hook_agent_for_command() {
     while (( index <= ${#words[@]} )); do
         local word="${words[index]}"
         case "$word" in
-            env|command|builtin|exec|noglob|time|sudo|doas)
+            env|command|builtin|exec|noglob|time)
                 index=$(( index + 1 ))
+                continue ;;
+            sudo|doas)
+                index=$(( index + 1 ))
+                while (( index <= ${#words[@]} )); do
+                    local sudo_word="${words[index]}"
+                    case "$sudo_word" in
+                        --)
+                            index=$(( index + 1 ))
+                            break ;;
+                        -u|-g|-h|-p|-C|-D|-c|-r|-t|-T|-U|--user|--group|--host|--prompt|--chdir|--role|--type|--login-class)
+                            index=$(( index + 2 ))
+                            continue ;;
+                        --user=*|--group=*|--host=*|--prompt=*|--chdir=*|--role=*|--type=*|--login-class=*)
+                            index=$(( index + 1 ))
+                            continue ;;
+                        -*|*=*)
+                            index=$(( index + 1 ))
+                            continue ;;
+                    esac
+                    break
+                done
                 continue ;;
             -*|*=*)
                 index=$(( index + 1 ))
@@ -1153,7 +1174,6 @@ _cmux_agent_hook_agent_for_command() {
 }
 
 _cmux_report_agent_hook_nudge() {
-    _cmux_socket_is_unix || return 0
     local workspace_id="${CMUX_WORKSPACE_ID:-${CMUX_TAB_ID:-}}"
     local surface_id="${CMUX_SURFACE_ID:-${CMUX_PANEL_ID:-}}"
     [[ -n "$workspace_id" ]] || return 0
@@ -1165,6 +1185,7 @@ _cmux_report_agent_hook_nudge() {
     [[ -n "$surface_id" ]] && params+=",\"surface_id\":\"$surface_id\""
     params+="}"
     _cmux_cli_rpc_bg "agent_hooks.nudge" "$params" && return 0
+    _cmux_socket_is_unix || return 0
     if [[ -n "$surface_id" ]]; then
         _cmux_send_bg "agent_hooks_nudge $agent --tab=$workspace_id --surface=$surface_id"
     else

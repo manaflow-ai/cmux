@@ -77,7 +77,7 @@ enum SettingsSearchAliasIndex {
         "sidebarAppearance:show-metadata": localized("settings.search.alias.setting.app.show-metadata", defaultValue: "sidebar.showCustomMetadata metadata meta report_meta status custom block"),
         "automation:socket-mode": localized("settings.search.alias.setting.automation.socket-mode", defaultValue: "automation.socketControlMode api socket unix domain control server auth allow password disabled"),
         "automation:socket-password": localized("settings.search.alias.setting.automation.socket-password", defaultValue: "automation.socketPassword auth token credential secret password access key"),
-        "automation:agent-hooks": localized("settings.search.alias.setting.automation.agent-hooks", defaultValue: "agent hooks codex opencode cursor gemini copilot codebuddy factory qoder notifications session restore"),
+        "automation:agent-hooks": localized("settings.search.alias.setting.automation.agent-hooks", defaultValue: "agent hooks claude claudecode claude code codex opencode open-code open code cursor gemini copilot codebuddy factory qoder notifications session restore"),
         "automation:claude-code": localized("settings.search.alias.setting.automation.claude-code", defaultValue: "automation.claudeCodeIntegration claude code hooks agent integration status notifications"),
         "automation:claude-path": localized("settings.search.alias.setting.automation.claude-path", defaultValue: "automation.claudeBinaryPath claude binary executable path cli command custom"),
         "automation:cursor": localized("settings.search.alias.setting.automation.cursor", defaultValue: "automation.cursorIntegration cursor ide agent hooks notifications"),

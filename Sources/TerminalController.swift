@@ -7893,25 +7893,6 @@ class TerminalController {
         return .ok([:])
     }
 
-    private func v2AgentHooksNudge(params: [String: Any]) -> V2CallResult {
-        guard let agentName = v2String(params, "agent") else {
-            return .err(code: "invalid_params", message: "Missing agent", data: ["field": "agent"])
-        }
-        guard let tabId = v2UUID(params, "workspace_id") ?? v2UUID(params, "tab_id") else {
-            return .err(code: "invalid_params", message: "Missing workspace_id", data: ["field": "workspace_id"])
-        }
-        let surfaceId = v2UUID(params, "surface_id") ?? v2UUID(params, "panel_id")
-
-        TerminalMutationBus.shared.enqueueMainActorMutation {
-            AgentHookIntegrationSettings.showSetupPromptIfNeeded(
-                agentName: agentName,
-                tabId: tabId,
-                surfaceId: surfaceId
-            )
-        }
-        return .ok(["queued": true])
-    }
-
     private func v2FeedbackOpen(params: [String: Any]) -> V2CallResult {
         let workspaceId = v2UUID(params, "workspace_id")
         let windowId = v2UUID(params, "window_id")
@@ -12689,7 +12670,7 @@ class TerminalController {
           notify_surface <id|idx> <payload>  - Notify a specific surface
           notify_target <workspace_id> <surface_id> <payload> - Notify by workspace+surface
           notify_target_async <workspace_uuid> <surface_uuid> <payload> - Queue notification by workspace+surface
-          agent_hooks_nudge <agent> --tab=<uuid> --panel=<uuid> - Prompt for agent hook setup if needed
+          agent_hooks_nudge <agent> --tab=<uuid> [--panel=<uuid>|--surface=<uuid>] - Prompt for agent hook setup if needed
           list_notifications              - List all notifications
           clear_notifications [--tab=X]    - Clear notifications (all or per-tab)
           set_app_focus <active|inactive|clear> - Override app focus state
@@ -14053,7 +14034,7 @@ class TerminalController {
         let parts = args.split(separator: " ").map(String.init)
         guard let agentName = parts.first?.trimmingCharacters(in: .whitespacesAndNewlines),
               !agentName.isEmpty else {
-            return "ERROR: Usage: agent_hooks_nudge <agent> --tab=<uuid> --panel=<uuid>"
+            return "ERROR: Usage: agent_hooks_nudge <agent> --tab=<uuid> [--panel=<uuid>|--surface=<uuid>]"
         }
 
         var tabId: UUID?

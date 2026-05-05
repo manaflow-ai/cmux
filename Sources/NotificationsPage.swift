@@ -235,6 +235,7 @@ struct AgentHookDiffReviewView: View {
     @State private var diffSucceeded = false
     @State private var diffText = ""
     @State private var message: String?
+    @State private var status: AgentHookIntegrationStatus = .unknown
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -295,11 +296,14 @@ struct AgentHookDiffReviewView: View {
         }
         .padding(18)
         .frame(width: 720, height: 520)
-        .onAppear(perform: loadDiff)
+        .onAppear {
+            loadStatus()
+            loadDiff()
+        }
     }
 
     private var title: String {
-        if AgentHookIntegrationSettings.status(for: agent).isUpdateAvailable {
+        if status.isUpdateAvailable {
             return String(localized: "agentHooks.diff.updateTitle", defaultValue: "Update \(agent.displayName) hooks")
         }
         return String(localized: "agentHooks.diff.installTitle", defaultValue: "Install \(agent.displayName) hooks")
@@ -309,13 +313,23 @@ struct AgentHookDiffReviewView: View {
         if isInstalling {
             return String(localized: "agentHooks.prompt.installing", defaultValue: "Installing...")
         }
-        if AgentHookIntegrationSettings.status(for: agent).isUpdateAvailable {
+        if status.isUpdateAvailable {
             return String(localized: "agentHooks.prompt.update", defaultValue: "Update hooks")
         }
         if agent.isClaudeWrapper {
             return String(localized: "agentHooks.prompt.enable", defaultValue: "Enable")
         }
         return String(localized: "agentHooks.prompt.install", defaultValue: "Install hooks")
+    }
+
+    private func loadStatus() {
+        let agent = agent
+        Task.detached(priority: .utility) {
+            let nextStatus = AgentHookIntegrationSettings.status(for: agent)
+            await MainActor.run {
+                status = nextStatus
+            }
+        }
     }
 
     private func loadDiff() {

@@ -86,6 +86,9 @@
 		988C6A036BA56EA5759A95A0 /* SidebarWorkspaceSnapshotRefreshPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D50D9BCE46701FBA91C2EFB6 /* SidebarWorkspaceSnapshotRefreshPolicy.swift */; };
 		A11EAB000000000000000000 /* AppearanceSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11EAB000000000000000001 /* AppearanceSettings.swift */; };
 		A5001001 /* cmuxApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001011 /* cmuxApp.swift */; };
+		A6E70100A6E70100A6E70100 /* AgentHooksSettingsViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E70101A6E70101A6E70101 /* AgentHooksSettingsViews.swift */; };
+		A6E70200A6E70200A6E70200 /* AgentHookIntegrationSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E70201A6E70201A6E70201 /* AgentHookIntegrationSettings.swift */; };
+		A6E70300A6E70300A6E70300 /* TerminalController+AgentHookNudge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E70301A6E70301A6E70301 /* TerminalController+AgentHookNudge.swift */; };
 		C0DE34020000000000000001 /* CmuxHelpCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE34020000000000000003 /* CmuxHelpCommands.swift */; };
 		C0DE34020000000000000002 /* CmuxHelpResource.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE34020000000000000004 /* CmuxHelpResource.swift */; };
 		A50019A0 /* SettingsNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50019A1 /* SettingsNavigation.swift */; };
@@ -467,6 +470,9 @@
 		A11EAF000000000000000001 /* GhosttyNotificationDispatcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyNotificationDispatcherTests.swift; sourceTree = "<group>"; };
 		A5001000 /* cmux.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = cmux.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A5001011 /* cmuxApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmuxApp.swift; sourceTree = "<group>"; };
+		A6E70101A6E70101A6E70101 /* AgentHooksSettingsViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHooksSettingsViews.swift; sourceTree = "<group>"; };
+		A6E70201A6E70201A6E70201 /* AgentHookIntegrationSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookIntegrationSettings.swift; sourceTree = "<group>"; };
+		A6E70301A6E70301A6E70301 /* TerminalController+AgentHookNudge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+AgentHookNudge.swift"; sourceTree = "<group>"; };
 		E3309A08 /* cmuxApp+EqualizeSplitsMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "cmuxApp+EqualizeSplitsMenu.swift"; sourceTree = "<group>"; };
 		C0DE34020000000000000003 /* CmuxHelpCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmuxHelpCommands.swift; sourceTree = "<group>"; };
 		C0DE34020000000000000004 /* CmuxHelpResource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmuxHelpResource.swift; sourceTree = "<group>"; };
@@ -892,6 +898,8 @@
 				A11EAC000000000000000001 /* GhosttyTerminalAppearance.swift */,
 				A11EAD000000000000000001 /* WorkspaceAppearanceResolution.swift */,
 				A5001011 /* cmuxApp.swift */,
+				A6E70101A6E70101A6E70101 /* AgentHooksSettingsViews.swift */,
+				A6E70201A6E70201A6E70201 /* AgentHookIntegrationSettings.swift */,
 				E3309A08 /* cmuxApp+EqualizeSplitsMenu.swift */,
 				C0DE34020000000000000003 /* CmuxHelpCommands.swift */,
 				C0DE34020000000000000004 /* CmuxHelpResource.swift */,
@@ -967,6 +975,7 @@
 				D0B10003A1B2C3D4E5F60001 /* BonsplitTabBarPassThrough.swift */,
 				D0B10011A1B2C3D4E5F60001 /* BonsplitTabBarDebug.swift */,
 				A5001019 /* TerminalController.swift */,
+				A6E70301A6E70301A6E70301 /* TerminalController+AgentHookNudge.swift */,
 				A5001440A5001440A5001440 /* FileOpenSocketSupport.swift */,
 				D7AB0000000000000000000C /* TerminalController+MoveTabToNewWorkspace.swift */,
 				C7A505000000000000000001 /* TerminalControllerTopSupport.swift */,
@@ -1430,6 +1439,9 @@
 				A11EAC000000000000000000 /* GhosttyTerminalAppearance.swift in Sources */,
 				A11EAD000000000000000000 /* WorkspaceAppearanceResolution.swift in Sources */,
 				A5001001 /* cmuxApp.swift in Sources */,
+				A6E70100A6E70100A6E70100 /* AgentHooksSettingsViews.swift in Sources */,
+				A6E70200A6E70200A6E70200 /* AgentHookIntegrationSettings.swift in Sources */,
+				A6E70300A6E70300A6E70300 /* TerminalController+AgentHookNudge.swift in Sources */,
 				E3309A07 /* cmuxApp+EqualizeSplitsMenu.swift in Sources */,
 				C0DE34020000000000000001 /* CmuxHelpCommands.swift in Sources */,
 				C0DE34020000000000000002 /* CmuxHelpResource.swift in Sources */,
