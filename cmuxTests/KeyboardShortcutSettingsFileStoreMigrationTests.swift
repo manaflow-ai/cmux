@@ -264,6 +264,7 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
 
         UserDefaults.standard.set(false, forKey: defaultsKey)
         notificationCenter.post(name: UserDefaults.didChangeNotification, object: UserDefaults.standard)
+        drainMainQueue()
 
         let sanitized = try JSONCParser.preprocess(data: Data(contentsOf: primaryURL))
         let root = try XCTUnwrap(JSONSerialization.jsonObject(with: sanitized) as? [String: Any])
@@ -296,5 +297,13 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
         } else {
             UserDefaults.standard.removeObject(forKey: key)
         }
+    }
+
+    private func drainMainQueue() {
+        let drained = expectation(description: "drain main queue")
+        DispatchQueue.main.async {
+            drained.fulfill()
+        }
+        wait(for: [drained], timeout: 1)
     }
 }

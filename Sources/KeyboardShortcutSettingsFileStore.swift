@@ -178,6 +178,7 @@ final class CmuxSettingsFileStore {
         }
 
         defaultsCancellable = notificationCenter.publisher(for: UserDefaults.didChangeNotification)
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.persistUserDefaultsSettingsChangeIfNeeded()
             }
@@ -301,7 +302,9 @@ final class CmuxSettingsFileStore {
 
         do {
             try persistSettingsJSONValues(changedValues)
-            reload()
+            synchronized {
+                lastPersistedSettingsValues = currentValues
+            }
         } catch {
             NSLog("[CmuxSettingsFileStore] failed to persist Settings UI change: %@", String(describing: error))
             reapplyManagedSettingsIfNeeded()
