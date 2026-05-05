@@ -111,7 +111,7 @@ struct SessionIndexView: View {
                 .font(.system(size: 12))
                 .foregroundColor(.secondary)
             Text(String(localized: "sessionIndex.empty.subtitle",
-                                   defaultValue: "Claude Code, Codex, and OpenCode history will appear here."))
+                                   defaultValue: "Claude Code, Codex, OpenCode, and Rovo Dev history will appear here."))
                 .font(.system(size: 11))
                 .foregroundColor(.secondary.opacity(0.7))
                 .multilineTextAlignment(.center)
@@ -301,32 +301,24 @@ private struct IndexSectionView: View, Equatable {
         VStack(alignment: .leading, spacing: 0) {
             sectionHeader
             if !isCollapsed {
-                if section.entries.isEmpty {
-                    Text(String(localized: "sessionIndex.section.noChats", defaultValue: "No chats"))
-                        .font(.system(size: 12))
-                        .foregroundColor(.secondary.opacity(0.6))
-                        .padding(.leading, 32)
-                        .padding(.vertical, 4)
-                } else {
-                    ForEach(Array(section.entries.prefix(rowLimit))) { entry in
-                        SessionRow(
-                            entry: entry,
-                            isPreviewPresented: previewEntryId == entry.id,
-                            onPreviewPresentationChange: { isPresented in
-                                if isPresented {
-                                    actions.onPreviewEntry(entry)
-                                } else {
-                                    actions.onDismissPreview(entry.id)
-                                }
-                            },
-                            onResume: actions.onResume
-                        )
-                            .equatable()
-                            .id(entry.id)
-                    }
-                    if section.entries.count > rowLimit {
-                        showMoreButton
-                    }
+                ForEach(Array(section.entries.prefix(rowLimit))) { entry in
+                    SessionRow(
+                        entry: entry,
+                        isPreviewPresented: previewEntryId == entry.id,
+                        onPreviewPresentationChange: { isPresented in
+                            if isPresented {
+                                actions.onPreviewEntry(entry)
+                            } else {
+                                actions.onDismissPreview(entry.id)
+                            }
+                        },
+                        onResume: actions.onResume
+                    )
+                        .equatable()
+                        .id(entry.id)
+                }
+                if section.entries.count > rowLimit {
+                    showMoreButton
                 }
                 Spacer(minLength: 2)
             }
@@ -1051,11 +1043,6 @@ private enum SessionTranscriptRole: Equatable, Sendable {
     }
 }
 
-private enum SessionTranscriptLoadError: Error {
-    case missingFile
-    case databaseError(String)
-}
-
 private enum SessionTranscriptLoader {
     private static let streamChunkSize = 256 * 1024
     private static let maxPreviewRecordBytes = 2 * 1024 * 1024
@@ -1110,6 +1097,14 @@ private enum SessionTranscriptLoader {
         guard FileManager.default.fileExists(atPath: url.path) else {
             throw SessionTranscriptLoadError.missingFile
         }
+        if agent == .rovodev {
+            guard let preview = try RovoDevTranscriptPreview.load(from: url, limit: maxPreviewTurns) else { throw SessionTranscriptLoadError.missingFile }
+            return coalesce(preview.enumerated().map { index, turn in
+                let role = transcriptRole(from: turn.role) ?? .event
+                return SessionTranscriptTurn(id: index, role: role, text: truncatedText(turn.text, role: role))
+            })
+        }
+
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
 
@@ -1280,10 +1275,7 @@ private enum SessionTranscriptLoader {
         return coalesce(turns)
     }
 
-    private static func sqliteText(_ stmt: OpaquePointer, _ index: Int32) -> String? {
-        guard let cString = sqlite3_column_text(stmt, index) else { return nil }
-        return String(cString: cString)
-    }
+    private static func sqliteText(_ stmt: OpaquePointer, _ index: Int32) -> String? { sqlite3_column_text(stmt, index).map { String(cString: $0) } }
 
     private static func sqliteMessage(_ db: OpaquePointer?) -> String? {
         guard let db, let cString = sqlite3_errmsg(db) else { return nil }
@@ -1313,8 +1305,8 @@ private enum SessionTranscriptLoader {
             return parseClaudeLine(object, id: id)
         case .codex:
             return parseCodexLine(object, id: id)
-        case .opencode:
-            return parseGenericLine(object, id: id)
+        case .opencode, .rovodev:
+            return parseGenericLine(object, agent: agent, id: id)
         }
     }
 
@@ -1358,27 +1350,35 @@ private enum SessionTranscriptLoader {
         return nil
     }
 
-    private static func parseGenericLine(_ object: [String: Any], id: Int) -> SessionTranscriptTurn? {
-        if let parsed = parseGenericMessage(object, id: id) {
+    private static func parseGenericLine(
+        _ object: [String: Any],
+        agent: SessionAgent,
+        id: Int
+    ) -> SessionTranscriptTurn? {
+        if let parsed = parseGenericMessage(object, agent: agent, id: id) {
             return parsed
         }
         if let payload = object["payload"] as? [String: Any],
-           let parsed = parseGenericMessage(payload, id: id) {
+           let parsed = parseGenericMessage(payload, agent: agent, id: id) {
             return parsed
         }
         if let message = object["message"] as? [String: Any],
-           let parsed = parseGenericMessage(message, id: id) {
+           let parsed = parseGenericMessage(message, agent: agent, id: id) {
             return parsed
         }
         return nil
     }
 
-    private static func parseGenericMessage(_ object: [String: Any], id: Int) -> SessionTranscriptTurn? {
+    private static func parseGenericMessage(
+        _ object: [String: Any],
+        agent: SessionAgent,
+        id: Int
+    ) -> SessionTranscriptTurn? {
         guard let role = transcriptRole(from: object["role"] as? String) else {
             return nil
         }
         let content = object["content"] ?? object["text"] ?? object["message"]
-        guard let text = normalizedText(from: content, role: role, agent: .opencode) else {
+        guard let text = normalizedText(from: content, role: role, agent: agent) else {
             return nil
         }
         return SessionTranscriptTurn(id: id, role: role, text: text)
@@ -1585,7 +1585,7 @@ private enum SessionTranscriptLoader {
         case .codex:
             return containsAny(data, needles: codexResponseItemNeedles)
                 && containsAny(data, needles: codexPreviewNeedles)
-        case .opencode:
+        case .opencode, .rovodev:
             return containsAny(data, needles: genericRoleNeedles)
         }
     }
@@ -1599,7 +1599,7 @@ private enum SessionTranscriptLoader {
             if containsAny(data, needles: [Data(#""type":"user""#.utf8), Data(#""type": "user""#.utf8)]) {
                 return .user
             }
-        case .codex, .opencode:
+        case .codex, .opencode, .rovodev:
             if containsAny(data, needles: [Data(#""role":"assistant""#.utf8), Data(#""role": "assistant""#.utf8)]) {
                 return .assistant
             }

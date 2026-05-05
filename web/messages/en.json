@@ -458,7 +458,7 @@
       "metaDescription": "Default cmux keyboard shortcuts for workspaces, surfaces, split panes, browser, notifications, find, and app controls on macOS. All cmux-owned shortcuts are configurable in Settings or cmux.json.",
       "chordsTitle": "Shortcut chords",
       "chordsIntro": "cmux supports two-step shortcut chords in <settingsFile>~/.config/cmux/cmux.json</settingsFile>. For the full configuration schema, see the <configurationLink>configuration docs</configurationLink>.",
-      "chordsCallout": "Settings can edit shortcuts directly. Use cmux.json when you want an exact tmux-style prefix binding or you keep shortcuts in dotfiles.",
+      "chordsCallout": "Settings can edit shortcuts directly. Use cmux.json when you want an exact tmux-style prefix binding, keep shortcuts in dotfiles, or unbind an action with null, an empty string, \"none\", \"clear\", \"unbound\", or \"disabled\".",
       "chordsRuleSingle": "Use a plain string for a one-step shortcut.",
       "chordsRuleArray": "Use a two-item array for a chord. The first item is the prefix stroke, the second is the key that follows it.",
       "chordsRuleSyntax": "Each item uses the same syntax as regular bindings, for example cmd+b, ctrl+b, shift+/, or ctrl+1.",
