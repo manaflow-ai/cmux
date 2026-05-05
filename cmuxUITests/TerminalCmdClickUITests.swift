@@ -181,7 +181,7 @@ final class TerminalCmdClickUITests: XCTestCase {
             displayMode: .raw,
             lineFormat: .osc8,
             fileName: fileName,
-            captureOpenPaths: true,
+            captureOpenPaths: false,
             captureHoverDiagnostics: false
         )
         defer { app.terminate() }
@@ -685,9 +685,8 @@ final class TerminalCmdClickUITests: XCTestCase {
            let json = String(data: data, encoding: .utf8) {
             app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_EXTRA_FILE_NAMES_JSON"] = json
         }
-        if captureOpenPaths {
-            app.launchEnvironment["CMUX_UI_TEST_CAPTURE_OPEN_PATH"] = openCapturePath
-            app.launchEnvironment["CMUX_UI_TEST_CAPTURE_OPEN_URL_PATH"] = openCapturePath
+        if captureOpenPaths || lineFormat == .osc8 {
+            app.launchEnvironment[lineFormat == .osc8 ? "CMUX_UI_TEST_CAPTURE_OPEN_URL_PATH" : "CMUX_UI_TEST_CAPTURE_OPEN_PATH"] = openCapturePath
         }
         if captureHoverDiagnostics {
             app.launchEnvironment["CMUX_UI_TEST_CMD_HOVER_DIAGNOSTICS_PATH"] = hoverDiagnosticsPath
