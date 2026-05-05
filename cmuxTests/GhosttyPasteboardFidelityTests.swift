@@ -83,6 +83,20 @@ final class GhosttyPasteboardFidelityTests: XCTestCase {
         )
     }
 
+    func testPrefersUTF8PlainTextWhenRichTextExpandsIntoMultipleReplacementCharacters() throws {
+        let koreanText = "한"
+        let pasteboard = try makeMixedRichImagePasteboard(
+            namePrefix: "lossy-rich-replacement-expansion",
+            plainText: koreanText,
+            html: "<p>\u{FFFD}\u{FFFD}\u{FFFD}</p>"
+        )
+
+        XCTAssertEqual(
+            cmuxPasteboardStringContentsForTesting(pasteboard),
+            koreanText
+        )
+    }
+
     func testPrefersUTF8PlainTextWhenRichTextDropsNonASCIICharacters() throws {
         let koreanText = "한글 paste"
         let pasteboard = try makeMixedRichImagePasteboard(

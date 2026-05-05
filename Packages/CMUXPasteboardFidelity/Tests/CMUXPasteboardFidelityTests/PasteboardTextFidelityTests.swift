@@ -20,6 +20,15 @@ final class PasteboardTextFidelityTests: XCTestCase {
         )
     }
 
+    func testPrefersPlainTextWhenRichTextExpandsOneScalarIntoMultipleReplacementCharacters() {
+        XCTAssertTrue(
+            PasteboardTextFidelity.shouldPreferPlainText(
+                "한",
+                overRichText: "\u{FFFD}\u{FFFD}\u{FFFD}"
+            )
+        )
+    }
+
     func testPrefersPlainTextWhenRichTextDropsNonASCIICharacters() {
         XCTAssertTrue(
             PasteboardTextFidelity.shouldPreferPlainText(

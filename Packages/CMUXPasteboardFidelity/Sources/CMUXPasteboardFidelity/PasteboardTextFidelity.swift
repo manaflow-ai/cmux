@@ -57,14 +57,15 @@ public enum PasteboardTextFidelity {
         var replacementCharacters = 0
 
         for scalar in text.unicodeScalars {
+            if scalar.value == 0xFFFD {
+                replacementCharacters += 1
+                continue
+            }
             if scalar.value > 0x7F {
                 nonASCII += 1
             }
             if scalar.value == 0x3F {
                 questionMarks += 1
-            }
-            if scalar.value == 0xFFFD {
-                replacementCharacters += 1
             }
         }
 
