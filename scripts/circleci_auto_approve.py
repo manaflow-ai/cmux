@@ -22,6 +22,7 @@ WORKFLOW_RE = re.compile(rf"/workflows/({UUID_RE})(?:[/?#]|$)")
 @dataclass(frozen=True)
 class Config:
   repository: str
+  pr_head_repository: str
   pr_head_sha: str
   pr_author: str
   pr_author_id: int
@@ -51,6 +52,7 @@ def parse_trusted_users(value: str) -> dict[str, int]:
 def load_config() -> Config:
   return Config(
     repository=require_env("GITHUB_REPOSITORY"),
+    pr_head_repository=os.environ.get("PR_HEAD_REPOSITORY", require_env("GITHUB_REPOSITORY")),
     pr_head_sha=require_env("PR_HEAD_SHA"),
     pr_author=require_env("PR_AUTHOR"),
     pr_author_id=int(require_env("PR_AUTHOR_ID")),
@@ -155,14 +157,21 @@ def circleci_workflow_id_from_check(check: dict[str, Any]) -> str | None:
 
 
 def find_circleci_workflow(config: Config) -> str | None:
-  expected_check_name = f"ci/circleci: {config.hold_job_name}"
   for check in check_runs(config):
-    if check.get("name") != expected_check_name:
+    if not is_hold_check_name(str(check.get("name") or ""), config.hold_job_name):
       continue
     workflow_id = circleci_workflow_id_from_check(check)
     if workflow_id:
       return workflow_id
   return None
+
+
+def is_hold_check_name(check_name: str, hold_job_name: str) -> bool:
+  prefix = "ci/circleci: "
+  if not check_name.startswith(prefix):
+    return False
+  circleci_name = check_name[len(prefix):]
+  return circleci_name == hold_job_name or circleci_name.endswith(f"/{hold_job_name}")
 
 
 def find_approval_request(config: Config, workflow_id: str) -> tuple[str, str] | None:
@@ -201,6 +210,9 @@ def approve(config: Config, workflow_id: str, approval_request_id: str) -> None:
 
 def run() -> int:
   config = load_config()
+  if config.pr_head_repository == config.repository:
+    print("Same-repository PR does not need CircleCI hold approval")
+    return 0
   if not is_org_member(config):
     print("Not approving CircleCI for untrusted PR author")
     return 0
@@ -220,7 +232,7 @@ def run() -> int:
     print(f"Waiting for CircleCI approval check ({attempt}/{config.max_attempts})")
     time.sleep(config.poll_seconds)
 
-  raise SystemExit(f"Timed out waiting for ci/circleci: {config.hold_job_name}")
+  raise SystemExit(f"Timed out waiting for ci/circleci: */{config.hold_job_name}")
 
 
 if __name__ == "__main__":

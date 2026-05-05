@@ -84,6 +84,7 @@ def base_env(author: str) -> dict[str, str]:
     "GITHUB_API_URL": "https://api.github.test",
     "CIRCLECI_API_URL": "https://circleci.test/api/v2",
     "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+    "PR_HEAD_REPOSITORY": "contributor/cmux",
     "PR_HEAD_SHA": "abc123",
     "PR_AUTHOR": author,
     "PR_AUTHOR_ID": author_ids[author],
@@ -100,7 +101,7 @@ def fake_check_runs() -> dict[str, Any]:
   return {
     "check_runs": [
       {
-        "name": "ci/circleci: hold-for-approval",
+        "name": "ci/circleci: ci-gated/hold-for-approval",
         "details_url": f"https://app.circleci.com/pipelines/circleci/example/workflows/{WORKFLOW_ID}",
       }
     ]
@@ -220,6 +221,30 @@ def test_non_member_does_not_call_circleci() -> None:
   assert all("circleci.test" not in url for _, url in calls)
 
 
+def test_same_repository_pr_does_not_poll_circleci() -> None:
+  calls: list[tuple[str, str]] = []
+  test_env = base_env("lawrencecchen")
+  test_env["PR_HEAD_REPOSITORY"] = "manaflow-ai/cmux"
+
+  def urlopen(request: Any, timeout: int = 20) -> FakeResponse:
+    calls.append((request.get_method(), request.full_url))
+    raise AssertionError(f"unexpected request: {request.full_url}")
+
+  with env(**test_env):
+    module = load_module()
+    with mock.patch.object(module.urllib.request, "urlopen", urlopen):
+      assert module.run() == 0
+
+  assert calls == []
+
+
+def test_hold_check_name_accepts_legacy_and_workflow_prefixed_names() -> None:
+  module = load_module()
+  assert module.is_hold_check_name("ci/circleci: hold-for-approval", "hold-for-approval")
+  assert module.is_hold_check_name("ci/circleci: ci-gated/hold-for-approval", "hold-for-approval")
+  assert not module.is_hold_check_name("ci/circleci: macos-unit-tests", "hold-for-approval")
+
+
 def test_membership_api_error_does_not_call_circleci() -> None:
   calls: list[tuple[str, str]] = []
 
@@ -328,6 +353,8 @@ def main() -> None:
   test_allowlisted_user_approves_without_membership_lookup()
   test_visible_org_member_approves()
   test_non_member_does_not_call_circleci()
+  test_same_repository_pr_does_not_poll_circleci()
+  test_hold_check_name_accepts_legacy_and_workflow_prefixed_names()
   test_membership_api_error_does_not_call_circleci()
   test_already_approved_does_not_post()
   test_dry_run_paginates_and_does_not_post()
