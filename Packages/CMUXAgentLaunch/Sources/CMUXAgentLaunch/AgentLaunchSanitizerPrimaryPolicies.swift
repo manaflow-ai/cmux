@@ -363,11 +363,18 @@ extension AgentLaunchSanitizer {
             // One-shot prompt flags — drop so the recorded launch can be
             // resumed as an interactive `pi --session <id>` session.
             "--print",
-            "-p"
+            "-p",
+            // Credentials — never persist into a recorded launch command
+            // (Vault stores commands and re-emits them for resume).
+            // `--api-key` stays in `valueOptions` above so the parser still
+            // consumes its trailing value; listing it here drops the flag
+            // from the sanitized output. Mirrors `cursorPolicy`.
+            "--api-key"
         ],
         droppedOptionPrefixes: [
             "--session=",
-            "--fork="
+            "--fork=",
+            "--api-key="
         ],
         rejectOptions: [
             // These are incompatible with restoring an interactive session

@@ -89,6 +89,38 @@ struct AgentLaunchSanitizerTests {
         )
     }
 
+    @Test("Drops pi --api-key value-form from sanitized launch arguments")
+    func dropsPiApiKeyValueForm() {
+        // Tail position: parser must consume the value, not leak it as a
+        // positional prompt; result must contain neither --api-key nor sk-foo.
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["pi", "--provider", "anthropic", "--api-key", "sk-foo"],
+                launcher: "pi",
+                fallbackKind: "pi"
+            ) == ["pi", "--provider", "anthropic"]
+        )
+        // Mid-arglist: trailing options after the credential must be preserved.
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["pi", "--api-key", "sk-foo", "--model", "claude-sonnet-4-5"],
+                launcher: "pi",
+                fallbackKind: "pi"
+            ) == ["pi", "--model", "claude-sonnet-4-5"]
+        )
+    }
+
+    @Test("Drops pi --api-key=value equals-form from sanitized launch arguments")
+    func dropsPiApiKeyEqualsForm() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["pi", "--api-key=sk-foo", "--model", "claude-sonnet-4-5"],
+                launcher: "pi",
+                fallbackKind: "pi"
+            ) == ["pi", "--model", "claude-sonnet-4-5"]
+        )
+    }
+
     @Test("pi install/update/list subcommands are non-restorable")
     func piNonRestorableSubcommandsReturnNil() {
         #expect(
