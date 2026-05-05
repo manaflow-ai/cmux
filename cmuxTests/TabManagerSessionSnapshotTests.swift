@@ -72,4 +72,37 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertNil(snapshot.selectedWorkspaceIndex)
         XCTAssertFalse(snapshot.workspaces.contains { $0.processTitle == remoteWorkspace.title })
     }
+
+    func testSessionSnapshotRestoresSSHWorkspaceDescriptor() throws {
+        let manager = TabManager()
+        let remoteWorkspace = manager.addWorkspace(select: true)
+        remoteWorkspace.setCustomTitle("Remote Mac mini")
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "dev@example.com",
+            port: 2222,
+            identityFile: "/Users/test/.ssh/id_ed25519",
+            sshOptions: [
+                "ControlPath=/tmp/cmux-ssh-%C",
+                "StrictHostKeyChecking=accept-new",
+            ],
+            localProxyPort: nil,
+            relayPort: 64002,
+            relayID: "relay-restore-test",
+            relayToken: String(repeating: "d", count: 64),
+            localSocketPath: "/tmp/cmux-restore-test.sock",
+            terminalStartupCommand: "ssh dev@example.com"
+        )
+        remoteWorkspace.configureRemoteConnection(configuration, autoConnect: false)
+
+        let snapshot = manager.sessionSnapshot(includeScrollback: false)
+
+        let restored = TabManager()
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredWorkspace = try XCTUnwrap(
+            restored.tabs.first { $0.customTitle == "Remote Mac mini" }
+        )
+        XCTAssertTrue(restoredWorkspace.isRemoteWorkspace)
+        XCTAssertEqual(restoredWorkspace.remoteDisplayTarget, "dev@example.com:2222")
+    }
 }
