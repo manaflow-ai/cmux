@@ -465,18 +465,8 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     func testWindowUnregisterSnapshotPersistencePolicy() {
-        XCTAssertTrue(
-            AppDelegate.shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: false)
-        )
-        XCTAssertFalse(
-            AppDelegate.shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: true)
-        )
-        XCTAssertTrue(
-            AppDelegate.shouldRemoveSnapshotWhenNoWindowsRemainOnWindowUnregister(isTerminatingApp: false)
-        )
-        XCTAssertFalse(
-            AppDelegate.shouldRemoveSnapshotWhenNoWindowsRemainOnWindowUnregister(isTerminatingApp: true)
-        )
+        XCTAssertTrue(AppDelegate.shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: false))
+        XCTAssertFalse(AppDelegate.shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: true))
     }
 
     func testShouldSkipSessionSaveDuringRestorePolicy() {
@@ -1150,11 +1140,68 @@ final class SessionPersistenceTests: XCTestCase {
                 ]
             ),
             (
+                .cursor,
+                [
+                    "/usr/local/bin/cursor-agent",
+                    "--model",
+                    "gpt-5.4",
+                ]
+            ),
+            (
+                .gemini,
+                [
+                    "/usr/local/bin/gemini",
+                    "--model",
+                    "gemini-2.5-pro",
+                ]
+            ),
+            (
                 .opencode,
                 [
                     "/usr/local/bin/opencode",
                     "--model",
                     "anthropic/claude-sonnet-4-5",
+                ]
+            ),
+            (
+                .rovodev,
+                [
+                    "/usr/local/bin/acli",
+                    "rovodev",
+                    "run",
+                    "--yolo",
+                ]
+            ),
+            (
+                .copilot,
+                [
+                    "/usr/local/bin/copilot",
+                    "--model",
+                    "gpt-5.4",
+                ]
+            ),
+            (
+                .codebuddy,
+                [
+                    "/usr/local/bin/codebuddy",
+                    "--model",
+                    "gpt-5.4",
+                ]
+            ),
+            (
+                .factory,
+                [
+                    "/usr/local/bin/droid",
+                    "--cwd",
+                    "/tmp/repo",
+                ]
+            ),
+            (
+                .qoder,
+                [
+                    "/usr/local/bin/qodercli",
+                    "--model",
+                    "gemini-2.5-pro",
                 ]
             ),
         ]
@@ -1273,8 +1320,22 @@ final class SessionPersistenceTests: XCTestCase {
                 resolvedEnvironment = ["CLAUDE_CONFIG_DIR": "/tmp/claude"]
             case .codex:
                 resolvedEnvironment = ["CODEX_HOME": "/tmp/codex"]
+            case .cursor:
+                resolvedEnvironment = [:]
+            case .gemini:
+                resolvedEnvironment = ["GEMINI_CLI_HOME": "/tmp/gemini"]
             case .opencode:
                 resolvedEnvironment = ["OPENCODE_CONFIG_DIR": "/tmp/opencode"]
+            case .rovodev:
+                resolvedEnvironment = [:]
+            case .copilot:
+                resolvedEnvironment = ["COPILOT_HOME": "/tmp/copilot"]
+            case .codebuddy:
+                resolvedEnvironment = ["CODEBUDDY_CONFIG_DIR": "/tmp/codebuddy"]
+            case .factory:
+                resolvedEnvironment = [:]
+            case .qoder:
+                resolvedEnvironment = ["QODER_CONFIG_DIR": "/tmp/qoder"]
             }
         }
         let resolvedExecutablePath = executablePath ?? arguments.first ?? "/usr/local/bin/\(kind.rawValue)"
@@ -1552,7 +1613,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "cd '/tmp/cmux project' && 'env' 'CLAUDE_CONFIG_DIR=/tmp/claude config' '/opt/Claude Code/bin/claude' '--resume' 'claude-session-123' '--model' 'sonnet' '--permission-mode' 'auto'"
+            "cd '/tmp/cmux project' && 'env' 'CLAUDE_CONFIG_DIR=/tmp/claude config' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' '/opt/Claude Code/bin/claude' '--resume' 'claude-session-123' '--model' 'sonnet' '--permission-mode' 'auto'"
         )
     }
 
@@ -1685,7 +1746,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "cd '/Users/lawrence/fun' && 'env' 'CLAUDE_CONFIG_DIR=/Users/lawrence/.codex-accounts/claude/_p1775010019397' '/Users/lawrence/.local/bin/claude' '--resume' '24ec0052-450c-4914-b1dd-2ee80d4bc84b' '--dangerously-skip-permissions'"
+            "cd '/Users/lawrence/fun' && 'env' 'CLAUDE_CONFIG_DIR=/Users/lawrence/.codex-accounts/claude/_p1775010019397' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' '/Users/lawrence/.local/bin/claude' '--resume' '24ec0052-450c-4914-b1dd-2ee80d4bc84b' '--dangerously-skip-permissions'"
         )
     }
 
@@ -1816,7 +1877,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "'env' 'ANTHROPIC_MODEL=' 'claude' '--resume' 'claude-session-env'"
+            "'env' 'ANTHROPIC_MODEL=' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=ANTHROPIC_MODEL' 'claude' '--resume' 'claude-session-env'"
         )
     }
 
@@ -1866,15 +1927,6 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             snapshot.resumeCommand,
             "'claude' '--resume' 'claude-session-empty-node-options' '--model' 'sonnet'"
         )
-    }
-
-    func testHookStoreDirectoryCanBeOverriddenForTests() {
-        let url = RestorableAgentKind.codex.hookStoreFileURL(
-            homeDirectory: "/Users/example",
-            environment: ["CMUX_AGENT_HOOK_STATE_DIR": "/tmp/cmux hook state"]
-        )
-
-        XCTAssertEqual(url.path, "/tmp/cmux hook state/codex-hook-sessions.json")
     }
 
     func testOpenCodeWrapperResumeCommandAndUnsupportedOhMyLaunchers() {
@@ -1988,85 +2040,6 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
         XCTAssertNil(omx.resumeCommand)
         XCTAssertNil(omc.resumeCommand)
-    }
-
-    func testNonInteractiveAgentLaunchesAreNotAutoRestored() {
-        let claudePrint = SessionRestorableAgentSnapshot(
-            kind: .claude,
-            sessionId: "claude-session-123",
-            workingDirectory: nil,
-            launchCommand: AgentLaunchCommandSnapshot(
-                launcher: "claude",
-                executablePath: "claude",
-                arguments: ["claude", "--print", "summarize this"],
-                workingDirectory: nil,
-                environment: nil,
-                capturedAt: nil,
-                source: nil
-            )
-        )
-        let claudePrintEquals = SessionRestorableAgentSnapshot(
-            kind: .claude,
-            sessionId: "claude-session-456",
-            workingDirectory: nil,
-            launchCommand: AgentLaunchCommandSnapshot(
-                launcher: "claude",
-                executablePath: "claude",
-                arguments: ["claude", "--print=summarize this"],
-                workingDirectory: nil,
-                environment: nil,
-                capturedAt: nil,
-                source: nil
-            )
-        )
-        let codexExec = SessionRestorableAgentSnapshot(
-            kind: .codex,
-            sessionId: "codex-session-123",
-            workingDirectory: nil,
-            launchCommand: AgentLaunchCommandSnapshot(
-                launcher: "codex",
-                executablePath: "codex",
-                arguments: ["codex", "exec", "fix this"],
-                workingDirectory: nil,
-                environment: nil,
-                capturedAt: nil,
-                source: nil
-            )
-        )
-        let opencodeRun = SessionRestorableAgentSnapshot(
-            kind: .opencode,
-            sessionId: "opencode-session-123",
-            workingDirectory: nil,
-            launchCommand: AgentLaunchCommandSnapshot(
-                launcher: "opencode",
-                executablePath: "opencode",
-                arguments: ["opencode", "run", "fix this"],
-                workingDirectory: nil,
-                environment: nil,
-                capturedAt: nil,
-                source: nil
-            )
-        )
-        let opencodePR = SessionRestorableAgentSnapshot(
-            kind: .opencode,
-            sessionId: "opencode-pr-session-123",
-            workingDirectory: nil,
-            launchCommand: AgentLaunchCommandSnapshot(
-                launcher: "opencode",
-                executablePath: "opencode",
-                arguments: ["opencode", "pr", "123"],
-                workingDirectory: nil,
-                environment: nil,
-                capturedAt: nil,
-                source: nil
-            )
-        )
-
-        XCTAssertNil(claudePrint.resumeCommand)
-        XCTAssertNil(claudePrintEquals.resumeCommand)
-        XCTAssertNil(codexExec.resumeCommand)
-        XCTAssertNil(opencodeRun.resumeCommand)
-        XCTAssertNil(opencodePR.resumeCommand)
     }
 
     func testRestorableAgentIndexLoadsLaunchCommandFromHookStore() throws {

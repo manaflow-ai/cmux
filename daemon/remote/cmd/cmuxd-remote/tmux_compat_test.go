@@ -306,7 +306,7 @@ func TestConfigureAgentEnvironment(t *testing.T) {
 	// Save and restore env vars
 	envKeys := []string{
 		"CMUX_CLAUDE_TEAMS_CMUX_BIN", "PATH", "TMUX", "TMUX_PANE",
-		"TERM", "CMUX_SOCKET_PATH", "CMUX_SOCKET", "TERM_PROGRAM",
+		"TERM", "CMUX_SOCKET_PATH", "TERM_PROGRAM",
 		"CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID",
 		"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", "COLORTERM",
 	}
@@ -410,6 +410,40 @@ func TestMergeNodeOptions(t *testing.T) {
 	spaceSeparated := "--max-old-space-size 2048 --trace-warnings"
 	if got := mergeNodeOptions(spaceSeparated, restoreModulePath); got != "--require=/tmp/restore-node-options.cjs --max-old-space-size=4096 --trace-warnings" {
 		t.Fatalf("mergeNodeOptions should replace space-separated size flag = %q", got)
+	}
+}
+
+func TestClaudeNodeOptionsCacheRoot(t *testing.T) {
+	macRoot, err := claudeNodeOptionsCacheRoot("darwin", "/ignored/xdg", "/Users/tester")
+	if err != nil {
+		t.Fatalf("mac cache root error: %v", err)
+	}
+	if want := filepath.Join("/Users/tester", "Library", "Caches"); macRoot != want {
+		t.Fatalf("mac cache root = %q, want %q", macRoot, want)
+	}
+
+	linuxXDGRoot, err := claudeNodeOptionsCacheRoot("linux", "/home/tester/.xdg-cache", "/home/tester")
+	if err != nil {
+		t.Fatalf("linux XDG cache root error: %v", err)
+	}
+	if linuxXDGRoot != "/home/tester/.xdg-cache" {
+		t.Fatalf("linux XDG cache root = %q", linuxXDGRoot)
+	}
+
+	linuxFallbackRoot, err := claudeNodeOptionsCacheRoot("linux", "/home/tester/xdg cache", "/home/tester")
+	if err != nil {
+		t.Fatalf("linux fallback cache root error: %v", err)
+	}
+	if want := filepath.Join("/home/tester", ".cache"); linuxFallbackRoot != want {
+		t.Fatalf("linux fallback cache root = %q, want %q", linuxFallbackRoot, want)
+	}
+
+	linuxRelativeFallbackRoot, err := claudeNodeOptionsCacheRoot("linux", "relative-cache", "/home/tester")
+	if err != nil {
+		t.Fatalf("linux relative fallback cache root error: %v", err)
+	}
+	if want := filepath.Join("/home/tester", ".cache"); linuxRelativeFallbackRoot != want {
+		t.Fatalf("linux relative fallback cache root = %q, want %q", linuxRelativeFallbackRoot, want)
 	}
 }
 

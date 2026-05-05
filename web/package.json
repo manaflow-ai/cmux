@@ -54,6 +54,8 @@
     "react-wrap-balancer": "^1.1.1",
     "resend": "^6.9.3",
     "shiki": "^3.22.0",
+    "turndown": "^7.2.4",
+    "turndown-plugin-gfm": "^1.0.2",
     "ws": "^8.20.0",
     "zod": "^4.3.6"
   },
@@ -63,6 +65,7 @@
     "@types/pg": "^8.20.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/turndown": "^5.0.6",
     "@types/ws": "^8.18.1",
     "drizzle-kit": "^1.0.0-beta.23",
     "eslint": "^9",

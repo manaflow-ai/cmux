@@ -70,66 +70,6 @@ func cmuxAccentColor() -> Color {
     Color(nsColor: cmuxAccentNSColor())
 }
 
-private func sidebarSelectedWorkspaceRelativeLuminance(_ color: NSColor) -> CGFloat {
-    guard let rgbColor = color.usingColorSpace(.sRGB) else { return 0 }
-    var red: CGFloat = 0
-    var green: CGFloat = 0
-    var blue: CGFloat = 0
-    var alpha: CGFloat = 0
-    rgbColor.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
-
-    func linearized(_ component: CGFloat) -> CGFloat {
-        if component <= 0.03928 {
-            return component / 12.92
-        }
-        return pow((component + 0.055) / 1.055, 2.4)
-    }
-
-    let linearRed = linearized(red)
-    let linearGreen = linearized(green)
-    let linearBlue = linearized(blue)
-    return (0.2126 * linearRed) + (0.7152 * linearGreen) + (0.0722 * linearBlue)
-}
-
-private func sidebarSelectedWorkspaceContrastRatio(
-    between first: NSColor,
-    and second: NSColor
-) -> CGFloat {
-    let firstLuminance = sidebarSelectedWorkspaceRelativeLuminance(first)
-    let secondLuminance = sidebarSelectedWorkspaceRelativeLuminance(second)
-    let lighter = max(firstLuminance, secondLuminance)
-    let darker = min(firstLuminance, secondLuminance)
-    return (lighter + 0.05) / (darker + 0.05)
-}
-
-private func sidebarSelectedWorkspaceReadableBackgroundNSColor(_ color: NSColor) -> NSColor {
-    let minimumContrast: CGFloat = 4.5
-    var adjusted = color.usingColorSpace(.sRGB) ?? color
-    var iteration = 0
-
-    while sidebarSelectedWorkspaceContrastRatio(between: adjusted, and: NSColor.white) < minimumContrast,
-          iteration < 12 {
-        guard let darkened = adjusted.blended(withFraction: 0.12, of: .black) else { break }
-        adjusted = darkened.usingColorSpace(.sRGB) ?? darkened
-        iteration += 1
-    }
-
-    return adjusted
-}
-
-private func sidebarSelectedWorkspaceCustomBackgroundNSColor(
-    hex: String,
-    colorScheme: ColorScheme
-) -> NSColor? {
-    guard let color = WorkspaceTabColorSettings.displayNSColor(
-        hex: hex,
-        colorScheme: colorScheme
-    ) else {
-        return nil
-    }
-    return sidebarSelectedWorkspaceReadableBackgroundNSColor(color)
-}
-
 struct SidebarRemoteErrorCopyEntry: Equatable {
     let workspaceTitle: String
     let target: String
@@ -169,16 +109,8 @@ enum SidebarRemoteErrorCopySupport {
 
 func sidebarSelectedWorkspaceBackgroundNSColor(
     for colorScheme: ColorScheme,
-    customHex: String? = nil,
     sidebarSelectionColorHex: String? = UserDefaults.standard.string(forKey: "sidebarSelectionColorHex")
 ) -> NSColor {
-    if let customHex,
-       let customColor = sidebarSelectedWorkspaceCustomBackgroundNSColor(
-        hex: customHex,
-        colorScheme: colorScheme
-       ) {
-        return customColor
-    }
     if let hex = sidebarSelectionColorHex,
        let parsed = NSColor(hex: hex) {
         return parsed
@@ -224,7 +156,6 @@ func sidebarWorkspaceRowBackgroundStyle(
 ) -> SidebarWorkspaceRowBackgroundStyle {
     let selectedBackground = sidebarSelectedWorkspaceBackgroundNSColor(
         for: colorScheme,
-        customHex: customColorHex,
         sidebarSelectionColorHex: sidebarSelectionColorHex
     )
     let accentBackground = cmuxAccentNSColor(for: colorScheme)

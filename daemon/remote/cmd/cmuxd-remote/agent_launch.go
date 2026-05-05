@@ -10,6 +10,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode"
 )
 
 const claudeNodeOptionsRestoreModuleScript = `const hadOriginalNodeOptions = process.env.CMUX_ORIGINAL_NODE_OPTIONS_PRESENT === "1";
@@ -321,20 +322,19 @@ func ensureClaudeNodeOptionsRestoreModule() (string, error) {
 	// long-running Claude sessions). The path must not contain whitespace,
 	// since Node.js splits NODE_OPTIONS on whitespace and the
 	// --require=<path> flag is not quoted downstream.
-	cacheRoot, err := os.UserCacheDir()
+	homeDir, _ := os.UserHomeDir()
+	cacheRoot, err := claudeNodeOptionsCacheRoot(runtime.GOOS, os.Getenv("XDG_CACHE_HOME"), homeDir)
 	if err != nil {
-		// Fall back to TempDir on systems without a discoverable user
-		// cache directory; the bug only reproduces on macOS today.
-		cacheRoot = os.TempDir()
+		return "", err
 	}
-	// On macOS, align the subdirectory with the bash wrapper and Swift
-	// launcher (~/Library/Caches/com.cmuxterm.app/...) so all three
-	// launchers share a single cache tree instead of writing duplicates.
 	subdir := "cmux"
 	if runtime.GOOS == "darwin" {
 		subdir = "com.cmuxterm.app"
 	}
 	dir := filepath.Join(cacheRoot, subdir, "cmux-claude-node-options")
+	if pathContainsWhitespace(dir) {
+		return "", fmt.Errorf("NODE_OPTIONS restore module path contains whitespace: %s", dir)
+	}
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", err
 	}
@@ -343,6 +343,27 @@ func ensureClaudeNodeOptionsRestoreModule() (string, error) {
 		return "", err
 	}
 	return restoreModulePath, nil
+}
+
+func claudeNodeOptionsCacheRoot(goos, xdgCacheHome, homeDir string) (string, error) {
+	if goos == "darwin" {
+		if homeDir == "" {
+			return "", fmt.Errorf("HOME is required for Claude NODE_OPTIONS cache path")
+		}
+		return filepath.Join(homeDir, "Library", "Caches"), nil
+	}
+
+	if xdgCacheHome != "" && filepath.IsAbs(xdgCacheHome) && !pathContainsWhitespace(xdgCacheHome) {
+		return xdgCacheHome, nil
+	}
+	if homeDir == "" {
+		return "", fmt.Errorf("HOME is required for Claude NODE_OPTIONS cache path")
+	}
+	return filepath.Join(homeDir, ".cache"), nil
+}
+
+func pathContainsWhitespace(path string) bool {
+	return strings.IndexFunc(path, unicode.IsSpace) >= 0
 }
 
 // --- Focused context ---
@@ -496,7 +517,7 @@ func configureAgentEnvironment(cfg agentConfig) {
 
 	// Socket path
 	os.Setenv("CMUX_SOCKET_PATH", cfg.socketPath)
-	os.Setenv("CMUX_SOCKET", cfg.socketPath)
+	os.Unsetenv("CMUX_SOCKET")
 
 	// Unset TERM_PROGRAM so apps don't detect the host terminal and
 	// override tmux-compatible behavior (e.g. opencode switches to

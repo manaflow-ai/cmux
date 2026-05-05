@@ -15,10 +15,14 @@ import {
   isVmImageConfigError,
   isVmLimitExceededError,
 } from "../../../services/vms/errors";
-import { resolveVmEntitlements } from "../../../services/vms/entitlements";
+import {
+  isVmBillingTeamResolutionError,
+  resolveVmEntitlements,
+} from "../../../services/vms/entitlements";
 import { resolveVmImage } from "../../../services/vms/images/resolver";
 import {
   jsonResponse,
+  requestedVmTeamIdFromRequest,
   withAuthedVmApiRoute,
 } from "../../../services/vms/routeHelpers";
 import {
@@ -37,7 +41,29 @@ export async function GET(request: Request): Promise<Response> {
     { "cmux.vm.operation": "list" },
     "/api/vm GET failed",
     async ({ user, span }) => {
-      const entries = await runVmWorkflow(listUserVms(user.id));
+      let billingTeamId: string | null = null;
+      const requestedBillingTeamId = requestedVmTeamIdFromRequest(request);
+      try {
+        if (requestedBillingTeamId || user.billingCustomerType === "team") {
+          const entitlements = resolveVmEntitlements(user, process.env, {
+            requestedBillingTeamId,
+            requireTeam: false,
+          });
+          billingTeamId = entitlements.billingTeamId;
+          setSpanAttributes(span, {
+            "cmux.billing.team_id_set": !!billingTeamId,
+            "cmux.billing.customer_type": entitlements.billingCustomerType,
+            "cmux.billing.plan_id": entitlements.planId,
+          });
+        }
+      } catch (err) {
+        if (isVmBillingTeamResolutionError(err)) {
+          return jsonResponse({ error: err.code, reason: err.message }, err.status);
+        }
+        throw err;
+      }
+
+      const entries = await runVmWorkflow(listUserVms(user.id, billingTeamId));
       setSpanAttributes(span, { "cmux.vm.count": entries.length });
       // REST adapter: expose `id` at the top level so existing CLI + curl users don't need to
       // learn the new `providerVmId` field name. Swift CLI reads `vm["id"]`.
@@ -63,7 +89,7 @@ export async function POST(request: Request): Promise<Response> {
       // Runtime-validate the payload before we call a paid provider. An invalid `provider`
       // (client sending `"aws"` or `"docker"`) previously slipped past the type cast and
       // surfaced as a 500 from the driver after provisioning had already half-succeeded.
-      let body: { image?: string; provider?: ProviderId };
+      let body: { image?: string; provider?: ProviderId; billingTeamId?: string };
       try {
         // Allow callers to send no body at all. The handler already falls through to
         // default provider/image, so a bare `curl -X POST /api/vm` should create a default
@@ -96,9 +122,14 @@ export async function POST(request: Request): Promise<Response> {
             );
           }
         }
+        const bodyBillingTeamId = candidate.billingTeamId ?? candidate.teamId;
+        if (bodyBillingTeamId !== undefined && typeof bodyBillingTeamId !== "string") {
+          return jsonResponse({ error: "`teamId` must be a string when provided" }, 400);
+        }
         body = {
           image: typeof candidate.image === "string" ? candidate.image : undefined,
           provider: candidate.provider as ProviderId | undefined,
+          billingTeamId: typeof bodyBillingTeamId === "string" ? bodyBillingTeamId.trim() : undefined,
         };
       } catch {
         return jsonResponse({ error: "invalid JSON body" }, 400);
@@ -152,11 +183,24 @@ export async function POST(request: Request): Promise<Response> {
         "cmux.idempotency_key_set": !!idempotencyKey,
       });
 
-      const entitlements = resolveVmEntitlements(user);
+      const requestedBillingTeamId = body.billingTeamId || requestedVmTeamIdFromRequest(request);
+      let entitlements;
+      try {
+        entitlements = resolveVmEntitlements(user, process.env, {
+          requestedBillingTeamId,
+          requireTeam: true,
+        });
+      } catch (err) {
+        if (isVmBillingTeamResolutionError(err)) {
+          return jsonResponse({ error: err.code, reason: err.message }, err.status);
+        }
+        throw err;
+      }
       setSpanAttributes(span, {
         "cmux.billing.team_id_set": !!entitlements.billingTeamId,
-        "cmux.billing.customer_type": user.billingCustomerType,
+        "cmux.billing.customer_type": entitlements.billingCustomerType,
         "cmux.billing.plan_id": entitlements.planId,
+        "cmux.billing.requested_team_id_set": !!requestedBillingTeamId,
         "cmux.vm.max_active": entitlements.maxActiveVms,
       });
 
@@ -164,7 +208,7 @@ export async function POST(request: Request): Promise<Response> {
       try {
         created = await runVmWorkflow(createVm({
           userId: user.id,
-          billingCustomerType: user.billingCustomerType,
+          billingCustomerType: entitlements.billingCustomerType,
           billingTeamId: entitlements.billingTeamId,
           billingPlanId: entitlements.planId,
           maxActiveVms: entitlements.maxActiveVms,
