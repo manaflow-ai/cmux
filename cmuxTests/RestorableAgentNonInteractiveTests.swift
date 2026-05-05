@@ -185,20 +185,13 @@ final class RestorableAgentNonInteractiveTests: XCTestCase {
                 source: nil
             )
         )
-        let piPrint = SessionRestorableAgentSnapshot(
-            kind: .pi,
-            sessionId: "pi-session-123",
-            workingDirectory: nil,
-            launchCommand: AgentLaunchCommandSnapshot(
-                launcher: "pi",
-                executablePath: "pi",
-                arguments: ["pi", "--print", "summarize this"],
-                workingDirectory: nil,
-                environment: nil,
-                capturedAt: nil,
-                source: nil
-            )
-        )
+        // NOTE: `pi --print "<prompt>"` is intentionally NOT in this set.
+        // Unlike claude-code's --print mode, pi's -p / --print still writes
+        // a session JSONL that Vault picks up. Commit e896b59 moved -p /
+        // --print from rejectOptions to droppedOptions on purpose so the
+        // recorded launch can be resumed as an interactive
+        // `pi --session <id>` session. See piRestoresPrintLaunchAsInteractive
+        // below for the positive case.
         let piExport = SessionRestorableAgentSnapshot(
             kind: .pi,
             sessionId: "pi-export-session-123",
@@ -241,9 +234,45 @@ final class RestorableAgentNonInteractiveTests: XCTestCase {
         XCTAssertNil(codeBuddyPrint.resumeCommand)
         XCTAssertNil(factoryExec.resumeCommand)
         XCTAssertNil(qoderPrint.resumeCommand)
-        XCTAssertNil(piPrint.resumeCommand)
         XCTAssertNil(piExport.resumeCommand)
         XCTAssertNil(piInstall.resumeCommand)
+    }
+
+    /// Companion to the negative cases above: `pi --print "<prompt>"` is
+    /// recorded by the cmux-vault TS bridge as a normal launch (pi's -p
+    /// mode writes a session JSONL just like an interactive run), so on
+    /// resume we strip --print and the trailing prompt positional, then
+    /// re-inject `--session <id>`. Pins the e896b59 design choice.
+    func testPiPrintLaunchIsRestoredAsInteractiveSession() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .pi,
+            sessionId: "pi-session-123",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "pi",
+                executablePath: "pi",
+                arguments: ["pi", "--print", "summarize this"],
+                workingDirectory: nil,
+                environment: nil,
+                capturedAt: nil,
+                source: nil
+            )
+        )
+        let command = snapshot.resumeCommand
+        XCTAssertNotNil(command)
+        let display = command ?? "<nil>"
+        XCTAssertTrue(
+            display.contains("'pi' '--session' 'pi-session-123'"),
+            "resume should re-inject --session <id>; got: \(display)"
+        )
+        XCTAssertFalse(
+            display.contains("--print"),
+            "resume must strip --print; got: \(display)"
+        )
+        XCTAssertFalse(
+            display.contains("summarize this"),
+            "resume must strip the prompt positional; got: \(display)"
+        )
     }
 
     func testPiInteractiveLaunchProducesResumeCommand() {
