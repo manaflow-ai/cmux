@@ -1794,7 +1794,7 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
         var deminiaturizedWindows: [NSWindow] = []
         var madeKeyWindows: [NSWindow] = []
         var unhideCount = 0
-        var appActivations: [Bool] = []
+        var appActivations: [NSApplication.ActivationOptions] = []
 
         let controller = MainWindowVisibilityController(
             dependencies: .init(
@@ -1802,7 +1802,7 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
                 setActiveMainWindow: { activeWindows.append($0) },
                 isApplicationHidden: { true },
                 unhideApplication: { unhideCount += 1 },
-                activateApplicationIgnoringOtherApps: { appActivations.append($0) },
+                activateRunningApplication: { appActivations.append($0) },
                 windowOperations: makeWindowOperations(
                     isMiniaturized: { miniaturizedWindows.contains(ObjectIdentifier($0)) },
                     deminiaturize: { window in
@@ -1818,14 +1818,14 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
             controller.focus(
                 window,
                 reason: .focusMainWindow,
-                activation: .appIgnoringOtherApps(true)
+                activation: .runningApplication([.activateAllWindows])
             )
         )
         XCTAssertTrue(activeWindows.first === window)
         XCTAssertTrue(deminiaturizedWindows.first === window)
         XCTAssertTrue(madeKeyWindows.first === window)
         XCTAssertEqual(unhideCount, 1)
-        XCTAssertEqual(appActivations, [true])
+        XCTAssertEqual(appActivations, [[.activateAllWindows]])
     }
 
     func testFocusSuppressionOnlyUpdatesActiveContext() {

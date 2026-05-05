@@ -6977,7 +6977,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             mainWindowVisibilityController.focus(
                 window,
                 reason: .createMainWindow,
-                activation: .appIgnoringOtherApps(true),
+                activation: .runningApplication([.activateAllWindows]),
                 respectActivationSuppression: false
             )
         }
@@ -7254,7 +7254,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return mainWindowVisibilityController.focus(
             window,
             reason: .socketActivate,
-            activation: .appIgnoringOtherApps(true),
+            activation: .runningApplication([.activateAllWindows]),
             respectActivationSuppression: false
         )
     }
@@ -7267,7 +7267,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         mainWindowVisibilityController.focus(
             window,
             reason: reason,
-            activation: .runningApplication([.activateAllWindows, .activateIgnoringOtherApps]),
+            activation: .runningApplication([.activateAllWindows]),
             respectActivationSuppression: false
         )
     }

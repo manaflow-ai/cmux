@@ -37,7 +37,6 @@ final class MainWindowVisibilityController {
 
     enum Activation {
         case none
-        case appIgnoringOtherApps(Bool)
         case runningApplication(NSApplication.ActivationOptions)
     }
 
@@ -83,7 +82,6 @@ final class MainWindowVisibilityController {
         var mainWindow: @MainActor () -> NSWindow?
         var hideApplication: @MainActor () -> Void
         var unhideApplication: @MainActor () -> Void
-        var activateApplicationIgnoringOtherApps: @MainActor (Bool) -> Void
         var activateRunningApplication: @MainActor (NSApplication.ActivationOptions) -> Void
         var windowOperations: WindowOperations
 
@@ -96,9 +94,6 @@ final class MainWindowVisibilityController {
             mainWindow: @escaping @MainActor () -> NSWindow? = { NSApp.mainWindow },
             hideApplication: @escaping @MainActor () -> Void = { NSApp.hide(nil) },
             unhideApplication: @escaping @MainActor () -> Void = { NSApp.unhide(nil) },
-            activateApplicationIgnoringOtherApps: @escaping @MainActor (Bool) -> Void = {
-                NSApp.activate(ignoringOtherApps: $0)
-            },
             activateRunningApplication: @escaping @MainActor (NSApplication.ActivationOptions) -> Void = {
                 NSRunningApplication.current.activate(options: $0)
             },
@@ -112,7 +107,6 @@ final class MainWindowVisibilityController {
             self.mainWindow = mainWindow
             self.hideApplication = hideApplication
             self.unhideApplication = unhideApplication
-            self.activateApplicationIgnoringOtherApps = activateApplicationIgnoringOtherApps
             self.activateRunningApplication = activateRunningApplication
             self.windowOperations = windowOperations ?? WindowOperations.live
         }
@@ -130,7 +124,7 @@ final class MainWindowVisibilityController {
     func focus(
         _ window: NSWindow,
         reason: Reason,
-        activation: Activation = .runningApplication([.activateAllWindows, .activateIgnoringOtherApps]),
+        activation: Activation = .runningApplication([.activateAllWindows]),
         activationTiming: ActivationTiming = .afterWindowOrdering,
         makeKey: Bool = true,
         deminiaturize: Bool = true,
@@ -258,7 +252,7 @@ final class MainWindowVisibilityController {
     func showApplicationWindows(
         windows allWindows: [NSWindow],
         reason: Reason = .globalHotkey,
-        activation: Activation = .runningApplication([.activateAllWindows, .activateIgnoringOtherApps])
+        activation: Activation = .runningApplication([.activateAllWindows])
     ) -> NSWindow? {
         let allWindows = uniqueWindows(allWindows)
         let visibleOrMiniaturizedTargets = allWindows.filter { window in
@@ -300,7 +294,7 @@ final class MainWindowVisibilityController {
         _ windows: [NSWindow],
         preferredWindow: NSWindow?,
         reason: Reason,
-        activation: Activation = .runningApplication([.activateAllWindows, .activateIgnoringOtherApps])
+        activation: Activation = .runningApplication([.activateAllWindows])
     ) -> NSWindow? {
         let windows = uniqueWindows(windows)
         guard !windows.isEmpty else {
@@ -354,8 +348,6 @@ final class MainWindowVisibilityController {
         switch activation {
         case .none:
             break
-        case .appIgnoringOtherApps(let ignoringOtherApps):
-            dependencies.activateApplicationIgnoringOtherApps(ignoringOtherApps)
         case .runningApplication(let options):
             dependencies.activateRunningApplication(options)
         }
