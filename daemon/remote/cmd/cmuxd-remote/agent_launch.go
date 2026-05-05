@@ -269,7 +269,7 @@ func createTmuxShimDir(dirName string, tmuxScript string) (string, error) {
 		return "", err
 	}
 	tmuxPath := filepath.Join(dir, "tmux")
-	if err := writeShimIfChanged(tmuxPath, tmuxScript); err != nil {
+	if err := writeShimIfChanged(tmuxPath, tmuxScript, 0755); err != nil {
 		return "", err
 	}
 	return dir, nil
@@ -281,16 +281,16 @@ func createOMOShimDir() (string, error) {
 		return "", err
 	}
 	notifierPath := filepath.Join(dir, "terminal-notifier")
-	if err := writeShimIfChanged(notifierPath, omoNotifierShimScript); err != nil {
+	if err := writeShimIfChanged(notifierPath, omoNotifierShimScript, 0755); err != nil {
 		return "", err
 	}
 	return dir, nil
 }
 
-func writeShimIfChanged(path string, content string) error {
+func writeShimIfChanged(path string, content string, mode os.FileMode) error {
 	existing, err := os.ReadFile(path)
 	if err == nil && string(existing) == content {
-		return nil
+		return os.Chmod(path, mode)
 	}
 	dir := filepath.Dir(path)
 	tempFile, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
@@ -306,7 +306,7 @@ func writeShimIfChanged(path string, content string) error {
 	if err := tempFile.Close(); err != nil {
 		return err
 	}
-	if err := os.Chmod(tempPath, 0755); err != nil {
+	if err := os.Chmod(tempPath, mode); err != nil {
 		return err
 	}
 	if err := os.Rename(tempPath, path); err != nil {
@@ -349,10 +349,7 @@ func ensureClaudeNodeOptionsRestoreModule() (string, error) {
 		}
 	}
 	restoreModulePath := filepath.Join(dir, "restore-node-options.cjs")
-	if err := writeShimIfChanged(restoreModulePath, claudeNodeOptionsRestoreModuleScript); err != nil {
-		return "", err
-	}
-	if err := os.Chmod(restoreModulePath, 0600); err != nil {
+	if err := writeShimIfChanged(restoreModulePath, claudeNodeOptionsRestoreModuleScript, 0600); err != nil {
 		return "", err
 	}
 	return restoreModulePath, nil

@@ -521,6 +521,36 @@ func TestClaudeNodeOptionsCacheDir(t *testing.T) {
 	}
 }
 
+func TestWriteShimIfChangedHonorsMode(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "restore-node-options.cjs")
+
+	if err := writeShimIfChanged(path, "module.exports = true\n", 0600); err != nil {
+		t.Fatalf("writeShimIfChanged failed: %v", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat written shim: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0600 {
+		t.Fatalf("initial mode = %#o, want 0600", got)
+	}
+
+	if err := os.Chmod(path, 0755); err != nil {
+		t.Fatalf("chmod setup: %v", err)
+	}
+	if err := writeShimIfChanged(path, "module.exports = true\n", 0600); err != nil {
+		t.Fatalf("writeShimIfChanged same content failed: %v", err)
+	}
+	info, err = os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat rewritten shim: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0600 {
+		t.Fatalf("same-content mode = %#o, want 0600", got)
+	}
+}
+
 func TestTmuxWaitForSignalRoundTrip(t *testing.T) {
 	name := "test-roundtrip-" + randomHex(4)
 	path := tmuxWaitForSignalPath(name)
