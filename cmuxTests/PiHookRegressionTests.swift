@@ -187,23 +187,21 @@ final class PiHookRegressionTests: XCTestCase {
     }
 
     /// `cmux hooks setup` (the global installer) should pick up pi when the
-    /// pi binary is on PATH and write the same bridge file. Mirrors the
-    /// legacy `setup-hooks --agent opencode` shape.
-    func testPiSetupHooksInstallsExtension() throws {
+    /// pi binary is on PATH, even when ~/.pi has never been created — pi
+    /// auto-creates the dir on first run, so requiring it would gate-out
+    /// brand-new users from having Vault wiring set up. Mirrors the existing
+    /// OpenCode exemption now expressed as `AgentHookDef.requiresConfigDir`.
+    func testPiSetupHooksInstallsExtensionWithoutPreExistingConfigDir() throws {
         let cliPath = try bundledCLIPath()
-        let root = uniqueTempDirectory(prefix: "cmux-pi-hooks-setup-")
+        let root = uniqueTempDirectory(prefix: "cmux-pi-hooks-setup-clean-")
         defer { try? FileManager.default.removeItem(at: root) }
         let homeDir = root.appendingPathComponent("home", isDirectory: true)
         let binDir = root.appendingPathComponent("bin", isDirectory: true)
         try FileManager.default.createDirectory(at: homeDir, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
-        // Pre-create the .pi/agent dir; otherwise the generic "config dir not
-        // found" guard skips. Pi auto-creates this on first run; we mimic
-        // the post-first-run state.
-        try FileManager.default.createDirectory(
-            at: homeDir.appendingPathComponent(".pi/agent", isDirectory: true),
-            withIntermediateDirectories: true
-        )
+        // Intentionally do NOT pre-create ~/.pi/agent. The setup path must
+        // exempt pi from the generic "config dir not found" guard
+        // (commit 81d6d00 / requiresConfigDir = false on the pi AgentHookDef).
         try writeFakeBinary(name: "pi", in: binDir)
 
         let environment = sandboxedEnvironment(homeDir: homeDir, binDir: binDir)
@@ -215,8 +213,17 @@ final class PiHookRegressionTests: XCTestCase {
         )
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
+        // Setup must NOT skip pi with "config dir not found".
+        let combined = result.stdout + result.stderr
+        XCTAssertFalse(
+            combined.contains("pi: skipped (config dir not found)"),
+            "setup must not gate pi behind ~/.pi/agent existing; got: \(combined)"
+        )
         let extensionURL = homeDir.appendingPathComponent(Self.extensionRelativePath)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: extensionURL.path))
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: extensionURL.path),
+            "setup must install the cmux-vault extension into a clean home"
+        )
         let installed = try String(contentsOf: extensionURL, encoding: .utf8)
         XCTAssertTrue(installed.contains(Self.markerString))
     }
