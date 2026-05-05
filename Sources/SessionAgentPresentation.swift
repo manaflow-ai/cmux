@@ -30,11 +30,21 @@ extension SessionAgent {
     }
 }
 
-enum CmuxVaultAgentDisplayNameCache {
-    private static let lock = NSLock()
-    private static var namesByID: [String: String] = [:]
+final class CmuxVaultAgentDisplayNameCache: @unchecked Sendable {
+    static let shared = CmuxVaultAgentDisplayNameCache()
+
+    private let lock = NSLock()
+    private var namesByID: [String: String] = [:]
 
     static func store(registrations: [CmuxVaultAgentRegistration]) {
+        shared.store(registrations: registrations)
+    }
+
+    static func name(for id: String) -> String? {
+        shared.name(for: id)
+    }
+
+    private func store(registrations: [CmuxVaultAgentRegistration]) {
         lock.lock()
         for registration in registrations {
             if registration.id == "pi", registration.name == "Pi" {
@@ -45,7 +55,7 @@ enum CmuxVaultAgentDisplayNameCache {
         lock.unlock()
     }
 
-    static func name(for id: String) -> String? {
+    private func name(for id: String) -> String? {
         lock.lock()
         defer { lock.unlock() }
         return namesByID[id]
