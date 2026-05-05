@@ -104888,19 +104888,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show Sidebar Sessions"
+            "value": "Show Sidebar Vault"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サイドバーのセッションを表示"
+            "value": "サイドバーのボールトを表示"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사이드바 세션 표시"
+            "value": "사이드바 볼트 표시"
           }
         }
       }
@@ -105395,13 +105395,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sessions"
+            "value": "Vault"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "セッション"
+            "value": "ボールト"
           }
         }
       }
@@ -105463,13 +105463,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Untitled session"
+            "value": "Untitled chat"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "無題のセッション"
+            "value": "無題のチャット"
           }
         }
       }
@@ -105514,13 +105514,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reload sessions"
+            "value": "Reload Vault"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "セッションを再読み込み"
+            "value": "ボールトを再読み込み"
           }
         }
       }
@@ -105531,13 +105531,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Scanning sessions…"
+            "value": "Loading Vault…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "セッションをスキャン中…"
+            "value": "ボールトを読み込み中…"
           }
         }
       }
@@ -105548,13 +105548,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No sessions found"
+            "value": "Vault is empty"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "セッションが見つかりません"
+            "value": "ボールトは空です"
           }
         }
       }
@@ -105565,13 +105565,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sessions from Claude Code, Codex, and OpenCode will appear here."
+            "value": "Claude Code, Codex, and OpenCode history will appear here."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude Code、Codex、OpenCode のセッションがここに表示されます。"
+            "value": "Claude Code、Codex、OpenCode の履歴がここに表示されます。"
           }
         }
       }
@@ -105582,13 +105582,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No sessions"
+            "value": "No chats"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "セッションなし"
+            "value": "チャットなし"
           }
         }
       }
@@ -105837,13 +105837,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Search sessions"
+            "value": "Search Vault"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "セッションを検索"
+            "value": "ボールトを検索"
           }
         }
       }
