@@ -259,6 +259,9 @@
 		A5008383 /* CommandPaletteSearchEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5008382 /* CommandPaletteSearchEngineTests.swift */; };
 		A500RG01 /* ReactGrab.swift in Sources */ = {isa = PBXBuildFile; fileRef = A500RG00 /* ReactGrab.swift */; };
 		A5F10011A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F10010A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore.swift */; };
+		C3551A110000000000000001 /* CmuxSettingsManagedValues.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3551A120000000000000001 /* CmuxSettingsManagedValues.swift */; };
+		C3551B110000000000000001 /* JSONCValueEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3551B120000000000000001 /* JSONCValueEditor.swift */; };
+		C3551C110000000000000001 /* CmuxSettingsWriteBackTargets.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3551C120000000000000001 /* CmuxSettingsWriteBackTargets.swift */; };
 		AA1B2C3D4E5F60718 /* BonsplitTabDragUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1B2C3D4E5F60719 /* BonsplitTabDragUITests.swift */; };
 		AA1B2C3D4E5F60720 /* RightSidebarChromeHeightUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1B2C3D4E5F60721 /* RightSidebarChromeHeightUITests.swift */; };
 		ACE4FE1A8F1CC6C0B6A673AB /* VMClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CEC6EF35B71AE59FA45BA69 /* VMClient.swift */; };
@@ -684,6 +687,9 @@
 		A5008382 /* CommandPaletteSearchEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteSearchEngineTests.swift; sourceTree = "<group>"; };
 		A500RG00 /* ReactGrab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ReactGrab.swift; sourceTree = "<group>"; };
 		A5F10010A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSettingsFileStore.swift; sourceTree = "<group>"; };
+		C3551A120000000000000001 /* CmuxSettingsManagedValues.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxSettingsManagedValues.swift; sourceTree = "<group>"; };
+		C3551B120000000000000001 /* JSONCValueEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSONCValueEditor.swift; sourceTree = "<group>"; };
+		C3551C120000000000000001 /* CmuxSettingsWriteBackTargets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxSettingsWriteBackTargets.swift; sourceTree = "<group>"; };
 		C34670030000000000000002 /* KeyboardShortcutContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutContext.swift; sourceTree = "<group>"; };
 		C2B6A97D1F2E4C71A8B9D002 /* BrowserOmnibarPerformanceSupportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserOmnibarPerformanceSupportTests.swift; sourceTree = "<group>"; };
 		C0DEF0B10000000000000002 /* JSONCParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSONCParser.swift; sourceTree = "<group>"; };
@@ -1004,6 +1010,9 @@
 				A50012F6 /* KeyboardShortcutRecorder.swift */,
 				A50012F9 /* KeyboardShortcutSettingsControls.swift */,
 				A5F10010A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore.swift */,
+				C3551A120000000000000001 /* CmuxSettingsManagedValues.swift */,
+				C3551C120000000000000001 /* CmuxSettingsWriteBackTargets.swift */,
+				C3551B120000000000000001 /* JSONCValueEditor.swift */,
 				C0DEF0B10000000000000002 /* JSONCParser.swift */,
 					A50012F4 /* KeyboardLayout.swift */,
 					A5001013 /* TabManager.swift */,
@@ -1576,6 +1585,9 @@
 				A50012F7 /* KeyboardShortcutRecorder.swift in Sources */,
 				A50012F8 /* KeyboardShortcutSettingsControls.swift in Sources */,
 				A5F10011A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore.swift in Sources */,
+				C3551A110000000000000001 /* CmuxSettingsManagedValues.swift in Sources */,
+				C3551C110000000000000001 /* CmuxSettingsWriteBackTargets.swift in Sources */,
+				C3551B110000000000000001 /* JSONCValueEditor.swift in Sources */,
 				C0DEF0B10000000000000001 /* JSONCParser.swift in Sources */,
 					A50012F5 /* KeyboardLayout.swift in Sources */,
 					A5001003 /* TabManager.swift in Sources */,

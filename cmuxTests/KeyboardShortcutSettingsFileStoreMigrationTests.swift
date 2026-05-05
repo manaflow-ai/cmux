@@ -236,10 +236,8 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
             restoreDefaultsValue(originalSetting, forKey: defaultsKey)
             restoreDefaultsValue(originalBackups, forKey: "cmux.settingsFile.backups.v1")
         }
-
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
-
         let primaryURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
         try writeSettingsFile(
             """
@@ -251,7 +249,6 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
             """,
             to: primaryURL
         )
-
         let notificationCenter = NotificationCenter()
         var store: KeyboardShortcutSettingsFileStore?
         defer { store = nil }
@@ -279,7 +276,10 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
         let defaults = UserDefaults.standard
         let originalSetting = defaults.object(forKey: defaultsKey)
         let originalBackups = defaults.object(forKey: "cmux.settingsFile.backups.v1")
-        defer { restoreDefaultsValue(originalSetting, forKey: defaultsKey); restoreDefaultsValue(originalBackups, forKey: "cmux.settingsFile.backups.v1") }
+        defer {
+            restoreDefaultsValue(originalSetting, forKey: defaultsKey)
+            restoreDefaultsValue(originalBackups, forKey: "cmux.settingsFile.backups.v1")
+        }
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
         let primaryURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
@@ -287,7 +287,12 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
         let notificationCenter = NotificationCenter()
         var store: KeyboardShortcutSettingsFileStore?
         defer { store = nil }
-        store = KeyboardShortcutSettingsFileStore(primaryPath: primaryURL.path, fallbackPath: nil, notificationCenter: notificationCenter, startWatching: true)
+        store = KeyboardShortcutSettingsFileStore(
+            primaryPath: primaryURL.path,
+            fallbackPath: nil,
+            notificationCenter: notificationCenter,
+            startWatching: true
+        )
         XCTAssertNil(try boolSetting(in: primaryURL, section: "sidebarAppearance", key: "matchTerminalBackground"))
 
         waitForSettingsFileChange(on: notificationCenter) {
@@ -299,6 +304,7 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
         try XCTUnwrap(store).reload()
         XCTAssertEqual(defaults.object(forKey: defaultsKey) as? Bool, true)
     }
+
     func testProjectConfigManagedDefaultWriteBackPreservesJSONCComments() throws {
         let defaultsKey = "sidebarMatchTerminalBackground"
         let defaults = UserDefaults.standard
@@ -308,10 +314,8 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
             restoreDefaultsValue(originalSetting, forKey: defaultsKey)
             restoreDefaultsValue(originalBackups, forKey: "cmux.settingsFile.backups.v1")
         }
-
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
-
         let primaryURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
         try writeSettingsFile(
             """
@@ -324,7 +328,6 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
             """,
             to: primaryURL
         )
-
         let notificationCenter = NotificationCenter()
         var store: KeyboardShortcutSettingsFileStore?
         defer { store = nil }
@@ -335,7 +338,6 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
             startWatching: true
         )
         XCTAssertEqual(store?.activeSourcePath, primaryURL.path)
-
         waitForSettingsFileChange(on: notificationCenter) {
             defaults.set(false, forKey: defaultsKey)
             notificationCenter.post(name: UserDefaults.didChangeNotification, object: defaults)
@@ -343,7 +345,7 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
 
         let contents = try String(contentsOf: primaryURL, encoding: .utf8)
         XCTAssertTrue(contents.contains("// Keep this comment"))
-        XCTAssertTrue(contents.contains("/* inline note */"))
+        XCTAssertTrue(contents.contains("\"matchTerminalBackground\": false /* inline note */"))
         XCTAssertEqual(try boolSetting(in: primaryURL, section: "sidebarAppearance", key: "matchTerminalBackground"), false)
     }
 
@@ -356,10 +358,8 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
             restoreDefaultsValue(originalSetting, forKey: defaultsKey)
             restoreDefaultsValue(originalBackups, forKey: "cmux.settingsFile.backups.v1")
         }
-
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
-
         let primaryURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
         try writeSettingsFile(
             """
@@ -372,7 +372,6 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
             to: primaryURL,
             encoding: .utf16
         )
-
         let notificationCenter = NotificationCenter()
         var store: KeyboardShortcutSettingsFileStore?
         defer { store = nil }
@@ -383,14 +382,14 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
             startWatching: true
         )
         XCTAssertEqual(defaults.object(forKey: defaultsKey) as? Bool, true)
-
         waitForSettingsFileChange(on: notificationCenter) {
             defaults.set(false, forKey: defaultsKey)
             notificationCenter.post(name: UserDefaults.didChangeNotification, object: defaults)
         }
 
         XCTAssertEqual(try boolSetting(in: primaryURL, section: "sidebarAppearance", key: "matchTerminalBackground"), false)
-        XCTAssertNotNil(try String(data: Data(contentsOf: primaryURL), encoding: .utf16))
+        let encodedBytes = Array(try Data(contentsOf: primaryURL).prefix(2))
+        XCTAssertTrue(encodedBytes == [0xFF, 0xFE] || encodedBytes == [0xFE, 0xFF])
         XCTAssertNotNil(store)
     }
 
