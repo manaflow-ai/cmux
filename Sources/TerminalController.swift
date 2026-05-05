@@ -1474,17 +1474,28 @@ class TerminalController {
         let params: [String: Any]
     }
 
-    private nonisolated static let socketWorkerV2Methods: Set<String> = [
-        "auth.status",
-        "auth.begin_sign_in",
-        "auth.sign_out",
-        "feedback.submit",
-        "feed.push",
-        "feed.permission.reply",
-        "feed.question.reply",
-        "feed.exit_plan.reply",
-        "system.top",
-    ]
+    private nonisolated static let socketWorkerV2Methods: Set<String> = {
+        var methods: Set<String> = [
+            "auth.status",
+            "auth.begin_sign_in",
+            "auth.sign_out",
+            "feedback.submit",
+            "feed.push",
+            "feed.permission.reply",
+            "feed.question.reply",
+            "feed.exit_plan.reply",
+            "system.top",
+        ]
+#if DEBUG
+        methods.formUnion([
+            "simulator.open",
+            "simulator.list",
+            "simulator.boot",
+            "simulator.shutdown",
+        ])
+#endif
+        return methods
+    }()
 
     private nonisolated static func executionPolicy(forV2Method method: String) -> SocketCommandExecutionPolicy {
         if method.hasPrefix("vm.") || socketWorkerV2Methods.contains(method) {
@@ -1566,6 +1577,10 @@ class TerminalController {
             return v2Result(id: request.id, v2FeedExitPlanReply(params: request.params))
         case "system.top":
             return v2Result(id: request.id, v2SystemTop(params: request.params))
+#if DEBUG
+        case "simulator.open", "simulator.list", "simulator.boot", "simulator.shutdown":
+            return v2Result(id: request.id, v2SimulatorCall(method: request.method, params: request.params))
+#endif
         case let method where method.hasPrefix("vm."):
             return socketWorkerCloudVMResponse(method: method, id: request.id, params: request.params)
         default:
@@ -2720,7 +2735,6 @@ class TerminalController {
 
         case "surface.read_text":
             return v2Result(id: id, self.v2SurfaceReadText(params: params))
-
 
 #if DEBUG
         // Debug / test-only

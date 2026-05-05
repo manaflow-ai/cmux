@@ -325,23 +325,13 @@ struct cmuxApp: App {
                     Button("Background Debug…") {
                         BackgroundDebugWindowController.shared.show()
                     }
-                    Button(
-                        String(
-                            localized: "debug.menu.bonsplitTabBarDebug",
-                            defaultValue: "Bonsplit Tab Bar Debug…"
-                        )
-                    ) {
+                    Button(String(localized: "debug.menu.bonsplitTabBarDebug", defaultValue: "Bonsplit Tab Bar Debug…")) {
                         BonsplitTabBarDebugWindowController.shared.show()
                     }
                     Button("Browser Import Hint Debug…") {
                         BrowserImportHintDebugWindowController.shared.show()
                     }
-                    Button(
-                        String(
-                            localized: "debug.menu.browserProfilePopoverDebug",
-                            defaultValue: "Browser Profile Popover Debug…"
-                        )
-                    ) {
+                    Button(String(localized: "debug.menu.browserProfilePopoverDebug", defaultValue: "Browser Profile Popover Debug…")) {
                         BrowserProfilePopoverDebugWindowController.shared.show()
                     }
                     Button("Debug Window Controls…") {
@@ -350,12 +340,7 @@ struct cmuxApp: App {
                     Button("Feed Preview…") {
                         FeedPreviewWindowController.shared.show()
                     }
-                    Button(
-                        String(
-                            localized: "debug.menu.feedTextEditorDebug",
-                            defaultValue: "Feed Text Editor Lab…"
-                        )
-                    ) {
+                    Button(String(localized: "debug.menu.feedTextEditorDebug", defaultValue: "Feed Text Editor Lab…")) {
                         FeedTextEditorDebugWindowController.shared.show()
                     }
                     Button(
@@ -401,6 +386,9 @@ struct cmuxApp: App {
                     }
                     Button("File Explorer Style Debug…") {
                         FileExplorerStyleDebugWindowController.shared.show()
+                    }
+                    Button(String(localized: "debug.menu.iosSimulators", defaultValue: "iOS Simulators…")) {
+                        SimulatorListWindowController.shared.show()
                     }
                     Button(
                         String(
@@ -1112,6 +1100,7 @@ struct cmuxApp: App {
         FeedTextEditorDebugWindowController.shared.show()
         FeedButtonStyleDebugWindowController.shared.show()
         BonsplitTabBarDebugWindowController.shared.show()
+        SimulatorListWindowController.shared.show()
     }
 #endif
 }
@@ -1145,6 +1134,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.backgroundDebug",
     "cmux.startupAppearanceDebug",
     "cmux.bonsplitTabBarDebug",
+    "cmux.simulators",
 ]
 
 /// Returns whether the given window should handle the standard close shortcut
@@ -1783,6 +1773,9 @@ private struct DebugWindowControlsView: View {
                         ) {
                             FeedTextEditorDebugWindowController.shared.show()
                         }
+                        Button(String(localized: "debug.menu.iosSimulators", defaultValue: "iOS Simulators…")) {
+                            SimulatorListWindowController.shared.show()
+                        }
                         Button("Open All Debug Windows") {
                             BrowserImportHintDebugWindowController.shared.show()
                             BrowserProfilePopoverDebugWindowController.shared.show()
@@ -1795,6 +1788,7 @@ private struct DebugWindowControlsView: View {
                             PDFPreviewChromeDebugWindowController.shared.show()
                             TabBarBackdropLabWindowController.shared.show()
                             FeedTextEditorDebugWindowController.shared.show()
+                            SimulatorListWindowController.shared.show()
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)

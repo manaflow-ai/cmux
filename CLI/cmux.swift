@@ -3437,7 +3437,9 @@ struct CMUXCLI {
         // Markdown commands
         case "markdown":
             try runMarkdownCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
-
+#if DEBUG
+        case "sim", "simulator": try runSimulatorCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+#endif
         default:
             print(usage())
             throw CLIError(message: "Unknown command: \(command)")
@@ -20452,7 +20454,6 @@ export default CMUXSessionRestore;
           display-message [-p|--print] <text>
 
           markdown [open] <path> [--focus <true|false>] (open markdown file in formatted viewer panel with live reload)
-
           browser [--surface <id|ref|index> | <surface>] <subcommand> ...
           browser disable | enable | status
           browser open [url] [--focus <true|false>] (create browser split in caller's workspace; if surface supplied, behaves like navigate)

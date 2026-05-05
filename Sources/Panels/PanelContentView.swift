@@ -65,6 +65,16 @@ struct PanelContentView: View {
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }
+        case .simulator:
+            if let simulatorPanel = panel as? SimulatorPanel {
+                SimulatorPanelView(
+                    panel: simulatorPanel,
+                    isFocused: isFocused,
+                    isVisibleInUI: isVisibleInUI,
+                    portalPriority: portalPriority,
+                    onRequestPanelFocus: { _ in onRequestPanelFocus() }
+                )
+            }
         }
     }
 }

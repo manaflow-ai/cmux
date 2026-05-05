@@ -178,6 +178,7 @@ extension Workspace {
         }
 
         let panelSnapshots = allPanelIds
+            .filter { panels[$0]?.panelType != .simulator }
             .prefix(SessionPersistencePolicy.maxPanelsPerWorkspace)
             .compactMap { panelId in
                 sessionPanelSnapshot(
@@ -300,7 +301,9 @@ extension Workspace {
         switch node {
         case .pane(let pane):
             let panelIds = sessionPanelIDs(for: pane)
-            let selectedPanelId = pane.selectedTabId.flatMap(sessionPanelID(forExternalTabIDString:))
+            let selectedPanelId = pane.selectedTabId
+                .flatMap(sessionPanelID(forExternalTabIDString:))
+                .flatMap { panelIds.contains($0) ? $0 : nil }
             return .pane(
                 SessionPaneLayoutSnapshot(
                     panelIds: panelIds,
@@ -324,6 +327,7 @@ extension Workspace {
         var seen = Set<UUID>()
         for tab in pane.tabs {
             guard let panelId = sessionPanelID(forExternalTabIDString: tab.id) else { continue }
+            guard panels[panelId]?.panelType != .simulator else { continue }
             if seen.insert(panelId).inserted {
                 panelIds.append(panelId)
             }
@@ -444,6 +448,9 @@ extension Workspace {
             browserSnapshot = nil
             markdownSnapshot = nil
             filePreviewSnapshot = SessionFilePreviewPanelSnapshot(filePath: filePreviewPanel.filePath)
+        case .simulator:
+            // Simulator panels are ephemeral; their state lives in the OS, not in cmux.
+            return nil
         }
 
         return SessionPanelSnapshot(
@@ -693,6 +700,9 @@ extension Workspace {
             }
             applySessionPanelMetadata(snapshot, toPanelId: filePreviewPanel.id)
             return filePreviewPanel.id
+        case .simulator:
+            // Not restorable; we never persist simulator snapshots in the first place.
+            return nil
         }
     }
 
@@ -7149,7 +7159,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var panelSubscriptions: [UUID: AnyCancellable] = [:]
 
     /// When true, suppresses auto-creation in didSplitPane (programmatic splits handle their own panels)
-    private var isProgrammaticSplit = false
+    var isProgrammaticSplit = false
     private var debugStressPreloadSelectionDepth = 0
 
     /// Last terminal panel used as an inheritance source (typically last focused terminal).
@@ -7165,6 +7175,8 @@ final class Workspace: Identifiable, ObservableObject {
     var onClosedBrowserPanel: ((ClosedBrowserPanelRestoreSnapshot) -> Void)?
     weak var owningTabManager: TabManager?
 
+    func registerPanelForSurfaceCreation(_ panel: any Panel) { panels[panel.id] = panel; panelTitles[panel.id] = panel.displayTitle }
+    func rollbackPanelSurfaceCreation(panelId: UUID, surfaceId: TabID? = nil) { panels.removeValue(forKey: panelId); panelTitles.removeValue(forKey: panelId); if let surfaceId { surfaceIdToPanelId.removeValue(forKey: surfaceId) } }
     // Closing tabs mutates split layout immediately; terminal views handle their own AppKit
     // layout/size synchronization.
 
@@ -7367,6 +7379,7 @@ final class Workspace: Identifiable, ObservableObject {
         static let browser = "browser"
         static let markdown = "markdown"
         static let filePreview = "filePreview"
+        static let simulator = "simulator"
     }
 
     enum PanelShellActivityState: String {
@@ -7914,7 +7927,7 @@ final class Workspace: Identifiable, ObservableObject {
     // MARK: - Surface ID to Panel ID Mapping
 
     /// Mapping from bonsplit TabID (surface ID) to panel UUID
-    private var surfaceIdToPanelId: [TabID: UUID] = [:]
+    var surfaceIdToPanelId: [TabID: UUID] = [:]
 
     /// Tab IDs that are allowed to close even if they would normally require confirmation.
     /// This is used by app-level confirmation prompts (e.g., Cmd+W "Close Tab?") so the
@@ -8185,19 +8198,6 @@ final class Workspace: Identifiable, ObservableObject {
 
     func filePreviewPanel(for panelId: UUID) -> FilePreviewPanel? {
         panels[panelId] as? FilePreviewPanel
-    }
-
-    private func surfaceKind(for panel: any Panel) -> String {
-        switch panel.panelType {
-        case .terminal:
-            return SurfaceKind.terminal
-        case .browser:
-            return SurfaceKind.browser
-        case .markdown:
-            return SurfaceKind.markdown
-        case .filePreview:
-            return SurfaceKind.filePreview
-        }
     }
 
     private func resolvedPanelTitle(panelId: UUID, fallback: String) -> String {
@@ -11132,7 +11132,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
     // MARK: - Focus Management
 
-    private func preserveFocusAfterNonFocusSplit(
+    func preserveFocusAfterNonFocusSplit(
         preferredPanelId: UUID?,
         splitPanelId: UUID,
         previousHostedView: GhosttySurfaceScrollView?
@@ -12745,7 +12745,7 @@ extension Workspace: BonsplitDelegate {
 
     /// Apply the side-effects of selecting a tab (unfocus others, focus this panel, update state).
     /// bonsplit doesn't always emit didSelectTab for programmatic selection paths (e.g. createTab).
-    private func applyTabSelection(
+    func applyTabSelection(
         tabId: TabID,
         inPane pane: PaneID,
         reassertAppKitFocus: Bool = true,
