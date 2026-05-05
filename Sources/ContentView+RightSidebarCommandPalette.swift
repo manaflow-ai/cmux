@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 extension ContentView {
     static func commandPaletteShortcutAction(forCommandID commandId: String) -> KeyboardShortcutSettings.Action? {
@@ -105,6 +105,23 @@ extension ContentView {
             return "palette.showRightSidebarFeed"
         case .dock:
             return "palette.showRightSidebarDock"
+        }
+    }
+
+    func handleCommandPaletteRightSidebarMode(_ mode: RightSidebarMode, observedWindow: NSWindow?) {
+        guard mode.isAvailable() else {
+            NSSound.beep()
+            return
+        }
+        if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+            mode: mode,
+            focusFirstItem: true,
+            preferredWindow: observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+        ) != true {
+            fileExplorerState.setVisible(true)
+            if fileExplorerState.mode != mode {
+                fileExplorerState.mode = mode
+            }
         }
     }
 
