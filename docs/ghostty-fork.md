@@ -186,9 +186,9 @@ tend to conflict together during rebases.
 The current cmux pin is `ee397e28d`. It is reachable from the fork branch in
 https://github.com/manaflow-ai/ghostty/pull/54; the fork `main` branch is protected
 and will become the reachable source once that PR lands.
-The previous published xcframework was `xcframework-22fa801f88f96fa842e54ecce6c34a5d36003d19`
-with its archive checksum pinned in `scripts/ghosttykit-checksums.txt`. The release
-and checksum pin must be regenerated whenever this commit changes, even for
+Published `xcframework-ee397e28dab4a125f038cde47d8eb9b102a8ae4c` and pinned
+its archive checksum in `scripts/ghosttykit-checksums.txt`. The release and
+checksum pin must be regenerated whenever this commit changes, even for
 comment-only amends, because the release tag is keyed by the Ghostty commit SHA.
 
 ## Upstreamed fork changes
