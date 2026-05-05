@@ -16195,7 +16195,7 @@ struct CMUXCLI {
                !envValue.isEmpty {
                 return NSString(string: envValue).expandingTildeInPath
             }
-            return NSString(string: "~/\(configDir)").expandingTildeInPath
+            return ((ProcessInfo.processInfo.environment["HOME"].flatMap { $0.isEmpty ? nil : $0 } ?? NSHomeDirectory()) as NSString).appendingPathComponent(configDir)
         }
 
         init(name: String, displayName: String, statusKey: String,

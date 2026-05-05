@@ -97,16 +97,63 @@ extension AgentHookIntegrationSettings {
         let oldText = (try? String(contentsOf: oldURL, encoding: .utf8)) ?? ""
         let newText = (try? String(contentsOf: newURL, encoding: .utf8)) ?? ""
         guard oldText != newText else { return nil }
+        if let diff = externalUnifiedDiff(relativePath: relativePath, oldText: oldText, newText: newText) {
+            return diff
+        }
+        return fallbackUnifiedDiff(relativePath: relativePath, oldText: oldText, newText: newText)
+    }
 
-        let oldLines = oldText.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        let newLines = newText.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+    private static func fallbackUnifiedDiff(relativePath: String, oldText: String, newText: String) -> String {
+        let oldLines = oldText.split(separator: "\n", omittingEmptySubsequences: false)
+        let newLines = newText.split(separator: "\n", omittingEmptySubsequences: false)
         var lines = [
             "--- ~/\(relativePath)",
             "+++ ~/\(relativePath)",
             "@@",
         ]
-        lines.append(contentsOf: oldLines.map { "-\($0)" })
-        lines.append(contentsOf: newLines.map { "+\($0)" })
+        lines.append(contentsOf: oldLines.map { "-\(String($0))" })
+        lines.append(contentsOf: newLines.map { "+\(String($0))" })
+        return lines.joined(separator: "\n")
+    }
+
+    private static func externalUnifiedDiff(relativePath: String, oldText: String, newText: String) -> String? {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-hook-diff-files-\(UUID().uuidString)", isDirectory: true)
+        let oldTempURL = tempDir.appendingPathComponent("old")
+        let newTempURL = tempDir.appendingPathComponent("new")
+        do {
+            try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+            try oldText.write(to: oldTempURL, atomically: true, encoding: .utf8)
+            try newText.write(to: newTempURL, atomically: true, encoding: .utf8)
+        } catch {
+            try? FileManager.default.removeItem(at: tempDir)
+            return nil
+        }
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/diff")
+        process.arguments = ["-u", oldTempURL.path, newTempURL.path]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard process.terminationStatus == 1,
+              let rawDiff = String(data: data, encoding: .utf8),
+              !rawDiff.isEmpty else {
+            return nil
+        }
+
+        var lines = rawDiff.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        if !lines.isEmpty { lines[0] = "--- ~/\(relativePath)" }
+        if lines.count > 1 { lines[1] = "+++ ~/\(relativePath)" }
         return lines.joined(separator: "\n")
     }
 

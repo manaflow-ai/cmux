@@ -1149,6 +1149,12 @@ _cmux_agent_hook_agent_for_command() {
                 print -r -- "opencode"
                 return 0 ;;
             cursor)
+                if (( index < ${#words[@]} )) && [[ "${words[index + 1]}" == "agent" ]]; then
+                    print -r -- "cursor"
+                    return 0
+                fi
+                return 1 ;;
+            cursor-agent)
                 print -r -- "cursor"
                 return 0 ;;
             gemini)

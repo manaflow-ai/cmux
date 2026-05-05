@@ -256,11 +256,7 @@ struct AgentHookDiffReviewView: View {
                     .frame(maxWidth: .infinity, minHeight: 280, alignment: .center)
                 } else {
                     ScrollView {
-                        Text(diffText)
-                            .font(.system(.caption, design: .monospaced))
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(10)
+                        AgentHookRenderedDiffView(diffText: diffText)
                     }
                     .background(Color(nsColor: .textBackgroundColor))
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -359,6 +355,54 @@ struct AgentHookDiffReviewView: View {
                 message = result.message
             }
         }
+    }
+}
+
+private struct AgentHookRenderedDiffView: View {
+    let diffText: String
+
+    var body: some View {
+        LazyVStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                AgentHookRenderedDiffLine(line: line)
+            }
+        }
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .textSelection(.enabled)
+    }
+
+    private var lines: [String] {
+        diffText.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+    }
+}
+
+private struct AgentHookRenderedDiffLine: View {
+    let line: String
+
+    var body: some View {
+        Text(line.isEmpty ? " " : line)
+            .font(.system(.caption, design: .monospaced))
+            .foregroundStyle(foreground)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 1)
+            .background(background)
+    }
+
+    private var foreground: Color {
+        if line.hasPrefix("+") && !line.hasPrefix("+++") { return .green }
+        if line.hasPrefix("-") && !line.hasPrefix("---") { return .red }
+        if line.hasPrefix("@@") { return .cyan }
+        return .primary
+    }
+
+    private var background: Color {
+        if line.hasPrefix("+") && !line.hasPrefix("+++") { return Color.green.opacity(0.10) }
+        if line.hasPrefix("-") && !line.hasPrefix("---") { return Color.red.opacity(0.10) }
+        if line.hasPrefix("@@") { return Color.cyan.opacity(0.08) }
+        if line.hasPrefix("---") || line.hasPrefix("+++") { return Color.secondary.opacity(0.08) }
+        return Color.clear
     }
 }
 
