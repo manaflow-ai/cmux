@@ -5373,7 +5373,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             setActiveMainWindow(window)
             context.sidebarState.toggle()
-            synchronizeSidebarPortalGeometry(in: window)
             return true
         }
 
@@ -5408,7 +5407,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow) else {
             if let fileExplorerState {
                 fileExplorerState.toggle()
-                synchronizeSidebarPortalGeometry(in: preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow)
                 return true
             }
             return false
@@ -5424,7 +5422,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         let wasVisible = state.isVisible
         state.toggle()
-        synchronizeSidebarPortalGeometry(in: window)
         if wasVisible && !state.isVisible {
             _ = context.keyboardFocusCoordinator.restoreTerminalFocusAfterRightSidebarHiddenIfNeeded()
         }
