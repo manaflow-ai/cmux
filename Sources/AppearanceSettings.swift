@@ -30,16 +30,12 @@ enum AppearanceMode: String, CaseIterable, Identifiable {
 enum AppearanceSettings {
     struct LiveApplyEnvironment {
         let setApplicationAppearance: (NSAppearance?) -> Void
-        let synchronizeTerminalThemeWithAppearance: (NSAppearance?, String) -> Void
         let systemAppearance: () -> NSAppearance?
 
         static var live: LiveApplyEnvironment {
             LiveApplyEnvironment(
                 setApplicationAppearance: { appearance in
                     NSApplication.shared.appearance = appearance
-                },
-                synchronizeTerminalThemeWithAppearance: { appearance, source in
-                    GhosttyApp.shared.synchronizeThemeWithAppearance(appearance, source: source)
                 },
                 systemAppearance: {
                     AppearanceSettings.systemNSAppearance()
@@ -138,7 +134,6 @@ enum AppearanceSettings {
         defaults: UserDefaults = .standard,
         source: String,
         duringLaunch: Bool = false,
-        synchronizeTerminalTheme: Bool = true,
         environment: LiveApplyEnvironment = .live
     ) -> AppearanceMode {
         let normalized = Self.mode(for: rawValue)
@@ -149,7 +144,6 @@ enum AppearanceSettings {
             normalized,
             source: source,
             duringLaunch: duringLaunch,
-            synchronizeTerminalTheme: synchronizeTerminalTheme,
             environment: environment
         )
         return normalized
@@ -160,7 +154,6 @@ enum AppearanceSettings {
         _ mode: AppearanceMode,
         source: String,
         duringLaunch: Bool = false,
-        synchronizeTerminalTheme: Bool = true,
         environment: LiveApplyEnvironment = .live
     ) -> AppearanceMode {
         let normalized = Self.mode(for: mode.rawValue)
@@ -170,9 +163,6 @@ enum AppearanceSettings {
             environment: environment
         )
         environment.setApplicationAppearance(appearance)
-        if synchronizeTerminalTheme {
-            environment.synchronizeTerminalThemeWithAppearance(appearance, source)
-        }
         return normalized
     }
 

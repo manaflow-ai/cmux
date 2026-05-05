@@ -50562,6 +50562,23 @@
         }
       }
     },
+    "settings.app.appearanceMode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App Appearance"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリの外観"
+          }
+        }
+      }
+    },
     "settings.app.appIcon.subtitle": {
       "extractionState": "manual",
       "localizations": {
@@ -57101,6 +57118,108 @@
           "stringUnit": {
             "state": "translated",
             "value": "Тема"
+          }
+        }
+      }
+    },
+    "settings.app.terminalTheme": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal Theme"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルテーマ"
+          }
+        }
+      }
+    },
+    "settings.app.terminalTheme.adaptivePrefix": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adaptive"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アダプティブ"
+          }
+        }
+      }
+    },
+    "settings.app.terminalTheme.custom": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom (use my config)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタム（自分の設定を使用）"
+          }
+        }
+      }
+    },
+    "settings.app.terminalTheme.subtitleAdaptive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uses separate light and dark Ghostty themes."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライト用とダーク用に別々の Ghostty テーマを使用します。"
+          }
+        }
+      }
+    },
+    "settings.app.terminalTheme.subtitleCustom": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux writes no Ghostty theme override."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は Ghostty テーマの上書きを書き込みません。"
+          }
+        }
+      }
+    },
+    "settings.app.terminalTheme.subtitleNamed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Writes a managed Ghostty theme override."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "管理された Ghostty テーマの上書きを書き込みます。"
           }
         }
       }
@@ -71561,18 +71680,18 @@
     "settings.search.alias.setting.app.appearance": {
         "extractionState": "manual",
         "localizations": {
-            "en": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "app.appearance theme color scheme light mode dark mode system mode"
-                }
-            },
-            "ja": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "app.appearance theme color scheme light mode dark mode system mode 外観 テーマ 配色 ライトモード ダークモード システムモード"
-                }
-            },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.appearance chrome color scheme light mode dark mode system mode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.appearance chrome color scheme light mode dark mode system mode 外観 クローム 配色 ライトモード ダークモード システムモード"
+          }
+        },
             "ar": {
                 "stringUnit": {
                     "state": "translated",
@@ -71674,8 +71793,25 @@
                     "state": "translated",
                     "value": "app.appearance theme color scheme light mode dark system програма загальні параметри поведінка док рядок меню статус бічна панель вигляд тема колір кольори схема світлий темний система режим Темна Світла Системна"
                 }
-            }
         }
+      }
+    },
+    "settings.search.alias.setting.app.terminal-theme": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal theme ghostty colors palette background foreground custom config"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal theme ghostty colors palette background foreground custom config ターミナル テーマ Ghostty 色 パレット 背景 前景 カスタム 設定"
+          }
+        }
+      }
     },
     "settings.search.alias.setting.app.app-icon": {
         "extractionState": "manual",

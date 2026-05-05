@@ -807,8 +807,7 @@ struct cmuxApp: App {
         AppearanceSettings.applyLiveMode(
             mode,
             source: duringLaunch ? "cmuxApp.launch" : "cmuxApp.applyAppearance",
-            duringLaunch: duringLaunch,
-            synchronizeTerminalTheme: !duringLaunch
+            duringLaunch: duringLaunch
         )
     }
 
@@ -5292,6 +5291,8 @@ struct SettingsView: View {
     @State private var showLanguageRestartAlert = false
     @State private var isResettingSettings = false
     @State private var workspaceTabPaletteEntries = WorkspaceTabColorSettings.palette()
+    @State private var terminalThemeSelection = TerminalThemeSettings.managedSelection()
+    @State private var terminalThemeNames = TerminalThemeSettings.availableThemeNames()
 
     private var selectedWorkspacePlacement: NewWorkspacePlacement {
         NewWorkspacePlacement(rawValue: newWorkspacePlacement) ?? WorkspacePlacementSettings.defaultPlacement
@@ -5812,6 +5813,30 @@ struct SettingsView: View {
         }
     }
 
+    private func refreshTerminalThemeSettings() {
+        terminalThemeSelection = TerminalThemeSettings.managedSelection()
+        terminalThemeNames = TerminalThemeSettings.availableThemeNames()
+    }
+
+    private func applyTerminalTheme(_ mode: TerminalThemeMode) {
+        do {
+            try TerminalThemeSettings.apply(
+                mode,
+                reload: {
+                    GhosttyConfig.invalidateLoadCache()
+                    GhosttyApp.shared.reloadConfiguration(
+                        source: "settings.terminalTheme",
+                        reloadSettingsFromFile: false
+                    )
+                }
+            )
+            refreshTerminalThemeSettings()
+        } catch {
+            NSLog("Failed to apply terminal theme: %@", error.localizedDescription)
+            NSSound.beep()
+        }
+    }
+
     var body: some View {
         let _ = keyboardShortcutSettingsObserver.revision
         let _ = Self.validateBypassedSettingsConfigurationReviews()
@@ -5860,16 +5885,26 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
-                        ThemePickerRow(
+                        AppAppearancePickerRow(
                             configurationReview: .json("app.appearance"),
                             selectedMode: appearanceMode,
                             onSelect: { mode in
                                 let selected = AppearanceSettings.selectMode(
                                     mode,
-                                    source: "settings.themePicker"
+                                    source: "settings.appAppearancePicker"
                                 )
                                 appearanceMode = selected.rawValue
                             }
+                        )
+
+                        SettingsCardDivider()
+
+                        TerminalThemePickerRow(
+                            configurationReview: .settingsOnly,
+                            searchAnchorID: SettingsSearchIndex.settingID(for: .app, idSuffix: "terminal-theme"),
+                            selectedMode: terminalThemeSelection.mode,
+                            availableThemeNames: terminalThemeNames,
+                            onSelect: applyTerminalTheme
                         )
 
                         SettingsCardDivider()
@@ -7219,6 +7254,7 @@ struct SettingsView: View {
             browserInsecureHTTPAllowlistDraft = browserInsecureHTTPAllowlist
             refreshDetectedImportBrowsers()
             reloadWorkspaceTabColorSettings()
+            refreshTerminalThemeSettings()
             refreshNotificationCustomSoundStatus()
         }
         .onChange(of: notificationSound) { _, _ in
@@ -7238,6 +7274,9 @@ struct SettingsView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
             reloadWorkspaceTabColorSettings()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
+            refreshTerminalThemeSettings()
         }
         .onReceive(NotificationCenter.default.publisher(for: SettingsNavigationRequest.notificationName)) { notification in
             guard let destination = SettingsNavigationRequest.destination(from: notification) else { return }
@@ -7341,6 +7380,7 @@ struct SettingsView: View {
             AppearanceSettings.defaultMode,
             source: "settings.resetAll"
         ).rawValue
+        applyTerminalTheme(.custom)
         appIconMode = AppIconSettings.defaultMode.rawValue
         AppIconSettings.applyIcon(.automatic)
         socketControlMode = SocketControlSettings.defaultMode.rawValue
@@ -7889,7 +7929,7 @@ private struct ThemeWindowThumbnail: View {
     }
 }
 
-private struct ThemePickerRow: View {
+private struct AppAppearancePickerRow: View {
     let configurationReview: SettingsConfigurationReview
     let selectedMode: String
     let onSelect: (AppearanceMode) -> Void
@@ -7910,7 +7950,7 @@ private struct ThemePickerRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            Text(String(localized: "settings.app.theme", defaultValue: "Theme"))
+            Text(String(localized: "settings.app.appearanceMode", defaultValue: "App Appearance"))
                 .font(.system(size: 13, weight: .medium))
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -7983,6 +8023,126 @@ private struct ThemePickerRow: View {
         .padding(.vertical, 9)
         .frame(maxWidth: .infinity, alignment: .leading)
         .settingsSearchAnchors(configurationReview.searchAnchorIDs)
+    }
+}
+
+private struct TerminalThemePickerRow: View {
+    struct Option: Identifiable, Hashable {
+        let id: String
+        let title: String
+        let mode: TerminalThemeMode
+    }
+
+    let configurationReview: SettingsConfigurationReview
+    let searchAnchorID: String
+    let selectedMode: TerminalThemeMode
+    let availableThemeNames: [String]
+    let onSelect: (TerminalThemeMode) -> Void
+
+    private var selection: Binding<TerminalThemeMode> {
+        Binding(
+            get: { selectedMode },
+            set: { onSelect($0) }
+        )
+    }
+
+    private var options: [Option] {
+        var result = [
+            Option(
+                id: "custom",
+                title: String(localized: "settings.app.terminalTheme.custom", defaultValue: "Custom (use my config)"),
+                mode: .custom
+            )
+        ]
+        var seenThemeNames = Set<String>()
+
+        if case .adaptive(let light, let dark) = selectedMode {
+            result.append(
+                Option(
+                    id: "adaptive:\(light):\(dark)",
+                    title: "\(String(localized: "settings.app.terminalTheme.adaptivePrefix", defaultValue: "Adaptive")): \(light) / \(dark)",
+                    mode: selectedMode
+                )
+            )
+        }
+
+        if case .named(let name) = selectedMode {
+            appendNamedOption(name, to: &result, seenThemeNames: &seenThemeNames)
+        }
+
+        for name in availableThemeNames {
+            appendNamedOption(name, to: &result, seenThemeNames: &seenThemeNames)
+        }
+
+        return result
+    }
+
+    private var subtitle: String {
+        switch selectedMode {
+        case .custom:
+            return String(
+                localized: "settings.app.terminalTheme.subtitleCustom",
+                defaultValue: "cmux writes no Ghostty theme override."
+            )
+        case .named:
+            return String(
+                localized: "settings.app.terminalTheme.subtitleNamed",
+                defaultValue: "Writes a managed Ghostty theme override."
+            )
+        case .adaptive:
+            return String(
+                localized: "settings.app.terminalTheme.subtitleAdaptive",
+                defaultValue: "Uses separate light and dark Ghostty themes."
+            )
+        }
+    }
+
+    init(
+        configurationReview: SettingsConfigurationReview,
+        searchAnchorID: String,
+        selectedMode: TerminalThemeMode,
+        availableThemeNames: [String],
+        onSelect: @escaping (TerminalThemeMode) -> Void
+    ) {
+        configurationReview.validate()
+        self.configurationReview = configurationReview
+        self.searchAnchorID = searchAnchorID
+        self.selectedMode = selectedMode
+        self.availableThemeNames = availableThemeNames
+        self.onSelect = onSelect
+    }
+
+    var body: some View {
+        SettingsPickerRow(
+            configurationReview: configurationReview,
+            String(localized: "settings.app.terminalTheme", defaultValue: "Terminal Theme"),
+            subtitle: subtitle,
+            controlWidth: 240,
+            selection: selection
+        ) {
+            ForEach(options) { option in
+                Text(option.title).tag(option.mode)
+            }
+        }
+        .settingsSearchAnchor(searchAnchorID)
+    }
+
+    private func appendNamedOption(
+        _ name: String,
+        to options: inout [Option],
+        seenThemeNames: inout Set<String>
+    ) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let folded = trimmed.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+        guard seenThemeNames.insert(folded).inserted else { return }
+        options.append(
+            Option(
+                id: "named:\(trimmed)",
+                title: trimmed,
+                mode: .named(trimmed)
+            )
+        )
     }
 }
 
