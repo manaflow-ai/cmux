@@ -13265,6 +13265,28 @@ struct CMUXCLI {
                 print(buffer)
             }
 
+        case "show-options", "show-option", "show":
+            let parsed = try parseTmuxArguments(
+                rawArgs,
+                valueFlags: ["-t"],
+                boolFlags: ["-g", "-q", "-s", "-v", "-w"]
+            )
+            let optionName = parsed.positional.last ?? ""
+            let value: String
+            switch optionName {
+            case "extended-keys":
+                value = "on"
+            default:
+                value = ""
+            }
+            if parsed.hasFlag("-v") {
+                if !value.isEmpty {
+                    print(value)
+                }
+            } else if !optionName.isEmpty, !value.isEmpty {
+                print("\(optionName) \(value)")
+            }
+
         case "save-buffer", "saveb":
             let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-b"], boolFlags: [])
             let name = parsed.value("-b") ?? "default"

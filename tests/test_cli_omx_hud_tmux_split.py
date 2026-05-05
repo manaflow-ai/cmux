@@ -245,6 +245,27 @@ def assert_omx_hud_splits_down_with_compact_size(
         raise AssertionError(f"split-window -f leaked into HUD command text: {state.sent_text[0]!r}")
 
 
+def assert_omx_hud_feature_probe_is_supported(
+    cli_path: str,
+    socket_path: Path,
+    fake_home: Path,
+) -> None:
+    proc = run_cli(
+        cli_path,
+        socket_path,
+        fake_home,
+        ["__tmux-compat", "show-options", "-sv", "extended-keys"],
+    )
+    if proc.returncode != 0:
+        raise AssertionError(
+            "HUD feature probe returned non-zero\n"
+            f"stdout={proc.stdout.strip()}\n"
+            f"stderr={proc.stderr.strip()}"
+        )
+    if proc.stdout.strip() != "on":
+        raise AssertionError(f"expected extended-keys probe to print on, got {proc.stdout!r}")
+
+
 def assert_disabled_omx_hud_does_not_split(
     cli_path: str,
     socket_path: Path,
@@ -292,6 +313,7 @@ def main() -> int:
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
             try:
+                assert_omx_hud_feature_probe_is_supported(cli_path, socket_path, fake_home)
                 assert_omx_hud_splits_down_with_compact_size(
                     cli_path,
                     socket_path,
