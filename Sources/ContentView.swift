@@ -4926,7 +4926,9 @@ struct ContentView: View {
                 if let delta = commandPaletteSelectionDeltaForKeyboardNavigation(
                     flags: event.modifierFlags,
                     chars: event.characters ?? event.charactersIgnoringModifiers ?? "",
-                    keyCode: event.keyCode
+                    keyCode: event.keyCode,
+                    nextShortcut: KeyboardShortcutSettings.shortcutIfBound(for: .commandPaletteNext),
+                    previousShortcut: KeyboardShortcutSettings.shortcutIfBound(for: .commandPalettePrevious)
                 ) {
                     parent.onMoveSelection(delta)
                     return true
