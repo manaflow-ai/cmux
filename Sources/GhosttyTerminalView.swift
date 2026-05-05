@@ -3800,13 +3800,24 @@ class GhosttyApp {
                         return false
                     }
                     // Defer the split creation. Ghostty's Surface.openUrl holds
-                    // an internal lock when it dispatches into this Swift
-                    // handler; opening a new panel synchronously triggers
+                    // an internal os_unfair_lock when it dispatches into this
+                    // Swift handler; opening a new panel synchronously triggers
                     // Surface.encodeKey on the focus path, which tries to
                     // acquire the same lock and aborts (recursive os_unfair_lock
-                    // — see crash reports referenced in #3370). Running on the
-                    // next runloop tick lets Surface.openUrl return and release
-                    // the lock first.
+                    // — see crash reports referenced in #3370).
+                    //
+                    // CAVEAT — timing-based mitigation: this works because the
+                    // Ghostty C side currently releases the surface lock within
+                    // the same runloop cycle that dispatches this callback,
+                    // which is an undocumented Ghostty implementation detail.
+                    // If a future Ghostty change moves the unlock to a later
+                    // tick, every Swift caller that re-enters Surface state
+                    // from inside performOnMain (not just this one) will
+                    // silently regress to the same crash. The structural fix
+                    // is to dispatch the OPEN_URL callback asynchronously from
+                    // C so the lock is always released before any Swift runs
+                    // — tracked in #3560. Until that lands, do NOT remove
+                    // this DispatchQueue.main.async.
                     let surfaceId = termSurface.id
                     DispatchQueue.main.async {
                         guard workspace.openOrFocusMarkdownSplit(
