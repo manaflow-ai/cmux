@@ -18,8 +18,7 @@ extension CMUXCLI {
                     return
                 }
                 let v2Response = try client.sendV2(method: "auth.login", params: ["password": socketPassword])
-                if let authenticated = v2Response["authenticated"] as? Bool,
-                   !authenticated {
+                guard v2Response["authenticated"] as? Bool == true else {
                     throw CLIError(message: "auth.login failed")
                 }
             } else if authResponse.hasPrefix("ERROR:") {
