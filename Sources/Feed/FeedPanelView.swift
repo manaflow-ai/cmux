@@ -1119,7 +1119,10 @@ struct FeedItemRow: View, Equatable {
         case .codex: return .green
         case .opencode: return .blue
         case .cursor: return .purple
-        case .pi: return .yellow
+        // Darker gold/amber so the chip stays readable in light mode
+        // (system .yellow is near-invisible on a white background).
+        // Distinct from claude's orange (red: 0.92, green: 0.54, blue: 0.29).
+        case .pi: return Color(red: 0.78, green: 0.60, blue: 0.10)
         default: return .secondary
         }
     }
