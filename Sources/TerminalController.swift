@@ -2378,6 +2378,12 @@ class TerminalController {
             return v2Ok(id: id, result: v2Identify(params: params))
         case "system.tree":
             return v2Result(id: id, self.v2SystemTree(params: params))
+#if DEBUG
+        case "debug.session_snapshot_benchmark":
+            return v2Result(id: id, self.v2DebugSessionSnapshotBenchmark(params: params))
+        case "debug.session_snapshot_seed_scrollback":
+            return v2Result(id: id, self.v2DebugSessionSnapshotSeedScrollback(params: params))
+#endif
         case "auth.login":
             return v2Ok(
                 id: id,
@@ -2495,6 +2501,8 @@ class TerminalController {
             return v2Result(id: id, self.v2SurfaceSendKey(params: params))
         case "surface.report_tty":
             return v2Result(id: id, self.v2SurfaceReportTTY(params: params))
+        case "surface.report_shell_state":
+            return v2Result(id: id, self.v2SurfaceReportShellState(params: params))
         case "surface.ports_kick":
             return v2Result(id: id, self.v2SurfacePortsKick(params: params))
         case "surface.clear_history":
@@ -2866,6 +2874,7 @@ class TerminalController {
             "surface.send_text",
             "surface.send_key",
             "surface.report_tty",
+            "surface.report_shell_state",
             "surface.ports_kick",
             "surface.read_text",
             "surface.clear_history",
@@ -3007,6 +3016,8 @@ class TerminalController {
             "debug.flash.reset",
             "debug.panel_snapshot",
             "debug.panel_snapshot.reset",
+            "debug.session_snapshot_benchmark",
+            "debug.session_snapshot_seed_scrollback",
             "debug.window.screenshot",
         ])
 #endif
@@ -3193,6 +3204,46 @@ class TerminalController {
             "windows": windowNodes
         ])
     }
+
+#if DEBUG
+    private func v2DebugSessionSnapshotBenchmark(params: [String: Any]) -> V2CallResult {
+        let includeScrollback = v2Bool(params, "include_scrollback")
+            ?? v2Bool(params, "scrollback")
+            ?? false
+        let persist = v2Bool(params, "persist") ?? true
+        var payload: [String: Any]?
+        // Snapshot capture walks AppKit, SwiftUI, and terminal-panel state, so this
+        // DEBUG-only benchmark must run synchronously on the main thread.
+        v2MainSync {
+            payload = AppDelegate.shared?.debugBenchmarkSessionSnapshot(
+                includeScrollback: includeScrollback,
+                persist: persist
+            )
+        }
+        guard let payload else {
+            return .err(code: "unavailable", message: "AppDelegate not available", data: nil)
+        }
+        return .ok(payload)
+    }
+
+    private func v2DebugSessionSnapshotSeedScrollback(params: [String: Any]) -> V2CallResult {
+        let charactersPerTerminal = v2Int(params, "characters_per_terminal")
+            ?? v2Int(params, "chars_per_terminal")
+            ?? 0
+        var payload: [String: Any]?
+        // Synthetic scrollback seeding mutates workspace snapshot fallback state,
+        // which is owned by the main-thread workspace graph.
+        v2MainSync {
+            payload = AppDelegate.shared?.debugSeedSessionSnapshotScrollback(
+                charactersPerTerminal: charactersPerTerminal
+            )
+        }
+        guard let payload else {
+            return .err(code: "unavailable", message: "AppDelegate not available", data: nil)
+        }
+        return .ok(payload)
+    }
+#endif
 
     func taskManagerTopPayload(includeProcesses: Bool) async throws -> [String: Any] {
         v2RefreshKnownRefs()
@@ -5029,6 +5080,82 @@ class TerminalController {
         }
 
         return result
+    }
+
+    private func v2SurfaceReportShellState(params: [String: Any]) -> V2CallResult {
+        guard let workspaceId = v2UUID(params, "workspace_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        let requestedSurfaceId = v2UUID(params, "surface_id")
+        if v2HasNonNullParam(params, "surface_id"), requestedSurfaceId == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
+        }
+        let rawState = v2RawString(params, "state")
+            ?? v2RawString(params, "shell_state")
+            ?? v2RawString(params, "activity")
+        guard let rawState,
+              let state = Self.parseReportedShellActivityState(rawState) else {
+            return .err(code: "invalid_params", message: "state must be prompt, running, or unknown", data: nil)
+        }
+
+        if let requestedSurfaceId {
+            let shouldPublish = Self.socketFastPathState.shouldPublishShellActivity(
+                workspaceId: workspaceId,
+                panelId: requestedSurfaceId,
+                state: state
+            )
+            if shouldPublish {
+                DispatchQueue.main.async {
+                    guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) else { return }
+                    tabManager.updateSurfaceShellActivity(
+                        tabId: workspaceId,
+                        surfaceId: requestedSurfaceId,
+                        state: state
+                    )
+                }
+            }
+            return .ok([
+                "workspace_id": workspaceId.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+                "surface_id": requestedSurfaceId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: requestedSurfaceId),
+                "state": state.rawValue,
+                "published": shouldPublish,
+            ])
+        }
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            guard let tab = self.tabForSidebarMutation(id: workspaceId) else {
+                return
+            }
+            let validSurfaceIds = Set(tab.panels.keys)
+            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+
+            let surfaceId = self.resolveReportedSurfaceId(
+                in: tab,
+                requestedSurfaceId: requestedSurfaceId,
+                validSurfaceIds: validSurfaceIds
+            )
+            guard let surfaceId, validSurfaceIds.contains(surfaceId) else {
+                return
+            }
+
+            guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: tab.id) else {
+                return
+            }
+            tabManager.updateSurfaceShellActivity(tabId: tab.id, surfaceId: surfaceId, state: state)
+        }
+
+        return .ok([
+            "workspace_id": workspaceId.uuidString,
+            "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+            "surface_id": NSNull(),
+            "surface_ref": NSNull(),
+            "state": state.rawValue,
+            "published": true,
+            "pending": true,
+        ])
     }
 
     private func v2SurfacePortsKick(params: [String: Any]) -> V2CallResult {
@@ -7787,8 +7914,7 @@ class TerminalController {
 
             if shouldActivate {
                 if let targetWindow {
-                    targetWindow.makeKeyAndOrderFront(nil)
-                    NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+                    _ = AppDelegate.shared?.focusWindowForAppActivation(targetWindow, reason: .feedback)
                 } else {
                     NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
                 }
@@ -12787,26 +12913,7 @@ class TerminalController {
 
     private func activateApp() -> String {
         v2MainSync {
-            NSApp.activate(ignoringOtherApps: true)
-            NSApp.unhide(nil)
-            let hasMainTerminalWindow = NSApp.windows.contains { window in
-                guard let raw = window.identifier?.rawValue else { return false }
-                return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
-            }
-
-            if !hasMainTerminalWindow {
-                AppDelegate.shared?.openNewMainWindow(nil)
-            }
-
-            if let window = NSApp.mainWindow
-                ?? NSApp.keyWindow
-                ?? NSApp.windows.first(where: { win in
-                    guard let raw = win.identifier?.rawValue else { return false }
-                    return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
-                })
-                ?? NSApp.windows.first {
-                window.makeKeyAndOrderFront(nil)
-            }
+            _ = AppDelegate.shared?.activateMainWindowFromSocket()
         }
         return "OK"
     }

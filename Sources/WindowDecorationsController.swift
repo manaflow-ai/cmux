@@ -142,6 +142,7 @@ final class WindowDecorationsController {
         )
     }
 
+    @MainActor
     func handleMinimalModeTitlebarDoubleClickMouseDown(event: NSEvent) -> Bool {
         guard event.type == .leftMouseDown else { return false }
         guard let target = minimalModeSidebarChromeEventTarget(for: event) else { return false }
@@ -188,6 +189,7 @@ final class WindowDecorationsController {
         return true
     }
 
+    @MainActor
     private func handleMinimalModeTitlebarDoubleClickMouseDown(
         window: NSWindow,
         locationInWindow: NSPoint,

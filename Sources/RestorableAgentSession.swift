@@ -1,84 +1,11 @@
 import Foundation
+import CMUXAgentLaunch
 
 fileprivate func shellSingleQuoted(_ value: String) -> String {
     "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
 }
 
 enum AgentResumeCommandBuilder {
-    private static let claudeValueOptions: Set<String> = [
-        "--add-dir",
-        "--agent",
-        "--agents",
-        "--allowedTools",
-        "--allowed-tools",
-        "--append-system-prompt",
-        "--betas",
-        "--debug-file",
-        "--disallowedTools",
-        "--disallowed-tools",
-        "--effort",
-        "--fallback-model",
-        "--file",
-        "--fork-session",
-        "--from-pr",
-        "--input-format",
-        "--json-schema",
-        "--max-budget-usd",
-        "--mcp-config",
-        "--model",
-        "--name",
-        "-n",
-        "--output-format",
-        "--permission-mode",
-        "--plugin-dir",
-        "--remote-control-session-name-prefix",
-        "--resume",
-        "-r",
-        "--session-id",
-        "--setting-sources",
-        "--settings",
-        "--system-prompt",
-        "--teammate-mode",
-        "--tmux",
-        "--tools",
-        "--worktree",
-        "-w"
-    ]
-
-    private static let claudeOptionalValueOptions: Set<String> = [
-        "--debug"
-    ]
-
-    private static let claudeVariadicOptions: Set<String> = [
-        "--add-dir",
-        "--allowedTools",
-        "--allowed-tools",
-        "--betas",
-        "--disallowedTools",
-        "--disallowed-tools",
-        "--file",
-        "--mcp-config",
-        "--tools"
-    ]
-
-    private static let claudeNonRestorableCommands: Set<String> = [
-        "agents",
-        "auth",
-        "auto-mode",
-        "api-key",
-        "config",
-        "doctor",
-        "install",
-        "mcp",
-        "plugin",
-        "plugins",
-        "rc",
-        "remote-control",
-        "setup-token",
-        "update",
-        "upgrade"
-    ]
-
     private static let claudeAuthSelectionEnvironmentKeys: Set<String> = [
         "ANTHROPIC_API_KEY",
         "ANTHROPIC_AUTH_TOKEN",
@@ -89,92 +16,6 @@ enum AgentResumeCommandBuilder {
         "CLAUDE_CODE_USE_VERTEX",
         "CLAUDE_CONFIG_DIR"
     ]
-
-    private static let codexValueOptions: Set<String> = [
-        "--config",
-        "-c",
-        "--remote",
-        "--remote-auth-token-env",
-        "--image",
-        "-i",
-        "--model",
-        "-m",
-        "--local-provider",
-        "--profile",
-        "-p",
-        "--sandbox",
-        "-s",
-        "--ask-for-approval",
-        "-a",
-        "--cd",
-        "-C",
-        "--add-dir",
-        "--enable",
-        "--disable"
-    ]
-
-    private static let codexNonRestorableCommands: Set<String> = [
-        "exec",
-        "e",
-        "review",
-        "login",
-        "logout",
-        "mcp",
-        "mcp-server",
-        "app-server",
-        "app",
-        "completion",
-        "sandbox",
-        "debug",
-        "apply",
-        "a",
-        "fork",
-        "cloud",
-        "exec-server",
-        "features",
-        "help"
-    ]
-
-    private static let opencodeValueOptions: Set<String> = [
-        "--log-level",
-        "--port",
-        "--hostname",
-        "--mdns-domain",
-        "--cors",
-        "--model",
-        "-m",
-        "--session",
-        "-s",
-        "--prompt",
-        "--agent"
-    ]
-
-    private static let opencodeNonRestorableCommands: Set<String> = [
-        "completion",
-        "acp",
-        "mcp",
-        "attach",
-        "run",
-        "debug",
-        "providers",
-        "auth",
-        "agent",
-        "upgrade",
-        "uninstall",
-        "serve",
-        "web",
-        "models",
-        "stats",
-        "export",
-        "import",
-        "pr",
-        "github",
-        "session",
-        "plugin",
-        "plug",
-        "db"
-    ]
-
     static func resumeShellCommand(
         kind: RestorableAgentKind,
         sessionId: String,
@@ -213,9 +54,9 @@ enum AgentResumeCommandBuilder {
 
         var environmentParts: [String] = []
         var preservedClaudeAuthSelectionEnvironmentKeys: [String] = []
-        for key in environment.keys.sorted() {
-            guard isSafeEnvironmentKey(key),
-                  let value = sanitizedEnvironmentValue(key: key, value: environment[key]) else { continue }
+        let selectedEnvironment = AgentLaunchEnvironmentPolicy.selectedEnvironment(from: environment)
+        for key in selectedEnvironment.keys.sorted() {
+            guard let value = selectedEnvironment[key] else { continue }
             environmentParts.append("\(key)=\(value)")
             if kind == .claude,
                claudeAuthSelectionEnvironmentKeys.contains(key) {
@@ -246,7 +87,7 @@ enum AgentResumeCommandBuilder {
             if args.first == "claude-teams" {
                 args.removeFirst()
             }
-            guard let preserved = preservedClaudeArguments(args) else { return nil }
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "claude", args: args) else { return nil }
             return [original.executable, "claude-teams", "--resume", sessionId] + preserved
         case "omo":
             let original = commandParts(
@@ -257,7 +98,7 @@ enum AgentResumeCommandBuilder {
             if args.first == "omo" {
                 args.removeFirst()
             }
-            guard let preserved = preservedOpenCodeArguments(args) else { return nil }
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "opencode", args: args) else { return nil }
             return [original.executable, "omo", "--session", sessionId] + preserved
         case "omx", "omc":
             return nil
@@ -267,18 +108,88 @@ enum AgentResumeCommandBuilder {
 
         switch kind {
         case .claude:
-            let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "claude")
-            guard let preserved = preservedClaudeArguments(original.tail) else { return nil }
-            return [original.executable, "--resume", sessionId] + preserved
+            return resumeWithOption(
+                kind: "claude",
+                launchCommand: launchCommand,
+                fallbackExecutable: "claude",
+                option: "--resume",
+                sessionId: sessionId
+            )
         case .codex:
             let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "codex")
-            guard let preserved = preservedCodexArguments(original.tail) else { return nil }
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "codex", args: original.tail) else { return nil }
             return [original.executable, "resume"] + preserved + [sessionId]
+        case .cursor:
+            return resumeWithOption(
+                kind: "cursor",
+                launchCommand: launchCommand,
+                fallbackExecutable: "cursor-agent",
+                option: "--resume",
+                sessionId: sessionId
+            )
+        case .gemini:
+            return resumeWithOption(
+                kind: "gemini",
+                launchCommand: launchCommand,
+                fallbackExecutable: "gemini",
+                option: "--resume",
+                sessionId: sessionId
+            )
         case .opencode:
             let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "opencode")
-            guard let preserved = preservedOpenCodeArguments(original.tail) else { return nil }
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "opencode", args: original.tail) else { return nil }
             return [original.executable, "--session", sessionId] + preserved
+        case .rovodev:
+            let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "acli")
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "rovodev", args: original.tail) else { return nil }
+            return [original.executable, "rovodev", "run", "--restore", sessionId] + preserved
+        case .copilot:
+            return resumeWithOption(
+                kind: "copilot",
+                launchCommand: launchCommand,
+                fallbackExecutable: "copilot",
+                option: "--resume",
+                sessionId: sessionId
+            )
+        case .codebuddy:
+            return resumeWithOption(
+                kind: "codebuddy",
+                launchCommand: launchCommand,
+                fallbackExecutable: "codebuddy",
+                option: "--resume",
+                sessionId: sessionId
+            )
+        case .factory:
+            return resumeWithOption(
+                kind: "factory",
+                launchCommand: launchCommand,
+                fallbackExecutable: "droid",
+                option: "--resume",
+                sessionId: sessionId
+            )
+        case .qoder:
+            return resumeWithOption(
+                kind: "qoder",
+                launchCommand: launchCommand,
+                fallbackExecutable: "qodercli",
+                option: "--resume",
+                sessionId: sessionId
+            )
         }
+    }
+
+    private static func resumeWithOption(
+        kind: String,
+        launchCommand: AgentLaunchCommandSnapshot?,
+        fallbackExecutable: String,
+        option: String,
+        sessionId: String
+    ) -> [String]? {
+        let original = commandParts(launchCommand: launchCommand, fallbackExecutable: fallbackExecutable)
+        guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: kind, args: original.tail) else {
+            return nil
+        }
+        return [original.executable, option, sessionId] + preserved
     }
 
     private static func commandParts(
@@ -291,343 +202,6 @@ enum AgentResumeCommandBuilder {
             ?? fallbackExecutable
         let tail = arguments.isEmpty ? [] : Array(arguments.dropFirst())
         return (executable, tail)
-    }
-
-    private static func preservedClaudeArguments(_ args: [String]) -> [String]? {
-        preserveOptions(
-            args,
-            valueOptions: claudeValueOptions,
-            optionalValueOptions: claudeOptionalValueOptions,
-            variadicOptions: claudeVariadicOptions,
-            nonRestorableCommands: claudeNonRestorableCommands,
-            droppedOptions: [
-                "--continue",
-                "-c",
-                "--fork-session",
-                "--from-pr",
-                "--resume",
-                "-r",
-                "--session-id",
-                "--tmux",
-                "--worktree",
-                "-w"
-            ],
-            droppedOptionPrefixes: [
-                "--fork-session=",
-                "--from-pr=",
-                "--resume=",
-                "--session-id=",
-                "--tmux=",
-                "--worktree="
-            ],
-            rejectOptions: [
-                "--print",
-                "-p",
-                "--no-session-persistence"
-            ],
-            skipHookSettings: true,
-            resumeSubcommand: nil
-        )
-    }
-
-    private static func preservedCodexArguments(_ args: [String]) -> [String]? {
-        preserveOptions(
-            args,
-            valueOptions: codexValueOptions,
-            optionalValueOptions: [],
-            variadicOptions: ["--image", "-i", "--add-dir"],
-            nonRestorableCommands: codexNonRestorableCommands,
-            droppedOptions: [
-                "--last",
-                "--all"
-            ],
-            droppedOptionPrefixes: [],
-            rejectOptions: [],
-            skipHookSettings: false,
-            resumeSubcommand: "resume"
-        )
-    }
-
-    private static func preservedOpenCodeArguments(_ args: [String]) -> [String]? {
-        let sanitizedArgs = args.filter { !isOpenCodeInternalWorkerArgument($0) }
-        return preserveOptions(
-            sanitizedArgs,
-            valueOptions: opencodeValueOptions,
-            optionalValueOptions: [],
-            variadicOptions: ["--cors"],
-            nonRestorableCommands: opencodeNonRestorableCommands,
-            droppedOptions: [
-                "--continue",
-                "-c",
-                "--fork",
-                "--session",
-                "-s",
-                "--prompt"
-            ],
-            droppedOptionPrefixes: [
-                "--session=",
-                "--prompt="
-            ],
-            rejectOptions: [],
-            skipHookSettings: false,
-            resumeSubcommand: nil,
-            preserveFirstPositional: true
-        )
-    }
-
-    private static func isOpenCodeInternalWorkerArgument(_ value: String) -> Bool {
-        let normalized = value.replacingOccurrences(of: "\\", with: "/")
-        return normalized.contains("/$bunfs/") &&
-            normalized.contains("/src/cli/cmd/tui/worker.js")
-    }
-
-    private static func preserveOptions(
-        _ args: [String],
-        valueOptions: Set<String>,
-        optionalValueOptions: Set<String>,
-        variadicOptions: Set<String>,
-        nonRestorableCommands: Set<String>,
-        droppedOptions: Set<String>,
-        droppedOptionPrefixes: [String],
-        rejectOptions: Set<String>,
-        skipHookSettings: Bool,
-        resumeSubcommand: String?,
-        preserveFirstPositional: Bool = false
-    ) -> [String]? {
-        var result: [String] = []
-        var index = 0
-        var consumedFirstPositional = false
-        var skippingResumePositionals = false
-
-        while index < args.count {
-            let arg = args[index]
-            if arg == "--" {
-                break
-            }
-
-            if !arg.hasPrefix("-") || arg == "-" {
-                if let resumeSubcommand, arg == resumeSubcommand {
-                    skippingResumePositionals = true
-                    index += 1
-                    continue
-                }
-                if skippingResumePositionals {
-                    break
-                }
-                if nonRestorableCommands.contains(arg) {
-                    return nil
-                }
-                if preserveFirstPositional && !consumedFirstPositional {
-                    result.append(arg)
-                    consumedFirstPositional = true
-                    index += 1
-                    continue
-                }
-                break
-            }
-
-            if shouldDropOption(arg, droppedOptions: rejectOptions) {
-                return nil
-            }
-
-            if droppedOptionPrefixes.contains(where: { arg.hasPrefix($0) }) {
-                index += 1
-                continue
-            }
-
-            if shouldDropOption(arg, droppedOptions: droppedOptions) {
-                index += optionWidth(
-                    args,
-                    index: index,
-                    valueOptions: valueOptions,
-                    optionalValueOptions: optionalValueOptions,
-                    variadicOptions: variadicOptions
-                )
-                continue
-            }
-
-            if skipHookSettings, isHookSettingsOption(args, index: index) {
-                index += optionWidth(
-                    args,
-                    index: index,
-                    valueOptions: valueOptions,
-                    optionalValueOptions: optionalValueOptions,
-                    variadicOptions: variadicOptions
-                )
-                continue
-            }
-
-            let width = optionWidth(
-                args,
-                index: index,
-                valueOptions: valueOptions,
-                optionalValueOptions: optionalValueOptions,
-                variadicOptions: variadicOptions
-            )
-            result.append(contentsOf: args[index..<min(args.count, index + width)])
-            index += width
-        }
-
-        return result
-    }
-
-    private static func shouldDropOption(_ arg: String, droppedOptions: Set<String>) -> Bool {
-        if droppedOptions.contains(arg) { return true }
-        guard let equals = arg.firstIndex(of: "=") else { return false }
-        return droppedOptions.contains(String(arg[..<equals]))
-    }
-
-    private static func optionWidth(
-        _ args: [String],
-        index: Int,
-        valueOptions: Set<String>,
-        optionalValueOptions: Set<String>,
-        variadicOptions: Set<String>
-    ) -> Int {
-        let arg = args[index]
-        if arg.contains("=") {
-            return 1
-        }
-        if optionalValueOptions.contains(arg) {
-            guard index + 1 < args.count,
-                  looksLikeOptionalValue(
-                    args[index + 1],
-                    following: index + 2 < args.count ? args[index + 2] : nil
-                  ) else {
-                return 1
-            }
-            return 2
-        }
-        guard valueOptions.contains(arg), index + 1 < args.count else {
-            return 1
-        }
-        if variadicOptions.contains(arg) {
-            var end = index + 1
-            while end < args.count, !args[end].hasPrefix("-") {
-                end += 1
-            }
-            return max(1, end - index)
-        }
-        return 2
-    }
-
-    private static func looksLikeOptionalValue(_ value: String, following: String?) -> Bool {
-        guard !value.isEmpty,
-              !value.hasPrefix("-"),
-              value.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else {
-            return false
-        }
-        return value.contains(",") || (following?.hasPrefix("-") == true)
-    }
-
-    private static func isHookSettingsOption(_ args: [String], index: Int) -> Bool {
-        let arg = args[index]
-        if arg.hasPrefix("--settings=") {
-            return arg.contains("claude-hook") || arg.contains("hooks claude")
-        }
-        guard arg == "--settings", index + 1 < args.count else {
-            return false
-        }
-        return args[index + 1].contains("claude-hook") || args[index + 1].contains("hooks claude")
-    }
-
-    private static func isSafeEnvironmentKey(_ key: String) -> Bool {
-        switch key {
-        case "ANTHROPIC_MODEL",
-             "CLAUDE_CONFIG_DIR",
-             "CMUX_CUSTOM_CLAUDE_PATH",
-             "CODEX_HOME",
-             "NODE_OPTIONS",
-             "OPENCODE_CONFIG_DIR":
-            return true
-        default:
-            return false
-        }
-    }
-
-    private static func sanitizedEnvironmentValue(key: String, value: String?) -> String? {
-        switch key {
-        case "CLAUDE_CONFIG_DIR":
-            return value.map { ClaudeConfigDirectoryPath.preferredPath($0) }
-        case "NODE_OPTIONS":
-            return sanitizedNodeOptions(value)
-        default:
-            return value
-        }
-    }
-
-    private static func sanitizedNodeOptions(_ rawValue: String?) -> String? {
-        let tokens = rawValue?
-            .split(whereSeparator: \.isWhitespace)
-            .map(String.init) ?? []
-        guard !tokens.isEmpty else { return nil }
-
-        var sanitized: [String] = []
-        var index = 0
-        var shouldDropInjectedHeapCap = false
-        while index < tokens.count {
-            let token = tokens[index]
-
-            if shouldDropInjectedHeapCap, isInjectedNodeHeapCap(tokens, index: index) {
-                index += nodeHeapCapWidth(tokens, index: index)
-                shouldDropInjectedHeapCap = false
-                continue
-            }
-            shouldDropInjectedHeapCap = false
-
-            if isRequireOption(token), index + 1 < tokens.count,
-               isCmuxNodeOptionsRestoreModulePath(tokens[index + 1]) {
-                index += 2
-                shouldDropInjectedHeapCap = true
-                continue
-            }
-            if let path = inlineRequireOptionPath(token),
-               isCmuxNodeOptionsRestoreModulePath(path) {
-                index += 1
-                shouldDropInjectedHeapCap = true
-                continue
-            }
-
-            sanitized.append(token)
-            index += 1
-        }
-
-        let joined = sanitized.joined(separator: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return joined.isEmpty ? nil : joined
-    }
-
-    private static func isRequireOption(_ token: String) -> Bool {
-        token == "--require" || token == "-r"
-    }
-
-    private static func inlineRequireOptionPath(_ token: String) -> String? {
-        for prefix in ["--require=", "-r="] where token.hasPrefix(prefix) {
-            return String(token.dropFirst(prefix.count))
-        }
-        return nil
-    }
-
-    private static func isCmuxNodeOptionsRestoreModulePath(_ value: String) -> Bool {
-        let trimmed = value.trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
-        guard URL(fileURLWithPath: trimmed).lastPathComponent == "restore-node-options.cjs" else {
-            return false
-        }
-        return trimmed.contains("/cmux-")
-    }
-
-    private static func isInjectedNodeHeapCap(_ tokens: [String], index: Int) -> Bool {
-        guard index < tokens.count else { return false }
-        let token = tokens[index]
-        if token == "--max-old-space-size" {
-            return index + 1 < tokens.count && tokens[index + 1] == "4096"
-        }
-        return token == "--max-old-space-size=4096"
-    }
-
-    private static func nodeHeapCapWidth(_ tokens: [String], index: Int) -> Int {
-        guard index < tokens.count else { return 1 }
-        return tokens[index] == "--max-old-space-size" ? min(2, tokens.count - index) : 1
     }
 
     private static func normalized(_ value: String?) -> String? {

@@ -193,6 +193,7 @@ func resolvedStandardTitlebarDoubleClickAction(globalDefaults: [String: Any]) ->
 
 /// Runs the same action macOS titlebars use for double-click:
 /// zoom by default, or minimize when the user preference is set.
+@MainActor
 @discardableResult
 func performStandardTitlebarDoubleClick(window: NSWindow?) -> StandardTitlebarDoubleClickAction? {
     guard let window else { return nil }
@@ -211,6 +212,7 @@ func performStandardTitlebarDoubleClick(window: NSWindow?) -> StandardTitlebarDo
 }
 
 @discardableResult
+@MainActor
 func handleTitlebarDoubleClick(
     window: NSWindow?,
     behavior: TitlebarDoubleClickBehavior
