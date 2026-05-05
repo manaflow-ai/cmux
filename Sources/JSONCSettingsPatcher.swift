@@ -229,6 +229,12 @@ private struct Scanner {
                 if character == "," || character == "}" || character == "]" {
                     break
                 }
+                if character == "/" {
+                    let next = source.index(after: cursor)
+                    if next < limit, source[next] == "/" || source[next] == "*" {
+                        break
+                    }
+                }
                 if !character.isWhitespace {
                     end = source.index(after: cursor)
                 }

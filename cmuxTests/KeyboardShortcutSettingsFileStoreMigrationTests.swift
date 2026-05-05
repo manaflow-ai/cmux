@@ -238,7 +238,7 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
               // User comments in cmux.json must survive Settings UI writes.
               "schemaVersion": 1,
               "sidebarAppearance": {
-                "matchTerminalBackground": true
+                "matchTerminalBackground": true // Inline comments after literal values must survive.
               }
             }
             """,
@@ -268,6 +268,7 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
         try waitForSidebarAppearanceMatchTerminalBackground(false, in: primaryURL)
         let updatedContents = try String(contentsOf: primaryURL, encoding: .utf8)
         XCTAssertTrue(updatedContents.contains("User comments in cmux.json must survive Settings UI writes."))
+        XCTAssertTrue(updatedContents.contains("Inline comments after literal values must survive."))
 
         withExtendedLifetime(store) {}
     }

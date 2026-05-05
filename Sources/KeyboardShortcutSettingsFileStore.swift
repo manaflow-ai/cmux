@@ -138,7 +138,6 @@ final class CmuxSettingsFileStore {
     private var primaryWatcher: ShortcutSettingsFileWatcher?
     private var fallbackWatchers: [ShortcutSettingsFileWatcher] = []
     private var defaultsCancellable: AnyCancellable?
-    private var pendingDefaultsPersistWorkItem: DispatchWorkItem?
     private var socketPasswordObserver: NSObjectProtocol?
 
     private var shortcutsByAction: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
@@ -188,8 +187,9 @@ final class CmuxSettingsFileStore {
                 return changedDefaults === self.userDefaults
             }
             .receive(on: DispatchQueue.main)
+            .debounce(for: .milliseconds(50), scheduler: DispatchQueue.main)
             .sink { [weak self] _ in
-                self?.scheduleUserDefaultsSettingsPersist()
+                self?.persistUserDefaultsSettingsChangeIfNeeded()
             }
         socketPasswordObserver = notificationCenter.addObserver(
             forName: SocketControlPasswordStore.didChangeNotification,
@@ -204,7 +204,6 @@ final class CmuxSettingsFileStore {
         primaryWatcher?.stop()
         fallbackWatchers.forEach { $0.stop() }
         defaultsCancellable?.cancel()
-        pendingDefaultsPersistWorkItem?.cancel()
         if let socketPasswordObserver {
             notificationCenter.removeObserver(socketPasswordObserver)
         }
@@ -298,17 +297,6 @@ final class CmuxSettingsFileStore {
         }
         guard let snapshot else { return }
         applyManagedSettings(snapshot: snapshot, updateBackups: false)
-    }
-
-    private func scheduleUserDefaultsSettingsPersist() {
-        pendingDefaultsPersistWorkItem?.cancel()
-        let workItem = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            pendingDefaultsPersistWorkItem = nil
-            persistUserDefaultsSettingsChangeIfNeeded()
-        }
-        pendingDefaultsPersistWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(50), execute: workItem)
     }
 
     private func persistUserDefaultsSettingsChangeIfNeeded() {
