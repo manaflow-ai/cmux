@@ -6565,6 +6565,8 @@ struct ContentView: View {
             return String(localized: "commandPalette.kind.markdown", defaultValue: "Markdown")
         case .filePreview:
             return String(localized: "commandPalette.kind.filePreview", defaultValue: "File Preview")
+        case .simulator:
+            return String(localized: "commandPalette.kind.simulator", defaultValue: "Simulator")
         }
     }
 
@@ -6578,6 +6580,8 @@ struct ContentView: View {
             return ["markdown", "note", "preview"]
         case .filePreview:
             return ["file", "preview", "text", "pdf", "image"]
+        case .simulator:
+            return ["simulator", "ios", "ipad", "tvos", "watchos", "visionos"]
         }
     }
 

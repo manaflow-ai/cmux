@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import Darwin
 import Bonsplit
+import CMUXSimulator
 import UniformTypeIdentifiers
 @main
 struct cmuxApp: App {
@@ -365,6 +366,14 @@ struct cmuxApp: App {
                         )
                     ) {
                         FeedButtonStyleDebugWindowController.shared.show()
+                    }
+                    Button(
+                        String(
+                            localized: "debug.menu.simulatorDebug",
+                            defaultValue: "iOS Simulators…"
+                        )
+                    ) {
+                        SimulatorDebugWindowController.shared.show()
                     }
                     Button(
                         String(
@@ -1111,6 +1120,7 @@ struct cmuxApp: App {
         FeedPreviewWindowController.shared.show()
         FeedTextEditorDebugWindowController.shared.show()
         FeedButtonStyleDebugWindowController.shared.show()
+        SimulatorDebugWindowController.shared.show()
         BonsplitTabBarDebugWindowController.shared.show()
     }
 #endif
@@ -1145,7 +1155,42 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.backgroundDebug",
     "cmux.startupAppearanceDebug",
     "cmux.bonsplitTabBarDebug",
+    "cmux.simulatorDebug",
 ]
+
+#if DEBUG
+private final class SimulatorDebugWindowController: NSWindowController, NSWindowDelegate {
+    static let shared = SimulatorDebugWindowController()
+
+    private init() {
+        let contentView = CMUXSimulatorDebugView()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 980, height: 720),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = String(localized: "debug.simulator.title", defaultValue: "iOS Simulators")
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.simulatorDebug")
+        window.isReleasedWhenClosed = false
+        window.contentView = NSHostingView(rootView: contentView)
+        super.init(window: window)
+        window.delegate = self
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func show() {
+        guard let window else { return }
+        window.center()
+        showWindow(nil)
+        window.makeKeyAndOrderFront(nil)
+    }
+}
+#endif
 
 /// Returns whether the given window should handle the standard close shortcut
 /// as a standalone auxiliary window instead of routing it through workspace or

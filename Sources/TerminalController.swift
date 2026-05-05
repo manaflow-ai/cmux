@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import CMUXSimulator
 import CMUXWorkstream
 import Foundation
 import Bonsplit
@@ -2717,6 +2718,14 @@ class TerminalController {
             return v2Result(id: id, self.v2MarkdownOpen(params: params))
         case "file.open":
             return v2Result(id: id, self.v2FileOpen(params: params))
+        case "simulator.list":
+            return v2Result(id: id, self.v2SimulatorList(params: params))
+        case "simulator.boot":
+            return v2Result(id: id, self.v2SimulatorBoot(params: params))
+        case "simulator.shutdown":
+            return v2Result(id: id, self.v2SimulatorShutdown(params: params))
+        case "simulator.open":
+            return v2Result(id: id, self.v2SimulatorOpen(params: params))
 
         case "surface.read_text":
             return v2Result(id: id, self.v2SurfaceReadText(params: params))
@@ -2889,6 +2898,10 @@ class TerminalController {
             "app.simulate_active",
             "file.open",
             "markdown.open",
+            "simulator.list",
+            "simulator.boot",
+            "simulator.shutdown",
+            "simulator.open",
             "browser.open_split",
             "browser.navigate",
             "browser.back",
@@ -8752,6 +8765,140 @@ class TerminalController {
                 try? FileManager.default.removeItem(at: entry.url)
             }
         }
+    }
+
+    // MARK: - Simulator
+
+    private func v2SimulatorDevicePayload(_ device: CMUXSimulatorDevice) -> [String: Any] {
+        [
+            "udid": device.udid,
+            "short_udid": device.shortUDID,
+            "name": device.name,
+            "state": device.state.displayName,
+            "runtime": device.runtime,
+            "is_booted": device.isBooted,
+            "screen_points": [
+                "width": device.screenSizePoints.width,
+                "height": device.screenSizePoints.height
+            ],
+            "screen_pixels": [
+                "width": device.screenSizePixels.width,
+                "height": device.screenSizePixels.height
+            ]
+        ]
+    }
+
+    private func v2SimulatorList(params: [String: Any]) -> V2CallResult {
+        _ = params
+        do {
+            let devices = try CMUXSimulatorRuntime.shared.listDevices()
+            let report = CMUXSimulatorRuntime.probeCapabilities()
+            return .ok([
+                "devices": devices.map(v2SimulatorDevicePayload),
+                "minimum_xcode_major": report.minimumXcodeMajorVersion,
+                "xcode_major": v2OrNull(report.xcodeMajorVersion),
+                "developer_dir": report.developerDirectory
+            ])
+        } catch {
+            return .err(code: "simulator_unavailable", message: error.localizedDescription, data: nil)
+        }
+    }
+
+    private func v2SimulatorBoot(params: [String: Any]) -> V2CallResult {
+        guard let udid = v2String(params, "udid") else {
+            return .err(code: "invalid_params", message: "Missing 'udid' parameter", data: nil)
+        }
+        do {
+            try CMUXSimulatorRuntime.shared.boot(udid: udid)
+            let device = try CMUXSimulatorRuntime.shared.device(udid: udid)
+            return .ok(["device": v2SimulatorDevicePayload(device)])
+        } catch {
+            return .err(code: "simulator_boot_failed", message: error.localizedDescription, data: ["udid": udid])
+        }
+    }
+
+    private func v2SimulatorShutdown(params: [String: Any]) -> V2CallResult {
+        guard let udid = v2String(params, "udid") else {
+            return .err(code: "invalid_params", message: "Missing 'udid' parameter", data: nil)
+        }
+        do {
+            try CMUXSimulatorRuntime.shared.shutdown(udid: udid)
+            let device = try CMUXSimulatorRuntime.shared.device(udid: udid)
+            return .ok(["device": v2SimulatorDevicePayload(device)])
+        } catch {
+            return .err(code: "simulator_shutdown_failed", message: error.localizedDescription, data: ["udid": udid])
+        }
+    }
+
+    private func v2SimulatorOpen(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to create simulator panel", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+
+            let shouldFocus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? true)
+            if shouldFocus {
+                v2MaybeFocusWindow(for: tabManager)
+                v2MaybeSelectWorkspace(tabManager, workspace: ws)
+            }
+
+            let sourceSurfaceId = v2UUID(params, "surface_id") ?? ws.focusedPanelId
+            guard let sourceSurfaceId else {
+                result = .err(code: "not_found", message: "No focused surface to split", data: nil)
+                return
+            }
+            guard ws.panels[sourceSurfaceId] != nil else {
+                result = .err(code: "not_found", message: "Source surface not found", data: ["surface_id": sourceSurfaceId.uuidString])
+                return
+            }
+
+            let sourcePaneUUID = ws.paneId(forPanelId: sourceSurfaceId)?.id
+            let directionRaw = v2String(params, "direction") ?? "right"
+            guard let direction = parseSplitDirection(directionRaw) else {
+                result = .err(code: "invalid_params", message: "Invalid direction '\(directionRaw)' (left|right|up|down)", data: nil)
+                return
+            }
+
+            let createdPanel = ws.newSimulatorSplit(
+                from: sourceSurfaceId,
+                orientation: direction.isHorizontal ? .horizontal : .vertical,
+                insertFirst: direction == .left || direction == .up,
+                deviceUDID: v2String(params, "udid"),
+                focus: shouldFocus
+            )
+
+            guard let simulatorPanelId = createdPanel?.id else {
+                result = .err(code: "internal_error", message: "Failed to create simulator panel", data: nil)
+                return
+            }
+
+            let targetPaneUUID = ws.paneId(forPanelId: simulatorPanelId)?.id
+            let windowId = v2ResolveWindowId(tabManager: tabManager)
+            result = .ok([
+                "window_id": v2OrNull(windowId?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: windowId),
+                "workspace_id": ws.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                "pane_id": v2OrNull(targetPaneUUID?.uuidString),
+                "pane_ref": v2Ref(kind: .pane, uuid: targetPaneUUID),
+                "surface_id": simulatorPanelId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: simulatorPanelId),
+                "source_surface_id": sourceSurfaceId.uuidString,
+                "source_surface_ref": v2Ref(kind: .surface, uuid: sourceSurfaceId),
+                "source_pane_id": v2OrNull(sourcePaneUUID?.uuidString),
+                "source_pane_ref": v2Ref(kind: .pane, uuid: sourcePaneUUID),
+                "target_pane_id": v2OrNull(targetPaneUUID?.uuidString),
+                "target_pane_ref": v2Ref(kind: .pane, uuid: targetPaneUUID),
+                "udid": v2OrNull(v2String(params, "udid"))
+            ])
+        }
+        return result
     }
 
     // MARK: - Markdown
