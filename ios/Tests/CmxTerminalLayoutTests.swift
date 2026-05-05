@@ -73,4 +73,17 @@ final class CmxTerminalLayoutTests: XCTestCase {
             0
         )
     }
+
+    func testTerminalBoundsOverlayBorderOnlyShowsForLargerPanes() {
+        XCTAssertFalse(
+            TerminalVisibleBoundsOverlayStyle.showsBorder(
+                pointSize: CGSize(width: 402, height: 774)
+            )
+        )
+        XCTAssertTrue(
+            TerminalVisibleBoundsOverlayStyle.showsBorder(
+                pointSize: CGSize(width: 640, height: 774)
+            )
+        )
+    }
 }

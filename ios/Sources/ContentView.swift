@@ -612,6 +612,15 @@ private struct TerminalVisibleBoundsOverlay: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
+            if TerminalVisibleBoundsOverlayStyle.showsBorder(pointSize: pointSize) {
+                Rectangle()
+                    .strokeBorder(
+                        TerminalVisibleBoundsOverlayStyle.borderColor(revision: revision),
+                        lineWidth: TerminalVisibleBoundsOverlayStyle.borderWidth
+                    )
+                    .accessibilityIdentifier("terminal.bounds.border")
+            }
+
             Text(verbatim: label)
                 .font(.caption2.monospacedDigit())
                 .padding(.horizontal, 5)
@@ -620,6 +629,7 @@ private struct TerminalVisibleBoundsOverlay: View {
                 .background(TerminalThemeChrome.background(revision: revision).opacity(0.84))
                 .accessibilityIdentifier("terminal.bounds.overlay")
         }
+        .frame(width: pointSize.width, height: pointSize.height, alignment: .topLeading)
         .allowsHitTesting(false)
     }
 
@@ -629,6 +639,19 @@ private struct TerminalVisibleBoundsOverlay: View {
             return "visible pending | \(points)"
         }
         return "visible \(gridSize.columns)x\(gridSize.rows) cells | \(gridSize.pixelWidth)x\(gridSize.pixelHeight) px | \(points)"
+    }
+}
+
+enum TerminalVisibleBoundsOverlayStyle {
+    static let borderWidth: CGFloat = 1
+
+    static func showsBorder(pointSize: CGSize) -> Bool {
+        pointSize.width >= 480 && pointSize.height >= 360
+    }
+
+    @MainActor
+    static func borderColor(revision: Int) -> Color {
+        TerminalThemeChrome.foreground(revision: revision).opacity(0.95)
     }
 }
 
