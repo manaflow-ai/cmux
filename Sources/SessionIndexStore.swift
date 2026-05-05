@@ -123,8 +123,12 @@ struct SessionEntry: Identifiable, Hashable {
             if let permissionMode, !permissionMode.isEmpty {
                 parts.append("--permission-mode \(Self.shellQuote(permissionMode))")
             }
+            var environment = claudeConfigDirectoryForResume.map { ["CLAUDE_CONFIG_DIR": $0] } ?? [:]
+            if !environment.isEmpty {
+                environment["CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV"] = "1"
+            }
             return Self.withShellEnvironment(
-                claudeConfigDirectoryForResume.map { ["CLAUDE_CONFIG_DIR": $0] } ?? [:],
+                environment,
                 command: parts.joined(separator: " ")
             )
         case let .codex(model, approval, sandbox, effort):

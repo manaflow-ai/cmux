@@ -129,6 +129,11 @@ private enum AgentResumeCommandBuilder {
         "upgrade"
     ]
 
+    private static let claudeAuthSelectionEnvironmentKeys: Set<String> = [
+        "ANTHROPIC_MODEL",
+        "CLAUDE_CONFIG_DIR"
+    ]
+
     private static let codexValueOptions: Set<String> = [
         "--config",
         "-c",
@@ -229,10 +234,18 @@ private enum AgentResumeCommandBuilder {
         var commandParts: [String] = []
         if let env = launchCommand?.environment, !env.isEmpty {
             var environmentParts: [String] = []
+            var shouldPreserveClaudeAuthSelectionEnvironment = false
             for key in env.keys.sorted() {
                 guard isSafeEnvironmentKey(key),
                       let value = sanitizedEnvironmentValue(key: key, value: env[key]) else { continue }
                 environmentParts.append("\(key)=\(value)")
+                if kind == .claude,
+                   claudeAuthSelectionEnvironmentKeys.contains(key) {
+                    shouldPreserveClaudeAuthSelectionEnvironment = true
+                }
+            }
+            if shouldPreserveClaudeAuthSelectionEnvironment {
+                environmentParts.append("CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1")
             }
             if !environmentParts.isEmpty {
                 commandParts.append("env")
