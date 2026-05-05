@@ -10,13 +10,18 @@ BUNDLE_SET=0
 DERIVED_SET=0
 TAG=""
 LAST_SOCKET_PATH_DIR="$HOME/Library/Application Support/cmux"
-LAST_SOCKET_PATH_FILE="${LAST_SOCKET_PATH_DIR}/last-socket-path"
 
 write_last_socket_path() {
   local socket_path="$1"
+  local marker_name="staging-last-socket-path"
+  local tmp_marker="/tmp/cmux-staging-last-socket-path"
+  if [[ -n "${TAG_SLUG:-}" ]]; then
+    marker_name="staging-${TAG_SLUG}-last-socket-path"
+    tmp_marker="/tmp/cmux-staging-${TAG_SLUG}-last-socket-path"
+  fi
   mkdir -p "$LAST_SOCKET_PATH_DIR"
-  echo "$socket_path" > "$LAST_SOCKET_PATH_FILE" || true
-  echo "$socket_path" > /tmp/cmux-last-socket-path || true
+  echo "$socket_path" > "${LAST_SOCKET_PATH_DIR}/${marker_name}" || true
+  echo "$socket_path" > "$tmp_marker" || true
 }
 
 usage() {

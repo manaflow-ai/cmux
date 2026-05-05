@@ -17,7 +17,6 @@ CMUX_DEV_PORT_RANGE=""
 CMUX_DEV_ORIGIN=""
 CLI_PATH=""
 LAST_SOCKET_PATH_DIR="$HOME/Library/Application Support/cmux"
-LAST_SOCKET_PATH_FILE="${LAST_SOCKET_PATH_DIR}/last-socket-path"
 AUTO_SKIP_ZIG_BUILD_REASON=""
 
 should_skip_ghostty_cli_helper_zig_build() {
@@ -110,9 +109,15 @@ select_cmux_shim_target() {
 
 write_last_socket_path() {
   local socket_path="$1"
+  local marker_name="dev-last-socket-path"
+  local tmp_marker="/tmp/cmux-dev-last-socket-path"
+  if [[ -n "${TAG_SLUG:-}" ]]; then
+    marker_name="dev-${TAG_SLUG}-last-socket-path"
+    tmp_marker="/tmp/cmux-dev-${TAG_SLUG}-last-socket-path"
+  fi
   mkdir -p "$LAST_SOCKET_PATH_DIR"
-  echo "$socket_path" > "$LAST_SOCKET_PATH_FILE" || true
-  echo "$socket_path" > /tmp/cmux-last-socket-path || true
+  echo "$socket_path" > "${LAST_SOCKET_PATH_DIR}/${marker_name}" || true
+  echo "$socket_path" > "$tmp_marker" || true
 }
 
 usage() {
@@ -711,7 +716,7 @@ if [[ "$LAUNCH" -eq 1 ]]; then
   elif [[ -n "${TAG_SLUG:-}" ]]; then
     "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" open -g "$APP_PATH"
   else
-    echo "/tmp/cmux-debug.sock" > /tmp/cmux-last-socket-path || true
+    write_last_socket_path "/tmp/cmux-debug.sock"
     echo "/tmp/cmux-debug.log" > /tmp/cmux-last-debug-log-path || true
     "${OPEN_CLEAN_ENV[@]}" open -g "$APP_PATH"
   fi

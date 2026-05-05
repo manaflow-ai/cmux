@@ -106,11 +106,15 @@ private final class CLISocketSentryTelemetry {
         if size > 0 {
             var buffer = Array<CChar>(repeating: 0, count: Int(size))
             if _NSGetExecutablePath(&buffer, &size) == 0 {
-                return URL(fileURLWithPath: String(cString: buffer)).standardizedFileURL
+                return URL(fileURLWithPath: String(cString: buffer))
+                    .resolvingSymlinksInPath()
+                    .standardizedFileURL
             }
         }
 
-        return Bundle.main.executableURL?.standardizedFileURL
+        return Bundle.main.executableURL?
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
     }
 
     private static func parentSearchURL(for url: URL) -> URL? {
@@ -693,10 +697,84 @@ private enum CLISocketPathResolver {
     private static let lastSocketPathFileName = "last-socket-path"
     static let legacyDefaultSocketPath = "/tmp/cmux.sock"
     private static let fallbackSocketPath = "/tmp/cmux-debug.sock"
+    private static let nightlySocketPath = "/tmp/cmux-nightly.sock"
     private static let stagingSocketPath = "/tmp/cmux-staging.sock"
     private static let legacyLastSocketPathFile = "/tmp/cmux-last-socket-path"
 
+    private enum SocketPathVariant: Equatable {
+        case stable
+        case nightly
+        case staging(slug: String?)
+        case dev(slug: String?)
+
+        var lastSocketPathFileName: String {
+            switch self {
+            case .stable:
+                return CLISocketPathResolver.lastSocketPathFileName
+            case .nightly:
+                return "nightly-last-socket-path"
+            case .staging(let slug):
+                if let slug {
+                    return "staging-\(slug)-last-socket-path"
+                }
+                return "staging-last-socket-path"
+            case .dev(let slug):
+                if let slug {
+                    return "dev-\(slug)-last-socket-path"
+                }
+                return "dev-last-socket-path"
+            }
+        }
+
+        var tmpLastSocketPathFile: String {
+            switch self {
+            case .stable:
+                return CLISocketPathResolver.legacyLastSocketPathFile
+            case .nightly:
+                return "/tmp/cmux-nightly-last-socket-path"
+            case .staging(let slug):
+                if let slug {
+                    return "/tmp/cmux-staging-\(slug)-last-socket-path"
+                }
+                return "/tmp/cmux-staging-last-socket-path"
+            case .dev(let slug):
+                if let slug {
+                    return "/tmp/cmux-dev-\(slug)-last-socket-path"
+                }
+                return "/tmp/cmux-dev-last-socket-path"
+            }
+        }
+
+        var isDev: Bool {
+            if case .dev = self { return true }
+            return false
+        }
+    }
+
     static var defaultSocketPath: String {
+        defaultSocketPath(bundleIdentifier: currentAppBundleIdentifier())
+    }
+
+    static func defaultSocketPath(bundleIdentifier: String?) -> String {
+        switch socketPathVariant(bundleIdentifier: bundleIdentifier, environment: ProcessInfo.processInfo.environment) {
+        case .stable:
+            let stablePath: String? = stableSocketDirectoryURL()?
+                .appendingPathComponent(stableSocketFileName, isDirectory: false)
+                .path
+            return stablePath ?? legacyDefaultSocketPath
+        case .nightly:
+            return nightlySocketPath
+        case .staging:
+            return stagingSocketPath
+        case .dev(let slug):
+            if let slug {
+                return "/tmp/cmux-debug-\(slug).sock"
+            }
+            return fallbackSocketPath
+        }
+    }
+
+    private static var stableDefaultSocketPath: String {
         let stablePath: String? = stableSocketDirectoryURL()?
             .appendingPathComponent(stableSocketFileName, isDirectory: false)
             .path
@@ -704,19 +782,28 @@ private enum CLISocketPathResolver {
     }
 
     static func isImplicitDefaultPath(_ path: String) -> Bool {
-        path == defaultSocketPath || path == legacyDefaultSocketPath
+        isImplicitDefaultPath(path, bundleIdentifier: currentAppBundleIdentifier())
+    }
+
+    static func isImplicitDefaultPath(_ path: String, bundleIdentifier: String?) -> Bool {
+        knownImplicitDefaultPaths(bundleIdentifier: bundleIdentifier).contains(path)
     }
 
     static func resolve(
         requestedPath: String,
         source: CLISocketPathSource,
-        environment: [String: String] = ProcessInfo.processInfo.environment
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        bundleIdentifier: String? = currentAppBundleIdentifier()
     ) -> String {
         guard source == .implicitDefault else {
             return requestedPath
         }
 
-        let candidates = dedupe(candidatePaths(requestedPath: requestedPath, environment: environment))
+        let candidates = dedupe(candidatePaths(
+            requestedPath: requestedPath,
+            environment: environment,
+            bundleIdentifier: bundleIdentifier
+        ))
 
         // Prefer sockets that are currently accepting connections.
         for path in candidates where canConnect(to: path) {
@@ -731,8 +818,13 @@ private enum CLISocketPathResolver {
         return requestedPath
     }
 
-    private static func candidatePaths(requestedPath: String, environment: [String: String]) -> [String] {
+    private static func candidatePaths(
+        requestedPath: String,
+        environment: [String: String],
+        bundleIdentifier: String?
+    ) -> [String] {
         var candidates: [String] = []
+        let variant = socketPathVariant(bundleIdentifier: bundleIdentifier, environment: environment)
 
         if let tag = normalized(environment["CMUX_TAG"]) {
             let slug = sanitizeTagSlug(tag)
@@ -740,24 +832,23 @@ private enum CLISocketPathResolver {
             candidates.append("/tmp/cmux-\(slug).sock")
         }
 
-        candidates.append(requestedPath)
-        candidates.append(defaultSocketPath)
-        candidates.append(legacyDefaultSocketPath)
-        candidates.append(fallbackSocketPath)
-        candidates.append(stagingSocketPath)
-        candidates.append(contentsOf: discoverTaggedSockets(limit: 12))
-        if let last = readLastSocketPath() {
+        candidates.append(defaultSocketPath(bundleIdentifier: bundleIdentifier))
+        if let last = readLastSocketPath(bundleIdentifier: bundleIdentifier, environment: environment) {
             candidates.append(last)
+        }
+        candidates.append(requestedPath)
+        candidates.append(contentsOf: knownImplicitDefaultPaths(bundleIdentifier: bundleIdentifier))
+        if variant.isDev {
+            candidates.append(contentsOf: discoverTaggedSockets(limit: 12))
         }
         return candidates
     }
 
-    private static func readLastSocketPath() -> String? {
-        let primaryCandidate: String? = stableSocketDirectoryURL()?
-            .appendingPathComponent(lastSocketPathFileName, isDirectory: false)
-            .path
-        let candidates = [primaryCandidate, legacyLastSocketPathFile].compactMap { $0 }
-
+    private static func readLastSocketPath(
+        bundleIdentifier: String?,
+        environment: [String: String]
+    ) -> String? {
+        let candidates = lastSocketPathFiles(bundleIdentifier: bundleIdentifier, environment: environment)
         for candidate in candidates {
             guard let data = try? String(contentsOfFile: candidate, encoding: .utf8) else {
                 continue
@@ -783,7 +874,7 @@ private enum CLISocketPathResolver {
                 var st = stat()
                 guard lstat(path, &st) == 0 else { continue }
                 guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else { continue }
-                if path == defaultSocketPath || path == legacyDefaultSocketPath || path == fallbackSocketPath || path == stagingSocketPath {
+                if allKnownDefaultSocketPaths().contains(path) {
                     continue
                 }
                 let modified = TimeInterval(st.st_mtimespec.tv_sec) + TimeInterval(st.st_mtimespec.tv_nsec) / 1_000_000_000
@@ -831,6 +922,150 @@ private enum CLISocketPathResolver {
             .replacingOccurrences(of: "-+", with: "-", options: .regularExpression)
             .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
         return slug.isEmpty ? "agent" : slug
+    }
+
+    private static func socketPathVariant(
+        bundleIdentifier: String?,
+        environment: [String: String]
+    ) -> SocketPathVariant {
+        let bundleId = bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if bundleId == "com.cmuxterm.app.nightly" || bundleId.hasPrefix("com.cmuxterm.app.nightly.") {
+            return .nightly
+        }
+        if bundleId == "com.cmuxterm.app.staging" {
+            return .staging(slug: nil)
+        }
+        if bundleId.hasPrefix("com.cmuxterm.app.staging.") {
+            return .staging(slug: bundleSuffixSlug(bundleId, prefix: "com.cmuxterm.app.staging."))
+        }
+        if bundleId == "com.cmuxterm.app.debug" {
+            if let tag = normalized(environment["CMUX_TAG"]) {
+                return .dev(slug: sanitizeTagSlug(tag))
+            }
+            return .dev(slug: nil)
+        }
+        if bundleId.hasPrefix("com.cmuxterm.app.debug.") {
+            return .dev(slug: bundleSuffixSlug(bundleId, prefix: "com.cmuxterm.app.debug."))
+        }
+        return .stable
+    }
+
+    private static func bundleSuffixSlug(_ bundleIdentifier: String, prefix: String) -> String? {
+        let suffix = String(bundleIdentifier.dropFirst(prefix.count))
+        let slug = sanitizeTagSlug(suffix.replacingOccurrences(of: ".", with: "-"))
+        return slug == "agent" ? nil : slug
+    }
+
+    private static func knownImplicitDefaultPaths(bundleIdentifier: String?) -> [String] {
+        dedupe([
+            defaultSocketPath(bundleIdentifier: bundleIdentifier),
+            stableDefaultSocketPath,
+            legacyDefaultSocketPath,
+            fallbackSocketPath,
+            nightlySocketPath,
+            stagingSocketPath,
+        ])
+    }
+
+    private static func allKnownDefaultSocketPaths() -> Set<String> {
+        Set(dedupe([
+            stableDefaultSocketPath,
+            legacyDefaultSocketPath,
+            fallbackSocketPath,
+            nightlySocketPath,
+            stagingSocketPath,
+        ]))
+    }
+
+    private static func lastSocketPathFiles(
+        bundleIdentifier: String?,
+        environment: [String: String]
+    ) -> [String] {
+        let variant = socketPathVariant(bundleIdentifier: bundleIdentifier, environment: environment)
+        var candidates: [String] = []
+        if let appSupportPath = stableSocketDirectoryURL()?
+            .appendingPathComponent(variant.lastSocketPathFileName, isDirectory: false)
+            .path {
+            candidates.append(appSupportPath)
+        }
+        candidates.append(variant.tmpLastSocketPathFile)
+        return dedupe(candidates)
+    }
+
+    static func currentAppBundleIdentifier() -> String? {
+        if let bundleIdentifier = enclosingAppBundle()?.bundleIdentifier?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !bundleIdentifier.isEmpty {
+            return bundleIdentifier
+        }
+
+        if let bundleIdentifier = Bundle.main.bundleIdentifier?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !bundleIdentifier.isEmpty {
+            return bundleIdentifier
+        }
+
+#if DEBUG
+        return "com.cmuxterm.app.debug"
+#else
+        return "com.cmuxterm.app"
+#endif
+    }
+
+    private static func enclosingAppBundle() -> Bundle? {
+        guard let executableURL = currentExecutableURL() else {
+            return nil
+        }
+
+        var current = executableURL.deletingLastPathComponent().standardizedFileURL
+        while true {
+            if current.pathExtension == "app", let bundle = Bundle(url: current) {
+                return bundle
+            }
+
+            if current.lastPathComponent == "Contents" {
+                let appURL = current.deletingLastPathComponent().standardizedFileURL
+                if appURL.pathExtension == "app", let bundle = Bundle(url: appURL) {
+                    return bundle
+                }
+            }
+
+            guard let parent = parentSearchURL(for: current) else {
+                return nil
+            }
+            current = parent
+        }
+    }
+
+    private static func currentExecutableURL() -> URL? {
+        var size: UInt32 = 0
+        _ = _NSGetExecutablePath(nil, &size)
+        if size > 0 {
+            var buffer = Array<CChar>(repeating: 0, count: Int(size))
+            if _NSGetExecutablePath(&buffer, &size) == 0 {
+                return URL(fileURLWithPath: String(cString: buffer))
+                    .resolvingSymlinksInPath()
+                    .standardizedFileURL
+            }
+        }
+
+        return Bundle.main.executableURL?
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+    }
+
+    private static func parentSearchURL(for url: URL) -> URL? {
+        let standardized = url.standardizedFileURL
+        let path = standardized.path
+        guard !path.isEmpty, path != "/" else {
+            return nil
+        }
+
+        let parent = standardized.deletingLastPathComponent().standardizedFileURL
+        guard parent.path != path else {
+            return nil
+        }
+        return parent
     }
 
     private static func normalized(_ value: String?) -> String? {
@@ -1592,7 +1827,6 @@ enum CLIProcessRunner {
 struct CMUXCLI {
     let args: [String]
 
-    private static let debugLastSocketHintPath = "/tmp/cmux-last-socket-path"
     private static let vmCreateIdempotencyTTLSeconds: TimeInterval = 10 * 60
     private static let vmCreateResponseTimeoutSeconds: TimeInterval = 16 * 60
     private static let vmAttachResponseTimeoutSeconds: TimeInterval = 16 * 60
@@ -1691,45 +1925,9 @@ struct CMUXCLI {
         try? saveVMCreateIdempotencyStore(store, to: url)
     }
 
-    private static func pathIsSocket(_ path: String) -> Bool {
-        var st = stat()
-        guard lstat(path, &st) == 0 else { return false }
-        return (st.st_mode & S_IFMT) == S_IFSOCK
-    }
-
-    private static func debugSocketPathFromHintFile() -> String? {
-#if DEBUG
-        guard let raw = try? String(contentsOfFile: debugLastSocketHintPath, encoding: .utf8) else {
-            return nil
-        }
-        guard let hinted = normalizedEnvValue(raw),
-              hinted.hasPrefix("/tmp/cmux-debug"),
-              hinted.hasSuffix(".sock"),
-              pathIsSocket(hinted) else {
-            return nil
-        }
-        return hinted
-#else
-        return nil
-#endif
-    }
-
-    private static func defaultSocketPath(environment: [String: String]) -> String {
-        if let explicit = normalizedEnvValue(environment["CMUX_SOCKET_PATH"]) {
-            return explicit
-        }
-#if DEBUG
-        if let hinted = debugSocketPathFromHintFile() {
-            return hinted
-        }
-        return "/tmp/cmux-debug.sock"
-#else
-        return "/tmp/cmux.sock"
-#endif
-    }
-
     func run() throws {
         let processEnv = ProcessInfo.processInfo.environment
+        let cliBundleIdentifier = CLISocketPathResolver.currentAppBundleIdentifier()
         let envSocketPath: String? = {
             for key in ["CMUX_SOCKET_PATH", "CMUX_SOCKET"] {
                 guard let raw = processEnv[key] else { continue }
@@ -1740,10 +1938,15 @@ struct CMUXCLI {
             }
             return nil
         }()
-        var socketPath = envSocketPath ?? CLISocketPathResolver.defaultSocketPath
+        var socketPath = envSocketPath ?? CLISocketPathResolver.defaultSocketPath(
+            bundleIdentifier: cliBundleIdentifier
+        )
         var socketPathSource: CLISocketPathSource
         if let envSocketPath {
-            socketPathSource = CLISocketPathResolver.isImplicitDefaultPath(envSocketPath) ? .implicitDefault : .environment
+            socketPathSource = CLISocketPathResolver.isImplicitDefaultPath(
+                envSocketPath,
+                bundleIdentifier: cliBundleIdentifier
+            ) ? .implicitDefault : .environment
         } else {
             socketPathSource = .implicitDefault
         }
@@ -1820,7 +2023,8 @@ struct CMUXCLI {
         let resolvedSocketPath = CLISocketPathResolver.resolve(
             requestedPath: socketPath,
             source: socketPathSource,
-            environment: processEnv
+            environment: processEnv,
+            bundleIdentifier: cliBundleIdentifier
         )
 
         if command == "version" {
