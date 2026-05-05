@@ -54,6 +54,37 @@ fileprivate func shellSingleQuoted(_ value: String) -> String {
     "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
 }
 
+enum ClaudeConfigDirectoryPath {
+    static func preferredPath(
+        _ rawPath: String,
+        fileManager: FileManager = .default,
+        homeDirectory: String = NSHomeDirectory()
+    ) -> String {
+        let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return rawPath
+        }
+
+        let expanded = (trimmed as NSString).expandingTildeInPath
+        let standardized = (expanded as NSString).standardizingPath
+        let home = ((homeDirectory as NSString).expandingTildeInPath as NSString).standardizingPath
+        let legacyRoot = ((home as NSString).appendingPathComponent(".subrouter/codex/claude") as NSString).standardizingPath
+        guard standardized == legacyRoot || standardized.hasPrefix(legacyRoot + "/") else {
+            return standardized
+        }
+
+        let accountRoot = ((home as NSString).appendingPathComponent(".codex-accounts/claude") as NSString).standardizingPath
+        let suffix = String(standardized.dropFirst(legacyRoot.count))
+        let candidate = accountRoot + suffix
+        var isDirectory: ObjCBool = false
+        if fileManager.fileExists(atPath: candidate, isDirectory: &isDirectory),
+           isDirectory.boolValue {
+            return candidate
+        }
+        return standardized
+    }
+}
+
 private enum AgentResumeCommandBuilder {
     private static let claudeValueOptions: Set<String> = [
         "--add-dir",
@@ -580,10 +611,14 @@ private enum AgentResumeCommandBuilder {
     }
 
     private static func sanitizedEnvironmentValue(key: String, value: String?) -> String? {
-        guard key == "NODE_OPTIONS" else {
+        switch key {
+        case "CLAUDE_CONFIG_DIR":
+            return value.map { ClaudeConfigDirectoryPath.preferredPath($0) }
+        case "NODE_OPTIONS":
+            return sanitizedNodeOptions(value)
+        default:
             return value
         }
-        return sanitizedNodeOptions(value)
     }
 
     private static func sanitizedNodeOptions(_ rawValue: String?) -> String? {

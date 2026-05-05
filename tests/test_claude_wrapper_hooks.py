@@ -232,6 +232,7 @@ def run_wrapper_auth_env(
     *,
     argv: list[str],
     inherited_env: dict[str, str],
+    setup_env=None,
 ) -> tuple[int, dict[str, str], list[str], str]:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-auth-env-") as td:
         tmp = Path(td)
@@ -301,6 +302,8 @@ exit 0
             env["CMUX_SOCKET_PATH"] = socket_path
             env["FAKE_AUTH_ENV_LOG"] = str(auth_env_log)
             env["FAKE_ARGS_LOG"] = str(args_log)
+            if setup_env is not None:
+                env.update(setup_env(tmp))
             env.update(inherited_env)
 
             proc = subprocess.run(
@@ -432,6 +435,29 @@ def test_live_socket_clears_inherited_claude_auth_for_fresh_launch(failures: lis
             continue
         expect(auth_env.get(key) == "__UNSET__", f"fresh auth env: expected {key} unset, got {auth_env.get(key)!r}", failures)
     expect("--session-id" in real_argv, f"fresh auth env: expected session injection, got {real_argv}", failures)
+
+
+def test_live_socket_normalizes_subrouter_claude_config_dir(failures: list[str]) -> None:
+    expected: dict[str, str] = {}
+
+    def setup(tmp: Path) -> dict[str, str]:
+        home = tmp / "home"
+        legacy = home / ".subrouter" / "codex" / "claude" / "_p1775010019397"
+        legacy.mkdir(parents=True)
+        (home / ".codex-accounts").symlink_to(home / ".subrouter" / "codex", target_is_directory=True)
+        expected["path"] = str(home / ".codex-accounts" / "claude" / "_p1775010019397")
+        return {"HOME": str(home)}
+
+    code, auth_env, _, stderr = run_wrapper_auth_env(
+        argv=["--dangerously-skip-permissions"],
+        inherited_env={},
+        setup_env=lambda tmp: {
+            **setup(tmp),
+            "CLAUDE_CONFIG_DIR": str(tmp / "home" / ".subrouter" / "codex" / "claude" / "_p1775010019397"),
+        },
+    )
+    expect(code == 0, f"normalize config dir: wrapper exited {code}: {stderr}", failures)
+    expect(auth_env.get("CLAUDE_CONFIG_DIR") == expected["path"], f"normalize config dir: expected {expected['path']!r}, got {auth_env.get('CLAUDE_CONFIG_DIR')!r}", failures)
 
 
 def test_live_socket_preserves_claude_auth_for_resume_launch(failures: list[str]) -> None:
@@ -613,6 +639,7 @@ def main() -> int:
     test_live_socket_injects_supported_hooks(failures)
     test_plain_claude_launch_argv_has_no_empty_argument(failures)
     test_live_socket_clears_inherited_claude_auth_for_fresh_launch(failures)
+    test_live_socket_normalizes_subrouter_claude_config_dir(failures)
     test_live_socket_preserves_claude_auth_for_resume_launch(failures)
     test_live_socket_preserves_only_listed_claude_auth_keys(failures)
     test_live_socket_enforces_heap_cap_for_space_separated_flag(failures)

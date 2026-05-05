@@ -3299,6 +3299,41 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         XCTAssertEqual(output, "xterm-256color|xterm-256color|unset|0", output)
     }
 
+    func testShellIntegrationNormalizesClaudeConfigDirAfterUserZshrc() throws {
+        let output = try runPromptInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: true,
+            command: """
+            print -r -- "CMD=$CLAUDE_CONFIG_DIR" >> "$CMUX_TEST_OUTPUT"
+            """,
+            userZshRCContents: """
+            mkdir -p "$HOME/.subrouter/codex/claude/_p1775010019397"
+            ln -s "$HOME/.subrouter/codex" "$HOME/.codex-accounts"
+            export CLAUDE_CONFIG_DIR="$HOME/.subrouter/codex/claude/_p1775010019397"
+
+            cmux_test_ready() {
+              [[ -e "$CMUX_TEST_READY" ]] && return 0
+              print -r -- "PRE=$CLAUDE_CONFIG_DIR" > "$CMUX_TEST_OUTPUT"
+              : > "$CMUX_TEST_READY"
+              precmd_functions=(${precmd_functions:#cmux_test_ready})
+            }
+            precmd_functions+=(cmux_test_ready)
+            """
+        )
+
+        XCTAssertTrue(
+            output.contains("PRE=") && output.contains("CMD="),
+            output
+        )
+        for line in output.split(separator: "\n") {
+            XCTAssertTrue(
+                line.hasSuffix("/.codex-accounts/claude/_p1775010019397"),
+                output
+            )
+        }
+        XCTAssertFalse(output.contains("/.subrouter/codex/claude/"), output)
+    }
+
     func testShellIntegrationDoesNotRegisterPromptTimeTermRestoreHooks() throws {
         let output = try runInteractiveZsh(
             cmuxLoadGhosttyIntegration: false,

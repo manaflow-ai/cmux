@@ -100,14 +100,37 @@ should_preserve_claude_auth_selection_key() {
     return 1
 }
 
-clear_inherited_claude_auth_selection_env() {
-    [[ "${IN_CMUX:-0}" == "1" ]] || return 0
+normalize_claude_config_dir() {
+    [[ -n "${CLAUDE_CONFIG_DIR:-}" ]] || return 0
+    [[ -n "${HOME:-}" ]] || return 0
 
-    local key
-    for key in "${CLAUDE_AUTH_SELECTION_ENV_KEYS[@]}"; do
-        should_preserve_claude_auth_selection_key "$key" && continue
-        unset "$key"
-    done
+    local value="$CLAUDE_CONFIG_DIR"
+    local legacy_root="$HOME/.subrouter/codex/claude"
+    local account_root="$HOME/.codex-accounts/claude"
+    if [[ "$value" == "~/"* ]]; then
+        value="$HOME/${value#~/}"
+    fi
+
+    case "$value" in
+        "$legacy_root"|"$legacy_root"/*)
+            local suffix="${value#$legacy_root}"
+            local candidate="$account_root$suffix"
+            if [[ -e "$candidate" || -L "$candidate" ]]; then
+                export CLAUDE_CONFIG_DIR="$candidate"
+            fi
+            ;;
+    esac
+}
+
+clear_inherited_claude_auth_selection_env() {
+    if [[ "${IN_CMUX:-0}" == "1" ]]; then
+        local key
+        for key in "${CLAUDE_AUTH_SELECTION_ENV_KEYS[@]}"; do
+            should_preserve_claude_auth_selection_key "$key" && continue
+            unset "$key"
+        done
+    fi
+    normalize_claude_config_dir
 }
 
 # Pass through if not in a cmux terminal, hooks are disabled, or the cmux

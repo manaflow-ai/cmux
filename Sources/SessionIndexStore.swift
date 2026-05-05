@@ -178,7 +178,7 @@ struct SessionEntry: Identifiable, Hashable {
         }
         let configComponents = Array(pathComponents[..<projectsIndex])
         let configDir = NSString.path(withComponents: configComponents)
-        return configDir.isEmpty ? nil : configDir
+        return configDir.isEmpty ? nil : ClaudeConfigDirectoryPath.preferredPath(configDir)
     }
 
     private static func withShellEnvironment(
@@ -845,7 +845,7 @@ final class SessionIndexStore: ObservableObject {
             let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return }
             let configDir = (trimmed as NSString).expandingTildeInPath
-            let standardized = (configDir as NSString).standardizingPath
+            let standardized = ClaudeConfigDirectoryPath.preferredPath(configDir)
             let projectsRoot = (standardized as NSString).appendingPathComponent("projects")
             var isDirectory: ObjCBool = false
             guard fm.fileExists(atPath: projectsRoot, isDirectory: &isDirectory),
