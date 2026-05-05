@@ -3777,16 +3777,16 @@ class GhosttyApp {
                 return false
             }
             // Route markdown file URLs into the cmux viewer when the toggle is
-            // on AND the link is local + has no anchor/query. Anything else
-            // (toggle off, hosted file URL, #fragment, ?query, non-markdown,
-            // remote workspace, unreadable file, split creation failure) falls
-            // through to the existing NSWorkspace path below so the default-off
-            // behavior and URL semantics are preserved.
+            // on AND the link is local. URL fragments/queries are stripped (the
+            // panel only needs the file path), so links emitted by tools like
+            // Claude Code (`foo.md#L42`) still route into the viewer. Anything
+            // else (toggle off, hosted file URL, non-markdown, remote workspace,
+            // unreadable file, split creation failure) falls through to the
+            // existing NSWorkspace path below so the default-off behavior and
+            // URL semantics are preserved.
             let fileURLHost = target.url.host
             if CmdClickMarkdownRouteSettings.isEnabled(),
                target.url.isFileURL,
-               target.url.fragment == nil,
-               target.url.query == nil,
                fileURLHost == nil || fileURLHost?.isEmpty == true || fileURLHost == "localhost",
                CmdClickMarkdownRouteSettings.isMarkdownPath(target.url.path) {
                 let fileURL = target.url
@@ -3799,10 +3799,27 @@ class GhosttyApp {
                           CmdClickMarkdownRouteSettings.shouldRoute(path: fileURL.path) else {
                         return false
                     }
-                    return workspace.openOrFocusMarkdownSplit(
-                        from: termSurface.id,
-                        filePath: fileURL.path
-                    ) != nil
+                    // Defer the split creation. Ghostty's Surface.openUrl holds
+                    // an internal lock when it dispatches into this Swift
+                    // handler; opening a new panel synchronously triggers
+                    // Surface.encodeKey on the focus path, which tries to
+                    // acquire the same lock and aborts (recursive os_unfair_lock
+                    // — see crash reports referenced in #3370). Running on the
+                    // next runloop tick lets Surface.openUrl return and release
+                    // the lock first.
+                    let surfaceId = termSurface.id
+                    DispatchQueue.main.async {
+                        guard workspace.openOrFocusMarkdownSplit(
+                            from: surfaceId,
+                            filePath: fileURL.path
+                        ) == nil else { return }
+                        // Async fallback: if the split could not be created
+                        // (e.g. the source pane disappeared between commit and
+                        // dispatch), surface the file through the system opener
+                        // so the click is not silently lost.
+                        NSWorkspace.shared.open(fileURL)
+                    }
+                    return true
                 }
                 if routed {
                     return true
