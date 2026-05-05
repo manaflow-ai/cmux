@@ -321,6 +321,41 @@ def test_dry_run_paginates_and_does_not_post() -> None:
   assert not any(method == "POST" for method, _ in calls)
 
 
+def test_workflow_without_approval_job_keeps_polling() -> None:
+  calls: list[tuple[str, str]] = []
+  workflow_job_calls = 0
+  test_env = base_env("lawrencecchen")
+  test_env["CIRCLECI_APPROVAL_MAX_ATTEMPTS"] = "2"
+
+  def urlopen(request: Any, timeout: int = 20) -> FakeResponse:
+    nonlocal workflow_job_calls
+    calls.append((request.get_method(), request.full_url))
+    if request.full_url.startswith("https://api.github.test/"):
+      assert_github_auth(request)
+    if request.full_url.startswith("https://circleci.test/"):
+      assert_circleci_auth(request)
+    if response := trusted_user_response(request.full_url):
+      return response
+    if request.full_url.endswith("/check-runs?per_page=100&page=1"):
+      return FakeResponse(fake_check_runs())
+    if request.full_url.endswith(f"/workflow/{WORKFLOW_ID}/job"):
+      workflow_job_calls += 1
+      if workflow_job_calls == 1:
+        return FakeResponse({"items": []})
+      return FakeResponse(fake_workflow_jobs())
+    if request.full_url.endswith(f"/workflow/{WORKFLOW_ID}/approve/{APPROVAL_ID}"):
+      return FakeResponse({})
+    raise AssertionError(f"unexpected request: {request.full_url}")
+
+  with env(**test_env):
+    module = load_module()
+    with mock.patch.object(module.urllib.request, "urlopen", urlopen):
+      assert module.run() == 0
+
+  assert workflow_job_calls == 2
+  assert any(method == "POST" and url == f"https://circleci.test/api/v2/workflow/{WORKFLOW_ID}/approve/{APPROVAL_ID}" for method, url in calls), calls
+
+
 def test_unresolvable_allowlisted_login_fails_closed() -> None:
   calls: list[tuple[str, str]] = []
   test_env = base_env("lawrencecchen")
@@ -358,6 +393,7 @@ def main() -> None:
   test_membership_api_error_does_not_call_circleci()
   test_already_approved_does_not_post()
   test_dry_run_paginates_and_does_not_post()
+  test_workflow_without_approval_job_keeps_polling()
   test_unresolvable_allowlisted_login_fails_closed()
   print("PASS: CircleCI auto approval trusts only allowlisted users or org members")
 

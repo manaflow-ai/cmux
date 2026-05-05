@@ -174,7 +174,7 @@ def is_hold_check_name(check_name: str, hold_job_name: str) -> bool:
   return circleci_name == hold_job_name or circleci_name.endswith(f"/{hold_job_name}")
 
 
-def find_approval_request(config: Config, workflow_id: str) -> tuple[str, str] | None:
+def find_approval_request(config: Config, workflow_id: str) -> tuple[str | None, str] | None:
   page_token = ""
   while True:
     url = f"{CIRCLECI_API}/workflow/{workflow_id}/job"
@@ -189,7 +189,7 @@ def find_approval_request(config: Config, workflow_id: str) -> tuple[str, str] |
       status = str(job.get("status") or "")
       if status == "success":
         print(f"CircleCI approval job {config.hold_job_name} is already approved")
-        return None
+        return (None, status)
       approval_request_id = job.get("approval_request_id") or job.get("id")
       if not approval_request_id:
         raise SystemExit(f"Approval job {config.hold_job_name} has no approval_request_id")
@@ -225,12 +225,16 @@ def run() -> int:
       approval = find_approval_request(config, workflow_id)
       if approval:
         approval_request_id, status = approval
-        print(f"Found CircleCI approval job with status {status}")
-        approve(config, workflow_id, approval_request_id)
-      return 0
-
-    print(f"Waiting for CircleCI approval check ({attempt}/{config.max_attempts})")
-    time.sleep(config.poll_seconds)
+        if approval_request_id:
+          print(f"Found CircleCI approval job with status {status}")
+          approve(config, workflow_id, approval_request_id)
+        return 0
+      print(f"CircleCI workflow {workflow_id} found, waiting for approval job")
+    else:
+      print(f"Waiting for CircleCI approval check ({attempt}/{config.max_attempts})")
+    if attempt < config.max_attempts:
+      time.sleep(config.poll_seconds)
+      continue
 
   raise SystemExit(f"Timed out waiting for ci/circleci: */{config.hold_job_name}")
 
