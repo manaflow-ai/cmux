@@ -35,6 +35,7 @@ final class FeedActivityPaginationUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_WORKSTREAM_HISTORY_PAGE_SIZE"] = "2"
         app.launchEnvironment["CMUX_UI_TEST_FEED_ACTIVITY_SEED_COUNT"] = "30"
         app.launchEnvironment["CMUX_UI_TEST_FEED_ACTIVITY_PAGINATION_PATH"] = paginationPath
+        app.launchEnvironment["CMUX_UI_TEST_FEED_INITIAL_FILTER"] = "activity"
 
         launchAndEnsureUsable(app)
         defer { app.terminate() }
@@ -51,10 +52,6 @@ final class FeedActivityPaginationUITests: XCTestCase {
         let feedButton = app.buttons["RightSidebarModeButton.feed"].firstMatch
         XCTAssertTrue(feedButton.waitForExistence(timeout: 8), "Feed mode button did not appear")
         feedButton.click()
-
-        let activityButton = app.buttons["FeedFilterButton.activity"].firstMatch
-        XCTAssertTrue(activityButton.waitForExistence(timeout: 8), "Activity filter did not appear")
-        activityButton.click()
 
         let newestRow = app.descendants(matching: .any)["FeedRow.opencode-ui-page-29"].firstMatch
         XCTAssertTrue(newestRow.waitForExistence(timeout: 8), "Newest seeded activity row did not render")

@@ -84,7 +84,7 @@ struct FeedPanelView: View {
         }
     }
 
-    @State private var filter: Filter = .actionable
+    @State private var filter: Filter = Self.initialFilter()
     @State private var viewModel = FeedPanelViewModel()
 
     var body: some View {
@@ -142,6 +142,16 @@ struct FeedPanelView: View {
             }
             Spacer(minLength: 4)
         }
+    }
+
+    private static func initialFilter() -> Filter {
+#if DEBUG
+        let rawValue = ProcessInfo.processInfo.environment["CMUX_UI_TEST_FEED_INITIAL_FILTER"]
+        if rawValue == Filter.activity.rawValue {
+            return .activity
+        }
+#endif
+        return .actionable
     }
 }
 
