@@ -1654,6 +1654,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             resolvedLineFormat = "log"
         case "alt_screen_log":
             resolvedLineFormat = "alt_screen_log"
+        case "osc8":
+            resolvedLineFormat = "osc8"
         default:
             resolvedLineFormat = "grid"
         }
@@ -1669,6 +1671,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let displayToken: String
         let shellCommand: String
         switch resolvedLineFormat {
+        case "osc8":
+            displayToken = resolvedFileName
+            let escapedDisplayToken = singleQuotedShellLiteral(displayToken)
+            let escapedURL = singleQuotedShellLiteral(expectedFileURL.absoluteString)
+            shellCommand = "clear\rfor i in $(seq 1 48); do printf '\\033]8;;%s\\033\\\\%s\\033]8;;\\033\\\\\\n' '\(escapedURL)' '\(escapedDisplayToken)'; done\r"
         case "log":
             displayToken = resolvedFileName
             let blockLine = "\(linePrefix)\(resolvedFileName)"
@@ -1997,6 +2004,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     payload["lastCommandError"] = error
                 } else {
                     payload["lastCommandError"] = "Command click did not open a path"
+                }
+
+            case "stationary_cmd_click_token":
+                guard let hitPoint = commandPoint(
+                    from: command,
+                    defaultPayloadKey: "tokenHitPointInTerminal",
+                    in: terminalPanel
+                ) else {
+                    payload["lastCommandError"] = "Missing command point"
+                    break
+                }
+
+                let result = terminalPanel.hostedView.debugSimulateStationaryCommandClick(at: hitPoint)
+                payload["lastCommandResult"] = result
+                let openedURL = ProcessInfo.processInfo.environment["CMUX_UI_TEST_CAPTURE_OPEN_PATH"]
+                    .flatMap { try? String(contentsOfFile: $0, encoding: .utf8) }?
+                    .split(separator: "\n")
+                    .last
+                    .map(String.init)
+                if let openedURL {
+                    payload["lastCommandOpenedURL"] = openedURL
+                    payload["lastCommandSucceeded"] = "1"
+                } else if let error = result["error"] as? String {
+                    payload["lastCommandError"] = error
+                } else {
+                    payload["lastCommandError"] = "Stationary command click did not open a URL"
                 }
 
             case "select_token_and_hold_command":

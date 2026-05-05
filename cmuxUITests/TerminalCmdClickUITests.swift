@@ -11,6 +11,7 @@ final class TerminalCmdClickUITests: XCTestCase {
         case grid
         case log
         case altScreenLog = "alt_screen_log"
+        case osc8 = "osc8"
     }
 
     private struct SetupData {
@@ -171,6 +172,43 @@ final class TerminalCmdClickUITests: XCTestCase {
         XCTAssertTrue(
             openedPaths.contains(expectedPath),
             "Expected cmd-click to resolve the raw-space path to the real file. opened=\(openedPaths) expected=\(expectedPath)"
+        )
+    }
+
+    func testStationaryCmdClickOsc8FileHyperlinkOpensURL() throws {
+        let fileName = "Issue 3557 Link.md"
+        let app = launchApp(
+            displayMode: .raw,
+            lineFormat: .osc8,
+            fileName: fileName,
+            captureOpenPaths: true,
+            captureHoverDiagnostics: false
+        )
+        defer { app.terminate() }
+
+        let setup = try waitForReadySetup()
+        let expectedURL = URL(fileURLWithPath: expectedPath(for: fileName)).absoluteString
+        XCTAssertEqual(URL(fileURLWithPath: setup.expectedPath).absoluteString, expectedURL)
+
+        let result = try runCommand(action: "stationary_cmd_click_token")
+        XCTAssertEqual(
+            result["lastCommandSucceeded"] as? String,
+            "1",
+            "Expected stationary cmd-click on an OSC 8 file hyperlink to open the URL. result=\(result)"
+        )
+        XCTAssertEqual(
+            result["lastCommandOpenedURL"] as? String,
+            expectedURL,
+            "Expected OSC 8 cmd-click to route through Ghostty's open-url action. result=\(result)"
+        )
+
+        guard let openedURLs = waitForCapturedOpenPaths(timeout: 5.0) else {
+            XCTFail("Expected open capture after stationary OSC 8 cmd-click. result=\(result)")
+            return
+        }
+        XCTAssertTrue(
+            openedURLs.contains(expectedURL),
+            "Expected stationary OSC 8 cmd-click to open \(expectedURL). opened=\(openedURLs)"
         )
     }
 
