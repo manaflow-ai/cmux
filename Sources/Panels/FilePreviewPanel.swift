@@ -183,7 +183,9 @@ final class FilePreviewDragPasteboardWriter: NSObject, NSPasteboardWriting {
     }
 
     func writableTypes(for pasteboard: NSPasteboard) -> [NSPasteboard.PasteboardType] {
-        [
+        let data = transferDataForDrag()
+        mirrorTransferDataToDragPasteboard(data)
+        return [
             DragOverlayRoutingPolicy.filePreviewTransferType,
             Self.bonsplitTransferType,
             .fileURL
@@ -772,10 +774,19 @@ struct FilePreviewPanelView: View {
     let isFocused: Bool
     let isVisibleInUI: Bool
     let portalPriority: Int
+    let appearance: PanelAppearance
     let onRequestPanelFocus: () -> Void
 
     @State private var focusFlashOpacity = 0.0
     @State private var focusFlashAnimationGeneration = 0
+
+    private var themeBackgroundColor: NSColor {
+        appearance.backgroundColor
+    }
+
+    private var themeForegroundColor: NSColor {
+        appearance.foregroundColor
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -786,7 +797,7 @@ struct FilePreviewPanelView: View {
             content
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: .textBackgroundColor))
+        .background(Color(nsColor: themeBackgroundColor))
         .overlay {
             RoundedRectangle(cornerRadius: FocusFlashPattern.ringCornerRadius)
                 .stroke(cmuxAccentColor().opacity(focusFlashOpacity), lineWidth: 3)
@@ -811,7 +822,7 @@ struct FilePreviewPanelView: View {
                 .frame(width: 16)
             Text(panel.filePath)
                 .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color(nsColor: themeForegroundColor).opacity(0.68))
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .textSelection(.enabled)
@@ -840,7 +851,7 @@ struct FilePreviewPanelView: View {
         }
         .padding(.horizontal, 12)
         .frame(height: 30)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(Color(nsColor: themeBackgroundColor))
     }
 
     @ViewBuilder
@@ -850,7 +861,12 @@ struct FilePreviewPanelView: View {
         } else {
             switch panel.previewMode {
             case .text:
-                FilePreviewTextEditor(panel: panel, isVisibleInUI: isVisibleInUI)
+                FilePreviewTextEditor(
+                    panel: panel,
+                    isVisibleInUI: isVisibleInUI,
+                    themeBackgroundColor: themeBackgroundColor,
+                    themeForegroundColor: themeForegroundColor
+                )
             case .pdf:
                 FilePreviewPDFView(panel: panel, isVisibleInUI: isVisibleInUI)
             case .image:
@@ -912,6 +928,8 @@ struct FilePreviewPanelView: View {
 private struct FilePreviewTextEditor: NSViewRepresentable {
     @ObservedObject var panel: FilePreviewPanel
     let isVisibleInUI: Bool
+    let themeBackgroundColor: NSColor
+    let themeForegroundColor: NSColor
 
     func makeCoordinator() -> Coordinator {
         Coordinator(panel: panel)
@@ -924,7 +942,7 @@ private struct FilePreviewTextEditor: NSViewRepresentable {
         scrollView.hasHorizontalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
-        scrollView.drawsBackground = false
+        scrollView.drawsBackground = true
 
         let textView = SavingTextView()
         textView.panel = panel
@@ -937,9 +955,7 @@ private struct FilePreviewTextEditor: NSViewRepresentable {
         textView.usesFindPanel = true
         textView.usesFontPanel = false
         textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
-        textView.textColor = .labelColor
-        textView.backgroundColor = .textBackgroundColor
-        textView.insertionPointColor = .labelColor
+        textView.drawsBackground = true
         textView.minSize = NSSize(width: 0, height: 0)
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.isVerticallyResizable = true
@@ -955,12 +971,14 @@ private struct FilePreviewTextEditor: NSViewRepresentable {
         panel.attachTextView(textView)
 
         scrollView.documentView = textView
+        Self.applyTheme(to: scrollView, backgroundColor: themeBackgroundColor, foregroundColor: themeForegroundColor)
         return scrollView
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         context.coordinator.panel = panel
         scrollView.isHidden = !isVisibleInUI
+        Self.applyTheme(to: scrollView, backgroundColor: themeBackgroundColor, foregroundColor: themeForegroundColor)
         guard let textView = scrollView.documentView as? SavingTextView else { return }
         textView.panel = panel
         textView.applyFilePreviewTextEditorInsets()
@@ -969,6 +987,20 @@ private struct FilePreviewTextEditor: NSViewRepresentable {
         context.coordinator.isApplyingPanelUpdate = true
         textView.string = panel.textContent
         context.coordinator.isApplyingPanelUpdate = false
+    }
+
+    private static func applyTheme(
+        to scrollView: NSScrollView,
+        backgroundColor: NSColor,
+        foregroundColor: NSColor
+    ) {
+        scrollView.backgroundColor = backgroundColor
+        scrollView.contentView.backgroundColor = backgroundColor
+        if let textView = scrollView.documentView as? NSTextView {
+            textView.backgroundColor = backgroundColor
+            textView.textColor = foregroundColor
+            textView.insertionPointColor = foregroundColor
+        }
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {

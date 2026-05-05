@@ -374,7 +374,9 @@ extension Workspace {
 
         let panelTitle = panelTitle(panelId: panelId)
         let customTitle = panelCustomTitles[panelId]
-        let directory = panelDirectories[panelId] ?? effectiveRestorableAgent?.workingDirectory
+        let directory = panelDirectories[panelId]
+            ?? effectiveRestorableAgent?.workingDirectory
+            ?? (panel as? TerminalPanel)?.requestedWorkingDirectory
         let isPinned = pinnedPanelIds.contains(panelId)
         let isManuallyUnread = manualUnreadPanelIds.contains(panelId)
         let branchSnapshot = panelGitBranches[panelId].map {
@@ -12447,7 +12449,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
-    private func handleExternalFileDrop(_ request: BonsplitController.ExternalFileDropRequest) -> Bool {
+    func handleExternalFileDrop(_ request: BonsplitController.ExternalFileDropRequest) -> Bool {
         let entries = request.urls
             .filter(\.isFileURL)
             .map {

@@ -1854,7 +1854,7 @@ final class FilePreviewDragPasteboardWriterTests: XCTestCase {
         super.tearDown()
     }
 
-    func testRegistrationIsLazyAndDiscardedFromDragPasteboard() throws {
+    func testRegistrationIsPreparedWhenDragTypesAreRequested() throws {
         let fileURL = URL(fileURLWithPath: "/tmp/example.txt").standardizedFileURL
         let writer = FilePreviewDragPasteboardWriter(
             filePath: fileURL.path,
@@ -1863,7 +1863,10 @@ final class FilePreviewDragPasteboardWriterTests: XCTestCase {
         let dragPasteboard = NSPasteboard(name: .drag)
 
         XCTAssertNil(FilePreviewDragPasteboardWriter.dragID(from: dragPasteboard))
-        XCTAssertTrue(writer.writableTypes(for: dragPasteboard).contains(.fileURL))
+        let writableTypes = writer.writableTypes(for: dragPasteboard)
+        XCTAssertTrue(writableTypes.contains(.fileURL))
+        let preparedDragID = try XCTUnwrap(FilePreviewDragPasteboardWriter.dragID(from: dragPasteboard))
+        XCTAssertTrue(FilePreviewDragRegistry.shared.contains(id: preparedDragID))
         XCTAssertEqual(
             writer.pasteboardPropertyList(forType: .fileURL) as? String,
             fileURL.absoluteString
@@ -1873,6 +1876,7 @@ final class FilePreviewDragPasteboardWriterTests: XCTestCase {
             writer.pasteboardPropertyList(forType: DragOverlayRoutingPolicy.filePreviewTransferType) as? Data
         )
         let dragID = try XCTUnwrap(FilePreviewDragPasteboardWriter.dragID(from: filePreviewData))
+        XCTAssertEqual(dragID, preparedDragID)
         XCTAssertTrue(FilePreviewDragRegistry.shared.contains(id: dragID))
 
         let bonsplitData = try XCTUnwrap(
@@ -2518,7 +2522,7 @@ final class FileDropOverlayViewTests: XCTestCase {
         )
     }
 
-    func testOverlayDoesNotCaptureFileDragLifecycleWhenPanePreviewDropsAreEnabled() {
+    func testOverlayDelegatesBrowserFileDragLifecycleToPortalHostedWebView() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 280),
             styleMask: [.titled, .closable],
@@ -2566,15 +2570,15 @@ final class FileDropOverlayViewTests: XCTestCase {
             pasteboard: pasteboard
         )
 
-        XCTAssertEqual(overlay.draggingEntered(dragInfo), [])
-        XCTAssertFalse(overlay.prepareForDragOperation(dragInfo))
-        XCTAssertFalse(overlay.performDragOperation(dragInfo))
+        XCTAssertEqual(overlay.draggingEntered(dragInfo), .copy)
+        XCTAssertTrue(overlay.prepareForDragOperation(dragInfo))
+        XCTAssertTrue(overlay.performDragOperation(dragInfo))
         overlay.concludeDragOperation(dragInfo)
 
         XCTAssertEqual(
             webView.dragCalls,
-            [],
-            "Finder file drops should reach pane-level Bonsplit preview targets instead of the root overlay"
+            ["entered", "prepare", "perform", "conclude"],
+            "Finder file drops over browser panes should still reach the portal-hosted WKWebView"
         )
     }
 }

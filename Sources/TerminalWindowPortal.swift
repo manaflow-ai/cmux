@@ -1763,6 +1763,25 @@ final class WindowTerminalPortal: NSObject {
 
         return nil
     }
+
+    func terminalPaneDropTargetAtWindowPoint(_ windowPoint: NSPoint) -> TerminalPaneDropTargetView? {
+        guard ensureInstalled() else { return nil }
+        let point = hostView.convert(windowPoint, from: nil)
+
+        for subview in hostView.subviews.reversed() {
+            guard let hostedView = subview as? GhosttySurfaceScrollView else { continue }
+            let hostedId = ObjectIdentifier(hostedView)
+            guard entriesByHostedId[hostedId] != nil else { continue }
+            guard !hostedView.isHidden else { continue }
+            guard hostedView.frame.contains(point) else { continue }
+            let localPoint = hostedView.convert(point, from: hostView)
+            if let target = hostedView.paneDropTargetForDrop(at: localPoint) {
+                return target
+            }
+        }
+
+        return nil
+    }
 }
 
 @MainActor
@@ -2095,6 +2114,14 @@ enum TerminalWindowPortalRegistry {
     static func terminalViewAtWindowPoint(_ windowPoint: NSPoint, in window: NSWindow) -> GhosttyNSView? {
         let portal = portal(for: window)
         return portal.terminalViewAtWindowPoint(windowPoint)
+    }
+
+    static func terminalPaneDropTargetAtWindowPoint(
+        _ windowPoint: NSPoint,
+        in window: NSWindow
+    ) -> TerminalPaneDropTargetView? {
+        let portal = portal(for: window)
+        return portal.terminalPaneDropTargetAtWindowPoint(windowPoint)
     }
 
 #if DEBUG

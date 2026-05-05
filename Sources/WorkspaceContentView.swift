@@ -234,6 +234,7 @@ struct WorkspaceContentView: View {
                 )
                 PanelContentView(
                     panel: panel,
+                    workspaceId: workspace.id,
                     paneId: paneId,
                     isFocused: isFocused,
                     isSelectedInPane: isSelectedInPane,
