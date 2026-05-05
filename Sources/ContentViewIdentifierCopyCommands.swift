@@ -2,6 +2,18 @@ import AppKit
 import Foundation
 
 extension ContentView {
+    func commandPalettePostCommandFocusTarget(for observedWindow: NSWindow?) -> MainWindowFocusRestoreTarget? {
+        guard let window = observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow else {
+            return nil
+        }
+        guard window.isVisible,
+              window.attachedSheet == nil,
+              window.isKeyWindow || window.isMainWindow else {
+            return nil
+        }
+        return AppDelegate.shared?.captureMainWindowKeyboardFocusRestoreTarget(in: window)
+    }
+
     func appendIdentifierCopyCommandContributions(
         to contributions: inout [CommandPaletteCommandContribution],
         workspaceSubtitle: @escaping (CommandPaletteContextSnapshot) -> String,

@@ -8650,10 +8650,10 @@ struct ContentView: View {
         recordCommandPaletteUsage(command.id)
         command.action()
         if command.dismissOnRun {
-            dismissCommandPalette(restoreFocus: false)
+            let focusTarget = commandPalettePostCommandFocusTarget(for: observedWindow)
+            dismissCommandPalette(restoreFocus: focusTarget != nil, preferredFocusTarget: focusTarget)
         }
     }
-
     private func toggleCommandPalette() {
         if isCommandPalettePresented {
             dismissCommandPalette()
