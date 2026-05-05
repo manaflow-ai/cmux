@@ -298,54 +298,8 @@ struct SocketControlSettings {
     static let baseDebugBundleIdentifier = "com.cmuxterm.app.debug"
     private static let socketDirectoryName = "cmux"
     private static let stableSocketFileName = "cmux.sock"
-    private static let lastSocketPathFileName = "last-socket-path"
     static let legacyStableDefaultSocketPath = "/tmp/cmux.sock"
-    static let legacyLastSocketPathFile = "/tmp/cmux-last-socket-path"
-
-    private enum SocketPathVariant: Equatable {
-        case stable
-        case nightly
-        case staging(slug: String?)
-        case dev(slug: String?)
-
-        var lastSocketPathFileName: String {
-            switch self {
-            case .stable:
-                return SocketControlSettings.lastSocketPathFileName
-            case .nightly:
-                return "nightly-last-socket-path"
-            case .staging(let slug):
-                if let slug {
-                    return "staging-\(slug)-last-socket-path"
-                }
-                return "staging-last-socket-path"
-            case .dev(let slug):
-                if let slug {
-                    return "dev-\(slug)-last-socket-path"
-                }
-                return "dev-last-socket-path"
-            }
-        }
-
-        var tmpLastSocketPathFile: String {
-            switch self {
-            case .stable:
-                return SocketControlSettings.legacyLastSocketPathFile
-            case .nightly:
-                return "/tmp/cmux-nightly-last-socket-path"
-            case .staging(let slug):
-                if let slug {
-                    return "/tmp/cmux-staging-\(slug)-last-socket-path"
-                }
-                return "/tmp/cmux-staging-last-socket-path"
-            case .dev(let slug):
-                if let slug {
-                    return "/tmp/cmux-dev-\(slug)-last-socket-path"
-                }
-                return "/tmp/cmux-dev-last-socket-path"
-            }
-        }
-    }
+    static let legacyLastSocketPathFile = SocketPathMarkerFiles.stableTmpPath
 
     static var stableDefaultSocketPath: String {
         stableSocketFileURL()?.path ?? legacyStableDefaultSocketPath
@@ -554,17 +508,6 @@ struct SocketControlSettings {
         }
     }
 
-    static func recordLastSocketPath(
-        _ path: String,
-        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
-        environment: [String: String] = ProcessInfo.processInfo.environment
-    ) {
-        let payload = Data((path + "\n").utf8)
-        for filePath in lastSocketPathFiles(bundleIdentifier: bundleIdentifier, environment: environment) {
-            writeSocketPathMarker(payload, to: filePath)
-        }
-    }
-
     static func shouldHonorSocketPathOverride(
         environment: [String: String],
         bundleIdentifier: String?,
@@ -628,48 +571,6 @@ struct SocketControlSettings {
             || bundleIdentifier.hasPrefix("com.cmuxterm.app.staging.")
     }
 
-    private static func socketPathVariant(
-        bundleIdentifier: String?,
-        environment: [String: String]
-    ) -> SocketPathVariant {
-        let bundleId = bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if bundleId == "com.cmuxterm.app.nightly" || bundleId.hasPrefix("com.cmuxterm.app.nightly.") {
-            return .nightly
-        }
-        if bundleId == "com.cmuxterm.app.staging" {
-            return .staging(slug: nil)
-        }
-        if bundleId.hasPrefix("com.cmuxterm.app.staging.") {
-            return .staging(slug: bundleSuffixSlug(bundleId, prefix: "com.cmuxterm.app.staging."))
-        }
-        if bundleId == baseDebugBundleIdentifier {
-            if let tag = launchTag(environment: environment) {
-                return .dev(slug: sanitizeMarkerSlug(tag))
-            }
-            return .dev(slug: nil)
-        }
-        if bundleId.hasPrefix("\(baseDebugBundleIdentifier).") {
-            return .dev(slug: bundleSuffixSlug(bundleId, prefix: "\(baseDebugBundleIdentifier)."))
-        }
-        return .stable
-    }
-
-    private static func bundleSuffixSlug(_ bundleIdentifier: String, prefix: String) -> String? {
-        let suffix = String(bundleIdentifier.dropFirst(prefix.count))
-        return sanitizeMarkerSlug(suffix)
-    }
-
-    private static func sanitizeMarkerSlug(_ raw: String) -> String? {
-        let slug = raw
-            .lowercased()
-            .replacingOccurrences(of: ".", with: "-")
-            .replacingOccurrences(of: "_", with: "-")
-            .components(separatedBy: CharacterSet.alphanumerics.inverted)
-            .filter { !$0.isEmpty }
-            .joined(separator: "-")
-        return slug.isEmpty ? nil : slug
-    }
-
     static func stableSocketDirectoryURL(fileManager: FileManager = .default) -> URL? {
         guard let appSupportDirectory = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
             return nil
@@ -680,46 +581,6 @@ struct SocketControlSettings {
     static func stableSocketFileURL(fileManager: FileManager = .default) -> URL? {
         stableSocketDirectoryURL(fileManager: fileManager)?
             .appendingPathComponent(stableSocketFileName, isDirectory: false)
-    }
-
-    static func lastSocketPathFileURL(fileManager: FileManager = .default) -> URL? {
-        lastSocketPathFileURL(fileName: lastSocketPathFileName, fileManager: fileManager)
-    }
-
-    private static func lastSocketPathFileURL(
-        fileName: String,
-        fileManager: FileManager = .default
-    ) -> URL? {
-        stableSocketDirectoryURL(fileManager: fileManager)?
-            .appendingPathComponent(fileName, isDirectory: false)
-    }
-
-    static func lastSocketPathFiles(
-        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        fileManager: FileManager = .default
-    ) -> [String] {
-        let variant = socketPathVariant(bundleIdentifier: bundleIdentifier, environment: environment)
-        var paths: [String] = []
-        if let appSupportPath = lastSocketPathFileURL(
-            fileName: variant.lastSocketPathFileName,
-            fileManager: fileManager
-        )?.path {
-            paths.append(appSupportPath)
-        }
-        paths.append(variant.tmpLastSocketPathFile)
-        return dedupe(paths)
-    }
-
-    private static func writeSocketPathMarker(_ payload: Data, to filePath: String) {
-        let fileURL = URL(fileURLWithPath: filePath)
-        let parentURL = fileURL.deletingLastPathComponent()
-        try? FileManager.default.createDirectory(
-            at: parentURL,
-            withIntermediateDirectories: true,
-            attributes: [.posixPermissions: 0o700]
-        )
-        try? payload.write(to: fileURL, options: .atomic)
     }
 
     private static func inspectStableDefaultSocketPathEntry(_ path: String) -> StableDefaultSocketPathEntry {
@@ -747,15 +608,6 @@ struct SocketControlSettings {
         default:
             return false
         }
-    }
-
-    private static func dedupe(_ values: [String]) -> [String] {
-        var seen = Set<String>()
-        var ordered: [String] = []
-        for value in values where seen.insert(value).inserted {
-            ordered.append(value)
-        }
-        return ordered
     }
 
     static func envOverrideEnabled(

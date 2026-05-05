@@ -180,6 +180,7 @@
 		A500120D /* UpdateLogStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001223 /* UpdateLogStore.swift */; };
 		A500120E /* UpdateTestURLProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001224 /* UpdateTestURLProtocol.swift */; };
 		A5001226 /* SocketControlSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001225 /* SocketControlSettings.swift */; };
+		A5354201A5354201A5354201 /* SocketPathMarkerFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5354202A5354202A5354202 /* SocketPathMarkerFiles.swift */; };
 		A5001230 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = A5001231 /* Sparkle */; };
 		A5001240 /* WindowDecorationsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001241 /* WindowDecorationsController.swift */; };
 		A5001250 /* Sentry-Dynamic in Frameworks */ = {isa = PBXBuildFile; productRef = A5001253 /* Sentry-Dynamic */; };
@@ -608,6 +609,7 @@
 		A5001223 /* UpdateLogStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateLogStore.swift; sourceTree = "<group>"; };
 		A5001224 /* UpdateTestURLProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateTestURLProtocol.swift; sourceTree = "<group>"; };
 		A5001225 /* SocketControlSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketControlSettings.swift; sourceTree = "<group>"; };
+		A5354202A5354202A5354202 /* SocketPathMarkerFiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketPathMarkerFiles.swift; sourceTree = "<group>"; };
 		A5001241 /* WindowDecorationsController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowDecorationsController.swift; sourceTree = "<group>"; };
 		A50012F0 /* Backport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Backport.swift; sourceTree = "<group>"; };
 		A50012F2 /* KeyboardShortcutSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSettings.swift; sourceTree = "<group>"; };
@@ -1046,6 +1048,7 @@
 				A5001544 /* TerminalImageTransfer.swift */,
 				A5001545 /* TerminalSSHSessionDetector.swift */,
 				A5001225 /* SocketControlSettings.swift */,
+				A5354202A5354202A5354202 /* SocketPathMarkerFiles.swift */,
 				A5001600 /* SentryHelper.swift */,
 				A5001620 /* AppleScriptSupport.swift */,
 				D1320AA0D1320AA0D1320AA4 /* AppIconDockTilePlugin.swift */,
@@ -1615,6 +1618,7 @@
 				A5001542 /* TerminalImageTransfer.swift in Sources */,
 				A5001543 /* TerminalSSHSessionDetector.swift in Sources */,
 				A5001226 /* SocketControlSettings.swift in Sources */,
+				A5354201A5354201A5354201 /* SocketPathMarkerFiles.swift in Sources */,
 				A5001601 /* SentryHelper.swift in Sources */,
 				A5001621 /* AppleScriptSupport.swift in Sources */,
 				A5001093 /* AppDelegate.swift in Sources */,
