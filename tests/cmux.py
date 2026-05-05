@@ -199,7 +199,7 @@ def _default_socket_path() -> str:
         if os.path.exists(path) and _can_connect(path):
             return path
 
-    if bundle_id.startswith(_DEFAULT_DEBUG_BUNDLE_ID):
+    if bundle_id == _DEFAULT_DEBUG_BUNDLE_ID or bundle_id.startswith(f"{_DEFAULT_DEBUG_BUNDLE_ID}."):
         tagged = glob.glob("/tmp/cmux-debug-*.sock")
         tagged.extend(glob.glob(os.path.join(_APP_SUPPORT_DIR, "cmux*.sock")))
         tagged = [
