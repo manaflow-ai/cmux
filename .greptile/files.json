@@ -1,0 +1,54 @@
+{
+  "files": [
+    {
+      "path": ".github/review-bot-rules/swift-actor-isolation.md",
+      "description": "Source-of-truth cmux lint rule for Swift actor isolation review.",
+      "scope": ["**/*.swift", "**/Package.swift"]
+    },
+    {
+      "path": ".github/review-bot-rules/swift-architectural-rethink.md",
+      "description": "Source-of-truth cmux lint rule for architectural review of Swift changes.",
+      "scope": ["**/*.swift", "**/Package.swift", "GhosttyTabs.xcodeproj/**"]
+    },
+    {
+      "path": ".github/review-bot-rules/swift-blocking-runtime.md",
+      "description": "Source-of-truth cmux lint rule for blocking and timing primitive review.",
+      "scope": ["**/*.swift", "**/Package.swift"]
+    },
+    {
+      "path": ".github/review-bot-rules/swift-concurrency-modernization.md",
+      "description": "Source-of-truth cmux lint rule for Swift concurrency modernization review.",
+      "scope": ["**/*.swift", "**/Package.swift"]
+    },
+    {
+      "path": ".github/review-bot-rules/swift-concurrent-annotation.md",
+      "description": "Source-of-truth cmux lint rule for @concurrent and nonisolated async review.",
+      "scope": ["**/*.swift", "**/Package.swift"]
+    },
+    {
+      "path": ".github/review-bot-rules/swift-file-package-boundaries.md",
+      "description": "Source-of-truth cmux lint rule for Swift file size and SwiftPM package boundary review.",
+      "scope": ["**/*.swift", "**/Package.swift", "GhosttyTabs.xcodeproj/**"]
+    },
+    {
+      "path": ".github/review-bot-rules/swift-logging.md",
+      "description": "Source-of-truth cmux lint rule for production Swift logging review.",
+      "scope": ["**/*.swift", "**/Package.swift"]
+    },
+    {
+      "path": ".github/review-bot-rules/swiftui-state-layout.md",
+      "description": "Source-of-truth cmux lint rule for SwiftUI state and layout review.",
+      "scope": ["**/*.swift"]
+    },
+    {
+      "path": "CLAUDE.md",
+      "description": "Repo-local guidance for cmux Swift, SwiftUI, testing, shortcut, localization, and no-sleep policies.",
+      "scope": ["**/*.swift", "**/Package.swift", "GhosttyTabs.xcodeproj/**"]
+    },
+    {
+      "path": "AGENTS.md",
+      "description": "Repo-local guidance for cmux agents, Swift conventions, testing, shortcuts, localization, and no-sleep policies.",
+      "scope": ["**/*.swift", "**/Package.swift", "GhosttyTabs.xcodeproj/**"]
+    }
+  ]
+}

@@ -39,6 +39,40 @@ struct WorkstreamStoreTests {
         #expect(store.items.last?.workstreamId == "s4")
     }
 
+    @Test("start loads a small recent slice and pages older persisted rows on demand")
+    func lazyLoadPersistedHistory() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-store-page-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let persistence = WorkstreamPersistence(fileURL: tmp)
+        for i in 0..<5 {
+            try await persistence.append(WorkstreamItem(
+                workstreamId: "s\(i)",
+                source: .claude,
+                kind: .permissionRequest,
+                payload: .permissionRequest(requestId: "r\(i)", toolName: "t", toolInputJSON: "{}", pattern: nil)
+            ))
+        }
+
+        let store = WorkstreamStore(
+            persistence: persistence,
+            ringCapacity: 10,
+            initialLoadLimit: 2,
+            historyPageSize: 2
+        )
+        await store.start()
+        #expect(store.items.map(\.workstreamId) == ["s3", "s4"])
+        #expect(store.hasMorePersistedItems)
+
+        await store.loadOlderItems()
+        #expect(store.items.map(\.workstreamId) == ["s1", "s2", "s3", "s4"])
+        #expect(store.hasMorePersistedItems)
+
+        await store.loadOlderItems()
+        #expect(store.items.map(\.workstreamId) == ["s0", "s1", "s2", "s3", "s4"])
+        #expect(!store.hasMorePersistedItems)
+    }
+
     @Test("expireAbandonedItems expires items whose agent PID is dead")
     func expireAbandoned() {
         let clock = TestClock(initial: Date(timeIntervalSince1970: 0))

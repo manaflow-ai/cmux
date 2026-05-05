@@ -112,6 +112,7 @@ def run_probe(cli_path: str, probe: HelpProbe) -> ProbeResult:
     env = dict(os.environ)
     for key in [
         "CMUX_SOCKET_PASSWORD",
+        "CMUX_SOCKET",
         "CMUX_WORKSPACE_ID",
         "CMUX_SURFACE_ID",
         "CMUX_TAB_ID",
@@ -123,7 +124,6 @@ def run_probe(cli_path: str, probe: HelpProbe) -> ProbeResult:
     with tempfile.TemporaryDirectory(prefix="cmux-no-socket-") as tmpdir:
         no_socket = os.path.join(tmpdir, f"socket-{uuid.uuid4().hex}.sock")
         env["CMUX_SOCKET_PATH"] = no_socket
-        env["CMUX_SOCKET"] = no_socket
 
         proc = subprocess.run(  # noqa: S603
             [cli_path, *tokens[1:]],

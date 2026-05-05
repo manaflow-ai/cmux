@@ -10,118 +10,6 @@ private var cmuxBrowserSearchOverlayPanelIdAssociationKey: UInt8 = 0
 private var cmuxBrowserPortalNeedsRenderingStateReattachKey: UInt8 = 0
 private var cmuxWindowInteractiveSplitDividerDragKey: UInt8 = 0
 
-/// Shared helpers for portal hosts that must defer to the minimal-mode
-/// Bonsplit tab strip rendered underneath them.
-enum BonsplitTabBarPassThrough {
-    static func isPassThroughPointerEvent(_ eventType: NSEvent.EventType?) -> Bool {
-        switch eventType {
-        case nil:
-            // Unit tests can call hitTest directly without an active AppKit event.
-            return true
-        case .leftMouseDown, .leftMouseUp,
-             .rightMouseDown, .rightMouseUp,
-             .otherMouseDown, .otherMouseUp,
-             .mouseMoved, .mouseEntered,
-             .mouseExited, .cursorUpdate:
-            return true
-        default:
-            return false
-        }
-    }
-
-    static func titlebarInteractionBandMinY(in window: NSWindow) -> CGFloat {
-        let nativeTitlebarHeight = window.frame.height - window.contentLayoutRect.height
-        let customTitlebarBandHeight = max(28, min(72, nativeTitlebarHeight))
-        return window.contentLayoutRect.maxY - customTitlebarBandHeight - 0.5
-    }
-
-    // The minimal-mode tab strip lives just under the titlebar. Anything more
-    // than this many points below the content top can't overlap it, so we skip
-    // the recursive subtree scan on the pointer-event hot path.
-    private static let tabStripScanBandHeight: CGFloat = 200
-
-    static func shouldPassThroughToPaneTabBar(
-        windowPoint: NSPoint,
-        below portalHost: NSView
-    ) -> (result: Bool, registryHit: Bool) {
-        let registryHit = portalHost.window.map {
-            BonsplitTabBarHitRegionRegistry.containsWindowPoint(windowPoint, in: $0)
-        } ?? false
-        if registryHit {
-            return (true, true)
-        }
-
-        // High-frequency pointer events (mouseMoved/cursorUpdate) flow through
-        // here on every hover; cap the recursive view-tree walk to the top
-        // band where the tab strip can actually live.
-        if let window = portalHost.window {
-            let scanFloor = window.contentLayoutRect.maxY - tabStripScanBandHeight
-            if windowPoint.y < scanFloor {
-                return (false, false)
-            }
-        }
-
-        let fallbackHit = hasUnderlyingBonsplitTabBarBackground(
-            at: windowPoint,
-            below: portalHost
-        )
-        return (fallbackHit, false)
-    }
-
-    static func passThroughDecision(
-        at point: NSPoint,
-        in portalHost: NSView,
-        eventType: NSEvent.EventType?
-    ) -> (windowPoint: NSPoint, result: Bool, registryHit: Bool)? {
-        guard isPassThroughPointerEvent(eventType) else { return nil }
-        let windowPoint = portalHost.convert(point, to: nil)
-        let decision = shouldPassThroughToPaneTabBar(windowPoint: windowPoint, below: portalHost)
-        return (windowPoint, decision.result, decision.registryHit)
-    }
-
-    static func hasBonsplitTabBarBackground(at windowPoint: NSPoint, in view: NSView) -> Bool {
-        guard !view.isHidden, view.alphaValue > 0 else { return false }
-
-        // NSView subviews are not clipped to parent bounds by default, and the
-        // minimal tab strip can render outside its immediate container.
-        let className = NSStringFromClass(type(of: view))
-        if className.contains("TabBarBackgroundNSView") {
-            let pointInView = view.convert(windowPoint, from: nil)
-            if view.bounds.contains(pointInView) {
-                return true
-            }
-        }
-
-        for subview in view.subviews.reversed() {
-            if hasBonsplitTabBarBackground(at: windowPoint, in: subview) {
-                return true
-            }
-        }
-        return false
-    }
-
-    static func hasUnderlyingBonsplitTabBarBackground(
-        at windowPoint: NSPoint,
-        below portalHost: NSView
-    ) -> Bool {
-        // Only walk siblings rendered below the host. Falling back to the full
-        // window content tree when the host has no superview would risk a
-        // false-positive pass-through against a tab bar painted *above* an
-        // unparented host.
-        guard let container = portalHost.superview,
-              let hostIndex = container.subviews.firstIndex(of: portalHost) else {
-            return false
-        }
-        for sibling in container.subviews[..<hostIndex].reversed() {
-            guard !sibling.isHidden, sibling.alphaValue > 0 else { continue }
-            if hasBonsplitTabBarBackground(at: windowPoint, in: sibling) {
-                return true
-            }
-        }
-        return false
-    }
-}
-
 #if DEBUG
 private func browserPortalDebugToken(_ view: NSView?) -> String {
     guard let view else { return "nil" }
@@ -1401,12 +1289,38 @@ struct BrowserPaneDragTransfer: Equatable {
     let tabId: UUID
     let sourcePaneId: UUID
     let sourceProcessId: Int32
+    let kind: String?
+    let isFilePreviewTransfer: Bool
+
+    init(
+        tabId: UUID,
+        sourcePaneId: UUID,
+        sourceProcessId: Int32,
+        kind: String? = nil,
+        isFilePreviewTransfer: Bool = false
+    ) {
+        self.tabId = tabId
+        self.sourcePaneId = sourcePaneId
+        self.sourceProcessId = sourceProcessId
+        self.kind = kind
+        self.isFilePreviewTransfer = isFilePreviewTransfer
+    }
 
     var isFromCurrentProcess: Bool {
         sourceProcessId == Int32(ProcessInfo.processInfo.processIdentifier)
     }
 
+    var isFilePreview: Bool {
+        isFilePreviewTransfer
+    }
+
     static func decode(from pasteboard: NSPasteboard) -> BrowserPaneDragTransfer? {
+        if let data = pasteboard.data(forType: DragOverlayRoutingPolicy.filePreviewTransferType) {
+            return decode(from: data, isFilePreviewTransfer: true)
+        }
+        if let raw = pasteboard.string(forType: DragOverlayRoutingPolicy.filePreviewTransferType) {
+            return decode(from: Data(raw.utf8), isFilePreviewTransfer: true)
+        }
         if let data = pasteboard.data(forType: DragOverlayRoutingPolicy.bonsplitTabTransferType) {
             return decode(from: data)
         }
@@ -1416,7 +1330,7 @@ struct BrowserPaneDragTransfer: Equatable {
         return nil
     }
 
-    static func decode(from data: Data) -> BrowserPaneDragTransfer? {
+    static func decode(from data: Data, isFilePreviewTransfer: Bool = false) -> BrowserPaneDragTransfer? {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let tab = json["tab"] as? [String: Any],
               let tabIdRaw = tab["id"] as? String,
@@ -1427,10 +1341,13 @@ struct BrowserPaneDragTransfer: Equatable {
         }
 
         let sourceProcessId = (json["sourceProcessId"] as? NSNumber)?.int32Value ?? -1
+        let kind = tab["kind"] as? String
         return BrowserPaneDragTransfer(
             tabId: tabId,
             sourcePaneId: sourcePaneId,
-            sourceProcessId: sourceProcessId
+            sourceProcessId: sourceProcessId,
+            kind: kind,
+            isFilePreviewTransfer: isFilePreviewTransfer
         )
     }
 }
@@ -1547,6 +1464,24 @@ enum BrowserPaneDropRouting {
             splitTarget: splitTarget
         )
     }
+
+    static func filePreviewDestination(
+        target: BrowserPaneDropContext,
+        zone: DropZone
+    ) -> BonsplitController.ExternalTabDropRequest.Destination {
+        switch zone {
+        case .center:
+            return .insert(targetPane: target.paneId, targetIndex: nil)
+        case .left:
+            return .split(targetPane: target.paneId, orientation: .horizontal, insertFirst: true)
+        case .right:
+            return .split(targetPane: target.paneId, orientation: .horizontal, insertFirst: false)
+        case .top:
+            return .split(targetPane: target.paneId, orientation: .vertical, insertFirst: true)
+        case .bottom:
+            return .split(targetPane: target.paneId, orientation: .vertical, insertFirst: false)
+        }
+    }
 }
 
 final class BrowserPaneDropTargetView: NSView {
@@ -1561,7 +1496,10 @@ final class BrowserPaneDropTargetView: NSView {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        registerForDraggedTypes([DragOverlayRoutingPolicy.bonsplitTabTransferType])
+        registerForDraggedTypes([
+            DragOverlayRoutingPolicy.filePreviewTransferType,
+            DragOverlayRoutingPolicy.bonsplitTabTransferType
+        ])
     }
 
     @available(*, unavailable)
@@ -1596,6 +1534,9 @@ final class BrowserPaneDropTargetView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard bounds.contains(point), dropContext != nil else { return nil }
+        if shouldDeferToPaneTabBar(at: point) {
+            return nil
+        }
 
         let pasteboardTypes = NSPasteboard(name: .drag).types
         let eventType = NSApp.currentEvent?.type
@@ -1641,6 +1582,34 @@ final class BrowserPaneDropTargetView: NSView {
             in: bounds.size,
             topChromeHeight: slotView?.effectivePaneTopChromeHeight() ?? 0
         )
+
+        if transfer.isFilePreview {
+            guard let entry = FilePreviewDragRegistry.shared.consume(id: transfer.tabId),
+                  let workspace = AppDelegate.shared?.workspaceFor(tabId: dropContext.workspaceId) else {
+#if DEBUG
+                cmuxDebugLog(
+                    "browser.paneDrop.perform allowed=0 panel=\(dropContext.panelId.uuidString.prefix(5)) " +
+                    "reason=missingFilePreviewEntry tab=\(transfer.tabId.uuidString.prefix(5))"
+                )
+#endif
+                return false
+            }
+            let handled = workspace.handleFilePreviewDrop(
+                entry: entry,
+                destination: BrowserPaneDropRouting.filePreviewDestination(
+                    target: dropContext,
+                    zone: zone
+                )
+            )
+#if DEBUG
+            cmuxDebugLog(
+                "browser.paneDrop.perform panel=\(dropContext.panelId.uuidString.prefix(5)) " +
+                "tab=\(transfer.tabId.uuidString.prefix(5)) zone=\(zone) filePreview=1 handled=\(handled ? 1 : 0)"
+            )
+#endif
+            return handled
+        }
+
         guard let action = BrowserPaneDropRouting.action(
             for: transfer,
             target: dropContext,
@@ -1688,14 +1657,20 @@ final class BrowserPaneDropTargetView: NSView {
     }
 
     private func updateDragState(_ sender: any NSDraggingInfo, phase: String) -> NSDragOperation {
+        let location = convert(sender.draggingLocation, from: nil)
+        if shouldDeferToPaneTabBar(at: location) {
+            clearDragState(phase: "\(phase).tabBar")
+            return []
+        }
+
         guard let dropContext,
               let transfer = BrowserPaneDragTransfer.decode(from: sender.draggingPasteboard),
-              transfer.isFromCurrentProcess else {
+              transfer.isFromCurrentProcess,
+              (!transfer.isFilePreview || FilePreviewDragRegistry.shared.contains(id: transfer.tabId)) else {
             clearDragState(phase: "\(phase).reject")
             return []
         }
 
-        let location = convert(sender.draggingLocation, from: nil)
         let zone = BrowserPaneDropRouting.zone(
             for: location,
             in: bounds.size,
@@ -1710,6 +1685,13 @@ final class BrowserPaneDropTargetView: NSView {
         )
 #endif
         return .move
+    }
+
+    func shouldDeferToPaneTabBar(at point: NSPoint) -> Bool {
+        let windowPoint = convert(point, to: nil)
+        return BonsplitTabBarPassThrough
+            .shouldPassThroughToPaneTabBar(windowPoint: windowPoint, below: self)
+            .result
     }
 
     private func clearDragState(phase: String) {
@@ -1999,7 +1981,7 @@ final class WindowBrowserSlotView: NSView {
               searchOverlayPanelId(for: firstResponder) == panelId else {
             return false
         }
-        return window.makeFirstResponder(nil)
+        _ = cmuxRememberFindSelection(in: searchOverlayHostingView); return window.makeFirstResponder(nil)
     }
 
     @discardableResult
@@ -2443,7 +2425,7 @@ final class WindowBrowserPortal: NSObject {
         geometryObservers.removeAll()
     }
 
-    private func scheduleExternalGeometrySynchronize() {
+    fileprivate func scheduleExternalGeometrySynchronize() {
         guard !hasExternalGeometrySyncScheduled else { return }
         hasExternalGeometrySyncScheduled = true
         DispatchQueue.main.async { [weak self] in
@@ -2530,12 +2512,11 @@ final class WindowBrowserPortal: NSObject {
     }
 
     private func installationTarget(for window: NSWindow) -> (container: NSView, reference: NSView)? {
-        guard let contentView = window.contentView else { return nil }
-
-        if contentView.className == "NSGlassEffectView",
-           let foreground = contentView.subviews.first(where: { $0 !== hostView }) {
-            return (contentView, foreground)
+        if let glassTarget = WindowGlassEffect.portalInstallationTarget(for: window) {
+            return glassTarget
         }
+
+        guard let contentView = window.contentView else { return nil }
 
         guard let themeFrame = contentView.superview else { return nil }
         return (themeFrame, contentView)
@@ -4189,6 +4170,16 @@ enum BrowserWindowPortalRegistry {
         guard let window = anchorView.window else { return }
         let portal = portal(for: window)
         portal.synchronizeWebViewForAnchor(anchorView)
+    }
+
+    static func scheduleExternalGeometrySynchronize(for window: NSWindow) {
+        portalsByWindowId[ObjectIdentifier(window)]?.scheduleExternalGeometrySynchronize()
+    }
+
+    static func scheduleExternalGeometrySynchronizeForAllWindows() {
+        for portal in portalsByWindowId.values {
+            portal.scheduleExternalGeometrySynchronize()
+        }
     }
 
     /// Update visibleInUI/zPriority on an existing portal entry without rebinding.
