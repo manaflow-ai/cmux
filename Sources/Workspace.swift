@@ -8872,6 +8872,11 @@ final class Workspace: Identifiable, ObservableObject {
         remoteConfiguration != nil
     }
 
+    var isRestorableInSessionSnapshot: Bool {
+        guard let remoteConfiguration else { return true }
+        return remoteConfiguration.sessionSnapshot() != nil
+    }
+
     @MainActor
     func isRemoteTerminalSurface(_ panelId: UUID) -> Bool {
         activeRemoteTerminalSurfaceIds.contains(panelId)

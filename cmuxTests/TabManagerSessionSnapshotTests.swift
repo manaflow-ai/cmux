@@ -74,6 +74,35 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(remoteSnapshot.remote?.destination, "cmux-macmini")
     }
 
+    func testSessionSnapshotSkipsNonRestorableRemoteWorkspaces() {
+        let manager = TabManager()
+        let localWorkspace = manager.tabs[0]
+        localWorkspace.setCustomTitle("Local")
+        let remoteWorkspace = manager.addWorkspace(select: true)
+        remoteWorkspace.setCustomTitle("Cloud VM")
+        let configuration = WorkspaceRemoteConfiguration(
+            transport: .websocket,
+            destination: "cloud-vm",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: 54321,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: nil
+        )
+        remoteWorkspace.configureRemoteConnection(configuration, autoConnect: false)
+
+        let snapshot = manager.sessionSnapshot(includeScrollback: false)
+
+        XCTAssertEqual(snapshot.workspaces.count, 1)
+        XCTAssertEqual(snapshot.workspaces.first?.customTitle, "Local")
+        XCTAssertNil(snapshot.workspaces.first?.remote)
+        XCTAssertNil(snapshot.selectedWorkspaceIndex)
+    }
+
     func testSessionSnapshotRestoresSSHWorkspaceDescriptor() throws {
         let manager = TabManager()
         let remoteWorkspace = manager.addWorkspace(select: true)

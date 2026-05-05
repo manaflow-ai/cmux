@@ -7282,6 +7282,7 @@ extension TabManager {
         restorableAgentIndex: RestorableAgentSessionIndex = .empty
     ) -> SessionTabManagerSnapshot {
         let restorableTabs = tabs
+            .filter(\.isRestorableInSessionSnapshot)
             .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
         let workspaceSnapshots = restorableTabs
             .map {
