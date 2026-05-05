@@ -25,6 +25,13 @@
 		3023A1013023A1013023A101 /* ConfigSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3023B1013023B1013023B101 /* ConfigSettingsView.swift */; };
 		352300000000000000000002 /* TerminalThemeSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 352300000000000000000001 /* TerminalThemeSettings.swift */; };
 		352300000000000000000003 /* TerminalThemeSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 352300000000000000000001 /* TerminalThemeSettings.swift */; };
+		352300000000000000000004 /* TerminalThemeTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 352300000000000000000005 /* TerminalThemeTypes.swift */; };
+		352300000000000000000006 /* TerminalThemeTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 352300000000000000000005 /* TerminalThemeTypes.swift */; };
+		352300000000000000000007 /* TerminalThemeSettings+Parsing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 352300000000000000000008 /* TerminalThemeSettings+Parsing.swift */; };
+		352300000000000000000009 /* TerminalThemeSettings+Parsing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 352300000000000000000008 /* TerminalThemeSettings+Parsing.swift */; };
+		35230000000000000000000A /* TerminalThemePickerRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35230000000000000000000B /* TerminalThemePickerRow.swift */; };
+		35230000000000000000000C /* TerminalThemeSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35230000000000000000000D /* TerminalThemeSettingsTests.swift */; };
+		35230000000000000000000E /* AppAppearancePickerRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35230000000000000000000F /* AppAppearancePickerRow.swift */; };
 		350DAC5EBD38642A3E81471A /* AuthManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 312DE7503B4658DD173121B8 /* AuthManager.swift */; };
 		36CE99ED050785B5E96B72BB /* AuthCallbackRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61A19A4145F034965110CF87 /* AuthCallbackRouter.swift */; };
 		4378399A7C0245EF8186F306 /* OmnibarAndToolsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B09C007F42697761B5F1A2AB /* OmnibarAndToolsTests.swift */; };
@@ -439,6 +446,10 @@
 		B7F9A605B7F9A605B7F9A605 /* RightSidebarChromeStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarChromeStyle.swift; sourceTree = "<group>"; };
 		A11EAB000000000000000001 /* AppearanceSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceSettings.swift; sourceTree = "<group>"; };
 		352300000000000000000001 /* TerminalThemeSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalThemeSettings.swift; sourceTree = "<group>"; };
+		352300000000000000000005 /* TerminalThemeTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalThemeTypes.swift; sourceTree = "<group>"; };
+		352300000000000000000008 /* TerminalThemeSettings+Parsing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalThemeSettings+Parsing.swift"; sourceTree = "<group>"; };
+		35230000000000000000000B /* TerminalThemePickerRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalThemePickerRow.swift; sourceTree = "<group>"; };
+		35230000000000000000000F /* AppAppearancePickerRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppAppearancePickerRow.swift; sourceTree = "<group>"; };
 		A11EAC000000000000000001 /* GhosttyTerminalAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalAppearance.swift; sourceTree = "<group>"; };
 		A11EAD000000000000000001 /* WorkspaceAppearanceResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceAppearanceResolution.swift; sourceTree = "<group>"; };
 		A11EAE000000000000000001 /* WorkspaceAppearanceConfigResolutionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceAppearanceConfigResolutionTests.swift; sourceTree = "<group>"; };
@@ -661,6 +672,7 @@
 		F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatePillReleaseVisibilityTests.swift; sourceTree = "<group>"; };
 		F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CJKIMEInputTests.swift; sourceTree = "<group>"; };
 		F4000001A1B2C3D4E5F60718 /* GhosttyConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyConfigTests.swift; sourceTree = "<group>"; };
+		35230000000000000000000D /* TerminalThemeSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalThemeSettingsTests.swift; sourceTree = "<group>"; };
 		F4200001A1B2C3D4E5F60718 /* WindowAppearanceSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowAppearanceSnapshotTests.swift; sourceTree = "<group>"; };
 		F4100001A1B2C3D4E5F60718 /* PortScannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortScannerTests.swift; sourceTree = "<group>"; };
 		F5000001A1B2C3D4E5F60718 /* SessionPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPersistenceTests.swift; sourceTree = "<group>"; };
@@ -839,11 +851,15 @@
 		A5001041 /* Sources */ = {
 			isa = PBXGroup;
 			children = (
-				3023B1003023B1003023B100 /* ConfigSource.swift */,
-				3023B1013023B1013023B101 /* ConfigSettingsView.swift */,
-				A11EAB000000000000000001 /* AppearanceSettings.swift */,
-				352300000000000000000001 /* TerminalThemeSettings.swift */,
-				A11EAC000000000000000001 /* GhosttyTerminalAppearance.swift */,
+					3023B1003023B1003023B100 /* ConfigSource.swift */,
+					3023B1013023B1013023B101 /* ConfigSettingsView.swift */,
+					A11EAB000000000000000001 /* AppearanceSettings.swift */,
+					352300000000000000000005 /* TerminalThemeTypes.swift */,
+					352300000000000000000001 /* TerminalThemeSettings.swift */,
+					352300000000000000000008 /* TerminalThemeSettings+Parsing.swift */,
+					35230000000000000000000F /* AppAppearancePickerRow.swift */,
+					35230000000000000000000B /* TerminalThemePickerRow.swift */,
+					A11EAC000000000000000001 /* GhosttyTerminalAppearance.swift */,
 				A11EAD000000000000000001 /* WorkspaceAppearanceResolution.swift */,
 				A5001011 /* cmuxApp.swift */,
 				E3309A08 /* cmuxApp+EqualizeSplitsMenu.swift */,
@@ -1041,10 +1057,11 @@
 		F1000003A1B2C3D4E5F60718 /* cmuxTests */ = {
 			isa = PBXGroup;
 			children = (
-				F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */,
-				F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */,
-				F4000001A1B2C3D4E5F60718 /* GhosttyConfigTests.swift */,
-				A11EAE000000000000000001 /* WorkspaceAppearanceConfigResolutionTests.swift */,
+					F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */,
+					F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */,
+					F4000001A1B2C3D4E5F60718 /* GhosttyConfigTests.swift */,
+					35230000000000000000000D /* TerminalThemeSettingsTests.swift */,
+					A11EAE000000000000000001 /* WorkspaceAppearanceConfigResolutionTests.swift */,
 				A11EAF000000000000000001 /* GhosttyNotificationDispatcherTests.swift */,
 				F4200001A1B2C3D4E5F60718 /* WindowAppearanceSnapshotTests.swift */,
 				F4100001A1B2C3D4E5F60718 /* PortScannerTests.swift */,
@@ -1352,10 +1369,14 @@
 			buildActionMask = 2147483647;
 			files = (
 				3023A1003023A1003023A100 /* ConfigSource.swift in Sources */,
-				3023A1013023A1013023A101 /* ConfigSettingsView.swift in Sources */,
-				A11EAB000000000000000000 /* AppearanceSettings.swift in Sources */,
-				352300000000000000000002 /* TerminalThemeSettings.swift in Sources */,
-				A11EAC000000000000000000 /* GhosttyTerminalAppearance.swift in Sources */,
+					3023A1013023A1013023A101 /* ConfigSettingsView.swift in Sources */,
+					A11EAB000000000000000000 /* AppearanceSettings.swift in Sources */,
+					352300000000000000000004 /* TerminalThemeTypes.swift in Sources */,
+					352300000000000000000002 /* TerminalThemeSettings.swift in Sources */,
+					352300000000000000000007 /* TerminalThemeSettings+Parsing.swift in Sources */,
+					35230000000000000000000E /* AppAppearancePickerRow.swift in Sources */,
+					35230000000000000000000A /* TerminalThemePickerRow.swift in Sources */,
+					A11EAC000000000000000000 /* GhosttyTerminalAppearance.swift in Sources */,
 				A11EAD000000000000000000 /* WorkspaceAppearanceResolution.swift in Sources */,
 				A5001001 /* cmuxApp.swift in Sources */,
 				E3309A07 /* cmuxApp+EqualizeSplitsMenu.swift in Sources */,
@@ -1536,11 +1557,13 @@
 			files = (
 				B9000002A1B2C3D4E5F60719 /* cmux.swift in Sources */,
 				C510C1E00000000000000002 /* SocketOperationTelemetry.swift in Sources */,
-				B9000034A1B2C3D4E5F60719 /* cmux_open.swift in Sources */,
-				D7AB0000000000000000000D /* CMUXCLI+MoveTabToNewWorkspace.swift in Sources */,
-				B9000035A1B2C3D4E5F60719 /* CMUXCLI+DocsSettings.swift in Sources */,
-				352300000000000000000003 /* TerminalThemeSettings.swift in Sources */,
-				B900002FA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift in Sources */,
+					B9000034A1B2C3D4E5F60719 /* cmux_open.swift in Sources */,
+					D7AB0000000000000000000D /* CMUXCLI+MoveTabToNewWorkspace.swift in Sources */,
+					B9000035A1B2C3D4E5F60719 /* CMUXCLI+DocsSettings.swift in Sources */,
+					352300000000000000000006 /* TerminalThemeTypes.swift in Sources */,
+					352300000000000000000003 /* TerminalThemeSettings.swift in Sources */,
+					352300000000000000000009 /* TerminalThemeSettings+Parsing.swift in Sources */,
+					B900002FA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift in Sources */,
 				B900002EA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift in Sources */,
 				B9000033A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift in Sources */,
 				B9000027A1B2C3D4E5F60719 /* RemoteRelayZshBootstrap.swift in Sources */,
@@ -1591,10 +1614,11 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				F2000000A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift in Sources */,
-				F3000000A1B2C3D4E5F60718 /* CJKIMEInputTests.swift in Sources */,
-				F4000000A1B2C3D4E5F60718 /* GhosttyConfigTests.swift in Sources */,
-				A11EAE000000000000000000 /* WorkspaceAppearanceConfigResolutionTests.swift in Sources */,
+					F2000000A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift in Sources */,
+					F3000000A1B2C3D4E5F60718 /* CJKIMEInputTests.swift in Sources */,
+					F4000000A1B2C3D4E5F60718 /* GhosttyConfigTests.swift in Sources */,
+					35230000000000000000000C /* TerminalThemeSettingsTests.swift in Sources */,
+					A11EAE000000000000000000 /* WorkspaceAppearanceConfigResolutionTests.swift in Sources */,
 				A11EAF000000000000000000 /* GhosttyNotificationDispatcherTests.swift in Sources */,
 				F4200000A1B2C3D4E5F60718 /* WindowAppearanceSnapshotTests.swift in Sources */,
 				F4100000A1B2C3D4E5F60718 /* PortScannerTests.swift in Sources */,

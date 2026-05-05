@@ -33,28 +33,37 @@ extension CMUXCLI {
 
     func cmuxThemeOverrideConfigURL() throws -> URL {
         do {
-            return try TerminalThemeSettings.managedConfigURL()
+            return try TerminalThemeSettings.managedConfigURL(bundleIdentifier: currentThemeManagedBundleIdentifier())
         } catch {
             throw CLIError(message: "Unable to resolve Application Support directory")
         }
     }
 
     func writeManagedThemeOverride(rawThemeValue: String) throws -> URL {
-        try TerminalThemeSettings.writeManagedThemeOverride(rawThemeValue: rawThemeValue)
+        try TerminalThemeSettings.writeManagedThemeOverride(
+            rawThemeValue: rawThemeValue,
+            bundleIdentifier: currentThemeManagedBundleIdentifier()
+        )
     }
 
     func clearManagedThemeOverride() throws -> URL {
-        try TerminalThemeSettings.clearManagedThemeOverride()
+        try TerminalThemeSettings.clearManagedThemeOverride(
+            bundleIdentifier: currentThemeManagedBundleIdentifier()
+        )
     }
 
     func reloadThemesIfPossible() -> ThemeReloadStatus {
-        let bundleIdentifier = currentCmuxAppBundleIdentifier() ?? Self.cmuxThemeOverrideBundleIdentifier
+        let bundleIdentifier = currentThemeManagedBundleIdentifier()
         DistributedNotificationCenter.default().post(
             name: Notification.Name(Self.cmuxThemesReloadNotificationName),
             object: nil,
             userInfo: ["bundleIdentifier": bundleIdentifier]
         )
         return ThemeReloadStatus(requested: true, targetBundleIdentifier: bundleIdentifier)
+    }
+
+    private func currentThemeManagedBundleIdentifier() -> String {
+        currentCmuxAppBundleIdentifier() ?? Self.cmuxThemeOverrideBundleIdentifier
     }
 
     func currentCmuxAppBundleIdentifier() -> String? {

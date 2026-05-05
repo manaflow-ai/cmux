@@ -3,6 +3,7 @@ import SwiftUI
 import Darwin
 import Bonsplit
 import UniformTypeIdentifiers
+import OSLog
 @main
 struct cmuxApp: App {
     @StateObject private var tabManager: TabManager
@@ -5169,6 +5170,11 @@ func openCmuxSettingsFileInEditor() {
 }
 
 struct SettingsView: View {
+    private static let terminalThemeLogger = Logger(
+        subsystem: "com.cmuxterm.app",
+        category: "TerminalTheme"
+    )
+
     private let pickerColumnWidth: CGFloat = 196
     private let notificationSoundControlWidth: CGFloat = 280
     private let shortcutChordsDocsURL = URL(string: "https://cmux.com/docs/keyboard-shortcuts#shortcut-chords")!
@@ -5832,7 +5838,7 @@ struct SettingsView: View {
             )
             refreshTerminalThemeSettings()
         } catch {
-            NSLog("Failed to apply terminal theme: %@", error.localizedDescription)
+            Self.terminalThemeLogger.error("Failed to apply terminal theme: \(error.localizedDescription, privacy: .private)")
             NSSound.beep()
         }
     }
@@ -7701,7 +7707,7 @@ private struct SettingsCardRow<Trailing: View>: View {
     }
 }
 
-private struct SettingsPickerRow<SelectionValue: Hashable, PickerContent: View, ExtraTrailing: View>: View {
+struct SettingsPickerRow<SelectionValue: Hashable, PickerContent: View, ExtraTrailing: View>: View {
     let configurationReview: SettingsConfigurationReview
     let title: String
     let subtitle: String?
@@ -7763,7 +7769,7 @@ extension SettingsPickerRow where ExtraTrailing == EmptyView {
     }
 }
 
-private enum SettingsConfigurationReview: Equatable {
+enum SettingsConfigurationReview: Equatable {
     case settingsFile([String])
     case settingsOnly
     case action
@@ -7823,326 +7829,6 @@ private struct SettingsCardNote: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-private struct ThemeWindowThumbnail: View {
-    let isDark: Bool
-
-    var body: some View {
-        GeometryReader { geo in
-            let width = geo.size.width
-            let height = geo.size.height
-
-            ZStack {
-                // Wallpaper background
-                if isDark {
-                    LinearGradient(
-                        colors: [Color(red: 0.1, green: 0.1, blue: 0.3), Color(red: 0.05, green: 0.05, blue: 0.1)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                    Path { path in
-                        path.move(to: CGPoint(x: 0, y: height * 0.5))
-                        path.addQuadCurve(to: CGPoint(x: width, y: height), control: CGPoint(x: width * 0.5, y: height * 0.2))
-                        path.addLine(to: CGPoint(x: width, y: 0))
-                        path.addLine(to: CGPoint(x: 0, y: 0))
-                    }
-                    .fill(LinearGradient(colors: [Color(red: 0.2, green: 0.2, blue: 0.6).opacity(0.5), .clear], startPoint: .topLeading, endPoint: .bottomTrailing))
-                } else {
-                    LinearGradient(
-                        colors: [Color(red: 0.6, green: 0.8, blue: 0.95), Color(red: 0.2, green: 0.4, blue: 0.8)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                    Path { path in
-                        path.move(to: CGPoint(x: 0, y: height * 0.5))
-                        path.addQuadCurve(to: CGPoint(x: width, y: height), control: CGPoint(x: width * 0.5, y: height * 0.2))
-                        path.addLine(to: CGPoint(x: width, y: 0))
-                        path.addLine(to: CGPoint(x: 0, y: 0))
-                    }
-                    .fill(LinearGradient(colors: [Color(red: 0.8, green: 0.9, blue: 1.0).opacity(0.6), .clear], startPoint: .topLeading, endPoint: .bottomTrailing))
-                }
-
-                // Menu bar
-                VStack(spacing: 0) {
-                    HStack {
-                        Image(systemName: "applelogo")
-                            .font(.system(size: max(height * 0.08, 6)))
-                            .foregroundColor(isDark ? .white : .black)
-                            .opacity(0.8)
-                        Spacer()
-                    }
-                    .padding(.horizontal, max(width * 0.04, 4))
-                    .frame(height: max(height * 0.12, 8))
-                    .background(.ultraThinMaterial)
-                    Spacer()
-                }
-
-                // Back window
-                VStack(spacing: 0) {
-                    Rectangle()
-                        .fill(isDark ? Color(white: 0.2) : Color(white: 0.9))
-                        .frame(height: max(height * 0.15, 8))
-                    ZStack(alignment: .top) {
-                        Rectangle()
-                            .fill(isDark ? Color(white: 0.15) : Color(white: 0.98))
-                        RoundedRectangle(cornerRadius: max(width * 0.02, 2), style: .continuous)
-                            .fill(Color.accentColor)
-                            .frame(height: max(height * 0.12, 6))
-                            .padding(max(width * 0.04, 4))
-                    }
-                }
-                .clipShape(RoundedRectangle(cornerRadius: max(width * 0.04, 4), style: .continuous))
-                .frame(width: width * 0.65, height: height * 0.45)
-                .shadow(color: .black.opacity(isDark ? 0.4 : 0.15), radius: 4, x: 0, y: 2)
-                .offset(x: -width * 0.08, y: -height * 0.1)
-
-                // Front window with traffic lights
-                VStack(spacing: 0) {
-                    ZStack {
-                        Rectangle()
-                            .fill(isDark ? Color(white: 0.18) : Color(white: 0.92))
-                        HStack(spacing: max(width * 0.025, 2)) {
-                            Circle().fill(Color(red: 1.0, green: 0.37, blue: 0.34)).frame(width: max(width * 0.04, 3))
-                            Circle().fill(Color(red: 1.0, green: 0.74, blue: 0.18)).frame(width: max(width * 0.04, 3))
-                            Circle().fill(Color(red: 0.15, green: 0.79, blue: 0.25)).frame(width: max(width * 0.04, 3))
-                            Spacer()
-                        }
-                        .padding(.horizontal, max(width * 0.04, 4))
-                    }
-                    .frame(height: max(height * 0.18, 10))
-                    Rectangle()
-                        .fill(isDark ? Color(white: 0.1) : .white)
-                }
-                .clipShape(RoundedRectangle(cornerRadius: max(width * 0.05, 5), style: .continuous))
-                .shadow(color: .black.opacity(isDark ? 0.5 : 0.2), radius: 6, x: 0, y: 3)
-                .frame(width: width * 0.75, height: height * 0.55)
-                .offset(x: width * 0.12, y: height * 0.2)
-            }
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color.primary.opacity(0.1), lineWidth: 1)
-        )
-    }
-}
-
-private struct AppAppearancePickerRow: View {
-    let configurationReview: SettingsConfigurationReview
-    let selectedMode: String
-    let onSelect: (AppearanceMode) -> Void
-
-    private let thumbWidth: CGFloat = 76
-    private let thumbHeight: CGFloat = 50
-
-    init(
-        configurationReview: SettingsConfigurationReview,
-        selectedMode: String,
-        onSelect: @escaping (AppearanceMode) -> Void
-    ) {
-        configurationReview.validate()
-        self.configurationReview = configurationReview
-        self.selectedMode = selectedMode
-        self.onSelect = onSelect
-    }
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Text(String(localized: "settings.app.appearanceMode", defaultValue: "App Appearance"))
-                .font(.system(size: 13, weight: .medium))
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            HStack(spacing: 8) {
-                ForEach(AppearanceMode.visibleCases) { mode in
-                    let isSelected = selectedMode == mode.rawValue
-                    Button {
-                        onSelect(mode)
-                    } label: {
-                        VStack(spacing: 4) {
-                            Group {
-                                if mode == .system {
-                                    ZStack {
-                                        ThemeWindowThumbnail(isDark: false)
-                                            .mask(
-                                                GeometryReader { geo in
-                                                    Rectangle()
-                                                        .frame(width: geo.size.width / 2, height: geo.size.height)
-                                                        .position(x: geo.size.width / 4, y: geo.size.height / 2)
-                                                }
-                                            )
-                                        ThemeWindowThumbnail(isDark: true)
-                                            .mask(
-                                                GeometryReader { geo in
-                                                    Rectangle()
-                                                        .frame(width: geo.size.width / 2, height: geo.size.height)
-                                                        .position(x: geo.size.width * 0.75, y: geo.size.height / 2)
-                                                }
-                                            )
-                                        GeometryReader { geo in
-                                            Rectangle()
-                                                .fill(Color.primary.opacity(0.15))
-                                                .frame(width: 1, height: geo.size.height)
-                                                .position(x: geo.size.width / 2, y: geo.size.height / 2)
-                                        }
-                                    }
-                                } else {
-                                    ThemeWindowThumbnail(isDark: mode == .dark)
-                                }
-                            }
-                            .frame(width: thumbWidth, height: thumbHeight)
-
-                            Text(mode.displayName)
-                                .font(.system(size: 10))
-                                .fontWeight(isSelected ? .semibold : .regular)
-                                .foregroundColor(isSelected ? .primary : .secondary)
-                        }
-                        .padding(.vertical, 8)
-                        .padding(.horizontal, 10)
-                        .contentShape(Rectangle())
-                        .background(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .fill(isSelected
-                                    ? Color.accentColor.opacity(0.12)
-                                    : Color.clear)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .focusable(false)
-                    .accessibilityAddTraits(isSelected ? .isSelected : [])
-                }
-            }
-            .layoutPriority(1)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 9)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .settingsSearchAnchors(configurationReview.searchAnchorIDs)
-    }
-}
-
-private struct TerminalThemePickerRow: View {
-    struct Option: Identifiable, Hashable {
-        let id: String
-        let title: String
-        let mode: TerminalThemeMode
-    }
-
-    let configurationReview: SettingsConfigurationReview
-    let searchAnchorID: String
-    let selectedMode: TerminalThemeMode
-    let availableThemeNames: [String]
-    let onSelect: (TerminalThemeMode) -> Void
-
-    private var selection: Binding<TerminalThemeMode> {
-        Binding(
-            get: { selectedMode },
-            set: { onSelect($0) }
-        )
-    }
-
-    private var options: [Option] {
-        var result = [
-            Option(
-                id: "custom",
-                title: String(localized: "settings.app.terminalTheme.custom", defaultValue: "Custom (use my config)"),
-                mode: .custom
-            )
-        ]
-        var seenThemeNames = Set<String>()
-
-        if case .adaptive(let light, let dark) = selectedMode {
-            result.append(
-                Option(
-                    id: "adaptive:\(light):\(dark)",
-                    title: "\(String(localized: "settings.app.terminalTheme.adaptivePrefix", defaultValue: "Adaptive")): \(light) / \(dark)",
-                    mode: selectedMode
-                )
-            )
-        }
-
-        if case .named(let name) = selectedMode {
-            appendNamedOption(name, to: &result, seenThemeNames: &seenThemeNames)
-        }
-
-        for name in availableThemeNames {
-            appendNamedOption(name, to: &result, seenThemeNames: &seenThemeNames)
-        }
-
-        return result
-    }
-
-    private var subtitle: String {
-        switch selectedMode {
-        case .custom:
-            return String(
-                localized: "settings.app.terminalTheme.subtitleCustom",
-                defaultValue: "cmux writes no Ghostty theme override."
-            )
-        case .named:
-            return String(
-                localized: "settings.app.terminalTheme.subtitleNamed",
-                defaultValue: "Writes a managed Ghostty theme override."
-            )
-        case .adaptive:
-            return String(
-                localized: "settings.app.terminalTheme.subtitleAdaptive",
-                defaultValue: "Uses separate light and dark Ghostty themes."
-            )
-        }
-    }
-
-    init(
-        configurationReview: SettingsConfigurationReview,
-        searchAnchorID: String,
-        selectedMode: TerminalThemeMode,
-        availableThemeNames: [String],
-        onSelect: @escaping (TerminalThemeMode) -> Void
-    ) {
-        configurationReview.validate()
-        self.configurationReview = configurationReview
-        self.searchAnchorID = searchAnchorID
-        self.selectedMode = selectedMode
-        self.availableThemeNames = availableThemeNames
-        self.onSelect = onSelect
-    }
-
-    var body: some View {
-        SettingsPickerRow(
-            configurationReview: configurationReview,
-            String(localized: "settings.app.terminalTheme", defaultValue: "Terminal Theme"),
-            subtitle: subtitle,
-            controlWidth: 240,
-            selection: selection
-        ) {
-            ForEach(options) { option in
-                Text(option.title).tag(option.mode)
-            }
-        }
-        .settingsSearchAnchor(searchAnchorID)
-    }
-
-    private func appendNamedOption(
-        _ name: String,
-        to options: inout [Option],
-        seenThemeNames: inout Set<String>
-    ) {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        let folded = trimmed.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
-        guard seenThemeNames.insert(folded).inserted else { return }
-        options.append(
-            Option(
-                id: "named:\(trimmed)",
-                title: trimmed,
-                mode: .named(trimmed)
-            )
-        )
     }
 }
 
