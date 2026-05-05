@@ -12274,7 +12274,6 @@ struct CMUXCLI {
                 exit 0
                 ;;
             esac
-            exit 0
             ;;
         esac
         exec "${CMUX_OMX_CMUX_BIN:-cmux}" __tmux-compat "$@"
@@ -12885,9 +12884,10 @@ struct CMUXCLI {
                 || parsed.hasFlag("-U")
                 || parsed.hasFlag("-D")
             let target = try tmuxResolvePaneTarget(parsed.value("-t"), client: client)
-            let isAbsoluteResize = !hasDirectionalFlags
-                && (parsed.value("-x") != nil || parsed.value("-y") != nil)
-            if isAbsoluteResize,
+            let isAbsoluteHeightOnlyResize = !hasDirectionalFlags
+                && parsed.value("-x") == nil
+                && parsed.value("-y") != nil
+            if isAbsoluteHeightOnlyResize,
                tmuxPaneLooksLikeOMXHud(
                     workspaceId: target.workspaceId,
                     paneId: target.paneId,
@@ -12968,18 +12968,13 @@ struct CMUXCLI {
                 boolFlags: ["-g", "-q", "-s", "-v", "-w"]
             )
             let optionName = parsed.positional.last ?? ""
-            let value: String
-            switch optionName {
-            case "extended-keys":
-                value = "on"
-            default:
-                value = ""
+            guard optionName == "extended-keys" else {
+                throw CLIError(message: "Unsupported tmux compatibility command: \(command) \(optionName)")
             }
+            let value = "on"
             if parsed.hasFlag("-v") {
-                if !value.isEmpty {
-                    print(value)
-                }
-            } else if !optionName.isEmpty, !value.isEmpty {
+                print(value)
+            } else {
                 print("\(optionName) \(value)")
             }
 

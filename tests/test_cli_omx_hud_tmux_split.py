@@ -307,12 +307,109 @@ def assert_omx_hud_is_visible_to_tmux_pane_formats(
         raise AssertionError(f"expected pane_start_command to expose HUD watch command, got {hud_lines[0]!r}")
 
 
+def assert_omx_hud_start_command_visible_to_legacy_tmux_pane_format(
+    cli_path: str,
+    socket_path: Path,
+    fake_home: Path,
+) -> None:
+    proc = run_cli(
+        cli_path,
+        socket_path,
+        fake_home,
+        [
+            "__tmux-compat",
+            "list-panes",
+            "-t",
+            f"%{PANE_ID}",
+            "-F",
+            "#{pane_id}\t#{pane_start_command}",
+        ],
+    )
+    if proc.returncode != 0:
+        raise AssertionError(
+            "Legacy HUD pane format query returned non-zero\n"
+            f"stdout={proc.stdout.strip()}\n"
+            f"stderr={proc.stderr.strip()}"
+        )
+
+    lines = [line for line in proc.stdout.splitlines() if line.strip()]
+    hud_lines = [line for line in lines if line.startswith(f"%{HUD_PANE_ID}\t")]
+    if len(hud_lines) != 1:
+        raise AssertionError(f"expected one formatted HUD pane line, got {lines!r}")
+    fields = hud_lines[0].split("\t")
+    if len(fields) != 2:
+        raise AssertionError(f"expected two tmux format fields, got {hud_lines[0]!r}")
+    if "hud --watch" not in fields[1]:
+        raise AssertionError(f"expected legacy pane_start_command to expose HUD watch command, got {hud_lines[0]!r}")
+
+
+def assert_absolute_height_resize_uses_row_cell_size(
+    cli_path: str,
+    socket_path: Path,
+    fake_home: Path,
+    state: FakeCmuxState,
+) -> None:
+    baseline = len(state.resize_params)
+    proc = run_cli(
+        cli_path,
+        socket_path,
+        fake_home,
+        ["__tmux-compat", "resize-pane", "-t", f"%{PANE_ID}", "-y", "20"],
+    )
+    if proc.returncode != 0:
+        raise AssertionError(
+            "absolute height resize returned non-zero\n"
+            f"stdout={proc.stdout.strip()}\n"
+            f"stderr={proc.stderr.strip()}"
+        )
+
+    new_resize_params = state.resize_params[baseline:]
+    if len(new_resize_params) != 1:
+        raise AssertionError(f"expected one absolute height resize, got {new_resize_params!r}")
+    params = new_resize_params[0]
+    if params.get("pane_id") != PANE_ID:
+        raise AssertionError(f"absolute height resize targeted wrong pane: {params!r}")
+    if params.get("absolute_axis") != "vertical" or params.get("target_pixels") != 20 * 18:
+        raise AssertionError(f"absolute height resize did not use row cell size: {params!r}")
+
+
+def assert_omx_hud_absolute_width_resize_still_applies(
+    cli_path: str,
+    socket_path: Path,
+    fake_home: Path,
+    state: FakeCmuxState,
+) -> None:
+    baseline = len(state.resize_params)
+    proc = run_cli(
+        cli_path,
+        socket_path,
+        fake_home,
+        ["__tmux-compat", "resize-pane", "-t", f"%{HUD_PANE_ID}", "-x", "80"],
+    )
+    if proc.returncode != 0:
+        raise AssertionError(
+            "HUD absolute width resize returned non-zero\n"
+            f"stdout={proc.stdout.strip()}\n"
+            f"stderr={proc.stderr.strip()}"
+        )
+
+    new_resize_params = state.resize_params[baseline:]
+    if len(new_resize_params) != 1:
+        raise AssertionError(f"expected one HUD absolute width resize, got {new_resize_params!r}")
+    params = new_resize_params[0]
+    if params.get("pane_id") != HUD_PANE_ID:
+        raise AssertionError(f"HUD absolute width resize targeted wrong pane: {params!r}")
+    if params.get("absolute_axis") != "horizontal" or params.get("target_pixels") != 80 * 9:
+        raise AssertionError(f"HUD absolute width resize did not use column cell size: {params!r}")
+
+
 def assert_omx_hud_absolute_height_resize_does_not_override_user_layout(
     cli_path: str,
     socket_path: Path,
     fake_home: Path,
     state: FakeCmuxState,
 ) -> None:
+    baseline = len(state.resize_params)
     proc = run_cli(
         cli_path,
         socket_path,
@@ -325,8 +422,9 @@ def assert_omx_hud_absolute_height_resize_does_not_override_user_layout(
             f"stdout={proc.stdout.strip()}\n"
             f"stderr={proc.stderr.strip()}"
         )
-    if state.resize_params:
-        raise AssertionError(f"HUD absolute resize should not override an existing layout: {state.resize_params!r}")
+    new_resize_params = state.resize_params[baseline:]
+    if new_resize_params:
+        raise AssertionError(f"HUD absolute resize should not override an existing layout: {new_resize_params!r}")
     if state.hud_rows != 12:
         raise AssertionError(f"expected fake HUD rows to remain user-controlled, got {state.hud_rows}")
 
@@ -350,6 +448,21 @@ def assert_omx_hud_feature_probe_is_supported(
         )
     if proc.stdout.strip() != "on":
         raise AssertionError(f"expected extended-keys probe to print on, got {proc.stdout!r}")
+
+
+def assert_omx_hud_unsupported_feature_probe_fails(
+    cli_path: str,
+    socket_path: Path,
+    fake_home: Path,
+) -> None:
+    proc = run_cli(
+        cli_path,
+        socket_path,
+        fake_home,
+        ["__tmux-compat", "show-options", "-sv", "display-time"],
+    )
+    if proc.returncode == 0:
+        raise AssertionError(f"unsupported show-options probe should fail, stdout={proc.stdout!r}")
 
 
 def assert_disabled_omx_hud_does_not_split(
@@ -400,11 +513,18 @@ def main() -> int:
             thread.start()
             try:
                 assert_omx_hud_feature_probe_is_supported(cli_path, socket_path, fake_home)
+                assert_omx_hud_unsupported_feature_probe_fails(cli_path, socket_path, fake_home)
                 assert_omx_hud_splits_down_with_compact_size(
                     cli_path,
                     socket_path,
                     fake_home,
                     cwd,
+                    state,
+                )
+                assert_absolute_height_resize_uses_row_cell_size(
+                    cli_path,
+                    socket_path,
+                    fake_home,
                     state,
                 )
                 assert_omx_hud_is_visible_to_tmux_pane_formats(
@@ -414,10 +534,16 @@ def main() -> int:
                 )
 
                 state.hud_tmux_start_command = None
-                assert_omx_hud_is_visible_to_tmux_pane_formats(
+                assert_omx_hud_start_command_visible_to_legacy_tmux_pane_format(
                     cli_path,
                     socket_path,
                     fake_home,
+                )
+                assert_omx_hud_absolute_width_resize_still_applies(
+                    cli_path,
+                    socket_path,
+                    fake_home,
+                    state,
                 )
                 assert_omx_hud_absolute_height_resize_does_not_override_user_layout(
                     cli_path,

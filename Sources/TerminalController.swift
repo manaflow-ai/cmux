@@ -7265,18 +7265,19 @@ class TerminalController {
         let directionRaw = (v2String(params, "direction") ?? "").lowercased()
         let amount = v2Int(params, "amount") ?? 1
         let direction = V2PaneResizeDirection(rawValue: directionRaw)
-        if absoluteAxis == nil || targetPixels == nil {
+        let hasAbsoluteIntent = params.keys.contains("absolute_axis") || params.keys.contains("target_pixels")
+        if hasAbsoluteIntent {
+            guard let absoluteAxis,
+                  absoluteAxis == "horizontal" || absoluteAxis == "vertical" else {
+                return .err(code: "invalid_params", message: "absolute_axis must be 'horizontal' or 'vertical'", data: nil)
+            }
+            guard let targetPixels, targetPixels > 0 else {
+                return .err(code: "invalid_params", message: "target_pixels must be > 0", data: nil)
+            }
+        } else {
             guard direction != nil, amount > 0 else {
                 return .err(code: "invalid_params", message: "direction must be one of left|right|up|down and amount must be > 0", data: nil)
             }
-        }
-
-        if let absoluteAxis,
-           absoluteAxis != "horizontal" && absoluteAxis != "vertical" {
-            return .err(code: "invalid_params", message: "direction must be one of left|right|up|down and amount must be > 0", data: nil)
-        }
-        if let targetPixels, targetPixels <= 0 {
-            return .err(code: "invalid_params", message: "target_pixels must be > 0", data: nil)
         }
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to resize pane", data: nil)
