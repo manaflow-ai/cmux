@@ -61,12 +61,15 @@ struct MarkdownPanelView: View {
                 Markdown(panel.content)
                     .markdownTheme(cmuxMarkdownTheme)
                     .textSelection(.enabled)
-                    // Explicit handler: pointer-observer overlay + .textSelection
-                    // suppress SwiftUI Link's default activation, leaving links
-                    // styled but un-clickable without this.
+                    // Wire link activation through NSWorkspace explicitly.
+                    // SwiftUI's default Link path does not fire reliably
+                    // for the rendered Markdown in this panel; setting the
+                    // env action makes it deterministic. Surface failures
+                    // (no registered handler for the scheme, etc.) by
+                    // returning .systemAction so the click is not silently
+                    // swallowed.
                     .environment(\.openURL, OpenURLAction { url in
-                        NSWorkspace.shared.open(url)
-                        return .handled
+                        NSWorkspace.shared.open(url) ? .handled : .systemAction
                     })
                     .padding(.horizontal, 24)
                     .padding(.vertical, 16)
