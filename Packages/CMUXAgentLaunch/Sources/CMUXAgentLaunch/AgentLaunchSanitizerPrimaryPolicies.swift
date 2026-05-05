@@ -306,6 +306,12 @@ extension AgentLaunchSanitizer {
     /// `--session <id>`; everything related to session selection / output mode /
     /// initial prompt must be stripped. User-set provider/model/system-prompt
     /// preferences are preserved so the resumed session keeps the same configuration.
+    ///
+    /// Boolean flags not listed in `valueOptions` (e.g. pi's `--no-tools`,
+    /// `--verbose`, `--offline`, `--no-extensions`) flow through
+    /// `preserveOptions`'s "unknown option = keep" default — `optionWidth`
+    /// returns 1 for them and they're appended to the preserved result. Only
+    /// flags we explicitly want to drop or reject need to appear below.
     static let piPolicy = Policy(
         valueOptions: [
             "--provider",
