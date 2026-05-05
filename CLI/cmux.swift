@@ -15667,7 +15667,13 @@ struct CMUXCLI {
                !envValue.isEmpty {
                 return NSString(string: envValue).expandingTildeInPath
             }
-            return NSString(string: "~/\(configDir)").expandingTildeInPath
+            let home = ProcessInfo.processInfo.environment["HOME"].flatMap { value -> String? in
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? nil : trimmed
+            } ?? NSHomeDirectory()
+            return URL(fileURLWithPath: home, isDirectory: true)
+                .appendingPathComponent(configDir, isDirectory: true)
+                .path
         }
 
         init(name: String, displayName: String, statusKey: String,
@@ -16210,7 +16216,7 @@ export default CMUXSessionRestore;
             return
         }
 
-        let oldString = (try? String(contentsOfFile: filePath, encoding: .utf8)) ?? ""
+        let oldString = try readRovoDevConfig(filePath: filePath, displayName: def.displayName)
         let newString = try rovoDevHooksContent(existing: oldString, def: def, shouldInstall: true)
         if oldString == newString {
             print("\(def.displayName) hooks already up to date at \(filePath)")
@@ -16235,12 +16241,14 @@ export default CMUXSessionRestore;
     }
 
     private func uninstallRovoDevHooks(_ def: AgentHookDef) throws {
+        let fm = FileManager.default
         let configDir = def.resolvedConfigDir()
         let filePath = "\(configDir)/\(def.configFile)"
-        guard let oldString = try? String(contentsOfFile: filePath, encoding: .utf8) else {
+        guard fm.fileExists(atPath: filePath) else {
             print("No \(def.configFile) found at \(filePath)")
             return
         }
+        let oldString = try readRovoDevConfig(filePath: filePath, displayName: def.displayName)
         let newString = try rovoDevHooksContent(existing: oldString, def: def, shouldInstall: false)
         guard oldString != newString else {
             print("Removed 0 cmux hook(s) from \(filePath)")
@@ -16248,6 +16256,16 @@ export default CMUXSessionRestore;
         }
         try newString.write(toFile: filePath, atomically: true, encoding: .utf8)
         print("Removed Rovo Dev cmux hooks from \(filePath)")
+    }
+
+    private func readRovoDevConfig(filePath: String, displayName: String) throws -> String {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: filePath) else { return "" }
+        do {
+            return try String(contentsOfFile: filePath, encoding: .utf8)
+        } catch {
+            throw CLIError(message: "\(filePath) exists but could not be read. Fix permissions or remove it before installing \(displayName) hooks.")
+        }
     }
 
     private func rovoDevHooksContent(
