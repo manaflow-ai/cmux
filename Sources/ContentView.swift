@@ -9783,10 +9783,6 @@ struct VerticalTabsSidebar: View {
     private var sidebarMatchTerminalBackground = false
 
     private let tabRowSpacing: CGFloat = 2
-    private var workspaceScrollTopVisibilityInset: CGFloat {
-        SidebarWorkspaceListMetrics.scrollTopInset
-    }
-
     private var sidebarTitlebarInteractionHeight: CGFloat {
         MinimalModeChromeMetrics.titlebarHeight
     }
@@ -9983,12 +9979,16 @@ struct VerticalTabsSidebar: View {
     }
 
     private func workspaceScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
-        GeometryReader { geometryProxy in
+        let scrollInsets = SidebarWorkspaceScrollInsets.workspaceList
+        return GeometryReader { geometryProxy in
             ScrollViewReader { scrollProxy in
                 ScrollView {
                     workspaceScrollContent(
                         renderContext: renderContext,
-                        minHeight: geometryProxy.size.height
+                        minHeight: SidebarWorkspaceScrollLayout.contentMinHeight(
+                            viewportHeight: geometryProxy.size.height,
+                            insets: scrollInsets
+                        )
                     )
                 }
                 .background(
@@ -9998,11 +9998,11 @@ struct VerticalTabsSidebar: View {
                     .frame(width: 0, height: 0)
                 )
                 .safeAreaInset(edge: .top, spacing: 0) {
-                    Color.clear.frame(height: workspaceScrollTopVisibilityInset)
+                    Color.clear.frame(height: scrollInsets.top)
                         .allowsHitTesting(false)
                 }
                 .safeAreaInset(edge: .bottom, spacing: 0) {
-                    Color.clear.frame(height: sidebarBottomScrimHeight)
+                    Color.clear.frame(height: scrollInsets.bottom)
                         .allowsHitTesting(false)
                 }
                 .overlay(alignment: .top) {
@@ -10024,7 +10024,7 @@ struct VerticalTabsSidebar: View {
                     if draggedTabId != nil, let firstWorkspaceId = renderContext.workspaceIds.first {
                         Color.clear
                             .contentShape(Rectangle())
-                            .frame(height: workspaceScrollTopVisibilityInset + 8)
+                            .frame(height: scrollInsets.top + 8)
                             .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: SidebarTabDropDelegate(
                                 targetTabId: firstWorkspaceId,
                                 tabManager: tabManager,

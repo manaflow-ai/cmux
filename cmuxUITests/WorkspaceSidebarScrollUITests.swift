@@ -2,6 +2,7 @@ import XCTest
 
 final class WorkspaceSidebarScrollUITests: XCTestCase {
     private let topTitlebarWorkspaceClearance: CGFloat = 32
+    private let maxSidebarOverflowWorkspaceCount = 80
 
     override func setUp() {
         super.setUp()
@@ -60,20 +61,25 @@ final class WorkspaceSidebarScrollUITests: XCTestCase {
             "Expected the sidebar scroller to hide when the workspace content fits"
         )
 
-        let workspaceCount = 20
-        for expectedCount in 2...workspaceCount {
+        let overflowProbeStartCount = sidebarOverflowProbeStartCount(app: app, sidebar: sidebar)
+        var overflowReached = false
+        for expectedCount in 2...maxSidebarOverflowWorkspaceCount {
             app.typeKey("n", modifierFlags: [.command])
             XCTAssertTrue(
                 waitForWorkspaceRowHittable(index: expectedCount, count: expectedCount, app: app, timeout: 6.0),
                 "Expected the newly selected workspace \(expectedCount) to be visible"
             )
+
+            guard expectedCount >= overflowProbeStartCount else { continue }
+            if revealSidebarVerticalScroller(app: app, sidebar: sidebar, timeout: 1.0) {
+                overflowReached = true
+                break
+            }
         }
 
-        sidebar.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.5)).hover()
-        sidebar.swipeUp()
         XCTAssertTrue(
-            waitForSidebarVerticalScrollerVisible(app: app, sidebar: sidebar, timeout: 4.0),
-            "Expected the sidebar scroller to appear when the workspace content overflows"
+            overflowReached,
+            "Expected the sidebar scroller to appear before creating \(maxSidebarOverflowWorkspaceCount) workspaces"
         )
     }
 
@@ -117,6 +123,15 @@ final class WorkspaceSidebarScrollUITests: XCTestCase {
             .firstMatch
     }
 
+    private func sidebarOverflowProbeStartCount(app: XCUIApplication, sidebar: XCUIElement) -> Int {
+        let firstRow = workspaceRow(index: 1, count: 1, app: app)
+        guard sidebar.exists, firstRow.exists else { return 8 }
+
+        let rowHeight = max(firstRow.frame.height, 1)
+        let visibleRows = Int(ceil(sidebar.frame.height / rowHeight))
+        return min(maxSidebarOverflowWorkspaceCount, max(3, visibleRows + 1))
+    }
+
     private func waitForWindowCount(atLeast count: Int, app: XCUIApplication, timeout: TimeInterval) -> Bool {
         pollUntil(timeout: timeout) {
             app.windows.count >= count
@@ -141,6 +156,19 @@ final class WorkspaceSidebarScrollUITests: XCTestCase {
         pollUntil(timeout: timeout) {
             !visibleSidebarVerticalScrollers(app: app, sidebar: sidebar).isEmpty
         }
+    }
+
+    private func revealSidebarVerticalScroller(
+        app: XCUIApplication,
+        sidebar: XCUIElement,
+        timeout: TimeInterval
+    ) -> Bool {
+        sidebar.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.5)).hover()
+        if waitForSidebarVerticalScrollerVisible(app: app, sidebar: sidebar, timeout: min(0.25, timeout)) {
+            return true
+        }
+        sidebar.swipeUp()
+        return waitForSidebarVerticalScrollerVisible(app: app, sidebar: sidebar, timeout: timeout)
     }
 
     private func visibleSidebarVerticalScrollers(
