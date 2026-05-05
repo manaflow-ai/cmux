@@ -1,5 +1,19 @@
 import Foundation
 
+// NOTE: This file lives in the app target rather than a SwiftPM package even
+// though most of its logic is pure Foundation. The reason is dependency
+// surface: `loadPiEntries` and `extractPiMetadata` rely on `forEachJSONLine`,
+// `readFileHead`, `ripgrepMatchingPaths`, `searchMaxFiles`, `headByteCap`,
+// `ErrorBag`, and `SessionEntry` — all of which are defined in
+// `Sources/SessionIndexStore.swift` and are shared by every per-agent loader
+// (Codex / Claude / OpenCode / RovoDev). Extracting only the Pi parser into a
+// package would either duplicate ~80 lines of JSONL/rg helpers (drift
+// surface) or require lifting the shared layer first.
+//
+// The right sequence is: (1) move `forEachJSONLine`/`readFileHead`/the rg
+// helper into a new `CMUXSessionIndexCore` package, (2) extract each
+// per-agent parser one PR at a time. Tracked in #3578. Until then, this
+// stays here next to its siblings to avoid divergent JSONL semantics.
 extension SessionIndexStore {
     /// Pi's on-disk session layout (JSONL only — no SQL backend, no agent-side
     /// snapshot DB to pre-extract metadata):
