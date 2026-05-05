@@ -5940,6 +5940,19 @@ class TerminalController {
               let direction = parseSplitDirection(directionStr) else {
             return .err(code: "invalid_params", message: "Missing or invalid direction (left|right|up|down)", data: nil)
         }
+        let panelType = v2PanelType(params, "type") ?? .terminal
+        let urlStr = v2String(params, "url")
+        let url = urlStr.flatMap { URL(string: $0) }
+        let requestedWorkingDirectory = v2RawString(params, "working_directory")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let workingDirectory = (requestedWorkingDirectory?.isEmpty == false) ? requestedWorkingDirectory : nil
+        let requestedInitialCommand = v2RawString(params, "initial_command")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let initialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
+        let initialDividerPosition = v2Double(params, "initial_divider_position").map {
+            min(max($0, 0.1), 0.9)
+        }
+        if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
+            return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
+        }
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to create split", data: nil)
         v2MainSync {
@@ -5967,8 +5980,39 @@ class TerminalController {
             v2MaybeSelectWorkspace(tabManager, workspace: ws)
 
             let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
-            if let newId = tabManager.newSplit(tabId: ws.id, surfaceId: targetSurfaceId, direction: direction, focus: focus) {
+            let orientation = direction.orientation
+            let insertFirst = direction.insertFirst
+            let newId: UUID?
+            if panelType == .browser {
+                newId = ws.newBrowserSplit(
+                    from: targetSurfaceId,
+                    orientation: orientation,
+                    insertFirst: insertFirst,
+                    url: url,
+                    focus: focus
+                )?.id
+            } else {
+                newId = tabManager.newSplit(
+                    tabId: ws.id,
+                    surfaceId: targetSurfaceId,
+                    direction: direction,
+                    focus: focus,
+                    workingDirectory: workingDirectory,
+                    initialCommand: initialCommand
+                )
+            }
+
+            if let newId {
                 let paneUUID = ws.paneId(forPanelId: newId)?.id
+                if let initialDividerPosition, let paneUUID {
+                    _ = v2SetInitialSplitDividerPosition(
+                        workspace: ws,
+                        paneUUID: paneUUID,
+                        orientation: orientation,
+                        paneInFirstChild: insertFirst,
+                        position: initialDividerPosition
+                    )
+                }
                 let windowId = v2ResolveWindowId(tabManager: tabManager)
                 result = .ok([
                     "window_id": v2OrNull(windowId?.uuidString),
@@ -6030,7 +6074,12 @@ class TerminalController {
             if panelType == .browser {
                 newPanelId = ws.newBrowserSurface(inPane: paneId, url: url, focus: focus)?.id
             } else {
-                newPanelId = ws.newTerminalSurface(inPane: paneId, focus: focus)?.id
+                newPanelId = ws.newTerminalSurface(
+                    inPane: paneId,
+                    focus: focus,
+                    workingDirectory: workingDirectory,
+                    initialCommand: initialCommand
+                )?.id
             }
 
             guard let newPanelId else {

@@ -3046,6 +3046,60 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
         )
     }
 
+    func testTabManagerSplitCarriesRequestedWorkingDirectoryAndStartupCommand() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let sourcePanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with a focused terminal")
+            return
+        }
+
+        let requestedDirectory = "/tmp/cmux-split-startup-\(UUID().uuidString)"
+        let startupCommand = "/tmp/cmux-tmux-command-\(UUID().uuidString).sh"
+        guard let splitPanelId = manager.newSplit(
+            tabId: workspace.id,
+            surfaceId: sourcePanelId,
+            direction: .down,
+            focus: false,
+            workingDirectory: requestedDirectory,
+            initialCommand: startupCommand
+        ) else {
+            XCTFail("Expected split terminal panel to be created")
+            return
+        }
+
+        let splitPanel = workspace.terminalPanel(for: splitPanelId)
+        XCTAssertEqual(splitPanel?.requestedWorkingDirectory, requestedDirectory)
+        XCTAssertEqual(
+            splitPanel?.surface.debugInitialCommand(),
+            startupCommand,
+            "Programmatic tmux-compatible splits must launch their command as the pane process"
+        )
+    }
+
+    func testNewTerminalSurfaceCarriesRequestedWorkingDirectoryAndStartupCommand() {
+        let workspace = Workspace()
+        guard let paneId = workspace.bonsplitController.focusedPaneId else {
+            XCTFail("Expected focused pane in new workspace")
+            return
+        }
+
+        let requestedDirectory = "/tmp/cmux-surface-startup-\(UUID().uuidString)"
+        let startupCommand = "/tmp/cmux-surface-command-\(UUID().uuidString).sh"
+        guard let surface = workspace.newTerminalSurface(
+            inPane: paneId,
+            focus: false,
+            workingDirectory: requestedDirectory,
+            initialCommand: startupCommand
+        ) else {
+            XCTFail("Expected terminal surface to be created")
+            return
+        }
+
+        XCTAssertEqual(surface.requestedWorkingDirectory, requestedDirectory)
+        XCTAssertEqual(surface.surface.debugInitialCommand(), startupCommand)
+    }
+
     func testNewTerminalSplitSkipsFreedInheritedSurfacePointer() throws {
 #if DEBUG
         let workspace = Workspace()
