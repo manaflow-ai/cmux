@@ -44,6 +44,17 @@ private extension WorkstreamExitPlanMode {
     }
 }
 
+private extension WorkstreamSource {
+    var feedDisplayName: String {
+        switch self {
+        case .opencode:
+            return String(localized: "sessionIndex.agent.opencode", defaultValue: "OpenCode")
+        default:
+            return rawValue.capitalized
+        }
+    }
+}
+
 /// Right-sidebar Feed view. Matches the Sessions page visual language:
 /// compact rows with SF Symbol + 13pt title + secondary metadata,
 /// full-width hover backgrounds, and control-bar pill buttons styled
@@ -396,16 +407,30 @@ private struct FeedListView: View {
 
     private func visibleSnapshots(_ items: [WorkstreamItem]) -> [FeedItemSnapshot] {
         let lastPromptByWorkstream = Self.lastPromptByWorkstream(items)
+        let latestStopIds = Self.latestStopIdsByWorkstream(items)
         return filtered(items).map { item in
             FeedItemSnapshot(
                 item: item,
-                userPromptEcho: lastPromptByWorkstream[item.workstreamId]
+                userPromptEcho: lastPromptByWorkstream[item.workstreamId],
+                isLatestStopInWorkstream: latestStopIds[item.workstreamId] == item.id
             )
         }
     }
 
+    private static func latestStopIdsByWorkstream(_ items: [WorkstreamItem]) -> [String: UUID] {
+        var latestItems: [String: WorkstreamItem] = [:]
+        for item in items {
+            latestItems[item.workstreamId] = item
+        }
+        var out: [String: UUID] = [:]
+        for (workstreamId, item) in latestItems where item.kind == .stop {
+            out[workstreamId] = item.id
+        }
+        return out
+    }
+
     private func prefersStableSurface(_ snapshot: FeedItemSnapshot) -> Bool {
-        snapshot.status.isPending || snapshot.kind == .stop
+        snapshot.status.isPending || snapshot.isLatestStopInWorkstream
     }
 
     private var shouldShowActivityHistoryLoader: Bool {
@@ -861,8 +886,15 @@ struct FeedItemSnapshot: Equatable {
     /// by the list view so every card can show a "You: …" echo for
     /// context, even when the agent payload doesn't carry it directly.
     let userPromptEcho: String?
+    /// Stop events are frequent. Only the latest one per workstream
+    /// should show the inline reply controls; older stops stay compact.
+    let isLatestStopInWorkstream: Bool
 
-    init(item: WorkstreamItem, userPromptEcho: String? = nil) {
+    init(
+        item: WorkstreamItem,
+        userPromptEcho: String? = nil,
+        isLatestStopInWorkstream: Bool = false
+    ) {
         self.id = item.id
         self.workstreamId = item.workstreamId
         self.source = item.source
@@ -874,6 +906,7 @@ struct FeedItemSnapshot: Equatable {
         self.payload = item.payload
         self.context = item.context
         self.userPromptEcho = userPromptEcho
+        self.isLatestStopInWorkstream = isLatestStopInWorkstream
     }
 }
 
@@ -1040,7 +1073,7 @@ struct FeedItemRow: View, Equatable {
             Spacer(minLength: 4)
             HStack(spacing: 4) {
                 chip(
-                    text: snapshot.source.rawValue.capitalized,
+                    text: snapshot.source.feedDisplayName,
                     fg: sourceChipForeground,
                     bg: sourceChipBackground
                 )
@@ -1107,6 +1140,8 @@ struct FeedItemRow: View, Equatable {
                   ? .system(size: 10, weight: .medium).monospacedDigit()
                   : .system(size: 10, weight: .medium))
             .foregroundColor(fg)
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
             .padding(.horizontal, 5)
             .padding(.vertical, 2)
             .background(
@@ -1212,13 +1247,17 @@ struct FeedItemRow: View, Equatable {
                 }
             )
         case .stop:
-            StopActionArea(
-                workstreamId: snapshot.workstreamId,
-                isRowSelected: isSelected,
-                onFocusRow: onControlFocus,
-                onBlurRow: onControlBlur,
-                onSend: { text in actions.sendText(snapshot.workstreamId, text) }
-            )
+            if snapshot.isLatestStopInWorkstream {
+                StopActionArea(
+                    workstreamId: snapshot.workstreamId,
+                    isRowSelected: isSelected,
+                    onFocusRow: onControlFocus,
+                    onBlurRow: onControlBlur,
+                    onSend: { text in actions.sendText(snapshot.workstreamId, text) }
+                )
+            } else {
+                TelemetryActionArea(snapshot: snapshot)
+            }
         default:
             TelemetryActionArea(snapshot: snapshot)
         }
@@ -1227,16 +1266,16 @@ struct FeedItemRow: View, Equatable {
     private var primaryTitle: String {
         switch snapshot.payload {
         case .permissionRequest(_, let toolName, _, _):
-            return "\(snapshot.source.rawValue.capitalized) · \(toolName)"
+            return "\(snapshot.source.feedDisplayName) · \(toolName)"
         case .exitPlan:
-            return "\(snapshot.source.rawValue.capitalized) · \(String(localized: "feed.kind.exitPlan", defaultValue: "Exit plan"))"
+            return "\(snapshot.source.feedDisplayName) · \(String(localized: "feed.kind.exitPlan", defaultValue: "Exit plan"))"
         case .question:
-            return "\(snapshot.source.rawValue.capitalized) · \(String(localized: "feed.kind.question", defaultValue: "Question"))"
+            return "\(snapshot.source.feedDisplayName) · \(String(localized: "feed.kind.question", defaultValue: "Question"))"
         default:
             if let title = snapshot.title, !title.isEmpty {
-                return "\(snapshot.source.rawValue.capitalized) · \(title)"
+                return "\(snapshot.source.feedDisplayName) · \(title)"
             }
-            return snapshot.source.rawValue.capitalized
+            return snapshot.source.feedDisplayName
         }
     }
 
@@ -1335,7 +1374,7 @@ private struct FeedContextBlock: View {
     }
 
     private var agentLabel: String {
-        "\(source.rawValue.capitalized):"
+        "\(source.feedDisplayName):"
     }
 }
 
@@ -1345,26 +1384,32 @@ private struct FeedLabeledTextRow: View {
     let labelColor: Color
     let textColor: Color
     var rendersMarkdown: Bool = false
+    var lineLimit: Int = 1
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(label)
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundColor(labelColor)
-                .frame(width: 48, alignment: .leading)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(width: 62, alignment: .leading)
             if rendersMarkdown {
                 FeedMarkdownInlineText(
                     text: text,
                     fontSize: 11,
-                    foregroundColor: textColor
+                    foregroundColor: textColor,
+                    lineLimit: lineLimit
                 )
             } else {
                 Text(text)
                     .font(.system(size: 11))
                     .foregroundColor(textColor)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(lineLimit)
+                    .truncationMode(.tail)
             }
         }
+        .help(text)
     }
 }
 
@@ -2335,17 +2380,20 @@ private struct FeedMarkdownInlineText: View {
     let fontSize: CGFloat
     let weight: Font.Weight?
     let foregroundColor: Color
+    let lineLimit: Int?
 
     init(
         text: String,
         fontSize: CGFloat,
         weight: Font.Weight? = nil,
-        foregroundColor: Color
+        foregroundColor: Color,
+        lineLimit: Int? = nil
     ) {
         self.text = text
         self.fontSize = fontSize
         self.weight = weight
         self.foregroundColor = foregroundColor
+        self.lineLimit = lineLimit
     }
 
     var body: some View {
@@ -2360,6 +2408,8 @@ private struct FeedMarkdownInlineText: View {
         Text(parsed)
             .font(font)
             .foregroundColor(foregroundColor)
+            .lineLimit(lineLimit)
+            .truncationMode(.tail)
             .fixedSize(horizontal: false, vertical: true)
     }
 }
@@ -2592,7 +2642,7 @@ private struct QuestionActionArea: View {
     }
 
     private var agentLabel: String {
-        "\(source.rawValue.capitalized):"
+        "\(source.feedDisplayName):"
     }
 
     /// Long-form rendering: single question with rich options. Each
@@ -2607,7 +2657,8 @@ private struct QuestionActionArea: View {
                     label: agentLabel,
                     text: question.prompt,
                     labelColor: .secondary,
-                    textColor: .primary.opacity(0.95)
+                    textColor: .primary.opacity(0.95),
+                    lineLimit: 3
                 )
             }
             ForEach(Array(question.options.enumerated()), id: \.offset) { idx, option in
