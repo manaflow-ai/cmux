@@ -41,13 +41,28 @@ enum CmuxUseSupport {
             return try parseGitHubPath(String(trimmed.dropFirst("git@github.com:".count)))
         }
 
-        if let components = URLComponents(string: trimmed),
+        let candidate: String = {
+            let lowercased = trimmed.lowercased()
+            if lowercased.hasPrefix("github.com/") || lowercased.hasPrefix("www.github.com/") {
+                return "https://\(trimmed)"
+            }
+            return trimmed
+        }()
+
+        if let components = URLComponents(string: candidate),
            let host = components.host?.lowercased(),
            host == "github.com" || host == "www.github.com" {
             return try parseGitHubPath(components.path)
         }
 
         return try parseGitHubPath(trimmed)
+    }
+
+    static func gitRemote(_ remote: String, matches repository: CmuxUseRepository) -> Bool {
+        guard let parsed = try? parseGitHubRepository(remote) else {
+            return false
+        }
+        return parsed == repository
     }
 
     static func managedSourceCheckoutURL(
@@ -144,19 +159,24 @@ enum CmuxUseSupport {
             }
             let main = optionalManifestString(in: manifest, key: "main")
             return CmuxUseManifest(
-                id: optionalManifestString(in: manifest, key: "id") ?? inferredExtensionID(for: repository),
+                id: try validatedManifestPathComponent(
+                    optionalManifestString(in: manifest, key: "id") ?? inferredExtensionID(for: repository),
+                    fieldName: "id"
+                ),
                 name: optionalManifestString(in: manifest, key: "name") ?? repository.name,
                 publisher: optionalManifestString(in: manifest, key: "publisher") ?? repository.owner,
-                version: optionalManifestString(in: manifest, key: "version") ?? "0.0.0-git",
+                version: try validatedManifestPathComponent(
+                    optionalManifestString(in: manifest, key: "version") ?? "0.0.0-git",
+                    fieldName: "version"
+                ),
                 generated: false,
                 main: main,
                 engineRequirement: (manifest["engines"] as? [String: Any]).flatMap { optionalManifestString(in: $0, key: "cmux") },
                 permissions: stringArray(in: manifest, key: "permissions"),
                 installPath: installPath,
                 installCommand: installCommand,
-                command: installCommand ?? nestedCommand?.command ?? main.map { "node \(shellSingleQuoted($0))" },
-                commandSource: installCommand.map { _ in "\(manifestName):install.command" }
-                    ?? nestedCommand.map { "\(manifestName):\($0.source)" }
+                command: nestedCommand?.command ?? main.map { "node \(shellSingleQuoted($0))" },
+                commandSource: nestedCommand.map { "\(manifestName):\($0.source)" }
                     ?? main.map { _ in "\(manifestName):main" },
                 sourceFile: manifestName
             )
@@ -181,9 +201,9 @@ enum CmuxUseSupport {
         let installPath = inferredInstallPath(in: checkoutURL)
         let installCommand = inferredInstallCommand(in: checkoutURL, package: package)
         let launchCommand = try? detectLaunchCommand(in: checkoutURL)
-        let command = launchCommand?.command ?? installCommand
+        let command = launchCommand?.command
         let commandSource = launchCommand.map { "generated:\($0.source)" }
-            ?? installCommand.map { _ in "generated:install.command" }
+        let permissionsCommand = command ?? installCommand
 
         return CmuxUseManifest(
             id: inferredExtensionID(for: repository),
@@ -193,7 +213,7 @@ enum CmuxUseSupport {
             generated: true,
             main: nil,
             engineRequirement: nil,
-            permissions: inferredPermissions(installPath: installPath, command: command),
+            permissions: inferredPermissions(installPath: installPath, command: permissionsCommand),
             installPath: installPath,
             installCommand: installCommand,
             command: command,
@@ -210,7 +230,7 @@ enum CmuxUseSupport {
             return trimmed.isEmpty ? nil : CmuxUseLaunchCommand(command: trimmed, source: source)
         }
 
-        for scriptName in ["launch.sh", "use.sh", "install.sh", "setup.sh", "start.sh", "run.sh"] {
+        for scriptName in ["launch.sh", "use.sh", "start.sh", "run.sh"] {
             let scriptURL = checkoutURL.appendingPathComponent(scriptName, isDirectory: false)
             if FileManager.default.fileExists(atPath: scriptURL.path) {
                 return CmuxUseLaunchCommand(
@@ -258,17 +278,30 @@ enum CmuxUseSupport {
     }
 
     private static func manifestCommand(in manifest: [String: Any]) -> CmuxUseLaunchCommand? {
-        let keys = ["use", "launch", "install", "start", "command"]
-        if let command = stringValue(in: manifest, keys: keys) {
-            return CmuxUseLaunchCommand(command: command, source: "manifest")
+        return manifestCommand(in: manifest, source: "manifest")
+    }
+
+    private static func manifestCommand(in object: [String: Any], source: String) -> CmuxUseLaunchCommand? {
+        let keys = ["use", "launch", "start", "run", "command"]
+        if let command = stringValue(in: object, keys: keys) {
+            return CmuxUseLaunchCommand(command: command, source: source)
         }
 
-        for nestedKey in ["scripts", "commands", "cmux"] {
-            guard let nested = manifest[nestedKey] as? [String: Any],
-                  let command = stringValue(in: nested, keys: keys) else {
+        for key in ["scripts", "commands", "cmux"] {
+            guard let nested = object[key] as? [String: Any],
+                  let command = manifestCommand(in: nested, source: "\(source):\(key)") else {
                 continue
             }
-            return CmuxUseLaunchCommand(command: command, source: "manifest:\(nestedKey)")
+            return command
+        }
+
+        let reserved = Set(["install", "engines", "permissions"])
+        for key in object.keys.sorted() where !reserved.contains(key) {
+            guard let nested = object[key] as? [String: Any],
+                  let command = manifestCommand(in: nested, source: "\(source):\(key)") else {
+                continue
+            }
+            return command
         }
 
         return nil
@@ -276,7 +309,7 @@ enum CmuxUseSupport {
 
     private static func optionalManifestString(in object: [String: Any], key: String) -> String? {
         guard let raw = object[key] as? String else { return nil }
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = stripControlCharacters(raw).trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
 
@@ -349,7 +382,7 @@ enum CmuxUseSupport {
     }
 
     private static func normalizedManifestPath(_ raw: String) -> String {
-        var value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        var value = stripControlCharacters(raw).trimmingCharacters(in: .whitespacesAndNewlines)
         while value.count > 1, value.hasSuffix("/") {
             value.removeLast()
         }
@@ -366,42 +399,6 @@ enum CmuxUseSupport {
         }
         let value = String(contents[captureRange]).trimmingCharacters(in: .whitespacesAndNewlines)
         return value.isEmpty ? nil : value
-    }
-
-    private static func manifestInstallPathURL(_ raw: String, homeURL: URL) throws -> URL {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            throw CLIError(message: "cmux.extension.json install.path must be non-empty")
-        }
-
-        let relativePath: String
-        if trimmed.hasPrefix("~/") {
-            relativePath = String(trimmed.dropFirst(2))
-        } else if trimmed.hasPrefix("$HOME/") {
-            relativePath = String(trimmed.dropFirst("$HOME/".count))
-        } else {
-            throw CLIError(message: "cmux.extension.json install.path must start with ~/ or $HOME/ and include a subdirectory")
-        }
-
-        let parts = relativePath
-            .split(separator: "/", omittingEmptySubsequences: true)
-            .map(String.init)
-        guard !parts.isEmpty,
-              parts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else {
-            throw CLIError(message: "cmux.extension.json install.path must include a subdirectory and must not contain '.' or '..'")
-        }
-
-        let home = homeURL.standardizedFileURL
-        var resolved = home
-        for part in parts {
-            resolved.appendPathComponent(part, isDirectory: true)
-        }
-        let standardized = resolved.standardizedFileURL
-        let homePrefix = home.path.hasSuffix("/") ? home.path : "\(home.path)/"
-        guard standardized.path.hasPrefix(homePrefix) else {
-            throw CLIError(message: "cmux.extension.json install.path must resolve inside the user's home directory")
-        }
-        return standardized
     }
 
     private static func stringArray(in object: [String: Any], key: String) -> [String] {

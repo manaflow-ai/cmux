@@ -7,7 +7,7 @@ extension CmuxUseSupport {
             return nil
         }
 
-        for script in ["use", "cmux", "start", "dev", "install"] {
+        for script in ["use", "cmux", "start", "dev"] {
             guard scripts[script] is String else { continue }
             return CmuxUseLaunchCommand(
                 command: "\(packageManagerCommand(in: checkoutURL)) run \(script)",
@@ -45,10 +45,10 @@ extension CmuxUseSupport {
         for filename in ["Makefile", "makefile"] {
             let makefileURL = checkoutURL.appendingPathComponent(filename, isDirectory: false)
             guard let contents = try? String(contentsOf: makefileURL, encoding: .utf8) else { continue }
-            for target in ["use", "install", "start", "run"] where makefile(contents, hasTarget: target) {
+            for target in ["start", "run", "use"] where makefile(contents, hasTarget: target) {
                 return CmuxUseLaunchCommand(command: "make \(target)", source: "\(filename):\(target)")
             }
-            return CmuxUseLaunchCommand(command: "make", source: filename)
+            return nil
         }
         return nil
     }
@@ -83,12 +83,12 @@ extension CMUXCLI {
       git@github.com:owner/repo.git
 
     Detection order:
-      cmux.extension.json install/command/main
-      cmux-extension.json install/command/main
+      cmux.extension.json install plus launch/command/main
+      cmux-extension.json install plus launch/command/main
       generated compatibility manifest
-      launch.sh, use.sh, install.sh, setup.sh, start.sh, run.sh
-      package.json scripts: use, cmux, start, dev, install
-      Makefile targets: use, install, start, run
+      launch.sh, use.sh, start.sh, run.sh
+      package.json scripts: use, cmux, start, dev
+      Makefile targets: start, run, use
 
     Flags:
       --command <cmd>  Run this command instead of the detected command
@@ -207,6 +207,9 @@ extension CMUXCLI {
         } else {
             generatedManifestURL = nil
         }
+        if let installCommand = manifest.installCommand {
+            try runUseInstallCommand(installCommand, cwd: install.url)
+        }
 
         let detectedCommand: CmuxUseLaunchCommand?
         if options.shouldRunDetectedCommand {
@@ -324,10 +327,46 @@ extension CMUXCLI {
         try? fm.removeItem(at: tempURL.appendingPathComponent(".git", isDirectory: true))
 
         if existed {
-            try fm.removeItem(at: installURL)
+            let backupURL = parentURL.appendingPathComponent(".\(manifest.version).previous.\(UUID().uuidString)", isDirectory: true)
+            try fm.moveItem(at: installURL, to: backupURL)
+            do {
+                try fm.moveItem(at: tempURL, to: installURL)
+                try? fm.removeItem(at: backupURL)
+            } catch {
+                if !fm.fileExists(atPath: installURL.path),
+                   fm.fileExists(atPath: backupURL.path) {
+                    try? fm.moveItem(at: backupURL, to: installURL)
+                }
+                throw error
+            }
+        } else {
+            try fm.moveItem(at: tempURL, to: installURL)
         }
-        try fm.moveItem(at: tempURL, to: installURL)
         return CmuxUseCheckoutResult(url: installURL, action: existed ? "reinstalled" : "installed")
+    }
+
+    private func runUseInstallCommand(_ command: String, cwd: URL) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-lc", command]
+        process.currentDirectoryURL = cwd
+
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        try process.run()
+        process.waitUntilExit()
+
+        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard process.terminationStatus == 0 else {
+            let detail = stderr.isEmpty ? stdout : stderr
+            throw CLIError(message: "cmux use install command failed: \(detail.isEmpty ? "exit \(process.terminationStatus)" : detail)")
+        }
     }
 
     private func ensureUseCheckout(
@@ -359,6 +398,18 @@ extension CMUXCLI {
         let gitDirectoryURL = checkoutURL.appendingPathComponent(".git", isDirectory: true)
         guard fm.fileExists(atPath: gitDirectoryURL.path) else {
             throw CLIError(message: "Extension checkout exists but is not a git repository: \(checkoutURL.path)")
+        }
+
+        let remoteResult = CLIProcessRunner.runProcess(
+            executablePath: gitPath,
+            arguments: ["-C", checkoutURL.path, "remote", "get-url", "origin"]
+        )
+        guard remoteResult.status == 0 else {
+            throw CLIError(message: "git remote get-url origin failed: \(trimmedProcessError(remoteResult))")
+        }
+        let remoteURL = remoteResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard CmuxUseSupport.gitRemote(remoteURL, matches: repository) else {
+            throw CLIError(message: "Existing checkout origin '\(remoteURL)' does not match \(repository.cloneURL)")
         }
 
         let pullResult = CLIProcessRunner.runProcess(

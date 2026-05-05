@@ -34,6 +34,7 @@
 		C0DEF0A30000000000000001 /* SidebarPortDisplayText.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0A30000000000000002 /* SidebarPortDisplayText.swift */; };
 		C0DEF0B10000000000000001 /* JSONCParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0B10000000000000002 /* JSONCParser.swift */; };
 		C0DEF0B30000000000000001 /* KeyboardShortcutSettingsFileStoreMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0B30000000000000002 /* KeyboardShortcutSettingsFileStoreMigrationTests.swift */; };
+		C5A100080000000000000001 /* CMUXCLI+UsePathSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5A100070000000000000001 /* CMUXCLI+UsePathSupport.swift */; };
 		E3337001E3337001E3337001 /* KeyboardShortcutSettingsFileStoreStartupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3337002E3337002E3337002 /* KeyboardShortcutSettingsFileStoreStartupTests.swift */; };
 		C34670010000000000000001 /* AppDelegateRenameShortcutContextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34670010000000000000002 /* AppDelegateRenameShortcutContextTests.swift */; };
 		C34670020000000000000001 /* KeyboardShortcutContextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34670020000000000000002 /* KeyboardShortcutContextTests.swift */; };
@@ -611,6 +612,7 @@
 		B9000001A1B2C3D4E5F60719 /* cmux.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmux.swift; sourceTree = "<group>"; };
 		C5A100010000000000000001 /* CMUXCLI+Use.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Use.swift"; sourceTree = "<group>"; };
 		C5A100030000000000000001 /* CMUXCLI+UseSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+UseSupport.swift"; sourceTree = "<group>"; };
+		C5A100070000000000000001 /* CMUXCLI+UsePathSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+UsePathSupport.swift"; sourceTree = "<group>"; };
 		C5A100050000000000000001 /* CMUXCLI+SocketSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SocketSupport.swift"; sourceTree = "<group>"; };
 		C510C1E00000000000000001 /* SocketOperationTelemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketOperationTelemetry.swift; sourceTree = "<group>"; };
 		B9000030A1B2C3D4E5F60719 /* cmux_open.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmux_open.swift; sourceTree = "<group>"; };
@@ -1031,6 +1033,7 @@
 				B9000001A1B2C3D4E5F60719 /* cmux.swift */,
 				C5A100010000000000000001 /* CMUXCLI+Use.swift */,
 				C5A100030000000000000001 /* CMUXCLI+UseSupport.swift */,
+				C5A100070000000000000001 /* CMUXCLI+UsePathSupport.swift */,
 				C5A100050000000000000001 /* CMUXCLI+SocketSupport.swift */,
 				C510C1E00000000000000001 /* SocketOperationTelemetry.swift */,
 				B9000030A1B2C3D4E5F60719 /* cmux_open.swift */,
@@ -1541,6 +1544,7 @@
 				B9000002A1B2C3D4E5F60719 /* cmux.swift in Sources */,
 				C5A100020000000000000001 /* CMUXCLI+Use.swift in Sources */,
 				C5A100040000000000000001 /* CMUXCLI+UseSupport.swift in Sources */,
+				C5A100080000000000000001 /* CMUXCLI+UsePathSupport.swift in Sources */,
 				C5A100060000000000000001 /* CMUXCLI+SocketSupport.swift in Sources */,
 				C510C1E00000000000000002 /* SocketOperationTelemetry.swift in Sources */,
 				B9000034A1B2C3D4E5F60719 /* cmux_open.swift in Sources */,

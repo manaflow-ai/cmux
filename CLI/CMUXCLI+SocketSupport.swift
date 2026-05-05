@@ -12,7 +12,9 @@ extension CMUXCLI {
         ) {
             let authResponse = try client.send(command: "auth \(socketPassword)")
             if authResponse.hasPrefix("ERROR:"),
-               !authResponse.contains("Unknown command 'auth'") {
+               authResponse.contains("Unknown command 'auth'") {
+                _ = try client.sendV2(method: "auth.login", params: ["password": socketPassword])
+            } else if authResponse.hasPrefix("ERROR:") {
                 throw CLIError(message: authResponse)
             }
         }
@@ -22,7 +24,16 @@ extension CMUXCLI {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
         process.arguments = ["-a", "cmux"]
+        let stderrPipe = Pipe()
+        process.standardError = stderrPipe
         try process.run()
         process.waitUntilExit()
+        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        let stderr = String(data: stderrData, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard process.terminationStatus == 0 else {
+            let detail = stderr.isEmpty ? "" : ": \(stderr)"
+            throw CLIError(message: "open -a cmux failed with exit \(process.terminationStatus)\(detail)")
+        }
     }
 }
