@@ -110,7 +110,7 @@ struct FeedPanelView: View {
 
     private var controlBarContent: some View {
         HStack(spacing: 6) {
-            ForEach(Filter.allCases) { f in
+            ForEach([Filter.actionable]) { f in
                 FeedSecondaryFilterButton(
                     filter: f,
                     isSelected: filter == f

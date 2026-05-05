@@ -7882,16 +7882,7 @@ struct ContentView: View {
         }
         for mode in RightSidebarMode.allCases {
             registry.register(commandId: Self.commandPaletteRightSidebarModeCommandID(mode)) {
-                if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
-                    mode: mode,
-                    focusFirstItem: true,
-                    preferredWindow: observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
-                ) != true {
-                    fileExplorerState.setVisible(true)
-                    if fileExplorerState.mode != mode {
-                        fileExplorerState.mode = mode
-                    }
-                }
+                handleCommandPaletteRightSidebarMode(mode, observedWindow: observedWindow)
             }
         }
         registry.register(commandId: "palette.toggleMatchTerminalBackground") {
