@@ -4749,20 +4749,20 @@ struct CMUXCLI {
             remoteBootstrapScript: remoteTerminalBootstrapScript
         )
         let deferredRemoteReconnectToken = UUID().uuidString.lowercased()
-        let deferredRemoteReconnectCommand = deferredRemoteReconnectLocalCommand(
+        let deferredRemoteReconnectCommandScript = deferredRemoteReconnectLocalCommandScript(
             in: remoteSSHOptions,
             localCLIPath: resolvedExecutableURL()?.path,
             foregroundAuthToken: deferredRemoteReconnectToken
         )
-        let sshConnectionTimingCommand = sshConnectionTimingLocalCommand(
+        let sshConnectionTimingCommandScript = sshConnectionTimingLocalCommandScript(
             target: sshOptions.displayDestination,
             relayPort: sshOptions.remoteRelayPort
         )
         let combinedLocalCommandScript = combinedLocalShellScript([
-            deferredRemoteReconnectCommand,
-            sshConnectionTimingCommand,
+            deferredRemoteReconnectCommandScript,
+            sshConnectionTimingCommandScript,
         ])
-        let configuredForegroundAuthToken = deferredRemoteReconnectCommand == nil ? nil : deferredRemoteReconnectToken
+        let configuredForegroundAuthToken = deferredRemoteReconnectCommandScript == nil ? nil : deferredRemoteReconnectToken
         let startupInitialSSHCommand = buildSSHCommandText(
             sshOptions,
             localCommandScript: combinedLocalCommandScript
@@ -4854,7 +4854,7 @@ struct CMUXCLI {
             var configureParams: [String: Any] = [
                 "workspace_id": workspaceId,
                 "destination": sshOptions.displayDestination,
-                "auto_connect": deferredRemoteReconnectCommand == nil,
+                "auto_connect": deferredRemoteReconnectCommandScript == nil,
             ]
             if let configuredForegroundAuthToken {
                 configureParams["foreground_auth_token"] = configuredForegroundAuthToken
@@ -4883,7 +4883,7 @@ struct CMUXCLI {
                 "cli.ssh.remote.configure workspace=\(String(workspaceId.prefix(8))) " +
                 "target=\(sshOptions.displayDestination) relayPort=\(sshOptions.remoteRelayPort) " +
                 "controlPath=\(sshOptionValue(named: "ControlPath", in: remoteSSHOptions) ?? "nil") " +
-                "deferredReconnect=\(deferredRemoteReconnectCommand == nil ? 0 : 1) " +
+                "deferredReconnect=\(deferredRemoteReconnectCommandScript == nil ? 0 : 1) " +
                 "sshOptions=\(remoteSSHOptions.joined(separator: "|"))"
             )
             let configureStartedAt = Date()
@@ -6630,7 +6630,7 @@ struct CMUXCLI {
         return false
     }
 
-    private func deferredRemoteReconnectLocalCommand(
+    private func deferredRemoteReconnectLocalCommandScript(
         in options: [String],
         localCLIPath: String?,
         foregroundAuthToken: String
@@ -6658,7 +6658,7 @@ struct CMUXCLI {
         ].joined(separator: " ")
     }
 
-    private func sshConnectionTimingLocalCommand(target: String, relayPort: Int) -> String {
+    private func sshConnectionTimingLocalCommandScript(target: String, relayPort: Int) -> String {
         let escapedTarget = target
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
