@@ -266,6 +266,17 @@ EXTRA_SETTINGS=(
     "INFOPLIST_KEY_CFBundleDisplayName=$DISPLAY_NAME"
 )
 
+APP_LAUNCH_ARGS=()
+if [ -n "${CMUX_IOS_BRIDGE_TICKET:-}" ]; then
+    APP_LAUNCH_ARGS+=(--cmux-ticket "$CMUX_IOS_BRIDGE_TICKET")
+fi
+if [ "${CMUX_IOS_AUTOCONNECT:-}" = "1" ] || [ -n "${CMUX_IOS_BRIDGE_TICKET:-}" ]; then
+    APP_LAUNCH_ARGS+=(--cmux-autoconnect)
+fi
+if [ "${CMUX_IOS_SHOW_TERMINAL_BOUNDS:-}" = "1" ]; then
+    APP_LAUNCH_ARGS+=(--cmux-show-terminal-bounds)
+fi
+
 echo "Building simulator app..."
 xcodebuild \
     -project cmux-ios.xcodeproj \
@@ -295,7 +306,7 @@ if [ -n "$BOOTED_SIMS" ]; then
             SIMULATOR_STATUS="failed"
             continue
         fi
-        if ! run_with_timeout 15 xcrun simctl launch "$SIM_ID" "$BUNDLE_ID" >/dev/null; then
+        if ! run_with_timeout 15 xcrun simctl launch "$SIM_ID" "$BUNDLE_ID" "${APP_LAUNCH_ARGS[@]}" >/dev/null; then
             echo "Simulator launch failed for $SIM_ID" >&2
             SIMULATOR_STATUS="failed"
         fi
@@ -356,7 +367,7 @@ if [ "$SIMULATOR_ONLY" -eq 0 ]; then
                 if ! xcrun devicectl device install app --device "$DEVICE_ID" "$DEVICE_APP_PATH" 2>&1 | tee "$DEVICE_LOG"; then
                     DEVICE_STATUS="failed"
                     DEVICE_RELOAD_DETAILS+=("$DEVICE_NAME reload reason: $(classify_device_reload_failure "$DEVICE_LOG") ($DEVICE_IDENTITY)")
-                elif ! xcrun devicectl device process launch --device "$DEVICE_ID" "$BUNDLE_ID" 2>&1 | tee "$DEVICE_LOG"; then
+                elif ! xcrun devicectl device process launch --device "$DEVICE_ID" "$BUNDLE_ID" "${APP_LAUNCH_ARGS[@]}" 2>&1 | tee "$DEVICE_LOG"; then
                     DEVICE_STATUS="installed_launch_failed"
                     DEVICE_RELOAD_DETAILS+=("$DEVICE_NAME reload reason: launch failed ($DEVICE_IDENTITY)")
                 fi

@@ -38,6 +38,7 @@ final class CmxConnectionStore: ObservableObject {
     @Published private var outputChunksByTerminalID: [UInt64: [CmxTerminalOutputChunk]] = [:]
     @Published private var nextOutputChunkID = 1
     private let authSessionStore: CmxStackAuthSessionStore
+    private let launchTicketStore: CmxLaunchTicketStateStore
     private let pairingSecretClient: CmxRivetPairingSecretFetching
     private let hiveDiscoveryClient: CmxHiveDiscoveryFetching
     private let hiveDiscoveryEndpoint: URL?
@@ -73,6 +74,7 @@ final class CmxConnectionStore: ObservableObject {
 
     init(
         authSessionStore: CmxStackAuthSessionStore = CmxKeychainStackAuthSessionStore(),
+        launchTicketStore: CmxLaunchTicketStateStore = CmxDisabledLaunchTicketStateStore(),
         pairingSecretClient: CmxRivetPairingSecretFetching = CmxRivetPairingSecretClient(),
         hiveDiscoveryClient: CmxHiveDiscoveryFetching = CmxHiveDiscoveryClient(),
         hiveDiscoveryEndpoint: URL? = CmxLaunchConfiguration.hiveDiscoveryEndpoint(),
@@ -82,12 +84,21 @@ final class CmxConnectionStore: ObservableObject {
         launchAutoconnect: Bool = CmxLaunchConfiguration.shouldAutoconnect()
     ) {
         self.authSessionStore = authSessionStore
+        self.launchTicketStore = launchTicketStore
         self.pairingSecretClient = pairingSecretClient
         self.hiveDiscoveryClient = hiveDiscoveryClient
         self.hiveDiscoveryEndpoint = hiveDiscoveryEndpoint
         self.terminalSessionFactory = terminalSessionFactory
         stackAuthSession = try? authSessionStore.load()
-        if let ticket = launchTicket {
+        let explicitLaunchTicket = launchTicket.flatMap(Self.nonEmptyTicket)
+        let storedLaunchState = explicitLaunchTicket == nil ? (try? launchTicketStore.load()) : nil
+        let storedLaunchTicket = storedLaunchState.flatMap { Self.nonEmptyTicket($0.ticket) }
+        let resolvedLaunchTicket = explicitLaunchTicket ?? storedLaunchTicket
+        let resolvedAutoconnect = launchAutoconnect || (explicitLaunchTicket == nil && storedLaunchState?.autoconnect == true)
+        if let explicitLaunchTicket {
+            try? launchTicketStore.save(CmxLaunchTicketState(ticket: explicitLaunchTicket, autoconnect: launchAutoconnect))
+        }
+        if let ticket = resolvedLaunchTicket {
             ticketText = ticket
             clearWorkspaceState()
         }
@@ -96,7 +107,7 @@ final class CmxConnectionStore: ObservableObject {
         if startHiveDiscoveryOnInit {
             refreshHiveDiscoveryIfPossible()
         }
-        if launchAutoconnect {
+        if resolvedAutoconnect {
             Task { @MainActor [weak self] in
                 self?.connect()
             }
@@ -174,6 +185,7 @@ final class CmxConnectionStore: ObservableObject {
         do {
             let rawTicket = ticketText.trimmingCharacters(in: .whitespacesAndNewlines)
             let parsed = try CmxBridgeTicketParser.parse(rawTicket)
+            try? launchTicketStore.save(CmxLaunchTicketState(ticket: rawTicket, autoconnect: true))
             reconnectAllowed = true
             reconnectPending = false
             if !isAutomaticReconnect {
@@ -231,6 +243,7 @@ final class CmxConnectionStore: ObservableObject {
     func signOut() {
         do {
             try authSessionStore.clear()
+            try launchTicketStore.clear()
             stackAuthSession = nil
             hiveDiscoveryTask?.cancel()
             hiveDiscoveryTask = nil
@@ -468,6 +481,11 @@ final class CmxConnectionStore: ObservableObject {
             pinned: false,
             spaces: []
         )
+    }
+
+    private static func nonEmptyTicket(_ ticket: String) -> String? {
+        let trimmed = ticket.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private func appendOutput(_ data: Data, terminalID: UInt64) {

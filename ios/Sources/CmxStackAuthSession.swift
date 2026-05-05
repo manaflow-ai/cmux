@@ -23,6 +23,26 @@ protocol CmxStackAuthSessionStore {
     func clear() throws
 }
 
+struct CmxLaunchTicketState: Codable, Equatable {
+    let ticket: String
+    let autoconnect: Bool
+}
+
+protocol CmxLaunchTicketStateStore {
+    func load() throws -> CmxLaunchTicketState?
+    func save(_ state: CmxLaunchTicketState) throws
+    func clear() throws
+}
+
+struct CmxDisabledLaunchTicketStateStore: CmxLaunchTicketStateStore {
+    func load() throws -> CmxLaunchTicketState? {
+        nil
+    }
+
+    func save(_: CmxLaunchTicketState) throws {}
+    func clear() throws {}
+}
+
 enum CmxStackAuthCallback {
     static func parse(url: URL) throws -> CmxStackAuthSession {
         guard isSupportedCallbackURL(url) else {
@@ -147,6 +167,75 @@ struct CmxKeychainStackAuthSessionStore: CmxStackAuthSessionStore {
     }
 }
 
+struct CmxKeychainLaunchTicketStateStore: CmxLaunchTicketStateStore {
+    private let service: String
+    private let account: String
+
+    init(
+        service: String = "dev.cmux.ios.launch-ticket",
+        account: String = "last-launch-ticket"
+    ) {
+        self.service = service
+        self.account = account
+    }
+
+    func load() throws -> CmxLaunchTicketState? {
+        var query = baseQuery()
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        query[kSecReturnData as String] = true
+
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecItemNotFound {
+            return nil
+        }
+        guard status == errSecSuccess else {
+            throw CmxLaunchTicketStateStoreError.keychain(status)
+        }
+        guard let data = result as? Data else {
+            throw CmxLaunchTicketStateStoreError.invalidPayload
+        }
+        return try JSONDecoder().decode(CmxLaunchTicketState.self, from: data)
+    }
+
+    func save(_ state: CmxLaunchTicketState) throws {
+        let data = try JSONEncoder().encode(state)
+        var query = baseQuery()
+        query[kSecValueData as String] = data
+        query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+
+        let status = SecItemAdd(query as CFDictionary, nil)
+        if status == errSecDuplicateItem {
+            let updateStatus = SecItemUpdate(baseQuery() as CFDictionary, [
+                kSecValueData as String: data,
+                kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+            ] as CFDictionary)
+            guard updateStatus == errSecSuccess else {
+                throw CmxLaunchTicketStateStoreError.keychain(updateStatus)
+            }
+            return
+        }
+        guard status == errSecSuccess else {
+            throw CmxLaunchTicketStateStoreError.keychain(status)
+        }
+    }
+
+    func clear() throws {
+        let status = SecItemDelete(baseQuery() as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw CmxLaunchTicketStateStoreError.keychain(status)
+        }
+    }
+
+    private func baseQuery() -> [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+    }
+}
+
 enum CmxStackAuthSessionStoreError: LocalizedError, Equatable {
     case keychain(OSStatus)
     case invalidPayload
@@ -160,6 +249,23 @@ enum CmxStackAuthSessionStoreError: LocalizedError, Equatable {
             )
         case .invalidPayload:
             return String(localized: "auth.error.invalid_session", defaultValue: "The saved Stack Auth session is invalid.")
+        }
+    }
+}
+
+enum CmxLaunchTicketStateStoreError: LocalizedError, Equatable {
+    case keychain(OSStatus)
+    case invalidPayload
+
+    var errorDescription: String? {
+        switch self {
+        case .keychain(let status):
+            return String(
+                format: String(localized: "ticket.error.keychain", defaultValue: "Could not update the saved cmux ticket (%d)."),
+                status
+            )
+        case .invalidPayload:
+            return String(localized: "ticket.error.invalid_saved_ticket", defaultValue: "The saved cmux ticket is invalid.")
         }
     }
 }

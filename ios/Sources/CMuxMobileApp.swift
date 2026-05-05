@@ -2,7 +2,9 @@ import SwiftUI
 
 @main
 struct CMuxMobileApp: App {
-    @StateObject private var connectionStore = CmxConnectionStore()
+    @StateObject private var connectionStore = CmxConnectionStore(
+        launchTicketStore: CmxKeychainLaunchTicketStateStore()
+    )
 
     var body: some Scene {
         WindowGroup {

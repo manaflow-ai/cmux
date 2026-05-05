@@ -13,6 +13,18 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "Keychain の Stack Auth セッションを更新できませんでした（%d）。" } }
       }
     },
+    "ticket.error.invalid_saved_ticket" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The saved cmux ticket is invalid." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "保存された cmux チケットが無効です。" } }
+      }
+    },
+    "ticket.error.keychain" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Could not update the saved cmux ticket (%d)." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "保存された cmux チケットを更新できませんでした（%d）。" } }
+      }
+    },
     "auth.error.missing_tokens" : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "The sign-in callback did not include Stack Auth tokens." } },

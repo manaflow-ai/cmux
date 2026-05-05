@@ -251,6 +251,70 @@ final class CmxBridgeTicketTests: XCTestCase {
     }
 
     @MainActor
+    func testExplicitLaunchTicketPersistsForIconRelaunch() {
+        let launchTicketStore = MemoryLaunchTicketStateStore()
+        let ticket = Self.directTicketJSON()
+
+        let store = CmxConnectionStore(
+            authSessionStore: MemoryStackAuthSessionStore(),
+            launchTicketStore: launchTicketStore,
+            pairingSecretClient: RecordingPairingSecretClient(),
+            terminalSessionFactory: RecordingTerminalSessionFactory(),
+            startHiveDiscoveryOnInit: false,
+            launchTicket: ticket,
+            launchAutoconnect: true
+        )
+
+        XCTAssertEqual(store.ticketText, ticket)
+        XCTAssertEqual(launchTicketStore.state, CmxLaunchTicketState(ticket: ticket, autoconnect: true))
+    }
+
+    @MainActor
+    func testStoredLaunchTicketAutoconnectsOnNormalIconLaunch() async {
+        let launchTicketStore = MemoryLaunchTicketStateStore()
+        let ticket = Self.directTicketJSON()
+        launchTicketStore.state = CmxLaunchTicketState(ticket: ticket, autoconnect: true)
+        let sessionFactory = RecordingTerminalSessionFactory()
+        let makeExpectation = expectation(description: "opens terminal session from saved launch ticket")
+        sessionFactory.makeExpectation = makeExpectation
+
+        let store = CmxConnectionStore(
+            authSessionStore: MemoryStackAuthSessionStore(),
+            launchTicketStore: launchTicketStore,
+            pairingSecretClient: RecordingPairingSecretClient(),
+            terminalSessionFactory: sessionFactory,
+            startHiveDiscoveryOnInit: false,
+            launchTicket: nil,
+            launchAutoconnect: false
+        )
+
+        await fulfillment(of: [makeExpectation], timeout: 3.0)
+        XCTAssertEqual(store.ticketText, ticket)
+        XCTAssertEqual(sessionFactory.lastRawTicket, ticket)
+        XCTAssertTrue(sessionFactory.session.didStart)
+    }
+
+    @MainActor
+    func testManualConnectPersistsValidTicketForIconRelaunch() {
+        let launchTicketStore = MemoryLaunchTicketStateStore()
+        let ticket = Self.directTicketJSON()
+        let store = CmxConnectionStore(
+            authSessionStore: MemoryStackAuthSessionStore(),
+            launchTicketStore: launchTicketStore,
+            pairingSecretClient: RecordingPairingSecretClient(),
+            terminalSessionFactory: RecordingTerminalSessionFactory(),
+            startHiveDiscoveryOnInit: false,
+            launchTicket: nil,
+            launchAutoconnect: false
+        )
+        store.ticketText = ticket
+
+        store.connect()
+
+        XCTAssertEqual(launchTicketStore.state, CmxLaunchTicketState(ticket: ticket, autoconnect: true))
+    }
+
+    @MainActor
     func testLaunchTicketStartsWithoutDemoWorkspaces() {
         let store = CmxConnectionStore(
             authSessionStore: MemoryStackAuthSessionStore(),
@@ -1461,6 +1525,17 @@ final class CmxBridgeTicketTests: XCTestCase {
 
         XCTAssertEqual(sessionFactory.session.startCount, 2)
     }
+
+    private static func directTicketJSON() -> String {
+        """
+        {
+          "version": 1,
+          "alpn": "/cmux/cmx/3",
+          "endpoint": { "id": "endpoint-public-key", "addrs": [] },
+          "auth": { "mode": "direct" }
+        }
+        """.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 }
 
 private enum CmxTestError: Error {
@@ -1480,6 +1555,22 @@ private final class MemoryStackAuthSessionStore: CmxStackAuthSessionStore {
 
     func clear() throws {
         session = nil
+    }
+}
+
+private final class MemoryLaunchTicketStateStore: CmxLaunchTicketStateStore {
+    var state: CmxLaunchTicketState?
+
+    func load() throws -> CmxLaunchTicketState? {
+        state
+    }
+
+    func save(_ state: CmxLaunchTicketState) throws {
+        self.state = state
+    }
+
+    func clear() throws {
+        state = nil
     }
 }
 
