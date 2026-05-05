@@ -28,7 +28,7 @@ final class RovoDevSessionIndexTests: XCTestCase {
 
         let outcome = SessionIndexStore.loadRovoDevEntriesForTesting(
             sessionsRoot: fixture.sessionsRoot.path,
-            needle: "rovo",
+            needle: "ROVO",
             cwdFilter: "/tmp/rovo repo"
         )
 
