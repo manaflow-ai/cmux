@@ -103,7 +103,7 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
             let data = try XCTUnwrap(line.data(using: .utf8))
             return try XCTUnwrap(JSONSerialization.jsonObject(with: data, options: []) as? [String: Any])
         }
-        let createParams = try XCTUnwrap(requests.first?["params"] as? [String: Any])
+        let createParams = try XCTUnwrap(requests.first { $0["method"] as? String == "workspace.create" }?["params"] as? [String: Any])
         let initialCommand = try XCTUnwrap(createParams["initial_command"] as? String)
         let configureParams = try XCTUnwrap(requests.first { $0["method"] as? String == "workspace.remote.configure" }?["params"] as? [String: Any])
         let foregroundAuthToken = try XCTUnwrap(configureParams["foreground_auth_token"] as? String)
@@ -136,6 +136,7 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
                 break
 
         if local_command:
+            local_command = local_command.replace("%%", "%")
             subprocess.run(["/bin/sh", "-c", local_command], check=False, env=os.environ.copy())
         PY
         cat >/dev/null
