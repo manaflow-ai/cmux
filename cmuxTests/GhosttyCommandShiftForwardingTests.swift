@@ -9,6 +9,8 @@ import AppKit
 
 @MainActor
 final class GhosttyCommandShiftForwardingTests: XCTestCase {
+    private static let keyCodeANSIK: UInt16 = 40
+
     private struct HostedTerminal {
         let surface: TerminalSurface
         let window: NSWindow
@@ -65,15 +67,20 @@ final class GhosttyCommandShiftForwardingTests: XCTestCase {
         let surfaceView = hostedTerminal.surfaceView
         defer { window.orderOut(nil) }
 
-        window.makeFirstResponder(surfaceView)
+        XCTAssertTrue(window.makeFirstResponder(surfaceView), "Expected Ghostty surface view to accept first responder")
         XCTAssertNotNil(surfaceView.terminalSurface)
 
         var forwardedKeyEvent: ghostty_input_key_s?
+        var forwardedPressCount = 0
+        let observedKeyCode = UInt32(Self.keyCodeANSIK)
         let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
         GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
             previousKeyEventObserver?(keyEvent)
-            guard keyEvent.action == GHOSTTY_ACTION_PRESS, keyEvent.keycode == 40 else { return }
-            forwardedKeyEvent = keyEvent
+            guard keyEvent.action == GHOSTTY_ACTION_PRESS, keyEvent.keycode == observedKeyCode else { return }
+            forwardedPressCount += 1
+            if forwardedKeyEvent == nil {
+                forwardedKeyEvent = keyEvent
+            }
         }
         defer { GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver }
 
@@ -87,7 +94,7 @@ final class GhosttyCommandShiftForwardingTests: XCTestCase {
             characters: "",
             charactersIgnoringModifiers: "k",
             isARepeat: false,
-            keyCode: 40
+            keyCode: Self.keyCodeANSIK
         ))
 
         withExtendedLifetime(hostedTerminal.surface) {
@@ -95,7 +102,8 @@ final class GhosttyCommandShiftForwardingTests: XCTestCase {
         }
 
         let keyEvent = try XCTUnwrap(forwardedKeyEvent)
-        XCTAssertEqual(keyEvent.keycode, 40)
+        XCTAssertEqual(forwardedPressCount, 1)
+        XCTAssertEqual(keyEvent.keycode, observedKeyCode)
         XCTAssertEqual(keyEvent.mods.rawValue & GHOSTTY_MODS_SUPER.rawValue, GHOSTTY_MODS_SUPER.rawValue)
         XCTAssertEqual(keyEvent.mods.rawValue & GHOSTTY_MODS_SHIFT.rawValue, GHOSTTY_MODS_SHIFT.rawValue)
         XCTAssertEqual(keyEvent.unshifted_codepoint, "k".unicodeScalars.first?.value)
