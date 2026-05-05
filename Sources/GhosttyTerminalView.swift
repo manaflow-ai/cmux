@@ -7043,6 +7043,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     // For NSTextInputClient - accumulates text during key events
     private(set) var keyTextAccumulator: [String]? = nil
     private var markedText = NSMutableAttributedString()
+    private var markedSelectedRange = NSRange(location: NSNotFound, length: 0)
     private var lastPerformKeyEvent: TimeInterval?
     private(set) var externalCommittedTextDepth = 0
     var numpadIMECommitDeduplicator = NumpadIMECommitDeduplicator()
@@ -12716,7 +12717,10 @@ extension GhosttyNSView: NSTextInputClient {
     }
 
     func selectedRange() -> NSRange {
-        readSelectionSnapshot()?.range ?? NSRange(location: 0, length: 0)
+        if markedText.length > 0 {
+            return markedSelectedRange
+        }
+        return readSelectionSnapshot()?.range ?? NSRange(location: 0, length: 0)
     }
 
     func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
@@ -12736,8 +12740,12 @@ extension GhosttyNSView: NSTextInputClient {
         case let v as String:
             markedText = NSMutableAttributedString(string: v)
         default:
-            break
+            return
         }
+        markedSelectedRange = normalizedMarkedSelectionRange(
+            selectedRange,
+            markedLength: markedText.length
+        )
 
         // If we're not in a keyDown event, sync preedit immediately.
         // This can happen due to external events like changing keyboard layouts
@@ -12762,6 +12770,7 @@ extension GhosttyNSView: NSTextInputClient {
 #endif
         if markedText.length > 0 {
             markedText.mutableString.setString("")
+            markedSelectedRange = NSRange(location: NSNotFound, length: 0)
             syncPreedit()
             invalidateTextInputCoordinates(selectionChanged: true)
         }
@@ -12804,10 +12813,43 @@ extension GhosttyNSView: NSTextInputClient {
     }
 
     func attributedSubstring(forProposedRange range: NSRange, actualRange: NSRangePointer?) -> NSAttributedString? {
+        if markedText.length > 0 {
+            guard let substringRange = clampedMarkedTextRange(range) else { return nil }
+            actualRange?.pointee = substringRange
+            return markedText.attributedSubstring(from: substringRange)
+        }
+
         guard range.length > 0,
               let snapshot = readSelectionSnapshot() else { return nil }
         actualRange?.pointee = snapshot.range
         return NSAttributedString(string: snapshot.string)
+    }
+
+    private func normalizedMarkedSelectionRange(_ range: NSRange, markedLength: Int) -> NSRange {
+        guard markedLength > 0 else {
+            return NSRange(location: NSNotFound, length: 0)
+        }
+        guard range.location != NSNotFound else {
+            return NSRange(location: markedLength, length: 0)
+        }
+
+        let clampedLocation = min(max(range.location, 0), markedLength)
+        let clampedLength = min(max(range.length, 0), markedLength - clampedLocation)
+        return NSRange(location: clampedLocation, length: clampedLength)
+    }
+
+    private func clampedMarkedTextRange(_ range: NSRange) -> NSRange? {
+        guard range.length > 0, range.location != NSNotFound else { return nil }
+        let markedLength = markedText.length
+        guard markedLength > 0 else { return nil }
+
+        let location = min(max(range.location, 0), markedLength)
+        let maxLength = markedLength - location
+        guard maxLength > 0 else { return nil }
+
+        let length = min(max(range.length, 0), maxLength)
+        guard length > 0 else { return nil }
+        return NSRange(location: location, length: length)
     }
 
     func characterIndex(for point: NSPoint) -> Int {
