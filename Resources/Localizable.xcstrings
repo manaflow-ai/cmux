@@ -52181,6 +52181,23 @@
         }
       }
     },
+    "settings.config.action.openActiveEditor": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Active Config…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有効な設定を開く…"
+          }
+        }
+      }
+    },
     "settings.config.action.reload": {
       "extractionState": "manual",
       "localizations": {
@@ -52211,6 +52228,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Finderで表示"
+          }
+        }
+      }
+    },
+    "settings.config.action.revealActiveFinder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reveal Active Config"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有効な設定を表示"
           }
         }
       }

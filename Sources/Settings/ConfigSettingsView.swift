@@ -103,13 +103,13 @@ struct ConfigSettingsView: View {
 
                 Spacer(minLength: 0)
 
-                Button(String(localized: "settings.config.action.openEditor", defaultValue: "Open in Editor…")) {
+                Button(openEditorButtonTitle) {
                     openCurrentSourceInEditor()
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
 
-                Button(String(localized: "settings.config.action.revealFinder", defaultValue: "Reveal in Finder")) {
+                Button(revealFinderButtonTitle) {
                     revealCurrentSourceInFinder()
                 }
                 .buttonStyle(.bordered)
@@ -152,6 +152,26 @@ struct ConfigSettingsView: View {
     private var editorBackground: some View {
         RoundedRectangle(cornerRadius: 10)
             .fill(Color(nsColor: .textBackgroundColor))
+    }
+
+    private var openEditorButtonTitle: String {
+        if configSource == .synced {
+            return String(
+                localized: "settings.config.action.openActiveEditor",
+                defaultValue: "Open Active Config…"
+            )
+        }
+        return String(localized: "settings.config.action.openEditor", defaultValue: "Open in Editor…")
+    }
+
+    private var revealFinderButtonTitle: String {
+        if configSource == .synced {
+            return String(
+                localized: "settings.config.action.revealActiveFinder",
+                defaultValue: "Reveal Active Config"
+            )
+        }
+        return String(localized: "settings.config.action.revealFinder", defaultValue: "Reveal in Finder")
     }
 
     private func configureWindow(_ window: NSWindow) {

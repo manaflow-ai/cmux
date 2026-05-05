@@ -21,8 +21,7 @@ struct ConfigSourceEnvironment {
                 currentBundleIdentifier: currentBundleIdentifier,
                 appSupportDirectory: standardizedHome
                     .appendingPathComponent("Library", isDirectory: true)
-                    .appendingPathComponent("Application Support", isDirectory: true),
-                fileManager: fileManager
+                    .appendingPathComponent("Application Support", isDirectory: true)
             )
     }
 
@@ -119,11 +118,9 @@ enum CmuxGhosttyConfigPathResolver {
 
     static func editableConfigURL(
         currentBundleIdentifier: String?,
-        appSupportDirectory: URL,
-        fileManager: FileManager = .default
+        appSupportDirectory: URL
     ) -> URL {
-        _ = fileManager
-        return configDirectoryURL(
+        configDirectoryURL(
             currentBundleIdentifier: currentBundleIdentifier,
             appSupportDirectory: appSupportDirectory
         )
@@ -143,8 +140,7 @@ enum CmuxGhosttyConfigPathResolver {
         .first
         ?? editableConfigURL(
             currentBundleIdentifier: currentBundleIdentifier,
-            appSupportDirectory: appSupportDirectory,
-            fileManager: fileManager
+            appSupportDirectory: appSupportDirectory
         )
     }
 
@@ -184,10 +180,8 @@ enum CmuxGhosttyConfigPathResolver {
 
     static func configDirectoryURL(
         currentBundleIdentifier: String?,
-        appSupportDirectory: URL,
-        fileManager: FileManager = .default
+        appSupportDirectory: URL
     ) -> URL {
-        _ = fileManager
         guard let currentBundleIdentifier, !currentBundleIdentifier.isEmpty else {
             return appSupportDirectory.appendingPathComponent(releaseBundleIdentifier, isDirectory: true)
         }
@@ -202,15 +196,33 @@ enum CmuxGhosttyConfigPathResolver {
         let directory = appSupportDirectory.appendingPathComponent(bundleIdentifier, isDirectory: true)
         let legacyConfig = directory.appendingPathComponent("config", isDirectory: false)
         let configGhostty = directory.appendingPathComponent("config.ghostty", isDirectory: false)
-        if isNonEmptyRegularFile(configGhostty, fileManager: fileManager) {
+        if isNonEmptyConfigFile(configGhostty, fileManager: fileManager) {
             // Do not layer legacy config under config.ghostty. Older builds wrote
             // explicit dark colors there, which blocks appearance-driven themes.
             return [configGhostty]
         }
-        if isNonEmptyRegularFile(legacyConfig, fileManager: fileManager) {
+        if isNonEmptyConfigFile(legacyConfig, fileManager: fileManager) {
             return [legacyConfig]
         }
         return []
+    }
+
+    private static func isNonEmptyConfigFile(_ url: URL, fileManager: FileManager) -> Bool {
+        var isDirectory = ObjCBool(false)
+        guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory),
+              !isDirectory.boolValue else {
+            return false
+        }
+
+        if (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true {
+            return isNonEmptySymlinkTarget(url, fileManager: fileManager)
+        }
+
+        return isNonEmptyRegularFile(url, fileManager: fileManager)
+    }
+
+    private static func isNonEmptySymlinkTarget(_ url: URL, fileManager: FileManager) -> Bool {
+        isNonEmptyRegularFile(url.resolvingSymlinksInPath(), fileManager: fileManager)
     }
 
     private static func isNonEmptyRegularFile(_ url: URL, fileManager: FileManager) -> Bool {

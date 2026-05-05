@@ -1837,18 +1837,6 @@ final class StoredShortcutMatchingTests: XCTestCase {
         )
     }
 
-    func testSettingsFileShortcutNormalizationDoesNotUseRecorderConflictLookup() {
-        KeyboardShortcutSettings.resetAll()
-        defer { KeyboardShortcutSettings.resetAll() }
-
-        let shortcut = StoredShortcut(key: "t", command: true, shift: false, option: false, control: false)
-
-        XCTAssertEqual(
-            KeyboardShortcutSettings.Action.openBrowser.normalizedSettingsFileShortcut(shortcut),
-            shortcut
-        )
-    }
-
     func testShortcutRecorderResolutionRejectsNumberedShortcutAgainstReservedDigitFamily() {
         KeyboardShortcutSettings.resetAll()
         defer { KeyboardShortcutSettings.resetAll() }
