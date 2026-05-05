@@ -4759,19 +4759,19 @@ struct CMUXCLI {
             target: sshOptions.displayDestination,
             relayPort: sshOptions.remoteRelayPort
         )
-        let combinedLocalCommand = combinedLocalShellCommand([
+        let combinedLocalCommandScript = combinedLocalShellScript([
             deferredRemoteReconnectCommand,
             sshConnectionTimingCommand,
         ])
         let configuredForegroundAuthToken = deferredRemoteReconnectCommand == nil ? nil : deferredRemoteReconnectToken
         let startupInitialSSHCommand = buildSSHCommandText(
             sshOptions,
-            localCommand: combinedLocalCommand
+            localCommandScript: combinedLocalCommandScript
         )
         let startupRemoteTerminalSSHCommand = buildSSHCommandText(
             sshOptions,
             remoteBootstrapScript: remoteTerminalBootstrapScript,
-            localCommand: combinedLocalCommand
+            localCommandScript: combinedLocalCommandScript
         )
         let initialSSHStartupCommand: String
         let remoteTerminalSSHStartupCommand: String
@@ -4781,14 +4781,14 @@ struct CMUXCLI {
                 remoteBootstrapScript: remoteTerminalBootstrapScript,
                 shellFeatures: shellFeaturesValue,
                 remoteRelayPort: sshOptions.remoteRelayPort,
-                localCommand: combinedLocalCommand
+                localCommandScript: combinedLocalCommandScript
             )
             remoteTerminalSSHStartupCommand = buildReusableBootstrapSSHStartupCommand(
                 options: sshOptions,
                 remoteBootstrapScript: remoteTerminalBootstrapScript,
                 shellFeatures: shellFeaturesValue,
                 remoteRelayPort: sshOptions.remoteRelayPort,
-                localCommand: combinedLocalCommand
+                localCommandScript: combinedLocalCommandScript
             )
         } else {
             initialSSHStartupCommand = try buildSSHStartupCommand(
@@ -5047,12 +5047,12 @@ struct CMUXCLI {
     func buildSSHCommandText(
         _ options: SSHCommandOptions,
         remoteBootstrapScript: String? = nil,
-        localCommand: String? = nil
+        localCommandScript: String? = nil
     ) -> String {
         buildSSHCommandArguments(
             options,
             remoteBootstrapScript: remoteBootstrapScript,
-            localCommand: localCommand
+            localCommandScript: localCommandScript
         )
         .map(shellQuote)
         .joined(separator: " ")
@@ -5061,16 +5061,16 @@ struct CMUXCLI {
     private func buildSSHCommandArguments(
         _ options: SSHCommandOptions,
         remoteBootstrapScript: String? = nil,
-        localCommand: String? = nil
+        localCommandScript: String? = nil
     ) -> [String] {
-        var parts = baseSSHArguments(options, localCommand: localCommand)
+        var parts = baseSSHArguments(options, localCommandScript: localCommandScript)
         let trimmedRemoteBootstrap = remoteBootstrapScript?
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
         if options.extraArguments.isEmpty {
             if let trimmedRemoteBootstrap, !trimmedRemoteBootstrap.isEmpty {
-                let remoteCommand = sshPercentEscapedRemoteCommand(
-                    encodedRemoteBootstrapCommand(
+                let remoteCommand = openSSHRemoteCommandValue(
+                    shellScript: encodedRemoteBootstrapCommand(
                         trimmedRemoteBootstrap,
                         remoteRelayPort: options.remoteRelayPort
                     )
@@ -5093,12 +5093,12 @@ struct CMUXCLI {
         remoteBootstrapScript: String,
         shellFeatures: String,
         remoteRelayPort: Int,
-        localCommand: String? = nil
+        localCommandScript: String? = nil
     ) throws -> String {
         let commandSnippet = buildSSHBootstrapCommandSnippet(
             options: options,
             remoteBootstrapScript: remoteBootstrapScript,
-            localCommand: localCommand
+            localCommandScript: localCommandScript
         )
         return try buildSSHStartupCommand(
             sshCommand: commandSnippet,
@@ -5113,12 +5113,12 @@ struct CMUXCLI {
         remoteBootstrapScript: String,
         shellFeatures: String,
         remoteRelayPort: Int,
-        localCommand: String? = nil
+        localCommandScript: String? = nil
     ) -> String {
         let commandSnippet = buildSSHBootstrapCommandSnippet(
             options: options,
             remoteBootstrapScript: remoteBootstrapScript,
-            localCommand: localCommand
+            localCommandScript: localCommandScript
         )
         return buildReusableSSHStartupCommand(
             sshCommand: commandSnippet,
@@ -5131,17 +5131,17 @@ struct CMUXCLI {
     private func buildSSHBootstrapCommandSnippet(
         options: SSHCommandOptions,
         remoteBootstrapScript: String,
-        localCommand: String? = nil
+        localCommandScript: String? = nil
     ) -> String {
         let encodedBootstrapScript = Data(remoteBootstrapScript.utf8).base64EncodedString()
-        let installSSHPrefix = baseSSHArguments(options, localCommand: localCommand).map(shellQuote).joined(separator: " ")
+        let installSSHPrefix = baseSSHArguments(options, localCommandScript: localCommandScript).map(shellQuote).joined(separator: " ")
         let sessionSSHPrefix = baseSSHArguments(options).map(shellQuote).joined(separator: " ")
-        let remoteCommandTemplate = sshPercentEscapedRemoteCommand(
-            stagedRemoteBootstrapCommandShell(
+        let remoteCommandTemplate = openSSHRemoteCommandValue(
+            shellScript: stagedRemoteBootstrapCommandShell(
                 remoteRelayPort: options.remoteRelayPort
             )
         )
-        let remoteBootstrapInstallCommand = "/bin/sh -c " + shellQuote(
+        let remoteBootstrapInstallCommand = posixShellCommand(
             remoteBootstrapInstallShell(remoteRelayPort: options.remoteRelayPort)
         )
         var lines: [String] = [
@@ -5442,7 +5442,7 @@ struct CMUXCLI {
             shellFeatures: shellFeatures,
             terminfoSource: terminfoSource
         )
-        return "/bin/sh -c \(shellQuote(script))"
+        return posixShellCommand(script)
     }
 
     private func interactiveRemoteTerminalSetupLines(terminfoSource: String?) -> [String] {
@@ -5520,7 +5520,7 @@ struct CMUXCLI {
         ]
     }
 
-    private func baseSSHArguments(_ options: SSHCommandOptions, localCommand: String? = nil) -> [String] {
+    private func baseSSHArguments(_ options: SSHCommandOptions, localCommandScript: String? = nil) -> [String] {
         let effectiveSSHOptions = effectiveSSHOptions(
             options.sshOptions,
             remoteRelayPort: options.remoteRelayPort
@@ -5550,8 +5550,7 @@ struct CMUXCLI {
         for option in effectiveSSHOptions {
             parts += ["-o", option]
         }
-        if let localCommand, !localCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let escapedLocalCommand = localCommand.replacingOccurrences(of: "%", with: "%%")
+        if let escapedLocalCommand = openSSHLocalCommandValue(shellScript: localCommandScript) {
             parts += ["-o", "PermitLocalCommand=yes"]
             parts += ["-o", "LocalCommand=\(escapedLocalCommand)"]
         }
@@ -5635,10 +5634,6 @@ struct CMUXCLI {
             "exit $cmux_status",
         ]
         return lines.joined(separator: "\n")
-    }
-
-    func sshPercentEscapedRemoteCommand(_ remoteCommand: String) -> String {
-        remoteCommand.replacingOccurrences(of: "%", with: "%%")
     }
 
     func buildSSHStartupCommand(
@@ -6669,23 +6664,14 @@ struct CMUXCLI {
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
         return [
-            "cmux_ssh_log_path=\"$(tr -d '\\r\\n' < /tmp/cmux-last-debug-log-path 2>/dev/null || true)\";",
+            "cmux_ssh_log_path=\"\";",
+            "if [ -r /tmp/cmux-last-debug-log-path ]; then cmux_ssh_log_path=\"$(tr -d '\\r\\n' < /tmp/cmux-last-debug-log-path 2>/dev/null || true)\"; fi;",
             "if [ -n \"$cmux_ssh_log_path\" ]; then",
             "cmux_ssh_ts=\"$(python3 -c 'from datetime import datetime, timezone; print(datetime.now(timezone.utc).isoformat(timespec=\"milliseconds\").replace(\"+00:00\", \"Z\"))' 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%SZ)\";",
             "printf '%s [cmux-cli] cli.ssh.handshake target=\(escapedTarget) relayPort=\(relayPort) stage=ssh.connected workspace=%s surface=%s\\n' \"$cmux_ssh_ts\" \"${CMUX_WORKSPACE_ID:-nil}\" \"${CMUX_SURFACE_ID:-nil}\" >> \"$cmux_ssh_log_path\";",
             "fi;",
             "unset cmux_ssh_log_path cmux_ssh_ts;",
         ].joined(separator: " ")
-    }
-
-    private func combinedLocalShellCommand(_ parts: [String?]) -> String? {
-        let filtered = parts.compactMap { raw -> String? in
-            guard let raw else { return nil }
-            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? nil : trimmed
-        }
-        guard !filtered.isEmpty else { return nil }
-        return filtered.joined(separator: " ")
     }
 
     private func shouldDeferRemoteReconnect(in options: [String]) -> Bool {
@@ -6732,7 +6718,7 @@ struct CMUXCLI {
         return trimmed
     }
 
-    private func shellQuote(_ value: String) -> String {
+    func shellQuote(_ value: String) -> String {
         let safePattern = "^[A-Za-z0-9_@%+=:,./-]+$"
         if value.range(of: safePattern, options: .regularExpression) != nil {
             return value
@@ -15618,12 +15604,27 @@ struct CMUXCLI {
         var result: [String: String] = [:]
         for key in allowedKeys {
             guard let value = env[key] else { continue }
-            result[key] = value
+            result[key] = key == "CLAUDE_CONFIG_DIR" ? normalizedClaudeConfigDirectory(value) : value
         }
         if let nodeOptions = selectedAgentLaunchNodeOptions(from: env) {
             result["NODE_OPTIONS"] = nodeOptions
         }
         return result
+    }
+
+    private func normalizedClaudeConfigDirectory(_ rawValue: String) -> String {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return rawValue }
+        let standardized = ((trimmed as NSString).expandingTildeInPath as NSString).standardizingPath
+        let home = ((NSHomeDirectory() as NSString).expandingTildeInPath as NSString).standardizingPath
+        let legacyRoot = ((home as NSString).appendingPathComponent(".subrouter/codex/claude") as NSString).standardizingPath
+        guard standardized == legacyRoot || standardized.hasPrefix(legacyRoot + "/") else { return standardized }
+        let accountRoot = ((home as NSString).appendingPathComponent(".codex-accounts/claude") as NSString).standardizingPath
+        let candidate = accountRoot + String(standardized.dropFirst(legacyRoot.count))
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: candidate, isDirectory: &isDirectory) && isDirectory.boolValue
+            ? candidate
+            : standardized
     }
 
     private func selectedAgentLaunchNodeOptions(from env: [String: String]) -> String? {

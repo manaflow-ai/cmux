@@ -2,6 +2,9 @@
   "sourceLanguage": "en",
   "version": "1.0",
   "strings": {
+    "shortcut.commandPaletteNext.label": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "ja": { "stringUnit": { "state": "translated", "value": "コマンドパレット: 次へ" } }, "zh-Hans": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "zh-Hant": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "ko": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "de": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "es": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "fr": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "it": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "da": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "pl": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "ru": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "bs": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "ar": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "nb": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "th": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "tr": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "uk": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } } } },
+    "shortcut.commandPalettePrevious.label": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "ja": { "stringUnit": { "state": "translated", "value": "コマンドパレット: 前へ" } }, "zh-Hans": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "zh-Hant": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "ko": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "de": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "es": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "fr": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "it": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "da": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "pl": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "ru": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "bs": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "ar": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "nb": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "th": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "tr": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "uk": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } } } },
+    "settings.shortcuts.managedByFile": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "ja": { "stringUnit": { "state": "translated", "value": "cmux.json で管理" } }, "zh-Hans": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "zh-Hant": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "ko": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "de": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "es": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "fr": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "it": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "da": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "pl": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "ru": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "bs": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "ar": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "nb": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "th": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "tr": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "uk": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } } } },
     "detail.mode": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Mode" } }, "ja": { "stringUnit": { "state": "translated", "value": "モード" } } } },
     "detail.primaryAction": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Open Related File" } }, "ja": { "stringUnit": { "state": "translated", "value": "関連ファイルを開く" } } } },
     "detail.secondaryAction": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Restore Defaults" } }, "ja": { "stringUnit": { "state": "translated", "value": "デフォルトに戻す" } } } },
@@ -52136,13 +52139,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open Config Window"
+            "value": "Open Config"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "構成ウインドウを開く"
+            "value": "設定を開く"
           }
         }
       }
@@ -52153,13 +52156,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open the cmux config, standalone Ghostty config, and merged preview in one utility window."
+            "value": "Open the cmux terminal config and generated preview in one utility window."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux の設定、単体の Ghostty 設定、マージ後のプレビューを 1 つのユーティリティウインドウで開きます。"
+            "value": "cmux の端末設定と生成プレビューを 1 つのユーティリティウインドウで開きます。"
           }
         }
       }
@@ -52177,6 +52180,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "エディタで開く…"
+          }
+        }
+      }
+    },
+    "settings.config.action.openActiveEditor": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Active Config…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有効な設定を開く…"
           }
         }
       }
@@ -52215,6 +52235,23 @@
         }
       }
     },
+    "settings.config.action.revealActiveFinder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reveal Active Config in Finder"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有効な設定をFinderで表示"
+          }
+        }
+      }
+    },
     "settings.config.action.save": {
       "extractionState": "manual",
       "localizations": {
@@ -52238,47 +52275,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This is the config file cmux reads. Edit it here, then Save to reload cmux."
+            "value": "This is the cmux Ghostty config selected for this build. Edit it here, then Save to reload cmux."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "これは cmux が読み込む設定ファイルです。ここで編集し、保存すると cmux が再読み込みされます。"
-          }
-        }
-      }
-    },
-    "settings.config.banner.ghostty": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This file belongs to standalone Ghostty. cmux does not read it, so edits here do not affect cmux."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このファイルは単体の Ghostty 用です。cmux はこれを読み込まないため、ここでの編集は cmux に反映されません。"
-          }
-        }
-      }
-    },
-    "settings.config.banner.ghosttyMissing": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No standalone Ghostty config file was found at the preferred path. cmux still does not read standalone Ghostty config."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "優先パスに単体の Ghostty 設定ファイルが見つかりませんでした。cmux は単体の Ghostty 設定を読み込みません。"
+            "value": "これはこのビルドで選択されている cmux Ghostty 設定です。ここで編集し、保存すると cmux が再読み込みされます。"
           }
         }
       }
@@ -52306,13 +52309,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This is a generated preview of the effective config. No standalone Ghostty config file was found, so only cmux overrides are shown."
+            "value": "This is a generated preview of the effective config. No base Ghostty config file was found, so only cmux overrides are shown."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "これは実効設定の生成プレビューです。単体の Ghostty 設定ファイルが見つからなかったため、cmux の上書き設定のみを表示しています。"
+            "value": "これは実効設定の生成プレビューです。ベースの Ghostty 設定ファイルが見つからなかったため、cmux の上書き設定のみを表示しています。"
           }
         }
       }
@@ -52330,23 +52333,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux"
-          }
-        }
-      }
-    },
-    "settings.config.source.ghostty": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ghostty"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ghostty"
           }
         }
       }
@@ -52398,6 +52384,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "ディスクから構成を再読み込みしました。"
+          }
+        }
+      }
+    },
+    "settings.config.status.openFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't open the cmux config."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 設定を開けませんでした。"
           }
         }
       }
@@ -83250,6 +83253,23 @@
         }
       }
     },
+    "shortcut.key.space": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Space"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スペース"
+          }
+        }
+      }
+    },
     "shortcut.pressShortcut.prompt": {
       "extractionState": "manual",
       "localizations": {
@@ -104871,19 +104891,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show Sidebar Sessions"
+            "value": "Show Sidebar Vault"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サイドバーのセッションを表示"
+            "value": "サイドバーのボールトを表示"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사이드바 세션 표시"
+            "value": "사이드바 볼트 표시"
           }
         }
       }
@@ -105378,13 +105398,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sessions"
+            "value": "Vault"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "セッション"
+            "value": "ボールト"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "볼트"
           }
         }
       }
@@ -105440,19 +105466,48 @@
         }
       }
     },
+    "sessionIndex.agent.rovodev": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rovo Dev"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rovo Dev"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rovo Dev"
+          }
+        }
+      }
+    },
     "sessionIndex.untitled": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Untitled session"
+            "value": "Untitled chat"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "無題のセッション"
+            "value": "無題のチャット"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제목 없는 채팅"
           }
         }
       }
@@ -105497,13 +105552,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reload sessions"
+            "value": "Reload Vault"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "セッションを再読み込み"
+            "value": "ボールトを再読み込み"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "볼트 새로고침"
           }
         }
       }
@@ -105514,13 +105575,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Scanning sessions…"
+            "value": "Loading Vault…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "セッションをスキャン中…"
+            "value": "ボールトを読み込み中…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "볼트를 불러오는 중…"
           }
         }
       }
@@ -105531,13 +105598,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No sessions found"
+            "value": "Vault is empty"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "セッションが見つかりません"
+            "value": "ボールトは空です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "볼트가 비어 있습니다"
           }
         }
       }
@@ -105548,13 +105621,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sessions from Claude Code, Codex, and OpenCode will appear here."
+            "value": "Claude Code, Codex, OpenCode, and Rovo Dev history will appear here."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude Code、Codex、OpenCode のセッションがここに表示されます。"
+            "value": "Claude Code、Codex、OpenCode、Rovo Dev の履歴がここに表示されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code, Codex, OpenCode 및 Rovo Dev의 기록이 여기에 표시됩니다."
           }
         }
       }
@@ -105565,13 +105644,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No sessions"
+            "value": "No chats"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "セッションなし"
+            "value": "チャットなし"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대화 없음"
           }
         }
       }
@@ -105820,13 +105905,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Search sessions"
+            "value": "Search Vault"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "セッションを検索"
+            "value": "ボールトを検索"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "볼트 검색"
           }
         }
       }
@@ -110563,6 +110654,90 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Open a workspace, terminal, or browser surface to see it here." } },
         "ja": { "stringUnit": { "state": "translated", "value": "ワークスペース、ターミナル、またはブラウザサーフェスを開くとここに表示されます。" } }
+      }
+    },
+    "taskManager.contextMenu.viewWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "View Workspace" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースを表示" } }
+      }
+    },
+    "taskManager.contextMenu.viewTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "View Terminal" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルを表示" } }
+      }
+    },
+    "taskManager.contextMenu.killProcess": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Kill Process..." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プロセスを終了..." } }
+      }
+    },
+    "taskManager.killProcess.title.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Kill process?" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プロセスを終了しますか？" } }
+      }
+    },
+    "taskManager.killProcess.message.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Ask %@ (PID %lld) to terminate gracefully. cmux will force-kill it if it is still running after a short grace period." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@（PID %lld）に正常終了を要求します。短い猶予時間の後も実行中の場合、cmux が強制終了します。" } }
+      }
+    },
+    "taskManager.killProcess.title.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Kill processes?" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プロセスを終了しますか？" } }
+      }
+    },
+    "taskManager.killProcess.message.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Ask %lld processes to terminate gracefully. cmux will force-kill remaining processes after a short grace period. PIDs: %@." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%lld 個のプロセスに正常終了を要求します。短い猶予時間の後も残っているプロセスは cmux が強制終了します。PID: %@。" } }
+      }
+    },
+    "taskManager.killProcess.confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Kill" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "終了" } }
+      }
+    },
+    "taskManager.killProcess.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Cancel" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "キャンセル" } }
+      }
+    },
+    "taskManager.killProcess.error": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unable to kill process: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プロセスを終了できません: %@" } }
+      }
+    },
+    "taskManager.killProcess.target.processGroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "process group %lld" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プロセスグループ %lld" } }
+      }
+    },
+    "taskManager.killProcess.target.pid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "PID %lld" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "PID %lld" } }
       }
     },
     "taskManager.updated.never": {

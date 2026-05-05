@@ -12,7 +12,8 @@ const shortcutChordExample = `{
       "newSurface": ["ctrl+b", "c"],
       "showNotifications": ["ctrl+b", "i"],
       "toggleSidebar": "cmd+b",
-      "splitRight": ""
+      "splitRight": "",
+      "commandPalettePrevious": null
     }
   }
 }`;

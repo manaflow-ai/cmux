@@ -94,6 +94,7 @@ enum GhosttyNotificationKey {
     static let cellSize = "ghostty.cellSize"
     static let tabId = "ghostty.tabId"
     static let surfaceId = "ghostty.surfaceId"
+    static let explicitFocusIntent = "ghostty.explicitFocusIntent"
     static let title = "ghostty.title"
     static let backgroundColor = "ghostty.backgroundColor"
     static let backgroundOpacity = "ghostty.backgroundOpacity"
@@ -105,4 +106,3 @@ enum GhosttyNotificationKey {
     static let selectionBackground = "ghostty.selectionBackground"
     static let selectionForeground = "ghostty.selectionForeground"
 }
-

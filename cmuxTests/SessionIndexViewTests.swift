@@ -65,7 +65,7 @@ final class SessionIndexViewTests: XCTestCase {
 
         XCTAssertEqual(
             entry.resumeCommand,
-            "env CLAUDE_CONFIG_DIR='/tmp/claude config' claude --resume claude-session-123"
+            "env CLAUDE_CONFIG_DIR='/tmp/claude config' CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1 CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR claude --resume claude-session-123"
         )
     }
 
@@ -80,7 +80,7 @@ final class SessionIndexViewTests: XCTestCase {
 
         XCTAssertEqual(
             entry.resumeCommand,
-            "env CLAUDE_CONFIG_DIR='/tmp/projects/claude config' claude --resume claude-session-123"
+            "env CLAUDE_CONFIG_DIR='/tmp/projects/claude config' CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1 CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR claude --resume claude-session-123"
         )
     }
 

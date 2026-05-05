@@ -79,7 +79,8 @@ const settingsFileExample = `{
   // "shortcuts": {
   //   "bindings": {
   //     "toggleSidebar": "cmd+b",
-  //     "newTab": ["ctrl+b", "c"]
+  //     "newTab": ["ctrl+b", "c"],
+  //     "commandPalettePrevious": null
   //   }
   // },
 }`;
@@ -354,9 +355,13 @@ working-directory = ~/code`}</CodeBlock>
         <code>shortcuts.bindings</code>
       </h3>
       <p>
-        Use a string for a single shortcut, or a two-item array for a chord. Example:{" "}
-        <code>[&quot;ctrl+b&quot;, &quot;c&quot;]</code>. Numbered actions use <code>1</code> as
-        the stored default and still match digits <code>1</code> through <code>9</code>.
+        Use a string for a single shortcut, a two-item array for a chord, or <code>null</code> to
+        unbind a shortcut in <code>shortcuts.bindings</code>. Unbind aliases also include
+        empty string (<code>&quot;&quot;</code>), <code>none</code>, <code>clear</code>,{" "}
+        <code>unbound</code>, and <code>disabled</code>. Example chord:{" "}
+        <code>[&quot;ctrl+b&quot;, &quot;c&quot;]</code>. Numbered actions use{" "}
+        <code>1</code> as the stored default and still match digits <code>1</code> through{" "}
+        <code>9</code>.
       </p>
       <p>
         The defaults below are the same cmux-owned actions listed on the{" "}
