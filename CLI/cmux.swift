@@ -16677,7 +16677,27 @@ export default CMUXSessionRestore;
     private static func rovoDevYAMLScalar(_ rawValue: String) -> String {
         var value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return "" }
-        if let first = value.first, first == "\"" || first == "'" {
+        if value.first == "'" {
+            value.removeFirst()
+            var parsed = ""
+            var index = value.startIndex
+            while index < value.endIndex {
+                let character = value[index]
+                if character == "'" {
+                    let next = value.index(after: index)
+                    if next < value.endIndex, value[next] == "'" {
+                        parsed.append("'")
+                        index = value.index(after: next)
+                        continue
+                    }
+                    return parsed
+                }
+                parsed.append(character)
+                index = value.index(after: index)
+            }
+            return parsed
+        }
+        if let first = value.first, first == "\"" {
             value.removeFirst()
             if let end = value.firstIndex(of: first) {
                 value = String(value[..<end])

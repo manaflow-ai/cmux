@@ -103,7 +103,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
-    func testRovoDevPromptSubmitReadsConfiguredPersistenceDirWithCommentsAndHashPath() throws {
+    func testRovoDevPromptSubmitReadsConfiguredPersistenceDirWithCommentsHashAndApostrophePath() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("rovo-config")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -111,7 +111,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-rovo-config-hook-\(UUID().uuidString)", isDirectory: true)
         let workspace = root.appendingPathComponent("repo", isDirectory: true)
-        let sessionsRoot = root.appendingPathComponent("sessions#hash", isDirectory: true)
+        let sessionsRoot = root.appendingPathComponent("sessions#john's", isDirectory: true)
         let configDir = root.appendingPathComponent(".rovodev", isDirectory: true)
         let workspaceId = "55555555-5555-5555-5555-555555555555"
         let surfaceId = "66666666-6666-6666-6666-666666666666"
@@ -130,7 +130,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "  # top-level comments inside sessions should not end the block",
             "  nested:",
             "    persistenceDir: /tmp/wrong",
-            "  persistenceDir: '~/sessions#hash'",
+            "  persistenceDir: '~/sessions#john''s'",
             "other: true",
         ].joined(separator: "\r\n")
         try config.write(
