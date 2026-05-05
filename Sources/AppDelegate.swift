@@ -5252,6 +5252,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
+    private func preferredWindowForSidebarVisibilityShortcut(event: NSEvent) -> NSWindow? { mainWindowForShortcutEvent(event) ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow }
+
     private func resolvedShortcutEventWindow(_ event: NSEvent) -> NSWindow? {
         if let window = event.window {
             return window
@@ -5418,6 +5420,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             setActiveMainWindow(window)
             context.sidebarState.toggle()
+            synchronizeSidebarPortalGeometry(in: window)
             return true
         }
 
@@ -5452,6 +5455,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow) else {
             if let fileExplorerState {
                 fileExplorerState.toggle()
+                synchronizeSidebarPortalGeometry(in: preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow)
                 return true
             }
             return false
@@ -5467,6 +5471,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         let wasVisible = state.isVisible
         state.toggle()
+        synchronizeSidebarPortalGeometry(in: window)
         if wasVisible && !state.isVisible {
             _ = context.keyboardFocusCoordinator.restoreTerminalFocusAfterRightSidebarHiddenIfNeeded()
         }
@@ -10930,7 +10935,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Primary UI shortcuts
         if matchConfiguredShortcut(event: event, action: .toggleSidebar) {
-            _ = toggleSidebarInActiveMainWindow()
+            _ = toggleSidebarInActiveMainWindow(preferredWindow: preferredWindowForSidebarVisibilityShortcut(event: event))
             return true
         }
 
@@ -10966,13 +10971,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .toggleFileExplorer) {
-            // Escape AppKit's performKeyEquivalent animation context. Without
-            // deferring the toggle, NSAnimationContext implicitly animates the
-            // layout change.
-            let preferredWindow = mainWindowForShortcutEvent(event) ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
-            Task { @MainActor [weak self, weak preferredWindow] in
-                _ = self?.toggleRightSidebarInActiveMainWindow(preferredWindow: preferredWindow)
-            }
+            _ = toggleRightSidebarInActiveMainWindow(preferredWindow: preferredWindowForSidebarVisibilityShortcut(event: event))
             return true
         }
 
