@@ -28,7 +28,6 @@
 		35230000000000000000000E /* AppAppearancePickerRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35230000000000000000000F /* AppAppearancePickerRow.swift */; };
 		3523C0DE0000000000000003 /* TerminalThemeCore in Frameworks */ = {isa = PBXBuildFile; productRef = 3523C0DE0000000000000002 /* TerminalThemeCore */; };
 		3523C0DE0000000000000004 /* TerminalThemeCore in Frameworks */ = {isa = PBXBuildFile; productRef = 3523C0DE0000000000000002 /* TerminalThemeCore */; };
-		3523C0DE0000000000000005 /* TerminalThemeCore in Frameworks */ = {isa = PBXBuildFile; productRef = 3523C0DE0000000000000002 /* TerminalThemeCore */; };
 		350DAC5EBD38642A3E81471A /* AuthManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 312DE7503B4658DD173121B8 /* AuthManager.swift */; };
 		36CE99ED050785B5E96B72BB /* AuthCallbackRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61A19A4145F034965110CF87 /* AuthCallbackRouter.swift */; };
 		4378399A7C0245EF8186F306 /* OmnibarAndToolsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B09C007F42697761B5F1A2AB /* OmnibarAndToolsTests.swift */; };
@@ -749,7 +748,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				3523C0DE0000000000000005 /* TerminalThemeCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

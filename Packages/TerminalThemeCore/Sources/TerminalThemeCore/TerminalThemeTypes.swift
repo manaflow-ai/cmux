@@ -1,6 +1,6 @@
 import Foundation
 
-public enum TerminalThemeMode: Equatable, Hashable {
+public enum TerminalThemeMode: Equatable, Hashable, Sendable {
     case custom
     case named(String)
     case adaptive(light: String, dark: String)
@@ -18,7 +18,7 @@ public enum TerminalThemeMode: Equatable, Hashable {
     }
 }
 
-public struct TerminalThemeSelection: Equatable {
+public struct TerminalThemeSelection: Equatable, Sendable {
     public let mode: TerminalThemeMode
     public let rawValue: String?
     public let light: String?

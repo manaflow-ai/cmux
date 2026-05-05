@@ -73,9 +73,7 @@ extension TerminalThemeSettings {
                     darkTheme = value
                 }
             default:
-                if fallbackTheme == nil {
-                    fallbackTheme = value
-                }
+                containsMalformedToken = true
             }
         }
 

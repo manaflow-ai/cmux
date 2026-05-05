@@ -1,12 +1,6 @@
 import XCTest
 import TerminalThemeCore
 
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
-#elseif canImport(cmux)
-@testable import cmux
-#endif
-
 final class TerminalThemeSettingsTests: XCTestCase {
     func testTerminalThemeCustomClearsManagedThemeStateAndLegacyThemeDirectives() throws {
         let appSupport = FileManager.default.temporaryDirectory

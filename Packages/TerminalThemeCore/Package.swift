@@ -15,7 +15,14 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "TerminalThemeCore"
+            name: "TerminalThemeCore",
+            swiftSettings: [
+                .unsafeFlags(["-strict-concurrency=complete"])
+            ]
+        ),
+        .testTarget(
+            name: "TerminalThemeCoreTests",
+            dependencies: ["TerminalThemeCore"]
         ),
     ]
 )
