@@ -60,14 +60,21 @@ def env(**updates: str):
 
 
 def base_env(author: str) -> dict[str, str]:
+  author_ids = {
+    "lawrencecchen": "54008264",
+    "austinywang": "38676809",
+    "alice": "1111",
+    "mallory": "2222",
+  }
   return {
     "GITHUB_API_URL": "https://api.github.test",
     "CIRCLECI_API_URL": "https://circleci.test/api/v2",
     "GITHUB_REPOSITORY": "manaflow-ai/cmux",
     "PR_HEAD_SHA": "abc123",
     "PR_AUTHOR": author,
+    "PR_AUTHOR_ID": author_ids[author],
     "TRUSTED_GITHUB_ORG": "manaflow-ai",
-    "TRUSTED_GITHUB_USERS": "lawrencecchen,austyinywang",
+    "TRUSTED_GITHUB_USERS": "lawrencecchen:54008264,austinywang:38676809",
     "GITHUB_TOKEN": "github-token",
     "CIRCLECI_TOKEN": "circle-token",
     "CIRCLECI_APPROVAL_MAX_ATTEMPTS": "1",
@@ -99,11 +106,21 @@ def fake_workflow_jobs() -> dict[str, Any]:
   }
 
 
+def trusted_user_response(url: str) -> FakeResponse | None:
+  if url.endswith("/users/lawrencecchen"):
+    return FakeResponse({"login": "lawrencecchen", "id": 54008264})
+  if url.endswith("/users/austinywang"):
+    return FakeResponse({"login": "austinywang", "id": 38676809})
+  return None
+
+
 def test_allowlisted_user_approves_without_membership_lookup() -> None:
   calls: list[tuple[str, str]] = []
 
   def urlopen(request: Any, timeout: int = 20) -> FakeResponse:
     calls.append((request.get_method(), request.full_url))
+    if response := trusted_user_response(request.full_url):
+      return response
     if request.full_url.endswith("/check-runs?per_page=100"):
       return FakeResponse(fake_check_runs())
     if request.full_url.endswith(f"/workflow/{WORKFLOW_ID}/job"):
@@ -119,6 +136,7 @@ def test_allowlisted_user_approves_without_membership_lookup() -> None:
 
   urls = [url for _, url in calls]
   assert not any("/orgs/manaflow-ai/members/lawrencecchen" in url for url in urls)
+  assert any(url.endswith("/users/austinywang") for url in urls)
   assert any(method == "POST" and url == f"https://circleci.test/api/v2/workflow/{WORKFLOW_ID}/approve/{APPROVAL_ID}" for method, url in calls), calls
 
 
@@ -127,6 +145,8 @@ def test_visible_org_member_approves() -> None:
 
   def urlopen(request: Any, timeout: int = 20) -> FakeResponse:
     calls.append((request.get_method(), request.full_url))
+    if response := trusted_user_response(request.full_url):
+      return response
     if request.full_url.endswith("/orgs/manaflow-ai/members/alice"):
       return FakeResponse()
     if request.full_url.endswith("/check-runs?per_page=100"):
@@ -150,6 +170,8 @@ def test_non_member_does_not_call_circleci() -> None:
 
   def urlopen(request: Any, timeout: int = 20) -> FakeResponse:
     calls.append((request.get_method(), request.full_url))
+    if response := trusted_user_response(request.full_url):
+      return response
     if request.full_url.endswith("/orgs/manaflow-ai/members/mallory"):
       raise http_error(request.full_url, 404)
     raise AssertionError(f"unexpected request: {request.full_url}")
@@ -162,10 +184,37 @@ def test_non_member_does_not_call_circleci() -> None:
   assert all("circleci.test" not in url for _, url in calls)
 
 
+def test_unresolvable_allowlisted_login_fails_closed() -> None:
+  calls: list[tuple[str, str]] = []
+  test_env = base_env("lawrencecchen")
+  test_env["TRUSTED_GITHUB_USERS"] = "lawrencecchen:54008264,austyinywang:38676809"
+
+  def urlopen(request: Any, timeout: int = 20) -> FakeResponse:
+    calls.append((request.get_method(), request.full_url))
+    if request.full_url.endswith("/users/lawrencecchen"):
+      return FakeResponse({"login": "lawrencecchen", "id": 54008264})
+    if request.full_url.endswith("/users/austyinywang"):
+      raise http_error(request.full_url, 404)
+    raise AssertionError(f"unexpected request: {request.full_url}")
+
+  with env(**test_env):
+    module = load_module()
+    with mock.patch.object(module.urllib.request, "urlopen", urlopen):
+      try:
+        module.run()
+      except SystemExit:
+        pass
+      else:
+        raise AssertionError("expected SystemExit")
+
+  assert all("circleci.test" not in url for _, url in calls)
+
+
 def main() -> None:
   test_allowlisted_user_approves_without_membership_lookup()
   test_visible_org_member_approves()
   test_non_member_does_not_call_circleci()
+  test_unresolvable_allowlisted_login_fails_closed()
   print("PASS: CircleCI auto approval trusts only allowlisted users or org members")
 
 

@@ -22,8 +22,9 @@ class Config:
   repository: str
   pr_head_sha: str
   pr_author: str
+  pr_author_id: int
   trusted_org: str
-  trusted_users: set[str]
+  trusted_users: dict[str, int]
   github_token: str
   circleci_token: str
   hold_job_name: str
@@ -32,8 +33,17 @@ class Config:
   dry_run: bool
 
 
-def split_csv(value: str) -> set[str]:
-  return {item.strip() for item in value.split(",") if item.strip()}
+def parse_trusted_users(value: str) -> dict[str, int]:
+  trusted: dict[str, int] = {}
+  for item in value.split(","):
+    if not item.strip():
+      continue
+    try:
+      login, user_id = item.strip().split(":", 1)
+      trusted[login] = int(user_id)
+    except ValueError as error:
+      raise SystemExit(f"Invalid TRUSTED_GITHUB_USERS entry: {item!r}") from error
+  return trusted
 
 
 def load_config() -> Config:
@@ -41,8 +51,9 @@ def load_config() -> Config:
     repository=require_env("GITHUB_REPOSITORY"),
     pr_head_sha=require_env("PR_HEAD_SHA"),
     pr_author=require_env("PR_AUTHOR"),
+    pr_author_id=int(require_env("PR_AUTHOR_ID")),
     trusted_org=os.environ.get("TRUSTED_GITHUB_ORG", "manaflow-ai"),
-    trusted_users=split_csv(os.environ.get("TRUSTED_GITHUB_USERS", "")),
+    trusted_users=parse_trusted_users(os.environ.get("TRUSTED_GITHUB_USERS", "")),
     github_token=require_env("GITHUB_TOKEN"),
     circleci_token=os.environ.get("CIRCLECI_TOKEN", ""),
     hold_job_name=os.environ.get("CIRCLECI_HOLD_JOB_NAME", "hold-for-approval"),
@@ -75,8 +86,10 @@ def request_json(url: str, *, token: str, token_header: str = "Authorization", m
 
 
 def is_org_member(config: Config) -> bool:
-  if config.pr_author in config.trusted_users:
-    print(f"{config.pr_author} is explicitly trusted")
+  validate_trusted_users(config)
+
+  if config.trusted_users.get(config.pr_author) == config.pr_author_id:
+    print(f"{config.pr_author} ({config.pr_author_id}) is explicitly trusted")
     return True
 
   token = os.environ.get("GITHUB_ORG_READ_TOKEN") or config.github_token
@@ -90,6 +103,18 @@ def is_org_member(config: Config) -> bool:
       print(f"{config.pr_author} is not visible as a member of {config.trusted_org}")
       return False
     raise
+
+
+def validate_trusted_users(config: Config) -> None:
+  for login, expected_id in config.trusted_users.items():
+    url = f"{GITHUB_API}/users/{login}"
+    try:
+      payload = request_json(url, token=config.github_token)
+    except urllib.error.HTTPError as error:
+      raise SystemExit(f"Trusted GitHub user {login!r} could not be resolved") from error
+    actual_id = payload.get("id")
+    if actual_id != expected_id:
+      raise SystemExit(f"Trusted GitHub user {login!r} resolved to {actual_id}, expected {expected_id}")
 
 
 def check_runs(config: Config) -> list[dict[str, Any]]:
