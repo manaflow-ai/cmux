@@ -4,9 +4,9 @@
 20530	CLI/cmux.swift
 17317	Sources/TerminalController.swift
 15956	Sources/ContentView.swift
-14636	Sources/AppDelegate.swift
+14662	Sources/AppDelegate.swift
 13975	Sources/Workspace.swift
-13458	Sources/GhosttyTerminalView.swift
+13465	Sources/GhosttyTerminalView.swift
 10607	Sources/Panels/BrowserPanel.swift
 8285	Sources/cmuxApp.swift
 7488	Sources/TabManager.swift
@@ -52,7 +52,7 @@
 976	cmuxTests/OmnibarAndToolsTests.swift
 923	Sources/DockPanelView.swift
 908	cmuxTests/CommandPaletteSearchEngineTests.swift
-829	cmuxUITests/TerminalCmdClickUITests.swift
+868	cmuxUITests/TerminalCmdClickUITests.swift
 820	Sources/RestorableAgentSession.swift
 807	Sources/TerminalSSHSessionDetector.swift
 801	Sources/WorkspaceContentView.swift
