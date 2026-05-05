@@ -783,6 +783,7 @@ def main() -> int:
     test_live_socket_enforces_heap_cap_for_space_separated_flag(failures)
     test_live_socket_preserves_quoted_existing_require_path(failures)
     test_live_socket_bad_tmpdir_still_uses_durable_node_options_injection(failures)
+    test_live_socket_restore_dir_override_keeps_sanitizer_suffix(failures)
     test_live_socket_does_not_duplicate_bypass_availability_flag(failures)
     test_live_socket_stale_mktemp_literal_does_not_warn(failures)
     test_missing_socket_skips_hook_injection(failures)
