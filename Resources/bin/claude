@@ -71,6 +71,69 @@ resolve_hook_cmux_bin() {
     printf '%s' "cmux"
 }
 
+CLAUDE_AUTH_SELECTION_ENV_KEYS=(
+    ANTHROPIC_API_KEY
+    ANTHROPIC_AUTH_TOKEN
+    ANTHROPIC_BASE_URL
+    ANTHROPIC_MODEL
+    ANTHROPIC_SMALL_FAST_MODEL
+    CLAUDE_CODE_USE_BEDROCK
+    CLAUDE_CODE_USE_VERTEX
+)
+
+PRESERVE_CLAUDE_AUTH_SELECTION_ENV=false
+case "${CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV:-}" in
+    1|true|TRUE|yes|YES) PRESERVE_CLAUDE_AUTH_SELECTION_ENV=true ;;
+esac
+
+should_preserve_claude_auth_selection_key() {
+    [[ "$PRESERVE_CLAUDE_AUTH_SELECTION_ENV" == true ]] || return 1
+
+    local configured_keys="${CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS:-}"
+    [[ -n "$configured_keys" ]] || return 0
+
+    configured_keys="${configured_keys//,/ }"
+    local configured_key
+    for configured_key in $configured_keys; do
+        [[ "$configured_key" == "$1" ]] && return 0
+    done
+    return 1
+}
+
+normalize_claude_config_dir() {
+    [[ -n "${CLAUDE_CONFIG_DIR:-}" ]] || return 0
+    [[ -n "${HOME:-}" ]] || return 0
+
+    local value="$CLAUDE_CONFIG_DIR"
+    local legacy_root="$HOME/.subrouter/codex/claude"
+    local account_root="$HOME/.codex-accounts/claude"
+    if [[ "$value" == "~/"* ]]; then
+        value="$HOME/${value#~/}"
+    fi
+
+    case "$value" in
+        "$legacy_root"|"$legacy_root"/*)
+            local suffix="${value#$legacy_root}"
+            local candidate="$account_root$suffix"
+            if [[ -e "$candidate" || -L "$candidate" ]]; then
+                export CLAUDE_CONFIG_DIR="$candidate"
+            fi
+            ;;
+    esac
+}
+
+clear_inherited_claude_auth_selection_env() {
+    if [[ "${IN_CMUX:-0}" == "1" ]]; then
+        local key
+        for key in "${CLAUDE_AUTH_SELECTION_ENV_KEYS[@]}"; do
+            should_preserve_claude_auth_selection_key "$key" && continue
+            unset "$key"
+        done
+    fi
+    # Safe outside cmux: this only rewrites an existing subrouter path when the account alias exists.
+    normalize_claude_config_dir
+}
+
 # Pass through if not in a cmux terminal, hooks are disabled, or the cmux
 # socket is unavailable (stale env / app not running).
 IN_CMUX=0
@@ -84,6 +147,7 @@ if [[ "$IN_CMUX" == "0" || "$CMUX_CLAUDE_HOOKS_DISABLED" == "1" ]] || ! cmux_soc
     if [[ "$IN_CMUX" == "1" ]]; then
         unset CLAUDECODE
     fi
+    clear_inherited_claude_auth_selection_env
     REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
     exec "$REAL_CLAUDE" "$@"
 fi
@@ -201,12 +265,16 @@ encode_launch_argv() {
 
 # Pass through subcommands that don't support session/hook flags.
 case "${1:-}" in
-    mcp|config|api-key|rc|remote-control) exec "$REAL_CLAUDE" "$@" ;;
+    mcp|config|api-key|rc|remote-control)
+        clear_inherited_claude_auth_selection_env
+        exec "$REAL_CLAUDE" "$@"
+        ;;
 esac
 
 # Unset CLAUDECODE to avoid "nested session" detection — cmux terminals are
 # independent sessions even when the parent shell was launched from Claude Code.
 unset CLAUDECODE
+clear_inherited_claude_auth_selection_env
 
 # Check if the user already specified a session/resume flag.
 # If so, don't inject our own --session-id (it would conflict).

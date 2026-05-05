@@ -10,7 +10,8 @@ struct ShortcutRecorderValidationPresentation: Equatable {
         attempt: ShortcutRecorderRejectedAttempt?,
         action: KeyboardShortcutSettings.Action,
         currentShortcut: StoredShortcut,
-        shortcutForAction: (KeyboardShortcutSettings.Action) -> StoredShortcut = KeyboardShortcutSettings.shortcut(for:)
+        shortcutForAction: (KeyboardShortcutSettings.Action) -> StoredShortcut = KeyboardShortcutSettings.shortcut(for:),
+        isManagedBySettingsFile: (KeyboardShortcutSettings.Action) -> Bool = KeyboardShortcutSettings.isManagedBySettingsFile
     ) {
         guard let attempt else { return nil }
         guard Self.shouldPresent(
@@ -25,7 +26,8 @@ struct ShortcutRecorderValidationPresentation: Equatable {
             attempt: attempt,
             action: action,
             currentShortcut: currentShortcut,
-            shortcutForAction: shortcutForAction
+            shortcutForAction: shortcutForAction,
+            isManagedBySettingsFile: isManagedBySettingsFile
         )
 
         self.message = Self.message(
@@ -109,7 +111,8 @@ struct ShortcutRecorderValidationPresentation: Equatable {
         attempt: ShortcutRecorderRejectedAttempt,
         action: KeyboardShortcutSettings.Action,
         currentShortcut: StoredShortcut,
-        shortcutForAction: (KeyboardShortcutSettings.Action) -> StoredShortcut
+        shortcutForAction: (KeyboardShortcutSettings.Action) -> StoredShortcut,
+        isManagedBySettingsFile: (KeyboardShortcutSettings.Action) -> Bool
     ) -> Bool {
         guard case let .conflictsWithAction(conflictingAction) = attempt.reason,
               let proposedShortcut = attempt.proposedShortcut else {
@@ -121,6 +124,11 @@ struct ShortcutRecorderValidationPresentation: Equatable {
             proposedAction: action,
             configuredShortcut: shortcutForAction(conflictingAction)
         ) else {
+            return false
+        }
+
+        guard !isManagedBySettingsFile(action),
+              !isManagedBySettingsFile(conflictingAction) else {
             return false
         }
 
@@ -136,23 +144,32 @@ struct ShortcutRecorderValidationPresentation: Equatable {
 struct ShortcutSettingRow: View {
     let action: KeyboardShortcutSettings.Action
     @State private var shortcut: StoredShortcut
+    @State private var isManagedBySettingsFile: Bool
 
     init(action: KeyboardShortcutSettings.Action) {
         self.action = action
         _shortcut = State(initialValue: KeyboardShortcutSettings.shortcut(for: action))
+        _isManagedBySettingsFile = State(initialValue: KeyboardShortcutSettings.isManagedBySettingsFile(action))
     }
 
     var body: some View {
         ShortcutRecorderSettingsControl(
             action: action,
             shortcut: $shortcut,
-            displayString: { action.displayedShortcutString(for: $0) }
+            subtitle: isManagedBySettingsFile ? KeyboardShortcutSettings.settingsFileManagedSubtitle(for: action) : nil,
+            displayString: { action.displayedShortcutString(for: $0) },
+            isDisabled: isManagedBySettingsFile
         )
         .onChange(of: shortcut) { _, newValue in
+            guard !isManagedBySettingsFile else { return }
             KeyboardShortcutSettings.setShortcut(newValue, for: action)
         }
         .onReceive(NotificationCenter.default.publisher(for: KeyboardShortcutSettings.didChangeNotification)) { _ in
             let latest = KeyboardShortcutSettings.shortcut(for: action)
+            let latestManagedState = KeyboardShortcutSettings.isManagedBySettingsFile(action)
+            if latestManagedState != isManagedBySettingsFile {
+                isManagedBySettingsFile = latestManagedState
+            }
             if latest != shortcut {
                 shortcut = latest
             }
@@ -214,13 +231,14 @@ struct ShortcutRecorderSettingsControl: View {
         KeyboardShortcutRecorderActivity.stopAllRecording()
 
         let previousShortcut = shortcut
-        KeyboardShortcutSettings.swapShortcutConflict(
+        let didSwap = KeyboardShortcutSettings.swapShortcutConflict(
             proposedShortcut: proposedShortcut,
             currentAction: action,
             conflictingAction: conflictingAction,
             previousShortcut: previousShortcut
         )
-        shortcut = proposedShortcut
+        guard didSwap else { return }
+        shortcut = KeyboardShortcutSettings.shortcut(for: action)
         rejectedAttempt = nil
     }
 }
