@@ -3829,6 +3829,11 @@ class GhosttyApp {
                             panelId: surfaceId,
                             preferredWorkspaceId: preferredWorkspaceId
                         )?.workspace ?? workspace
+                        // Re-apply the sync remote-surface gate; panel may have moved.
+                        guard !resolvedWorkspace.isRemoteTerminalSurface(surfaceId) else {
+                            NSWorkspace.shared.open(fileURL)
+                            return
+                        }
                         // TOCTOU re-check: file may have been removed/renamed
                         // since the synchronous gate. Fall through if so.
                         guard CmdClickMarkdownRouteSettings.shouldRoute(path: fileURL.path) else {
