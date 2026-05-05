@@ -44,6 +44,47 @@ extension SocketListenerAcceptPolicyTests {
         )
     }
 
+    /// Pi has no `--resume <id>` flag (it uses `--session <id>`), and the
+    /// bridge re-injects --session itself, so any pre-existing --session/--fork/
+    /// --continue/--print/--no-session must drop. User-set provider/model/
+    /// thinking-level preferences survive verbatim. Positional args (initial
+    /// prompt) drop because pi treats them as a one-shot prompt that doesn't
+    /// belong in a restored interactive session.
+    func testPiResumeCommandUsesSessionAndDropsSelectorsAndPrompt() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .pi,
+            sessionId: "019dfabc-0001-7000-8000-000000000001",
+            workingDirectory: "/tmp/pi repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "pi",
+                executablePath: "/Users/example/.nvm/versions/node/v22.16.0/bin/pi",
+                arguments: [
+                    "/Users/example/.nvm/versions/node/v22.16.0/bin/pi",
+                    "--provider",
+                    "anthropic",
+                    "--model",
+                    "claude-sonnet-4-5",
+                    "--thinking",
+                    "medium",
+                    "--continue",
+                    "--session",
+                    "old-session-uuid",
+                    "--no-session",
+                    "initial prompt should not replay"
+                ],
+                workingDirectory: "/tmp/pi repo",
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "cd '/tmp/pi repo' && '/Users/example/.nvm/versions/node/v22.16.0/bin/pi' '--session' '019dfabc-0001-7000-8000-000000000001' '--provider' 'anthropic' '--model' 'claude-sonnet-4-5' '--thinking' 'medium'"
+        )
+    }
+
     func testRovoDevResumeCommandUsesRestoreAndPreservesYolo() {
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .rovodev,
@@ -480,6 +521,37 @@ extension SocketListenerAcceptPolicyTests {
                 "plan",
                 "--workspace",
                 "/tmp/qoder repo"
+            ]
+        )
+        // Pi: drop --continue/--session/--fork/--no-session and the trailing
+        // positional prompt; preserve --provider/--model/--thinking.
+        XCTAssertEqual(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "/Users/example/.nvm/versions/node/v22.16.0/bin/pi",
+                    "--provider",
+                    "anthropic",
+                    "--model",
+                    "claude-sonnet-4-5",
+                    "--thinking",
+                    "medium",
+                    "--continue",
+                    "--session",
+                    "old-session-uuid",
+                    "--no-session",
+                    "initial prompt should not replay"
+                ],
+                launcher: "pi",
+                fallbackKind: "pi"
+            ),
+            [
+                "/Users/example/.nvm/versions/node/v22.16.0/bin/pi",
+                "--provider",
+                "anthropic",
+                "--model",
+                "claude-sonnet-4-5",
+                "--thinking",
+                "medium"
             ]
         )
     }

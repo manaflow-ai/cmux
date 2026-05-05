@@ -1119,6 +1119,7 @@ struct FeedItemRow: View, Equatable {
         case .codex: return .green
         case .opencode: return .blue
         case .cursor: return .purple
+        case .pi: return .yellow
         default: return .secondary
         }
     }

@@ -301,6 +301,82 @@ extension AgentLaunchSanitizer {
         resumeSubcommand: "resume"
     )
 
+    /// Pi (`pi-coding-agent`) policy. Pi launches as `pi [options] [@files...] [messages...]`
+    /// where positional args are an initial prompt. For Vault resume we re-inject
+    /// `--session <id>`; everything related to session selection / output mode /
+    /// initial prompt must be stripped. User-set provider/model/system-prompt
+    /// preferences are preserved so the resumed session keeps the same configuration.
+    static let piPolicy = Policy(
+        valueOptions: [
+            "--provider",
+            "--model",
+            "--api-key",
+            "--system-prompt",
+            "--append-system-prompt",
+            "--mode",
+            "--session",
+            "--fork",
+            "--session-dir",
+            "--models",
+            "--tools",
+            "-t",
+            "--thinking",
+            "--extension",
+            "-e",
+            "--skill",
+            "--prompt-template",
+            "--theme",
+            "--export",
+            "--list-models"
+        ],
+        optionalValueOptions: [
+            "--list-models"
+        ],
+        variadicOptions: [
+            "--append-system-prompt",
+            "--extension",
+            "-e",
+            "--skill",
+            "--prompt-template",
+            "--theme"
+        ],
+        nonRestorableCommands: [
+            // pi subcommands that don't start a session
+            "install",
+            "remove",
+            "uninstall",
+            "update",
+            "list",
+            "config"
+        ],
+        droppedOptions: [
+            // Session selection — Vault re-injects --session <id>
+            "--session",
+            "--fork",
+            "--continue",
+            "-c",
+            "--resume",
+            "-r",
+            "--no-session"
+        ],
+        droppedOptionPrefixes: [
+            "--session=",
+            "--fork="
+        ],
+        rejectOptions: [
+            // These are incompatible with restoring an interactive session
+            "--print",
+            "-p",
+            "--export",
+            "--list-models",
+            "--help",
+            "-h",
+            "--version",
+            "-v"
+        ],
+        preserveFirstPositional: false
+    )
+
     static let openCodePolicy = Policy(
         valueOptions: [
             "--log-level",

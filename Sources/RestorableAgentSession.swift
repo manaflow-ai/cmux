@@ -139,6 +139,14 @@ enum AgentResumeCommandBuilder {
             let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "opencode")
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "opencode", args: original.tail) else { return nil }
             return [original.executable, "--session", sessionId] + preserved
+        case .pi:
+            // pi launches via a `#!/usr/bin/env node` shim, so the launchCommand may record
+            // ["/path/to/node", "/path/to/dist/cli.js", ...rest]. The TS bridge normalizes
+            // argv before recording it, so original.executable should already be "pi" or a
+            // pi wrapper path. The fallback covers ad-hoc launches that bypass the bridge.
+            let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "pi")
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "pi", args: original.tail) else { return nil }
+            return [original.executable, "--session", sessionId] + preserved
         case .rovodev:
             let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "acli")
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "rovodev", args: original.tail) else { return nil }

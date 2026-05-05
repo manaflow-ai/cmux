@@ -12,6 +12,7 @@ enum SessionAgent: String, CaseIterable, Identifiable, Hashable, Codable, Sendab
     case codex
     case opencode
     case rovodev
+    case pi
 
     var id: String { rawValue }
 }
@@ -82,6 +83,9 @@ enum AgentSpecifics: Hashable {
     case codex(model: String?, approvalPolicy: String?, sandboxMode: String?, effort: String?)
     case opencode(providerModel: String?, agentName: String?)
     case rovodev
+    /// Pi (`pi-coding-agent`). Provider + model are read from the latest
+    /// `model_change` entry in the JSONL; both can be nil if pi defaulted.
+    case pi(provider: String?, model: String?)
 }
 
 struct SessionEntry: Identifiable, Hashable {
@@ -139,6 +143,18 @@ struct SessionEntry: Identifiable, Hashable {
             return parts.joined(separator: " ")
         case .rovodev:
             return "acli rovodev run --restore \(Self.shellQuote(sessionId))"
+        case let .pi(provider, model):
+            // Pi accepts a partial UUID for `--session`, but we always have the
+            // full one from the JSONL header so we ship it verbatim. Provider/model
+            // are user preferences from the latest /model selection in-session.
+            var parts = ["pi --session \(Self.shellQuote(sessionId))"]
+            if let provider, !provider.isEmpty {
+                parts.append("--provider \(Self.shellQuote(provider))")
+            }
+            if let model, !model.isEmpty {
+                parts.append("--model \(Self.shellQuote(model))")
+            }
+            return parts.joined(separator: " ")
         }
     }
 
@@ -783,8 +799,11 @@ final class SessionIndexStore: ObservableObject {
     // MARK: - Scanning
 
     private static let perAgentLimit = 30
-    private static let headByteCap = 64 * 1024
-    private static let tailByteCap = 32 * 1024
+    // `internal` (no modifier) so PiSessionIndex.swift's extension on
+    // SessionIndexStore can reuse them; same access level as Claude/Codex
+    // helpers in this file by default.
+    static let headByteCap = 64 * 1024
+    static let tailByteCap = 32 * 1024
     /// Hard cap on candidate files inspected per call to keep deep-page searches bounded.
     nonisolated static let searchMaxFiles = 1500
 
@@ -797,7 +816,8 @@ final class SessionIndexStore: ObservableObject {
         async let codex = loadCodexEntries(needle: "", cwdFilter: nil, offset: 0, limit: perAgentLimit, errorBag: bag)
         async let opencode = loadOpenCodeEntries(needle: "", cwdFilter: nil, offset: 0, limit: perAgentLimit, errorBag: bag)
         async let rovodev = loadRovoDevEntries(needle: "", cwdFilter: nil, offset: 0, limit: perAgentLimit, errorBag: bag)
-        let combined = await claude + codex + opencode + rovodev
+        async let pi = loadPiEntries(needle: "", cwdFilter: nil, offset: 0, limit: perAgentLimit, errorBag: bag)
+        let combined = await claude + codex + opencode + rovodev + pi
         return combined.sorted { $0.modified > $1.modified }
     }
 
@@ -1161,7 +1181,7 @@ final class SessionIndexStore: ObservableObject {
 
     /// Stream JSON-lines from the start of `url`. `body` returns true to stop early.
     /// Caps total bytes read at `maxBytes`.
-    nonisolated private static func forEachJSONLine(
+    nonisolated static func forEachJSONLine(
         url: URL,
         maxBytes: Int,
         body: ([String: Any]) -> Bool
@@ -1340,6 +1360,7 @@ final class SessionIndexStore: ObservableObject {
         case .codex: return await loadCodexEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
         case .opencode: return loadOpenCodeEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
         case .rovodev: return loadRovoDevEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
+        case .pi: return await loadPiEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
         }
     }
 
@@ -1788,7 +1809,7 @@ final class SessionIndexStore: ObservableObject {
     // MARK: Helpers
 
     /// Read up to `byteCap` bytes from the start of the file as UTF-8.
-    nonisolated private static func readFileHead(url: URL, byteCap: Int) -> String {
+    nonisolated static func readFileHead(url: URL, byteCap: Int) -> String {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return "" }
         defer { try? handle.close() }
         let data: Data
@@ -1802,7 +1823,7 @@ final class SessionIndexStore: ObservableObject {
 
     /// Read up to `byteCap` bytes from the end of the file as UTF-8.
     /// Used to find late-arriving events like pr-link without scanning the whole file.
-    nonisolated private static func readFileTail(url: URL, byteCap: Int) -> String {
+    nonisolated static func readFileTail(url: URL, byteCap: Int) -> String {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return "" }
         defer { try? handle.close() }
         let size: UInt64

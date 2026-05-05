@@ -187,6 +187,44 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 ],
                 expectedEnvironment: ["QODER_CONFIG_DIR": "/tmp/qoder config"]
             ),
+            // Pi: the cmux-vault TS bridge normalizes argv to [pi, ...rest]
+            // before recording it, so executable is the bare `pi` shim and
+            // arguments start with that. Session-related flags must drop
+            // (we re-inject --session <id>); --provider/--model/--thinking
+            // are user preferences and survive resume.
+            GenericHookPersistenceScenario(
+                agent: "pi",
+                subcommand: "session-start",
+                sessionId: "pi-session-019dfabc-0001-7000-8000-000000000001",
+                executable: "/Users/example/.nvm/versions/node/v22.16.0/bin/pi",
+                launchArguments: [
+                    "/Users/example/.nvm/versions/node/v22.16.0/bin/pi",
+                    "--provider",
+                    "anthropic",
+                    "--model",
+                    "claude-sonnet-4-5",
+                    "--thinking",
+                    "medium",
+                    "--continue",
+                    "--session",
+                    "old-session-uuid",
+                    "-p",
+                    "initial prompt should not persist"
+                ],
+                extraEnvironment: [
+                    "ANTHROPIC_API_KEY": "secret"
+                ],
+                expectedArguments: [
+                    "/Users/example/.nvm/versions/node/v22.16.0/bin/pi",
+                    "--provider",
+                    "anthropic",
+                    "--model",
+                    "claude-sonnet-4-5",
+                    "--thinking",
+                    "medium"
+                ],
+                expectedEnvironment: nil
+            ),
         ]
 
         for scenario in scenarios {

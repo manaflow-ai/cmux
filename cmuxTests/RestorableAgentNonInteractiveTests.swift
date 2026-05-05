@@ -185,6 +185,49 @@ final class RestorableAgentNonInteractiveTests: XCTestCase {
                 source: nil
             )
         )
+        let piPrint = SessionRestorableAgentSnapshot(
+            kind: .pi,
+            sessionId: "pi-session-123",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "pi",
+                executablePath: "pi",
+                arguments: ["pi", "--print", "summarize this"],
+                workingDirectory: nil,
+                environment: nil,
+                capturedAt: nil,
+                source: nil
+            )
+        )
+        let piExport = SessionRestorableAgentSnapshot(
+            kind: .pi,
+            sessionId: "pi-export-session-123",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "pi",
+                executablePath: "pi",
+                arguments: ["pi", "--export", "/tmp/foo.html"],
+                workingDirectory: nil,
+                environment: nil,
+                capturedAt: nil,
+                source: nil
+            )
+        )
+        let piInstall = SessionRestorableAgentSnapshot(
+            kind: .pi,
+            sessionId: "pi-install-session-123",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "pi",
+                executablePath: "pi",
+                // pi subcommands like `install`, `update`, `list` start no session.
+                arguments: ["pi", "install", "./my-extension"],
+                workingDirectory: nil,
+                environment: nil,
+                capturedAt: nil,
+                source: nil
+            )
+        )
 
         XCTAssertNil(claudePrint.resumeCommand)
         XCTAssertNil(claudePrintEquals.resumeCommand)
@@ -198,5 +241,50 @@ final class RestorableAgentNonInteractiveTests: XCTestCase {
         XCTAssertNil(codeBuddyPrint.resumeCommand)
         XCTAssertNil(factoryExec.resumeCommand)
         XCTAssertNil(qoderPrint.resumeCommand)
+        XCTAssertNil(piPrint.resumeCommand)
+        XCTAssertNil(piExport.resumeCommand)
+        XCTAssertNil(piInstall.resumeCommand)
+    }
+
+    func testPiInteractiveLaunchProducesResumeCommand() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .pi,
+            sessionId: "019dfabc-0001-7000-8000-000000000001",
+            workingDirectory: "/tmp/pi-vault-test",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "pi",
+                executablePath: "pi",
+                arguments: [
+                    "pi",
+                    "--provider", "anthropic",
+                    "--model", "claude-sonnet-4-5"
+                ],
+                workingDirectory: "/tmp/pi-vault-test",
+                environment: nil,
+                capturedAt: nil,
+                source: nil
+            )
+        )
+        let command = snapshot.resumeCommand
+        XCTAssertNotNil(command)
+        let display = command ?? "<nil>"
+        // Should `cd` into the working directory and re-launch pi with --session
+        // re-injected, plus the user-set --provider/--model preserved verbatim.
+        XCTAssertTrue(
+            display.contains("cd '/tmp/pi-vault-test'"),
+            "resume should cd into the recorded working directory; got: \(display)"
+        )
+        XCTAssertTrue(
+            display.contains("'pi' '--session' '019dfabc-0001-7000-8000-000000000001'"),
+            "resume should re-inject --session <full-uuid>; got: \(display)"
+        )
+        XCTAssertTrue(
+            display.contains("'--provider' 'anthropic'"),
+            "resume should preserve --provider; got: \(display)"
+        )
+        XCTAssertTrue(
+            display.contains("'--model' 'claude-sonnet-4-5'"),
+            "resume should preserve --model; got: \(display)"
+        )
     }
 }
