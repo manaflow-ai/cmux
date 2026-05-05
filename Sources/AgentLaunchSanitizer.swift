@@ -28,6 +28,7 @@ enum AgentLaunchEnvironmentPolicy {
         "ANTHROPIC_MODEL",
         "CLAUDE_CONFIG_DIR",
         "CMUX_CUSTOM_CLAUDE_PATH",
+        "CMUX_ROVODEV_SESSIONS_DIR",
         "CODEX_HOME",
         "CODEBUDDY_BASE_URL",
         "CODEBUDDY_CONFIG_DIR",
@@ -438,6 +439,8 @@ enum AgentLaunchSanitizer {
             "--resume",
             "-r",
             "--session-id",
+            "--worktree",
+            "-w",
             "--prompt",
             "-p",
             "--prompt-interactive",
@@ -445,6 +448,10 @@ enum AgentLaunchSanitizer {
             "--delete-session",
             "--output-format",
             "-o"
+        ],
+        optionalValueOptions: [
+            "--resume",
+            "-r"
         ],
         variadicOptions: [
             "--policy",
@@ -969,6 +976,9 @@ enum AgentLaunchSanitizer {
             "--config-file",
             "--model",
             "--model-id",
+            "--restore"
+        ],
+        optionalValueOptions: [
             "--restore"
         ],
         nonRestorableCommands: [

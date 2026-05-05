@@ -16580,21 +16580,35 @@ export default CMUXSessionRestore;
 
     private func rovoDevSessionsRoot(env: [String: String]) -> String {
         if let override = normalizedHookValue(env["CMUX_ROVODEV_SESSIONS_DIR"]) {
-            return NSString(string: override).expandingTildeInPath
+            return rovoDevExpandedPath(override, env: env)
         }
-        let configURL = URL(
-            fileURLWithPath: NSString(string: "~/.rovodev/config.yml").expandingTildeInPath,
-            isDirectory: false
-        )
+        let configPath = (rovoDevHomeDirectory(env: env) as NSString)
+            .appendingPathComponent(".rovodev/config.yml")
+        let configURL = URL(fileURLWithPath: configPath, isDirectory: false)
         guard let config = try? String(contentsOf: configURL, encoding: .utf8),
               let persistenceDir = Self.rovoDevPersistenceDir(fromConfig: config) else {
-            return NSString(string: "~/.rovodev/sessions").expandingTildeInPath
+            return (rovoDevHomeDirectory(env: env) as NSString)
+                .appendingPathComponent(".rovodev/sessions")
         }
-        return NSString(string: persistenceDir).expandingTildeInPath
+        return rovoDevExpandedPath(persistenceDir, env: env)
+    }
+
+    private func rovoDevHomeDirectory(env: [String: String]) -> String {
+        normalizedHookValue(env["HOME"]) ?? NSHomeDirectory()
+    }
+
+    private func rovoDevExpandedPath(_ path: String, env: [String: String]) -> String {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed == "~" || trimmed.hasPrefix("~/") else {
+            return NSString(string: trimmed).expandingTildeInPath
+        }
+        let home = rovoDevHomeDirectory(env: env)
+        guard trimmed != "~" else { return home }
+        return (home as NSString).appendingPathComponent(String(trimmed.dropFirst(2)))
     }
 
     private static func rovoDevWorkspace(_ workspace: String?, matches cwd: String?) -> Bool {
-        guard let cwd, !cwd.isEmpty else { return workspace != nil }
+        guard let cwd, !cwd.isEmpty else { return false }
         guard let workspace, !workspace.isEmpty else { return false }
         return cwd == workspace
             || cwd.hasPrefix(workspace + "/")
@@ -16602,33 +16616,62 @@ export default CMUXSessionRestore;
     }
 
     private static func rovoDevPersistenceDir(fromConfig config: String) -> String? {
-        let lines = config.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        guard let sessionsIndex = lines.firstIndex(where: {
-            $0.range(of: #"^sessions:\s*(#.*)?$"#, options: .regularExpression) != nil
+        let lines = config.components(separatedBy: .newlines)
+        guard let sessionsIndex = lines.firstIndex(where: { line in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            return trimmed.range(of: #"^sessions:\s*(#.*)?$"#, options: .regularExpression) != nil
         }) else {
             return nil
         }
+        let sessionsIndent = Self.leadingWhitespaceCount(lines[sessionsIndex])
+        var directChildIndent: Int?
         for index in (sessionsIndex + 1)..<lines.count {
             let line = lines[index]
-            if line.range(of: #"^\S"#, options: .regularExpression) != nil {
-                return nil
-            }
-            guard let range = line.range(of: #"^\s+persistenceDir:\s*(.+?)\s*(#.*)?$"#, options: .regularExpression) else {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty || trimmed.hasPrefix("#") {
                 continue
             }
-            let suffix = String(line[range])
-            guard let valueRange = suffix.range(of: #":\s*(.+?)\s*(#.*)?$"#, options: .regularExpression) else {
+            let indent = Self.leadingWhitespaceCount(line)
+            if indent <= sessionsIndent {
+                break
+            }
+            if directChildIndent == nil {
+                directChildIndent = indent
+            }
+            guard indent == directChildIndent,
+                  trimmed.hasPrefix("persistenceDir:") else {
                 continue
             }
-            var value = String(suffix[valueRange].dropFirst())
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            if let comment = value.firstIndex(of: "#") {
-                value = String(value[..<comment]).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let colon = trimmed.firstIndex(of: ":") else {
+                continue
             }
-            value = value.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+            let rawValue = String(trimmed[trimmed.index(after: colon)...])
+            let value = Self.rovoDevYAMLScalar(rawValue)
             return value.isEmpty ? nil : value
         }
         return nil
+    }
+
+    private static func leadingWhitespaceCount(_ value: String) -> Int {
+        value.prefix { $0 == " " || $0 == "\t" }.count
+    }
+
+    private static func rovoDevYAMLScalar(_ rawValue: String) -> String {
+        var value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return "" }
+        if let first = value.first, first == "\"" || first == "'" {
+            value.removeFirst()
+            if let end = value.firstIndex(of: first) {
+                value = String(value[..<end])
+            }
+            return value
+        }
+        if let comment = value.firstIndex(of: "#"),
+           comment > value.startIndex,
+           value[value.index(before: comment)].isWhitespace {
+            value = String(value[..<comment])
+        }
+        return value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func runGenericAgentHook(def: AgentHookDef, commandArgs: [String], client: SocketClient, telemetry: CLISocketSentryTelemetry) throws {
@@ -16682,6 +16725,7 @@ export default CMUXSessionRestore;
 
         switch action {
         case .sessionStart:
+            let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
             let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(preferred: nil, fallback: workspaceArg, client: client)
             let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(preferred: nil, fallback: surfaceArg, workspaceId: workspaceId, client: client)
             sendAgentFeedTelemetry(workspaceId: workspaceId)
@@ -16690,14 +16734,14 @@ export default CMUXSessionRestore;
                 env,
                 fallbackPID: pid,
                 fallbackKind: def.name,
-                cwd: hookCwd
+                cwd: hookCwd ?? mapped?.cwd
             )
             if !sessionId.isEmpty {
                 try? store.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    cwd: hookCwd,
+                    cwd: hookCwd ?? mapped?.cwd,
                     pid: pid,
                     launchCommand: launchCommand
                 )

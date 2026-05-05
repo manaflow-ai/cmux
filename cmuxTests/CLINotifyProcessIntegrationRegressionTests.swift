@@ -489,6 +489,175 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testRovoDevPromptSubmitReadsConfiguredPersistenceDirWithCommentsAndHashPath() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("rovo-config")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-rovo-config-hook-\(UUID().uuidString)", isDirectory: true)
+        let workspace = root.appendingPathComponent("repo", isDirectory: true)
+        let sessionsRoot = root.appendingPathComponent("sessions#hash", isDirectory: true)
+        let configDir = root.appendingPathComponent(".rovodev", isDirectory: true)
+        let workspaceId = "55555555-5555-5555-5555-555555555555"
+        let surfaceId = "66666666-6666-6666-6666-666666666666"
+        let sessionId = "rovo-config-session"
+
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
+        try writeRovoDevSessionMetadata(
+            sessionsRoot: sessionsRoot,
+            sessionId: sessionId,
+            workspacePath: workspace.path,
+            modified: Date(timeIntervalSince1970: 300)
+        )
+        let config = [
+            "sessions:",
+            "  # top-level comments inside sessions should not end the block",
+            "  nested:",
+            "    persistenceDir: /tmp/wrong",
+            "  persistenceDir: '~/sessions#hash'",
+            "other: true",
+        ].joined(separator: "\r\n")
+        try config.write(
+            to: configDir.appendingPathComponent("config.yml", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line) else {
+                return "OK"
+            }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            if method == "surface.list" {
+                return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+            }
+            if method == "feed.push" {
+                return self.v2Response(id: id, ok: true, result: [:])
+            }
+            return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+        }
+
+        let environment: [String: String] = [
+            "HOME": root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_WORKSPACE_ID": workspaceId,
+            "CMUX_SURFACE_ID": surfaceId,
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_LAUNCH_KIND": "rovodev",
+            "CMUX_AGENT_LAUNCH_EXECUTABLE": "/usr/local/bin/acli",
+            "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated([
+                "/usr/local/bin/acli",
+                "rovodev",
+                "run",
+                "--restore",
+                sessionId,
+                "--yolo",
+            ]),
+            "CMUX_AGENT_LAUNCH_CWD": workspace.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "rovodev", "prompt-submit"],
+            environment: environment,
+            standardInput: #"{"cwd":"\#(workspace.path)","hook_event_name":"on_tool_permission"}"#,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "{}\n")
+
+        let storeURL = root.appendingPathComponent("rovodev-hook-sessions.json", isDirectory: false)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        let sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
+        XCTAssertNotNil(sessions[sessionId] as? [String: Any])
+    }
+
+    func testRovoDevPromptSubmitWithoutCwdDoesNotInferUnrelatedSession() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("rovo-nocwd")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-rovo-nocwd-hook-\(UUID().uuidString)", isDirectory: true)
+        let sessionsRoot = root.appendingPathComponent("sessions", isDirectory: true)
+        let workspaceId = "55555555-5555-5555-5555-555555555555"
+        let surfaceId = "66666666-6666-6666-6666-666666666666"
+        let unrelatedSessionId = "rovo-unrelated-session"
+
+        try writeRovoDevSessionMetadata(
+            sessionsRoot: sessionsRoot,
+            sessionId: unrelatedSessionId,
+            workspacePath: "/tmp/unrelated",
+            modified: Date(timeIntervalSince1970: 300)
+        )
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let state = MockSocketServerState()
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line) else {
+                return "OK"
+            }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            if method == "surface.list" {
+                return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+            }
+            if method == "feed.push" {
+                return self.v2Response(id: id, ok: true, result: [:])
+            }
+            return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+        }
+
+        let environment: [String: String] = [
+            "HOME": root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_WORKSPACE_ID": workspaceId,
+            "CMUX_SURFACE_ID": surfaceId,
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_ROVODEV_SESSIONS_DIR": sessionsRoot.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "rovodev", "prompt-submit"],
+            environment: environment,
+            standardInput: #"{"hook_event_name":"on_tool_permission"}"#,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "{}\n")
+
+        let storeURL = root.appendingPathComponent("rovodev-hook-sessions.json", isDirectory: false)
+        if let data = try? Data(contentsOf: storeURL),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let sessions = json["sessions"] as? [String: Any] {
+            XCTAssertNil(sessions[unrelatedSessionId] as? [String: Any])
+        }
+    }
+
     func testLegacyCodexHookAliasReturnsJSONWithoutHelpAndPersistsSession() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("legacy-codex")

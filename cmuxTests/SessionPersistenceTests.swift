@@ -1993,7 +1993,8 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                 ],
                 workingDirectory: "/tmp/rovo repo",
                 environment: [
-                    "ATLASSIAN_TOKEN": "secret"
+                    "ATLASSIAN_TOKEN": "secret",
+                    "CMUX_ROVODEV_SESSIONS_DIR": "/tmp/rovo sessions"
                 ],
                 capturedAt: 123,
                 source: "process"
@@ -2002,7 +2003,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "cd '/tmp/rovo repo' && '/opt/homebrew/bin/acli' 'rovodev' 'run' '--restore' 'session with space' '--yolo'"
+            "cd '/tmp/rovo repo' && 'env' 'CMUX_ROVODEV_SESSIONS_DIR=/tmp/rovo sessions' '/opt/homebrew/bin/acli' 'rovodev' 'run' '--restore' 'session with space' '--yolo'"
         )
     }
 
@@ -2190,6 +2191,29 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(
             AgentLaunchSanitizer.sanitizedLaunchArguments(
                 [
+                    "/Users/example/.bun/bin/gemini",
+                    "--resume",
+                    "--worktree",
+                    "/tmp/old repo",
+                    "--model",
+                    "gemini-2.5-pro",
+                    "--sandbox",
+                    "danger-full-access"
+                ],
+                launcher: "gemini",
+                fallbackKind: "gemini"
+            ),
+            [
+                "/Users/example/.bun/bin/gemini",
+                "--model",
+                "gemini-2.5-pro",
+                "--sandbox",
+                "danger-full-access"
+            ]
+        )
+        XCTAssertEqual(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
                     "/opt/homebrew/bin/acli",
                     "rovodev",
                     "run",
@@ -2197,6 +2221,25 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                     "old-session",
                     "--yolo",
                     "initial prompt should not replay"
+                ],
+                launcher: "rovodev",
+                fallbackKind: "rovodev"
+            ),
+            [
+                "/opt/homebrew/bin/acli",
+                "rovodev",
+                "run",
+                "--yolo"
+            ]
+        )
+        XCTAssertEqual(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "/opt/homebrew/bin/acli",
+                    "rovodev",
+                    "run",
+                    "--restore",
+                    "--yolo"
                 ],
                 launcher: "rovodev",
                 fallbackKind: "rovodev"
