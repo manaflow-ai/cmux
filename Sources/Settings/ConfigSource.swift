@@ -69,12 +69,16 @@ struct ConfigSourceEnvironment {
     func materializeCmuxConfigFileIfNeeded() throws -> URL {
         let url = cmuxConfigURL
         guard !fileManager.fileExists(atPath: url.path) else { return url }
-        try writeCmuxConfigContents("")
+        try writeCmuxConfigContents("", to: url)
         return url
     }
 
     func writeCmuxConfigContents(_ contents: String) throws {
         let url = cmuxConfigURL
+        try writeCmuxConfigContents(contents, to: url)
+    }
+
+    private func writeCmuxConfigContents(_ contents: String, to url: URL) throws {
         let writeURL = configWriteURL(for: url)
         try fileManager.createDirectory(
             at: writeURL.deletingLastPathComponent(),

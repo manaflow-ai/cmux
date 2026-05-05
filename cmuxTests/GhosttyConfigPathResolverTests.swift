@@ -148,6 +148,39 @@ final class GhosttyConfigPathResolverTests: XCTestCase {
         }
     }
 
+    func testMaterializeWritesSelectedEditableConfigWhenLegacyConfigAppearsDuringCheck() throws {
+        try withTemporaryHomeDirectory { homeDirectory in
+            let fileManager = RaceCreatingFileManager()
+            let appSupportDirectory = homeDirectory
+                .appendingPathComponent("Library", isDirectory: true)
+                .appendingPathComponent("Application Support", isDirectory: true)
+            let bundleDirectory = appSupportDirectory
+                .appendingPathComponent("com.cmuxterm.app.debug.issue-3518", isDirectory: true)
+            let configGhosttyURL = bundleDirectory.appendingPathComponent("config.ghostty", isDirectory: false)
+            let legacyConfigURL = bundleDirectory.appendingPathComponent("config", isDirectory: false)
+
+            fileManager.onFirstMissingPlainExistenceCheck = { path in
+                guard path == configGhosttyURL.path else { return }
+                try FileManager.default.createDirectory(at: bundleDirectory, withIntermediateDirectories: true)
+                try "background = #000000\n".write(to: legacyConfigURL, atomically: true, encoding: .utf8)
+            }
+
+            let environment = ConfigSourceEnvironment(
+                homeDirectoryURL: homeDirectory,
+                currentBundleIdentifier: "com.cmuxterm.app.debug.issue-3518",
+                fileManager: fileManager
+            )
+
+            let materializedURL = try environment.materializeCmuxConfigFileIfNeeded()
+
+            XCTAssertEqual(materializedURL, configGhosttyURL)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: configGhosttyURL.path))
+            XCTAssertEqual(try String(contentsOf: configGhosttyURL, encoding: .utf8), "")
+            XCTAssertEqual(try String(contentsOf: legacyConfigURL, encoding: .utf8), "background = #000000\n")
+            XCTAssertNil(fileManager.creationError)
+        }
+    }
+
     func testSyncedConfigPreviewIncludesSymlinkedStandaloneGhosttyConfig() throws {
         try withTemporaryHomeDirectory { homeDirectory in
             let fileManager = FileManager.default
@@ -415,5 +448,25 @@ final class GhosttyConfigPathResolverTests: XCTestCase {
         let configURL = bundleDirectory.appendingPathComponent(filename, isDirectory: false)
         try contents.write(to: configURL, atomically: true, encoding: .utf8)
         return configURL
+    }
+
+    private final class RaceCreatingFileManager: FileManager {
+        var onFirstMissingPlainExistenceCheck: ((String) throws -> Void)?
+        var creationError: Error?
+        private var hasRunPlainExistenceHook = false
+
+        override func fileExists(atPath path: String) -> Bool {
+            let exists = super.fileExists(atPath: path)
+            guard !exists, !hasRunPlainExistenceHook else {
+                return exists
+            }
+            hasRunPlainExistenceHook = true
+            do {
+                try onFirstMissingPlainExistenceCheck?(path)
+            } catch {
+                creationError = error
+            }
+            return exists
+        }
     }
 }
