@@ -862,6 +862,8 @@ final class CmuxSettingsFileStore {
         }()
 
         guard let shortcut else { return nil }
+        // Settings-file parsing runs while the shared store may still be initializing.
+        // Avoid the UI recorder's conflict lookup here because it reads the shared store.
         return action.normalizedSettingsFileShortcut(shortcut)
     }
 
