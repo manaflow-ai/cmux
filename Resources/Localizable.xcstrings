@@ -105403,6 +105403,12 @@
             "state": "translated",
             "value": "ボールト"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "볼트"
+          }
         }
       }
     },
@@ -105471,6 +105477,12 @@
             "state": "translated",
             "value": "無題のチャット"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제목 없는 채팅"
+          }
         }
       }
     },
@@ -105522,6 +105534,12 @@
             "state": "translated",
             "value": "ボールトを再読み込み"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "볼트 새로고침"
+          }
         }
       }
     },
@@ -105538,6 +105556,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ボールトを読み込み中…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "볼트를 불러오는 중…"
           }
         }
       }
@@ -105556,6 +105580,12 @@
             "state": "translated",
             "value": "ボールトは空です"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "볼트가 비어 있습니다"
+          }
         }
       }
     },
@@ -105573,6 +105603,12 @@
             "state": "translated",
             "value": "Claude Code、Codex、OpenCode の履歴がここに表示されます。"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code, Codex 및 OpenCode의 기록이 여기에 표시됩니다."
+          }
         }
       }
     },
@@ -105589,6 +105625,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "チャットなし"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대화 없음"
           }
         }
       }
@@ -105844,6 +105886,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ボールトを検索"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "볼트 검색"
           }
         }
       }
