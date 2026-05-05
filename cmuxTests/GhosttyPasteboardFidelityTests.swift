@@ -36,6 +36,20 @@ final class GhosttyPasteboardFidelityTests: XCTestCase {
         return pasteboard
     }
 
+    private func makeImageHTMLPasteboard(
+        namePrefix: String,
+        html: String
+    ) throws -> NSPasteboard {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-\(namePrefix)-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+
+        pasteboard.declareTypes([.html, .png], owner: nil)
+        XCTAssertTrue(pasteboard.setString(html, forType: .html))
+        XCTAssertTrue(pasteboard.setData(try make1x1PNG(), forType: .png))
+
+        return pasteboard
+    }
+
     /// Regression test for issue #3069.
     /// Some apps advertise both a valid UTF-8 plain-text payload and a lossy
     /// rich-text/image representation of the same selection. cmux should prefer
@@ -95,5 +109,30 @@ final class GhosttyPasteboardFidelityTests: XCTestCase {
             cmuxPasteboardStringContentsForTesting(pasteboard),
             richText
         )
+    }
+
+    func testImageHTMLWithOnlyHiddenBlocksFallsBackToImagePath() throws {
+        let pasteboard = try makeImageHTMLPasteboard(
+            namePrefix: "image-html-hidden-blocks",
+            html: """
+            <style>
+            img::after { content: "not paste text"; }
+            </style>
+            <script>
+            document.body.innerText = "not paste text";
+            </script>
+            <template>not paste text</template>
+            <noscript>not paste text</noscript>
+            <img src="https://example.com/keyboard.png">
+            """
+        )
+
+        XCTAssertNil(cmuxPasteboardStringContentsForTesting(pasteboard))
+
+        let imagePath = try XCTUnwrap(cmuxPasteboardImagePathForTesting(pasteboard))
+        defer { try? FileManager.default.removeItem(atPath: imagePath) }
+
+        XCTAssertTrue(imagePath.hasSuffix(".png"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: imagePath))
     }
 }

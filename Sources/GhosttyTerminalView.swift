@@ -9,6 +9,7 @@ import Darwin
 import Carbon.HIToolbox
 import Sentry
 import Bonsplit
+import CMUXPasteboardFidelity
 import IOSurface
 import UniformTypeIdentifiers
 
@@ -333,7 +334,7 @@ enum GhosttyPasteboardHelper {
         let hasRTFDAttachmentPayload = types.contains(.rtfd)
         if hasImagePayload,
            let html = pasteboard.string(forType: .html),
-           htmlHasNoVisibleText(html) {
+           PasteboardTextFidelity.htmlHasNoVisibleText(html) {
             return nil
         }
 
@@ -343,7 +344,7 @@ enum GhosttyPasteboardHelper {
                 return nil
             }
             if let plainText,
-               shouldPreferPlainText(plainText, overRichText: richText) {
+               PasteboardTextFidelity.shouldPreferPlainText(plainText, overRichText: richText) {
                 return plainText
             }
             return richText

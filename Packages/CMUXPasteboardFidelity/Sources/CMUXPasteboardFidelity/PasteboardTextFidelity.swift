@@ -1,5 +1,7 @@
-extension GhosttyPasteboardHelper {
-    static func shouldPreferPlainText(
+import Foundation
+
+public enum PasteboardTextFidelity {
+    public static func shouldPreferPlainText(
         _ plainText: String,
         overRichText richText: String
     ) -> Bool {
@@ -15,6 +17,34 @@ extension GhosttyPasteboardHelper {
 
         return plainMetrics.nonASCII > richMetrics.nonASCII ||
             (richTextHasLossySubstitution && plainTextPreservesAtLeastAsMuchNonASCII)
+    }
+
+    public static func htmlHasNoVisibleText(_ html: String) -> Bool {
+        var visibleCandidate = html.replacingOccurrences(
+            of: "<!--[\\s\\S]*?-->",
+            with: " ",
+            options: .regularExpression
+        )
+
+        for hiddenBlockTag in ["script", "style", "noscript", "template"] {
+            visibleCandidate = visibleCandidate.replacingOccurrences(
+                of: "<\(hiddenBlockTag)\\b[^>]*>[\\s\\S]*?</\(hiddenBlockTag)>",
+                with: " ",
+                options: [.regularExpression, .caseInsensitive]
+            )
+        }
+
+        let withoutTags = visibleCandidate.replacingOccurrences(
+            of: "<[^>]+>",
+            with: " ",
+            options: .regularExpression
+        )
+        let normalized = withoutTags
+            .replacingOccurrences(of: "&nbsp;", with: " ", options: .caseInsensitive)
+            .replacingOccurrences(of: "&#160;", with: " ")
+            .replacingOccurrences(of: "&#xA0;", with: " ", options: .caseInsensitive)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.isEmpty
     }
 
     private static func textFidelityMetrics(
@@ -37,23 +67,5 @@ extension GhosttyPasteboardHelper {
         }
 
         return (nonASCII, questionMarks, replacementCharacters)
-    }
-
-    static func htmlHasNoVisibleText(_ html: String) -> Bool {
-        let withoutComments = html.replacingOccurrences(
-            of: "<!--[\\s\\S]*?-->",
-            with: " ",
-            options: .regularExpression
-        )
-        let withoutTags = withoutComments.replacingOccurrences(
-            of: "<[^>]+>",
-            with: " ",
-            options: .regularExpression
-        )
-        let normalized = withoutTags
-            .replacingOccurrences(of: "&nbsp;", with: " ")
-            .replacingOccurrences(of: "&#160;", with: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return normalized.isEmpty
     }
 }
