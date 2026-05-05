@@ -1171,6 +1171,7 @@ struct BrowserPanelView: View {
             }
 
             OmnibarTextFieldRepresentable(
+                panelId: panel.id,
                 text: Binding(
                     get: { omnibarState.buffer },
                     set: { newValue in
@@ -3209,8 +3210,10 @@ func browserOmnibarShouldReacquireFocusAfterEndEditing(
 }
 
 private final class OmnibarNativeTextField: NSTextField {
+    var panelId: UUID?
     var onPointerDown: (() -> Void)?
     var onHandleKeyEvent: ((NSEvent, NSTextView?) -> Bool)?
+    var suppressNextFocusReacquireOnEndEditing = false
     /// Anchor index for Shift+click selection extension, reset on non-shift clicks.
     private var shiftClickAnchor: Int?
 
@@ -3371,6 +3374,7 @@ private final class OmnibarNativeTextField: NSTextField {
 }
 
 private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
+    let panelId: UUID
     @Binding var text: String
     @Binding var isFocused: Bool
     let selectAllRequestId: UInt64
@@ -3508,6 +3512,9 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         }
 
         private func shouldReacquireFocusAfterEndEditing(window: NSWindow?) -> Bool {
+            if parentField?.suppressNextFocusReacquireOnEndEditing == true {
+                return false
+            }
             if pointerDownBlurIntent(window: window) {
                 return false
             }
@@ -3531,22 +3538,24 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
             }
             attachSelectionObserverIfNeeded()
             if let field = obj.object as? OmnibarNativeTextField {
+                field.suppressNextFocusReacquireOnEndEditing = false
                 applyPendingSelectAllIfPossible(field: field)
             }
             publishSelectionState()
         }
 
         func controlTextDidEndEditing(_ obj: Notification) {
+            let shouldReacquire = shouldReacquireFocusAfterEndEditing(window: parentField?.window)
 #if DEBUG
             let nextOther = nextResponderIsOtherTextField(window: parentField?.window)
             let pointerBlur = pointerDownBlurIntent(window: parentField?.window)
             logFocusEvent(
                 "controlTextDidEndEditing",
-                detail: "nextOther=\(nextOther ? 1 : 0) pointerBlur=\(pointerBlur ? 1 : 0) shouldReacquire=\(shouldReacquireFocusAfterEndEditing(window: parentField?.window) ? 1 : 0)"
+                detail: "nextOther=\(nextOther ? 1 : 0) pointerBlur=\(pointerBlur ? 1 : 0) shouldReacquire=\(shouldReacquire ? 1 : 0)"
             )
 #endif
             if parent.isFocused {
-                if shouldReacquireFocusAfterEndEditing(window: parentField?.window) {
+                if shouldReacquire {
 #if DEBUG
                     logFocusEvent("controlTextDidEndEditing.reacquire.begin")
 #endif
@@ -3591,6 +3600,7 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
 #endif
                 parent.onFieldLostFocus()
             }
+            parentField?.suppressNextFocusReacquireOnEndEditing = false
             detachSelectionObserver()
         }
 
@@ -3888,6 +3898,7 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
 
     func makeNSView(context: Context) -> OmnibarNativeTextField {
         let field = OmnibarNativeTextField(frame: .zero)
+        field.panelId = panelId
         field.identifier = browserOmnibarTextFieldIdentifier
         field.font = .systemFont(ofSize: 12)
         field.placeholderString = placeholder
@@ -3911,6 +3922,7 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
     func updateNSView(_ nsView: OmnibarNativeTextField, context: Context) {
         context.coordinator.parent = self
         context.coordinator.parentField = nsView
+        nsView.panelId = panelId
         nsView.placeholderString = placeholder
         context.coordinator.queueSelectAllRequest(selectAllRequestId)
 
@@ -4042,6 +4054,37 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         coordinator.detachSelectionObserver()
         coordinator.parentField = nil
     }
+}
+
+func browserOmnibarPanelId(for responder: NSResponder?) -> UUID? {
+    browserOmnibarField(for: responder)?.panelId
+}
+
+@discardableResult
+func browserPrepareOmnibarForProgrammaticBlur(panelId: UUID, responder: NSResponder?) -> Bool {
+    guard let field = browserOmnibarField(for: responder),
+          field.panelId == panelId else {
+        return false
+    }
+    field.suppressNextFocusReacquireOnEndEditing = true
+    return true
+}
+
+private func browserOmnibarField(for responder: NSResponder?) -> OmnibarNativeTextField? {
+    guard let responder else { return nil }
+
+    if let field = responder as? OmnibarNativeTextField {
+        return field
+    }
+
+    if let editor = responder as? NSTextView,
+       editor.isFieldEditor,
+       let field = cmuxFieldEditorOwnerView(editor) as? OmnibarNativeTextField,
+       field.currentEditor() === editor {
+        return field
+    }
+
+    return nil
 }
 
 private struct OmnibarSuggestionsView: View {

@@ -101,6 +101,7 @@ Environment:
 | `new-surface` | Create a surface inside a pane. |
 | `close-surface` | Close a surface. |
 | `move-surface` | Move a surface to another pane, workspace, window, or index. |
+| `split-off` | Move a surface into a new split without changing focus by default. |
 | `reorder-surface` | Reorder a surface within its pane. |
 | `tab-action` | Run horizontal tab context-menu actions. |
 | `rename-tab` | Rename a tab. Compatibility wrapper for `tab-action rename`. |
@@ -334,6 +335,7 @@ the expected text without connecting to a cmux socket.
 - `cmux close-window --help` -> `Usage: cmux close-window --window <id|ref|index>`
 - `cmux move-workspace-to-window --help` -> `Usage: cmux move-workspace-to-window`
 - `cmux move-surface --help` -> `Usage: cmux move-surface`
+- `cmux split-off --help` -> `Usage: cmux split-off`
 - `cmux reorder-surface --help` -> `Usage: cmux reorder-surface`
 - `cmux reorder-workspace --help` -> `Usage: cmux reorder-workspace`
 - `cmux workspace-action --help` -> `Usage: cmux workspace-action --action <name>`
