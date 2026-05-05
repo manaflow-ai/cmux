@@ -3939,9 +3939,9 @@ final class BrowserPanel: Panel, ObservableObject {
         guard !host.isEmpty, endpoint.port > 0, endpoint.port <= 65535 else { return nil }
 
         let configuration = URLSessionConfiguration.ephemeral
-#if PRIVACY_MODE
-        configuration.protocolClasses = [PrivacyModeURLProtocol.self] + (configuration.protocolClasses ?? [])
-#endif
+        if PrivacyMode.isEnabled {
+            configuration.protocolClasses = [PrivacyModeURLProtocol.self] + (configuration.protocolClasses ?? [])
+        }
         configuration.requestCachePolicy = .returnCacheDataElseLoad
         configuration.timeoutIntervalForRequest = 2.0
         configuration.timeoutIntervalForResource = 4.0
