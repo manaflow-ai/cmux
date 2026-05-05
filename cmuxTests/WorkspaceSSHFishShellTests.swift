@@ -105,7 +105,7 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
         }
         let createParams = try XCTUnwrap(requests.first?["params"] as? [String: Any])
         let initialCommand = try XCTUnwrap(createParams["initial_command"] as? String)
-        let configureParams = try XCTUnwrap(requests.dropFirst(2).first?["params"] as? [String: Any])
+        let configureParams = try XCTUnwrap(requests.first { $0["method"] as? String == "workspace.remote.configure" }?["params"] as? [String: Any])
         let foregroundAuthToken = try XCTUnwrap(configureParams["foreground_auth_token"] as? String)
 
         let fileManager = FileManager.default
@@ -299,9 +299,7 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
 
     private func makeSocketPath(_ name: String) -> String {
         let shortID = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)
-        return URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("cli-\(name.prefix(6))-\(shortID).sock")
-            .path
+        return "/tmp/cli-\(name.prefix(6))-\(shortID).sock"
     }
 
     private func bundledCLIPath() throws -> String {
@@ -395,6 +393,7 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
         let maxPathLength = MemoryLayout.size(ofValue: addr.sun_path)
+        guard path.utf8.count < maxPathLength else { Darwin.close(fd); throw XCTSkip("Unix socket path too long for sockaddr_un: \(path)") }
         path.withCString { ptr in
             withUnsafeMutablePointer(to: &addr.sun_path) { pathPtr in
                 let pathBuf = UnsafeMutableRawPointer(pathPtr).assumingMemoryBound(to: CChar.self)
