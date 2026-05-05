@@ -926,11 +926,6 @@ final class SocketClient {
         let relayToken: Data
     }
 
-    enum SocketWriteFailureContext {
-        case localCommand
-        case relay
-    }
-
     private let path: String
     private(set) var socketFD: Int32 = -1
     private var lastOperationTelemetry: CLISocketOperationTelemetry.State?
@@ -998,7 +993,7 @@ final class SocketClient {
         return trimmed
     }
 
-    private static func socketTimeval(for timeout: TimeInterval) -> timeval {
+    static func socketTimeval(for timeout: TimeInterval) -> timeval {
         let sanitizedTimeout = timeout.isFinite ? timeout : defaultResponseTimeoutSeconds
         let clampedTimeout = min(max(sanitizedTimeout, 0.01), maxSocketTimeoutSeconds)
         let seconds = floor(clampedTimeout)
@@ -1429,22 +1424,6 @@ final class SocketClient {
             throw CLIError(message: "Invalid UTF-8 relay response")
         }
         return line.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    func configureReceiveTimeout(_ timeout: TimeInterval) throws {
-        var interval = Self.socketTimeval(for: timeout)
-        let result = withUnsafePointer(to: &interval) { ptr in
-            setsockopt(
-                socketFD,
-                SOL_SOCKET,
-                SO_RCVTIMEO,
-                ptr,
-                socklen_t(MemoryLayout<timeval>.size)
-            )
-        }
-        guard result == 0 else {
-            throw CLIError(message: "Failed to configure socket receive timeout")
-        }
     }
 
     static func waitForConnectableSocket(path: String, timeout: TimeInterval) throws -> SocketClient {

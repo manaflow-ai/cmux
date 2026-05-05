@@ -2,6 +2,11 @@ import Foundation
 import Darwin
 
 extension SocketClient {
+    enum SocketWriteFailureContext {
+        case localCommand
+        case relay
+    }
+
     func recoveredLocalSocketWriteFailure(errorCode: Int32, failureContext: SocketWriteFailureContext) -> String? {
         guard relayEndpoint == nil, failureContext == .localCommand else {
             return nil
@@ -56,5 +61,21 @@ extension SocketClient {
         }
         let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    func configureReceiveTimeout(_ timeout: TimeInterval) throws {
+        var interval = Self.socketTimeval(for: timeout)
+        let result = withUnsafePointer(to: &interval) { ptr in
+            setsockopt(
+                socketFD,
+                SOL_SOCKET,
+                SO_RCVTIMEO,
+                ptr,
+                socklen_t(MemoryLayout<timeval>.size)
+            )
+        }
+        guard result == 0 else {
+            throw CLIError(message: "Failed to configure socket receive timeout")
+        }
     }
 }
