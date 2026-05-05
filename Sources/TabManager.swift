@@ -4951,11 +4951,15 @@ class TabManager: ObservableObject {
         selectedTabId != pendingTabId
     }
 
+    private enum NotificationDismissalContext {
+        case activeFocus
+        case directInteraction
+    }
+
     private func dismissFocusedPanelNotificationIfActive(tabId: UUID) {
         let shouldSuppressFlash = suppressFocusFlash
         suppressFocusFlash = false
         guard !shouldSuppressFlash else { return }
-        guard AppFocusState.isAppActive() else { return }
         guard let panelId = focusedPanelId(for: tabId) else { return }
         dismissPanelNotificationOnFocusIfActive(tabId: tabId, panelId: panelId)
     }
@@ -4963,14 +4967,24 @@ class TabManager: ObservableObject {
     private func dismissPanelNotificationOnFocusIfActive(tabId: UUID, panelId: UUID) {
         guard selectedTabId == tabId else { return }
         guard !suppressFocusFlash else { return }
-        guard AppFocusState.isAppActive() else { return }
-        _ = dismissNotificationOnDirectInteraction(tabId: tabId, surfaceId: panelId)
+        _ = dismissNotification(tabId: tabId, surfaceId: panelId, context: .activeFocus)
     }
 
     @discardableResult
     func dismissNotificationOnDirectInteraction(tabId: UUID, surfaceId: UUID?) -> Bool {
+        dismissNotification(tabId: tabId, surfaceId: surfaceId, context: .directInteraction)
+    }
+
+    @discardableResult
+    private func dismissNotification(
+        tabId: UUID,
+        surfaceId: UUID?,
+        context: NotificationDismissalContext
+    ) -> Bool {
         guard selectedTabId == tabId else { return false }
-        guard AppFocusState.isAppActive() else { return false }
+        if context == .activeFocus {
+            guard AppFocusState.isAppActive() else { return false }
+        }
         guard let notificationStore = AppDelegate.shared?.notificationStore else { return false }
         let hasUnreadNotification = notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId)
         let hasFocusedIndicator = notificationStore.hasVisibleNotificationIndicator(forTabId: tabId, surfaceId: surfaceId)
