@@ -705,7 +705,7 @@ final class TerminalNotificationStore: ObservableObject {
     // manual unread remains owned by Workspace.manualUnreadPanelIds.
     @Published private(set) var manualUnreadWorkspaceIds: Set<UUID> = []
     @Published private(set) var focusedReadIndicatorByTabId: [UUID: UUID] = [:]
-    @Published private(set) var bellRangTabIds: Set<UUID> = []
+    @Published private(set) var bellRangSurfacesByTab: [UUID: Set<UUID>] = [:]
     @Published private(set) var authorizationState: NotificationAuthorizationState = .unknown
     private var suppressNotificationDiffPublishing = false
 
@@ -1094,27 +1094,45 @@ final class TerminalNotificationStore: ObservableObject {
         focusedReadIndicatorByTabId.removeValue(forKey: tabId)
     }
 
-    /// Records that the bell rang for `tabId` so the sidebar can show a per-tab
-    /// attention indicator (matches ghostty's `bell-features = title` behavior).
-    /// Suppressed when the bell rings on a tab the user is already looking at —
-    /// no badge is needed if the user has eyes on the workspace right now.
-    func noteBellRang(tabId: UUID) {
+    /// Records that the bell rang in `surfaceId` of `tabId` so the sidebar can
+    /// show a per-workspace attention indicator and the bonsplit tab strip can
+    /// show a per-surface badge (matches ghostty's `bell-features = title`).
+    /// Suppressed when the user has eyes on this exact surface — no badge is
+    /// needed if they are already looking at it.
+    func noteBellRang(tabId: UUID, surfaceId: UUID) {
         let owningManager = AppDelegate.shared?.tabManagerFor(tabId: tabId)
             ?? AppDelegate.shared?.tabManager
         let isCurrentlyVisible = owningManager?.selectedTabId == tabId
+            && owningManager?.focusedSurfaceId(for: tabId) == surfaceId
             && AppFocusState.isAppActive()
         guard !isCurrentlyVisible else { return }
-        guard !bellRangTabIds.contains(tabId) else { return }
-        bellRangTabIds.insert(tabId)
+        var current = bellRangSurfacesByTab[tabId] ?? []
+        let (inserted, _) = current.insert(surfaceId)
+        guard inserted else { return }
+        bellRangSurfacesByTab[tabId] = current
+    }
+
+    func clearBell(forTabId tabId: UUID, surfaceId: UUID) {
+        guard var current = bellRangSurfacesByTab[tabId], current.contains(surfaceId) else { return }
+        current.remove(surfaceId)
+        if current.isEmpty {
+            bellRangSurfacesByTab.removeValue(forKey: tabId)
+        } else {
+            bellRangSurfacesByTab[tabId] = current
+        }
     }
 
     func clearBell(forTabId tabId: UUID) {
-        guard bellRangTabIds.contains(tabId) else { return }
-        bellRangTabIds.remove(tabId)
+        guard bellRangSurfacesByTab[tabId] != nil else { return }
+        bellRangSurfacesByTab.removeValue(forKey: tabId)
     }
 
     func hasBell(forTabId tabId: UUID) -> Bool {
-        bellRangTabIds.contains(tabId)
+        !(bellRangSurfacesByTab[tabId]?.isEmpty ?? true)
+    }
+
+    func hasBell(forTabId tabId: UUID, surfaceId: UUID) -> Bool {
+        bellRangSurfacesByTab[tabId]?.contains(surfaceId) == true
     }
 
     func markAllRead() {
@@ -1151,13 +1169,13 @@ final class TerminalNotificationStore: ObservableObject {
 
     func clearAll(discardQueuedNotifications: Bool = true) {
         if discardQueuedNotifications { TerminalMutationBus.shared.discardPendingNotifications() }
-        let hadBells = !bellRangTabIds.isEmpty
+        let hadBells = !bellRangSurfacesByTab.isEmpty
         guard !notifications.isEmpty || !focusedReadIndicatorByTabId.isEmpty || !manualUnreadWorkspaceIds.isEmpty || hadBells else { return }
         let ids = notifications.map { $0.id.uuidString }
         replaceNotificationsForClear([])
         clearWorkspaceManualUnread()
         focusedReadIndicatorByTabId.removeAll()
-        bellRangTabIds.removeAll()
+        bellRangSurfacesByTab.removeAll()
         CmuxEventBus.shared.publishNotificationCleared(ids: ids, workspaceId: nil, surfaceId: nil)
         center.removeDeliveredNotificationsOffMain(withIdentifiers: ids)
         center.removePendingNotificationRequestsOffMain(withIdentifiers: ids)

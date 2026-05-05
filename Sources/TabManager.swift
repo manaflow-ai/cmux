@@ -983,12 +983,17 @@ class TabManager: ObservableObject {
                 self.updateWindowTitleForSelectedTab()
                 if let selectedTabId = self.selectedTabId {
                     self.dismissFocusedPanelNotificationIfActive(tabId: selectedTabId)
-                    // Clear the per-tab bell badge when the user actually has eyes on
-                    // the workspace. Gate on AppFocusState so background/programmatic
-                    // selection changes (session restore, etc.) don't dismiss the
-                    // badge before the user sees it.
-                    if AppFocusState.isAppActive() {
-                        AppDelegate.shared?.notificationStore?.clearBell(forTabId: selectedTabId)
+                    // Clear the bell badge for the surface the user is now
+                    // looking at. Other surfaces in the workspace keep their
+                    // bonsplit-tab badge until those tabs are interacted with.
+                    // Gate on AppFocusState so background/programmatic selection
+                    // changes don't dismiss badges before the user sees them.
+                    if AppFocusState.isAppActive(),
+                       let focusedSurfaceId = self.focusedSurfaceId(for: selectedTabId) {
+                        AppDelegate.shared?.notificationStore?.clearBell(
+                            forTabId: selectedTabId,
+                            surfaceId: focusedSurfaceId
+                        )
                     }
                 }
 #if DEBUG
@@ -5070,11 +5075,15 @@ class TabManager: ObservableObject {
         guard let notificationStore = AppDelegate.shared?.notificationStore else { return false }
         let hasUnreadNotification = notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId)
         let hasFocusedIndicator = notificationStore.hasVisibleNotificationIndicator(forTabId: tabId, surfaceId: surfaceId)
-        guard hasUnreadNotification || hasFocusedIndicator else { return false }
+        let hasBell = surfaceId.map { notificationStore.hasBell(forTabId: tabId, surfaceId: $0) } ?? false
+        guard hasUnreadNotification || hasFocusedIndicator || hasBell else { return false }
         if hasUnreadNotification {
             notificationStore.markRead(forTabId: tabId, surfaceId: surfaceId)
         }
         notificationStore.clearFocusedReadIndicator(forTabId: tabId, surfaceId: surfaceId)
+        if let surfaceId, hasBell {
+            notificationStore.clearBell(forTabId: tabId, surfaceId: surfaceId)
+        }
         if let panelId = surfaceId,
            let tab = tabs.first(where: { $0.id == tabId }) {
             tab.triggerNotificationDismissFlash(panelId: panelId)

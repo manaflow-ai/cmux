@@ -293,6 +293,9 @@ struct WorkspaceContentView: View {
         .onChange(of: notificationStore.notifications) { _, _ in
             syncBonsplitNotificationBadges()
         }
+        .onChange(of: notificationStore.bellRangSurfacesByTab) { _, _ in
+            syncBonsplitNotificationBadges()
+        }
         .onChange(of: workspace.manualUnreadPanelIds) { _, _ in
             syncBonsplitNotificationBadges()
         }
@@ -336,7 +339,8 @@ struct WorkspaceContentView: View {
                 let expectedPinned = panelId.map { workspace.isPanelPinned($0) } ?? false
                 let shouldShow = panelId.map {
                     notificationStore.hasVisibleNotificationIndicator(forTabId: workspace.id, surfaceId: $0) ||
-                        manualUnread.contains($0)
+                        manualUnread.contains($0) ||
+                        notificationStore.hasBell(forTabId: workspace.id, surfaceId: $0)
                 } ?? false
                 let kindUpdate: String?? = expectedKind.map { .some($0) }
 

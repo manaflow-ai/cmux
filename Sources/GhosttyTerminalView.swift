@@ -3326,7 +3326,7 @@ class GhosttyApp {
     }
 
     @MainActor
-    private func ringBell(tabId: UUID?) {
+    private func ringBell(tabId: UUID?, surfaceId: UUID?) {
         let features = bellFeatures()
 
         if (features & (1 << 0)) != 0 {
@@ -3347,17 +3347,17 @@ class GhosttyApp {
             NSApp.requestUserAttention(.informationalRequest)
         }
 
-        // Bit 3 = `title`: per-tab visual indicator. cmux renders this as a bell
-        // badge on the workspace's sidebar row instead of prepending an emoji to
-        // the surface title (cmux owns the tab UI). When ringBell is invoked
-        // without a tabId (app-target bell action with no surface context), we
-        // skip the title indicator rather than mis-attribute the bell.
-        if (features & (1 << 3)) != 0, let tabId {
-            TerminalNotificationStore.shared.noteBellRang(tabId: tabId)
+        // Bit 3 = `title`: per-surface visual indicator. cmux renders this on
+        // both the workspace's sidebar row (any surface in the workspace rang)
+        // and the bonsplit pane tab strip (the specific surface that rang).
+        // The app-target bell action (no surface context) skips this with a
+        // DEBUG log rather than mis-attributing the bell.
+        if (features & (1 << 3)) != 0, let tabId, let surfaceId {
+            TerminalNotificationStore.shared.noteBellRang(tabId: tabId, surfaceId: surfaceId)
         }
 #if DEBUG
-        if (features & (1 << 3)) != 0, tabId == nil {
-            cmuxDebugLog("bell.title.skipped reason=missingTabId")
+        if (features & (1 << 3)) != 0, (tabId == nil || surfaceId == nil) {
+            cmuxDebugLog("bell.title.skipped reason=missingTabIdOrSurfaceId tab=\(tabId?.uuidString.prefix(5) ?? "nil") surface=\(surfaceId?.uuidString.prefix(5) ?? "nil")")
         }
 #endif
     }
@@ -3710,7 +3710,7 @@ class GhosttyApp {
 
             if action.tag == GHOSTTY_ACTION_RING_BELL {
                 performOnMain {
-                    self.ringBell(tabId: nil)
+                    self.ringBell(tabId: nil, surfaceId: nil)
                 }
                 return true
             }
@@ -3813,10 +3813,11 @@ class GhosttyApp {
             }
         case GHOSTTY_ACTION_RING_BELL:
             performOnMain {
-                // Prefer callbackContext.tabId (still valid during view churn /
-                // reparenting) and fall back to surfaceView.tabId.
+                // Prefer callbackContext ids (still valid during view churn /
+                // reparenting) and fall back to surfaceView lookup.
                 let bellTabId = callbackTabId ?? surfaceView.tabId
-                self.ringBell(tabId: bellTabId)
+                let bellSurfaceId = callbackSurfaceId ?? surfaceView.terminalSurface?.id
+                self.ringBell(tabId: bellTabId, surfaceId: bellSurfaceId)
             }
             return true
         case GHOSTTY_ACTION_GOTO_SPLIT:

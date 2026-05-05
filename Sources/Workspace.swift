@@ -8400,6 +8400,7 @@ final class Workspace: Identifiable, ObservableObject {
     func markPanelRead(_ panelId: UUID) {
         guard panels[panelId] != nil else { return }
         AppDelegate.shared?.notificationStore?.markRead(forTabId: id, surfaceId: panelId)
+        AppDelegate.shared?.notificationStore?.clearBell(forTabId: id, surfaceId: panelId)
         clearManualUnread(panelId: panelId)
     }
 
