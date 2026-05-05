@@ -4,7 +4,7 @@ enum CmuxSettingsJSONPersistence {
     static func currentSettingsJSONValuesFromUserDefaults(
         defaults: UserDefaults = .standard
     ) -> [String: ManagedSettingsValue] {
-        var values: [String: ManagedSettingsValue] = [
+        let values: [String: ManagedSettingsValue] = [
             "app.language": .string(stringValue(
                 LanguageSettings.languageKey,
                 defaultValue: LanguageSettings.defaultLanguage.rawValue,
