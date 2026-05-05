@@ -2518,7 +2518,7 @@ final class FileDropOverlayViewTests: XCTestCase {
         )
     }
 
-    func testOverlayDoesNotCaptureFileDragLifecycleWhenPanePreviewDropsAreEnabled() {
+    func testOverlayForwardsExternalFileDragLifecycleToBrowserWebViews() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 280),
             styleMask: [.titled, .closable],
@@ -2566,15 +2566,15 @@ final class FileDropOverlayViewTests: XCTestCase {
             pasteboard: pasteboard
         )
 
-        XCTAssertEqual(overlay.draggingEntered(dragInfo), [])
-        XCTAssertFalse(overlay.prepareForDragOperation(dragInfo))
-        XCTAssertFalse(overlay.performDragOperation(dragInfo))
+        XCTAssertEqual(overlay.draggingEntered(dragInfo), .copy)
+        XCTAssertTrue(overlay.prepareForDragOperation(dragInfo))
+        XCTAssertTrue(overlay.performDragOperation(dragInfo))
         overlay.concludeDragOperation(dragInfo)
 
         XCTAssertEqual(
             webView.dragCalls,
-            [],
-            "Finder file drops should reach pane-level Bonsplit preview targets instead of the root overlay"
+            ["entered", "prepare", "perform", "conclude"],
+            "Finder file drops should keep browser uploads working while the root overlay owns the external file drag destination"
         )
     }
 }

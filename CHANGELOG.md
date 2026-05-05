@@ -2,6 +2,15 @@
 
 All notable changes to cmux are documented here.
 
+## [0.64.1] - 2026-05-05
+
+### Fixed
+- Fix sidebar workspace close (×) button intermittently failing to appear on hover ([#3546](https://github.com/manaflow-ai/cmux/pull/3546))
+
+### Thanks to 1 contributor!
+
+- [@austinywang](https://github.com/austinywang)
+
 ## [0.64.0] - 2026-05-05
 
 ### Added

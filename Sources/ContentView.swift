@@ -30,19 +30,24 @@ enum DragOverlayRoutingPolicy {
     }
 
     static func hasFileURL(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
-        guard let pasteboardTypes else { return false }
-        return pasteboardTypes.contains(.fileURL)
+        PasteboardFileURLReader.hasFileURLType(pasteboardTypes ?? [])
     }
 
     static func shouldCaptureFileDropDestination(
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
         hasLocalDraggingSource: Bool
     ) -> Bool {
-        // File URL drops are routed at the Bonsplit pane layer so center/edge
-        // drop targets stay visible and the host can open previews or splits.
-        _ = hasLocalDraggingSource
+        // External Finder file drops need the stable root AppKit destination so
+        // terminal/browser panes receive their shared file insertion/upload path.
+        // Internal cmux drag payloads keep their dedicated pane routing.
         guard hasFileURL(pasteboardTypes) else { return false }
-        return false
+        guard !hasFilePreviewTransfer(pasteboardTypes),
+              !hasBonsplitTabTransfer(pasteboardTypes),
+              !hasSidebarTabReorder(pasteboardTypes) else {
+            return false
+        }
+        guard !hasLocalDraggingSource else { return false }
+        return true
     }
 
     static func shouldCaptureFileDropDestination(
@@ -148,7 +153,7 @@ final class FileDropOverlayView: NSView {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        registerForDraggedTypes([.fileURL])
+        registerForDraggedTypes(Array(PasteboardFileURLReader.fileURLPasteboardTypes))
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
@@ -493,7 +498,7 @@ final class FileDropOverlayView: NSView {
 
         let interestingTypes = types.filter { type in
             let raw = type.rawValue
-            return raw == NSPasteboard.PasteboardType.fileURL.rawValue
+            return PasteboardFileURLReader.fileURLPasteboardTypes.contains(type)
                 || raw == DragOverlayRoutingPolicy.bonsplitTabTransferType.rawValue
                 || raw == DragOverlayRoutingPolicy.sidebarTabReorderType.rawValue
                 || raw.contains("public.text")
@@ -510,7 +515,7 @@ final class FileDropOverlayView: NSView {
 
     private func hasRelevantDragTypes(_ types: [NSPasteboard.PasteboardType]?) -> Bool {
         guard let types else { return false }
-        return types.contains(.fileURL)
+        return DragOverlayRoutingPolicy.hasFileURL(types)
             || types.contains(DragOverlayRoutingPolicy.bonsplitTabTransferType)
             || types.contains(DragOverlayRoutingPolicy.sidebarTabReorderType)
     }
@@ -12641,7 +12646,6 @@ struct SidebarWorkspaceSnapshotBuilder {
 }
 
 private final class SidebarTabItemContextMenuState: ObservableObject {
-    var isVisible = false
     var hasDeferredWorkspaceObservationInvalidation = false
     var pendingWorkspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot?
 }
@@ -12707,7 +12711,7 @@ private struct TabItemView: View, Equatable {
     @Binding var frozenPresentation: SidebarTabItemPresentationSnapshot?
     @State private var workspaceSnapshotStorage: SidebarWorkspaceSnapshotBuilder.Snapshot?
     @StateObject private var contextMenuState = SidebarTabItemContextMenuState()
-    @State private var isHovering = false
+    @State private var rowInteractionState = SidebarWorkspaceRowInteractionState()
     @State private var rowHeight: CGFloat = 1
 
     var isMultiSelected: Bool {
@@ -12833,7 +12837,10 @@ private struct TabItemView: View, Equatable {
     }
 
     private var showCloseButton: Bool {
-        isHovering && canCloseWorkspace && !(showsModifierShortcutHints || alwaysShowShortcutHints)
+        rowInteractionState.shouldShowCloseButton(
+            canCloseWorkspace: canCloseWorkspace,
+            shortcutHintModeActive: showsModifierShortcutHints || alwaysShowShortcutHints
+        )
     }
 
     private var workspaceShortcutLabel: String? {
@@ -13232,6 +13239,9 @@ private struct TabItemView: View, Equatable {
         .contentShape(Rectangle())
         .opacity(isBeingDragged ? 0.6 : 1)
         .overlay {
+            SidebarWorkspaceRowHoverTracker(rowInteractionState: $rowInteractionState)
+        }
+        .overlay {
             MiddleClickCapture {
                 #if DEBUG
                 cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=middleClick")
@@ -13318,10 +13328,6 @@ private struct TabItemView: View, Equatable {
         .onTapGesture {
             updateSelection()
         }
-        .onHover { hovering in
-            guard !contextMenuState.isVisible else { return }
-            isHovering = hovering
-        }
         .safeHelp(workspaceSnapshot.title)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text(accessibilityTitle))
@@ -13335,17 +13341,14 @@ private struct TabItemView: View, Equatable {
         .contextMenu {
             workspaceContextMenu
                 .onAppear {
-                    contextMenuState.isVisible = true
+                    rowInteractionState.contextMenuDidAppear()
                     contextMenuState.hasDeferredWorkspaceObservationInvalidation = false
                     contextMenuState.pendingWorkspaceSnapshot = nil
                     frozenPresentation = livePresentation
                 }
                 .onDisappear {
-                    contextMenuState.isVisible = false
+                    rowInteractionState.contextMenuDidDisappear()
                     frozenPresentation = nil
-                    if isHovering {
-                        isHovering = false
-                    }
                     flushDeferredWorkspaceObservationInvalidation()
                 }
         }
@@ -13357,7 +13360,7 @@ private struct TabItemView: View, Equatable {
             current: workspaceSnapshotStorage,
             next: nextSnapshot,
             force: force,
-            contextMenuVisible: contextMenuState.isVisible
+            contextMenuVisible: rowInteractionState.contextMenuVisible
         )
 
         if workspaceSnapshotStorage != decision.workspaceSnapshotStorage {

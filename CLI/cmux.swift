@@ -18191,11 +18191,17 @@ export default CMUXSessionRestore;
         guard item.canResolve else { return "Resolved or informational item" }
         switch item.kind {
         case "permissionRequest":
-            if item.source == "codex" {
+            if !feedTUISourceSupportsPersistentPermissionModes(item.source) {
                 return "Permission: Enter/o once, d deny"
+            }
+            if !feedTUISourceSupportsBypassPermissions(item.source) {
+                return "Permission: Enter/o once, a always, l all tools, d deny"
             }
             return "Permission: Enter/o once, a always, l all tools, b bypass, d deny"
         case "exitPlan":
+            if !feedTUISourceSupportsBypassPermissions(item.source) {
+                return "Plan: Enter default, a auto, m manual, u ultraplan, f replan, d deny"
+            }
             return "Plan: Enter default, a auto, m manual, u ultraplan, b bypass, f replan, d deny"
         case "question":
             let questionCount = max(item.questions.count, 1)
@@ -18216,6 +18222,14 @@ export default CMUXSessionRestore;
         }
     }
 
+    private func feedTUISourceSupportsPersistentPermissionModes(_ source: String) -> Bool {
+        source != "codex"
+    }
+
+    private func feedTUISourceSupportsBypassPermissions(_ source: String) -> Bool {
+        source != "codex" && source != "claude"
+    }
+
     private func resolveFeedTUIItem(
         _ item: FeedTUIItem,
         key: FeedTUIKey,
@@ -18233,11 +18247,11 @@ export default CMUXSessionRestore;
             switch key {
             case .enter, .once:
                 mode = "once"
-            case .always where item.source != "codex":
+            case .always where feedTUISourceSupportsPersistentPermissionModes(item.source):
                 mode = "always"
-            case .all where item.source != "codex":
+            case .all where feedTUISourceSupportsPersistentPermissionModes(item.source):
                 mode = "all"
-            case .bypass where item.source != "codex":
+            case .bypass where feedTUISourceSupportsBypassPermissions(item.source):
                 mode = "bypass"
             case .deny:
                 mode = "deny"
@@ -18270,7 +18284,7 @@ export default CMUXSessionRestore;
                 mode = "manual"
             case .ultraplan:
                 mode = "ultraplan"
-            case .bypass:
+            case .bypass where feedTUISourceSupportsBypassPermissions(item.source):
                 mode = "bypassPermissions"
             case .deny:
                 mode = "deny"
@@ -19122,12 +19136,6 @@ export default CMUXSessionRestore;
                 var updatedPermissions: [[String: Any]]?
                 if mode == "always" || mode == "all" {
                     updatedPermissions = rawObject["permission_suggestions"] as? [[String: Any]]
-                } else if mode == "bypass" {
-                    updatedPermissions = [[
-                        "type": "setMode",
-                        "mode": "bypassPermissions",
-                        "destination": "session",
-                    ]]
                 }
                 return encode(permissionRequestHookDecision(
                     behavior: "allow",
@@ -19186,12 +19194,6 @@ export default CMUXSessionRestore;
                     updatedPermissions = [[
                         "type": "setMode",
                         "mode": "auto",
-                        "destination": "session",
-                    ]]
-                } else if mode == "bypassPermissions" {
-                    updatedPermissions = [[
-                        "type": "setMode",
-                        "mode": "bypassPermissions",
                         "destination": "session",
                     ]]
                 }

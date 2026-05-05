@@ -102,12 +102,12 @@ final class GhosttyTerminalStartupEnvironmentTests: XCTestCase {
         XCTAssertEqual(merged["TERM_PROGRAM"], TerminalSurface.managedTerminalProgram)
     }
 
-    func testMergedStartupEnvironmentNeutralizesInheritedClaudeApiAuthSelection() {
+    func testMergedStartupEnvironmentPreservesThirdPartyClaudeApiEnvironment() {
         let merged = TerminalSurface.mergedStartupEnvironment(
             base: [
                 "CLAUDE_CONFIG_DIR": "/tmp/claude-config",
                 "ANTHROPIC_API_KEY": "stale-api-key",
-                "ANTHROPIC_AUTH_TOKEN": "stale-auth-token",
+                "ANTHROPIC_AUTH_TOKEN": "third-party-auth-token",
                 "ANTHROPIC_BASE_URL": "https://api.example.test",
                 "ANTHROPIC_MODEL": "stale-model",
                 "CUSTOM_FLAG": "1"
@@ -119,13 +119,13 @@ final class GhosttyTerminalStartupEnvironmentTests: XCTestCase {
 
         XCTAssertEqual(merged["CLAUDE_CONFIG_DIR"], "/tmp/claude-config")
         XCTAssertEqual(merged["ANTHROPIC_API_KEY"], "")
-        XCTAssertEqual(merged["ANTHROPIC_AUTH_TOKEN"], "")
-        XCTAssertEqual(merged["ANTHROPIC_BASE_URL"], "")
+        XCTAssertEqual(merged["ANTHROPIC_AUTH_TOKEN"], "third-party-auth-token")
+        XCTAssertEqual(merged["ANTHROPIC_BASE_URL"], "https://api.example.test")
         XCTAssertEqual(merged["ANTHROPIC_MODEL"], "")
         XCTAssertEqual(merged["CUSTOM_FLAG"], "1")
     }
 
-    func testMergedStartupEnvironmentNeutralizesAmbientClaudeApiAuthSelection() {
+    func testMergedStartupEnvironmentDoesNotMaskAmbientThirdPartyClaudeApiEnvironment() {
         let merged = TerminalSurface.mergedStartupEnvironment(
             base: [
                 "CUSTOM_FLAG": "1"
@@ -144,8 +144,8 @@ final class GhosttyTerminalStartupEnvironmentTests: XCTestCase {
 
         XCTAssertNil(merged["CLAUDE_CONFIG_DIR"])
         XCTAssertEqual(merged["ANTHROPIC_API_KEY"], "")
-        XCTAssertEqual(merged["ANTHROPIC_AUTH_TOKEN"], "")
-        XCTAssertEqual(merged["ANTHROPIC_BASE_URL"], "")
+        XCTAssertNil(merged["ANTHROPIC_AUTH_TOKEN"])
+        XCTAssertNil(merged["ANTHROPIC_BASE_URL"])
         XCTAssertEqual(merged["ANTHROPIC_MODEL"], "")
         XCTAssertEqual(merged["CUSTOM_FLAG"], "1")
     }
