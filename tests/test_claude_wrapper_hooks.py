@@ -611,13 +611,13 @@ def test_live_socket_whitespace_home_uses_safe_cache_fallback(failures: list[str
     )
     if sys.platform == "darwin":
         expect(
-            require_path == f"/var/tmp/cmux-{os.getuid()}/com.cmuxterm.app/cmux-claude-node-options/restore-node-options.cjs",
+            require_path == f"/var/tmp/cmux-{os.getuid()}/com.cmuxterm.app/cmux-claude-node-options/restore-node-options.cjs",  # noqa: S108
             f"whitespace HOME fallback: expected macOS fallback cache path, got {require_path!r}",
             failures,
         )
     else:
         expect(
-            require_path == f"/var/tmp/cmux-{os.getuid()}/cmux-claude-node-options/restore-node-options.cjs",
+            require_path == f"/var/tmp/cmux-{os.getuid()}/cmux-claude-node-options/restore-node-options.cjs",  # noqa: S108
             f"whitespace HOME fallback: expected Linux fallback cache path, got {require_path!r}",
             failures,
         )
@@ -645,7 +645,7 @@ def test_live_socket_quoted_linux_home_uses_safe_cache_fallback(failures: list[s
         failures,
     )
     expect(
-        require_path == f"/var/tmp/cmux-{os.getuid()}/cmux-claude-node-options/restore-node-options.cjs",
+        require_path == f"/var/tmp/cmux-{os.getuid()}/cmux-claude-node-options/restore-node-options.cjs",  # noqa: S108
         f"quoted HOME fallback: expected Linux fallback cache path, got {require_path!r}",
         failures,
     )

@@ -11555,6 +11555,13 @@ struct CMUXCLI {
         path.rangeOfCharacter(from: nodeOptionsUnsafePathCharacters) != nil
     }
 
+    private static func nodeOptionsHomePath(in environment: [String: String]) -> String {
+        if let homePath = environment["HOME"], !homePath.isEmpty {
+            return homePath
+        }
+        return NSHomeDirectory()
+    }
+
     private func configureClaudeTeamsEnvironment(
         processEnvironment: [String: String],
         shimDirectory: URL,
@@ -11649,7 +11656,7 @@ struct CMUXCLI {
         let environment = ProcessInfo.processInfo.environment
         let cacheRoot: URL
 #if os(macOS)
-        let homePath = environment["HOME"] ?? NSHomeDirectory()
+        let homePath = Self.nodeOptionsHomePath(in: environment)
         let preferredRoot = URL(fileURLWithPath: homePath, isDirectory: true)
             .appendingPathComponent("Library", isDirectory: true)
             .appendingPathComponent("Caches", isDirectory: true)
@@ -11667,7 +11674,7 @@ struct CMUXCLI {
             cacheRoot = URL(fileURLWithPath: xdgCacheHome, isDirectory: true)
                 .appendingPathComponent("cmux", isDirectory: true)
         } else {
-            let homePath = environment["HOME"] ?? NSHomeDirectory()
+            let homePath = Self.nodeOptionsHomePath(in: environment)
             let preferredRoot = URL(fileURLWithPath: homePath, isDirectory: true)
                 .appendingPathComponent(".cache", isDirectory: true)
                 .appendingPathComponent("cmux", isDirectory: true)
