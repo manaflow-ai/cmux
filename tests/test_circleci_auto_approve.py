@@ -1,0 +1,173 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import importlib.util
+import json
+import os
+import pathlib
+import sys
+import urllib.error
+from contextlib import contextmanager
+from typing import Any
+from unittest import mock
+
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+SCRIPT = ROOT / "scripts" / "circleci_auto_approve.py"
+WORKFLOW_ID = "11111111-1111-1111-1111-111111111111"
+APPROVAL_ID = "22222222-2222-2222-2222-222222222222"
+
+
+def load_module() -> Any:
+  spec = importlib.util.spec_from_file_location("circleci_auto_approve", SCRIPT)
+  assert spec and spec.loader
+  module = importlib.util.module_from_spec(spec)
+  sys.modules["circleci_auto_approve"] = module
+  spec.loader.exec_module(module)
+  return module
+
+
+class FakeResponse:
+  def __init__(self, payload: Any = None):
+    self.payload = payload
+
+  def __enter__(self) -> "FakeResponse":
+    return self
+
+  def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+    return None
+
+  def read(self) -> bytes:
+    if self.payload is None:
+      return b""
+    return json.dumps(self.payload).encode("utf-8")
+
+
+def http_error(url: str, status: int) -> urllib.error.HTTPError:
+  return urllib.error.HTTPError(url, status, "not found", hdrs=None, fp=None)
+
+
+@contextmanager
+def env(**updates: str):
+  old = os.environ.copy()
+  os.environ.clear()
+  os.environ.update(updates)
+  try:
+    yield
+  finally:
+    os.environ.clear()
+    os.environ.update(old)
+
+
+def base_env(author: str) -> dict[str, str]:
+  return {
+    "GITHUB_API_URL": "https://api.github.test",
+    "CIRCLECI_API_URL": "https://circleci.test/api/v2",
+    "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+    "PR_HEAD_SHA": "abc123",
+    "PR_AUTHOR": author,
+    "TRUSTED_GITHUB_ORG": "manaflow-ai",
+    "TRUSTED_GITHUB_USERS": "lawrencecchen,austyinywang",
+    "GITHUB_TOKEN": "github-token",
+    "CIRCLECI_TOKEN": "circle-token",
+    "CIRCLECI_APPROVAL_MAX_ATTEMPTS": "1",
+    "CIRCLECI_APPROVAL_POLL_SECONDS": "0",
+  }
+
+
+def fake_check_runs() -> dict[str, Any]:
+  return {
+    "check_runs": [
+      {
+        "name": "ci/circleci: hold-for-approval",
+        "details_url": f"https://app.circleci.com/pipelines/circleci/example/workflows/{WORKFLOW_ID}",
+      }
+    ]
+  }
+
+
+def fake_workflow_jobs() -> dict[str, Any]:
+  return {
+    "items": [
+      {
+        "name": "hold-for-approval",
+        "type": "approval",
+        "status": "blocked",
+        "approval_request_id": APPROVAL_ID,
+      }
+    ]
+  }
+
+
+def test_allowlisted_user_approves_without_membership_lookup() -> None:
+  calls: list[tuple[str, str]] = []
+
+  def urlopen(request: Any, timeout: int = 20) -> FakeResponse:
+    calls.append((request.get_method(), request.full_url))
+    if request.full_url.endswith("/check-runs?per_page=100"):
+      return FakeResponse(fake_check_runs())
+    if request.full_url.endswith(f"/workflow/{WORKFLOW_ID}/job"):
+      return FakeResponse(fake_workflow_jobs())
+    if request.full_url.endswith(f"/workflow/{WORKFLOW_ID}/approve/{APPROVAL_ID}"):
+      return FakeResponse({})
+    raise AssertionError(f"unexpected request: {request.full_url}")
+
+  with env(**base_env("lawrencecchen")):
+    module = load_module()
+    with mock.patch.object(module.urllib.request, "urlopen", urlopen):
+      assert module.run() == 0
+
+  urls = [url for _, url in calls]
+  assert not any("/orgs/manaflow-ai/members/lawrencecchen" in url for url in urls)
+  assert any(method == "POST" and url == f"https://circleci.test/api/v2/workflow/{WORKFLOW_ID}/approve/{APPROVAL_ID}" for method, url in calls), calls
+
+
+def test_visible_org_member_approves() -> None:
+  calls: list[tuple[str, str]] = []
+
+  def urlopen(request: Any, timeout: int = 20) -> FakeResponse:
+    calls.append((request.get_method(), request.full_url))
+    if request.full_url.endswith("/orgs/manaflow-ai/members/alice"):
+      return FakeResponse()
+    if request.full_url.endswith("/check-runs?per_page=100"):
+      return FakeResponse(fake_check_runs())
+    if request.full_url.endswith(f"/workflow/{WORKFLOW_ID}/job"):
+      return FakeResponse(fake_workflow_jobs())
+    if request.full_url.endswith(f"/workflow/{WORKFLOW_ID}/approve/{APPROVAL_ID}"):
+      return FakeResponse({})
+    raise AssertionError(f"unexpected request: {request.full_url}")
+
+  with env(**base_env("alice")):
+    module = load_module()
+    with mock.patch.object(module.urllib.request, "urlopen", urlopen):
+      assert module.run() == 0
+
+  assert any(method == "POST" and url == f"https://circleci.test/api/v2/workflow/{WORKFLOW_ID}/approve/{APPROVAL_ID}" for method, url in calls), calls
+
+
+def test_non_member_does_not_call_circleci() -> None:
+  calls: list[tuple[str, str]] = []
+
+  def urlopen(request: Any, timeout: int = 20) -> FakeResponse:
+    calls.append((request.get_method(), request.full_url))
+    if request.full_url.endswith("/orgs/manaflow-ai/members/mallory"):
+      raise http_error(request.full_url, 404)
+    raise AssertionError(f"unexpected request: {request.full_url}")
+
+  with env(**base_env("mallory")):
+    module = load_module()
+    with mock.patch.object(module.urllib.request, "urlopen", urlopen):
+      assert module.run() == 0
+
+  assert all("circleci.test" not in url for _, url in calls)
+
+
+def main() -> None:
+  test_allowlisted_user_approves_without_membership_lookup()
+  test_visible_org_member_approves()
+  test_non_member_does_not_call_circleci()
+  print("PASS: CircleCI auto approval trusts only allowlisted users or org members")
+
+
+if __name__ == "__main__":
+  main()
