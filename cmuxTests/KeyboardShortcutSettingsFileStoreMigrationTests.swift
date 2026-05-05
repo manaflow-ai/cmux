@@ -235,6 +235,7 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
         try writeSettingsFile(
             """
             {
+              // User comments in cmux.json must survive Settings UI writes.
               "schemaVersion": 1,
               "sidebarAppearance": {
                 "matchTerminalBackground": true
@@ -270,6 +271,8 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
         let root = try XCTUnwrap(JSONSerialization.jsonObject(with: sanitized) as? [String: Any])
         let sidebarAppearance = try XCTUnwrap(root["sidebarAppearance"] as? [String: Any])
         XCTAssertEqual(sidebarAppearance["matchTerminalBackground"] as? Bool, false)
+        let updatedContents = try String(contentsOf: primaryURL, encoding: .utf8)
+        XCTAssertTrue(updatedContents.contains("User comments in cmux.json must survive Settings UI writes."))
 
         withExtendedLifetime(store) {}
     }

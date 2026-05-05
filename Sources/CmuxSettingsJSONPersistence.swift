@@ -291,29 +291,26 @@ enum CmuxSettingsJSONPersistence {
     ) throws {
         bootstrapPrimaryTemplate()
         let fileURL = URL(fileURLWithPath: primaryPath, isDirectory: false)
-        var root = try loadWritableSettingsRoot(from: fileURL, fileManager: fileManager)
-        if root["$schema"] == nil {
-            root["$schema"] = CmuxSettingsFileStore.schemaURLString
-        }
-        if root["schemaVersion"] == nil {
-            root["schemaVersion"] = CmuxSettingsFileStore.currentSchemaVersion
-        }
-
+        let existingSource = try settingsFileSource(from: fileURL, fileManager: fileManager)
+        var patchedSource = existingSource
         for (path, value) in values.sorted(by: { $0.key < $1.key }) {
-            setSettingsJSONValue(value.jsonObject, at: path, in: &root)
+            patchedSource = try JSONCSettingsPatcher.setting(
+                path,
+                to: value.jsonObject,
+                in: patchedSource
+            )
         }
+        try validateWritableRoot(patchedSource)
 
-        var options: JSONSerialization.WritingOptions = [.prettyPrinted, .sortedKeys]
-        options.insert(.withoutEscapingSlashes)
-        let data = try JSONSerialization.data(withJSONObject: root, options: options)
-        var output = data
-        output.append(0x0A)
+        if !patchedSource.hasSuffix("\n") {
+            patchedSource.append("\n")
+        }
         try fileManager.createDirectory(
             at: fileURL.deletingLastPathComponent(),
             withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o755]
         )
-        try output.write(to: fileURL, options: [.atomic])
+        try Data(patchedSource.utf8).write(to: fileURL, options: [.atomic])
         try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
     }
 
@@ -340,37 +337,39 @@ enum CmuxSettingsJSONPersistence {
             .filter { !$0.isEmpty }
     }
 
-    private static func loadWritableSettingsRoot(from fileURL: URL, fileManager: FileManager) throws -> [String: Any] {
-        guard fileManager.fileExists(atPath: fileURL.path) else { return [:] }
-        guard let data = fileManager.contents(atPath: fileURL.path), !data.isEmpty else { return [:] }
-        let sanitized = try JSONCParser.preprocess(data: data)
-        let object = try JSONSerialization.jsonObject(with: sanitized, options: [])
-        guard let root = object as? [String: Any] else {
+    private static func settingsFileSource(from fileURL: URL, fileManager: FileManager) throws -> String {
+        guard fileManager.fileExists(atPath: fileURL.path) else {
+            return defaultWritableSource()
+        }
+        guard let data = fileManager.contents(atPath: fileURL.path), !data.isEmpty else {
+            return defaultWritableSource()
+        }
+        guard let source = String(data: data, encoding: .utf8) else {
             throw CocoaError(.fileReadCorruptFile)
         }
-        return root
-    }
-
-    private static func setSettingsJSONValue(_ value: Any, at path: String, in root: inout [String: Any]) {
-        let components = path.split(separator: ".").map(String.init)
-        guard !components.isEmpty else { return }
-        setSettingsJSONValue(value, path: components[...], in: &root)
-    }
-
-    private static func setSettingsJSONValue(
-        _ value: Any,
-        path components: ArraySlice<String>,
-        in object: inout [String: Any]
-    ) {
-        guard let key = components.first else { return }
-        if components.count == 1 {
-            object[key] = value
-            return
+        let sanitized = try JSONCParser.preprocess(data: data)
+        let object = try JSONSerialization.jsonObject(with: sanitized, options: [])
+        guard object is [String: Any] else {
+            throw CocoaError(.fileReadCorruptFile)
         }
+        return source
+    }
 
-        var child = object[key] as? [String: Any] ?? [:]
-        setSettingsJSONValue(value, path: components.dropFirst(), in: &child)
-        object[key] = child
+    private static func defaultWritableSource() -> String {
+        """
+        {
+          "$schema": "\(CmuxSettingsFileStore.schemaURLString)",
+          "schemaVersion": \(CmuxSettingsFileStore.currentSchemaVersion)
+        }
+        """
+    }
+
+    private static func validateWritableRoot(_ source: String) throws {
+        let sanitized = try JSONCParser.preprocess(data: Data(source.utf8))
+        let object = try JSONSerialization.jsonObject(with: sanitized, options: [])
+        guard object is [String: Any] else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
     }
 }
 
