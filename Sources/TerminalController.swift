@@ -3697,6 +3697,12 @@ class TerminalController {
         return NSNull()
     }
 
+    nonisolated func v2NonEmptyString(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     nonisolated func v2MainSync<T>(_ body: @MainActor () -> T) -> T {
         let policyStack = Self.currentSocketCommandFocusAllowanceStack()
         if Thread.isMainThread {
@@ -5842,6 +5848,11 @@ class TerminalController {
                 if let browserPanel = panel as? BrowserPanel {
                     item["developer_tools_visible"] = browserPanel.isDeveloperToolsVisible()
                 }
+                if let terminalPanel = panel as? TerminalPanel {
+                    item["requested_working_directory"] = v2OrNull(v2NonEmptyString(terminalPanel.requestedWorkingDirectory))
+                    item["initial_command"] = v2OrNull(v2NonEmptyString(terminalPanel.surface.debugInitialCommand()))
+                    item["tmux_start_command"] = v2OrNull(v2NonEmptyString(terminalPanel.surface.debugTmuxStartCommand()))
+                }
                 return item
             }
 
@@ -5947,6 +5958,8 @@ class TerminalController {
         let workingDirectory = (requestedWorkingDirectory?.isEmpty == false) ? requestedWorkingDirectory : nil
         let requestedInitialCommand = v2RawString(params, "initial_command")?.trimmingCharacters(in: .whitespacesAndNewlines)
         let initialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
+        let requestedTmuxStartCommand = v2RawString(params, "tmux_start_command")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let tmuxStartCommand = (requestedTmuxStartCommand?.isEmpty == false) ? requestedTmuxStartCommand : nil
         let initialDividerPosition = v2Double(params, "initial_divider_position").map {
             min(max($0, 0.1), 0.9)
         }
@@ -5998,7 +6011,8 @@ class TerminalController {
                     direction: direction,
                     focus: focus,
                     workingDirectory: workingDirectory,
-                    initialCommand: initialCommand
+                    initialCommand: initialCommand,
+                    tmuxStartCommand: tmuxStartCommand
                 )
             }
 
@@ -6043,6 +6057,8 @@ class TerminalController {
         let workingDirectory = (requestedWorkingDirectory?.isEmpty == false) ? requestedWorkingDirectory : nil
         let requestedInitialCommand = v2RawString(params, "initial_command")?.trimmingCharacters(in: .whitespacesAndNewlines)
         let initialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
+        let requestedTmuxStartCommand = v2RawString(params, "tmux_start_command")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let tmuxStartCommand = (requestedTmuxStartCommand?.isEmpty == false) ? requestedTmuxStartCommand : nil
         if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
             return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
         }
@@ -6078,7 +6094,8 @@ class TerminalController {
                     inPane: paneId,
                     focus: focus,
                     workingDirectory: workingDirectory,
-                    initialCommand: initialCommand
+                    initialCommand: initialCommand,
+                    tmuxStartCommand: tmuxStartCommand
                 )?.id
             }
 
@@ -6646,6 +6663,7 @@ class TerminalController {
                     "current_directory": v2OrNull(currentDirectory),
                     "requested_working_directory": v2OrNull(nonEmpty(terminalSurface.requestedWorkingDirectory)),
                     "initial_command": v2OrNull(nonEmpty(terminalSurface.debugInitialCommand())),
+                    "tmux_start_command": v2OrNull(nonEmpty(terminalSurface.debugTmuxStartCommand())),
                     "git_branch": v2OrNull(nonEmpty(gitBranchState?.branch)),
                     "git_dirty": v2OrNull(gitBranchState?.isDirty),
                     "listening_ports": listeningPorts,
@@ -7333,6 +7351,8 @@ class TerminalController {
         let workingDirectory = (requestedWorkingDirectory?.isEmpty == false) ? requestedWorkingDirectory : nil
         let requestedInitialCommand = v2RawString(params, "initial_command")?.trimmingCharacters(in: .whitespacesAndNewlines)
         let initialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
+        let requestedTmuxStartCommand = v2RawString(params, "tmux_start_command")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let tmuxStartCommand = (requestedTmuxStartCommand?.isEmpty == false) ? requestedTmuxStartCommand : nil
         if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
             return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
         }
@@ -7375,7 +7395,8 @@ class TerminalController {
                     insertFirst: insertFirst,
                     focus: focus,
                     workingDirectory: workingDirectory,
-                    initialCommand: initialCommand
+                    initialCommand: initialCommand,
+                    tmuxStartCommand: tmuxStartCommand
                 )?.id
             }
 

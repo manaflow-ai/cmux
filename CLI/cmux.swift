@@ -11376,6 +11376,19 @@ struct CMUXCLI {
                     context["pane_title"] = title
                     context["window_name"] = context["window_name"] ?? title
                 }
+                let paneStartCommand = [
+                    surface["tmux_start_command"],
+                    surface["pane_start_command"],
+                    surface["initial_command"]
+                ]
+                    .compactMap { ($0 as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .first { !$0.isEmpty }
+                if let paneStartCommand {
+                    context["pane_start_command"] = paneStartCommand
+                    if let currentCommand = tmuxCurrentCommandName(from: paneStartCommand) {
+                        context["pane_current_command"] = currentCommand
+                    }
+                }
             }
         }
 
@@ -11443,6 +11456,103 @@ struct CMUXCLI {
 
     private func tmuxShellCommandText(commandTokens: [String], cwd: String?) -> String? {
         tmuxShellCommandBody(commandTokens: commandTokens, cwd: cwd).map { $0 + "\r" }
+    }
+
+    private func tmuxStartCommand(commandTokens: [String]) -> String? {
+        let commandText = commandTokens.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        return commandText.isEmpty ? nil : commandText
+    }
+
+    private func tmuxShellWords(_ commandText: String) -> [String] {
+        var words: [String] = []
+        var current = ""
+        var inSingleQuote = false
+        var inDoubleQuote = false
+        var escaping = false
+
+        for character in commandText {
+            if escaping {
+                current.append(character)
+                escaping = false
+                continue
+            }
+            if character == "\\" && !inSingleQuote {
+                escaping = true
+                continue
+            }
+            if character == "'" && !inDoubleQuote {
+                inSingleQuote.toggle()
+                continue
+            }
+            if character == "\"" && !inSingleQuote {
+                inDoubleQuote.toggle()
+                continue
+            }
+            if character.isWhitespace && !inSingleQuote && !inDoubleQuote {
+                if !current.isEmpty {
+                    words.append(current)
+                    current = ""
+                }
+                continue
+            }
+            current.append(character)
+        }
+
+        if !current.isEmpty {
+            words.append(current)
+        }
+        return words
+    }
+
+    private func tmuxLooksLikeShellAssignment(_ token: String) -> Bool {
+        guard let equalsIndex = token.firstIndex(of: "="), equalsIndex != token.startIndex else {
+            return false
+        }
+        let name = token[..<equalsIndex]
+        guard let first = name.first, first == "_" || first.isLetter else {
+            return false
+        }
+        return name.allSatisfy { $0 == "_" || $0.isLetter || $0.isNumber }
+    }
+
+    private func tmuxCurrentCommandName(from startCommand: String) -> String? {
+        for token in tmuxShellWords(startCommand) {
+            let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            if tmuxLooksLikeShellAssignment(trimmed) { continue }
+            let lower = trimmed.lowercased()
+            if lower == "env" || lower == "exec" || lower == "command" { continue }
+            let basename = (trimmed as NSString).lastPathComponent
+            return basename.isEmpty ? trimmed : basename
+        }
+        return nil
+    }
+
+    private func tmuxFormatRequestsPaneCommand(_ format: String?) -> Bool {
+        guard let format else { return false }
+        return format.contains("#{pane_start_command}") || format.contains("#{pane_current_command}")
+    }
+
+    private func tmuxLegacyOMXHudStartCommand(
+        workspaceId: String,
+        surfaceId: String,
+        client: SocketClient
+    ) -> String? {
+        guard let payload = try? client.sendV2(method: "surface.read_text", params: [
+            "workspace_id": workspaceId,
+            "surface_id": surfaceId,
+            "lines": 4
+        ]),
+            let text = payload["text"] as? String else {
+            return nil
+        }
+        let lower = text.lowercased()
+        guard lower.contains("[omx#"),
+              lower.contains("turns:"),
+              lower.contains("session:") else {
+            return nil
+        }
+        return "node omx.js hud --watch"
     }
 
     private func tmuxStartupScript(commandTokens: [String], cwd: String?) -> String? {
@@ -13052,6 +13162,9 @@ struct CMUXCLI {
             if let startupScript {
                 splitParams["initial_command"] = startupScript
             }
+            if let startCommand = tmuxStartCommand(commandTokens: parsed.positional) {
+                splitParams["tmux_start_command"] = startCommand
+            }
             let sizeTargetPaneId = target.paneId ?? (try? tmuxResolvePaneTarget(parsed.value("-t"), client: client).paneId)
             if let targetPaneId = sizeTargetPaneId,
                let targetCells = tmuxSplitSizeCells(parsed.value("-l")),
@@ -13247,6 +13360,17 @@ struct CMUXCLI {
                 guard let paneId = pane["id"] as? String else { continue }
                 var context = try tmuxFormatContext(workspaceId: workspaceId, paneId: paneId, client: client)
                 tmuxEnrichContextWithGeometry(&context, pane: pane, containerFrame: containerFrame)
+                if tmuxFormatRequestsPaneCommand(parsed.value("-F")),
+                   context["pane_start_command"] == nil,
+                   let surfaceId = context["surface_id"],
+                   let legacyHudStartCommand = tmuxLegacyOMXHudStartCommand(
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        client: client
+                   ) {
+                    context["pane_start_command"] = legacyHudStartCommand
+                    context["pane_current_command"] = tmuxCurrentCommandName(from: legacyHudStartCommand)
+                }
                 let fallback = context["pane_id"] ?? paneId
                 print(tmuxRenderFormat(parsed.value("-F"), context: context, fallback: fallback))
             }

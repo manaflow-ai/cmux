@@ -30,6 +30,7 @@ class FakeCmuxState:
         self.resize_params: list[dict[str, object]] = []
         self.equalize_params: list[dict[str, object]] = []
         self.sent_text: list[str] = []
+        self.hud_tmux_start_command: str | None = None
 
     def handle(self, method: str, params: dict[str, object]) -> dict[str, object]:
         if method == "workspace.list":
@@ -63,6 +64,7 @@ class FakeCmuxState:
                         "pane_id": HUD_PANE_ID,
                         "pane_ref": "pane:2",
                         "title": "omx hud",
+                        "tmux_start_command": self.hud_tmux_start_command,
                     }
                 )
             return {"surfaces": surfaces}
@@ -110,6 +112,8 @@ class FakeCmuxState:
         if method == "surface.split":
             self.split_params.append(dict(params))
             self.split_created = True
+            start_command = params.get("tmux_start_command")
+            self.hud_tmux_start_command = start_command if isinstance(start_command, str) else None
             return {
                 "surface_id": HUD_SURFACE_ID,
                 "pane_id": HUD_PANE_ID,
@@ -130,6 +134,10 @@ class FakeCmuxState:
         if method == "surface.send_text":
             self.sent_text.append(str(params.get("text") or ""))
             return {"ok": True}
+        if method == "surface.read_text":
+            if params.get("surface_id") == HUD_SURFACE_ID:
+                return {"text": "[OMX#0.15.3] turns:1 | session:23s | last:12s ago\n"}
+            return {"text": ""}
         raise RuntimeError(f"Unsupported fake cmux method: {method}")
 
 
@@ -251,8 +259,49 @@ def assert_omx_hud_splits_down_with_compact_size(
         raise AssertionError(f"expected HUD startup script to cd to project cwd, got {startup_text!r}")
     if "hud --watch" not in startup_text:
         raise AssertionError(f"expected HUD startup script to run the watch command, got {startup_text!r}")
+    tmux_start_command = split.get("tmux_start_command")
+    if not isinstance(tmux_start_command, str) or "hud --watch" not in tmux_start_command:
+        raise AssertionError(f"expected HUD tmux start command metadata, got {split!r}")
     if state.sent_text:
         raise AssertionError(f"HUD command should not be typed into a shell: {state.sent_text!r}")
+
+
+def assert_omx_hud_is_visible_to_tmux_pane_formats(
+    cli_path: str,
+    socket_path: Path,
+    fake_home: Path,
+) -> None:
+    proc = run_cli(
+        cli_path,
+        socket_path,
+        fake_home,
+        [
+            "__tmux-compat",
+            "list-panes",
+            "-t",
+            f"%{PANE_ID}",
+            "-F",
+            "#{pane_id}\t#{pane_current_command}\t#{pane_start_command}",
+        ],
+    )
+    if proc.returncode != 0:
+        raise AssertionError(
+            "HUD pane format query returned non-zero\n"
+            f"stdout={proc.stdout.strip()}\n"
+            f"stderr={proc.stderr.strip()}"
+        )
+
+    lines = [line for line in proc.stdout.splitlines() if line.strip()]
+    hud_lines = [line for line in lines if line.startswith(f"%{HUD_PANE_ID}\t")]
+    if len(hud_lines) != 1:
+        raise AssertionError(f"expected one formatted HUD pane line, got {lines!r}")
+    fields = hud_lines[0].split("\t")
+    if len(fields) != 3:
+        raise AssertionError(f"expected three tmux format fields, got {hud_lines[0]!r}")
+    if fields[1] != "node":
+        raise AssertionError(f"expected pane_current_command=node, got {hud_lines[0]!r}")
+    if "hud --watch" not in fields[2]:
+        raise AssertionError(f"expected pane_start_command to expose HUD watch command, got {hud_lines[0]!r}")
 
 
 def assert_omx_hud_feature_probe_is_supported(
@@ -330,6 +379,18 @@ def main() -> int:
                     fake_home,
                     cwd,
                     state,
+                )
+                assert_omx_hud_is_visible_to_tmux_pane_formats(
+                    cli_path,
+                    socket_path,
+                    fake_home,
+                )
+
+                state.hud_tmux_start_command = None
+                assert_omx_hud_is_visible_to_tmux_pane_formats(
+                    cli_path,
+                    socket_path,
+                    fake_home,
                 )
             finally:
                 server.shutdown()

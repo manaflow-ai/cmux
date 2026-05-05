@@ -3056,13 +3056,15 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
 
         let requestedDirectory = "/tmp/cmux-split-startup-\(UUID().uuidString)"
         let startupCommand = "/tmp/cmux-tmux-command-\(UUID().uuidString).sh"
+        let tmuxStartCommand = "node /opt/oh-my-codex/dist/omx.js hud --watch"
         guard let splitPanelId = manager.newSplit(
             tabId: workspace.id,
             surfaceId: sourcePanelId,
             direction: .down,
             focus: false,
             workingDirectory: requestedDirectory,
-            initialCommand: startupCommand
+            initialCommand: startupCommand,
+            tmuxStartCommand: tmuxStartCommand
         ) else {
             XCTFail("Expected split terminal panel to be created")
             return
@@ -3075,6 +3077,11 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
             startupCommand,
             "Programmatic tmux-compatible splits must launch their command as the pane process"
         )
+        XCTAssertEqual(
+            splitPanel?.surface.debugTmuxStartCommand(),
+            tmuxStartCommand,
+            "Programmatic tmux-compatible splits must preserve the original tmux command for pane format queries"
+        )
     }
 
     func testNewTerminalSurfaceCarriesRequestedWorkingDirectoryAndStartupCommand() {
@@ -3086,11 +3093,13 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
 
         let requestedDirectory = "/tmp/cmux-surface-startup-\(UUID().uuidString)"
         let startupCommand = "/tmp/cmux-surface-command-\(UUID().uuidString).sh"
+        let tmuxStartCommand = "node /opt/oh-my-codex/dist/omx.js hud --watch"
         guard let surface = workspace.newTerminalSurface(
             inPane: paneId,
             focus: false,
             workingDirectory: requestedDirectory,
-            initialCommand: startupCommand
+            initialCommand: startupCommand,
+            tmuxStartCommand: tmuxStartCommand
         ) else {
             XCTFail("Expected terminal surface to be created")
             return
@@ -3098,6 +3107,7 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
 
         XCTAssertEqual(surface.requestedWorkingDirectory, requestedDirectory)
         XCTAssertEqual(surface.surface.debugInitialCommand(), startupCommand)
+        XCTAssertEqual(surface.surface.debugTmuxStartCommand(), tmuxStartCommand)
     }
 
     func testNewTerminalSplitSkipsFreedInheritedSurfacePointer() throws {

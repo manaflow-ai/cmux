@@ -9827,7 +9827,8 @@ final class Workspace: Identifiable, ObservableObject {
         insertFirst: Bool = false,
         focus: Bool = true,
         workingDirectory: String? = nil,
-        initialCommand: String? = nil
+        initialCommand: String? = nil,
+        tmuxStartCommand: String? = nil
     ) -> TerminalPanel? {
 #if DEBUG
         let splitTimingStart = ProcessInfo.processInfo.systemUptime
@@ -9906,7 +9907,8 @@ final class Workspace: Identifiable, ObservableObject {
             configTemplate: inheritedConfig,
             workingDirectory: splitWorkingDirectory,
             portOrdinal: portOrdinal,
-            initialCommand: startupCommand
+            initialCommand: startupCommand,
+            tmuxStartCommand: tmuxStartCommand
         )
         configureTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
@@ -10005,6 +10007,7 @@ final class Workspace: Identifiable, ObservableObject {
         focus: Bool? = nil,
         workingDirectory: String? = nil,
         initialCommand: String? = nil,
+        tmuxStartCommand: String? = nil,
         initialInput: String? = nil,
         startupEnvironment: [String: String] = [:]
     ) -> TerminalPanel? {
@@ -10034,6 +10037,7 @@ final class Workspace: Identifiable, ObservableObject {
             workingDirectory: workingDirectory,
             portOrdinal: portOrdinal,
             initialCommand: startupCommand,
+            tmuxStartCommand: tmuxStartCommand,
             initialInput: initialInput,
             additionalEnvironment: startupEnvironment
         )
