@@ -121,7 +121,8 @@ enum CLISocketPathResolver {
         var candidates: [String] = []
         let variant = SocketPathMarkerFiles.variant(bundleIdentifier: bundleIdentifier, environment: environment)
 
-        if let tag = normalized(environment["CMUX_TAG"]),
+        if variant.isDev,
+           let tag = normalized(environment["CMUX_TAG"]),
            let slug = SocketPathMarkerFiles.sanitizeSocketSlug(tag) {
             candidates.append("/tmp/cmux-debug-\(slug).sock")
             candidates.append("/tmp/cmux-\(slug).sock")
