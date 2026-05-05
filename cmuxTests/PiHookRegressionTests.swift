@@ -118,6 +118,55 @@ final class PiHookRegressionTests: XCTestCase {
         XCTAssertEqual(onDisk, foreignContents)
     }
 
+    /// `cmux hooks pi install` MUST refuse to overwrite a file at the
+    /// extension path when we can't even read it (e.g. binary blob, non-UTF8,
+    /// permission denied). The previous implementation collapsed the read
+    /// failure into an empty string via `try?`, then bypassed the foreign-
+    /// file marker guard and clobbered the file.
+    func testPiInstallRefusesToClobberUnreadableFile() throws {
+        let cliPath = try bundledCLIPath()
+        let root = uniqueTempDirectory(prefix: "cmux-pi-hooks-unreadable-")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let homeDir = root.appendingPathComponent("home", isDirectory: true)
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: homeDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+        try writeFakeBinary(name: "pi", in: binDir)
+
+        let extensionURL = homeDir.appendingPathComponent(Self.extensionRelativePath)
+        try FileManager.default.createDirectory(
+            at: extensionURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        // Plant a non-UTF8 binary blob. UTF8 decoding will fail (0xFF, 0xFE
+        // are invalid UTF8 lead bytes; 0xC0/0xC1 are forbidden), so the
+        // installer's String(contentsOfFile:encoding:.utf8) read will throw.
+        let binaryContents = Data([0xFF, 0xFE, 0xFD, 0xC0, 0xC1, 0x80, 0x81, 0x82])
+        try binaryContents.write(to: extensionURL)
+
+        let environment = sandboxedEnvironment(homeDir: homeDir, binDir: binDir)
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "pi", "install", "--yes"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertNotEqual(
+            result.status, 0,
+            "Install must fail when the existing file can't be read; got stdout=\(result.stdout) stderr=\(result.stderr)"
+        )
+
+        // Bytes-level comparison: the foreign file must be byte-for-byte
+        // unchanged after the failed install.
+        let onDisk = try Data(contentsOf: extensionURL)
+        XCTAssertEqual(
+            onDisk, binaryContents,
+            "Install must not overwrite a file it could not verify"
+        )
+    }
+
     /// `cmux hooks pi uninstall --yes` should remove only files that contain
     /// the cmux marker. A foreign file at the same path must survive.
     func testPiUninstallRemovesOnlyMarkerTaggedFiles() throws {

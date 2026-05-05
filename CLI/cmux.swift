@@ -16400,9 +16400,21 @@ export default CMUXSessionRestore;
     private func installPiExtension(projectLocal: Bool) throws {
         let path = piSessionExtensionPath(projectLocal: projectLocal)
         let fm = FileManager.default
-        let existing = fm.fileExists(atPath: path)
-            ? ((try? String(contentsOfFile: path, encoding: .utf8)) ?? "")
-            : ""
+        // Important: distinguish "file does not exist" from "file exists but
+        // we couldn't read it". Collapsing both into "" via `try?` would
+        // bypass the foreign-file marker guard below — we'd overwrite a
+        // file we couldn't even verify (permission denied, non-UTF8 blob,
+        // transient I/O error). Propagate read failures instead.
+        let existing: String
+        if fm.fileExists(atPath: path) {
+            do {
+                existing = try String(contentsOfFile: path, encoding: .utf8)
+            } catch {
+                throw CLIError(message: "\(path) exists but could not be read (\(error.localizedDescription)); refusing to overwrite")
+            }
+        } else {
+            existing = ""
+        }
         if !existing.isEmpty, !existing.contains(Self.piSessionExtensionMarker) {
             throw CLIError(message: "\(path) exists and is not a cmux extension; leaving it alone")
         }
