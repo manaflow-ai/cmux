@@ -1077,7 +1077,8 @@ class TabManager: ObservableObject {
                 guard let self else { return }
                 guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID else { return }
                 guard let surfaceId = notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID else { return }
-                dismissPanelNotificationOnFocusIfActive(tabId: tabId, panelId: surfaceId)
+                let explicitFocusIntent = notification.userInfo?[GhosttyNotificationKey.explicitFocusIntent] as? Bool ?? false
+                dismissPanelNotificationOnFocus(tabId: tabId, panelId: surfaceId, explicitFocusIntent: explicitFocusIntent)
             }
         })
 
@@ -4961,13 +4962,17 @@ class TabManager: ObservableObject {
         suppressFocusFlash = false
         guard !shouldSuppressFlash else { return }
         guard let panelId = focusedPanelId(for: tabId) else { return }
-        dismissPanelNotificationOnFocusIfActive(tabId: tabId, panelId: panelId)
+        dismissPanelNotificationOnFocus(tabId: tabId, panelId: panelId, explicitFocusIntent: false)
     }
 
-    private func dismissPanelNotificationOnFocusIfActive(tabId: UUID, panelId: UUID) {
+    private func dismissPanelNotificationOnFocus(tabId: UUID, panelId: UUID, explicitFocusIntent: Bool) {
         guard selectedTabId == tabId else { return }
         guard !suppressFocusFlash else { return }
-        _ = dismissNotification(tabId: tabId, surfaceId: panelId, context: .activeFocus)
+        _ = dismissNotification(
+            tabId: tabId,
+            surfaceId: panelId,
+            context: explicitFocusIntent ? .directInteraction : .activeFocus
+        )
     }
 
     @discardableResult
