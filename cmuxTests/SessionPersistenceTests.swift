@@ -762,6 +762,119 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(restored.height, 700, accuracy: 0.001)
     }
 
+    func testFreshMainWindowFallbackWithoutSnapshotOrHintUsesUsableOnscreenFrame() {
+        let display = AppDelegate.SessionDisplayGeometry(
+            displayID: 1,
+            frame: CGRect(x: 0, y: 0, width: 1_600, height: 1_000),
+            visibleFrame: CGRect(x: 0, y: 40, width: 1_600, height: 920)
+        )
+
+        let frame = AppDelegate.resolvedFreshMainWindowFrame(
+            sharedGeometryHint: nil,
+            availableDisplays: [display],
+            fallbackDisplay: display
+        )
+
+        XCTAssertTrue(display.visibleFrame.contains(frame))
+        XCTAssertGreaterThanOrEqual(frame.width, 800)
+        XCTAssertGreaterThanOrEqual(frame.height, 600)
+        XCTAssertNotEqual(frame.width, 460, accuracy: 0.001)
+        XCTAssertNotEqual(frame.height, 360, accuracy: 0.001)
+    }
+
+    func testFreshMainWindowFallbackUsesSharedGeometryHintWhenSnapshotIsMissing() {
+        let hintFrame = SessionRectSnapshot(x: 220, y: 160, width: 980, height: 700)
+        let hintDisplay = SessionDisplaySnapshot(
+            displayID: 7,
+            frame: SessionRectSnapshot(x: 0, y: 0, width: 1_600, height: 1_000),
+            visibleFrame: SessionRectSnapshot(x: 0, y: 40, width: 1_600, height: 920)
+        )
+        let hint = SharedWindowGeometryHint(
+            version: SharedWindowGeometryHintStore.schemaVersion,
+            updatedAt: 1_234,
+            writerBundleIdentifier: "com.cmuxterm.app.debug.source",
+            frame: hintFrame,
+            display: hintDisplay
+        )
+        let display = AppDelegate.SessionDisplayGeometry(
+            displayID: 7,
+            frame: CGRect(x: 0, y: 0, width: 1_600, height: 1_000),
+            visibleFrame: CGRect(x: 0, y: 40, width: 1_600, height: 920)
+        )
+
+        let frame = AppDelegate.resolvedFreshMainWindowFrame(
+            sharedGeometryHint: hint,
+            availableDisplays: [display],
+            fallbackDisplay: display
+        )
+
+        XCTAssertEqual(frame.minX, 220, accuracy: 0.001)
+        XCTAssertEqual(frame.minY, 160, accuracy: 0.001)
+        XCTAssertEqual(frame.width, 980, accuracy: 0.001)
+        XCTAssertEqual(frame.height, 700, accuracy: 0.001)
+    }
+
+    func testSavingSessionSnapshotAlsoWritesSharedWindowGeometryHint() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-window-hint-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let snapshotURL = tempDir.appendingPathComponent("session.json", isDirectory: false)
+        let hintURL = tempDir.appendingPathComponent("window-geometry-hint.json", isDirectory: false)
+        let snapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+
+        XCTAssertTrue(
+            SessionPersistenceStore.save(
+                snapshot,
+                fileURL: snapshotURL,
+                sharedWindowGeometryHintFileURL: hintURL,
+                writerBundleIdentifier: "com.cmuxterm.app.debug.writer"
+            )
+        )
+
+        let hint = try XCTUnwrap(SharedWindowGeometryHintStore.load(fileURL: hintURL))
+        XCTAssertEqual(hint.version, SharedWindowGeometryHintStore.schemaVersion)
+        XCTAssertEqual(hint.writerBundleIdentifier, "com.cmuxterm.app.debug.writer")
+        XCTAssertEqual(hint.frame.x, 10, accuracy: 0.001)
+        XCTAssertEqual(hint.frame.y, 20, accuracy: 0.001)
+        XCTAssertEqual(hint.frame.width, 900, accuracy: 0.001)
+        XCTAssertEqual(hint.frame.height, 700, accuracy: 0.001)
+        XCTAssertEqual(hint.display?.displayID, 42)
+    }
+
+    func testCorruptMissingOrEmptySharedWindowGeometryHintFallsBackCleanly() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-window-hint-corrupt-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let hintURL = tempDir.appendingPathComponent("window-geometry-hint.json", isDirectory: false)
+        let display = AppDelegate.SessionDisplayGeometry(
+            displayID: 3,
+            frame: CGRect(x: 0, y: 0, width: 1_440, height: 900),
+            visibleFrame: CGRect(x: 0, y: 25, width: 1_440, height: 875)
+        )
+
+        XCTAssertNil(SharedWindowGeometryHintStore.load(fileURL: hintURL))
+
+        try Data().write(to: hintURL, options: .atomic)
+        XCTAssertNil(SharedWindowGeometryHintStore.load(fileURL: hintURL))
+
+        try Data("{\"not\":\"a hint\"}".utf8).write(to: hintURL, options: .atomic)
+        XCTAssertNil(SharedWindowGeometryHintStore.load(fileURL: hintURL))
+
+        let frame = AppDelegate.resolvedFreshMainWindowFrame(
+            sharedGeometryHint: SharedWindowGeometryHintStore.load(fileURL: hintURL),
+            availableDisplays: [display],
+            fallbackDisplay: display
+        )
+
+        XCTAssertTrue(display.visibleFrame.contains(frame))
+        XCTAssertGreaterThanOrEqual(frame.width, 800)
+        XCTAssertGreaterThanOrEqual(frame.height, 600)
+    }
+
     func testDecodedPersistedWindowGeometryDataAcceptsCurrentSchema() throws {
         let data = try JSONEncoder().encode(
             AppDelegate.PersistedWindowGeometry(
