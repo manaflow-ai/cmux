@@ -74,16 +74,51 @@ final class CmxTerminalLayoutTests: XCTestCase {
         )
     }
 
-    func testTerminalBoundsOverlayBorderOnlyShowsForLargerPanes() {
-        XCTAssertFalse(
+    func testTerminalBoundsOverlayBorderUsesMinimalSolidLineOnMobile() {
+        XCTAssertEqual(TerminalVisibleBoundsOverlayStyle.borderWidth, 1)
+        XCTAssertTrue(
             TerminalVisibleBoundsOverlayStyle.showsBorder(
                 pointSize: CGSize(width: 402, height: 774)
             )
         )
-        XCTAssertTrue(
-            TerminalVisibleBoundsOverlayStyle.showsBorder(
-                pointSize: CGSize(width: 640, height: 774)
+    }
+
+    func testTerminalBoundsOverlayBorderMatchesForcedGridSize() {
+        let size = TerminalVisibleBoundsOverlayStyle.borderSize(
+            pointSize: CGSize(width: 768, height: 930),
+            gridSize: TerminalGridSize(columns: 29, rows: 25, pixelWidth: 990, pixelHeight: 1_200),
+            displayScale: 3
+        )
+
+        XCTAssertEqual(size.width, 330)
+        XCTAssertEqual(size.height, 400)
+    }
+
+    func testTerminalBoundsOverlayBorderTracksRenderClampInsideLargerSurface() {
+        let size = TerminalVisibleBoundsOverlayStyle.borderSize(
+            pointSize: CGSize(width: 768, height: 930),
+            gridSize: TerminalGridSize(columns: 53, rows: 52, pixelWidth: 1_986, pixelHeight: 2_600),
+            renderSize: CmxTerminalSize(cols: 30, rows: 30),
+            displayScale: 2
+        )
+
+        XCTAssertEqual(size.width, 563)
+        XCTAssertEqual(size.height, 750)
+    }
+
+    func testTerminalBoundsOverlayLabelAvoidsCoveringRailsWhenThereIsNoSpareRoom() {
+        XCTAssertNil(
+            TerminalVisibleBoundsOverlayStyle.labelOrigin(
+                pointSize: CGSize(width: 402, height: 774),
+                borderSize: CGSize(width: 402, height: 774)
             )
+        )
+        XCTAssertEqual(
+            TerminalVisibleBoundsOverlayStyle.labelOrigin(
+                pointSize: CGSize(width: 768, height: 930),
+                borderSize: CGSize(width: 330, height: 400)
+            ),
+            CGPoint(x: 334, y: 0)
         )
     }
 }

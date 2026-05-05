@@ -50,6 +50,29 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
         XCTAssertTrue((surfaceView.accessibilityRenderedTextForTesting() ?? "").contains("cmux-color"))
     }
 
+    func testGhosttySurfaceAccessibilityValueTracksPtyTranscriptWithoutAnsi() async throws {
+        let (surfaceView, _) = try makeSurfaceView()
+        surfaceView.frame = CGRect(x: 0, y: 0, width: 390, height: 640)
+        surfaceView.layoutIfNeeded()
+
+        let accessibilityExpectation = expectation(description: "Ghostty surfaced PTY text to accessibility")
+        accessibilityExpectation.assertForOverFulfill = false
+        surfaceView.onOutputProcessedForTesting = {
+            let value = surfaceView.accessibilityValue ?? ""
+            if value.contains("ui-test$") && value.contains("typed output") {
+                accessibilityExpectation.fulfill()
+            }
+        }
+
+        surfaceView.processOutput(Data("\u{1B}[38;2;166;226;46mui-test$ \u{1B}[0mtyped output\r\n".utf8))
+
+        await fulfillment(of: [accessibilityExpectation], timeout: 5.0)
+        let value = try XCTUnwrap(surfaceView.accessibilityValue)
+        XCTAssertTrue(value.contains("ui-test$"))
+        XCTAssertTrue(value.contains("typed output"))
+        XCTAssertFalse(value.contains("[38;2"))
+    }
+
     func testGhosttySurfaceCoalescesSingleBytePtyChunksInOrder() async throws {
         let (surfaceView, _) = try makeSurfaceView()
         surfaceView.frame = CGRect(x: 0, y: 0, width: 390, height: 640)
@@ -309,6 +332,9 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
         let rendered = surfaceView.accessibilityRenderedTextForTesting() ?? ""
         XCTAssertTrue(rendered.contains("fresh-after-reset"))
         XCTAssertFalse(rendered.contains("stale-before-reset"))
+        let accessibilityValue = surfaceView.accessibilityValue ?? ""
+        XCTAssertTrue(accessibilityValue.contains("fresh-after-reset"))
+        XCTAssertFalse(accessibilityValue.contains("stale-before-reset"))
     }
 
     func testGhosttySurfaceCanForceInitialGridReportAfterCoordinatorBinding() throws {
@@ -324,6 +350,19 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
         XCTAssertGreaterThan(delegate.lastSize?.rows ?? 0, 0)
     }
 
+    func testGhosttySurfaceTerminalReuseReportsCurrentGridSize() throws {
+        let (surfaceView, delegate) = try makeSurfaceView()
+        surfaceView.frame = CGRect(x: 0, y: 0, width: 390, height: 640)
+        surfaceView.layoutIfNeeded()
+        delegate.lastSize = nil
+
+        surfaceView.resetForTerminalReuse()
+
+        XCTAssertNotNil(delegate.lastSize)
+        XCTAssertGreaterThan(delegate.lastSize?.columns ?? 0, 0)
+        XCTAssertGreaterThan(delegate.lastSize?.rows ?? 0, 0)
+    }
+
     func testRemoteConfigOverrideRefreshesSurfaceBackground() throws {
         let (surfaceView, _) = try makeSurfaceView()
         defer { _ = GhosttyRuntime.applyRemoteConfigOverride(nil) }
@@ -331,6 +370,32 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
         XCTAssertTrue(GhosttyRuntime.applyRemoteConfigOverride("background = #010203\n"))
 
         XCTAssertEqual(surfaceView.backgroundColor?.cmuxRGB255, [1, 2, 3])
+    }
+
+    func testRemoteConfigOverrideReportsVisibleSurfaceGeometry() throws {
+        let (surfaceView, delegate) = try makeSurfaceView()
+        defer { _ = GhosttyRuntime.applyRemoteConfigOverride(nil) }
+        surfaceView.frame = CGRect(x: 0, y: 0, width: 390, height: 640)
+        surfaceView.layoutIfNeeded()
+        delegate.lastSize = nil
+
+        XCTAssertTrue(GhosttyRuntime.applyRemoteConfigOverride("font-size = 12\n"))
+
+        XCTAssertNotNil(delegate.lastSize)
+        XCTAssertGreaterThan(delegate.lastSize?.columns ?? 0, 0)
+        XCTAssertGreaterThan(delegate.lastSize?.rows ?? 0, 0)
+    }
+
+    func testMaximumViewportGridSizeIgnoresForcedRenderClamp() throws {
+        let (surfaceView, _) = try makeSurfaceView()
+        surfaceView.frame = CGRect(x: 0, y: 0, width: 390, height: 640)
+        surfaceView.layoutIfNeeded()
+
+        surfaceView.applyViewSize(cols: 20, rows: 10)
+        let maximum = try XCTUnwrap(surfaceView.maximumViewportGridSize())
+
+        XCTAssertGreaterThan(maximum.columns, 20)
+        XCTAssertGreaterThan(maximum.rows, 10)
     }
 
     private func makeSurfaceView() throws -> (GhosttyTerminalSurfaceView, DelegateRecorder) {

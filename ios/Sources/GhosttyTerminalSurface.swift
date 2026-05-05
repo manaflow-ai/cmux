@@ -32,10 +32,16 @@ public struct TerminalGridSize: Equatable, Sendable {
 public protocol GhosttyTerminalSurfaceViewDelegate: AnyObject {
     func ghosttyTerminalSurfaceView(_ surfaceView: GhosttyTerminalSurfaceView, didProduceInput data: Data)
     func ghosttyTerminalSurfaceView(_ surfaceView: GhosttyTerminalSurfaceView, didResize size: TerminalGridSize)
+    func ghosttyTerminalSurfaceView(_ surfaceView: GhosttyTerminalSurfaceView, didMeasureMaximumViewport size: TerminalGridSize)
     func ghosttyTerminalSurfaceViewDidRequestPtyReplay(_ surfaceView: GhosttyTerminalSurfaceView)
 }
 
 public extension GhosttyTerminalSurfaceViewDelegate {
+    func ghosttyTerminalSurfaceView(
+        _ surfaceView: GhosttyTerminalSurfaceView,
+        didMeasureMaximumViewport size: TerminalGridSize
+    ) {}
+
     func ghosttyTerminalSurfaceViewDidRequestPtyReplay(_ surfaceView: GhosttyTerminalSurfaceView) {}
 }
 
@@ -805,6 +811,7 @@ public final class GhosttyTerminalSurfaceView: UIView {
     private static let maximumMobileFontSize: Float32 = 30
     private static let mobileFontZoomStep: Float32 = 1
     private static let blankReplayProbeInterval: CFTimeInterval = 1
+    private static let maximumAccessibilityTranscriptCharacters = 8_192
 
     private struct PendingFontSizeApplication {
         var target: Float32
@@ -831,6 +838,7 @@ public final class GhosttyTerminalSurfaceView: UIView {
     private var pendingOutputBuffer = Data()
     private var outputFlushScheduled = false
     private var forcedGridSize: (cols: Int, rows: Int)?
+    private var accessibilityTranscript = ""
     #if DEBUG
     var onOutputProcessedForTesting: (() -> Void)?
     var onFontZoomAppliedForTesting: ((Float32) -> Void)?
@@ -878,6 +886,7 @@ public final class GhosttyTerminalSurfaceView: UIView {
         isOpaque = true
         isAccessibilityElement = true
         accessibilityIdentifier = "terminal.surface"
+        accessibilityValue = accessibilityTranscript
         addSubview(inputProxy)
         initializeSurface()
         addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(focusInput)))
@@ -962,6 +971,7 @@ public final class GhosttyTerminalSurfaceView: UIView {
         guard !payload.isEmpty else { return }
         let surfaceBits = UInt(bitPattern: UnsafeRawPointer(surface))
         let gate = outputGate
+        let accessibilityText = Self.accessibilityTranscriptText(from: payload)
         outputQueue.async { [weak self] in
             guard gate.isCurrent(generation) else { return }
             guard let surface = UnsafeMutableRawPointer(bitPattern: surfaceBits) else { return }
@@ -980,6 +990,7 @@ public final class GhosttyTerminalSurfaceView: UIView {
                 if marksInitialOutput {
                     self.hasFedInitialOutput = true
                 }
+                self.appendAccessibilityTranscript(accessibilityText)
                 self.needsDraw = true
                 ghostty_surface_render_now(surface)
                 #if DEBUG
@@ -999,6 +1010,7 @@ public final class GhosttyTerminalSurfaceView: UIView {
         lastReportedSize = nil
         pendingOutputBuffer.removeAll(keepingCapacity: true)
         outputFlushScheduled = false
+        clearAccessibilityTranscript()
         let generation = outputGate.advance()
         var replay = Data("\u{1B}c".utf8)
         for chunk in replayChunks {
@@ -1019,6 +1031,7 @@ public final class GhosttyTerminalSurfaceView: UIView {
         lastReportedSize = nil
         pendingOutputBuffer.removeAll(keepingCapacity: true)
         outputFlushScheduled = false
+        clearAccessibilityTranscript()
         let generation = outputGate.advance()
         enqueueOutputPayload(
             Data("\u{1B}c".utf8),
@@ -1080,6 +1093,7 @@ public final class GhosttyTerminalSurfaceView: UIView {
         let cellHeight = max(1, Int(size.cell_height_px))
         ghostty_surface_set_size(surface, UInt32(cols * cellWidth), UInt32(rows * cellHeight))
         reportCurrentSurfaceGridSize(surface: surface, reportResize: false, forceReport: true)
+        reportMaximumViewportGridSizeIfForced()
         ghostty_surface_render_now(surface)
     }
 
@@ -1097,6 +1111,24 @@ public final class GhosttyTerminalSurfaceView: UIView {
             rows: Int(size.rows),
             pixelWidth: Int(size.width_px),
             pixelHeight: Int(size.height_px)
+        )
+    }
+
+    public func maximumViewportGridSize() -> TerminalGridSize? {
+        guard let surface,
+              bounds.width > 0,
+              bounds.height > 0 else { return nil }
+        let surfaceSize = ghostty_surface_size(surface)
+        let cellWidth = max(1, Int(surfaceSize.cell_width_px))
+        let cellHeight = max(1, Int(surfaceSize.cell_height_px))
+        let scale = screenScale
+        let pixelWidth = max(1, Int((bounds.width * scale).rounded(.down)))
+        let pixelHeight = max(1, Int((bounds.height * scale).rounded(.down)))
+        return TerminalGridSize(
+            columns: max(1, pixelWidth / cellWidth),
+            rows: max(1, pixelHeight / cellHeight),
+            pixelWidth: pixelWidth,
+            pixelHeight: pixelHeight
         )
     }
 
@@ -1199,6 +1231,7 @@ public final class GhosttyTerminalSurfaceView: UIView {
         outputGate.advance()
         pendingOutputBuffer.removeAll(keepingCapacity: true)
         outputFlushScheduled = false
+        clearAccessibilityTranscript()
         pendingFontSizeApplication = nil
         isApplyingFontSize = false
         bridge.detach()
@@ -1239,6 +1272,116 @@ public final class GhosttyTerminalSurfaceView: UIView {
         delegate?.ghosttyTerminalSurfaceView(self, didProduceInput: data)
     }
 
+    private func appendAccessibilityTranscript(_ text: String) {
+        guard !text.isEmpty else { return }
+        accessibilityTranscript.append(text)
+        if accessibilityTranscript.count > Self.maximumAccessibilityTranscriptCharacters {
+            accessibilityTranscript = String(accessibilityTranscript.suffix(Self.maximumAccessibilityTranscriptCharacters))
+        }
+        accessibilityValue = accessibilityTranscript
+    }
+
+    private func clearAccessibilityTranscript() {
+        accessibilityTranscript = ""
+        accessibilityValue = accessibilityTranscript
+    }
+
+    private static func accessibilityTranscriptText(from data: Data) -> String {
+        let bytes = [UInt8](data)
+        var index = 0
+        var printableBytes: [UInt8] = []
+        var text = ""
+
+        func flushPrintableBytes() {
+            guard !printableBytes.isEmpty else { return }
+            text.append(String(decoding: printableBytes, as: UTF8.self))
+            printableBytes.removeAll(keepingCapacity: true)
+        }
+
+        func appendNewline() {
+            flushPrintableBytes()
+            if text.last != "\n" {
+                text.append("\n")
+            }
+        }
+
+        while index < bytes.count {
+            let byte = bytes[index]
+            switch byte {
+            case 0x1B:
+                flushPrintableBytes()
+                index = skipEscapeSequence(in: bytes, startingAt: index)
+            case 0x08, 0x7F:
+                flushPrintableBytes()
+                if !text.isEmpty {
+                    text.removeLast()
+                }
+                index += 1
+            case 0x09:
+                flushPrintableBytes()
+                text.append("\t")
+                index += 1
+            case 0x0A, 0x0D:
+                appendNewline()
+                index += 1
+            case 0x00...0x1F:
+                flushPrintableBytes()
+                index += 1
+            default:
+                printableBytes.append(byte)
+                index += 1
+            }
+        }
+
+        flushPrintableBytes()
+        return text
+    }
+
+    private static func skipEscapeSequence(in bytes: [UInt8], startingAt escapeIndex: Int) -> Int {
+        let nextIndex = escapeIndex + 1
+        guard nextIndex < bytes.count else { return bytes.count }
+        let introducer = bytes[nextIndex]
+        switch introducer {
+        case 0x5B:
+            return skipCsiSequence(in: bytes, startingAt: nextIndex + 1)
+        case 0x5D, 0x50, 0x5E, 0x5F, 0x58:
+            return skipStringEscapeSequence(in: bytes, startingAt: nextIndex + 1)
+        case 0x28, 0x29, 0x2A, 0x2B, 0x2D, 0x2E, 0x2F:
+            return min(nextIndex + 2, bytes.count)
+        default:
+            return nextIndex + 1
+        }
+    }
+
+    private static func skipCsiSequence(in bytes: [UInt8], startingAt startIndex: Int) -> Int {
+        var index = startIndex
+        while index < bytes.count {
+            let byte = bytes[index]
+            index += 1
+            if (0x40...0x7E).contains(byte) {
+                return index
+            }
+        }
+        return index
+    }
+
+    private static func skipStringEscapeSequence(in bytes: [UInt8], startingAt startIndex: Int) -> Int {
+        var index = startIndex
+        while index < bytes.count {
+            let byte = bytes[index]
+            if byte == 0x07 {
+                return index + 1
+            }
+            if byte == 0x1B,
+               index + 1 < bytes.count,
+               bytes[index + 1] == 0x5C {
+                return index + 2
+            }
+            index += 1
+        }
+        return index
+    }
+
     private var screenScale: CGFloat {
         window?.windowScene?.screen.scale ?? traitCollection.displayScale.nonZero ?? 2
     }
@@ -1269,6 +1412,7 @@ public final class GhosttyTerminalSurfaceView: UIView {
             reportResize: forcedGridSize == nil && reportResize,
             forceReport: forceReport
         )
+        reportMaximumViewportGridSizeIfForced()
         for sublayer in layer.sublayers ?? [] where String(describing: type(of: sublayer)) == "IOSurfaceLayer" {
             sublayer.frame = bounds
             sublayer.bounds = CGRect(origin: .zero, size: bounds.size)
@@ -1462,6 +1606,12 @@ public final class GhosttyTerminalSurfaceView: UIView {
         }
     }
 
+    private func reportMaximumViewportGridSizeIfForced() {
+        guard forcedGridSize != nil,
+              let maximumGridSize = maximumViewportGridSize() else { return }
+        delegate?.ghosttyTerminalSurfaceView(self, didMeasureMaximumViewport: maximumGridSize)
+    }
+
     private func nextMobileFontSize(from fontSize: Float32, after direction: TerminalFontZoomDirection) -> Float32 {
         let delta = switch direction {
         case .decrease:
@@ -1515,10 +1665,9 @@ public final class GhosttyTerminalSurfaceView: UIView {
         registeredSurfaceViews = registeredSurfaceViews.filter { $0.value.value != nil }
         for view in registeredSurfaceViews.values.compactMap(\.value) {
             view.applyConfiguredBackground()
-            if let surface = view.surface {
-                ghostty_surface_refresh(surface)
-                view.needsDraw = true
-            }
+            view.syncSurfaceGeometry(reportResize: true, forceReport: true, renderNow: false)
+            view.needsDraw = true
+            view.startDisplayLink()
         }
     }
 
@@ -2249,12 +2398,14 @@ struct CmxGhosttyTerminalView: UIViewRepresentable {
                 // seeded demo tab and leave the live cmx tab pinned to 80x24.
                 surfaceView.resetForTerminalReuse()
             }
-            if lastAppliedRenderSize != renderSize {
+            if didChangeTerminal || didChangeSurface || lastAppliedRenderSize != renderSize {
                 if let renderSize {
                     surfaceView.applyViewSize(cols: renderSize.cols, rows: renderSize.rows)
                     visibleGridSize.wrappedValue = surfaceView.currentGridSize()
                 } else {
                     surfaceView.clearForcedViewSize()
+                    surfaceView.reportCurrentGridSize()
+                    visibleGridSize.wrappedValue = surfaceView.currentGridSize()
                 }
                 lastAppliedRenderSize = renderSize
             }
@@ -2288,6 +2439,17 @@ struct CmxGhosttyTerminalView: UIViewRepresentable {
                 size: CmxTerminalSize(cols: size.columns, rows: size.rows)
             )
             _ = surfaceView.requestServerReplayIfBlank()
+        }
+
+        func ghosttyTerminalSurfaceView(
+            _ surfaceView: GhosttyTerminalSurfaceView,
+            didMeasureMaximumViewport size: TerminalGridSize
+        ) {
+            guard let terminalID else { return }
+            store?.updateTerminalSize(
+                terminalID: terminalID,
+                size: CmxTerminalSize(cols: size.columns, rows: size.rows)
+            )
         }
 
         func ghosttyTerminalSurfaceViewDidRequestPtyReplay(_ surfaceView: GhosttyTerminalSurfaceView) {

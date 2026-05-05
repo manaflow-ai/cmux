@@ -250,6 +250,82 @@ final class CmxBridgeTicketTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testLaunchTicketStartsWithoutDemoWorkspaces() {
+        let store = CmxConnectionStore(
+            authSessionStore: MemoryStackAuthSessionStore(),
+            pairingSecretClient: RecordingPairingSecretClient(),
+            terminalSessionFactory: RecordingTerminalSessionFactory(),
+            startHiveDiscoveryOnInit: false,
+            launchTicket: "ticket",
+            launchAutoconnect: false
+        )
+
+        XCTAssertEqual(store.ticketText, "ticket")
+        XCTAssertTrue(store.workspaces.isEmpty)
+        XCTAssertFalse(store.canRenderSelectedTerminal)
+        XCTAssertFalse(store.visibleWorkspaces(matching: "").contains { $0.title == "agent runs" })
+    }
+
+    @MainActor
+    func testEmptyNativeSnapshotDoesNotRestoreDemoWorkspaces() {
+        let store = CmxConnectionStore(
+            authSessionStore: MemoryStackAuthSessionStore(),
+            pairingSecretClient: RecordingPairingSecretClient(),
+            terminalSessionFactory: RecordingTerminalSessionFactory(),
+            startHiveDiscoveryOnInit: false,
+            launchTicket: "ticket",
+            launchAutoconnect: false
+        )
+
+        store.applyNativeSnapshot(CmxNativeSnapshot(
+            workspaces: [],
+            activeWorkspace: 0,
+            activeWorkspaceID: 0,
+            spaces: [],
+            activeSpace: 0,
+            activeSpaceID: 0,
+            panels: .leaf(panelID: 0, tabs: [], active: 0, activeTabID: 0),
+            focusedPanelID: 0,
+            focusedTabID: 0
+        ))
+
+        XCTAssertTrue(store.workspaces.isEmpty)
+        XCTAssertFalse(store.canRenderSelectedTerminal)
+        XCTAssertFalse(store.visibleWorkspaces(matching: "").contains { $0.title == "agent runs" })
+    }
+
+    @MainActor
+    func testPlaceholderTerminalDoesNotSendNativeLayoutBeforeSnapshot() {
+        let sessionFactory = RecordingTerminalSessionFactory()
+        let store = CmxConnectionStore(
+            authSessionStore: MemoryStackAuthSessionStore(),
+            pairingSecretClient: RecordingPairingSecretClient(),
+            terminalSessionFactory: sessionFactory,
+            startHiveDiscoveryOnInit: false,
+            launchTicket: nil,
+            launchAutoconnect: false
+        )
+        store.ticketText = """
+        {
+          "version": 1,
+          "alpn": "/cmux/cmx/3",
+          "endpoint": { "id": "endpoint-public-key", "addrs": [] },
+          "auth": { "mode": "direct" }
+        }
+        """
+
+        store.terminalScreenDidAppear()
+        store.connect()
+        store.updateTerminalSize(terminalID: store.selectedTerminal.id, size: CmxTerminalSize(cols: 53, rows: 52))
+        store.requestPtyReplay(terminalID: store.selectedTerminal.id)
+        store.sendInput(Data("x".utf8), terminalID: store.selectedTerminal.id)
+
+        XCTAssertFalse(store.canRenderSelectedTerminal)
+        XCTAssertTrue(sessionFactory.session.sentLayouts.isEmpty)
+        XCTAssertTrue(sessionFactory.session.requestedPtyReplayTerminalIDs.isEmpty)
+    }
+
     func testStackAuthCallbackParsesNativeDeepLinkWithoutLeakingTokens() throws {
         let accessPayload = #"["refresh-cookie","access-token"]"#
             .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)!
@@ -851,6 +927,257 @@ final class CmxBridgeTicketTests: XCTestCase {
             sessionFactory.session.sentLayouts.last,
             [CmxWireTerminalViewport(tabID: 41, cols: 53, rows: 52)]
         )
+    }
+
+    @MainActor
+    func testNativeSnapshotIgnoresCurrentSessionWhenComputingRenderClamp() throws {
+        let sessionFactory = RecordingTerminalSessionFactory()
+        let store = CmxConnectionStore(
+            authSessionStore: MemoryStackAuthSessionStore(),
+            pairingSecretClient: RecordingPairingSecretClient(),
+            terminalSessionFactory: sessionFactory
+        )
+        store.ticketText = """
+        {
+          "version": 1,
+          "alpn": "/cmux/cmx/3",
+          "endpoint": { "id": "endpoint-public-key", "addrs": [] },
+          "auth": { "mode": "direct" }
+        }
+        """
+        store.connect()
+        sessionFactory.session.delegate?.terminalSession(
+            sessionFactory.session,
+            didReceive: .welcome(serverVersion: "test", sessionID: "ipad")
+        )
+        sessionFactory.session.delegate?.terminalSession(
+            sessionFactory.session,
+            didReceive: .nativeSnapshot(CmxNativeSnapshot(
+                workspaces: [
+                    CmxNativeWorkspaceInfo(
+                        id: 11,
+                        title: "main",
+                        spaceCount: 1,
+                        tabCount: 1,
+                        terminalCount: 1,
+                        pinned: false,
+                        color: nil
+                    ),
+                ],
+                activeWorkspace: 0,
+                activeWorkspaceID: 11,
+                spaces: [
+                    CmxNativeSpaceInfo(id: 21, title: "space-1", paneCount: 1, terminalCount: 1),
+                ],
+                activeSpace: 0,
+                activeSpaceID: 21,
+                panels: .leaf(
+                    panelID: 31,
+                    tabs: [
+                        CmxNativeTabInfo(id: 41, title: "shell", hasActivity: false, bellCount: 0),
+                    ],
+                    active: 0,
+                    activeTabID: 41
+                ),
+                focusedPanelID: 31,
+                focusedTabID: 41,
+                attachedClients: [
+                    CmxAttachedClientInfo(
+                        clientID: "ipad",
+                        kind: .native,
+                        visibleTerminalCount: 1,
+                        updatedAtMilliseconds: 1,
+                        terminals: [CmxWireTerminalViewport(tabID: 41, cols: 29, rows: 25)],
+                        latencyMilliseconds: 2
+                    ),
+                ]
+            ))
+        )
+        store.terminalScreenDidAppear()
+        store.updateTerminalSize(terminalID: 41, size: CmxTerminalSize(cols: 53, rows: 52))
+
+        XCTAssertEqual(store.terminalSize(for: 41), CmxTerminalSize(cols: 53, rows: 52))
+        XCTAssertNil(store.renderSize(for: 41))
+        XCTAssertEqual(
+            sessionFactory.session.sentLayouts.last,
+            [CmxWireTerminalViewport(tabID: 41, cols: 53, rows: 52)]
+        )
+    }
+
+    @MainActor
+    func testRenderClampDoesNotExceedCurrentDeviceViewport() throws {
+        let sessionFactory = RecordingTerminalSessionFactory()
+        let store = CmxConnectionStore(
+            authSessionStore: MemoryStackAuthSessionStore(),
+            pairingSecretClient: RecordingPairingSecretClient(),
+            terminalSessionFactory: sessionFactory
+        )
+        store.ticketText = """
+        {
+          "version": 1,
+          "alpn": "/cmux/cmx/3",
+          "endpoint": { "id": "endpoint-public-key", "addrs": [] },
+          "auth": { "mode": "direct" }
+        }
+        """
+        store.connect()
+        sessionFactory.session.delegate?.terminalSession(
+            sessionFactory.session,
+            didReceive: .welcome(serverVersion: "test", sessionID: "iphone")
+        )
+        sessionFactory.session.delegate?.terminalSession(
+            sessionFactory.session,
+            didReceive: .nativeSnapshot(CmxNativeSnapshot(
+                workspaces: [
+                    CmxNativeWorkspaceInfo(
+                        id: 11,
+                        title: "main",
+                        spaceCount: 1,
+                        tabCount: 1,
+                        terminalCount: 1,
+                        pinned: false,
+                        color: nil
+                    ),
+                ],
+                activeWorkspace: 0,
+                activeWorkspaceID: 11,
+                spaces: [
+                    CmxNativeSpaceInfo(id: 21, title: "space-1", paneCount: 1, terminalCount: 1),
+                ],
+                activeSpace: 0,
+                activeSpaceID: 21,
+                panels: .leaf(
+                    panelID: 31,
+                    tabs: [
+                        CmxNativeTabInfo(id: 41, title: "shell", hasActivity: false, bellCount: 0),
+                    ],
+                    active: 0,
+                    activeTabID: 41
+                ),
+                focusedPanelID: 31,
+                focusedTabID: 41,
+                attachedClients: [
+                    CmxAttachedClientInfo(
+                        clientID: "ipad",
+                        kind: .native,
+                        visibleTerminalCount: 1,
+                        updatedAtMilliseconds: 1,
+                        terminals: [CmxWireTerminalViewport(tabID: 41, cols: 53, rows: 52)],
+                        latencyMilliseconds: 2
+                    ),
+                ]
+            ))
+        )
+        store.terminalScreenDidAppear()
+        store.updateTerminalSize(terminalID: 41, size: CmxTerminalSize(cols: 29, rows: 25))
+
+        XCTAssertEqual(store.terminalSize(for: 41), CmxTerminalSize(cols: 29, rows: 25))
+        XCTAssertNil(store.renderSize(for: 41))
+        XCTAssertEqual(
+            sessionFactory.session.sentLayouts.last,
+            [CmxWireTerminalViewport(tabID: 41, cols: 29, rows: 25)]
+        )
+    }
+
+    @MainActor
+    func testNativeSnapshotRequestsReplayWhenRenderClampChanges() throws {
+        let sessionFactory = RecordingTerminalSessionFactory()
+        let store = CmxConnectionStore(
+            authSessionStore: MemoryStackAuthSessionStore(),
+            pairingSecretClient: RecordingPairingSecretClient(),
+            terminalSessionFactory: sessionFactory
+        )
+        store.ticketText = """
+        {
+          "version": 1,
+          "alpn": "/cmux/cmx/3",
+          "endpoint": { "id": "endpoint-public-key", "addrs": [] },
+          "auth": { "mode": "direct" }
+        }
+        """
+        store.connect()
+        sessionFactory.session.delegate?.terminalSession(
+            sessionFactory.session,
+            didReceive: .nativeSnapshot(CmxNativeSnapshot(
+                workspaces: [
+                    CmxNativeWorkspaceInfo(
+                        id: 11,
+                        title: "main",
+                        spaceCount: 1,
+                        tabCount: 1,
+                        terminalCount: 1,
+                        pinned: false,
+                        color: nil
+                    ),
+                ],
+                activeWorkspace: 0,
+                activeWorkspaceID: 11,
+                spaces: [
+                    CmxNativeSpaceInfo(id: 21, title: "space-1", paneCount: 1, terminalCount: 1),
+                ],
+                activeSpace: 0,
+                activeSpaceID: 21,
+                panels: .leaf(
+                    panelID: 31,
+                    tabs: [
+                        CmxNativeTabInfo(id: 41, title: "shell", hasActivity: false, bellCount: 0),
+                    ],
+                    active: 0,
+                    activeTabID: 41
+                ),
+                focusedPanelID: 31,
+                focusedTabID: 41,
+                attachedClients: [
+                    CmxAttachedClientInfo(
+                        clientID: "iphone",
+                        kind: .native,
+                        visibleTerminalCount: 1,
+                        updatedAtMilliseconds: 1,
+                        terminals: [CmxWireTerminalViewport(tabID: 41, cols: 29, rows: 25)],
+                        latencyMilliseconds: 2
+                    ),
+                ]
+            ))
+        )
+        store.terminalScreenDidAppear()
+        sessionFactory.session.clearRequestedPtyReplays()
+
+        sessionFactory.session.delegate?.terminalSession(
+            sessionFactory.session,
+            didReceive: .nativeSnapshot(CmxNativeSnapshot(
+                workspaces: [
+                    CmxNativeWorkspaceInfo(
+                        id: 11,
+                        title: "main",
+                        spaceCount: 1,
+                        tabCount: 1,
+                        terminalCount: 1,
+                        pinned: false,
+                        color: nil
+                    ),
+                ],
+                activeWorkspace: 0,
+                activeWorkspaceID: 11,
+                spaces: [
+                    CmxNativeSpaceInfo(id: 21, title: "space-1", paneCount: 1, terminalCount: 1),
+                ],
+                activeSpace: 0,
+                activeSpaceID: 21,
+                panels: .leaf(
+                    panelID: 31,
+                    tabs: [
+                        CmxNativeTabInfo(id: 41, title: "shell", hasActivity: false, bellCount: 0),
+                    ],
+                    active: 0,
+                    activeTabID: 41
+                ),
+                focusedPanelID: 31,
+                focusedTabID: 41
+            ))
+        )
+
+        XCTAssertEqual(store.renderSize(for: 41), nil)
+        XCTAssertEqual(sessionFactory.session.requestedPtyReplayTerminalIDs, [41])
     }
 
     @MainActor

@@ -306,12 +306,21 @@ fn bounds_helper_tracks_maximum_pane_size_after_resize() {
             && frame.contains("bottom inner row=22")
             && frame.contains("visible terminal grid=82 cols x 24 rows")
             && frame.contains("inside border=80 cols x 22 rows")
+            && frame.contains("ANSI theme colors")
+            && frame.contains("BG:")
+            && frame.contains("FG:")
     });
     assert_eq!(
         reported_bounds_size(&initial),
         Some((24, 82)),
         "bounds helper did not use the full initial pane size:\n{initial}"
     );
+    for glyph in ["╭", "╮", "╰", "╯", "│", "─"] {
+        assert!(
+            initial.contains(glyph),
+            "cmx attach pane border glyph {glyph:?} missing around bounds helper:\n{initial}"
+        );
+    }
 
     s.resize(132, 34);
     let resized = s.wait_until(Duration::from_secs(5), |frame| {
@@ -326,6 +335,44 @@ fn bounds_helper_tracks_maximum_pane_size_after_resize() {
         Some((30, 114)),
         "bounds helper did not track the resized maximum pane size:\n{resized}"
     );
+}
+
+#[test]
+fn bounds_helper_draws_compact_rails_for_ipad_sidebar_width() {
+    if !tmux_available() {
+        eprintln!("tmux not available; skipping");
+        return;
+    }
+    let s = Session::start("cmxtest_bounds_compact", 31, 29);
+    s.wait_until(Duration::from_secs(3), |f| f.contains("[main · space-1]"));
+
+    let helper = worktree_root().join("scripts/tui-terminal-bounds-check.sh");
+    let command = format!(
+        "CMUX_BOUNDS_TUI_ALT_SCREEN=0 CMUX_BOUNDS_TUI_INTERVAL=0.1 {}",
+        shell_quote(&helper.display().to_string())
+    );
+    s.send_literal(&command);
+    s.enter();
+
+    let compact = s.wait_until(Duration::from_secs(5), |frame| {
+        frame.contains("CMUX BOUNDS CHECK")
+            && frame.contains("rows=25 cols=29")
+            && frame.contains("grid=29x25")
+            && frame.contains("ANSI:")
+            && frame.contains("1===========================2")
+            && frame.contains("3===========================4")
+    });
+    assert!(
+        compact.contains("1===========================2")
+            && compact.contains("3===========================4"),
+        "compact bounds helper did not draw full rails:\n{compact}"
+    );
+    for glyph in ["╭", "╮", "╰", "╯", "│", "─"] {
+        assert!(
+            compact.contains(glyph),
+            "compact cmx attach pane border glyph {glyph:?} missing around bounds helper:\n{compact}"
+        );
+    }
 }
 
 #[test]

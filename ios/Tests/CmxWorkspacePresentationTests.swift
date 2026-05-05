@@ -3,8 +3,16 @@ import XCTest
 
 @MainActor
 final class CmxWorkspacePresentationTests: XCTestCase {
+    func testDefaultStoreStartsWithoutDemoWorkspaces() {
+        let store = CmxConnectionStore()
+
+        XCTAssertTrue(store.workspaces.isEmpty)
+        XCTAssertTrue(store.visibleWorkspaces(matching: "").isEmpty)
+    }
+
     func testVisibleWorkspacesPreferPinnedThenRecent() {
         let store = CmxConnectionStore()
+        store.applyHiveDiscoverySnapshot(Self.presentationSnapshot())
 
         let workspaces = store.visibleWorkspaces(matching: "")
 
@@ -13,12 +21,13 @@ final class CmxWorkspacePresentationTests: XCTestCase {
 
     func testVisibleWorkspacesSearchesNodeAndPreviewText() {
         let store = CmxConnectionStore()
+        store.applyHiveDiscoverySnapshot(Self.presentationSnapshot())
 
         XCTAssertEqual(store.visibleWorkspaces(matching: "standby").map(\.title), ["agent runs"])
         XCTAssertEqual(store.visibleWorkspaces(matching: "Ghostty").map(\.title), ["main"])
     }
 
-    func testNativeSnapshotReplacesDemoStateWithRustOwnedWorkspaceState() {
+    func testNativeSnapshotPopulatesRustOwnedWorkspaceState() {
         let store = CmxConnectionStore()
 
         store.applyNativeSnapshot(
@@ -60,6 +69,7 @@ final class CmxWorkspacePresentationTests: XCTestCase {
         XCTAssertEqual(store.selectedSpaceID, 21)
         XCTAssertEqual(store.selectedSpace.terminals.map(\.id), [41, 42])
         XCTAssertEqual(store.selectedTerminal.title, "shell")
+        XCTAssertTrue(store.canRenderSelectedTerminal)
     }
 
     func testNativeSnapshotAllowsZeroValuedRustTabID() {
@@ -134,5 +144,67 @@ final class CmxWorkspacePresentationTests: XCTestCase {
         XCTAssertTrue(store.selectedSpace.terminals.isEmpty)
         XCTAssertEqual(store.selectedTerminal.title, "cmx")
         XCTAssertEqual(store.terminalSize(for: store.selectedTerminal.id), .phoneDefault)
+    }
+
+    private static func presentationSnapshot() -> CmxHiveDiscoverySnapshot {
+        let referenceDate = Date(timeIntervalSince1970: 1_777_680_000)
+        return CmxHiveDiscoverySnapshot(
+            nodes: [
+                CmxHiveNode(
+                    id: 1,
+                    name: "MacBook Pro",
+                    subtitle: "local dev node",
+                    symbolName: "laptopcomputer",
+                    platform: .macOS,
+                    isOnline: true
+                ),
+                CmxHiveNode(
+                    id: 2,
+                    name: "Mac mini",
+                    subtitle: "hive standby",
+                    symbolName: "macmini",
+                    platform: .macOS,
+                    isOnline: true
+                ),
+            ],
+            workspaces: [
+                CmxWorkspace(
+                    id: 1,
+                    nodeID: 1,
+                    title: "main",
+                    preview: "cmx tui attached over Ghostty",
+                    lastActivity: referenceDate.addingTimeInterval(-120),
+                    unread: true,
+                    pinned: true,
+                    spaces: [
+                        CmxSpace(
+                            id: 10,
+                            title: "space-1",
+                            terminals: [
+                                CmxTerminal(id: 100, title: "cmx", size: .phoneDefault, rows: []),
+                            ]
+                        ),
+                    ]
+                ),
+                CmxWorkspace(
+                    id: 2,
+                    nodeID: 2,
+                    title: "agent runs",
+                    preview: "review pane waiting on sync",
+                    lastActivity: referenceDate.addingTimeInterval(-3_600),
+                    unread: false,
+                    pinned: false,
+                    spaces: [
+                        CmxSpace(
+                            id: 20,
+                            title: "review",
+                            terminals: [
+                                CmxTerminal(id: 200, title: "status", size: .phoneDefault, rows: []),
+                            ]
+                        ),
+                    ]
+                ),
+            ]
+        )
     }
 }

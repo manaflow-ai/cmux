@@ -305,9 +305,14 @@ private struct TerminalDetailView: View {
                 )
 
                 VStack(spacing: 0) {
-                    TerminalPane(terminal: store.selectedTerminal)
-                        .id(store.selectedTerminal.id)
-                        .frame(width: proxy.size.width, height: visibleHeight)
+                    if store.canRenderSelectedTerminal {
+                        TerminalPane(terminal: store.selectedTerminal)
+                            .id(store.selectedTerminal.id)
+                            .frame(width: proxy.size.width, height: visibleHeight)
+                    } else {
+                        Color.clear
+                            .frame(width: proxy.size.width, height: visibleHeight)
+                    }
 
                     Color.clear
                         .frame(height: proxy.size.height - visibleHeight)
@@ -587,13 +592,13 @@ private struct TerminalPane: View {
                     hostPlatform: store.selectedHostPlatform,
                     visibleGridSize: $visibleGridSize
                 )
-                    .id(terminal.id)
                     .frame(width: proxy.size.width, height: proxy.size.height)
                     .clipped()
 
                 if showsBoundsOverlay {
                     TerminalVisibleBoundsOverlay(
                         gridSize: visibleGridSize,
+                        renderSize: store.renderSize(for: terminal.id),
                         pointSize: proxy.size,
                         revision: store.terminalAppearanceRevision
                     )
@@ -606,28 +611,45 @@ private struct TerminalPane: View {
 }
 
 private struct TerminalVisibleBoundsOverlay: View {
+    @Environment(\.displayScale) private var displayScale
     let gridSize: TerminalGridSize?
+    let renderSize: CmxTerminalSize?
     let pointSize: CGSize
     let revision: Int
 
     var body: some View {
+        let borderSize = TerminalVisibleBoundsOverlayStyle.borderSize(
+            pointSize: pointSize,
+            gridSize: gridSize,
+            renderSize: renderSize,
+            displayScale: displayScale
+        )
+        let labelOrigin = TerminalVisibleBoundsOverlayStyle.labelOrigin(
+            pointSize: pointSize,
+            borderSize: borderSize
+        )
+
         ZStack(alignment: .topLeading) {
-            if TerminalVisibleBoundsOverlayStyle.showsBorder(pointSize: pointSize) {
+            if TerminalVisibleBoundsOverlayStyle.showsBorder(pointSize: borderSize) {
                 Rectangle()
                     .strokeBorder(
                         TerminalVisibleBoundsOverlayStyle.borderColor(revision: revision),
                         lineWidth: TerminalVisibleBoundsOverlayStyle.borderWidth
                     )
+                    .frame(width: borderSize.width, height: borderSize.height)
                     .accessibilityIdentifier("terminal.bounds.border")
             }
 
-            Text(verbatim: label)
-                .font(.caption2.monospacedDigit())
-                .padding(.horizontal, 5)
-                .padding(.vertical, 2)
-                .foregroundStyle(TerminalThemeChrome.foreground(revision: revision))
-                .background(TerminalThemeChrome.background(revision: revision).opacity(0.84))
-                .accessibilityIdentifier("terminal.bounds.overlay")
+            if let labelOrigin {
+                Text(verbatim: label)
+                    .font(.caption2.monospacedDigit())
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .foregroundStyle(TerminalThemeChrome.foreground(revision: revision))
+                    .background(TerminalThemeChrome.background(revision: revision).opacity(0.84))
+                    .offset(x: labelOrigin.x, y: labelOrigin.y)
+                    .accessibilityIdentifier("terminal.bounds.overlay")
+            }
         }
         .frame(width: pointSize.width, height: pointSize.height, alignment: .topLeading)
         .allowsHitTesting(false)
@@ -638,20 +660,71 @@ private struct TerminalVisibleBoundsOverlay: View {
         guard let gridSize else {
             return "visible pending | \(points)"
         }
+        if let renderSize {
+            return "visible \(renderSize.cols)x\(renderSize.rows) cells | \(points)"
+        }
         return "visible \(gridSize.columns)x\(gridSize.rows) cells | \(gridSize.pixelWidth)x\(gridSize.pixelHeight) px | \(points)"
     }
 }
 
 enum TerminalVisibleBoundsOverlayStyle {
     static let borderWidth: CGFloat = 1
+    private static let minimumBorderLength: CGFloat = 12
+    private static let minimumLabelWidth: CGFloat = 168
+    private static let labelHeight: CGFloat = 18
+    private static let labelGap: CGFloat = 4
 
     static func showsBorder(pointSize: CGSize) -> Bool {
-        pointSize.width >= 480 && pointSize.height >= 360
+        pointSize.width >= minimumBorderLength && pointSize.height >= minimumBorderLength
+    }
+
+    static func borderSize(
+        pointSize: CGSize,
+        gridSize: TerminalGridSize?,
+        renderSize: CmxTerminalSize? = nil,
+        displayScale: CGFloat
+    ) -> CGSize {
+        guard pointSize.width > 0, pointSize.height > 0 else { return .zero }
+        guard let gridSize,
+              gridSize.pixelWidth > 0,
+              gridSize.pixelHeight > 0,
+              gridSize.columns > 0,
+              gridSize.rows > 0 else {
+            return pointSize
+        }
+
+        let scale = max(displayScale, 1)
+        guard let renderSize else {
+            return CGSize(
+                width: min(pointSize.width, ceil(CGFloat(gridSize.pixelWidth) / scale)),
+                height: min(pointSize.height, ceil(CGFloat(gridSize.pixelHeight) / scale))
+            )
+        }
+        let columns = max(1, renderSize.cols)
+        let rows = max(1, renderSize.rows)
+        let cellWidth = CGFloat(gridSize.pixelWidth) / CGFloat(gridSize.columns)
+        let cellHeight = CGFloat(gridSize.pixelHeight) / CGFloat(gridSize.rows)
+        return CGSize(
+            width: min(pointSize.width, ceil(cellWidth * CGFloat(columns) / scale)),
+            height: min(pointSize.height, ceil(cellHeight * CGFloat(rows) / scale))
+        )
+    }
+
+    static func labelOrigin(pointSize: CGSize, borderSize: CGSize) -> CGPoint? {
+        let trailingSpace = pointSize.width - borderSize.width
+        if trailingSpace >= minimumLabelWidth + labelGap {
+            return CGPoint(x: borderSize.width + labelGap, y: 0)
+        }
+        let bottomSpace = pointSize.height - borderSize.height
+        if bottomSpace >= labelHeight + labelGap {
+            return CGPoint(x: 0, y: borderSize.height + labelGap)
+        }
+        return nil
     }
 
     @MainActor
     static func borderColor(revision: Int) -> Color {
-        TerminalThemeChrome.foreground(revision: revision).opacity(0.95)
+        TerminalThemeChrome.foreground(revision: revision)
     }
 }
 

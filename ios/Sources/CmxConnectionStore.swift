@@ -27,13 +27,12 @@ final class CmxConnectionStore: ObservableObject {
     @Published private(set) var latencyMilliseconds: UInt32?
     @Published private(set) var stackAuthSession: CmxStackAuthSession?
     @Published private(set) var terminalAppearanceRevision = 0
-    @Published var nodes = CmxDemoState.nodes
-    @Published var workspaces = CmxDemoState.workspaces
+    @Published var nodes: [CmxHiveNode] = []
+    @Published var workspaces: [CmxWorkspace] = []
     @Published private(set) var nativeSnapshot: CmxNativeSnapshot?
-    @Published var selectedWorkspaceID: UInt64 = CmxDemoState.workspaces.first?.id ?? 0
-    @Published var selectedSpaceID: UInt64 = CmxDemoState.workspaces.first?.spaces.first?.id ?? 0
-    @Published var selectedTerminalID: UInt64 = CmxConnectionStore.firstDemoTerminalID
-        ?? CmxConnectionStore.placeholderTerminalID
+    @Published var selectedWorkspaceID: UInt64 = 0
+    @Published var selectedSpaceID: UInt64 = 0
+    @Published var selectedTerminalID: UInt64 = CmxConnectionStore.placeholderTerminalID
     @Published private(set) var effectiveTerminalSizesByID: [UInt64: CmxTerminalSize] = [:]
     @Published private(set) var terminalOutputRevision = 0
     @Published private var outputChunksByTerminalID: [UInt64: [CmxTerminalOutputChunk]] = [:]
@@ -59,13 +58,7 @@ final class CmxConnectionStore: ObservableObject {
     private var lastReplayRequest: ReplayRequestKey?
     private var needsReplayAfterSessionStart = false
     private var terminalOutputSink: TerminalOutputSink?
-
-    private static var firstDemoTerminalID: UInt64? {
-        CmxDemoState.workspaces
-            .flatMap(\.spaces)
-            .flatMap(\.terminals)
-            .first?.id
-    }
+    private var currentSessionID: String?
 
     private struct ReplayRequestKey: Equatable {
         var terminalID: UInt64
@@ -84,7 +77,9 @@ final class CmxConnectionStore: ObservableObject {
         hiveDiscoveryClient: CmxHiveDiscoveryFetching = CmxHiveDiscoveryClient(),
         hiveDiscoveryEndpoint: URL? = CmxLaunchConfiguration.hiveDiscoveryEndpoint(),
         terminalSessionFactory: any CmxTerminalSessionMaking = CmxDefaultTerminalSessionFactory(),
-        startHiveDiscoveryOnInit: Bool = true
+        startHiveDiscoveryOnInit: Bool = true,
+        launchTicket: String? = CmxLaunchConfiguration.ticket(),
+        launchAutoconnect: Bool = CmxLaunchConfiguration.shouldAutoconnect()
     ) {
         self.authSessionStore = authSessionStore
         self.pairingSecretClient = pairingSecretClient
@@ -92,15 +87,16 @@ final class CmxConnectionStore: ObservableObject {
         self.hiveDiscoveryEndpoint = hiveDiscoveryEndpoint
         self.terminalSessionFactory = terminalSessionFactory
         stackAuthSession = try? authSessionStore.load()
-        if let ticket = CmxLaunchConfiguration.ticket() {
+        if let ticket = launchTicket {
             ticketText = ticket
+            clearWorkspaceState()
         }
         seedTerminalOutput()
         startLifecycleObservers()
         if startHiveDiscoveryOnInit {
             refreshHiveDiscoveryIfPossible()
         }
-        if CmxLaunchConfiguration.shouldAutoconnect() {
+        if launchAutoconnect {
             Task { @MainActor [weak self] in
                 self?.connect()
             }
@@ -140,6 +136,10 @@ final class CmxConnectionStore: ObservableObject {
 
     var selectedHostPlatform: CmxHostPlatform {
         node(for: selectedWorkspace).platform
+    }
+
+    var canRenderSelectedTerminal: Bool {
+        selectedTerminalID != Self.placeholderTerminalID && terminal(matching: selectedTerminalID) != nil
     }
 
     var statusText: String {
@@ -253,6 +253,7 @@ final class CmxConnectionStore: ObservableObject {
         lastSentNativeLayoutByTerminalID = [:]
         lastReplayRequest = nil
         needsReplayAfterSessionStart = false
+        currentSessionID = nil
         latencyMilliseconds = nil
         isConnecting = false
         isConnected = false
@@ -354,7 +355,15 @@ final class CmxConnectionStore: ObservableObject {
     }
 
     func renderSize(for terminalID: UInt64) -> CmxTerminalSize? {
-        effectiveTerminalSizesByID[terminalID]
+        guard let effectiveSize = effectiveTerminalSizesByID[terminalID] else {
+            return nil
+        }
+        let localSize = terminalSize(for: terminalID)
+        let clampedSize = CmxTerminalSize(
+            cols: min(localSize.cols, effectiveSize.cols),
+            rows: min(localSize.rows, effectiveSize.rows)
+        )
+        return clampedSize == localSize ? nil : clampedSize
     }
 
     func outputChunks(for terminalID: UInt64) -> [CmxTerminalOutputChunk] {
@@ -375,6 +384,7 @@ final class CmxConnectionStore: ObservableObject {
 
     func updateTerminalSize(terminalID: UInt64, size: CmxTerminalSize) {
         guard size.cols > 0, size.rows > 0 else { return }
+        guard terminalID != Self.placeholderTerminalID else { return }
         var didUpdateStoredTerminal = false
         for workspaceIndex in workspaces.indices {
             for spaceIndex in workspaces[workspaceIndex].spaces.indices {
@@ -401,11 +411,13 @@ final class CmxConnectionStore: ObservableObject {
     }
 
     func requestPtyReplay(terminalID: UInt64) {
+        guard terminalID != Self.placeholderTerminalID else { return }
         guard terminalID == selectedTerminal.id else { return }
         terminalSession?.requestPtyReplay(terminalID: terminalID)
     }
 
     func sendInput(_ data: Data, terminalID: UInt64) {
+        guard terminalID != Self.placeholderTerminalID else { return }
         if terminalID == selectedTerminal.id, let terminalSession {
             terminalSession.sendInput(data, terminalID: terminalID)
             return
@@ -475,6 +487,7 @@ final class CmxConnectionStore: ObservableObject {
 
     func applyNativeSnapshot(_ snapshot: CmxNativeSnapshot) {
         let previousSelectedTerminalID = selectedTerminalID
+        let previousSelectedRenderSize = renderSize(for: selectedTerminalID)
         nativeSnapshot = snapshot
         applyTerminalAppearance(from: snapshot, colorPreference: currentColorPreference)
         effectiveTerminalSizesByID = effectiveTerminalSizes(from: snapshot)
@@ -517,7 +530,8 @@ final class CmxConnectionStore: ObservableObject {
             )
         }
         if workspaces.isEmpty {
-            workspaces = CmxDemoState.workspaces
+            outputChunksByTerminalID = [:]
+            nextOutputChunkID = 1
         }
         selectedWorkspaceID = workspaces.first(where: { $0.id == snapshot.activeWorkspaceID })?.id
             ?? workspaces.first?.id
@@ -535,12 +549,13 @@ final class CmxConnectionStore: ObservableObject {
         )
         #endif
         let didChangeSelectedTerminal = selectedTerminalID != previousSelectedTerminalID
+        let didChangeSelectedRenderSize = previousSelectedRenderSize != renderSize(for: selectedTerminalID)
         if didChangeSelectedTerminal {
             lastReplayRequest = nil
         }
         guard terminalScreenVisible else { return }
         syncNativeLayoutForVisibleTerminal(force: didChangeSelectedTerminal)
-        if didChangeSelectedTerminal || needsReplayAfterSessionStart {
+        if didChangeSelectedTerminal || didChangeSelectedRenderSize || needsReplayAfterSessionStart {
             if requestPtyReplayForVisibleTerminal(force: true) {
                 needsReplayAfterSessionStart = false
             }
@@ -567,6 +582,17 @@ final class CmxConnectionStore: ObservableObject {
             .first(where: { $0.id == selectedTerminalID })?.id
             ?? firstTerminalID(in: selectedWorkspace)
             ?? Self.placeholderTerminalID
+    }
+
+    private func clearWorkspaceState() {
+        nodes = []
+        workspaces = []
+        selectedWorkspaceID = 0
+        selectedSpaceID = 0
+        selectedTerminalID = Self.placeholderTerminalID
+        effectiveTerminalSizesByID = [:]
+        outputChunksByTerminalID = [:]
+        nextOutputChunkID = 1
     }
 
     func refreshTerminalAppearance(colorPreference: CmxTerminalColorPreference) {
@@ -642,6 +668,9 @@ final class CmxConnectionStore: ObservableObject {
     private func effectiveTerminalSizes(from snapshot: CmxNativeSnapshot) -> [UInt64: CmxTerminalSize] {
         var sizes: [UInt64: CmxTerminalSize] = [:]
         for client in snapshot.attachedClients {
+            if client.clientID == currentSessionID {
+                continue
+            }
             for terminal in client.terminals where terminal.cols > 0 && terminal.rows > 0 {
                 let size = CmxTerminalSize(cols: Int(terminal.cols), rows: Int(terminal.rows))
                 if let current = sizes[terminal.tabID] {
@@ -690,6 +719,7 @@ final class CmxConnectionStore: ObservableObject {
         lastSentNativeLayoutByTerminalID = [:]
         lastReplayRequest = nil
         needsReplayAfterSessionStart = true
+        currentSessionID = nil
         let session = try terminalSessionFactory.makeSession(
             rawTicket: rawTicket,
             ticket: parsed,
@@ -703,9 +733,12 @@ final class CmxConnectionStore: ObservableObject {
         errorText = nil
         isConnecting = true
         isConnected = false
-        clearTerminal(selectedTerminal.id)
+        if selectedTerminal.id != Self.placeholderTerminalID {
+            clearTerminal(selectedTerminal.id)
+        }
         #if DEBUG
-        cmuxDebugLog("ios.connection.session.start alpn=\(parsed.alpn) terminal=\(selectedTerminal.id)")
+        let selectedTerminalLogID = selectedTerminal.id == Self.placeholderTerminalID ? "none" : "\(selectedTerminal.id)"
+        cmuxDebugLog("ios.connection.session.start alpn=\(parsed.alpn) terminal=\(selectedTerminalLogID)")
         #endif
         session.start(viewport: wireViewport(for: selectedTerminal.id))
     }
@@ -849,7 +882,8 @@ extension CmxConnectionStore: CmxTerminalSessionDelegate {
     func terminalSession(_ session: any CmxTerminalSession, didReceive message: CmxServerMessage) {
         guard session === terminalSession else { return }
         switch message {
-        case .welcome:
+        case .welcome(_, let sessionID):
+            currentSessionID = sessionID
             #if DEBUG
             cmuxDebugLog("ios.connection.welcome")
             #endif

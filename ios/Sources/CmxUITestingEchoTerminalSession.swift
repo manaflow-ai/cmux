@@ -7,15 +7,18 @@ final class CmxUITestingEchoTerminalSession: CmxTerminalSession {
 
     private var commandLine = ""
     private let usesPaletteTheme = ProcessInfo.processInfo.environment["CMUX_IOS_UI_TESTING_PALETTE_SESSION"] == "1"
+    private static let echoTerminalID: UInt64 = 100
 
     func start(viewport: CmxWireViewport) {
         delegate?.terminalSession(self, didReceive: .welcome(serverVersion: "ui-test", sessionID: "ui-test"))
         if usesPaletteTheme {
             delegate?.terminalSession(self, didReceive: .nativeSnapshot(Self.paletteSnapshot))
+        } else {
+            delegate?.terminalSession(self, didReceive: .nativeSnapshot(Self.echoSnapshot))
         }
         emit(
             Data("\u{001B}[2J\u{001B}[H".utf8) + promptBytes,
-            terminalID: CmxDemoState.workspaces.flatMap(\.spaces).flatMap(\.terminals).first?.id ?? 0
+            terminalID: Self.echoTerminalID
         )
     }
 
@@ -72,39 +75,15 @@ final class CmxUITestingEchoTerminalSession: CmxTerminalSession {
     }
 
     private static let paletteSnapshot = CmxNativeSnapshot(
-        workspaces: [
-            CmxNativeWorkspaceInfo(
-                id: 1,
-                title: "main",
-                spaceCount: 1,
-                tabCount: 1,
-                terminalCount: 1,
-                pinned: true,
-                color: nil
-            ),
-        ],
+        workspaces: CmxUITestingEchoTerminalSession.echoWorkspaces,
         activeWorkspace: 0,
         activeWorkspaceID: 1,
-        spaces: [
-            CmxNativeSpaceInfo(
-                id: 10,
-                title: "space-1",
-                paneCount: 1,
-                terminalCount: 1
-            ),
-        ],
+        spaces: CmxUITestingEchoTerminalSession.echoSpaces,
         activeSpace: 0,
         activeSpaceID: 10,
-        panels: .leaf(
-            panelID: 31,
-            tabs: [
-                CmxNativeTabInfo(id: 100, title: "palette", hasActivity: false, bellCount: 0),
-            ],
-            active: 0,
-            activeTabID: 100
-        ),
+        panels: CmxUITestingEchoTerminalSession.echoPanel(title: "palette"),
         focusedPanelID: 31,
-        focusedTabID: 100,
+        focusedTabID: CmxUITestingEchoTerminalSession.echoTerminalID,
         terminalTheme: CmxNativeTerminalThemeSet(
             defaultTheme: CmxNativeTerminalTheme(
                 palette: [118: "#FF00CC"],
@@ -135,5 +114,54 @@ final class CmxUITestingEchoTerminalSession: CmxTerminalSession {
             dark: nil
         )
     )
+
+    private static let echoSnapshot = CmxNativeSnapshot(
+        workspaces: CmxUITestingEchoTerminalSession.echoWorkspaces,
+        activeWorkspace: 0,
+        activeWorkspaceID: 1,
+        spaces: CmxUITestingEchoTerminalSession.echoSpaces,
+        activeSpace: 0,
+        activeSpaceID: 10,
+        panels: CmxUITestingEchoTerminalSession.echoPanel(title: "echo"),
+        focusedPanelID: 31,
+        focusedTabID: CmxUITestingEchoTerminalSession.echoTerminalID
+    )
+
+    private static let echoWorkspaces = [
+        CmxNativeWorkspaceInfo(
+            id: 1,
+            title: "main",
+            spaceCount: 1,
+            tabCount: 1,
+            terminalCount: 1,
+            pinned: true,
+            color: nil
+        ),
+    ]
+
+    private static let echoSpaces = [
+        CmxNativeSpaceInfo(
+            id: 10,
+            title: "space-1",
+            paneCount: 1,
+            terminalCount: 1
+        ),
+    ]
+
+    private static func echoPanel(title: String) -> CmxNativePanelNode {
+        .leaf(
+            panelID: 31,
+            tabs: [
+                CmxNativeTabInfo(
+                    id: CmxUITestingEchoTerminalSession.echoTerminalID,
+                    title: title,
+                    hasActivity: false,
+                    bellCount: 0
+                ),
+            ],
+            active: 0,
+            activeTabID: CmxUITestingEchoTerminalSession.echoTerminalID
+        )
+    }
 }
 #endif

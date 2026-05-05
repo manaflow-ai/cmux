@@ -148,18 +148,98 @@ put_inner_center() {
   put_text "$rows" "$cols" "$row" "$col" "$text"
 }
 
+put_ansi_text() {
+  local rows="$1"
+  local cols="$2"
+  local row="$3"
+  local col="$4"
+  local visible_len="$5"
+  local text="$6"
+  local max_len
+
+  if (( row < 1 || row > rows || col < 1 || col > cols )); then
+    return 0
+  fi
+
+  max_len=$(( cols - col + 1 ))
+  if (( visible_len > max_len )); then
+    return 0
+  fi
+
+  move_to "$row" "$col"
+  printf '%b\033[0m' "$text"
+}
+
+put_ansi_center() {
+  local rows="$1"
+  local cols="$2"
+  local row="$3"
+  local visible_len="$4"
+  local text="$5"
+  local inner_width col
+
+  if (( cols <= 2 )); then
+    return 0
+  fi
+
+  inner_width=$(( cols - 2 ))
+  if (( visible_len > inner_width )); then
+    return 0
+  fi
+
+  col=$(( (inner_width - visible_len) / 2 + 2 ))
+  put_ansi_text "$rows" "$cols" "$row" "$col" "$visible_len" "$text"
+}
+
+draw_ansi_color_check() {
+  local rows="$1"
+  local cols="$2"
+  local row="$3"
+  local esc=$'\033'
+  local compact fg bg codes index code label_len
+
+  if (( row < 1 || row > rows - 2 || cols < 22 )); then
+    return 0
+  fi
+
+  if (( cols < 45 || row + 2 > rows - 3 )); then
+    compact="ANSI: ${esc}[31mR${esc}[0m ${esc}[32mG${esc}[0m ${esc}[33mY${esc}[0m ${esc}[34mB${esc}[0m ${esc}[35mM${esc}[0m ${esc}[36mC${esc}[0m ${esc}[37mW${esc}[0m"
+    put_ansi_center "$rows" "$cols" "$row" 19 "$compact"
+    return 0
+  fi
+
+  put_inner_center "$rows" "$cols" "$row" "ANSI theme colors"
+
+  bg="BG: "
+  codes=(40 41 42 43 44 45 46 47)
+  for index in "${!codes[@]}"; do
+    code="${codes[$index]}"
+    bg+="${esc}[${code}m  ${esc}[0m"
+    if (( index < ${#codes[@]} - 1 )); then
+      bg+=" "
+    fi
+  done
+  put_ansi_center "$rows" "$cols" "$(( row + 1 ))" 27 "$bg"
+
+  if (( row + 2 <= rows - 2 )); then
+    fg="FG: ${esc}[30mK${esc}[0m ${esc}[31mR${esc}[0m ${esc}[32mG${esc}[0m ${esc}[33mY${esc}[0m ${esc}[34mB${esc}[0m ${esc}[35mM${esc}[0m ${esc}[36mC${esc}[0m ${esc}[37mW${esc}[0m"
+    label_len=19
+    put_ansi_center "$rows" "$cols" "$(( row + 2 ))" "$label_len" "$fg"
+  fi
+}
+
 draw() {
-  local rows cols inner_rows inner_cols horizontal top bottom row col label last_label center_col now edge_warning corner_help rail_help resize_help bottom_help ruler_help visible_help inner_help corner_detail
+  local rows cols inner_rows inner_cols horizontal top bottom row col label last_label center_col now edge_warning corner_help rail_help resize_help bottom_help ruler_help visible_help inner_help corner_detail color_row
   read -r rows cols < <(read_size)
   inner_rows=$(( rows - 2 ))
   inner_cols=$(( cols - 2 ))
 
   printf '\033[0m\033[H\033[2J'
 
-  if (( rows < 8 || cols < 30 )); then
+  if (( rows < 6 || cols < 12 )); then
     put_text "$rows" "$cols" 1 1 "CMUX BOUNDS CHECK"
     put_text "$rows" "$cols" 2 1 "Terminal too small: rows=$rows cols=$cols"
-    put_text "$rows" "$cols" 3 1 "Need at least 8 rows x 30 cols."
+    put_text "$rows" "$cols" 3 1 "Need at least 6 rows x 12 cols."
     put_text "$rows" "$cols" 4 1 "Resize, rotate, or hide UI chrome."
     return 0
   fi
@@ -215,8 +295,13 @@ draw() {
     corner_detail="corner labels: 1=top-left 2=top-right 3=bottom-left 4=bottom-right"
   fi
 
-  put_inner_center "$rows" "$cols" 3 "CMUX TERMINAL BOUNDS VISUAL CHECK"
-  put_inner_center "$rows" "$cols" 4 "reported size: rows=$rows cols=$cols  cells=${cols}x${rows}  redraw=$now"
+  if (( cols < 45 )); then
+    put_inner_center "$rows" "$cols" 3 "CMUX BOUNDS CHECK"
+    put_inner_center "$rows" "$cols" 4 "rows=$rows cols=$cols"
+  else
+    put_inner_center "$rows" "$cols" 3 "CMUX TERMINAL BOUNDS VISUAL CHECK"
+    put_inner_center "$rows" "$cols" 4 "reported size: rows=$rows cols=$cols  cells=${cols}x${rows}  redraw=$now"
+  fi
   put_inner_center "$rows" "$cols" 6 "$corner_help"
   put_inner_center "$rows" "$cols" 7 "$rail_help"
   put_inner_center "$rows" "$cols" 9 "$edge_warning"
@@ -242,6 +327,17 @@ draw() {
     fi
     put_text "$rows" "$cols" "$(( rows / 2 ))" "$(( cols - ${#last_label} - 1 ))" "$last_label"
     put_inner_center "$rows" "$cols" "$(( rows / 2 + 2 ))" "$resize_help"
+  fi
+
+  if (( rows >= 16 )); then
+    color_row=$(( rows / 2 + 4 ))
+    if (( color_row > rows - 5 )); then
+      color_row=$(( rows - 5 ))
+    fi
+    if (( color_row < 13 )); then
+      color_row=13
+    fi
+    draw_ansi_color_check "$rows" "$cols" "$color_row"
   fi
 
   put_inner_text "$rows" "$cols" "$(( rows - 2 ))" "$bottom_help"
