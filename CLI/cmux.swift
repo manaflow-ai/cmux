@@ -8785,6 +8785,8 @@ struct CMUXCLI {
               --command <text>     Send text+Enter to the new workspace after creation
               --layout <json>      Create workspace with a predefined split layout (inline JSON).
                                    Uses the same schema as cmux.json layout definitions.
+                                   Surfaces can be terminal, browser, or markdown.
+                                   Markdown surfaces use "path" for the file to open.
                                    When provided, --command is ignored (layout surfaces define their own commands).
               --focus <true|false> Focus the new workspace (default: false)
 
@@ -8794,7 +8796,7 @@ struct CMUXCLI {
               cmux new-workspace --name "Launch" --description "Ship checklist"
               cmux new-workspace --cwd ~/projects/myapp
               cmux new-workspace --cwd . --command "npm test"
-              cmux new-workspace --name "Dev" --layout '{"direction":"horizontal","split":0.5,"children":[{"pane":{"surfaces":[{"type":"terminal","command":"vim"}]}},{"pane":{"surfaces":[{"type":"terminal","command":"npm run start"}]}}]}'
+              cmux new-workspace --name "Dev" --layout '{"direction":"horizontal","split":0.5,"children":[{"pane":{"surfaces":[{"type":"terminal","command":"vim"}]}},{"pane":{"surfaces":[{"type":"markdown","path":"docs/plan.md"}]}}]}'
             """
         case "list-workspaces":
             return """

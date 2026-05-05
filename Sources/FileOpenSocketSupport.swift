@@ -1,18 +1,58 @@
 import Bonsplit
 import Foundation
 
-extension TerminalController {
-    func v2ResolveReadableFilePath(_ rawPath: String) -> (path: String?, error: V2CallResult?) {
-        let expandedPath = NSString(string: rawPath).expandingTildeInPath
-        let filePath = NSString(string: expandedPath).standardizingPath
+struct CmuxReadableFilePathResolutionFailure: Sendable {
+    let code: String
+    let message: String
+    let path: String
+}
+
+enum CmuxReadableFilePathResolver {
+    static func resolve(
+        _ rawPath: String,
+        relativeTo basePath: String? = nil
+    ) -> (path: String?, failure: CmuxReadableFilePathResolutionFailure?) {
+        let trimmedPath = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedPath.isEmpty else {
+            return (
+                nil,
+                CmuxReadableFilePathResolutionFailure(
+                    code: "invalid_params",
+                    message: "Path must not be empty",
+                    path: trimmedPath
+                )
+            )
+        }
+
+        let expandedPath = NSString(string: trimmedPath).expandingTildeInPath
+        let filePath: String
+        if expandedPath.hasPrefix("/") {
+            filePath = NSString(string: expandedPath).standardizingPath
+        } else if let basePath, !basePath.isEmpty {
+            let expandedBasePath = NSString(string: basePath).expandingTildeInPath
+            let standardizedBasePath = NSString(string: expandedBasePath).standardizingPath
+            filePath = NSString(
+                string: NSString(string: standardizedBasePath).appendingPathComponent(expandedPath)
+            ).standardizingPath
+        } else {
+            let standardizedPath = NSString(string: expandedPath).standardizingPath
+            return (
+                nil,
+                CmuxReadableFilePathResolutionFailure(
+                    code: "invalid_params",
+                    message: "Path must be absolute: \(standardizedPath)",
+                    path: standardizedPath
+                )
+            )
+        }
 
         guard filePath.hasPrefix("/") else {
             return (
                 nil,
-                .err(
+                CmuxReadableFilePathResolutionFailure(
                     code: "invalid_params",
                     message: "Path must be absolute: \(filePath)",
-                    data: ["path": filePath]
+                    path: filePath
                 )
             )
         }
@@ -21,31 +61,53 @@ extension TerminalController {
         guard FileManager.default.fileExists(atPath: filePath, isDirectory: &isDir) else {
             return (
                 nil,
-                .err(code: "not_found", message: "File not found: \(filePath)", data: ["path": filePath])
+                CmuxReadableFilePathResolutionFailure(
+                    code: "not_found",
+                    message: "File not found: \(filePath)",
+                    path: filePath
+                )
             )
         }
         guard !isDir.boolValue else {
             return (
                 nil,
-                .err(
+                CmuxReadableFilePathResolutionFailure(
                     code: "invalid_params",
                     message: "Path is a directory, not a file: \(filePath)",
-                    data: ["path": filePath]
+                    path: filePath
                 )
             )
         }
         guard FileManager.default.isReadableFile(atPath: filePath) else {
             return (
                 nil,
-                .err(
+                CmuxReadableFilePathResolutionFailure(
                     code: "permission_denied",
                     message: "File not readable: \(filePath)",
-                    data: ["path": filePath]
+                    path: filePath
                 )
             )
         }
 
         return (filePath, nil)
+    }
+}
+
+extension TerminalController {
+    func v2ResolveReadableFilePath(_ rawPath: String) -> (path: String?, error: V2CallResult?) {
+        let resolvedPath = CmuxReadableFilePathResolver.resolve(rawPath)
+        if let failure = resolvedPath.failure {
+            return (
+                nil,
+                .err(
+                    code: failure.code,
+                    message: failure.message,
+                    data: ["path": failure.path]
+                )
+            )
+        }
+
+        return (resolvedPath.path, nil)
     }
 
     private func v2FileOpenSurfacePayload(

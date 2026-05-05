@@ -5824,6 +5824,9 @@ class TerminalController {
                     item["initial_command"] = v2OrNull(v2NonEmptyString(terminalPanel.surface.debugInitialCommand()))
                     item["tmux_start_command"] = v2OrNull(v2NonEmptyString(terminalPanel.surface.debugTmuxStartCommand()))
                 }
+                if let markdownPanel = panel as? MarkdownPanel {
+                    item["path"] = markdownPanel.filePath
+                }
                 return item
             }
 
@@ -7268,7 +7271,7 @@ class TerminalController {
             let surfaces: [[String: Any]] = tabs.enumerated().map { index, tab in
                 let panelId = ws.panelIdFromSurfaceId(tab.id)
                 let panel = panelId.flatMap { ws.panels[$0] }
-                return [
+                var item: [String: Any] = [
                     "id": v2OrNull(panelId?.uuidString),
                     "ref": v2Ref(kind: .surface, uuid: panelId),
                     "index": index,
@@ -7276,6 +7279,10 @@ class TerminalController {
                     "type": v2OrNull(panel?.panelType.rawValue),
                     "selected": tab.id == selectedTab?.id
                 ]
+                if let markdownPanel = panel as? MarkdownPanel {
+                    item["path"] = markdownPanel.filePath
+                }
+                return item
             }
 
             let windowId = v2ResolveWindowId(tabManager: tabManager)
