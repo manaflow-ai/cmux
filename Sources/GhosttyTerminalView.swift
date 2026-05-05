@@ -5760,9 +5760,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         case reject
     }
 
-    private static let dropTypes: Set<NSPasteboard.PasteboardType> = [
+    private static let dropTypes: Set<NSPasteboard.PasteboardType> = PasteboardFileURLReader.fileURLPasteboardTypes.union([
         .string,
-        .fileURL,
         .URL,
         .png,
         .tiff,
@@ -5770,7 +5769,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         NSPasteboard.PasteboardType(UTType.gif.identifier),
         NSPasteboard.PasteboardType(UTType.heic.identifier),
         NSPasteboard.PasteboardType(UTType.heif.identifier)
-    ]
+    ])
     private static let tabTransferPasteboardType = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
     private static let sidebarTabReorderPasteboardType = NSPasteboard.PasteboardType("com.cmux.sidebar-tab-reorder")
 

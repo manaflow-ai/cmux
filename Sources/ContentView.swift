@@ -30,19 +30,24 @@ enum DragOverlayRoutingPolicy {
     }
 
     static func hasFileURL(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
-        guard let pasteboardTypes else { return false }
-        return pasteboardTypes.contains(.fileURL)
+        PasteboardFileURLReader.hasFileURLType(pasteboardTypes ?? [])
     }
 
     static func shouldCaptureFileDropDestination(
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
         hasLocalDraggingSource: Bool
     ) -> Bool {
-        // File URL drops are routed at the Bonsplit pane layer so center/edge
-        // drop targets stay visible and the host can open previews or splits.
-        _ = hasLocalDraggingSource
+        // External Finder file drops need the stable root AppKit destination so
+        // terminal/browser panes receive their shared file insertion/upload path.
+        // Internal cmux drag payloads keep their dedicated pane routing.
         guard hasFileURL(pasteboardTypes) else { return false }
-        return false
+        guard !hasFilePreviewTransfer(pasteboardTypes),
+              !hasBonsplitTabTransfer(pasteboardTypes),
+              !hasSidebarTabReorder(pasteboardTypes) else {
+            return false
+        }
+        guard !hasLocalDraggingSource else { return false }
+        return true
     }
 
     static func shouldCaptureFileDropDestination(
@@ -148,7 +153,7 @@ final class FileDropOverlayView: NSView {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        registerForDraggedTypes([.fileURL])
+        registerForDraggedTypes(Array(PasteboardFileURLReader.fileURLPasteboardTypes))
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
@@ -493,7 +498,7 @@ final class FileDropOverlayView: NSView {
 
         let interestingTypes = types.filter { type in
             let raw = type.rawValue
-            return raw == NSPasteboard.PasteboardType.fileURL.rawValue
+            return PasteboardFileURLReader.fileURLPasteboardTypes.contains(type)
                 || raw == DragOverlayRoutingPolicy.bonsplitTabTransferType.rawValue
                 || raw == DragOverlayRoutingPolicy.sidebarTabReorderType.rawValue
                 || raw.contains("public.text")
@@ -510,7 +515,7 @@ final class FileDropOverlayView: NSView {
 
     private func hasRelevantDragTypes(_ types: [NSPasteboard.PasteboardType]?) -> Bool {
         guard let types else { return false }
-        return types.contains(.fileURL)
+        return DragOverlayRoutingPolicy.hasFileURL(types)
             || types.contains(DragOverlayRoutingPolicy.bonsplitTabTransferType)
             || types.contains(DragOverlayRoutingPolicy.sidebarTabReorderType)
     }

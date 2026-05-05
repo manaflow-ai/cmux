@@ -49,6 +49,13 @@ final class FinderFileDropRegressionTests: XCTestCase {
             ),
             "Bonsplit tab drags can also advertise file URLs and must not be hijacked by the file-drop overlay"
         )
+        XCTAssertFalse(
+            DragOverlayRoutingPolicy.shouldCaptureFileDropDestination(
+                pasteboardTypes: [.fileURL],
+                hasLocalDraggingSource: true
+            ),
+            "Unknown local file drags should stay off the root overlay unless they are proven external"
+        )
     }
 
     func testLegacyFinderFilenameDropPlanInsertsEscapedLocalPath() throws {
