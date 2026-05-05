@@ -485,6 +485,7 @@ func pumpPTYToWebSocket(ctx context.Context, cancel context.CancelFunc, conn *we
 }
 
 func pumpWebSocketToPTY(ctx context.Context, conn *websocket.Conn, ptyFile *os.File, done <-chan struct{}) {
+	inputFilter := newPTYInputFilter()
 	for {
 		select {
 		case <-done:
@@ -498,7 +499,10 @@ func pumpWebSocketToPTY(ctx context.Context, conn *websocket.Conn, ptyFile *os.F
 		}
 		switch msgType {
 		case websocket.MessageBinary:
-			_, _ = ptyFile.Write(payload)
+			filtered := inputFilter.filter(payload)
+			if len(filtered) > 0 {
+				_, _ = ptyFile.Write(filtered)
+			}
 		case websocket.MessageText:
 			var control wsPTYControlFrame
 			if err := json.Unmarshal(payload, &control); err != nil {
@@ -517,6 +521,61 @@ func pumpWebSocketToPTY(ctx context.Context, conn *websocket.Conn, ptyFile *os.F
 			}
 		}
 	}
+}
+
+type ptyInputFilter struct {
+	pending []byte
+}
+
+func newPTYInputFilter() *ptyInputFilter {
+	return &ptyInputFilter{}
+}
+
+func (f *ptyInputFilter) filter(payload []byte) []byte {
+	if len(payload) == 0 && len(f.pending) == 0 {
+		return nil
+	}
+
+	data := append(f.pending, payload...)
+	f.pending = nil
+
+	out := make([]byte, 0, len(data))
+	for len(data) > 0 {
+		matchLen, partial := terminalResponsePrefix(data)
+		if matchLen > 0 {
+			data = data[matchLen:]
+			continue
+		}
+		if partial {
+			f.pending = append(f.pending[:0], data...)
+			break
+		}
+		out = append(out, data[0])
+		data = data[1:]
+	}
+	return out
+}
+
+func terminalResponsePrefix(data []byte) (int, bool) {
+	// These are terminal-generated answers for Ghostty color-scheme probing and
+	// the corresponding DECRQM form. They are not user keystrokes, and forwarding
+	// them into the PTY can leave literal ?997... text in the shell input buffer.
+	responses := [][]byte{
+		[]byte("\x1b[?997;1n"),
+		[]byte("\x1b[?997;2n"),
+		[]byte("\x1b[?997;0$y"),
+		[]byte("\x1b[?997;1$y"),
+		[]byte("\x1b[?997;2$y"),
+	}
+	for _, response := range responses {
+		if bytes.HasPrefix(data, response) {
+			return len(response), false
+		}
+		if len(data) >= len("\x1b[?9") && bytes.HasPrefix(response, data) {
+			return 0, true
+		}
+	}
+	return 0, false
 }
 
 func resolvePTYShell(explicit string) string {
