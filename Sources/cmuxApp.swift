@@ -6519,6 +6519,8 @@ struct SettingsView: View {
                         SettingsCardNote(String(localized: "settings.automation.socketOverrides.note", defaultValue: "Overrides: CMUX_SOCKET_ENABLE, CMUX_SOCKET_MODE, and CMUX_SOCKET_PATH (set CMUX_ALLOW_SOCKET_OVERRIDE=1 for stable/nightly builds)."))
                     }
 
+                    AgentHooksSettingsCard()
+
                     SettingsCard {
                         SettingsCardRow(
                             configurationReview: .json("automation.claudeCodeIntegration"),
@@ -7580,7 +7582,7 @@ private struct AuthSettingsRow: View {
     }
 }
 
-private struct SettingsCard<Content: View>: View {
+struct SettingsCard<Content: View>: View {
     @ViewBuilder let content: Content
 
     init(@ViewBuilder content: () -> Content) {
@@ -7602,7 +7604,7 @@ private struct SettingsCard<Content: View>: View {
     }
 }
 
-private struct SettingsCardRow<Trailing: View>: View {
+struct SettingsCardRow<Trailing: View>: View {
     let configurationReview: SettingsConfigurationReview
     let title: String
     let subtitle: String?
@@ -7722,7 +7724,7 @@ extension SettingsPickerRow where ExtraTrailing == EmptyView {
     }
 }
 
-private enum SettingsConfigurationReview: Equatable {
+enum SettingsConfigurationReview: Equatable {
     case settingsFile([String])
     case settingsOnly
     case action
@@ -7760,7 +7762,7 @@ private extension View {
     }
 }
 
-private struct SettingsCardDivider: View {
+struct SettingsCardDivider: View {
     var body: some View {
         Rectangle()
             .fill(Color(nsColor: NSColor.separatorColor).opacity(0.5))
@@ -7768,13 +7770,10 @@ private struct SettingsCardDivider: View {
     }
 }
 
-private struct SettingsCardNote: View {
+struct SettingsCardNote: View {
     let text: String
 
-    init(_ text: String) {
-        self.text = text
-    }
-
+    init(_ text: String) { self.text = text }
     var body: some View {
         Text(text)
             .font(.caption)

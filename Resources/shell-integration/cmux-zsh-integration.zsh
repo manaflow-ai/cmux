@@ -85,6 +85,14 @@ _cmux_relay_rpc_bg() {
     { "$relay_cli" rpc "$method" "$params" >/dev/null 2>&1 || true } >/dev/null 2>&1 &!
 }
 
+_cmux_cli_rpc_bg() {
+    local method="$1"
+    local params="$2"
+    local relay_cli=""
+    relay_cli="$(_cmux_relay_cli_path)" || return 1
+    { "$relay_cli" rpc "$method" "$params" >/dev/null 2>&1 || true } >/dev/null 2>&1 &!
+}
+
 _cmux_relay_rpc() {
     local method="$1"
     local params="$2"
@@ -1090,6 +1098,107 @@ _cmux_command_starts_nested_shell() {
     return 1
 }
 
+_cmux_agent_hook_agent_for_command() {
+    local cmd="$1"
+    [[ -n "$cmd" ]] || return 1
+
+    local -a words
+    words=("${(@z)cmd}")
+    local index=1
+    while (( index <= ${#words[@]} )); do
+        local word="${words[index]}"
+        case "$word" in
+            env|command|builtin|exec|noglob|time)
+                index=$(( index + 1 ))
+                continue ;;
+            sudo|doas)
+                index=$(( index + 1 ))
+                while (( index <= ${#words[@]} )); do
+                    local sudo_word="${words[index]}"
+                    case "$sudo_word" in
+                        --)
+                            index=$(( index + 1 ))
+                            break ;;
+                        -u|-g|-h|-p|-C|-D|-c|-r|-t|-T|-U|--user|--group|--host|--prompt|--chdir|--role|--type|--login-class)
+                            index=$(( index + 2 ))
+                            continue ;;
+                        --user=*|--group=*|--host=*|--prompt=*|--chdir=*|--role=*|--type=*|--login-class=*)
+                            index=$(( index + 1 ))
+                            continue ;;
+                        -*|*=*)
+                            index=$(( index + 1 ))
+                            continue ;;
+                    esac
+                    break
+                done
+                continue ;;
+            -*|*=*)
+                index=$(( index + 1 ))
+                continue ;;
+        esac
+
+        local base="${word:t}"
+        case "$base" in
+            claude)
+                print -r -- "claude"
+                return 0 ;;
+            codex)
+                print -r -- "codex"
+                return 0 ;;
+            opencode|open-code)
+                print -r -- "opencode"
+                return 0 ;;
+            cursor)
+                if (( index < ${#words[@]} )) && [[ "${words[index + 1]}" == "agent" ]]; then
+                    print -r -- "cursor"
+                    return 0
+                fi
+                return 1 ;;
+            cursor-agent)
+                print -r -- "cursor"
+                return 0 ;;
+            gemini)
+                print -r -- "gemini"
+                return 0 ;;
+            copilot)
+                print -r -- "copilot"
+                return 0 ;;
+            codebuddy)
+                print -r -- "codebuddy"
+                return 0 ;;
+            factory)
+                print -r -- "factory"
+                return 0 ;;
+            qoder)
+                print -r -- "qoder"
+                return 0 ;;
+        esac
+        return 1
+    done
+
+    return 1
+}
+
+_cmux_report_agent_hook_nudge() {
+    local workspace_id="${CMUX_WORKSPACE_ID:-${CMUX_TAB_ID:-}}"
+    local surface_id="${CMUX_SURFACE_ID:-${CMUX_PANEL_ID:-}}"
+    [[ -n "$workspace_id" ]] || return 0
+
+    local agent=""
+    agent="$(_cmux_agent_hook_agent_for_command "$1")" || return 0
+    [[ -n "$agent" ]] || return 0
+    local params="{\"agent\":\"$agent\",\"workspace_id\":\"$workspace_id\""
+    [[ -n "$surface_id" ]] && params+=",\"surface_id\":\"$surface_id\""
+    params+="}"
+    _cmux_cli_rpc_bg "agent_hooks.nudge" "$params" && return 0
+    _cmux_socket_is_unix || return 0
+    if [[ -n "$surface_id" ]]; then
+        _cmux_send_bg "agent_hooks_nudge $agent --tab=$workspace_id --surface=$surface_id"
+    else
+        _cmux_send_bg "agent_hooks_nudge $agent --tab=$workspace_id"
+    fi
+}
+
 _cmux_preexec() {
     _cmux_normalize_claude_config_dir
     if (( ! _CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT )); then
@@ -1108,6 +1217,7 @@ _cmux_preexec() {
     _CMUX_CMD_START="$(_cmux_now)"
     _cmux_report_shell_activity_state running
     _cmux_record_pr_command_hint "$cmd"
+    _cmux_report_agent_hook_nudge "$cmd"
 
     # Heuristic: commands that may change git branch/dirty state without changing $PWD.
     case "$cmd" in

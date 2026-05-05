@@ -87,7 +87,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         case .sidebarAppearance:
             return "\(title) sidebar details branches badges material terminal background"
         case .automation:
-            return "\(title) socket integrations hooks ports claude cursor gemini"
+            return "\(title) socket integrations hooks ports claude codex opencode cursor gemini copilot codebuddy factory qoder"
         case .browser:
             return "\(title) search engine links history theme"
         case .browserImport:
@@ -321,6 +321,7 @@ enum SettingsSearchIndex {
         setting(.sidebarAppearance, "show-metadata", String(localized: "settings.app.showMetadata", defaultValue: "Show Custom Metadata in Sidebar"), "report meta status block"),
         setting(.automation, "socket-mode", String(localized: "settings.automation.socketMode", defaultValue: "Socket Control Mode"), "unix socket api access password auth"),
         setting(.automation, "socket-password", String(localized: "settings.automation.socketPassword", defaultValue: "Socket Password"), "socket auth credential"),
+        setting(.automation, "agent-hooks", String(localized: "settings.automation.agentHooks.title", defaultValue: "Agent Hooks"), "claude claudecode claude code codex opencode open-code open code cursor gemini copilot codebuddy factory qoder notifications session restore"),
         setting(.automation, "claude-code", String(localized: "settings.automation.claudeCode", defaultValue: "Claude Code Integration"), "agent hooks notifications"),
         setting(.automation, "claude-path", String(localized: "settings.automation.claudeCode.customPath", defaultValue: "Claude Binary Path"), "custom claude executable"),
         setting(.automation, "cursor", String(localized: "settings.automation.cursor", defaultValue: "Cursor Integration"), "agent hooks notifications"),

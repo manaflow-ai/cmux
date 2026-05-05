@@ -622,50 +622,6 @@ enum AppFocusState {
     }
 }
 
-enum NotificationAuthorizationState: Equatable {
-    case unknown
-    case notDetermined
-    case authorized
-    case denied
-    case provisional
-    case ephemeral
-
-    var statusLabel: String {
-        switch self {
-        case .unknown, .notDetermined:
-            return "Not Requested"
-        case .authorized:
-            return "Allowed"
-        case .denied:
-            return "Denied"
-        case .provisional:
-            return "Deliver Quietly"
-        case .ephemeral:
-            return "Temporary"
-        }
-    }
-
-    var allowsDelivery: Bool {
-        switch self {
-        case .authorized, .provisional, .ephemeral:
-            return true
-        case .unknown, .notDetermined, .denied:
-            return false
-        }
-    }
-}
-
-struct TerminalNotification: Identifiable, Hashable {
-    let id: UUID
-    let tabId: UUID
-    let surfaceId: UUID?
-    let title: String
-    let subtitle: String
-    let body: String
-    let createdAt: Date
-    var isRead: Bool
-}
-
 @MainActor
 final class TerminalNotificationStore: ObservableObject {
     private struct TabSurfaceKey: Hashable {
@@ -908,7 +864,8 @@ final class TerminalNotificationStore: ObservableObject {
         subtitle: String,
         body: String,
         cooldownKey: String? = nil,
-        cooldownInterval: TimeInterval? = nil
+        cooldownInterval: TimeInterval? = nil,
+        action: TerminalNotificationAction? = nil
     ) {
         let now = Date()
         let resolvedCooldownInterval: TimeInterval?
@@ -927,7 +884,9 @@ final class TerminalNotificationStore: ObservableObject {
         var updated = notifications
         var idsToClear: [String] = []
         updated.removeAll { existing in
-            guard existing.tabId == tabId, existing.surfaceId == surfaceId else { return false }
+            guard Self.shouldReplaceNotification(existing, tabId: tabId, surfaceId: surfaceId, action: action) else {
+                return false
+            }
             idsToClear.append(existing.id.uuidString)
             return true
         }
@@ -958,6 +917,7 @@ final class TerminalNotificationStore: ObservableObject {
             title: title,
             subtitle: subtitle,
             body: body,
+            action: action,
             createdAt: now,
             isRead: false
         )
@@ -974,6 +934,32 @@ final class TerminalNotificationStore: ObservableObject {
             suppressedNotificationFeedbackHandler(self, notification)
         } else {
             notificationDeliveryHandler(self, notification)
+        }
+    }
+
+    private static func shouldReplaceNotification(
+        _ existing: TerminalNotification,
+        tabId: UUID,
+        surfaceId: UUID?,
+        action: TerminalNotificationAction?
+    ) -> Bool {
+        guard existing.tabId == tabId, existing.surfaceId == surfaceId else { return false }
+        switch (existing.action, action) {
+        case (.agentHookSetup(let existingAgent)?, .agentHookSetup(let newAgent)?):
+            return existingAgent == newAgent
+        case (nil, nil):
+            return true
+        default:
+            return false
+        }
+    }
+
+    func hasAgentHookSetupNotification(for agentName: String) -> Bool {
+        notifications.contains { notification in
+            if case .agentHookSetup(let existingAgentName) = notification.action {
+                return existingAgentName == agentName
+            }
+            return false
         }
     }
 

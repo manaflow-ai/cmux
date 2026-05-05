@@ -2053,6 +2053,9 @@ class TerminalController {
         case "notify_target_async":
             return notifyTargetQueued(args)
 
+        case "agent_hooks_nudge":
+            return agentHooksNudge(args)
+
         case "list_notifications":
             return listNotifications()
 
@@ -2446,6 +2449,8 @@ class TerminalController {
         // Settings
         case "settings.open":
             return v2Result(id: id, self.v2SettingsOpen(params: params))
+        case "agent_hooks.nudge":
+            return v2Result(id: id, self.v2AgentHooksNudge(params: params))
 
         // Feedback
         case "feedback.open":
@@ -2840,6 +2845,7 @@ class TerminalController {
             "workspace.remote.terminal_session_end",
             "session.restore_previous",
             "settings.open",
+            "agent_hooks.nudge",
             "feedback.open",
             "feedback.submit",
             "feed.push",
@@ -12664,6 +12670,7 @@ class TerminalController {
           notify_surface <id|idx> <payload>  - Notify a specific surface
           notify_target <workspace_id> <surface_id> <payload> - Notify by workspace+surface
           notify_target_async <workspace_uuid> <surface_uuid> <payload> - Queue notification by workspace+surface
+          agent_hooks_nudge <agent> --tab=<uuid> [--panel=<uuid>|--surface=<uuid>] - Prompt for agent hook setup if needed
           list_notifications              - List all notifications
           clear_notifications [--tab=X]    - Clear notifications (all or per-tab)
           set_app_focus <active|inactive|clear> - Override app focus state

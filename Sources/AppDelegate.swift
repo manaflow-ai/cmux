@@ -10040,6 +10040,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         titlebarAccessoryController.toggleNotificationsPopover(animated: animated, anchorView: anchorView)
     }
 
+    func showNotificationsPopover(animated: Bool = true) { titlebarAccessoryController.showNotificationsPopover(animated: animated) }
     @discardableResult
     func dismissNotificationsPopoverIfShown() -> Bool {
         titlebarAccessoryController.dismissNotificationsPopoverIfShown()

@@ -1650,12 +1650,21 @@ private struct NotificationsPopoverView: View {
                 ScrollView {
                     LazyVStack(spacing: 8) {
                         ForEach(notificationStore.notifications) { notification in
-                            NotificationPopoverRow(
-                                notification: notification,
-                                tabTitle: tabTitle(for: notification.tabId),
-                                onOpen: { open(notification) },
-                                onClear: { notificationStore.remove(id: notification.id) }
-                            )
+                            VStack(alignment: .leading, spacing: 6) {
+                                NotificationPopoverRow(
+                                    notification: notification,
+                                    tabTitle: tabTitle(for: notification.tabId),
+                                    onOpen: { open(notification) },
+                                    onClear: { notificationStore.remove(id: notification.id) }
+                                )
+                                if let action = notification.action {
+                                    TerminalNotificationActionButtons(action: action) {
+                                        notificationStore.remove(id: notification.id)
+                                    }
+                                    .padding(.horizontal, 12)
+                                    .padding(.bottom, 8)
+                                }
+                            }
                         }
                     }
                     .padding(12)
@@ -2136,18 +2145,9 @@ final class UpdateTitlebarAccessoryController {
 
     func showNotificationsPopover(animated: Bool = true) {
         let controllers = controlsControllers.allObjects
-        guard !controllers.isEmpty else { return }
-
-        let target = preferredNotificationsController(from: controllers, preferShownPopover: false)
-        for controller in controllers {
-            if controller !== target {
-                controller.dismissNotificationsPopover()
-            }
-        }
-        guard let target else { return }
-        if target.popoverIsShownForTesting {
-            return
-        }
-        target.toggleNotificationsPopover(animated: animated)
+        guard !controllers.isEmpty,
+              let target = preferredNotificationsController(from: controllers, preferShownPopover: false) else { return }
+        for controller in controllers where controller !== target { controller.dismissNotificationsPopover() }
+        if !target.popoverIsShownForTesting { target.toggleNotificationsPopover(animated: animated) }
     }
 }
