@@ -3325,6 +3325,7 @@ class GhosttyApp {
         return Float(min(1.0, max(0.0, value)))
     }
 
+    @MainActor
     private func ringBell(tabId: UUID?) {
         let features = bellFeatures()
 
