@@ -547,6 +547,135 @@ async fn websocket_native_libghostty_mode_streams_pty_bytes_instead_of_terminal_
         }
     }
 
+    send_client_msg(&mut ws, &ClientMsg::RequestPtyReplay { tab_id }).await;
+    let replay_reset = recv_until_server_msg(&mut ws, Duration::from_secs(3), |message| {
+        matches!(
+            message,
+            ServerMsg::PtyBytes {
+                tab_id: got_tab_id,
+                data,
+            } if *got_tab_id == tab_id && data == b"\x1bc"
+        )
+    })
+    .await
+    .expect("expected requested libghostty PTY replay to reset before replaying bytes");
+    assert!(matches!(replay_reset, ServerMsg::PtyBytes { .. }));
+    recv_pty_output_until_contains(
+        &mut ws,
+        tab_id,
+        Duration::from_secs(3),
+        "__cmux_ios_libghostty__",
+    )
+    .await;
+
+    server.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn websocket_native_libghostty_replay_uses_current_grid_not_stale_history() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("server.sock");
+    let (ws_listener, ws_addr) = bind_ws_listener().await;
+    let opts = ServerOptions {
+        socket_path: socket.clone(),
+        shell: "/bin/sh".into(),
+        cwd: Some(dir.path().to_path_buf()),
+        initial_viewport: (80, 24),
+        snapshot_path: None,
+        settings_path: None,
+        ws_bind: None,
+        auth_token: Some("sekrit".into()),
+    };
+    let server = tokio::spawn(async move {
+        let _ = run_with_websocket_listener(opts, HeartbeatConfig::default(), ws_listener).await;
+    });
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let mut ws = connect_ws(ws_addr).await;
+    send_client_msg(
+        &mut ws,
+        &ClientMsg::HelloNative {
+            version: PROTOCOL_VERSION,
+            viewport: Viewport { cols: 80, rows: 24 },
+            token: Some("sekrit".into()),
+            terminal_renderer: NativeTerminalRenderer::Libghostty,
+        },
+    )
+    .await;
+    assert!(matches!(
+        recv_server_msg(&mut ws).await,
+        ServerMsg::Welcome { .. }
+    ));
+    let tab_id = recv_native_snapshot(&mut ws).await.focused_tab_id;
+    send_client_msg(
+        &mut ws,
+        &ClientMsg::NativeLayout {
+            terminals: vec![cmux_cli_protocol::NativeTerminalViewport {
+                tab_id,
+                cols: 80,
+                rows: 24,
+            }],
+        },
+    )
+    .await;
+
+    send_client_msg(
+        &mut ws,
+        &ClientMsg::NativeInput {
+            tab_id,
+            data: b"printf OLD-REPLAY-LINE\\n; printf '\\033[2J\\033[H'; printf CURRENT-REPLAY-LINE\\n\r".to_vec(),
+        },
+    )
+    .await;
+    recv_pty_output_until_contains(
+        &mut ws,
+        tab_id,
+        Duration::from_secs(3),
+        "CURRENT-REPLAY-LINE",
+    )
+    .await;
+
+    send_client_msg(&mut ws, &ClientMsg::RequestPtyReplay { tab_id }).await;
+    recv_until_server_msg(&mut ws, Duration::from_secs(3), |message| {
+        matches!(
+            message,
+            ServerMsg::PtyBytes {
+                tab_id: got_tab_id,
+                data,
+            } if *got_tab_id == tab_id && data == b"\x1bc"
+        )
+    })
+    .await
+    .expect("expected requested libghostty PTY replay to reset first");
+
+    let replay = recv_until_server_msg(&mut ws, Duration::from_secs(3), |message| {
+        matches!(
+            message,
+            ServerMsg::PtyBytes {
+                tab_id: got_tab_id,
+                data,
+            } if *got_tab_id == tab_id
+                && data
+                    .windows(b"CURRENT-REPLAY-LINE".len())
+                    .any(|window| window == b"CURRENT-REPLAY-LINE")
+        )
+    })
+    .await
+    .expect("expected requested replay to contain the current visible grid");
+
+    let ServerMsg::PtyBytes { data, .. } = replay else {
+        panic!("expected PTY bytes");
+    };
+    assert!(data.starts_with(b"\x1b[?25l\x1b[H"));
+    assert!(
+        !data
+            .windows(b"OLD-REPLAY-LINE".len())
+            .any(|window| window == b"OLD-REPLAY-LINE"),
+        "replay should not include stale screen history: {:?}",
+        String::from_utf8_lossy(&data)
+    );
+
     server.abort();
 }
 

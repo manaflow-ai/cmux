@@ -50,6 +50,28 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
         XCTAssertTrue((surfaceView.accessibilityRenderedTextForTesting() ?? "").contains("cmux-color"))
     }
 
+    func testGhosttySurfaceCoalescesSingleBytePtyChunksInOrder() async throws {
+        let (surfaceView, _) = try makeSurfaceView()
+        surfaceView.frame = CGRect(x: 0, y: 0, width: 390, height: 640)
+        surfaceView.layoutIfNeeded()
+
+        let renderedExpectation = expectation(description: "Ghostty rendered coalesced PTY output")
+        renderedExpectation.assertForOverFulfill = false
+        surfaceView.onOutputProcessedForTesting = {
+            let rendered = surfaceView.accessibilityRenderedTextForTesting() ?? ""
+            if rendered.contains("coalesced-output") {
+                renderedExpectation.fulfill()
+            }
+        }
+
+        for byte in Data("coalesced-output\r\n".utf8) {
+            surfaceView.processOutput(Data([byte]))
+        }
+
+        await fulfillment(of: [renderedExpectation], timeout: 5.0)
+        XCTAssertTrue((surfaceView.accessibilityRenderedTextForTesting() ?? "").contains("coalesced-output"))
+    }
+
     func testGhosttySurfaceEmitsOutboundBytesForTypedText() async throws {
         let (surfaceView, delegate) = try makeSurfaceView()
 
@@ -240,6 +262,53 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
         await fulfillment(of: [inputExpectation], timeout: 2.0)
         XCTAssertGreaterThan(delegate.resizeCount, 0)
         XCTAssertEqual(surfaceView.fontSizeForTesting, 16)
+    }
+
+    func testGhosttySurfaceCanResetAndReplayBufferedOutput() async throws {
+        let (surfaceView, _) = try makeSurfaceView()
+        surfaceView.frame = CGRect(x: 0, y: 0, width: 390, height: 640)
+        surfaceView.layoutIfNeeded()
+
+        let replayedExpectation = expectation(description: "Ghostty replayed output after surface reset")
+        replayedExpectation.assertForOverFulfill = false
+        surfaceView.onOutputProcessedForTesting = {
+            let rendered = surfaceView.accessibilityRenderedTextForTesting() ?? ""
+            if rendered.contains("replayed-after-reset") {
+                replayedExpectation.fulfill()
+            }
+        }
+
+        surfaceView.resetAndReplayOutput([
+            Data("\u{1B}[2J\u{1B}[Hreplayed-after-reset\r\n".utf8),
+        ])
+
+        await fulfillment(of: [replayedExpectation], timeout: 5.0)
+        XCTAssertTrue((surfaceView.accessibilityRenderedTextForTesting() ?? "").contains("replayed-after-reset"))
+    }
+
+    func testGhosttySurfaceResetDropsQueuedOutputBeforeReplay() async throws {
+        let (surfaceView, _) = try makeSurfaceView()
+        surfaceView.frame = CGRect(x: 0, y: 0, width: 390, height: 640)
+        surfaceView.layoutIfNeeded()
+
+        let replayedExpectation = expectation(description: "Ghostty ignored stale pending output")
+        replayedExpectation.assertForOverFulfill = false
+        surfaceView.onOutputProcessedForTesting = {
+            let rendered = surfaceView.accessibilityRenderedTextForTesting() ?? ""
+            if rendered.contains("fresh-after-reset") {
+                replayedExpectation.fulfill()
+            }
+        }
+
+        surfaceView.processOutput(Data("stale-before-reset\r\n".utf8))
+        surfaceView.resetAndReplayOutput([
+            Data("\u{1B}[2J\u{1B}[Hfresh-after-reset\r\n".utf8),
+        ])
+
+        await fulfillment(of: [replayedExpectation], timeout: 5.0)
+        let rendered = surfaceView.accessibilityRenderedTextForTesting() ?? ""
+        XCTAssertTrue(rendered.contains("fresh-after-reset"))
+        XCTAssertFalse(rendered.contains("stale-before-reset"))
     }
 
     func testGhosttySurfaceCanForceInitialGridReportAfterCoordinatorBinding() throws {

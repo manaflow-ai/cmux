@@ -42,6 +42,16 @@ final class CmxTerminalLayoutTests: XCTestCase {
         )
     }
 
+    func testKeyboardOverlapIgnoresHomeIndicatorGuideHeight() {
+        XCTAssertEqual(
+            CmxKeyboardOverlap.visibleHeight(
+                containerBounds: CGRect(x: 0, y: 0, width: 390, height: 844),
+                keyboardFrame: CGRect(x: 0, y: 810, width: 390, height: 34)
+            ),
+            0
+        )
+    }
+
     func testTerminalVisibleHeightShrinksByKeyboardOverlap() {
         XCTAssertEqual(
             CmxTerminalVisibleBounds.height(totalHeight: 1_290, keyboardOverlap: 0),

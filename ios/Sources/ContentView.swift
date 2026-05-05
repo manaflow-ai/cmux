@@ -277,61 +277,120 @@ private struct EmptyWorkspaceSearch: View {
 private struct TerminalDetailView: View {
     @EnvironmentObject private var store: CmxConnectionStore
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var keyboardOverlap: CGFloat = 0
 
     var body: some View {
-        GeometryReader { proxy in
-            let visibleHeight = CmxTerminalVisibleBounds.height(
-                totalHeight: proxy.size.height,
-                keyboardOverlap: keyboardOverlap
+        VStack(spacing: 0) {
+            TerminalHeaderBar(
+                workspaces: store.workspaces,
+                selectedWorkspace: store.selectedWorkspace,
+                selectedWorkspaceID: store.selectedWorkspaceID,
+                selectedSpaceID: store.selectedSpaceID,
+                selectedTerminalID: store.selectedTerminalID,
+                latencyText: store.latencyText,
+                revision: store.terminalAppearanceRevision,
+                showsBackButton: horizontalSizeClass == .compact,
+                back: { dismiss() },
+                selectWorkspace: { store.select(workspace: $0) },
+                selectSpace: { store.select(space: $0) },
+                selectTerminal: { space, terminal in store.select(space: space); store.select(terminal: terminal) }
             )
 
-            VStack(spacing: 0) {
-                TerminalPane(terminal: store.selectedTerminal)
-                    .frame(width: proxy.size.width, height: visibleHeight)
+            GeometryReader { proxy in
+                let visibleHeight = CmxTerminalVisibleBounds.height(
+                    totalHeight: proxy.size.height,
+                    keyboardOverlap: keyboardOverlap
+                )
 
-                Color.clear
-                    .frame(height: proxy.size.height - visibleHeight)
-            }
-            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)
-            .background {
-                CmxKeyboardOverlapReader(overlap: $keyboardOverlap)
-            }
-            .onAppear {
-                store.refreshTerminalAppearance(colorPreference: CmxTerminalColorPreference(colorScheme: colorScheme))
-                store.terminalScreenDidAppear()
-            }
-            .onDisappear {
-                store.terminalScreenDidDisappear()
-            }
-            .onChange(of: colorScheme) { _, newValue in
-                store.refreshTerminalAppearance(colorPreference: CmxTerminalColorPreference(colorScheme: newValue))
+                VStack(spacing: 0) {
+                    TerminalPane(terminal: store.selectedTerminal)
+                        .id(store.selectedTerminal.id)
+                        .frame(width: proxy.size.width, height: visibleHeight)
+
+                    Color.clear
+                        .frame(height: proxy.size.height - visibleHeight)
+                }
+                .frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)
+                .background {
+                    CmxKeyboardOverlapReader(overlap: $keyboardOverlap)
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(TerminalThemeChrome.background(revision: store.terminalAppearanceRevision).ignoresSafeArea())
         .ignoresSafeArea(edges: .bottom)
+        .toolbar(.hidden, for: .navigationBar)
+        .navigationBarBackButtonHidden(true)
         .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                TerminalPickerMenu(
-                    workspaces: store.workspaces,
-                    selectedWorkspace: store.selectedWorkspace,
-                    selectedWorkspaceID: store.selectedWorkspaceID,
-                    selectedSpaceID: store.selectedSpaceID,
-                    selectedTerminalID: store.selectedTerminalID,
-                    latencyText: store.latencyText,
-                    revision: store.terminalAppearanceRevision,
-                    selectWorkspace: { store.select(workspace: $0) },
-                    selectSpace: { store.select(space: $0) },
-                    selectTerminal: { space, terminal in store.select(space: space); store.select(terminal: terminal) }
-                )
-            }
+        .onAppear {
+            store.refreshTerminalAppearance(colorPreference: CmxTerminalColorPreference(colorScheme: colorScheme))
+            store.terminalScreenDidAppear()
         }
-        .toolbarBackground(TerminalThemeChrome.background(revision: store.terminalAppearanceRevision), for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
-        .toolbarColorScheme(TerminalThemeChrome.toolbarColorScheme(revision: store.terminalAppearanceRevision), for: .navigationBar)
+        .onDisappear {
+            store.terminalScreenDidDisappear()
+        }
+        .onChange(of: colorScheme) { _, newValue in
+            store.refreshTerminalAppearance(colorPreference: CmxTerminalColorPreference(colorScheme: newValue))
+        }
+    }
+}
+
+private struct TerminalHeaderBar: View {
+    let workspaces: [CmxWorkspace]
+    let selectedWorkspace: CmxWorkspace
+    let selectedWorkspaceID: UInt64
+    let selectedSpaceID: UInt64
+    let selectedTerminalID: UInt64
+    let latencyText: String?
+    let revision: Int
+    let showsBackButton: Bool
+    let back: () -> Void
+    let selectWorkspace: (CmxWorkspace) -> Void
+    let selectSpace: (CmxSpace) -> Void
+    let selectTerminal: (CmxSpace, CmxTerminal) -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if showsBackButton {
+                Button(action: back) {
+                    Image(systemName: "chevron.left")
+                        .font(.headline.weight(.semibold))
+                        .frame(width: 34, height: 34)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(TerminalThemeChrome.foreground(revision: revision))
+                .accessibilityLabel(String(localized: "nav.workspaces", defaultValue: "Workspaces"))
+            } else {
+                Color.clear
+                    .frame(width: 34, height: 34)
+            }
+
+            Spacer(minLength: 0)
+
+            TerminalPickerMenu(
+                workspaces: workspaces,
+                selectedWorkspace: selectedWorkspace,
+                selectedWorkspaceID: selectedWorkspaceID,
+                selectedSpaceID: selectedSpaceID,
+                selectedTerminalID: selectedTerminalID,
+                latencyText: latencyText,
+                revision: revision,
+                selectWorkspace: selectWorkspace,
+                selectSpace: selectSpace,
+                selectTerminal: selectTerminal
+            )
+
+            Spacer(minLength: 0)
+
+            Color.clear
+                .frame(width: 34, height: 34)
+        }
+        .frame(height: 38)
+        .padding(.horizontal, 8)
+        .background(TerminalThemeChrome.background(revision: revision))
     }
 }
 
@@ -513,21 +572,63 @@ private struct TerminalPickerMenu: View {
 
 private struct TerminalPane: View {
     @EnvironmentObject private var store: CmxConnectionStore
+    @State private var visibleGridSize: TerminalGridSize?
     let terminal: CmxTerminal
+    private let showsBoundsOverlay = CmxLaunchConfiguration.showsTerminalBoundsOverlay()
 
     var body: some View {
         GeometryReader { proxy in
-            CmxGhosttyTerminalView(
-                store: store,
-                terminalID: terminal.id,
-                hostPlatform: store.selectedHostPlatform
-            )
-                .id(terminal.id)
-                .frame(width: proxy.size.width, height: proxy.size.height)
-                .clipped()
+            ZStack(alignment: .topLeading) {
+                CmxGhosttyTerminalView(
+                    store: store,
+                    terminalID: terminal.id,
+                    renderSize: store.renderSize(for: terminal.id),
+                    outputRevision: store.terminalOutputRevision,
+                    hostPlatform: store.selectedHostPlatform,
+                    visibleGridSize: $visibleGridSize
+                )
+                    .id(terminal.id)
+                    .frame(width: proxy.size.width, height: proxy.size.height)
+                    .clipped()
+
+                if showsBoundsOverlay {
+                    TerminalVisibleBoundsOverlay(
+                        gridSize: visibleGridSize,
+                        pointSize: proxy.size,
+                        revision: store.terminalAppearanceRevision
+                    )
+                }
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(TerminalThemeChrome.background(revision: store.terminalAppearanceRevision))
+    }
+}
+
+private struct TerminalVisibleBoundsOverlay: View {
+    let gridSize: TerminalGridSize?
+    let pointSize: CGSize
+    let revision: Int
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            Text(verbatim: label)
+                .font(.caption2.monospacedDigit())
+                .padding(.horizontal, 5)
+                .padding(.vertical, 2)
+                .foregroundStyle(TerminalThemeChrome.foreground(revision: revision))
+                .background(TerminalThemeChrome.background(revision: revision).opacity(0.84))
+                .accessibilityIdentifier("terminal.bounds.overlay")
+        }
+        .allowsHitTesting(false)
+    }
+
+    private var label: String {
+        let points = "\(Int(pointSize.width.rounded()))x\(Int(pointSize.height.rounded())) pt"
+        guard let gridSize else {
+            return "visible pending | \(points)"
+        }
+        return "visible \(gridSize.columns)x\(gridSize.rows) cells | \(gridSize.pixelWidth)x\(gridSize.pixelHeight) px | \(points)"
     }
 }
 
@@ -575,6 +676,7 @@ enum CmxKeyboardOverlap {
               !keyboardFrame.isEmpty else { return 0 }
         guard keyboardFrame.minY > containerBounds.minY else { return 0 }
         guard keyboardFrame.maxY >= containerBounds.maxY - 1 else { return 0 }
+        guard keyboardFrame.height >= 80 else { return 0 }
         let overlap = containerBounds.maxY - max(containerBounds.minY, keyboardFrame.minY)
         return max(0, min(containerBounds.height, overlap))
     }

@@ -1,5 +1,6 @@
 use cmux_cli_core::compositor::{
-    RgbColor, TerminalCursorStyle, TerminalGridDefaultColors, TerminalGridSnapshot,
+    self, Cell, Frame, RgbColor, StyleColor, TerminalCursor, TerminalCursorStyle,
+    TerminalGridDefaultColors, TerminalGridSnapshot,
 };
 use cmux_cli_protocol::{
     NativeTerminalCursorPosition, NativeTerminalCursorStyle, NativeTerminalGridCell,
@@ -183,6 +184,77 @@ pub(crate) fn native_terminal_grid_snapshot(
     }
 }
 
+pub(crate) fn native_terminal_pty_replay_from_grid_snapshot(
+    snapshot: TerminalGridSnapshot,
+    alternate_screen: bool,
+) -> Vec<u8> {
+    let cursor = snapshot.cursor;
+    let mut frame = Frame::new(snapshot.cols, snapshot.rows);
+    let cols = usize::from(snapshot.cols);
+    if cols == 0 || snapshot.rows == 0 {
+        return native_terminal_cursor_tail(cursor);
+    }
+
+    for (index, cell) in snapshot.cells.into_iter().enumerate() {
+        let row = index / cols;
+        let col = index % cols;
+        if row >= frame.cells.len() || col >= frame.cells[row].len() {
+            break;
+        }
+        frame.cells[row][col] = Cell {
+            grapheme: cell.text,
+            width: cell.width,
+            is_continuation: cell.width == 0,
+            fg: StyleColor::Rgb(cell.fg),
+            bg: StyleColor::Rgb(cell.bg),
+            bold: cell.bold,
+            italic: cell.italic,
+            underline: cell.underline,
+            faint: cell.faint,
+            strikethrough: cell.strikethrough,
+            reverse: false,
+            blink: cell.blink,
+        };
+    }
+
+    // Client-side libghostty cannot safely replay arbitrary recent PTY history
+    // after a resize or blank-screen probe: that history can include obsolete
+    // prompts and earlier geometry. Draw the authoritative server grid instead.
+    let mut out = Vec::new();
+    if alternate_screen {
+        out.extend_from_slice(b"\x1b[?1049h");
+    }
+    out.extend_from_slice(&compositor::emit_ansi(&frame));
+    out.extend_from_slice(&native_terminal_cursor_tail(cursor));
+    out
+}
+
+fn native_terminal_cursor_tail(cursor: Option<TerminalCursor>) -> Vec<u8> {
+    let Some(cursor) = cursor else {
+        return b"\x1b[?25h".to_vec();
+    };
+    if !cursor.visible {
+        return b"\x1b[?25l".to_vec();
+    }
+
+    let mut out = Vec::new();
+    out.extend_from_slice(match cursor.style {
+        TerminalCursorStyle::Block | TerminalCursorStyle::HollowBlock => b"\x1b[2 q",
+        TerminalCursorStyle::Underline => b"\x1b[4 q",
+        TerminalCursorStyle::Bar => b"\x1b[6 q",
+    });
+    out.extend_from_slice(b"\x1b[?25h");
+    out.extend_from_slice(
+        format!(
+            "\x1b[{};{}H",
+            u32::from(cursor.row) + 1,
+            u32::from(cursor.col) + 1
+        )
+        .as_bytes(),
+    );
+    out
+}
+
 fn terminal_rgb_to_ghostty(color: TerminalRgb) -> GhosttyRgbColor {
     GhosttyRgbColor {
         r: color.r,
@@ -331,6 +403,110 @@ fn parse_hex_rgb(value: &str) -> Option<RgbColor> {
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
+
+    fn rgb(r: u8, g: u8, b: u8) -> RgbColor {
+        RgbColor { r, g, b }
+    }
+
+    #[test]
+    fn pty_replay_from_grid_snapshot_draws_current_cells_and_cursor() {
+        let snapshot = TerminalGridSnapshot {
+            cols: 3,
+            rows: 2,
+            cells: vec![
+                cmux_cli_core::compositor::TerminalGridCell {
+                    text: "A".into(),
+                    width: 1,
+                    fg: rgb(253, 255, 241),
+                    bg: rgb(39, 40, 34),
+                    bold: true,
+                    italic: false,
+                    underline: false,
+                    faint: false,
+                    blink: false,
+                    strikethrough: false,
+                },
+                cmux_cli_core::compositor::TerminalGridCell {
+                    text: "界".into(),
+                    width: 2,
+                    fg: rgb(249, 38, 114),
+                    bg: rgb(39, 40, 34),
+                    bold: false,
+                    italic: true,
+                    underline: true,
+                    faint: false,
+                    blink: false,
+                    strikethrough: false,
+                },
+                cmux_cli_core::compositor::TerminalGridCell {
+                    text: " ".into(),
+                    width: 0,
+                    fg: rgb(249, 38, 114),
+                    bg: rgb(39, 40, 34),
+                    bold: false,
+                    italic: false,
+                    underline: false,
+                    faint: false,
+                    blink: false,
+                    strikethrough: false,
+                },
+                cmux_cli_core::compositor::TerminalGridCell {
+                    text: " ".into(),
+                    width: 1,
+                    fg: rgb(253, 255, 241),
+                    bg: rgb(39, 40, 34),
+                    bold: false,
+                    italic: false,
+                    underline: false,
+                    faint: false,
+                    blink: false,
+                    strikethrough: false,
+                },
+                cmux_cli_core::compositor::TerminalGridCell {
+                    text: "B".into(),
+                    width: 1,
+                    fg: rgb(166, 226, 46),
+                    bg: rgb(39, 40, 34),
+                    bold: false,
+                    italic: false,
+                    underline: false,
+                    faint: false,
+                    blink: false,
+                    strikethrough: true,
+                },
+                cmux_cli_core::compositor::TerminalGridCell {
+                    text: " ".into(),
+                    width: 1,
+                    fg: rgb(253, 255, 241),
+                    bg: rgb(39, 40, 34),
+                    bold: false,
+                    italic: false,
+                    underline: false,
+                    faint: false,
+                    blink: false,
+                    strikethrough: false,
+                },
+            ],
+            cursor: Some(TerminalCursor {
+                col: 1,
+                row: 1,
+                visible: true,
+                style: TerminalCursorStyle::Bar,
+                color: None,
+            }),
+        };
+
+        let ansi = native_terminal_pty_replay_from_grid_snapshot(snapshot, true);
+        let rendered = String::from_utf8(ansi).expect("utf8 ansi");
+
+        assert!(rendered.starts_with("\x1b[?1049h\x1b[?25l\x1b[H"));
+        assert!(rendered.contains("\x1b[38;2;253;255;241m"));
+        assert!(rendered.contains("\x1b[48;2;39;40;34m"));
+        assert!(rendered.contains("\x1b[1mA"));
+        assert!(rendered.contains("\x1b[3m\x1b[4m界"));
+        assert!(rendered.contains("\x1b[9mB"));
+        assert!(rendered.contains("\x1b[6 q\x1b[?25h\x1b[2;2H"));
+    }
 
     #[test]
     fn terminal_default_colors_include_ghostty_theme_palette() {

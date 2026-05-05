@@ -20,6 +20,7 @@ protocol CmxTerminalSession: AnyObject {
     func sendInput(_ data: Data, terminalID: UInt64)
     func sendResize(_ viewport: CmxWireViewport, terminalID: UInt64)
     func sendNativeLayout(_ terminals: [CmxWireTerminalViewport])
+    func requestPtyReplay(terminalID: UInt64)
     func sendCommand(_ command: CmxClientCommand)
     func disconnect()
 }

@@ -304,6 +304,8 @@ fn bounds_helper_tracks_maximum_pane_size_after_resize() {
             && frame.contains("CMUX TERMINAL BOUNDS VISUAL CHECK")
             && frame.contains("right edge col=82")
             && frame.contains("bottom inner row=22")
+            && frame.contains("visible terminal grid=82 cols x 24 rows")
+            && frame.contains("inside border=80 cols x 22 rows")
     });
     assert_eq!(
         reported_bounds_size(&initial),
@@ -316,6 +318,8 @@ fn bounds_helper_tracks_maximum_pane_size_after_resize() {
         reported_bounds_size(frame) == Some((30, 114))
             && frame.contains("right edge col=114")
             && frame.contains("bottom inner row=28")
+            && frame.contains("visible terminal grid=114 cols x 30 rows")
+            && frame.contains("inside border=112 cols x 28 rows")
     });
     assert_eq!(
         reported_bounds_size(&resized),

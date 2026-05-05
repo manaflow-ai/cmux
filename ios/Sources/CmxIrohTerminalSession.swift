@@ -87,6 +87,10 @@ final class CmxIrohTerminalSession: CmxTerminalSession {
         send(.nativeLayout(terminals))
     }
 
+    func requestPtyReplay(terminalID: UInt64) {
+        send(.requestPtyReplay(tabID: terminalID))
+    }
+
     func sendCommand(_ command: CmxClientCommand) {
         let id = nextCommandID
         nextCommandID = nextCommandID == UInt32.max ? 1 : nextCommandID + 1

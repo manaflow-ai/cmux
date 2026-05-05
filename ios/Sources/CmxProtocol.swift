@@ -14,6 +14,20 @@ struct CmxWireTerminalViewport: Equatable, Sendable {
     var rows: UInt16
 }
 
+enum CmxAttachedClientKind: String, Equatable, Sendable {
+    case tui
+    case native
+}
+
+struct CmxAttachedClientInfo: Equatable, Sendable {
+    var clientID: String
+    var kind: CmxAttachedClientKind
+    var visibleTerminalCount: Int
+    var updatedAtMilliseconds: UInt64
+    var terminals: [CmxWireTerminalViewport]
+    var latencyMilliseconds: UInt32?
+}
+
 struct CmxNativeWorkspaceInfo: Equatable, Sendable {
     var id: UInt64
     var title: String
@@ -87,6 +101,7 @@ struct CmxNativeSnapshot: Equatable, Sendable {
     var panels: CmxNativePanelNode
     var focusedPanelID: UInt64
     var focusedTabID: UInt64
+    var attachedClients: [CmxAttachedClientInfo] = []
     var terminalTheme: CmxNativeTerminalThemeSet? = nil
     var terminalFont: CmxNativeTerminalFont? = nil
     var terminalCursor: CmxNativeTerminalCursor? = nil
@@ -197,6 +212,7 @@ enum CmxClientMessage: Equatable, Sendable {
     case resize(CmxWireViewport)
     case nativeInput(tabID: UInt64, data: Data)
     case nativeLayout([CmxWireTerminalViewport])
+    case requestPtyReplay(tabID: UInt64)
     case command(id: UInt32, CmxClientCommand)
     case detach
     case ping
@@ -326,6 +342,12 @@ enum CmxWireCodec {
                 writer.writeString("rows")
                 writer.writeUInt(UInt64(terminal.rows))
             }
+        case .requestPtyReplay(let tabID):
+            writer.writeMapHeader(2)
+            writer.writeString("kind")
+            writer.writeString("request_pty_replay")
+            writer.writeString("tab_id")
+            writer.writeUInt(tabID)
         case .command(let id, let command):
             writer.writeMapHeader(3)
             writer.writeString("kind")
@@ -542,9 +564,42 @@ enum CmxWireCodec {
             panels: try decodePanelNode(try requiredMap(map, "panels")),
             focusedPanelID: try requiredUInt(map, "focused_panel_id"),
             focusedTabID: try requiredUInt(map, "focused_tab_id"),
+            attachedClients: try (map["attached_clients"]?.arrayValue() ?? []).map {
+                try decodeAttachedClientInfo($0.mapValue())
+            },
             terminalTheme: try optionalMap(map, "terminal_theme").map(decodeTerminalThemeSet),
             terminalFont: try optionalMap(map, "terminal_font").map(decodeTerminalFont),
             terminalCursor: try optionalMap(map, "terminal_cursor").map(decodeTerminalCursorConfig)
+        )
+    }
+
+    private static func decodeAttachedClientInfo(_ map: [String: MessagePackValue]) throws -> CmxAttachedClientInfo {
+        guard let kind = CmxAttachedClientKind(rawValue: try requiredString(map, "kind")) else {
+            throw CmxWireError.invalidMessage("Unsupported attached client kind.")
+        }
+        let latency: UInt32?
+        if let value = map["latency_ms"], value != .nilValue {
+            latency = UInt32(clamping: try value.uintValue())
+        } else {
+            latency = nil
+        }
+        return CmxAttachedClientInfo(
+            clientID: try requiredString(map, "client_id"),
+            kind: kind,
+            visibleTerminalCount: try optionalInt(map, "visible_terminal_count", default: 0),
+            updatedAtMilliseconds: try optionalUInt(map, "updated_at_ms", default: 0),
+            terminals: try (map["terminals"]?.arrayValue() ?? []).map {
+                try decodeWireTerminalViewport($0.mapValue())
+            },
+            latencyMilliseconds: latency
+        )
+    }
+
+    private static func decodeWireTerminalViewport(_ map: [String: MessagePackValue]) throws -> CmxWireTerminalViewport {
+        CmxWireTerminalViewport(
+            tabID: try requiredUInt(map, "tab_id"),
+            cols: UInt16(clamping: try requiredUInt(map, "cols")),
+            rows: UInt16(clamping: try requiredUInt(map, "rows"))
         )
     }
 

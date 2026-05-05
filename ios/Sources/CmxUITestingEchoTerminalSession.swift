@@ -42,6 +42,12 @@ final class CmxUITestingEchoTerminalSession: CmxTerminalSession {
 
     func sendResize(_ viewport: CmxWireViewport, terminalID: UInt64) {}
     func sendNativeLayout(_ terminals: [CmxWireTerminalViewport]) {}
+    func requestPtyReplay(terminalID: UInt64) {
+        emit(
+            Data("\u{001B}[2J\u{001B}[H".utf8) + promptBytes,
+            terminalID: terminalID
+        )
+    }
     func sendCommand(_ command: CmxClientCommand) {}
     func disconnect() {
         delegate?.terminalSessionDidClose(self)

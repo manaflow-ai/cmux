@@ -126,6 +126,9 @@ pub enum ClientMsg {
     NativeLayout {
         terminals: Vec<NativeTerminalViewport>,
     },
+    /// Native libghostty client detected a lost/blank local renderer and needs
+    /// the server to resend the buffered PTY stream for one terminal.
+    RequestPtyReplay { tab_id: u64 },
 }
 
 /// Minimal mouse event model for M-era selection-to-yank. A richer model

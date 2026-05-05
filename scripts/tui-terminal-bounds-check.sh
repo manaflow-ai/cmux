@@ -2,6 +2,7 @@
 set -u
 
 INTERVAL="${CMUX_BOUNDS_TUI_INTERVAL:-1}"
+REDRAW_EVERY="${CMUX_BOUNDS_TUI_REDRAW_EVERY:-0}"
 USE_ALT_SCREEN="${CMUX_BOUNDS_TUI_ALT_SCREEN:-1}"
 HAVE_ALT_SCREEN=0
 
@@ -46,7 +47,7 @@ read_size() {
   rows="${size%% *}"
   cols="${size##* }"
 
-  if ! is_positive_int "$rows" || ! is_positive_int "$cols" || [[ "$rows" == "$cols" ]]; then
+  if ! is_positive_int "$rows" || ! is_positive_int "$cols"; then
     rows="${LINES:-0}"
     cols="${COLUMNS:-0}"
   fi
@@ -148,8 +149,10 @@ put_inner_center() {
 }
 
 draw() {
-  local rows cols horizontal top bottom row col label last_label center_col now edge_warning corner_help rail_help resize_help bottom_help ruler_help
+  local rows cols inner_rows inner_cols horizontal top bottom row col label last_label center_col now edge_warning corner_help rail_help resize_help bottom_help ruler_help visible_help inner_help corner_detail
   read -r rows cols < <(read_size)
+  inner_rows=$(( rows - 2 ))
+  inner_cols=$(( cols - 2 ))
 
   printf '\033[0m\033[H\033[2J'
 
@@ -195,22 +198,37 @@ draw() {
     rail_help="No missing rails, no covered bottom"
     edge_warning="CUT/OFF/COVERED means bounds are wrong"
     resize_help="Resize/rotate: corners stay visible"
-    bottom_help="bottom row=$(( rows - 2 )); next is border"
+    bottom_help="bottom row=$inner_rows; next is border"
     ruler_help="ruler visible to both rails"
+    visible_help="grid=${cols}x${rows} cells"
+    inner_help="inner=${inner_cols}x${inner_rows} cells"
+    corner_detail="tl=1 tr=2 bl=3 br=4"
   else
     corner_help="All four corners must be visible: 1 top-left, 2 top-right, 3 bottom-left, 4 bottom-right"
     rail_help="Right border missing means width clipping. Bottom border hidden means height overlap."
     edge_warning="CUT OFF OR COVERED if you cannot see this full border"
     resize_help="Resize fast or rotate: this display should update without losing a corner."
-    bottom_help="bottom inner row=$(( rows - 2 )); the next line is the bottom border"
+    bottom_help="bottom inner row=$inner_rows; the next line is the bottom border"
     ruler_help="column ruler marks every 10 cells; this line should be fully visible"
+    visible_help="visible terminal grid=${cols} cols x ${rows} rows (${cols}x${rows} cells)"
+    inner_help="inside border=${inner_cols} cols x ${inner_rows} rows (${inner_cols}x${inner_rows} cells)"
+    corner_detail="corner labels: 1=top-left 2=top-right 3=bottom-left 4=bottom-right"
   fi
 
   put_inner_center "$rows" "$cols" 3 "CMUX TERMINAL BOUNDS VISUAL CHECK"
-  put_inner_center "$rows" "$cols" 4 "reported size: rows=$rows cols=$cols  redraw=$now"
+  put_inner_center "$rows" "$cols" 4 "reported size: rows=$rows cols=$cols  cells=${cols}x${rows}  redraw=$now"
   put_inner_center "$rows" "$cols" 6 "$corner_help"
   put_inner_center "$rows" "$cols" 7 "$rail_help"
   put_inner_center "$rows" "$cols" 9 "$edge_warning"
+  if (( rows >= 12 )); then
+    put_inner_center "$rows" "$cols" 10 "$visible_help"
+  fi
+  if (( rows >= 13 )); then
+    put_inner_center "$rows" "$cols" 11 "$inner_help"
+  fi
+  if (( rows >= 14 )); then
+    put_inner_center "$rows" "$cols" 12 "$corner_detail"
+  fi
 
   if (( rows >= 18 )); then
     if (( cols < 70 )); then
@@ -236,8 +254,17 @@ if [[ "$USE_ALT_SCREEN" != "0" ]]; then
 fi
 printf '\033[?25l'
 
+LAST_DRAWN_SIZE=""
+LAST_DRAWN_AT=0
 while true; do
-  draw
+  current_size="$(read_size)"
+  now_epoch="$(date +%s)"
+  if [[ "$current_size" != "$LAST_DRAWN_SIZE" ]] ||
+     { is_positive_int "$REDRAW_EVERY" && (( now_epoch - LAST_DRAWN_AT >= REDRAW_EVERY )); }; then
+    draw
+    LAST_DRAWN_SIZE="$current_size"
+    LAST_DRAWN_AT="$now_epoch"
+  fi
   if [[ -t 0 ]]; then
     if IFS= read -r -s -n 1 -t "$INTERVAL" key; then
       case "$key" in

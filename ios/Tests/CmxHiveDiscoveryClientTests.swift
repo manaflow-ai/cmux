@@ -266,6 +266,8 @@ private final class RecordingHiveTerminalSession: CmxTerminalSession {
 
     func sendNativeLayout(_ terminals: [CmxWireTerminalViewport]) {}
 
+    func requestPtyReplay(terminalID: UInt64) {}
+
     func sendCommand(_ command: CmxClientCommand) {}
 
     func disconnect() {}

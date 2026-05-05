@@ -27,13 +27,36 @@ struct ThemeSelection {
 }
 
 pub fn load_terminal_theme() -> Option<NativeTerminalThemeSet> {
-    // Prefer Ghostty's resolved config when available. This avoids our fallback
-    // parser disagreeing with the actual host terminal on light/dark theme pairs.
-    if let Some(theme) = load_terminal_theme_from_ghostty() {
-        let theme_set = NativeTerminalThemeSet {
-            default: Some(theme),
-            ..NativeTerminalThemeSet::default()
-        };
+    let config = load_ghostty_config();
+
+    // The cmux overlay config is not visible to `ghostty +show-config`, so
+    // prefer the explicit files we load when they declare a theme.
+    let theme = resolve_terminal_theme_from_config(&config, &theme_dirs());
+    if theme.is_some() {
+        if probe::color_enabled() {
+            if let Some(theme) = &theme {
+                probe::log_event(
+                    "ghostty_theme",
+                    "terminal_theme_resolved",
+                    &[
+                        ("source", "config".to_string()),
+                        (
+                            "selection",
+                            theme_selection_summary(config.selection.as_ref()),
+                        ),
+                        ("config_paths", existing_paths_summary(config_paths())),
+                        ("theme", terminal_theme_set_summary(theme)),
+                    ],
+                );
+            }
+        }
+        return theme;
+    }
+
+    // Fall back to Ghostty's resolved config only when cmux/Ghostty files do
+    // not declare a theme we can load ourselves.
+    let theme = choose_resolved_ghostty_theme(None, load_terminal_theme_from_ghostty());
+    if let Some(theme_set) = theme {
         if probe::color_enabled() {
             probe::log_event(
                 "ghostty_theme",
@@ -49,31 +72,23 @@ pub fn load_terminal_theme() -> Option<NativeTerminalThemeSet> {
         return Some(theme_set);
     }
 
-    let config = load_ghostty_config();
-
-    let theme = resolve_terminal_theme_from_config(&config, &theme_dirs());
-    if theme.is_some() {
-        if probe::color_enabled()
-            && let Some(theme) = &theme
-        {
-            probe::log_event(
-                "ghostty_theme",
-                "terminal_theme_resolved",
-                &[
-                    ("source", "config".to_string()),
-                    (
-                        "selection",
-                        theme_selection_summary(config.selection.as_ref()),
-                    ),
-                    ("config_paths", existing_paths_summary(config_paths())),
-                    ("theme", terminal_theme_set_summary(theme)),
-                ],
-            );
-        }
-        return theme;
-    }
-
     None
+}
+
+fn choose_resolved_ghostty_theme(
+    config_theme: Option<NativeTerminalThemeSet>,
+    show_config_theme: Option<NativeTerminalTheme>,
+) -> Option<NativeTerminalThemeSet> {
+    if config_theme.is_some() {
+        return config_theme;
+    }
+    show_config_theme.map(|theme| {
+        let theme_set = NativeTerminalThemeSet {
+            default: Some(theme),
+            ..NativeTerminalThemeSet::default()
+        };
+        theme_set
+    })
 }
 
 fn load_terminal_theme_from_ghostty() -> Option<NativeTerminalTheme> {
@@ -965,6 +980,34 @@ selection-foreground = #fdfff1
         assert_eq!(
             set.dark.and_then(|theme| theme.background).as_deref(),
             Some("#101010")
+        );
+    }
+
+    #[test]
+    fn configured_theme_wins_over_ghostty_show_config_theme() {
+        let config_theme = NativeTerminalThemeSet {
+            default: Some(NativeTerminalTheme {
+                background: Some("#272822".into()),
+                foreground: Some("#FDFFF1".into()),
+                ..NativeTerminalTheme::default()
+            }),
+            ..NativeTerminalThemeSet::default()
+        };
+        let show_config_theme = NativeTerminalTheme {
+            background: Some("#FDF6E3".into()),
+            foreground: Some("#657B83".into()),
+            ..NativeTerminalTheme::default()
+        };
+
+        let selected = choose_resolved_ghostty_theme(Some(config_theme), Some(show_config_theme))
+            .expect("selected theme");
+
+        assert_eq!(
+            selected
+                .default
+                .and_then(|theme| theme.background)
+                .as_deref(),
+            Some("#272822")
         );
     }
 

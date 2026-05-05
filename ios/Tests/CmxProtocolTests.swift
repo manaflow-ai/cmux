@@ -182,6 +182,8 @@ final class CmxProtocolTests: XCTestCase {
         XCTAssertEqual(snapshot.terminalFont?.size, 13.0)
         XCTAssertEqual(snapshot.terminalCursor?.style, "block")
         XCTAssertEqual(snapshot.terminalCursor?.blink, true)
+        XCTAssertEqual(snapshot.attachedClients.first?.kind, .native)
+        XCTAssertEqual(snapshot.attachedClients.first?.terminals.first, CmxWireTerminalViewport(tabID: 41, cols: 30, rows: 30))
         XCTAssertTrue(snapshot.ghosttyConfigFragment(colorPreference: .dark)?.contains("palette = 1=#f92672") == true)
         XCTAssertTrue(snapshot.ghosttyConfigFragment(colorPreference: .dark)?.contains("background = #272822") == true)
     }
@@ -227,7 +229,7 @@ final class CmxProtocolTests: XCTestCase {
     }
 
     private func writeNativeSnapshot(to writer: inout MessagePackWriter) {
-        writer.writeMapHeader(12)
+        writer.writeMapHeader(13)
         writer.writeString("workspaces")
         writer.writeArrayHeader(2)
         writeWorkspace(id: 11, title: "main", spaces: 1, terminals: 2, pinned: true, to: &writer)
@@ -284,6 +286,28 @@ final class CmxProtocolTests: XCTestCase {
         writer.writeString("block")
         writer.writeString("blink")
         writer.writeBool(true)
+        writer.writeString("attached_clients")
+        writer.writeArrayHeader(1)
+        writer.writeMapHeader(6)
+        writer.writeString("client_id")
+        writer.writeString("ios")
+        writer.writeString("kind")
+        writer.writeString("native")
+        writer.writeString("visible_terminal_count")
+        writer.writeUInt(1)
+        writer.writeString("updated_at_ms")
+        writer.writeUInt(123)
+        writer.writeString("terminals")
+        writer.writeArrayHeader(1)
+        writer.writeMapHeader(3)
+        writer.writeString("tab_id")
+        writer.writeUInt(41)
+        writer.writeString("cols")
+        writer.writeUInt(30)
+        writer.writeString("rows")
+        writer.writeUInt(30)
+        writer.writeString("latency_ms")
+        writer.writeUInt(2)
     }
 
     private func writeWorkspace(

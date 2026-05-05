@@ -48,6 +48,8 @@ const SELECTION_AUTOSCROLL_LINES: isize = 3;
 const SELECTION_AUTOSCROLL_TICK_MS: u64 = 80;
 const NATIVE_GRID_FRAME_MS: u64 = 16;
 const PTY_REPLAY_MAX_BYTES: usize = 4 * 1024 * 1024;
+const LIBGHOSTTY_PTY_REPLAY_RESET: &[u8] = b"\x1bc";
+const CLIENT_VIEW_STALE_TIMEOUT_MS: u64 = 15_000;
 
 fn flash_is_on(deadline_ms: u64, now_ms: u64) -> bool {
     if deadline_ms <= now_ms {
@@ -135,8 +137,9 @@ use tokio_tungstenite::{WebSocketStream, accept_async};
 
 use crate::native_terminal::{
     active_terminal_theme_set_for_host, native_terminal_grid_snapshot,
-    terminal_default_colors_from_report, terminal_default_colors_from_theme,
-    terminal_probe_colors_from_report, terminal_theme_set_from_report,
+    native_terminal_pty_replay_from_grid_snapshot, terminal_default_colors_from_report,
+    terminal_default_colors_from_theme, terminal_probe_colors_from_report,
+    terminal_theme_set_from_report,
 };
 use crate::render::{
     BorderSpec, ChromeSpec, LineSelection, LogicalLineSelection, PaneChrome, RenderBroker,
@@ -2912,6 +2915,11 @@ struct ClientView {
     latency_ms: Option<u32>,
 }
 
+fn prune_stale_client_views(views: &mut HashMap<String, ClientView>) {
+    let now = now_unix_millis();
+    views.retain(|_, view| now.saturating_sub(view.updated_at_ms) <= CLIENT_VIEW_STALE_TIMEOUT_MS);
+}
+
 #[derive(Debug, Clone)]
 struct DisplayMessage {
     text: String,
@@ -3249,7 +3257,11 @@ impl Daemon {
     }
 
     async fn apply_canonical_tab_sizes(&self) {
-        let views = self.client_views.lock().await.clone();
+        let views = {
+            let mut views = self.client_views.lock().await;
+            prune_stale_client_views(&mut views);
+            views.clone()
+        };
         let mut sizes: HashMap<TabId, (u16, u16)> = HashMap::new();
         for view in views.values() {
             for (tab_id, rect) in &view.terminals {
@@ -3288,7 +3300,11 @@ impl Daemon {
     }
 
     async fn attached_client_infos(&self) -> Vec<AttachedClientInfo> {
-        let views = self.client_views.lock().await.clone();
+        let views = {
+            let mut views = self.client_views.lock().await;
+            prune_stale_client_views(&mut views);
+            views.clone()
+        };
         let mut clients: Vec<AttachedClientInfo> = views
             .into_iter()
             .map(|(client_id, view)| {
@@ -5820,7 +5836,8 @@ async fn run_session(
                         ClientMsg::Hello { .. }
                         | ClientMsg::HelloNative { .. }
                         | ClientMsg::NativeInput { .. }
-                        | ClientMsg::NativeLayout { .. },
+                        | ClientMsg::NativeLayout { .. }
+                        | ClientMsg::RequestPtyReplay { .. },
                     ) => return Ok(()),
                 }
             }
@@ -5931,7 +5948,7 @@ async fn run_native_session(
     viewport: Viewport,
     terminal_renderer: NativeTerminalRenderer,
     heartbeat: HeartbeatConfig,
-    websocket_session: bool,
+    _websocket_session: bool,
 ) -> Result<()> {
     let session_id = uuid::Uuid::new_v4().to_string();
     session
@@ -5954,7 +5971,11 @@ async fn run_native_session(
     let mut replayed_native_pty_tabs = HashSet::<TabId>::new();
     let mut has_native_layout = false;
     let _view_guard = ClientViewRegistration::new(daemon.clone(), session_id.clone());
-    let heartbeat_enabled = heartbeat.enabled && websocket_session;
+    // Native libghostty clients include iroh-backed iOS sessions, not just
+    // websocket sessions. Keep their client-view registrations leased by
+    // heartbeat so killed/reloaded devices cannot pin stale PTY sizes.
+    let heartbeat_enabled =
+        heartbeat.enabled && terminal_renderer == NativeTerminalRenderer::Libghostty;
     let mut heartbeat_tick =
         tokio::time::interval(heartbeat.check_interval.max(Duration::from_millis(1)));
     heartbeat_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -6180,6 +6201,11 @@ async fn run_native_session(
                                     .await?;
                                 }
                             }
+                        }
+                    }
+                    Some(ClientMsg::RequestPtyReplay { tab_id }) => {
+                        if terminal_renderer == NativeTerminalRenderer::Libghostty {
+                            send_native_pty_replay_for_tab(&mut session, &daemon, tab_id).await?;
                         }
                     }
                     Some(ClientMsg::Resize { viewport }) => {
@@ -6425,14 +6451,57 @@ async fn send_visible_native_pty_replay(
         if !replayed_tabs.insert(tab.id) {
             continue;
         }
-        for chunk in tab.pty_replay_chunks() {
-            session
-                .send(&ServerMsg::PtyBytes {
-                    tab_id: tab.id,
-                    data: chunk,
-                })
-                .await?;
-        }
+        send_native_pty_replay_chunks_for_tab(session, daemon, &tab).await?;
+    }
+    Ok(())
+}
+
+async fn send_native_pty_replay_for_tab(
+    session: &mut Session,
+    daemon: &Arc<Daemon>,
+    tab_id: TabId,
+) -> Result<()> {
+    let Some(tab) = daemon.tab_by_id(tab_id).await else {
+        tracing::warn!(tab_id, "native client requested PTY replay for unknown tab");
+        return Ok(());
+    };
+    send_native_pty_replay_chunks_for_tab(session, daemon, &tab).await
+}
+
+async fn send_native_pty_replay_chunks_for_tab(
+    session: &mut Session,
+    daemon: &Arc<Daemon>,
+    tab: &Arc<Tab>,
+) -> Result<()> {
+    let grid_replay = daemon.broker.grid_snapshot(tab.id).await.map(|snapshot| {
+        native_terminal_pty_replay_from_grid_snapshot(snapshot, *tab.alternate_screen.borrow())
+    });
+
+    // PTY replay is a state replacement over an append-only byte stream.
+    // Reset libghostty first, then prefer the authoritative server grid so
+    // old resize history cannot append duplicate prompts on iOS reconnect.
+    session
+        .send(&ServerMsg::PtyBytes {
+            tab_id: tab.id,
+            data: LIBGHOSTTY_PTY_REPLAY_RESET.to_vec(),
+        })
+        .await?;
+    if let Some(replay) = grid_replay {
+        session
+            .send(&ServerMsg::PtyBytes {
+                tab_id: tab.id,
+                data: replay,
+            })
+            .await?;
+        return Ok(());
+    }
+    for chunk in tab.pty_replay_chunks() {
+        session
+            .send(&ServerMsg::PtyBytes {
+                tab_id: tab.id,
+                data: chunk,
+            })
+            .await?;
     }
     Ok(())
 }

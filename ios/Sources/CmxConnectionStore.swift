@@ -4,7 +4,10 @@ import OSLog
 import UIKit
 
 #if DEBUG
-private let cmxConnectionLogger = Logger(subsystem: "dev.cmux.ios", category: "connection")
+private let cmxConnectionLogger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "dev.cmux.ios",
+    category: "connection"
+)
 
 private func cmuxDebugLog(_ message: String) {
     cmxConnectionLogger.debug("\(message, privacy: .public)")
@@ -31,6 +34,8 @@ final class CmxConnectionStore: ObservableObject {
     @Published var selectedSpaceID: UInt64 = CmxDemoState.workspaces.first?.spaces.first?.id ?? 0
     @Published var selectedTerminalID: UInt64 = CmxConnectionStore.firstDemoTerminalID
         ?? CmxConnectionStore.placeholderTerminalID
+    @Published private(set) var effectiveTerminalSizesByID: [UInt64: CmxTerminalSize] = [:]
+    @Published private(set) var terminalOutputRevision = 0
     @Published private var outputChunksByTerminalID: [UInt64: [CmxTerminalOutputChunk]] = [:]
     @Published private var nextOutputChunkID = 1
     private let authSessionStore: CmxStackAuthSessionStore
@@ -50,12 +55,27 @@ final class CmxConnectionStore: ObservableObject {
     private var reconnectPending = false
     private var didUseImmediateReconnectForCurrentLoss = false
     private var terminalScreenVisible = false
+    private var lastSentNativeLayoutByTerminalID: [UInt64: CmxTerminalSize] = [:]
+    private var lastReplayRequest: ReplayRequestKey?
+    private var needsReplayAfterSessionStart = false
+    private var terminalOutputSink: TerminalOutputSink?
 
     private static var firstDemoTerminalID: UInt64? {
         CmxDemoState.workspaces
             .flatMap(\.spaces)
             .flatMap(\.terminals)
             .first?.id
+    }
+
+    private struct ReplayRequestKey: Equatable {
+        var terminalID: UInt64
+        var size: CmxTerminalSize
+        var outputRevision: Int
+    }
+
+    private struct TerminalOutputSink {
+        var terminalID: UInt64
+        var receive: @MainActor (CmxTerminalOutputChunk) -> Void
     }
 
     init(
@@ -230,6 +250,9 @@ final class CmxConnectionStore: ObservableObject {
         connectTask = nil
         terminalSession?.disconnect()
         terminalSession = nil
+        lastSentNativeLayoutByTerminalID = [:]
+        lastReplayRequest = nil
+        needsReplayAfterSessionStart = false
         latencyMilliseconds = nil
         isConnecting = false
         isConnected = false
@@ -244,7 +267,10 @@ final class CmxConnectionStore: ObservableObject {
         if let index = workspaces.firstIndex(where: { $0.id == workspace.id }) {
             terminalSession?.sendCommand(.selectWorkspace(index: index))
         }
-        syncNativeLayoutForVisibleTerminal()
+        syncNativeLayoutForVisibleTerminal(force: true)
+        if requestPtyReplayForVisibleTerminal(force: true) {
+            needsReplayAfterSessionStart = false
+        }
     }
 
     func select(workspaceID: UInt64) {
@@ -258,7 +284,10 @@ final class CmxConnectionStore: ObservableObject {
         if let index = selectedWorkspace.spaces.firstIndex(where: { $0.id == space.id }) {
             terminalSession?.sendCommand(.selectSpace(index: index))
         }
-        syncNativeLayoutForVisibleTerminal()
+        syncNativeLayoutForVisibleTerminal(force: true)
+        if requestPtyReplayForVisibleTerminal(force: true) {
+            needsReplayAfterSessionStart = false
+        }
     }
 
     func select(terminal: CmxTerminal) {
@@ -266,17 +295,24 @@ final class CmxConnectionStore: ObservableObject {
         if let selection = nativeSnapshot?.panels.selection(for: terminal.id) {
             terminalSession?.sendCommand(.selectTabInPanel(panelID: selection.panelID, index: selection.index))
         }
-        syncNativeLayoutForVisibleTerminal()
+        syncNativeLayoutForVisibleTerminal(force: true)
+        if requestPtyReplayForVisibleTerminal(force: true) {
+            needsReplayAfterSessionStart = false
+        }
     }
 
     func terminalScreenDidAppear() {
         terminalScreenVisible = true
-        syncNativeLayoutForVisibleTerminal()
+        syncNativeLayoutForVisibleTerminal(force: true)
+        if requestPtyReplayForVisibleTerminal(force: true) {
+            needsReplayAfterSessionStart = false
+        }
     }
 
     func terminalScreenDidDisappear() {
         terminalScreenVisible = false
         terminalSession?.sendNativeLayout([])
+        lastSentNativeLayoutByTerminalID = [:]
     }
 
     func node(for workspace: CmxWorkspace) -> CmxHiveNode {
@@ -317,12 +353,29 @@ final class CmxConnectionStore: ObservableObject {
         terminal(matching: terminalID)?.size ?? .phoneDefault
     }
 
+    func renderSize(for terminalID: UInt64) -> CmxTerminalSize? {
+        effectiveTerminalSizesByID[terminalID]
+    }
+
     func outputChunks(for terminalID: UInt64) -> [CmxTerminalOutputChunk] {
         outputChunksByTerminalID[terminalID] ?? []
     }
 
+    func registerOutputSink(
+        terminalID: UInt64,
+        receive: @escaping @MainActor (CmxTerminalOutputChunk) -> Void
+    ) {
+        terminalOutputSink = TerminalOutputSink(terminalID: terminalID, receive: receive)
+    }
+
+    func unregisterOutputSink(terminalID: UInt64) {
+        guard terminalOutputSink?.terminalID == terminalID else { return }
+        terminalOutputSink = nil
+    }
+
     func updateTerminalSize(terminalID: UInt64, size: CmxTerminalSize) {
         guard size.cols > 0, size.rows > 0 else { return }
+        var didUpdateStoredTerminal = false
         for workspaceIndex in workspaces.indices {
             for spaceIndex in workspaces[workspaceIndex].spaces.indices {
                 guard let terminalIndex = workspaces[workspaceIndex].spaces[spaceIndex].terminals
@@ -330,12 +383,26 @@ final class CmxConnectionStore: ObservableObject {
                 if workspaces[workspaceIndex].spaces[spaceIndex].terminals[terminalIndex].size != size {
                     workspaces[workspaceIndex].spaces[spaceIndex].terminals[terminalIndex].size = size
                 }
-                if terminalID == selectedTerminal.id {
-                    terminalSession?.sendResize(wireViewport(for: terminalID), terminalID: terminalID)
-                }
-                return
+                didUpdateStoredTerminal = true
+                break
+            }
+            if didUpdateStoredTerminal { break }
+        }
+        if terminalScreenVisible, terminalID == selectedTerminal.id {
+            sendNativeLayout(
+                terminalID: terminalID,
+                size: size,
+                force: false
+            )
+            if outputChunksByTerminalID[terminalID, default: []].isEmpty {
+                requestPtyReplayForVisibleTerminal(force: true)
             }
         }
+    }
+
+    func requestPtyReplay(terminalID: UInt64) {
+        guard terminalID == selectedTerminal.id else { return }
+        terminalSession?.requestPtyReplay(terminalID: terminalID)
     }
 
     func sendInput(_ data: Data, terminalID: UInt64) {
@@ -395,6 +462,10 @@ final class CmxConnectionStore: ObservableObject {
         let chunk = CmxTerminalOutputChunk(id: nextOutputChunkID, data: data)
         nextOutputChunkID += 1
         outputChunksByTerminalID[terminalID, default: []].append(chunk)
+        terminalOutputRevision += 1
+        if terminalOutputSink?.terminalID == terminalID {
+            terminalOutputSink?.receive(chunk)
+        }
     }
 
     private func clearTerminal(_ terminalID: UInt64) {
@@ -403,8 +474,10 @@ final class CmxConnectionStore: ObservableObject {
     }
 
     func applyNativeSnapshot(_ snapshot: CmxNativeSnapshot) {
+        let previousSelectedTerminalID = selectedTerminalID
         nativeSnapshot = snapshot
         applyTerminalAppearance(from: snapshot, colorPreference: currentColorPreference)
+        effectiveTerminalSizesByID = effectiveTerminalSizes(from: snapshot)
         let nodeID = nodes.first?.id ?? 1
         let activeTabs = snapshot.panels.flattenedTabs
         let activeTerminals = activeTabs.map { tab in
@@ -456,12 +529,29 @@ final class CmxConnectionStore: ObservableObject {
         selectedTerminalID = activeTerminals.first(where: { $0.id == snapshot.focusedTabID })?.id
             ?? activeTerminals.first?.id
             ?? Self.placeholderTerminalID
+        #if DEBUG
+        cmuxDebugLog(
+            "ios.connection.nativeSnapshot.applied workspace=\(selectedWorkspaceID) space=\(selectedSpaceID) terminal=\(selectedTerminalID)"
+        )
+        #endif
+        let didChangeSelectedTerminal = selectedTerminalID != previousSelectedTerminalID
+        if didChangeSelectedTerminal {
+            lastReplayRequest = nil
+        }
+        guard terminalScreenVisible else { return }
+        syncNativeLayoutForVisibleTerminal(force: didChangeSelectedTerminal)
+        if didChangeSelectedTerminal || needsReplayAfterSessionStart {
+            if requestPtyReplayForVisibleTerminal(force: true) {
+                needsReplayAfterSessionStart = false
+            }
+        }
     }
 
     func applyHiveDiscoverySnapshot(_ snapshot: CmxHiveDiscoverySnapshot) {
         nodes = snapshot.nodes
         guard !isConnecting, !isConnected else { return }
         workspaces = snapshot.workspaces
+        effectiveTerminalSizesByID = [:]
         outputChunksByTerminalID = [:]
         nextOutputChunkID = 1
         seedTerminalOutput()
@@ -503,17 +593,68 @@ final class CmxConnectionStore: ObservableObject {
         ]
     }
 
-    private func syncNativeLayoutForVisibleTerminal() {
+    private func syncNativeLayoutForVisibleTerminal(force: Bool = false) {
         guard terminalScreenVisible else { return }
         let terminal = selectedTerminal
         guard terminal.id != Self.placeholderTerminalID else { return }
+        sendNativeLayout(terminalID: terminal.id, size: terminal.size, force: force)
+    }
+
+    private func sendNativeLayout(terminalID: UInt64, size: CmxTerminalSize, force: Bool) {
+        guard size.cols > 0, size.rows > 0 else { return }
+        if !force, lastSentNativeLayoutByTerminalID[terminalID] == size {
+            return
+        }
+        lastSentNativeLayoutByTerminalID[terminalID] = size
+        #if DEBUG
+        cmuxDebugLog("ios.connection.nativeLayout tab=\(terminalID) cols=\(size.cols) rows=\(size.rows) force=\(force ? 1 : 0)")
+        #endif
         terminalSession?.sendNativeLayout([
             CmxWireTerminalViewport(
-                tabID: terminal.id,
-                cols: UInt16(clamping: terminal.size.cols),
-                rows: UInt16(clamping: terminal.size.rows)
+                tabID: terminalID,
+                cols: UInt16(clamping: size.cols),
+                rows: UInt16(clamping: size.rows)
             ),
         ])
+    }
+
+    @discardableResult
+    private func requestPtyReplayForVisibleTerminal(force: Bool = false) -> Bool {
+        guard terminalScreenVisible else { return false }
+        let terminal = selectedTerminal
+        guard terminal.id != Self.placeholderTerminalID else { return false }
+        let request = ReplayRequestKey(
+            terminalID: terminal.id,
+            size: renderSize(for: terminal.id) ?? terminal.size,
+            outputRevision: terminalOutputRevision
+        )
+        if !force, lastReplayRequest == request {
+            return false
+        }
+        lastReplayRequest = request
+        #if DEBUG
+        cmuxDebugLog("ios.connection.requestPtyReplay tab=\(terminal.id) force=\(force ? 1 : 0)")
+        #endif
+        terminalSession?.requestPtyReplay(terminalID: terminal.id)
+        return terminalSession != nil
+    }
+
+    private func effectiveTerminalSizes(from snapshot: CmxNativeSnapshot) -> [UInt64: CmxTerminalSize] {
+        var sizes: [UInt64: CmxTerminalSize] = [:]
+        for client in snapshot.attachedClients {
+            for terminal in client.terminals where terminal.cols > 0 && terminal.rows > 0 {
+                let size = CmxTerminalSize(cols: Int(terminal.cols), rows: Int(terminal.rows))
+                if let current = sizes[terminal.tabID] {
+                    sizes[terminal.tabID] = CmxTerminalSize(
+                        cols: min(current.cols, size.cols),
+                        rows: min(current.rows, size.rows)
+                    )
+                } else {
+                    sizes[terminal.tabID] = size
+                }
+            }
+        }
+        return sizes
     }
 
     private func connectWithPairingSecret(
@@ -546,6 +687,9 @@ final class CmxConnectionStore: ObservableObject {
         let previousSession = terminalSession
         previousSession?.delegate = nil
         previousSession?.disconnect()
+        lastSentNativeLayoutByTerminalID = [:]
+        lastReplayRequest = nil
+        needsReplayAfterSessionStart = true
         let session = try terminalSessionFactory.makeSession(
             rawTicket: rawTicket,
             ticket: parsed,
@@ -726,7 +870,6 @@ extension CmxConnectionStore: CmxTerminalSessionDelegate {
             cmuxDebugLog("ios.connection.nativeSnapshot workspaces=\(snapshot.workspaces.count)")
             #endif
             applyNativeSnapshot(snapshot)
-            syncNativeLayoutForVisibleTerminal()
         case .terminalGridSnapshot:
             // iOS requests the libghostty renderer, so terminal cells arrive
             // as raw PTY bytes. Server-grid snapshots are ignored if an older

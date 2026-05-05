@@ -229,6 +229,27 @@ final class CmxBridgeTicketTests: XCTestCase {
         XCTAssertTrue(CmxLaunchConfiguration.shouldAutoconnect(arguments: arguments, environment: [:]))
     }
 
+    func testLaunchConfigurationReadsTerminalBoundsOverlayFlag() {
+        XCTAssertTrue(
+            CmxLaunchConfiguration.showsTerminalBoundsOverlay(
+                arguments: ["app", "--cmux-show-terminal-bounds"],
+                environment: [:]
+            )
+        )
+        XCTAssertTrue(
+            CmxLaunchConfiguration.showsTerminalBoundsOverlay(
+                arguments: ["app"],
+                environment: ["CMUX_IOS_SHOW_TERMINAL_BOUNDS": "1"]
+            )
+        )
+        XCTAssertFalse(
+            CmxLaunchConfiguration.showsTerminalBoundsOverlay(
+                arguments: ["app"],
+                environment: [:]
+            )
+        )
+    }
+
     func testStackAuthCallbackParsesNativeDeepLinkWithoutLeakingTokens() throws {
         let accessPayload = #"["refresh-cookie","access-token"]"#
             .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)!
@@ -482,13 +503,354 @@ final class CmxBridgeTicketTests: XCTestCase {
                 focusedTabID: 41
             ))
         )
+        store.terminalScreenDidAppear()
         sessionFactory.session.clearRecordedResizes()
+        sessionFactory.session.clearRecordedLayouts()
 
         store.updateTerminalSize(terminalID: 41, size: CmxTerminalSize(cols: 100, rows: 20))
 
-        XCTAssertEqual(sessionFactory.session.sentResizes.count, 1)
-        XCTAssertEqual(sessionFactory.session.sentResizes.last?.terminalID, 41)
-        XCTAssertEqual(sessionFactory.session.sentResizes.last?.viewport, CmxWireViewport(cols: 100, rows: 20))
+        XCTAssertEqual(sessionFactory.session.sentResizes.count, 0)
+        XCTAssertEqual(
+            sessionFactory.session.sentLayouts.last,
+            [CmxWireTerminalViewport(tabID: 41, cols: 100, rows: 20)]
+        )
+    }
+
+    @MainActor
+    func testPtyBytesAdvanceTerminalOutputRevisionForLiveGhosttyRepaint() throws {
+        let sessionFactory = RecordingTerminalSessionFactory()
+        let store = CmxConnectionStore(
+            authSessionStore: MemoryStackAuthSessionStore(),
+            pairingSecretClient: RecordingPairingSecretClient(),
+            terminalSessionFactory: sessionFactory
+        )
+        store.ticketText = """
+        {
+          "version": 1,
+          "alpn": "/cmux/cmx/3",
+          "endpoint": { "id": "endpoint-public-key", "addrs": [] },
+          "auth": { "mode": "direct" }
+        }
+        """
+        store.connect()
+        sessionFactory.session.delegate?.terminalSession(
+            sessionFactory.session,
+            didReceive: .nativeSnapshot(CmxNativeSnapshot(
+                workspaces: [
+                    CmxNativeWorkspaceInfo(
+                        id: 11,
+                        title: "main",
+                        spaceCount: 1,
+                        tabCount: 1,
+                        terminalCount: 1,
+                        pinned: false,
+                        color: nil
+                    ),
+                ],
+                activeWorkspace: 0,
+                activeWorkspaceID: 11,
+                spaces: [
+                    CmxNativeSpaceInfo(id: 21, title: "space-1", paneCount: 1, terminalCount: 1),
+                ],
+                activeSpace: 0,
+                activeSpaceID: 21,
+                panels: .leaf(
+                    panelID: 31,
+                    tabs: [
+                        CmxNativeTabInfo(id: 41, title: "shell", hasActivity: false, bellCount: 0),
+                    ],
+                    active: 0,
+                    activeTabID: 41
+                ),
+                focusedPanelID: 31,
+                focusedTabID: 41
+            ))
+        )
+        let revisionBeforePTY = store.terminalOutputRevision
+
+        sessionFactory.session.delegate?.terminalSession(
+            sessionFactory.session,
+            didReceive: .ptyBytes(tabID: 41, data: Data("live".utf8))
+        )
+
+        XCTAssertEqual(store.terminalOutputRevision, revisionBeforePTY + 1)
+        XCTAssertEqual(store.outputChunks(for: 41).last?.data, Data("live".utf8))
+    }
+
+    @MainActor
+    func testStoreRequestsPtyReplayForSelectedTerminal() throws {
+        let sessionFactory = RecordingTerminalSessionFactory()
+        let store = CmxConnectionStore(
+            authSessionStore: MemoryStackAuthSessionStore(),
+            pairingSecretClient: RecordingPairingSecretClient(),
+            terminalSessionFactory: sessionFactory
+        )
+        store.ticketText = """
+        {
+          "version": 1,
+          "alpn": "/cmux/cmx/3",
+          "endpoint": { "id": "endpoint-public-key", "addrs": [] },
+          "auth": { "mode": "direct" }
+        }
+        """
+        store.connect()
+        sessionFactory.session.delegate?.terminalSession(
+            sessionFactory.session,
+            didReceive: .nativeSnapshot(CmxNativeSnapshot(
+                workspaces: [
+                    CmxNativeWorkspaceInfo(
+                        id: 11,
+                        title: "main",
+                        spaceCount: 1,
+                        tabCount: 1,
+                        terminalCount: 1,
+                        pinned: false,
+                        color: nil
+                    ),
+                ],
+                activeWorkspace: 0,
+                activeWorkspaceID: 11,
+                spaces: [
+                    CmxNativeSpaceInfo(id: 21, title: "space-1", paneCount: 1, terminalCount: 1),
+                ],
+                activeSpace: 0,
+                activeSpaceID: 21,
+                panels: .leaf(
+                    panelID: 31,
+                    tabs: [
+                        CmxNativeTabInfo(id: 41, title: "shell", hasActivity: false, bellCount: 0),
+                    ],
+                    active: 0,
+                    activeTabID: 41
+                ),
+                focusedPanelID: 31,
+                focusedTabID: 41
+            ))
+        )
+
+        store.requestPtyReplay(terminalID: 41)
+        store.requestPtyReplay(terminalID: 999)
+
+        XCTAssertEqual(sessionFactory.session.requestedPtyReplayTerminalIDs, [41])
+    }
+
+    @MainActor
+    func testRepeatedNativeSnapshotDoesNotForceVisibleTerminalReplay() throws {
+        let sessionFactory = RecordingTerminalSessionFactory()
+        let store = CmxConnectionStore(
+            authSessionStore: MemoryStackAuthSessionStore(),
+            pairingSecretClient: RecordingPairingSecretClient(),
+            terminalSessionFactory: sessionFactory
+        )
+        store.ticketText = """
+        {
+          "version": 1,
+          "alpn": "/cmux/cmx/3",
+          "endpoint": { "id": "endpoint-public-key", "addrs": [] },
+          "auth": { "mode": "direct" }
+        }
+        """
+        store.connect()
+        let firstSnapshot = CmxNativeSnapshot(
+            workspaces: [
+                CmxNativeWorkspaceInfo(
+                    id: 11,
+                    title: "main",
+                    spaceCount: 1,
+                    tabCount: 1,
+                    terminalCount: 1,
+                    pinned: false,
+                    color: nil
+                ),
+            ],
+            activeWorkspace: 0,
+            activeWorkspaceID: 11,
+            spaces: [
+                CmxNativeSpaceInfo(id: 21, title: "space-1", paneCount: 1, terminalCount: 1),
+            ],
+            activeSpace: 0,
+            activeSpaceID: 21,
+            panels: .leaf(
+                panelID: 31,
+                tabs: [
+                    CmxNativeTabInfo(id: 41, title: "shell", hasActivity: false, bellCount: 0),
+                ],
+                active: 0,
+                activeTabID: 41
+            ),
+            focusedPanelID: 31,
+            focusedTabID: 41
+        )
+        sessionFactory.session.delegate?.terminalSession(
+            sessionFactory.session,
+            didReceive: .nativeSnapshot(firstSnapshot)
+        )
+        store.terminalScreenDidAppear()
+        XCTAssertEqual(sessionFactory.session.requestedPtyReplayTerminalIDs, [41])
+
+        sessionFactory.session.clearRecordedLayouts()
+        sessionFactory.session.clearRequestedPtyReplays()
+        sessionFactory.session.delegate?.terminalSession(
+            sessionFactory.session,
+            didReceive: .nativeSnapshot(firstSnapshot)
+        )
+
+        XCTAssertTrue(sessionFactory.session.sentLayouts.isEmpty)
+        XCTAssertTrue(sessionFactory.session.requestedPtyReplayTerminalIDs.isEmpty)
+
+        let secondSnapshot = CmxNativeSnapshot(
+            workspaces: [
+                CmxNativeWorkspaceInfo(
+                    id: 11,
+                    title: "main",
+                    spaceCount: 1,
+                    tabCount: 2,
+                    terminalCount: 2,
+                    pinned: false,
+                    color: nil
+                ),
+            ],
+            activeWorkspace: 0,
+            activeWorkspaceID: 11,
+            spaces: [
+                CmxNativeSpaceInfo(id: 21, title: "space-1", paneCount: 1, terminalCount: 2),
+            ],
+            activeSpace: 0,
+            activeSpaceID: 21,
+            panels: .leaf(
+                panelID: 31,
+                tabs: [
+                    CmxNativeTabInfo(id: 41, title: "shell", hasActivity: false, bellCount: 0),
+                    CmxNativeTabInfo(id: 42, title: "logs", hasActivity: false, bellCount: 0),
+                ],
+                active: 1,
+                activeTabID: 42
+            ),
+            focusedPanelID: 31,
+            focusedTabID: 42
+        )
+        sessionFactory.session.delegate?.terminalSession(
+            sessionFactory.session,
+            didReceive: .nativeSnapshot(secondSnapshot)
+        )
+
+        XCTAssertEqual(sessionFactory.session.sentLayouts.last, [
+            CmxWireTerminalViewport(tabID: 42, cols: 80, rows: 24),
+        ])
+        XCTAssertEqual(sessionFactory.session.requestedPtyReplayTerminalIDs, [42])
+    }
+
+    @MainActor
+    func testNativeSnapshotUsesSmallestAttachedClientSizeOnlyForRendering() throws {
+        let sessionFactory = RecordingTerminalSessionFactory()
+        let store = CmxConnectionStore(
+            authSessionStore: MemoryStackAuthSessionStore(),
+            pairingSecretClient: RecordingPairingSecretClient(),
+            terminalSessionFactory: sessionFactory
+        )
+        store.ticketText = """
+        {
+          "version": 1,
+          "alpn": "/cmux/cmx/3",
+          "endpoint": { "id": "endpoint-public-key", "addrs": [] },
+          "auth": { "mode": "direct" }
+        }
+        """
+        store.connect()
+        sessionFactory.session.delegate?.terminalSession(
+            sessionFactory.session,
+            didReceive: .nativeSnapshot(CmxNativeSnapshot(
+                workspaces: [
+                    CmxNativeWorkspaceInfo(
+                        id: 11,
+                        title: "main",
+                        spaceCount: 1,
+                        tabCount: 1,
+                        terminalCount: 1,
+                        pinned: false,
+                        color: nil
+                    ),
+                ],
+                activeWorkspace: 0,
+                activeWorkspaceID: 11,
+                spaces: [
+                    CmxNativeSpaceInfo(id: 21, title: "space-1", paneCount: 1, terminalCount: 1),
+                ],
+                activeSpace: 0,
+                activeSpaceID: 21,
+                panels: .leaf(
+                    panelID: 31,
+                    tabs: [
+                        CmxNativeTabInfo(id: 41, title: "shell", hasActivity: false, bellCount: 0),
+                    ],
+                    active: 0,
+                    activeTabID: 41
+                ),
+                focusedPanelID: 31,
+                focusedTabID: 41
+            ))
+        )
+        store.terminalScreenDidAppear()
+        store.updateTerminalSize(terminalID: 41, size: CmxTerminalSize(cols: 53, rows: 52))
+
+        sessionFactory.session.delegate?.terminalSession(
+            sessionFactory.session,
+            didReceive: .nativeSnapshot(CmxNativeSnapshot(
+                workspaces: [
+                    CmxNativeWorkspaceInfo(
+                        id: 11,
+                        title: "main",
+                        spaceCount: 1,
+                        tabCount: 1,
+                        terminalCount: 1,
+                        pinned: false,
+                        color: nil
+                    ),
+                ],
+                activeWorkspace: 0,
+                activeWorkspaceID: 11,
+                spaces: [
+                    CmxNativeSpaceInfo(id: 21, title: "space-1", paneCount: 1, terminalCount: 1),
+                ],
+                activeSpace: 0,
+                activeSpaceID: 21,
+                panels: .leaf(
+                    panelID: 31,
+                    tabs: [
+                        CmxNativeTabInfo(id: 41, title: "shell", hasActivity: false, bellCount: 0),
+                    ],
+                    active: 0,
+                    activeTabID: 41
+                ),
+                focusedPanelID: 31,
+                focusedTabID: 41,
+                attachedClients: [
+                    CmxAttachedClientInfo(
+                        clientID: "ipad",
+                        kind: .native,
+                        visibleTerminalCount: 1,
+                        updatedAtMilliseconds: 1,
+                        terminals: [CmxWireTerminalViewport(tabID: 41, cols: 53, rows: 52)],
+                        latencyMilliseconds: 2
+                    ),
+                    CmxAttachedClientInfo(
+                        clientID: "iphone",
+                        kind: .native,
+                        visibleTerminalCount: 1,
+                        updatedAtMilliseconds: 1,
+                        terminals: [CmxWireTerminalViewport(tabID: 41, cols: 30, rows: 30)],
+                        latencyMilliseconds: 2
+                    ),
+                ]
+            ))
+        )
+
+        XCTAssertEqual(store.terminalSize(for: 41), CmxTerminalSize(cols: 53, rows: 52))
+        XCTAssertEqual(store.renderSize(for: 41), CmxTerminalSize(cols: 30, rows: 30))
+        XCTAssertEqual(
+            sessionFactory.session.sentLayouts.last,
+            [CmxWireTerminalViewport(tabID: 41, cols: 53, rows: 52)]
+        )
     }
 
     @MainActor
@@ -845,6 +1207,7 @@ private final class RecordingTerminalSession: CmxTerminalSession {
     private(set) var sentLayouts: [[CmxWireTerminalViewport]] = []
     private(set) var sentResizes: [(viewport: CmxWireViewport, terminalID: UInt64)] = []
     private(set) var sentCommands: [CmxClientCommand] = []
+    private(set) var requestedPtyReplayTerminalIDs: [UInt64] = []
     var notifiesCloseOnDisconnect = false
 
     func start(viewport: CmxWireViewport) {
@@ -860,6 +1223,10 @@ private final class RecordingTerminalSession: CmxTerminalSession {
 
     func sendNativeLayout(_ terminals: [CmxWireTerminalViewport]) {
         sentLayouts.append(terminals)
+    }
+
+    func requestPtyReplay(terminalID: UInt64) {
+        requestedPtyReplayTerminalIDs.append(terminalID)
     }
 
     func sendCommand(_ command: CmxClientCommand) {
@@ -878,5 +1245,9 @@ private final class RecordingTerminalSession: CmxTerminalSession {
 
     func clearRecordedLayouts() {
         sentLayouts = []
+    }
+
+    func clearRequestedPtyReplays() {
+        requestedPtyReplayTerminalIDs = []
     }
 }

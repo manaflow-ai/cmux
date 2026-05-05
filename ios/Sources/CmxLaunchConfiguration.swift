@@ -34,6 +34,14 @@ enum CmxLaunchConfiguration {
         return environment["CMUX_IOS_HIVE_ENDPOINT"].flatMap(URL.init(string:))
     }
 
+    static func showsTerminalBoundsOverlay(
+        arguments: [String] = ProcessInfo.processInfo.arguments,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        normalized(arguments: arguments).contains("--cmux-show-terminal-bounds")
+            || environment["CMUX_IOS_SHOW_TERMINAL_BOUNDS"] == "1"
+    }
+
     #if DEBUG
     static func usesUITestingEchoSession(
         arguments: [String] = ProcessInfo.processInfo.arguments,
