@@ -61,6 +61,13 @@ struct MarkdownPanelView: View {
                 Markdown(panel.content)
                     .markdownTheme(cmuxMarkdownTheme)
                     .textSelection(.enabled)
+                    // Explicit handler: pointer-observer overlay + .textSelection
+                    // suppress SwiftUI Link's default activation, leaving links
+                    // styled but un-clickable without this.
+                    .environment(\.openURL, OpenURLAction { url in
+                        NSWorkspace.shared.open(url)
+                        return .handled
+                    })
                     .padding(.horizontal, 24)
                     .padding(.vertical, 16)
             }
