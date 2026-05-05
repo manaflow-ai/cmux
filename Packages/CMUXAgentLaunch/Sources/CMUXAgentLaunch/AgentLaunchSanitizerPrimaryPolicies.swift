@@ -325,13 +325,9 @@ extension AgentLaunchSanitizer {
             "-e",
             "--skill",
             "--prompt-template",
-            "--theme",
-            "--export",
-            "--list-models"
+            "--theme"
         ],
-        optionalValueOptions: [
-            "--list-models"
-        ],
+        optionalValueOptions: [],
         variadicOptions: [
             "--append-system-prompt",
             "--extension",

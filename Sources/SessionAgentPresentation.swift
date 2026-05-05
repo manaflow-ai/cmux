@@ -18,9 +18,6 @@ extension SessionAgent {
         case .codex: return "AgentIcons/Codex"
         case .opencode: return "AgentIcons/OpenCode"
         case .rovodev: return "AgentIcons/RovoDev"
-        // TODO: ship AgentIcons/Pi.imageset (placeholder PNGs to be generated
-        // by parent agent via PIL). Until the asset lands, NSImage(named:)
-        // returns nil and SessionIndexView falls back to its no-icon path.
         case .pi: return "AgentIcons/Pi"
         }
     }

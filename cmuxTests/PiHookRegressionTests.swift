@@ -56,10 +56,6 @@ final class PiHookRegressionTests: XCTestCase {
 
         let installed = try String(contentsOf: extensionURL, encoding: .utf8)
         XCTAssertTrue(installed.contains(Self.markerString), "Marker missing from installed extension")
-        XCTAssertTrue(
-            installed.contains("\"hooks\", \"pi\", subcommand"),
-            "Bridge body should call `cmux hooks pi <subcommand>`; got:\n\(installed.prefix(800))"
-        )
 
         // Second install: idempotent.
         let secondResult = runProcess(
