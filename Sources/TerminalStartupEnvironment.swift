@@ -1,4 +1,5 @@
 import Foundation
+import CMUXAgentLaunch
 
 extension TerminalSurface {
     static let managedTerminalType = "xterm-256color"
