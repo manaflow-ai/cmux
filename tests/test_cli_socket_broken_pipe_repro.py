@@ -3,9 +3,7 @@
 
 from __future__ import annotations
 
-import glob
 import os
-import shutil
 import socket
 import subprocess
 import tempfile
@@ -17,19 +15,10 @@ def resolve_cmux_cli() -> str:
     if explicit and os.path.exists(explicit) and os.access(explicit, os.X_OK):
         return explicit
 
-    candidates: list[str] = []
-    candidates.extend(glob.glob(os.path.expanduser("~/Library/Developer/Xcode/DerivedData/*/Build/Products/Debug/cmux")))
-    candidates.extend(glob.glob("/tmp/cmux-*/Build/Products/Debug/cmux"))
-    candidates = [p for p in candidates if os.path.exists(p) and os.access(p, os.X_OK)]
-    if candidates:
-        candidates.sort(key=os.path.getmtime, reverse=True)
-        return candidates[0]
-
-    in_path = shutil.which("cmux")
-    if in_path:
-        return in_path
-
-    raise RuntimeError("Unable to find cmux CLI binary. Set CMUX_CLI_BIN.")
+    raise RuntimeError(
+        "Unable to find cmux CLI binary. Set CMUX_CLI_BIN. "
+        "Socket tests must use an explicit, tagged binary."
+    )
 
 
 class EarlyCloseServer:
@@ -104,7 +93,7 @@ def main() -> int:
             check=False,
         )
 
-        server.join(timeout=2.0)
+        server.join(timeout=6.5)
         if server.error is not None:
             print(f"FAIL: early-close server error: {server.error}")
             return 1

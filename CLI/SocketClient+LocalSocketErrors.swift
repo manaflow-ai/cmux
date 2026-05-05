@@ -2,8 +2,8 @@ import Foundation
 import Darwin
 
 extension SocketClient {
-    func recoveredLocalSocketWriteFailure(errorCode: Int32, failureMessage: String) -> String? {
-        guard relayEndpoint == nil, failureMessage == "Failed to write to socket" else {
+    func recoveredLocalSocketWriteFailure(errorCode: Int32, failureContext: SocketWriteFailureContext) -> String? {
+        guard relayEndpoint == nil, failureContext == .localCommand else {
             return nil
         }
         guard errorCode == EPIPE || errorCode == ECONNRESET else {
@@ -18,7 +18,11 @@ extension SocketClient {
     }
 
     private func readEarlySocketResponseLine(timeout: TimeInterval) -> String? {
-        try? configureReceiveTimeout(timeout)
+        do {
+            try configureReceiveTimeout(timeout)
+        } catch {
+            return nil
+        }
 
         var data = Data()
         var buffer = [UInt8](repeating: 0, count: 1024)

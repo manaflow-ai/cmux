@@ -926,8 +926,13 @@ final class SocketClient {
         let relayToken: Data
     }
 
+    enum SocketWriteFailureContext {
+        case localCommand
+        case relay
+    }
+
     private let path: String
-    var socketFD: Int32 = -1
+    private(set) var socketFD: Int32 = -1
     private var lastOperationTelemetry: CLISocketOperationTelemetry.State?
     private static let defaultResponseTimeoutSeconds: TimeInterval = 15.0
     private static let multilineResponseIdleTimeoutSeconds: TimeInterval = 0.12
@@ -1048,7 +1053,8 @@ final class SocketClient {
         try writeAll(
             Data(payload.utf8),
             timeoutMessage: "Command timed out",
-            failureMessage: "Failed to write to socket"
+            failureMessage: "Failed to write to socket",
+            failureContext: .localCommand
         )
 
         var data = Data()
@@ -1309,7 +1315,8 @@ final class SocketClient {
         try writeAll(
             authPayload + Data([0x0A]),
             timeoutMessage: "Relay command timed out",
-            failureMessage: "Failed to write to relay socket"
+            failureMessage: "Failed to write to relay socket",
+            failureContext: .relay
         )
 
         let authResponseLine = try readLine()
@@ -1323,7 +1330,8 @@ final class SocketClient {
     private func writeAll(
         _ data: Data,
         timeoutMessage: String,
-        failureMessage: String
+        failureMessage: String,
+        failureContext: SocketWriteFailureContext
     ) throws {
         try data.withUnsafeBytes { rawBuffer in
             guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
@@ -1340,7 +1348,7 @@ final class SocketClient {
                     if errorCode == EAGAIN || errorCode == EWOULDBLOCK || errorCode == ETIMEDOUT {
                         close(); throw CLIError(message: timeoutMessage)
                     }
-                    if let recoveredMessage = recoveredLocalSocketWriteFailure(errorCode: errorCode, failureMessage: failureMessage) {
+                    if let recoveredMessage = recoveredLocalSocketWriteFailure(errorCode: errorCode, failureContext: failureContext) {
                         close(); throw CLIError(message: recoveredMessage)
                     }
                     close()
