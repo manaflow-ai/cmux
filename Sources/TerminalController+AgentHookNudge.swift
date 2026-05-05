@@ -20,4 +20,36 @@ extension TerminalController {
         return .ok(["queued": true])
     }
 
+    func agentHooksNudge(_ args: String) -> String {
+        let parts = args.split(separator: " ").map(String.init)
+        guard let agentName = parts.first?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !agentName.isEmpty else {
+            return "ERROR: Usage: agent_hooks_nudge <agent> --tab=<uuid> [--panel=<uuid>|--surface=<uuid>]"
+        }
+
+        var tabId: UUID?
+        var surfaceId: UUID?
+        for part in parts.dropFirst() {
+            if part.hasPrefix("--tab=") {
+                tabId = UUID(uuidString: String(part.dropFirst("--tab=".count)))
+            } else if part.hasPrefix("--panel=") {
+                surfaceId = UUID(uuidString: String(part.dropFirst("--panel=".count)))
+            } else if part.hasPrefix("--surface=") {
+                surfaceId = UUID(uuidString: String(part.dropFirst("--surface=".count)))
+            }
+        }
+        guard let tabId else {
+            return "ERROR: agent_hooks_nudge requires --tab=<uuid>"
+        }
+
+        TerminalMutationBus.shared.enqueueMainActorMutation {
+            AgentHookIntegrationSettings.showSetupPromptIfNeeded(
+                agentName: agentName,
+                tabId: tabId,
+                surfaceId: surfaceId
+            )
+        }
+        return "OK"
+    }
+
 }

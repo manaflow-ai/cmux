@@ -16468,20 +16468,7 @@ function resolveExecutable(name) {
   }
   return name;
 }
-
-function firstExecutableFile(...values) {
-  for (const value of values) {
-    if (!value) continue;
-    try {
-      const stat = fs.statSync(value);
-      if (!stat.isFile()) continue;
-      fs.accessSync(value, fs.constants.X_OK);
-      return value;
-    } catch (_) {}
-  }
-  return null;
-}
-
+function firstExecutableFile(...values) { for (const value of values) { try { if (value && fs.statSync(value).isFile()) { fs.accessSync(value, fs.constants.X_OK); return value; } } catch (_) {} } return null; }
 function looksLikeOpenCodeScript(value) {
   if (!value) return false;
   const lower = String(value).toLowerCase();

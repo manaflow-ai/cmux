@@ -2145,18 +2145,9 @@ final class UpdateTitlebarAccessoryController {
 
     func showNotificationsPopover(animated: Bool = true) {
         let controllers = controlsControllers.allObjects
-        guard !controllers.isEmpty else { return }
-
-        let target = preferredNotificationsController(from: controllers, preferShownPopover: false)
-        for controller in controllers {
-            if controller !== target {
-                controller.dismissNotificationsPopover()
-            }
-        }
-        guard let target else { return }
-        if target.popoverIsShownForTesting {
-            return
-        }
-        target.toggleNotificationsPopover(animated: animated)
+        guard !controllers.isEmpty,
+              let target = preferredNotificationsController(from: controllers, preferShownPopover: false) else { return }
+        for controller in controllers where controller !== target { controller.dismissNotificationsPopover() }
+        if !target.popoverIsShownForTesting { target.toggleNotificationsPopover(animated: animated) }
     }
 }

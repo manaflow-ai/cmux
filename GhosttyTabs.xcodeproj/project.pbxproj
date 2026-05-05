@@ -89,6 +89,8 @@
 		A6E70100A6E70100A6E70100 /* AgentHooksSettingsViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E70101A6E70101A6E70101 /* AgentHooksSettingsViews.swift */; };
 		A6E70200A6E70200A6E70200 /* AgentHookIntegrationSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E70201A6E70201A6E70201 /* AgentHookIntegrationSettings.swift */; };
 		A6E70300A6E70300A6E70300 /* TerminalController+AgentHookNudge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E70301A6E70301A6E70301 /* TerminalController+AgentHookNudge.swift */; };
+		A6E70400A6E70400A6E70400 /* AgentHookIntegrationDiffing.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E70401A6E70401A6E70401 /* AgentHookIntegrationDiffing.swift */; };
+		A6E70500A6E70500A6E70500 /* TerminalNotificationModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E70501A6E70501A6E70501 /* TerminalNotificationModels.swift */; };
 		C0DE34020000000000000001 /* CmuxHelpCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE34020000000000000003 /* CmuxHelpCommands.swift */; };
 		C0DE34020000000000000002 /* CmuxHelpResource.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE34020000000000000004 /* CmuxHelpResource.swift */; };
 		A50019A0 /* SettingsNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50019A1 /* SettingsNavigation.swift */; };
@@ -473,6 +475,8 @@
 		A6E70101A6E70101A6E70101 /* AgentHooksSettingsViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHooksSettingsViews.swift; sourceTree = "<group>"; };
 		A6E70201A6E70201A6E70201 /* AgentHookIntegrationSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookIntegrationSettings.swift; sourceTree = "<group>"; };
 		A6E70301A6E70301A6E70301 /* TerminalController+AgentHookNudge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+AgentHookNudge.swift"; sourceTree = "<group>"; };
+		A6E70401A6E70401A6E70401 /* AgentHookIntegrationDiffing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookIntegrationDiffing.swift; sourceTree = "<group>"; };
+		A6E70501A6E70501A6E70501 /* TerminalNotificationModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationModels.swift; sourceTree = "<group>"; };
 		E3309A08 /* cmuxApp+EqualizeSplitsMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "cmuxApp+EqualizeSplitsMenu.swift"; sourceTree = "<group>"; };
 		C0DE34020000000000000003 /* CmuxHelpCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmuxHelpCommands.swift; sourceTree = "<group>"; };
 		C0DE34020000000000000004 /* CmuxHelpResource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmuxHelpResource.swift; sourceTree = "<group>"; };
@@ -900,6 +904,8 @@
 				A5001011 /* cmuxApp.swift */,
 				A6E70101A6E70101A6E70101 /* AgentHooksSettingsViews.swift */,
 				A6E70201A6E70201A6E70201 /* AgentHookIntegrationSettings.swift */,
+				A6E70401A6E70401A6E70401 /* AgentHookIntegrationDiffing.swift */,
+				A6E70501A6E70501A6E70501 /* TerminalNotificationModels.swift */,
 				E3309A08 /* cmuxApp+EqualizeSplitsMenu.swift */,
 				C0DE34020000000000000003 /* CmuxHelpCommands.swift */,
 				C0DE34020000000000000004 /* CmuxHelpResource.swift */,
@@ -1442,6 +1448,8 @@
 				A6E70100A6E70100A6E70100 /* AgentHooksSettingsViews.swift in Sources */,
 				A6E70200A6E70200A6E70200 /* AgentHookIntegrationSettings.swift in Sources */,
 				A6E70300A6E70300A6E70300 /* TerminalController+AgentHookNudge.swift in Sources */,
+				A6E70400A6E70400A6E70400 /* AgentHookIntegrationDiffing.swift in Sources */,
+				A6E70500A6E70500A6E70500 /* TerminalNotificationModels.swift in Sources */,
 				E3309A07 /* cmuxApp+EqualizeSplitsMenu.swift in Sources */,
 				C0DE34020000000000000001 /* CmuxHelpCommands.swift in Sources */,
 				C0DE34020000000000000002 /* CmuxHelpResource.swift in Sources */,
