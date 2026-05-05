@@ -366,6 +366,52 @@ def test_live_socket_enforces_heap_cap_for_space_separated_flag(failures: list[s
     expect(child_node_options == restored, f"space-separated heap flag: expected child NODE_OPTIONS restored, got {child_node_options!r}", failures)
 
 
+def test_live_socket_preserves_quoted_existing_require_path(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-existing-node-options-") as td:
+        preload_dir = Path(td) / "Library" / "Application Support" / "--max-old-space-size 2048"
+        preload_dir.mkdir(parents=True, exist_ok=True)
+        preload = preload_dir / "preload.cjs"
+        preload.write_text("", encoding="utf-8")
+        existing = f'--require="{preload}" --trace-warnings'
+        code, _, _, stderr, _, node_options, runtime_node_options, child_node_options, _, _ = run_wrapper(
+            socket_state="live",
+            argv=["hello"],
+            node_options=existing,
+        )
+
+    expect(code == 0, f"quoted existing require path: wrapper exited {code}: {stderr}", failures)
+    require_flag, remaining_flags = restore_require_and_remaining(node_options)
+    expect(
+        require_flag.startswith("--require="),
+        f"quoted existing require path: expected restore preload, got {node_options!r}",
+        failures,
+    )
+    remaining_tokens = split_node_options(remaining_flags)
+    expect(
+        remaining_tokens == [
+            "--max-old-space-size=4096",
+            f"--require={preload}",
+            "--trace-warnings",
+        ],
+        "quoted existing require path: expected wrapper to preserve the quoted require path while replacing its own heap cap, "
+        f"got {node_options!r}",
+        failures,
+    )
+    restored_tokens = [f"--require={preload}", "--trace-warnings"]
+    expect(
+        split_node_options(runtime_node_options) == restored_tokens,
+        "quoted existing require path: expected runtime NODE_OPTIONS to preserve quoted require path, "
+        f"got {runtime_node_options!r}",
+        failures,
+    )
+    expect(
+        split_node_options(child_node_options) == restored_tokens,
+        "quoted existing require path: expected child NODE_OPTIONS to preserve quoted require path, "
+        f"got {child_node_options!r}",
+        failures,
+    )
+
+
 def test_live_socket_bad_tmpdir_still_uses_durable_node_options_injection(failures: list[str]) -> None:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-bad-tmp-") as td:
         bad_tmpdir = Path(td) / "not-a-directory"
@@ -502,6 +548,7 @@ def main() -> int:
     test_live_socket_injects_supported_hooks(failures)
     test_plain_claude_launch_argv_has_no_empty_argument(failures)
     test_live_socket_enforces_heap_cap_for_space_separated_flag(failures)
+    test_live_socket_preserves_quoted_existing_require_path(failures)
     test_live_socket_bad_tmpdir_still_uses_durable_node_options_injection(failures)
     test_live_socket_does_not_duplicate_bypass_availability_flag(failures)
     test_live_socket_stale_mktemp_literal_does_not_warn(failures)
