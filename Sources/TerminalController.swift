@@ -7552,15 +7552,69 @@ class TerminalController {
         )
     }
 
+    private func v2SetAbsolutePaneSize(
+        workspace: Workspace,
+        paneUUID: UUID,
+        axis: String,
+        targetPixels: CGFloat
+    ) -> (splitId: UUID, oldPosition: CGFloat, newPosition: CGFloat)? {
+        guard targetPixels > 0 else { return nil }
+        let orientationName: String
+        switch axis.lowercased() {
+        case "horizontal":
+            orientationName = "horizontal"
+        case "vertical":
+            orientationName = "vertical"
+        default:
+            return nil
+        }
+
+        var candidates: [V2PaneResizeCandidate] = []
+        let trace = v2PaneResizeCollectCandidates(
+            node: workspace.bonsplitController.treeSnapshot(),
+            targetPaneId: paneUUID.uuidString,
+            candidates: &candidates
+        )
+        guard trace.containsTarget,
+              let candidate = candidates.first(where: { $0.orientation == orientationName }) else {
+            return nil
+        }
+
+        let targetFraction = targetPixels / candidate.axisPixels
+        let requested = candidate.paneInFirstChild ? targetFraction : (1 - targetFraction)
+        let clamped = min(max(requested, 0.1), 0.9)
+        guard workspace.bonsplitController.setDividerPosition(
+            clamped,
+            forSplit: candidate.splitId,
+            fromExternal: true
+        ) else {
+            return nil
+        }
+        return (candidate.splitId, candidate.dividerPosition, clamped)
+    }
+
     private func v2PaneResize(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
 
+        let absoluteAxis = v2String(params, "absolute_axis")?.lowercased()
+        let targetPixels = v2Double(params, "target_pixels")
         let directionRaw = (v2String(params, "direction") ?? "").lowercased()
         let amount = v2Int(params, "amount") ?? 1
-        guard let direction = V2PaneResizeDirection(rawValue: directionRaw), amount > 0 else {
+        let direction = V2PaneResizeDirection(rawValue: directionRaw)
+        if absoluteAxis == nil || targetPixels == nil {
+            guard direction != nil, amount > 0 else {
+                return .err(code: "invalid_params", message: "direction must be one of left|right|up|down and amount must be > 0", data: nil)
+            }
+        }
+
+        if let absoluteAxis,
+           absoluteAxis != "horizontal" && absoluteAxis != "vertical" {
             return .err(code: "invalid_params", message: "direction must be one of left|right|up|down and amount must be > 0", data: nil)
+        }
+        if let targetPixels, targetPixels <= 0 {
+            return .err(code: "invalid_params", message: "target_pixels must be > 0", data: nil)
         }
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to resize pane", data: nil)
@@ -7589,6 +7643,43 @@ class TerminalController {
             )
             guard trace.containsTarget else {
                 result = .err(code: "not_found", message: "Pane not found in split tree", data: ["pane_id": paneUUID.uuidString])
+                return
+            }
+
+            if let absoluteAxis,
+               let targetPixels,
+               let absoluteResize = v2SetAbsolutePaneSize(
+                    workspace: ws,
+                    paneUUID: paneUUID,
+                    axis: absoluteAxis,
+                    targetPixels: CGFloat(targetPixels)
+               ) {
+                let windowId = v2ResolveWindowId(tabManager: tabManager)
+                result = .ok([
+                    "window_id": v2OrNull(windowId?.uuidString),
+                    "window_ref": v2Ref(kind: .window, uuid: windowId),
+                    "workspace_id": ws.id.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                    "pane_id": paneUUID.uuidString,
+                    "pane_ref": v2Ref(kind: .pane, uuid: paneUUID),
+                    "split_id": absoluteResize.splitId.uuidString,
+                    "absolute_axis": absoluteAxis,
+                    "target_pixels": targetPixels,
+                    "old_divider_position": absoluteResize.oldPosition,
+                    "new_divider_position": absoluteResize.newPosition
+                ])
+                return
+            } else if absoluteAxis != nil || targetPixels != nil {
+                result = .err(
+                    code: "invalid_state",
+                    message: "No split ancestor for absolute pane resize",
+                    data: ["pane_id": paneUUID.uuidString, "absolute_axis": v2OrNull(absoluteAxis)]
+                )
+                return
+            }
+
+            guard let direction else {
+                result = .err(code: "invalid_params", message: "direction must be one of left|right|up|down and amount must be > 0", data: nil)
                 return
             }
 

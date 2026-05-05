@@ -121,12 +121,15 @@ class FakeCmuxState:
         if method == "pane.resize":
             self.resize_params.append(dict(params))
             if params.get("pane_id") == HUD_PANE_ID:
-                direction = str(params.get("direction") or "")
-                amount = int(params.get("amount") or 0)
-                if direction == "up":
-                    self.hud_rows -= amount // 18
-                elif direction == "down":
-                    self.hud_rows += amount // 18
+                if params.get("absolute_axis") == "vertical":
+                    self.hud_rows = int(params.get("target_pixels") or 0) // 18
+                else:
+                    direction = str(params.get("direction") or "")
+                    amount = int(params.get("amount") or 0)
+                    if direction == "up":
+                        self.hud_rows -= amount // 18
+                    elif direction == "down":
+                        self.hud_rows += amount // 18
             return {"ok": True}
         if method == "workspace.equalize_splits":
             self.equalize_params.append(dict(params))
@@ -304,6 +307,37 @@ def assert_omx_hud_is_visible_to_tmux_pane_formats(
         raise AssertionError(f"expected pane_start_command to expose HUD watch command, got {hud_lines[0]!r}")
 
 
+def assert_omx_hud_absolute_height_resize_is_stable(
+    cli_path: str,
+    socket_path: Path,
+    fake_home: Path,
+    state: FakeCmuxState,
+) -> None:
+    proc = run_cli(
+        cli_path,
+        socket_path,
+        fake_home,
+        ["__tmux-compat", "resize-pane", "-t", f"%{HUD_PANE_ID}", "-y", "4"],
+    )
+    if proc.returncode != 0:
+        raise AssertionError(
+            "HUD absolute resize returned non-zero\n"
+            f"stdout={proc.stdout.strip()}\n"
+            f"stderr={proc.stderr.strip()}"
+        )
+    if not state.resize_params:
+        raise AssertionError("expected HUD absolute resize to call pane.resize")
+    resize = state.resize_params[-1]
+    if resize.get("absolute_axis") != "vertical":
+        raise AssertionError(f"expected absolute vertical resize, got {resize!r}")
+    if resize.get("direction") is not None:
+        raise AssertionError(f"absolute HUD resize should not use directional movement, got {resize!r}")
+    if resize.get("target_pixels") != 72:
+        raise AssertionError(f"expected 4 rows at 18px per cell, got {resize!r}")
+    if state.hud_rows != 4:
+        raise AssertionError(f"expected fake HUD rows to be set exactly, got {state.hud_rows}")
+
+
 def assert_omx_hud_feature_probe_is_supported(
     cli_path: str,
     socket_path: Path,
@@ -391,6 +425,12 @@ def main() -> int:
                     cli_path,
                     socket_path,
                     fake_home,
+                )
+                assert_omx_hud_absolute_height_resize_is_stable(
+                    cli_path,
+                    socket_path,
+                    fake_home,
+                    state,
                 )
             finally:
                 server.shutdown()

@@ -11723,25 +11723,21 @@ struct CMUXCLI {
         targetCells: Int,
         currentCellsKey: String,
         cellSizeKey: String,
-        growDirection: String,
-        shrinkDirection: String,
         client: SocketClient
     ) throws {
         guard targetCells > 0 else { return }
         let panePayload = try client.sendV2(method: "pane.list", params: ["workspace_id": workspaceId])
         let panes = panePayload["panes"] as? [[String: Any]] ?? []
         guard let matchingPane = panes.first(where: { ($0["id"] as? String) == paneId }),
-              let cellSize = intFromAny(matchingPane[cellSizeKey]), cellSize > 0,
-              let currentCells = intFromAny(matchingPane[currentCellsKey]) else {
+              let cellSize = intFromAny(matchingPane[cellSizeKey]), cellSize > 0 else {
             return
         }
-        let delta = targetCells - currentCells
-        guard delta != 0 else { return }
+        let axis = currentCellsKey == "columns" ? "horizontal" : "vertical"
         _ = try? client.sendV2(method: "pane.resize", params: [
             "workspace_id": workspaceId,
             "pane_id": paneId,
-            "direction": delta > 0 ? growDirection : shrinkDirection,
-            "amount": abs(delta) * cellSize
+            "absolute_axis": axis,
+            "target_pixels": targetCells * cellSize
         ])
     }
 
@@ -13394,8 +13390,6 @@ struct CMUXCLI {
                     targetCells: absWidth,
                     currentCellsKey: "columns",
                     cellSizeKey: "cell_width_px",
-                    growDirection: "right",
-                    shrinkDirection: "left",
                     client: client
                 )
             } else if !hasDirectionalFlags, let absHeight = parsed.value("-y").flatMap({ Int($0.replacingOccurrences(of: "%", with: "")) }) {
@@ -13405,8 +13399,6 @@ struct CMUXCLI {
                     targetCells: absHeight,
                     currentCellsKey: "rows",
                     cellSizeKey: "cell_height_px",
-                    growDirection: "down",
-                    shrinkDirection: "up",
                     client: client
                 )
             } else if hasDirectionalFlags {
