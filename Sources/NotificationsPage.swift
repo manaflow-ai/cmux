@@ -198,6 +198,7 @@ struct TerminalNotificationActionButtons: View {
                         .controlSize(.small)
 
                         Button(String(localized: "agentHooks.prompt.notNow", defaultValue: "Not Now")) {
+                            AgentHookIntegrationSettings.snoozePrompt(agentName: agent.name)
                             onClear()
                         }
                         .buttonStyle(.bordered)

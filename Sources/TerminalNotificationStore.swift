@@ -919,8 +919,10 @@ enum AgentHookIntegrationSettings {
         guard shouldShowPrompt(for: agent, status: currentStatus) else {
             return
         }
+        guard !TerminalNotificationStore.shared.hasAgentHookSetupNotification(for: agent.name) else {
+            return
+        }
 
-        markPromptShown(for: agent, status: currentStatus)
         TerminalNotificationStore.shared.addNotification(
             tabId: tabId,
             surfaceId: surfaceId,
@@ -931,11 +933,15 @@ enum AgentHookIntegrationSettings {
             body: currentStatus.isUpdateAvailable
                 ? String(localized: "agentHooks.nudge.updateBody", defaultValue: "cmux has a newer hook script for notifications and session restore.")
                 : String(localized: "agentHooks.nudge.body", defaultValue: "Hooks let cmux show agent notifications and restore sessions after cmux restarts."),
-            cooldownKey: "agent-hooks-setup-\(agent.name)",
-            cooldownInterval: promptCooldown,
             action: .agentHookSetup(agentName: agent.name)
         )
         AppDelegate.shared?.toggleNotificationsPopover(animated: true)
+    }
+
+    static func snoozePrompt(agentName: String, defaults: UserDefaults = .standard) {
+        guard let agent = agent(named: agentName) else { return }
+        let currentStatus = status(for: agent, defaults: defaults)
+        markPromptSnoozed(for: agent, status: currentStatus, defaults: defaults)
     }
 
     static func installHooks(for agent: AgentHookIntegration, completion: @escaping (AgentHookInstallResult) -> Void) {
@@ -1009,12 +1015,12 @@ enum AgentHookIntegrationSettings {
         defaults: UserDefaults = .standard
     ) -> Bool {
         let key = lastPromptKey(for: agent, status: status)
-        let lastShown = defaults.double(forKey: key)
-        guard lastShown > 0 else { return true }
-        return Date().timeIntervalSince1970 - lastShown >= promptCooldown
+        let lastSnoozed = defaults.double(forKey: key)
+        guard lastSnoozed > 0 else { return true }
+        return Date().timeIntervalSince1970 - lastSnoozed >= promptCooldown
     }
 
-    private static func markPromptShown(
+    private static func markPromptSnoozed(
         for agent: AgentHookIntegration,
         status: AgentHookIntegrationStatus,
         defaults: UserDefaults = .standard
@@ -1024,7 +1030,7 @@ enum AgentHookIntegrationSettings {
 
     private static func lastPromptKey(for agent: AgentHookIntegration, status: AgentHookIntegrationStatus) -> String {
         let kind = status.isUpdateAvailable ? "update" : "install"
-        return "agentHookSetupPromptLastShown.\(agent.name).\(kind)"
+        return "agentHookSetupPromptSnoozedAt.\(agent.name).\(kind)"
     }
 
     private static func hookInstallLaunch(for agent: AgentHookIntegration) -> (executableURL: URL, arguments: [String]) {
@@ -1632,6 +1638,15 @@ final class TerminalNotificationStore: ObservableObject {
             suppressedNotificationFeedbackHandler(self, notification)
         } else {
             notificationDeliveryHandler(self, notification)
+        }
+    }
+
+    func hasAgentHookSetupNotification(for agentName: String) -> Bool {
+        notifications.contains { notification in
+            if case .agentHookSetup(let existingAgentName) = notification.action {
+                return existingAgentName == agentName
+            }
+            return false
         }
     }
 
