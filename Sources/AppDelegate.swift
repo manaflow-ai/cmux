@@ -2016,14 +2016,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     break
                 }
 
+                let capturePath = ProcessInfo.processInfo.environment["CMUX_UI_TEST_CAPTURE_OPEN_URL_PATH"]
+                let beforeURL = capturePath.flatMap { try? String(contentsOfFile: $0, encoding: .utf8) }?
+                    .split(separator: "\n").last.map(String.init)
                 let result = terminalPanel.hostedView.debugSimulateStationaryCommandClick(at: hitPoint)
                 payload["lastCommandResult"] = result
-                let openedURL = ProcessInfo.processInfo.environment["CMUX_UI_TEST_CAPTURE_OPEN_URL_PATH"]
-                    .flatMap { try? String(contentsOfFile: $0, encoding: .utf8) }?
-                    .split(separator: "\n")
-                    .last
-                    .map(String.init)
-                if let openedURL {
+                let openedURL = capturePath.flatMap { try? String(contentsOfFile: $0, encoding: .utf8) }?
+                    .split(separator: "\n").last.map(String.init)
+                if let openedURL, openedURL != beforeURL {
                     payload["lastCommandOpenedURL"] = openedURL
                     payload["lastCommandSucceeded"] = "1"
                 } else if let error = result["error"] as? String {
