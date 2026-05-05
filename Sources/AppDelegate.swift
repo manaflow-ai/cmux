@@ -6313,16 +6313,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func servicePathURLs(from pasteboard: NSPasteboard) -> [URL] {
-        if let pathURLs = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL], !pathURLs.isEmpty {
+        let pathURLs = PasteboardFileURLReader.fileURLs(from: pasteboard)
+        if !pathURLs.isEmpty {
             return pathURLs
-        }
-
-        let filenamesType = NSPasteboard.PasteboardType(rawValue: "NSFilenamesPboardType")
-        if let paths = pasteboard.propertyList(forType: filenamesType) as? [String] {
-            let urls = paths.map { URL(fileURLWithPath: $0) }
-            if !urls.isEmpty {
-                return urls
-            }
         }
 
         if let raw = pasteboard.string(forType: .string), !raw.isEmpty {
