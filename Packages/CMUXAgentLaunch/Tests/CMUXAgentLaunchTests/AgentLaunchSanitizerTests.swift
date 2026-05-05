@@ -24,4 +24,15 @@ struct AgentLaunchSanitizerTests {
             ) == ["gemini", "--model", "gemini-2.5-pro"]
         )
     }
+
+    @Test("Preserves Cursor options after resume subcommand")
+    func preservesCursorOptionsAfterResumeSubcommand() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["cursor-agent", "resume", "chat-123", "--model", "gpt-5.4", "--sandbox", "enabled"],
+                launcher: "cursor",
+                fallbackKind: "cursor"
+            ) == ["cursor-agent", "--model", "gpt-5.4", "--sandbox", "enabled"]
+        )
+    }
 }

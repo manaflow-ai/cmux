@@ -264,7 +264,6 @@ extension AgentLaunchSanitizer {
             "ls",
             "mcp",
             "models",
-            "resume",
             "rule",
             "status",
             "uninstall-shell-integration",
@@ -298,7 +297,8 @@ extension AgentLaunchSanitizer {
             "--print",
             "-p",
             "--stream-partial-output"
-        ]
+        ],
+        resumeSubcommand: "resume"
     )
 
     static let openCodePolicy = Policy(

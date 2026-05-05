@@ -113,7 +113,9 @@ public enum AgentLaunchSanitizer {
                     continue
                 }
                 if skippingResumePositionals {
-                    break
+                    skippingResumePositionals = false
+                    index += 1
+                    continue
                 }
                 if policy.nonRestorableCommands.contains(arg) {
                     return nil
