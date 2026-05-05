@@ -412,7 +412,7 @@ def test_plain_claude_launch_argv_has_no_empty_argument(failures: list[str]) -> 
 
 def test_live_socket_clears_inherited_claude_auth_for_fresh_launch(failures: list[str]) -> None:
     inherited = {
-        "CLAUDE_CONFIG_DIR": "/tmp/stale-claude-config",
+        "CLAUDE_CONFIG_DIR": "/tmp/claude-config",
         "ANTHROPIC_API_KEY": "stale-api-key",
         "ANTHROPIC_AUTH_TOKEN": "stale-auth-token",
         "ANTHROPIC_BASE_URL": "https://api.example.test",
@@ -426,7 +426,10 @@ def test_live_socket_clears_inherited_claude_auth_for_fresh_launch(failures: lis
         inherited_env=inherited,
     )
     expect(code == 0, f"fresh auth env: wrapper exited {code}: {stderr}", failures)
+    expect(auth_env.get("CLAUDE_CONFIG_DIR") == "/tmp/claude-config", f"fresh auth env: expected CLAUDE_CONFIG_DIR preserved, got {auth_env.get('CLAUDE_CONFIG_DIR')!r}", failures)
     for key in inherited:
+        if key == "CLAUDE_CONFIG_DIR":
+            continue
         expect(auth_env.get(key) == "__UNSET__", f"fresh auth env: expected {key} unset, got {auth_env.get(key)!r}", failures)
     expect("--session-id" in real_argv, f"fresh auth env: expected session injection, got {real_argv}", failures)
 
@@ -453,7 +456,8 @@ def test_live_socket_preserves_claude_auth_for_resume_launch(failures: list[str]
 
 def test_live_socket_preserves_only_listed_claude_auth_keys(failures: list[str]) -> None:
     inherited = {
-        "CLAUDE_CONFIG_DIR": "/tmp/stale-claude-config",
+        "CLAUDE_CONFIG_DIR": "/tmp/claude-config",
+        "ANTHROPIC_API_KEY": "stale-api-key",
         "ANTHROPIC_MODEL": "resume-model",
         "CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV": "1",
         "CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS": "ANTHROPIC_MODEL",
@@ -464,7 +468,8 @@ def test_live_socket_preserves_only_listed_claude_auth_keys(failures: list[str])
     )
     expect(code == 0, f"listed auth env: wrapper exited {code}: {stderr}", failures)
     expect(auth_env.get("ANTHROPIC_MODEL") == "resume-model", f"listed auth env: expected model preserved, got {auth_env.get('ANTHROPIC_MODEL')!r}", failures)
-    expect(auth_env.get("CLAUDE_CONFIG_DIR") == "__UNSET__", f"listed auth env: expected unlisted CLAUDE_CONFIG_DIR unset, got {auth_env.get('CLAUDE_CONFIG_DIR')!r}", failures)
+    expect(auth_env.get("CLAUDE_CONFIG_DIR") == "/tmp/claude-config", f"listed auth env: expected CLAUDE_CONFIG_DIR preserved, got {auth_env.get('CLAUDE_CONFIG_DIR')!r}", failures)
+    expect(auth_env.get("ANTHROPIC_API_KEY") == "__UNSET__", f"listed auth env: expected unlisted ANTHROPIC_API_KEY unset, got {auth_env.get('ANTHROPIC_API_KEY')!r}", failures)
     expect("--session-id" not in real_argv, f"listed auth env: expected no injected session id, got {real_argv}", failures)
 
 

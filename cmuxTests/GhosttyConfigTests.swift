@@ -1316,10 +1316,10 @@ final class GhosttyTerminalStartupEnvironmentTests: XCTestCase {
         XCTAssertEqual(merged["TERM_PROGRAM"], TerminalSurface.managedTerminalProgram)
     }
 
-    func testMergedStartupEnvironmentNeutralizesInheritedClaudeAuthSelection() {
+    func testMergedStartupEnvironmentNeutralizesInheritedClaudeApiAuthSelection() {
         let merged = TerminalSurface.mergedStartupEnvironment(
             base: [
-                "CLAUDE_CONFIG_DIR": "/tmp/stale-claude-config",
+                "CLAUDE_CONFIG_DIR": "/tmp/claude-config",
                 "ANTHROPIC_API_KEY": "stale-api-key",
                 "ANTHROPIC_AUTH_TOKEN": "stale-auth-token",
                 "ANTHROPIC_MODEL": "stale-model",
@@ -1330,14 +1330,14 @@ final class GhosttyTerminalStartupEnvironmentTests: XCTestCase {
             initialEnvironmentOverrides: [:]
         )
 
-        XCTAssertEqual(merged["CLAUDE_CONFIG_DIR"], "")
+        XCTAssertEqual(merged["CLAUDE_CONFIG_DIR"], "/tmp/claude-config")
         XCTAssertEqual(merged["ANTHROPIC_API_KEY"], "")
         XCTAssertEqual(merged["ANTHROPIC_AUTH_TOKEN"], "")
         XCTAssertEqual(merged["ANTHROPIC_MODEL"], "")
         XCTAssertEqual(merged["CUSTOM_FLAG"], "1")
     }
 
-    func testMergedStartupEnvironmentNeutralizesAmbientClaudeAuthSelection() {
+    func testMergedStartupEnvironmentNeutralizesAmbientClaudeApiAuthSelection() {
         let merged = TerminalSurface.mergedStartupEnvironment(
             base: [
                 "CUSTOM_FLAG": "1"
@@ -1353,7 +1353,7 @@ final class GhosttyTerminalStartupEnvironmentTests: XCTestCase {
             ]
         )
 
-        XCTAssertEqual(merged["CLAUDE_CONFIG_DIR"], "")
+        XCTAssertNil(merged["CLAUDE_CONFIG_DIR"])
         XCTAssertEqual(merged["ANTHROPIC_API_KEY"], "")
         XCTAssertEqual(merged["ANTHROPIC_BASE_URL"], "")
         XCTAssertEqual(merged["ANTHROPIC_MODEL"], "")

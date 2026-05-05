@@ -4352,8 +4352,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         "ANTHROPIC_MODEL",
         "ANTHROPIC_SMALL_FAST_MODEL",
         "CLAUDE_CODE_USE_BEDROCK",
-        "CLAUDE_CODE_USE_VERTEX",
-        "CLAUDE_CONFIG_DIR"
+        "CLAUDE_CODE_USE_VERTEX"
     ]
 
     static func applyManagedTerminalIdentityEnvironment(
