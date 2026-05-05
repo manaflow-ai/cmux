@@ -51092,13 +51092,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open Config Window"
+            "value": "Open Config"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "構成ウインドウを開く"
+            "value": "設定を開く"
           }
         }
       }

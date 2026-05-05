@@ -6029,13 +6029,16 @@ struct SettingsView: View {
                             subtitle: String(
                                 localized: "settings.app.configWindow.subtitle",
                                 defaultValue: "Open the cmux terminal config and generated preview in one utility window."
-                            )
+                            ),
+                            controlWidth: pickerColumnWidth
                         ) {
-                            Button(String(localized: "settings.app.configWindow.openButton", defaultValue: "Open Config Window")) {
+                            Button {
                                 openWindow(id: ConfigSettingsView.windowID)
+                            } label: {
+                                Text(String(localized: "settings.app.configWindow.openButton", defaultValue: "Open Config"))
+                                    .frame(maxWidth: .infinity)
                             }
                             .buttonStyle(.bordered)
-                            .controlSize(.small)
                         }
 
                         SettingsCardDivider()
