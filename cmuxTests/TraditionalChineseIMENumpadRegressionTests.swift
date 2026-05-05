@@ -73,6 +73,20 @@ final class TraditionalChineseIMENumpadRegressionTests: XCTestCase {
         ))
     }
 
+    private func mouseMovedEvent() throws -> NSEvent {
+        try XCTUnwrap(NSEvent.mouseEvent(
+            with: .mouseMoved,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 0,
+            pressure: 0
+        ))
+    }
+
     func testDeduplicatorRecordsOnlyRawNumpadFallbacks() throws {
         var deduplicator = NumpadIMECommitDeduplicator()
 
@@ -178,6 +192,23 @@ final class TraditionalChineseIMENumpadRegressionTests: XCTestCase {
         XCTAssertTrue(deduplicator.shouldSuppressCommit(
             "2",
             currentEvent: nil,
+            sourceId: "com.apple.inputmethod.TCIM.Pinyin",
+            externalCommittedTextDepth: 0,
+            keyTextAccumulatorIsActive: false
+        ))
+    }
+
+    func testDeduplicatorIgnoresUnrelatedNonKeyDownCurrentEvent() throws {
+        var deduplicator = NumpadIMECommitDeduplicator()
+        deduplicator.recordFallback(
+            text: "1",
+            event: try keypadEvent(text: "1", keyCode: 83),
+            sourceId: "com.apple.inputmethod.TCIM.Pinyin"
+        )
+
+        XCTAssertTrue(deduplicator.shouldSuppressCommit(
+            "1",
+            currentEvent: try mouseMovedEvent(),
             sourceId: "com.apple.inputmethod.TCIM.Pinyin",
             externalCommittedTextDepth: 0,
             keyTextAccumulatorIsActive: false

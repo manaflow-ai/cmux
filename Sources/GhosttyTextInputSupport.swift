@@ -99,12 +99,7 @@ struct NumpadIMECommitDeduplicator {
         }
 
         let pendingCommit = pendingCommits[index]
-        if let currentEvent {
-            guard currentEvent.type == .keyDown else {
-                pendingCommits.remove(at: index)
-                return false
-            }
-
+        if let currentEvent, currentEvent.type == .keyDown {
             let currentFlags = normalizedNumpadFlags(currentEvent.modifierFlags)
             guard currentFlags == [.numericPad], currentEvent.keyCode == pendingCommit.keyCode else {
                 pendingCommits.remove(at: index)

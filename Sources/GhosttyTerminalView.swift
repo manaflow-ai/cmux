@@ -7646,6 +7646,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 if shouldSendText(text),
                    !suppressShiftSpaceFallbackText,
                    !suppressComposingFallbackText {
+                    shouldRefreshAfterTextInput = true
                     var handled = false
 #if DEBUG
                     let sendTimingStart = CmuxTypingTiming.start()
@@ -7667,7 +7668,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     }
                     if handled {
                         notePotentialDeferredNumpadIMECommit(text: text, event: event)
-                        shouldRefreshAfterTextInput = true
                     }
 #if DEBUG
                     ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
