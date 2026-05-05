@@ -5964,13 +5964,14 @@ struct SettingsView: View {
                                 localized: "settings.app.configWindow.subtitle",
                                 defaultValue: "Open the cmux terminal config and generated preview in one utility window."
                             ),
+                            controlWidth: pickerColumnWidth,
                             searchAnchorID: SettingsSearchIndex.settingID(for: .app, idSuffix: "terminal-config")
                         ) {
                             Button {
                                 openWindow(id: ConfigSettingsView.windowID)
                             } label: {
                                 Text(String(localized: "settings.app.configWindow.openButton", defaultValue: "Open Config"))
-                                    .font(.system(size: 15, weight: .semibold))
+                                    .font(.system(size: 13, weight: .medium))
                             }
                             .buttonStyle(.bordered)
                             .controlSize(.small)
