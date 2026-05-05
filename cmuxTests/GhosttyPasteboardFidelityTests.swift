@@ -82,4 +82,18 @@ final class GhosttyPasteboardFidelityTests: XCTestCase {
             koreanText
         )
     }
+
+    func testKeepsRichTextWhenItPreservesNonASCIIPlainTextDropped() throws {
+        let richText = "test? 한글"
+        let pasteboard = try makeMixedRichImagePasteboard(
+            namePrefix: "rich-preserves-non-ascii",
+            plainText: "test",
+            html: "<p>\(richText)</p>"
+        )
+
+        XCTAssertEqual(
+            cmuxPasteboardStringContentsForTesting(pasteboard),
+            richText
+        )
+    }
 }

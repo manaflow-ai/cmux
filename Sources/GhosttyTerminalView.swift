@@ -331,13 +331,13 @@ enum GhosttyPasteboardHelper {
 
         let hasImagePayload = hasImageData(in: pasteboard)
         let hasRTFDAttachmentPayload = types.contains(.rtfd)
-        let plainText = plainTextContents(from: pasteboard)
         if hasImagePayload,
            let html = pasteboard.string(forType: .html),
            htmlHasNoVisibleText(html) {
             return nil
         }
 
+        let plainText = plainTextContents(from: pasteboard)
         if hasImagePayload || hasRTFDAttachmentPayload {
             guard let richText = richTextContents(from: pasteboard) else {
                 return nil

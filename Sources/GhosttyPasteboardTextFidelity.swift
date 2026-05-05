@@ -8,10 +8,13 @@ extension GhosttyPasteboardHelper {
         let plainMetrics = textFidelityMetrics(plainText)
         let richMetrics = textFidelityMetrics(richText)
 
-        // Prefer plain text when rich-text conversion substitutes or drops non-ASCII scalars.
-        return richMetrics.replacementCharacters > plainMetrics.replacementCharacters ||
-            richMetrics.questionMarks > plainMetrics.questionMarks ||
-            plainMetrics.nonASCII > richMetrics.nonASCII
+        let richTextHasLossySubstitution =
+            richMetrics.replacementCharacters > plainMetrics.replacementCharacters ||
+            richMetrics.questionMarks > plainMetrics.questionMarks
+        let plainTextPreservesAtLeastAsMuchNonASCII = plainMetrics.nonASCII >= richMetrics.nonASCII
+
+        return plainMetrics.nonASCII > richMetrics.nonASCII ||
+            (richTextHasLossySubstitution && plainTextPreservesAtLeastAsMuchNonASCII)
     }
 
     private static func textFidelityMetrics(
