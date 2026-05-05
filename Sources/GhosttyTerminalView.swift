@@ -9,6 +9,7 @@ import Darwin
 import Carbon.HIToolbox
 import Sentry
 import Bonsplit
+import CMUXPasteboardFidelity
 import IOSurface
 import UniformTypeIdentifiers
 
@@ -333,17 +334,28 @@ enum GhosttyPasteboardHelper {
         let hasRTFDAttachmentPayload = types.contains(.rtfd)
         if hasImagePayload,
            let html = pasteboard.string(forType: .html),
-           htmlHasNoVisibleText(html) {
+           PasteboardTextFidelity.htmlHasNoVisibleText(html) {
             return nil
+        }
+
+        let plainText = plainTextContents(from: pasteboard)
+        if hasImagePayload || hasRTFDAttachmentPayload {
+            guard let richText = richTextContents(from: pasteboard) else {
+                return nil
+            }
+            if let plainText,
+               PasteboardTextFidelity.shouldPreferPlainText(plainText, overRichText: richText) {
+                return plainText
+            }
+            return richText
         }
 
         // Match upstream Ghostty's fast plain-text path for normal text paste.
         // Large clipboard payloads often also advertise HTML/RTF variants, and
         // eagerly rendering those rich-text flavors makes Cmd-V much slower than
         // vanilla Ghostty before the bytes ever reach the PTY.
-        if !hasImagePayload && !hasRTFDAttachmentPayload,
-           let value = plainTextContents(from: pasteboard) {
-            return value
+        if let plainText {
+            return plainText
         }
 
         return richTextContents(from: pasteboard)
@@ -567,24 +579,6 @@ enum GhosttyPasteboardHelper {
         }
 
         return nil
-    }
-
-    private static func htmlHasNoVisibleText(_ html: String) -> Bool {
-        let withoutComments = html.replacingOccurrences(
-            of: "<!--[\\s\\S]*?-->",
-            with: " ",
-            options: .regularExpression
-        )
-        let withoutTags = withoutComments.replacingOccurrences(
-            of: "<[^>]+>",
-            with: " ",
-            options: .regularExpression
-        )
-        let normalized = withoutTags
-            .replacingOccurrences(of: "&nbsp;", with: " ")
-            .replacingOccurrences(of: "&#160;", with: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return normalized.isEmpty
     }
 
     /// Attempts to materialize a decodable pasteboard image into a temporary file.

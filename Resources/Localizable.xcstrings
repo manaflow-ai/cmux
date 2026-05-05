@@ -110633,6 +110633,90 @@
         "ja": { "stringUnit": { "state": "translated", "value": "ワークスペース、ターミナル、またはブラウザサーフェスを開くとここに表示されます。" } }
       }
     },
+    "taskManager.contextMenu.viewWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "View Workspace" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースを表示" } }
+      }
+    },
+    "taskManager.contextMenu.viewTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "View Terminal" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルを表示" } }
+      }
+    },
+    "taskManager.contextMenu.killProcess": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Kill Process..." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プロセスを終了..." } }
+      }
+    },
+    "taskManager.killProcess.title.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Kill process?" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プロセスを終了しますか？" } }
+      }
+    },
+    "taskManager.killProcess.message.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Ask %@ (PID %lld) to terminate gracefully. cmux will force-kill it if it is still running after a short grace period." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@（PID %lld）に正常終了を要求します。短い猶予時間の後も実行中の場合、cmux が強制終了します。" } }
+      }
+    },
+    "taskManager.killProcess.title.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Kill processes?" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プロセスを終了しますか？" } }
+      }
+    },
+    "taskManager.killProcess.message.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Ask %lld processes to terminate gracefully. cmux will force-kill remaining processes after a short grace period. PIDs: %@." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%lld 個のプロセスに正常終了を要求します。短い猶予時間の後も残っているプロセスは cmux が強制終了します。PID: %@。" } }
+      }
+    },
+    "taskManager.killProcess.confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Kill" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "終了" } }
+      }
+    },
+    "taskManager.killProcess.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Cancel" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "キャンセル" } }
+      }
+    },
+    "taskManager.killProcess.error": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unable to kill process: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プロセスを終了できません: %@" } }
+      }
+    },
+    "taskManager.killProcess.target.processGroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "process group %lld" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プロセスグループ %lld" } }
+      }
+    },
+    "taskManager.killProcess.target.pid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "PID %lld" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "PID %lld" } }
+      }
+    },
     "taskManager.updated.never": {
       "extractionState": "manual",
       "localizations": {

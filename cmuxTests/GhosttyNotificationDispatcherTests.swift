@@ -113,4 +113,3 @@ final class GhosttyDefaultBackgroundNotificationDispatcherTests: XCTestCase {
         return -1
     }
 }
-

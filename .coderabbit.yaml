@@ -48,7 +48,7 @@ reviews:
       - name: "cmux Swift logging"
         mode: error
         instructions: |
-          For production Swift changes, fail when the diff violates `.github/review-bot-rules/swift-logging.md`: `print`, `debugPrint`, `dump`, or `NSLog` in app/runtime code; ad hoc file/stdout logging for diagnostics; MainActor-coupled file-scoped Logger constants; or logs that expose secrets or personal data. Pass for CLI output, tests, debug-only logs, and explicitly sanitized provider diagnostics.
+          For production Swift changes, fail when the diff violates `.github/review-bot-rules/swift-logging.md`: `print`, `debugPrint`, `dump`, or `NSLog` in app/runtime code; ad hoc file/stdout logging for diagnostics; MainActor-coupled file-scoped Logger constants; or logs that expose secrets or personal data. Do not require new logs for new code paths; only check logging that the diff adds or materially changes. Pass for CLI output, tests, debug-only logs, and explicitly sanitized provider diagnostics.
       - name: "cmux SwiftUI state layout"
         mode: error
         instructions: |

@@ -1909,7 +1909,7 @@ struct StoredShortcut: Codable, Equatable, Hashable {
     }
 
     var isUnbound: Bool {
-        key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        key.isEmpty
     }
 
     var firstStroke: ShortcutStroke {
