@@ -4474,6 +4474,8 @@ async fn build_chrome_spec(
             None
         };
         pane_chromes.push(PaneChrome {
+            active_tab_id: leaf.active_tab_id,
+            terminal_rect: leaf.inner,
             tab_bar: TabBarSpec {
                 rect: tab_bar_rect,
                 tabs: leaf.pills.clone(),

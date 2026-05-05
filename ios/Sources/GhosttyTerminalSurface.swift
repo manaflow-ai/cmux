@@ -553,6 +553,7 @@ public final class GhosttyRuntime {
         font-family = Menlo
         font-size = 10
         window-padding-balance = false
+        window-padding-x = 0
         window-padding-y = 0
         cursor-style = bar
         cursor-style-blink = true

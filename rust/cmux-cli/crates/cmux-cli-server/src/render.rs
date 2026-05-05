@@ -69,6 +69,12 @@ pub struct ChromeSpec {
 
 #[derive(Debug, Clone)]
 pub struct PaneChrome {
+    /// Active tab rendered in this pane. Used by the render thread to
+    /// clamp the pane border to the tab's canonical grid when another
+    /// client has made the shared terminal smaller than this TUI pane.
+    pub active_tab_id: TabId,
+    /// Interior rect where terminal cells are pasted.
+    pub terminal_rect: Rect,
     /// Tab bar painted inline along the top of this pane's border.
     pub tab_bar: TabBarSpec,
     /// Optional zellij-style border around this pane. `None` when the
@@ -560,9 +566,18 @@ impl RenderBroker {
                     // clobbering the corners.
                     for pc in &chrome.panes {
                         if let Some(border) = pc.border.as_ref() {
-                            paint_pane_border(&mut frame, border);
+                            let effective_border = effective_pane_border(
+                                border,
+                                pc.terminal_rect,
+                                terminal_sizes.get(&pc.active_tab_id).map(|size| size.get()),
+                            );
+                            paint_pane_border(&mut frame, &effective_border);
+                            let effective_tab_bar =
+                                tab_bar_for_border(&pc.tab_bar, effective_border.rect);
+                            paint_tab_bar(&mut frame, &effective_tab_bar);
+                        } else {
+                            paint_tab_bar(&mut frame, &pc.tab_bar);
                         }
-                        paint_tab_bar(&mut frame, &pc.tab_bar);
                     }
                     paint_status(&mut frame, &chrome.status);
                     // Paste each pane's terminal content.
@@ -1197,6 +1212,88 @@ fn paint_pane_border(frame: &mut Frame, border: &BorderSpec) {
         paint_border_glyph(frame, r, left_col, "│", fg, bold);
         paint_border_glyph(frame, r, right_col, "│", fg, bold);
     }
+}
+
+fn effective_pane_border(
+    border: &BorderSpec,
+    terminal_rect: Rect,
+    terminal_size: Option<(u16, u16)>,
+) -> BorderSpec {
+    let Some((terminal_cols, terminal_rows)) = terminal_size else {
+        return border.clone();
+    };
+
+    let mut effective = border.clone();
+    effective.rect =
+        visible_grid_border_rect(border.rect, terminal_rect, terminal_cols, terminal_rows);
+    effective
+}
+
+fn visible_grid_border_rect(
+    border_rect: Rect,
+    terminal_rect: Rect,
+    terminal_cols: u16,
+    terminal_rows: u16,
+) -> Rect {
+    if border_rect.cols < 2 || border_rect.rows < 2 {
+        return border_rect;
+    }
+
+    let border_right = rect_right(border_rect);
+    let border_bottom = rect_bottom(border_rect);
+    let left = terminal_rect
+        .col
+        .saturating_sub(1)
+        .max(border_rect.col)
+        .min(border_right.saturating_sub(1));
+    let top = terminal_rect
+        .row
+        .saturating_sub(1)
+        .max(border_rect.row)
+        .min(border_bottom.saturating_sub(1));
+    let clamped_cols = terminal_cols.max(1).min(terminal_rect.cols.max(1));
+    let clamped_rows = terminal_rows.max(1).min(terminal_rect.rows.max(1));
+    let right = terminal_rect
+        .col
+        .saturating_add(clamped_cols)
+        .min(border_right)
+        .max(left.saturating_add(1))
+        .min(border_right);
+    let bottom = terminal_rect
+        .row
+        .saturating_add(clamped_rows)
+        .min(border_bottom)
+        .max(top.saturating_add(1))
+        .min(border_bottom);
+
+    Rect {
+        col: left,
+        row: top,
+        cols: right.saturating_sub(left).saturating_add(1),
+        rows: bottom.saturating_sub(top).saturating_add(1),
+    }
+}
+
+fn rect_right(rect: Rect) -> u16 {
+    rect.col.saturating_add(rect.cols.saturating_sub(1))
+}
+
+fn rect_bottom(rect: Rect) -> u16 {
+    rect.row.saturating_add(rect.rows.saturating_sub(1))
+}
+
+fn tab_bar_for_border(tab_bar: &TabBarSpec, border_rect: Rect) -> TabBarSpec {
+    if border_rect.cols < 2 || border_rect.rows == 0 {
+        return tab_bar.clone();
+    }
+    let mut effective = tab_bar.clone();
+    effective.rect = Rect {
+        col: border_rect.col.saturating_add(1),
+        row: border_rect.row,
+        cols: border_rect.cols.saturating_sub(2),
+        rows: tab_bar.rect.rows.min(border_rect.rows),
+    };
+    effective
 }
 
 fn paint_border_glyph(
@@ -1862,6 +1959,32 @@ mod tests {
         let corner = &frame.cells[0][0];
         assert_eq!(corner.fg, StyleColor::Rgb(PANE_BORDER_FLASH_FG));
         assert!(!corner.bold);
+    }
+
+    #[test]
+    fn visible_grid_border_hugs_canonical_terminal_size() {
+        let border = Rect {
+            col: 16,
+            row: 1,
+            cols: 84,
+            rows: 26,
+        };
+        let terminal = Rect {
+            col: 17,
+            row: 2,
+            cols: 82,
+            rows: 24,
+        };
+
+        assert_eq!(
+            visible_grid_border_rect(border, terminal, 30, 24),
+            Rect {
+                col: 16,
+                row: 1,
+                cols: 32,
+                rows: 26,
+            }
+        );
     }
 
     #[test]

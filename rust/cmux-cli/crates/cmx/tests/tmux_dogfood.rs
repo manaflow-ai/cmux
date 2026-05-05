@@ -14,6 +14,11 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
+use cmux_cli_protocol::{
+    ClientMsg, NativeTerminalRenderer, NativeTerminalViewport, PROTOCOL_VERSION, ServerMsg,
+    Viewport, read_msg, write_msg,
+};
+
 fn tmux_available() -> bool {
     Command::new("tmux")
         .arg("-V")
@@ -28,6 +33,7 @@ fn tmux_available() -> bool {
 struct Session {
     name: String,
     socket_dir: tempfile::TempDir,
+    sock: PathBuf,
     server: std::process::Child,
 }
 
@@ -92,6 +98,7 @@ impl Session {
         Self {
             name: session_name.into(),
             socket_dir,
+            sock,
             server,
         }
     }
@@ -146,6 +153,10 @@ impl Session {
             .expect("tmux resize-window");
     }
 
+    fn constrain_native_layout(&self, cols: u16, rows: u16) -> NativeClient {
+        NativeClient::connect(self.sock.clone(), cols, rows)
+    }
+
     /// Poll capture-pane until `predicate` matches or the deadline passes.
     fn wait_until<F: Fn(&str) -> bool>(&self, timeout: Duration, predicate: F) -> String {
         let deadline = Instant::now() + timeout;
@@ -158,6 +169,78 @@ impl Session {
             std::thread::sleep(Duration::from_millis(100));
         }
         last
+    }
+}
+
+struct NativeClient {
+    runtime: tokio::runtime::Runtime,
+    stream: Option<tokio::net::UnixStream>,
+}
+
+impl NativeClient {
+    fn connect(sock: PathBuf, cols: u16, rows: u16) -> Self {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("native client runtime");
+        let stream = runtime.block_on(async move {
+            let mut stream = tokio::net::UnixStream::connect(&sock)
+                .await
+                .expect("connect native client");
+            write_msg(
+                &mut stream,
+                &ClientMsg::HelloNative {
+                    version: PROTOCOL_VERSION,
+                    viewport: Viewport { cols: 80, rows: 24 },
+                    token: None,
+                    terminal_renderer: NativeTerminalRenderer::Libghostty,
+                },
+            )
+            .await
+            .expect("send native hello");
+
+            let focused_tab_id = loop {
+                let msg = tokio::time::timeout(
+                    Duration::from_secs(5),
+                    read_msg::<_, ServerMsg>(&mut stream),
+                )
+                .await
+                .expect("native snapshot timeout")
+                .expect("read native msg")
+                .expect("native eof");
+                if let ServerMsg::NativeSnapshot { snapshot } = msg {
+                    break snapshot.focused_tab_id;
+                }
+            };
+
+            write_msg(
+                &mut stream,
+                &ClientMsg::NativeLayout {
+                    terminals: vec![NativeTerminalViewport {
+                        tab_id: focused_tab_id,
+                        cols,
+                        rows,
+                    }],
+                },
+            )
+            .await
+            .expect("send native layout");
+            stream
+        });
+        Self {
+            runtime,
+            stream: Some(stream),
+        }
+    }
+}
+
+impl Drop for NativeClient {
+    fn drop(&mut self) {
+        if let Some(mut stream) = self.stream.take() {
+            let _ = self
+                .runtime
+                .block_on(async move { write_msg(&mut stream, &ClientMsg::Detach).await });
+        }
     }
 }
 
@@ -373,6 +456,41 @@ fn bounds_helper_draws_compact_rails_for_ipad_sidebar_width() {
             "compact cmx attach pane border glyph {glyph:?} missing around bounds helper:\n{compact}"
         );
     }
+}
+
+#[test]
+fn bounds_helper_tui_border_hugs_native_constrained_grid() {
+    if !tmux_available() {
+        eprintln!("tmux not available; skipping");
+        return;
+    }
+    let s = Session::start("cmxtest_bounds_native_grid", 100, 28);
+    s.wait_until(Duration::from_secs(3), |f| f.contains("[main · space-1]"));
+
+    let helper = worktree_root().join("scripts/tui-terminal-bounds-check.sh");
+    let command = format!(
+        "CMUX_BOUNDS_TUI_ALT_SCREEN=0 CMUX_BOUNDS_TUI_INTERVAL=0.1 CMUX_BOUNDS_TUI_REDRAW_EVERY=1 {}",
+        shell_quote(&helper.display().to_string())
+    );
+    s.send_literal(&command);
+    s.enter();
+
+    let _native = s.constrain_native_layout(30, 24);
+    let constrained = s.wait_until(Duration::from_secs(5), |frame| {
+        frame.contains("rows=24 cols=30")
+            && frame.contains("│1============================2│")
+            && frame.contains("│3============================4│")
+    });
+
+    assert!(
+        constrained.contains("rows=24 cols=30"),
+        "native client did not constrain the shared terminal grid:\n{constrained}"
+    );
+    assert!(
+        constrained.contains("│1============================2│")
+            && constrained.contains("│3============================4│"),
+        "cmx TUI border did not hug the native-constrained grid:\n{constrained}"
+    );
 }
 
 #[test]

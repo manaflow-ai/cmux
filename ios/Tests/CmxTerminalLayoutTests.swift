@@ -94,6 +94,17 @@ final class CmxTerminalLayoutTests: XCTestCase {
         XCTAssertEqual(size.height, 400)
     }
 
+    func testTerminalBoundsOverlayDoesNotDrawFullSurfaceWhileGridIsPending() {
+        let size = TerminalVisibleBoundsOverlayStyle.borderSize(
+            pointSize: CGSize(width: 768, height: 930),
+            gridSize: nil,
+            renderSize: CmxTerminalSize(cols: 30, rows: 24),
+            displayScale: 2
+        )
+
+        XCTAssertEqual(size, .zero)
+    }
+
     func testTerminalBoundsOverlayBorderTracksRenderClampInsideLargerSurface() {
         let size = TerminalVisibleBoundsOverlayStyle.borderSize(
             pointSize: CGSize(width: 768, height: 930),
@@ -107,6 +118,12 @@ final class CmxTerminalLayoutTests: XCTestCase {
     }
 
     func testTerminalBoundsOverlayLabelAvoidsCoveringRailsWhenThereIsNoSpareRoom() {
+        XCTAssertNil(
+            TerminalVisibleBoundsOverlayStyle.labelOrigin(
+                pointSize: CGSize(width: 402, height: 774),
+                borderSize: .zero
+            )
+        )
         XCTAssertNil(
             TerminalVisibleBoundsOverlayStyle.labelOrigin(
                 pointSize: CGSize(width: 402, height: 774),

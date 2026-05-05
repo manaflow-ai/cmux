@@ -693,7 +693,7 @@ enum TerminalVisibleBoundsOverlayStyle {
               gridSize.pixelHeight > 0,
               gridSize.columns > 0,
               gridSize.rows > 0 else {
-            return pointSize
+            return .zero
         }
 
         let scale = max(displayScale, 1)
@@ -714,6 +714,7 @@ enum TerminalVisibleBoundsOverlayStyle {
     }
 
     static func labelOrigin(pointSize: CGSize, borderSize: CGSize) -> CGPoint? {
+        guard showsBorder(pointSize: borderSize) else { return nil }
         let trailingSpace = pointSize.width - borderSize.width
         if trailingSpace >= minimumLabelWidth + labelGap {
             return CGPoint(x: borderSize.width + labelGap, y: 0)
