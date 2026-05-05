@@ -12641,7 +12641,6 @@ struct SidebarWorkspaceSnapshotBuilder {
 }
 
 private final class SidebarTabItemContextMenuState: ObservableObject {
-    var isVisible = false
     var hasDeferredWorkspaceObservationInvalidation = false
     var pendingWorkspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot?
 }
@@ -12707,7 +12706,7 @@ private struct TabItemView: View, Equatable {
     @Binding var frozenPresentation: SidebarTabItemPresentationSnapshot?
     @State private var workspaceSnapshotStorage: SidebarWorkspaceSnapshotBuilder.Snapshot?
     @StateObject private var contextMenuState = SidebarTabItemContextMenuState()
-    @State private var isHovering = false
+    @State private var rowInteractionState = SidebarWorkspaceRowInteractionState()
     @State private var rowHeight: CGFloat = 1
 
     var isMultiSelected: Bool {
@@ -12833,7 +12832,10 @@ private struct TabItemView: View, Equatable {
     }
 
     private var showCloseButton: Bool {
-        isHovering && canCloseWorkspace && !(showsModifierShortcutHints || alwaysShowShortcutHints)
+        rowInteractionState.shouldShowCloseButton(
+            canCloseWorkspace: canCloseWorkspace,
+            shortcutHintModeActive: showsModifierShortcutHints || alwaysShowShortcutHints
+        )
     }
 
     private var workspaceShortcutLabel: String? {
@@ -13232,6 +13234,9 @@ private struct TabItemView: View, Equatable {
         .contentShape(Rectangle())
         .opacity(isBeingDragged ? 0.6 : 1)
         .overlay {
+            SidebarWorkspaceRowHoverTracker(rowInteractionState: $rowInteractionState)
+        }
+        .overlay {
             MiddleClickCapture {
                 #if DEBUG
                 cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=middleClick")
@@ -13318,10 +13323,6 @@ private struct TabItemView: View, Equatable {
         .onTapGesture {
             updateSelection()
         }
-        .onHover { hovering in
-            guard !contextMenuState.isVisible else { return }
-            isHovering = hovering
-        }
         .safeHelp(workspaceSnapshot.title)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text(accessibilityTitle))
@@ -13335,17 +13336,14 @@ private struct TabItemView: View, Equatable {
         .contextMenu {
             workspaceContextMenu
                 .onAppear {
-                    contextMenuState.isVisible = true
+                    rowInteractionState.contextMenuDidAppear()
                     contextMenuState.hasDeferredWorkspaceObservationInvalidation = false
                     contextMenuState.pendingWorkspaceSnapshot = nil
                     frozenPresentation = livePresentation
                 }
                 .onDisappear {
-                    contextMenuState.isVisible = false
+                    rowInteractionState.contextMenuDidDisappear()
                     frozenPresentation = nil
-                    if isHovering {
-                        isHovering = false
-                    }
                     flushDeferredWorkspaceObservationInvalidation()
                 }
         }
@@ -13357,7 +13355,7 @@ private struct TabItemView: View, Equatable {
             current: workspaceSnapshotStorage,
             next: nextSnapshot,
             force: force,
-            contextMenuVisible: contextMenuState.isVisible
+            contextMenuVisible: rowInteractionState.contextMenuVisible
         )
 
         if workspaceSnapshotStorage != decision.workspaceSnapshotStorage {
