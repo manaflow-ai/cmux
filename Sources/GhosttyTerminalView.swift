@@ -3828,7 +3828,7 @@ class GhosttyApp {
                         let resolvedWorkspace = AppDelegate.shared?.workspaceContainingPanel(
                             panelId: surfaceId,
                             preferredWorkspaceId: preferredWorkspaceId
-                        ) ?? workspace
+                        )?.workspace ?? workspace
                         // TOCTOU re-check: file may have been removed/renamed
                         // since the synchronous gate. Fall through if so.
                         guard CmdClickMarkdownRouteSettings.shouldRoute(path: fileURL.path) else {
