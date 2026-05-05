@@ -3776,12 +3776,14 @@ class GhosttyApp {
                 #endif
                 return false
             }
+            #if DEBUG
             if CmuxUITestCapture.appendLineIfConfigured(
-                envKey: "CMUX_UI_TEST_CAPTURE_OPEN_PATH",
+                envKey: "CMUX_UI_TEST_CAPTURE_OPEN_URL_PATH",
                 line: target.url.absoluteString
             ) {
                 return true
             }
+            #endif
             // Route markdown file URLs into the cmux viewer when the toggle is
             // on AND the link is local. URL fragments/queries are stripped (the
             // panel only needs the file path), so links emitted by tools like

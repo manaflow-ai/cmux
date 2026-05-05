@@ -2018,7 +2018,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
                 let result = terminalPanel.hostedView.debugSimulateStationaryCommandClick(at: hitPoint)
                 payload["lastCommandResult"] = result
-                let openedURL = ProcessInfo.processInfo.environment["CMUX_UI_TEST_CAPTURE_OPEN_PATH"]
+                let openedURL = ProcessInfo.processInfo.environment["CMUX_UI_TEST_CAPTURE_OPEN_URL_PATH"]
                     .flatMap { try? String(contentsOfFile: $0, encoding: .utf8) }?
                     .split(separator: "\n")
                     .last
