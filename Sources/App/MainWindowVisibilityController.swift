@@ -322,29 +322,16 @@ final class MainWindowVisibilityController {
 
     @discardableResult
     func orderFrontApplicationWindowsBeforeActivation(windows: [NSWindow], reason: Reason) -> NSWindow? {
-        let allWindows = uniqueWindows(windows)
-        let revealTargets = passiveApplicationActivationRestoreTargets(in: allWindows)
-        let focusWindow = reveal(
-            revealTargets,
-            preferredWindow: nil,
-            reason: reason,
-            activation: .none,
-            makeKey: false
-        )
+        let revealTargets = passiveApplicationActivationRestoreTargets(in: uniqueWindows(windows))
+        let focusWindow = reveal(revealTargets, preferredWindow: nil, reason: reason, activation: .none, makeKey: false)
         pendingApplicationActivationKeyRestoreTarget = focusWindow
         return focusWindow
     }
 
     @discardableResult
     func restoreApplicationWindowsAfterActivation(windows: [NSWindow], reason: Reason) -> NSWindow? {
-        let allWindows = uniqueWindows(windows)
-        let revealTargets = passiveApplicationActivationRestoreTargets(in: allWindows)
-        let focusWindow = reveal(
-            revealTargets,
-            preferredWindow: nil,
-            reason: reason,
-            activation: .none
-        )
+        let revealTargets = passiveApplicationActivationRestoreTargets(in: uniqueWindows(windows))
+        let focusWindow = reveal(revealTargets, preferredWindow: nil, reason: reason, activation: .none)
         dismissedWindowRestoreTargets.removeAll { dismissedWindow in
             revealTargets.contains { $0 === dismissedWindow }
         }

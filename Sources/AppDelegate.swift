@@ -1469,25 +1469,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 #endif
 
-    func applicationWillBecomeActive(_ notification: Notification) {
-        if !hasVisibleMainTerminalWindow() {
-            _ = mainWindowVisibilityController.orderFrontApplicationWindowsBeforeActivation(
-                windows: mainWindowsForVisibilityController(),
-                reason: .applicationWillBecomeActive
-            )
-        }
-    }
+    func applicationWillBecomeActive(_ notification: Notification) { if !hasVisibleMainTerminalWindow() { _ = mainWindowVisibilityController.orderFrontApplicationWindowsBeforeActivation(windows: mainWindowsForVisibilityController(), reason: .applicationWillBecomeActive) } }
 
     func applicationDidBecomeActive(_ notification: Notification) {
         let activationWindows = mainWindowsForVisibilityController()
-        if mainWindowVisibilityController.finishPendingApplicationActivationRestore(
-            windows: activationWindows,
-            reason: .applicationDidBecomeActive
-        ) == nil, !hasVisibleMainTerminalWindow() {
-            _ = mainWindowVisibilityController.restoreApplicationWindowsAfterActivation(
-                windows: activationWindows,
-                reason: .applicationDidBecomeActive
-            )
+        if mainWindowVisibilityController.finishPendingApplicationActivationRestore(windows: activationWindows, reason: .applicationDidBecomeActive) == nil, !hasVisibleMainTerminalWindow() {
+            _ = mainWindowVisibilityController.restoreApplicationWindowsAfterActivation(windows: activationWindows, reason: .applicationDidBecomeActive)
         }
         sentryBreadcrumb("app.didBecomeActive", category: "lifecycle", data: [
             "tabCount": tabManager?.tabs.count ?? 0

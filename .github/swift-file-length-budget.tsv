@@ -4,7 +4,7 @@
 20530	CLI/cmux.swift
 17317	Sources/TerminalController.swift
 15956	Sources/ContentView.swift
-14639	Sources/AppDelegate.swift
+14636	Sources/AppDelegate.swift
 13975	Sources/Workspace.swift
 13376	Sources/GhosttyTerminalView.swift
 10607	Sources/Panels/BrowserPanel.swift
