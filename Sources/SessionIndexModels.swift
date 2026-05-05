@@ -182,25 +182,25 @@ struct SessionEntry: Identifiable, Hashable {
         case .rovodev:
             return "acli rovodev run --restore \(Self.shellQuote(sessionId))"
         case .registered(let registration):
-            guard let kind = RestorableAgentKind(rawValue: registration.id),
-                  let command = AgentResumeCommandBuilder.resumeShellCommand(
-                      kind: kind,
-                      sessionId: sessionId,
-                      launchCommand: AgentLaunchCommandSnapshot(
-                          launcher: registration.id,
-                          executablePath: nil,
-                          arguments: [registration.defaultExecutable],
-                          workingDirectory: cwd,
-                          environment: nil,
-                          capturedAt: nil,
-                          source: "vault"
-                      ),
-                      workingDirectory: nil,
-                      registrationOverride: registration
-                  ) else {
-                return "\(Self.shellQuote(registration.defaultExecutable)) --session \(Self.shellQuote(sessionId))"
+            if let command = AgentResumeCommandBuilder.resumeShellCommand(
+                kind: .custom(registration.id),
+                sessionId: sessionId,
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: registration.id,
+                    executablePath: nil,
+                    arguments: [registration.defaultExecutable],
+                    workingDirectory: cwd,
+                    environment: nil,
+                    capturedAt: nil,
+                    source: "vault"
+                ),
+                workingDirectory: nil,
+                registrationOverride: registration,
+                includeWorkingDirectoryPrefix: false
+            ) {
+                return command
             }
-            return command
+            return registration.resumeCommand
         }
     }
 

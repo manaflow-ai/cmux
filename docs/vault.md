@@ -17,7 +17,7 @@ Pi Coding Agent is registered by default:
           "processName": "pi",
           "argvContains": "pi"
         },
-        "sessionIdSource": "piSessionFile",
+        "sessionIdSource": { "type": "piSessionFile" },
         "resumeCommand": "{{executable}} --session {{sessionId}}",
         "cwd": "preserve",
         "sessionDirectory": "~/.pi/agent/sessions"

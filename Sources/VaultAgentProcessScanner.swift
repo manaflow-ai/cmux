@@ -90,26 +90,26 @@ private struct VaultObservedAgentProcess: Sendable {
 
 private extension CmuxVaultAgentDetectRule {
     func matches(_ process: VaultObservedAgentProcess) -> Bool {
-        if let processName, !processName.isEmpty,
-           process.executableBasenames.contains(where: {
-               $0.compare(processName, options: [.caseInsensitive, .literal]) == .orderedSame
-           }) {
-            return true
-        }
-        guard !argvContains.isEmpty else { return false }
-        return argvContains.allSatisfy { needle in
+        guard processName != nil || !argvContains.isEmpty else { return false }
+        let processNameMatch = processName.map { expected in
+            process.executableBasenames.contains { candidate in
+                candidate.compare(expected, options: [.caseInsensitive, .literal]) == .orderedSame
+            }
+        } ?? true
+        let argvContainsMatch = argvContains.isEmpty || argvContains.allSatisfy { needle in
             if needle.contains("/") || needle.contains(" ") {
                 let joinedArguments = process.arguments.joined(separator: "\u{0}")
                 return joinedArguments.range(of: needle, options: [.caseInsensitive, .literal]) != nil
             }
             return process.arguments.contains { argument in
-                argument.compare(needle, options: [.caseInsensitive, .literal]) == .orderedSame
-                    || (argument as NSString).lastPathComponent.compare(
-                        needle,
+                argument.range(of: needle, options: [.caseInsensitive, .literal]) != nil
+                    || (argument as NSString).lastPathComponent.range(
+                        of: needle,
                         options: [.caseInsensitive, .literal]
-                    ) == .orderedSame
+                    ) != nil
             }
         }
+        return processNameMatch && argvContainsMatch
     }
 }
 

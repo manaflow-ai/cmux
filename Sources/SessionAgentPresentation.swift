@@ -8,10 +8,12 @@ extension SessionAgent {
         case .opencode: return String(localized: "sessionIndex.agent.opencode", defaultValue: "OpenCode")
         case .rovodev: return String(localized: "sessionIndex.agent.rovodev", defaultValue: "Rovo Dev")
         case .registered(let id):
-            if id == "pi" {
+            if let name = CmuxVaultAgentDisplayNameCache.name(for: id) {
+                return name
+            } else if id == "pi" {
                 return String(localized: "sessionIndex.agent.pi", defaultValue: "Pi")
             }
-            return CmuxVaultAgentRegistry.load().registration(id: id)?.name ?? id
+            return id
         }
     }
 
@@ -25,5 +27,27 @@ extension SessionAgent {
         case .registered:
             return "AgentIcons/OpenCode"
         }
+    }
+}
+
+enum CmuxVaultAgentDisplayNameCache {
+    private static let lock = NSLock()
+    private static var namesByID: [String: String] = [:]
+
+    static func store(registrations: [CmuxVaultAgentRegistration]) {
+        lock.lock()
+        for registration in registrations {
+            if registration.id == "pi", registration.name == "Pi" {
+                continue
+            }
+            namesByID[registration.id] = registration.name
+        }
+        lock.unlock()
+    }
+
+    static func name(for id: String) -> String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return namesByID[id]
     }
 }

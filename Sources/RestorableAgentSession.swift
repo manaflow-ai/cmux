@@ -21,7 +21,8 @@ enum AgentResumeCommandBuilder {
         sessionId: String,
         launchCommand: AgentLaunchCommandSnapshot?,
         workingDirectory: String?,
-        registrationOverride: CmuxVaultAgentRegistration? = nil
+        registrationOverride: CmuxVaultAgentRegistration? = nil,
+        includeWorkingDirectoryPrefix: Bool = true
     ) -> String? {
         let registry = registrationOverride.map {
             CmuxVaultAgentRegistry(registrations: [$0])
@@ -49,7 +50,7 @@ enum AgentResumeCommandBuilder {
         commandParts.append(contentsOf: argv)
 
         var shellCommand = commandParts.map(shellSingleQuoted).joined(separator: " ")
-        let cwd = customRegistration?.cwd == .ignore
+        let cwd = !includeWorkingDirectoryPrefix || customRegistration?.cwd == .ignore
             ? nil
             : normalized(workingDirectory ?? launchCommand?.workingDirectory)
         if let cwd {

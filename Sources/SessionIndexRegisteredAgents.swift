@@ -93,7 +93,7 @@ extension SessionIndexStore {
         guard let root = registration.sessionDirectory.map({ ($0 as NSString).expandingTildeInPath }) else {
             return []
         }
-        if registration.id == "pi",
+        if case .piSessionFile = registration.sessionIdSource,
            let cwdFilter,
            let projectDirectory = PiSessionLocator.projectDirectoryName(for: cwdFilter) {
             return [(root as NSString).appendingPathComponent(projectDirectory)]
@@ -157,7 +157,7 @@ extension SessionIndexStore {
             }
             return !metadata.title.isEmpty && metadata.cwd != nil
         }
-        if metadata.cwd == nil, registration.id == "pi" {
+        if case .piSessionFile = registration.sessionIdSource, metadata.cwd == nil {
             metadata.cwd = piCWDInferred(from: url)
         }
         return metadata
@@ -178,6 +178,13 @@ extension SessionIndexStore {
             return nil
         }
         let body = String(directoryName.dropFirst(2).dropLast(2))
-        return body.isEmpty ? nil : "/" + body.replacingOccurrences(of: "-", with: "/")
+        guard !body.isEmpty else { return nil }
+        let candidate = "/" + body.replacingOccurrences(of: "-", with: "/")
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: candidate, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            return nil
+        }
+        return candidate
     }
 }

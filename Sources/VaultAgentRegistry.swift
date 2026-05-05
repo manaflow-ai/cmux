@@ -42,7 +42,8 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let id = try container.decode(String.self, forKey: .id).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard Self.isValidID(id) else {
+        guard Self.isValidID(id),
+              !Self.isReservedID(id) else {
             throw DecodingError.dataCorruptedError(
                 forKey: .id,
                 in: container,
@@ -84,6 +85,10 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
     static func isValidID(_ value: String) -> Bool {
         guard !value.isEmpty else { return false }
         return value.range(of: #"^[A-Za-z0-9._-]+$"#, options: .regularExpression) != nil
+    }
+
+    private static func isReservedID(_ value: String) -> Bool {
+        RestorableAgentKind.allCases.contains { $0.rawValue == value }
     }
 
     var defaultExecutable: String {
@@ -173,21 +178,23 @@ enum CmuxVaultAgentSessionIDSource: Codable, Hashable, Sendable {
         }
 
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        if let option = try container.decodeIfPresent(String.self, forKey: .argvOption)?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-           !option.isEmpty {
-            self = .argvOption(option)
-            return
-        }
-
         let type = try container.decode(String.self, forKey: .type).trimmingCharacters(in: .whitespacesAndNewlines)
         switch type {
         case "piSessionFile", "pi-session-file":
+            if let option = try container.decodeIfPresent(String.self, forKey: .argvOption)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !option.isEmpty {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .argvOption,
+                    in: container,
+                    debugDescription: "piSessionFile must not include argvOption"
+                )
+            }
             self = .piSessionFile
         case "argvOption", "argv-option":
-            let option = try container.decode(String.self, forKey: .argvOption)
+            let option = try container.decodeIfPresent(String.self, forKey: .argvOption)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !option.isEmpty else {
+            guard let option, !option.isEmpty else {
                 throw DecodingError.dataCorruptedError(
                     forKey: .argvOption,
                     in: container,
@@ -254,6 +261,7 @@ struct CmuxVaultAgentRegistry: Sendable {
             }
         }
         self.registrations = ordered
+        CmuxVaultAgentDisplayNameCache.store(registrations: ordered)
     }
 
     func registration(id: String) -> CmuxVaultAgentRegistration? {

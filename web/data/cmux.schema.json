@@ -92,6 +92,7 @@
                   {
                     "type": "object",
                     "additionalProperties": false,
+                    "required": ["type"],
                     "properties": {
                       "type": {
                         "type": "string",
@@ -101,7 +102,27 @@
                         "type": "string",
                         "description": "Option whose following value is the session id, for example --session."
                       }
-                    }
+                    },
+                    "allOf": [
+                      {
+                        "if": {
+                          "properties": {
+                            "type": { "const": "argvOption" }
+                          }
+                        },
+                        "then": { "required": ["argvOption"] }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "type": { "const": "piSessionFile" }
+                          }
+                        },
+                        "then": {
+                          "not": { "required": ["argvOption"] }
+                        }
+                      }
+                    ]
                   }
                 ],
                 "description": "Where cmux reads the native session id for an active process."

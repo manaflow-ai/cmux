@@ -172,7 +172,11 @@ final class SessionIndexStore: ObservableObject {
             invalidateSectionsCache()
             // Switching into directory grouping can expose cwds that were never
             // backfilled while the user was viewing agent grouping.
-            if grouping == .directory { backfillDirectoryOrderFromEntries() }
+            if grouping == .directory {
+                backfillDirectoryOrderFromEntries()
+            } else {
+                backfillAgentOrderFromEntries()
+            }
         }
     }
 
@@ -283,6 +287,22 @@ final class SessionIndexStore: ObservableObject {
         directoryOrder.append(contentsOf: additions.map(\.path))
     }
 
+    private func backfillAgentOrderFromEntries() {
+        var seen = Set(agentOrder)
+        var additions: [(agent: SessionAgent, latest: Date)] = []
+        for entry in entries {
+            if seen.insert(entry.agent).inserted {
+                additions.append((entry.agent, entry.modified))
+            } else if let idx = additions.firstIndex(where: { $0.agent == entry.agent }),
+                      additions[idx].latest < entry.modified {
+                additions[idx].latest = entry.modified
+            }
+        }
+        guard !additions.isEmpty else { return }
+        additions.sort { $0.latest > $1.latest }
+        agentOrder.append(contentsOf: additions.map(\.agent))
+    }
+
     private func invalidateSectionsCache() {
         sectionsCacheRevision &+= 1
     }
@@ -350,7 +370,7 @@ final class SessionIndexStore: ObservableObject {
     private static func loadAgentOrder() -> [SessionAgent] {
         let stored = UserDefaults.standard.array(forKey: agentOrderDefaultsKey) as? [String] ?? []
         var ordered: [SessionAgent] = stored.compactMap { SessionAgent(rawValue: $0) }
-        for agent in defaultAgentOrder() where !ordered.contains(agent) {
+        for agent in SessionAgent.builtInCases where !ordered.contains(agent) {
             ordered.append(agent)
         }
         var seen = Set<SessionAgent>()
@@ -358,9 +378,15 @@ final class SessionIndexStore: ObservableObject {
         return ordered
     }
 
-    private static func defaultAgentOrder() -> [SessionAgent] {
+    nonisolated private static func defaultAgentOrder(workingDirectory: String?) async -> [SessionAgent] {
+        await Task.detached(priority: .utility) {
+            defaultAgentOrderSync(workingDirectory: workingDirectory)
+        }.value
+    }
+
+    nonisolated private static func defaultAgentOrderSync(workingDirectory: String?) -> [SessionAgent] {
         let builtInIDs = Set(SessionAgent.builtInCases.map(\.rawValue))
-        return SessionAgent.builtInCases + CmuxVaultAgentRegistry.load().registrations.compactMap {
+        return SessionAgent.builtInCases + CmuxVaultAgentRegistry.load(workingDirectory: workingDirectory).registrations.compactMap {
             builtInIDs.contains($0.id) ? nil : .registered($0.id)
         }
     }
@@ -391,6 +417,7 @@ final class SessionIndexStore: ObservableObject {
                 if Task.isCancelled { return }
                 self.entries = scanned
                 self.isLoading = false
+                self.backfillAgentOrderFromEntries()
                 self.backfillDirectoryOrderFromEntries()
             }
         }
@@ -432,8 +459,9 @@ final class SessionIndexStore: ObservableObject {
         // Claude's `searchMaxFiles` cap still applies (currently 1500); if
         // anyone has more Claude sessions in a single cwd we'll bump it.
         let bigLimit = 10_000
+        let agents = await Self.defaultAgentOrder(workingDirectory: cwdFilter)
         var merged = await Self.loadAgents(
-            Self.defaultAgentOrder(),
+            agents,
             needle: "",
             cwdFilter: cwdFilter,
             offset: 0,
@@ -508,7 +536,7 @@ final class SessionIndexStore: ObservableObject {
         // searches via the popover.
         let bag = ErrorBag()
         let combined = await loadAgents(
-            defaultAgentOrder(),
+            await defaultAgentOrder(workingDirectory: nil),
             needle: "",
             cwdFilter: nil,
             offset: 0,
@@ -1011,7 +1039,7 @@ final class SessionIndexStore: ObservableObject {
             // merge-sort can produce a stable global ordering, then slice.
             let target = offset + limit
             let merged = await Self.loadAgents(
-                Self.defaultAgentOrder(),
+                await Self.defaultAgentOrder(workingDirectory: cwdFilter),
                 needle: needle,
                 cwdFilter: cwdFilter,
                 offset: 0,
