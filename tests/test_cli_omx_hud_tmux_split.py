@@ -194,12 +194,9 @@ def omx_hud_split_args(cwd: Path) -> list[str]:
         "__tmux-compat",
         "split-window",
         "-v",
-        "-f",
         "-l",
-        "3",
+        "4",
         "-d",
-        "-t",
-        f"%{PANE_ID}",
         "-c",
         str(cwd),
         "-P",
@@ -234,15 +231,28 @@ def assert_omx_hud_splits_down_with_compact_size(
         raise AssertionError(f"expected HUD direction down, got {split!r}")
     if split.get("focus") is not False:
         raise AssertionError(f"expected detached HUD split, got {split!r}")
+    if split.get("surface_id") != SURFACE_ID:
+        raise AssertionError(f"expected HUD split to anchor to the caller surface, got {split!r}")
+    if split.get("working_directory") != str(cwd):
+        raise AssertionError(f"expected HUD split to carry the requested cwd, got {split!r}")
     divider = split.get("initial_divider_position")
-    if not isinstance(divider, (float, int)) or abs(float(divider) - 0.9) > 0.001:
+    if not isinstance(divider, (float, int)) or abs(float(divider) - 0.875) > 0.001:
         raise AssertionError(f"expected HUD split to request a compact bottom divider, got {split!r}")
     if state.equalize_params:
         raise AssertionError(f"HUD split should not equalize teammate columns: {state.equalize_params!r}")
-    if not state.sent_text:
-        raise AssertionError("expected HUD command to be sent to the created pane")
-    if "-f" in state.sent_text[0]:
-        raise AssertionError(f"split-window -f leaked into HUD command text: {state.sent_text[0]!r}")
+    startup_script = split.get("initial_command")
+    if not isinstance(startup_script, str) or not startup_script:
+        raise AssertionError(f"expected HUD command to launch as an initial pane command, got {split!r}")
+    startup_path = Path(startup_script)
+    if not startup_path.exists():
+        raise AssertionError(f"expected generated HUD startup script to exist: {startup_script}")
+    startup_text = startup_path.read_text(encoding="utf-8")
+    if f"cd -- '{cwd}'" not in startup_text:
+        raise AssertionError(f"expected HUD startup script to cd to project cwd, got {startup_text!r}")
+    if "hud --watch" not in startup_text:
+        raise AssertionError(f"expected HUD startup script to run the watch command, got {startup_text!r}")
+    if state.sent_text:
+        raise AssertionError(f"HUD command should not be typed into a shell: {state.sent_text!r}")
 
 
 def assert_omx_hud_feature_probe_is_supported(

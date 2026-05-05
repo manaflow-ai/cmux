@@ -5995,6 +5995,10 @@ class TerminalController {
         let panelType = v2PanelType(params, "type") ?? .terminal
         let urlStr = v2String(params, "url")
         let url = urlStr.flatMap { URL(string: $0) }
+        let requestedWorkingDirectory = v2RawString(params, "working_directory")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let workingDirectory = (requestedWorkingDirectory?.isEmpty == false) ? requestedWorkingDirectory : nil
+        let requestedInitialCommand = v2RawString(params, "initial_command")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let initialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
         if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
             return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
         }
@@ -7276,6 +7280,10 @@ class TerminalController {
         let panelType = v2PanelType(params, "type") ?? .terminal
         let urlStr = v2String(params, "url")
         let url = urlStr.flatMap { URL(string: $0) }
+        let requestedWorkingDirectory = v2RawString(params, "working_directory")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let workingDirectory = (requestedWorkingDirectory?.isEmpty == false) ? requestedWorkingDirectory : nil
+        let requestedInitialCommand = v2RawString(params, "initial_command")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let initialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
         if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
             return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
         }
@@ -7294,8 +7302,10 @@ class TerminalController {
             }
             v2MaybeFocusWindow(for: tabManager)
             v2MaybeSelectWorkspace(tabManager, workspace: ws)
-            guard let focusedPanelId = ws.focusedPanelId else {
-                result = .err(code: "not_found", message: "No focused surface to split", data: nil)
+            let requestedPanelId = v2String(params, "surface_id").flatMap(UUID.init(uuidString:))
+            guard let sourcePanelId = requestedPanelId ?? ws.focusedPanelId,
+                  ws.panels[sourcePanelId] != nil else {
+                result = .err(code: "not_found", message: "No source surface to split", data: nil)
                 return
             }
 
@@ -7303,7 +7313,7 @@ class TerminalController {
             let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
             if panelType == .browser {
                 newPanelId = ws.newBrowserSplit(
-                    from: focusedPanelId,
+                    from: sourcePanelId,
                     orientation: orientation,
                     insertFirst: insertFirst,
                     url: url,
@@ -7311,10 +7321,12 @@ class TerminalController {
                 )?.id
             } else {
                 newPanelId = ws.newTerminalSplit(
-                    from: focusedPanelId,
+                    from: sourcePanelId,
                     orientation: orientation,
                     insertFirst: insertFirst,
-                    focus: focus
+                    focus: focus,
+                    workingDirectory: workingDirectory,
+                    initialCommand: initialCommand
                 )?.id
             }
 

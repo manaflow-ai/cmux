@@ -11424,7 +11424,7 @@ struct CMUXCLI {
         "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
     }
 
-    private func tmuxShellCommandText(commandTokens: [String], cwd: String?) -> String? {
+    private func tmuxShellCommandBody(commandTokens: [String], cwd: String?) -> String? {
         let trimmedCwd = cwd?.trimmingCharacters(in: .whitespacesAndNewlines)
         let commandText = commandTokens.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
         guard (trimmedCwd?.isEmpty == false) || !commandText.isEmpty else {
@@ -11438,7 +11438,43 @@ struct CMUXCLI {
         if !commandText.isEmpty {
             pieces.append(commandText)
         }
-        return pieces.joined(separator: " && ") + "\r"
+        return pieces.joined(separator: " && ")
+    }
+
+    private func tmuxShellCommandText(commandTokens: [String], cwd: String?) -> String? {
+        tmuxShellCommandBody(commandTokens: commandTokens, cwd: cwd).map { $0 + "\r" }
+    }
+
+    private func tmuxStartupScript(commandTokens: [String], cwd: String?) -> String? {
+        let commandText = commandTokens.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !commandText.isEmpty else {
+            return nil
+        }
+
+        let scriptURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-tmux-command-\(UUID().uuidString.lowercased()).sh")
+        var lines = [
+            "#!/bin/sh",
+            "rm -f -- \"$0\" 2>/dev/null || true"
+        ]
+        if let cwd = cwd?.trimmingCharacters(in: .whitespacesAndNewlines), !cwd.isEmpty {
+            lines.append("cd -- \(tmuxShellQuote(resolvePath(cwd))) || exit $?")
+        }
+        lines.append("exec \"${SHELL:-/bin/sh}\" -lc \(tmuxShellQuote(commandText))")
+        do {
+            try (lines.joined(separator: "\n") + "\n").write(
+                to: scriptURL,
+                atomically: true,
+                encoding: .utf8
+            )
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o700],
+                ofItemAtPath: scriptURL.path
+            )
+            return scriptURL.path
+        } catch {
+            return nil
+        }
     }
 
     private func tmuxSplitSizeCells(_ raw: String?) -> Int? {
@@ -13008,7 +13044,16 @@ struct CMUXCLI {
                 "direction": direction,
                 "focus": focusNewPane
             ]
-            if let targetPaneId = target.paneId,
+            if let cwd = parsed.value("-c")?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !cwd.isEmpty {
+                splitParams["working_directory"] = resolvePath(cwd)
+            }
+            let startupScript = tmuxStartupScript(commandTokens: parsed.positional, cwd: parsed.value("-c"))
+            if let startupScript {
+                splitParams["initial_command"] = startupScript
+            }
+            let sizeTargetPaneId = target.paneId ?? (try? tmuxResolvePaneTarget(parsed.value("-t"), client: client).paneId)
+            if let targetPaneId = sizeTargetPaneId,
                let targetCells = tmuxSplitSizeCells(parsed.value("-l")),
                let dividerPosition = try? tmuxInitialDividerPosition(
                     workspaceId: target.workspaceId,
@@ -13050,7 +13095,8 @@ struct CMUXCLI {
                 ])
             }
 
-            if let text = tmuxShellCommandText(commandTokens: parsed.positional, cwd: parsed.value("-c")) {
+            if startupScript == nil,
+               let text = tmuxShellCommandText(commandTokens: parsed.positional, cwd: parsed.value("-c")) {
                 _ = try client.sendV2(method: "surface.send_text", params: [
                     "workspace_id": target.workspaceId,
                     "surface_id": surfaceId,

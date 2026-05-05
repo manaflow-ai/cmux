@@ -9825,7 +9825,9 @@ final class Workspace: Identifiable, ObservableObject {
         from panelId: UUID,
         orientation: SplitOrientation,
         insertFirst: Bool = false,
-        focus: Bool = true
+        focus: Bool = true,
+        workingDirectory: String? = nil,
+        initialCommand: String? = nil
     ) -> TerminalPanel? {
 #if DEBUG
         let splitTimingStart = ProcessInfo.processInfo.systemUptime
@@ -9848,13 +9850,16 @@ final class Workspace: Identifiable, ObservableObject {
 
         guard let paneId = sourcePaneId else { return nil }
         var inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
+        let requestedInitialCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let explicitInitialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
         let remoteTerminalStartupCommand = remoteTerminalStartupCommand()
+        let startupCommand = explicitInitialCommand ?? remoteTerminalStartupCommand
         // Hold the pane open after the remote session ends so the user can read the
         // "ssh exited …" message the startup script prints. Otherwise Ghostty silently
         // respawns a local login shell when the command exits (the PTY falls through
         // to $SHELL), and a dead VM looks identical to a healthy workspace with a
         // local prompt — which is what we saw during dogfood.
-        if remoteTerminalStartupCommand != nil {
+        if startupCommand != nil {
             var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
             template.waitAfterCommand = true
             inheritedConfig = template
@@ -9871,6 +9876,10 @@ final class Workspace: Identifiable, ObservableObject {
         // then its requested startup cwd if shell integration has not reported
         // back yet, and finally fall back to the workspace's current directory.
         let splitWorkingDirectory: String? = {
+            if let workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !workingDirectory.isEmpty {
+                return workingDirectory
+            }
             if let panelDirectory = panelDirectories[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines),
                !panelDirectory.isEmpty {
                 return panelDirectory
@@ -9897,7 +9906,7 @@ final class Workspace: Identifiable, ObservableObject {
             configTemplate: inheritedConfig,
             workingDirectory: splitWorkingDirectory,
             portOrdinal: portOrdinal,
-            initialCommand: remoteTerminalStartupCommand
+            initialCommand: startupCommand
         )
         configureTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
