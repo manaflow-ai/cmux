@@ -5171,7 +5171,7 @@ func openCmuxSettingsFileInEditor() {
 }
 
 struct SettingsView: View {
-    private static let terminalThemeLogger = Logger(
+    nonisolated private static let terminalThemeLogger = Logger(
         subsystem: "com.cmuxterm.app",
         category: "TerminalTheme"
     )
