@@ -11548,6 +11548,13 @@ struct CMUXCLI {
         }
     }
 
+    private static let nodeOptionsUnsafePathCharacters =
+        CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "\"'"))
+
+    private static func pathIsUnsafeForNodeOptions(_ path: String) -> Bool {
+        path.rangeOfCharacter(from: nodeOptionsUnsafePathCharacters) != nil
+    }
+
     private func configureClaudeTeamsEnvironment(
         processEnvironment: [String: String],
         shimDirectory: URL,
@@ -11623,8 +11630,8 @@ struct CMUXCLI {
         // so the guard module survives macOS `periodic` cleanup of
         // /var/folders/.../T/ (which reaps temp files after ~3 days of no
         // access and breaks long-running Claude sessions). The path must
-        // not contain whitespace, since Node.js splits NODE_OPTIONS on
-        // whitespace and the --require=<path> flag is not quoted.
+        // not contain whitespace or quotes, since Node.js parses
+        // NODE_OPTIONS syntax and the --require=<path> flag is not quoted.
         let root = try claudeNodeOptionsRestoreModuleRoot()
         try FileManager.default.createDirectory(
             at: root,
@@ -11647,7 +11654,7 @@ struct CMUXCLI {
             .appendingPathComponent("Library", isDirectory: true)
             .appendingPathComponent("Caches", isDirectory: true)
             .appendingPathComponent("com.cmuxterm.app", isDirectory: true)
-        if preferredRoot.path.rangeOfCharacter(from: .whitespacesAndNewlines) == nil {
+        if !Self.pathIsUnsafeForNodeOptions(preferredRoot.path) {
             cacheRoot = preferredRoot
         } else {
             cacheRoot = try claudeNodeOptionsFallbackCacheRoot(appScoped: true)
@@ -11656,7 +11663,7 @@ struct CMUXCLI {
         if let xdgCacheHome = environment["XDG_CACHE_HOME"],
            !xdgCacheHome.isEmpty,
            xdgCacheHome.hasPrefix("/"),
-           xdgCacheHome.rangeOfCharacter(from: .whitespacesAndNewlines) == nil {
+           !Self.pathIsUnsafeForNodeOptions(xdgCacheHome) {
             cacheRoot = URL(fileURLWithPath: xdgCacheHome, isDirectory: true)
                 .appendingPathComponent("cmux", isDirectory: true)
         } else {
@@ -11664,7 +11671,7 @@ struct CMUXCLI {
             let preferredRoot = URL(fileURLWithPath: homePath, isDirectory: true)
                 .appendingPathComponent(".cache", isDirectory: true)
                 .appendingPathComponent("cmux", isDirectory: true)
-            if preferredRoot.path.rangeOfCharacter(from: .whitespacesAndNewlines) == nil {
+            if !Self.pathIsUnsafeForNodeOptions(preferredRoot.path) {
                 cacheRoot = preferredRoot
             } else {
                 cacheRoot = try claudeNodeOptionsFallbackCacheRoot(appScoped: false)
@@ -11672,7 +11679,7 @@ struct CMUXCLI {
         }
 #endif
         let root = cacheRoot.appendingPathComponent("cmux-claude-node-options", isDirectory: true)
-        guard root.path.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else {
+        guard !Self.pathIsUnsafeForNodeOptions(root.path) else {
             throw ClaudeNodeOptionsCachePathError(path: root.path)
         }
         return root
@@ -11705,7 +11712,7 @@ struct CMUXCLI {
         if appScoped {
             root = root.appendingPathComponent("com.cmuxterm.app", isDirectory: true)
         }
-        guard root.path.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else {
+        guard !Self.pathIsUnsafeForNodeOptions(root.path) else {
             throw ClaudeNodeOptionsCachePathError(path: root.path)
         }
         return root

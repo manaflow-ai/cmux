@@ -49,6 +49,8 @@ def run_wrapper(
     xdg_cache_home: str | None = None,
     home: str | None = None,
     hooks_disabled: bool = False,
+    fake_uname: str | None = None,
+    fake_gnu_stat_probe: bool = False,
 ) -> tuple[int, list[str], list[str], str, str, str, str, str, str, str]:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-test-") as td:
         tmp = Path(td)
@@ -62,6 +64,33 @@ def run_wrapper(
         wrapper = wrapper_dir / "claude"
         shutil.copy2(SOURCE_WRAPPER, wrapper)
         wrapper.chmod(0o755)
+
+        if fake_uname is not None:
+            make_executable(
+                wrapper_dir / "uname",
+                f"""#!/usr/bin/env bash
+printf '%s\\n' {json.dumps(fake_uname)}
+""",
+            )
+
+        if fake_gnu_stat_probe:
+            make_executable(
+                wrapper_dir / "stat",
+                """#!/usr/bin/env bash
+set -euo pipefail
+case "${1:-}" in
+  -c)
+    id -u
+    exit 0
+    ;;
+  -f)
+    printf '%s\\n' "gnu-stat-filesystem-data"
+    exit 1
+    ;;
+esac
+exec /usr/bin/stat "$@"
+""",
+            )
 
         real_args_log = tmp / "real-args.log"
         real_claudecode_log = tmp / "real-claudecode.log"
@@ -566,6 +595,7 @@ def test_live_socket_whitespace_home_uses_safe_cache_fallback(failures: list[str
             argv=["hello"],
             home=str(Path(td) / "home with spaces"),
             xdg_cache_home="",
+            fake_gnu_stat_probe=True,
         )
     expect(code == 0, f"whitespace HOME fallback: wrapper exited {code}: {stderr}", failures)
     expect("--settings" in real_argv, f"whitespace HOME fallback: missing --settings in args: {real_argv}", failures)
@@ -593,6 +623,34 @@ def test_live_socket_whitespace_home_uses_safe_cache_fallback(failures: list[str
         )
     expect(runtime_node_options == "__UNSET__", f"whitespace HOME fallback: expected runtime NODE_OPTIONS restored, got {runtime_node_options!r}", failures)
     expect(child_node_options == "__UNSET__", f"whitespace HOME fallback: expected child NODE_OPTIONS restored, got {child_node_options!r}", failures)
+
+
+def test_live_socket_quoted_linux_home_uses_safe_cache_fallback(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-quote-home-") as td:
+        home = str(Path(td) / 'home"quoted')
+        code, _, _, stderr, _, node_options, runtime_node_options, child_node_options, _, _ = run_wrapper(
+            socket_state="live",
+            argv=["hello"],
+            home=home,
+            xdg_cache_home="",
+            fake_uname="Linux",
+            fake_gnu_stat_probe=True,
+        )
+    expect(code == 0, f"quoted HOME fallback: wrapper exited {code}: {stderr}", failures)
+    require_path = require_path_from_node_options(node_options)
+    expect(require_path != "", f"quoted HOME fallback: expected NODE_OPTIONS restore preload, got {node_options!r}", failures)
+    expect(
+        '"' not in require_path and "'" not in require_path and not any(ch.isspace() for ch in require_path),
+        f"quoted HOME fallback: expected NODE_OPTIONS-safe restore path, got {require_path!r}",
+        failures,
+    )
+    expect(
+        require_path == f"/var/tmp/cmux-{os.getuid()}/cmux-claude-node-options/restore-node-options.cjs",
+        f"quoted HOME fallback: expected Linux fallback cache path, got {require_path!r}",
+        failures,
+    )
+    expect(runtime_node_options == "__UNSET__", f"quoted HOME fallback: expected runtime NODE_OPTIONS restored, got {runtime_node_options!r}", failures)
+    expect(child_node_options == "__UNSET__", f"quoted HOME fallback: expected child NODE_OPTIONS restored, got {child_node_options!r}", failures)
 
 
 def test_live_socket_whitespace_xdg_cache_home_falls_back(failures: list[str]) -> None:
@@ -635,6 +693,42 @@ def test_live_socket_whitespace_xdg_cache_home_falls_back(failures: list[str]) -
         )
     expect(runtime_node_options == "__UNSET__", f"whitespace XDG cache home: expected runtime NODE_OPTIONS restored, got {runtime_node_options!r}", failures)
     expect(child_node_options == "__UNSET__", f"whitespace XDG cache home: expected child NODE_OPTIONS restored, got {child_node_options!r}", failures)
+
+
+def test_live_socket_quoted_linux_xdg_cache_home_falls_back(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-cache-") as td:
+        tmp = Path(td)
+        code, _, _, stderr, _, node_options, runtime_node_options, child_node_options, _, _ = run_wrapper(
+            socket_state="live",
+            argv=["hello"],
+            home=str(tmp / "home"),
+            xdg_cache_home=str(tmp / 'xdg"cache'),
+            fake_uname="Linux",
+        )
+    expect(code == 0, f"quoted XDG cache home: wrapper exited {code}: {stderr}", failures)
+    require_path = require_path_from_node_options(node_options)
+    expect(
+        require_path != "",
+        f"quoted XDG cache home: expected NODE_OPTIONS restore preload, got {node_options!r}",
+        failures,
+    )
+    expect(
+        '"' not in require_path and "'" not in require_path and not any(ch.isspace() for ch in require_path),
+        f"quoted XDG cache home: expected NODE_OPTIONS-safe restore path, got {require_path!r}",
+        failures,
+    )
+    expect(
+        'xdg"cache' not in require_path,
+        f"quoted XDG cache home: expected fallback away from XDG path, got {require_path!r}",
+        failures,
+    )
+    expect(
+        require_path.endswith("/.cache/cmux/cmux-claude-node-options/restore-node-options.cjs"),
+        f"quoted XDG cache home: expected Linux fallback cache path, got {require_path!r}",
+        failures,
+    )
+    expect(runtime_node_options == "__UNSET__", f"quoted XDG cache home: expected runtime NODE_OPTIONS restored, got {runtime_node_options!r}", failures)
+    expect(child_node_options == "__UNSET__", f"quoted XDG cache home: expected child NODE_OPTIONS restored, got {child_node_options!r}", failures)
 
 
 def test_live_socket_relative_xdg_cache_home_falls_back(failures: list[str]) -> None:
@@ -769,7 +863,9 @@ def main() -> int:
     test_live_socket_preserves_only_listed_claude_auth_keys(failures)
     test_live_socket_enforces_heap_cap_for_space_separated_flag(failures)
     test_live_socket_whitespace_home_uses_safe_cache_fallback(failures)
+    test_live_socket_quoted_linux_home_uses_safe_cache_fallback(failures)
     test_live_socket_whitespace_xdg_cache_home_falls_back(failures)
+    test_live_socket_quoted_linux_xdg_cache_home_falls_back(failures)
     test_live_socket_relative_xdg_cache_home_falls_back(failures)
     test_live_socket_does_not_duplicate_bypass_availability_flag(failures)
     test_live_socket_stale_mktemp_literal_does_not_warn(failures)

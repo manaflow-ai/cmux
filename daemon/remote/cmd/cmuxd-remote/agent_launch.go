@@ -319,8 +319,8 @@ func ensureClaudeNodeOptionsRestoreModule() (string, error) {
 	// Use the user's cache directory rather than os.TempDir() so the guard
 	// module survives macOS `periodic` cleanup of /var/folders/.../T/
 	// (which reaps temp files after ~3 days of no access and breaks
-	// long-running Claude sessions). The path must not contain whitespace,
-	// since Node.js splits NODE_OPTIONS on whitespace and the
+	// long-running Claude sessions). The path must not contain whitespace
+	// or quotes, since Node.js parses NODE_OPTIONS syntax and the
 	// --require=<path> flag is not quoted downstream.
 	homeDir, homeDirErr := os.UserHomeDir()
 	if homeDirErr != nil {
@@ -333,8 +333,8 @@ func ensureClaudeNodeOptionsRestoreModule() (string, error) {
 			return "", err
 		}
 	}
-	if pathContainsWhitespace(dir) {
-		return "", fmt.Errorf("NODE_OPTIONS restore module path contains whitespace: %s", dir)
+	if pathUnsafeForNodeOptions(dir) {
+		return "", fmt.Errorf("NODE_OPTIONS restore module path is unsafe for --require: %s", dir)
 	}
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return "", err
@@ -356,7 +356,7 @@ func claudeNodeOptionsCacheDir(goos, xdgCacheHome, homeDir string, uid int) (dir
 	if goos == "darwin" {
 		if homeDir != "" {
 			dir := filepath.Join(homeDir, "Library", "Caches", "com.cmuxterm.app", "cmux-claude-node-options")
-			if !pathContainsWhitespace(dir) {
+			if !pathUnsafeForNodeOptions(dir) {
 				return dir, ""
 			}
 		}
@@ -364,12 +364,12 @@ func claudeNodeOptionsCacheDir(goos, xdgCacheHome, homeDir string, uid int) (dir
 		return filepath.Join(fallbackBase, "com.cmuxterm.app", "cmux-claude-node-options"), fallbackBase
 	}
 
-	if xdgCacheHome != "" && filepath.IsAbs(xdgCacheHome) && !pathContainsWhitespace(xdgCacheHome) {
+	if xdgCacheHome != "" && filepath.IsAbs(xdgCacheHome) && !pathUnsafeForNodeOptions(xdgCacheHome) {
 		return filepath.Join(xdgCacheHome, "cmux", "cmux-claude-node-options"), ""
 	}
 	if homeDir != "" {
 		dir := filepath.Join(homeDir, ".cache", "cmux", "cmux-claude-node-options")
-		if !pathContainsWhitespace(dir) {
+		if !pathUnsafeForNodeOptions(dir) {
 			return dir, ""
 		}
 	}
@@ -407,8 +407,10 @@ func ensurePrivateNodeOptionsCacheBase(path string, uid int) error {
 	return os.Chmod(path, 0700)
 }
 
-func pathContainsWhitespace(path string) bool {
-	return strings.IndexFunc(path, unicode.IsSpace) >= 0
+func pathUnsafeForNodeOptions(path string) bool {
+	return strings.IndexFunc(path, func(r rune) bool {
+		return unicode.IsSpace(r) || r == '"' || r == '\''
+	}) >= 0
 }
 
 // --- Focused context ---
