@@ -54,7 +54,11 @@ except (ImportError, ValueError):
         )
         raise SystemExit(1)
 
-from gi.repository import Gio, GLib, Gtk, Vte  # noqa: E402
+from gi.repository import GObject, Gio, GLib, Gtk, Vte  # noqa: E402
+try:
+    import cairo  # noqa: F401 - registers cairo.Context foreign type for GTK3 draw signals
+except ImportError:
+    pass
 from .browser import browser_backend_limit  # noqa: E402
 from .shortcuts import (  # noqa: E402
     KEY_NAME_ALIASES,
@@ -159,7 +163,7 @@ APP_ID = "com.cmuxterm.cmux"
 APP_NAME = "cmux Linux"
 DEFAULT_WIDTH = 1180
 DEFAULT_HEIGHT = 760
-SIDEBAR_WIDTH = 260
+SIDEBAR_WIDTH = 140
 SOCKET_BACKLOG = 16
 CLIENT_TIMEOUT_SECONDS = 0.5
 DEFAULT_BROWSER_URL = "https://www.google.com"
@@ -326,6 +330,107 @@ box.cmux-placeholder {
 
 paned.cmux-splitter > separator {
   background: @cmux_separator;
+}
+
+box.cmux-tab-bar {
+  background: @cmux_sidebar_bg;
+  border-bottom: 1px solid @cmux_separator;
+  min-height: 36px;
+}
+
+button.cmux-tab,
+box.cmux-tab {
+  min-height: 36px;
+  padding: 0 8px 0 14px;
+  border-radius: 0;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: @cmux_secondary_text;
+  font-size: 13px;
+  box-shadow: none;
+}
+
+button.cmux-tab:hover,
+box.cmux-tab:hover {
+  background: @cmux_button_hover;
+  color: @cmux_text;
+}
+
+button.cmux-tab.cmux-tab-active,
+box.cmux-tab.cmux-tab-active {
+  background: @cmux_chrome_bg;
+  color: @cmux_text;
+  border-bottom: 2px solid @cmux_accent;
+}
+
+button.cmux-tab-close {
+  min-width: 18px;
+  min-height: 18px;
+  padding: 0;
+  margin-left: 4px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: @cmux_disabled_text;
+  font-size: 10px;
+  box-shadow: none;
+}
+
+button.cmux-tab-close:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: @cmux_text;
+}
+
+box.cmux-tab-actions {
+  padding: 0 4px;
+  border-left: 1px solid @cmux_separator;
+}
+
+list.cmux-workspace-sidebar {
+  background: @cmux_sidebar_bg;
+  border-right: 1px solid @cmux_separator;
+}
+
+list.cmux-workspace-sidebar row {
+  margin: 2px 4px;
+  border-radius: 6px;
+  color: @cmux_secondary_text;
+  padding: 0;
+}
+
+list.cmux-workspace-sidebar row:hover {
+  background: @cmux_button_hover;
+  color: @cmux_text;
+}
+
+list.cmux-workspace-sidebar row:selected {
+  background: @cmux_selection;
+  color: @cmux_text;
+}
+
+box.cmux-workspace-row {
+  padding: 6px 8px;
+}
+
+.cmux-workspace-dot {
+  min-width: 8px;
+  min-height: 8px;
+  border-radius: 50%;
+  background: @cmux_accent;
+  margin-right: 8px;
+  margin-left: 2px;
+}
+
+label.cmux-workspace-label {
+  color: inherit;
+  font-size: 13px;
+}
+
+frame.cmux-dnd-highlight {
+  background: rgba(10, 132, 255, 0.18);
+  border: 2px solid rgba(10, 132, 255, 0.85);
+  border-radius: 4px;
 }
 """.strip()
 FALLBACK_SCREENSHOT_PNG_BASE64 = (
@@ -1543,7 +1648,12 @@ class CMUXLinuxWindow:
         self._sidebar_selection_handler_id: int | None = None
         self._refreshing_sidebar = False
         self._add_css_class(self.stack, "cmux-stack")
-        self._add_css_class(self.sidebar, "cmux-sidebar")
+        self._add_css_class(self.sidebar, "cmux-workspace-sidebar")
+        self.tab_bar_box: Gtk.Box | None = None
+        self.tab_buttons_box: Gtk.Box | None = None
+        self._dnd_active_zone: str | None = None
+        self._dnd_dragging_surface_id: str | None = None
+        self._dnd_overlay_draw_area: "Gtk.DrawingArea | None" = None
         self.window = self._build_window()
         self.create_workspace(_("Default"), cwd, command)
         self._register_window()
@@ -1799,31 +1909,10 @@ class CMUXLinuxWindow:
     def _build_header(self) -> Gtk.HeaderBar:
         header = Gtk.HeaderBar()
         self._add_css_class(header, "cmux-header")
-        self._pack_header_button(header, "tab-new-symbolic", _("New terminal"), lambda: self.create_surface())
-        self._pack_header_button(
-            header,
-            ("view-split-left-right-symbolic", "view-dual-symbolic", "view-grid-symbolic"),
-            _("Split horizontally"),
-            lambda: self.split_surface_from_params({"orientation": "horizontal"}),
-            fallback_label="||",
-        )
-        self._pack_header_button(
-            header,
-            ("view-split-top-bottom-symbolic", "view-grid-symbolic", "view-dual-symbolic"),
-            _("Split vertically"),
-            lambda: self.split_surface_from_params({"orientation": "vertical"}),
-            fallback_label="=",
-        )
-        self._pack_header_button(header, "web-browser-symbolic", _("Open browser"), self.open_browser_from_params)
-        self._pack_header_button(
-            header,
-            ("window-close-symbolic", "window-close"),
-            _("Close pane"),
-            lambda: self.close_pane_from_params({}),
-            fallback_label="x",
-            pack_end=True,
-            css_classes=("cmux-close-button",),
-        )
+        if GTK_MAJOR >= 4:
+            header.set_show_title_buttons(True)
+        else:
+            header.set_show_close_button(True)
         return header
 
     def _pack_header_button(
@@ -1850,10 +1939,46 @@ class CMUXLinuxWindow:
 
     def _build_content(self) -> Gtk.Paned:
         self.sidebar.set_selection_mode(Gtk.SelectionMode.SINGLE)
-        self._sidebar_selection_handler_id = self.sidebar.connect("row-selected", self._on_sidebar_row_selected)
+        self._sidebar_selection_handler_id = self.sidebar.connect("row-selected", self._on_workspace_sidebar_row_selected)
         self.sidebar.set_size_request(SIDEBAR_WIDTH, -1)
 
-        paned = self._build_paned(Gtk.Orientation.HORIZONTAL, self.sidebar, self.stack)
+        tab_bar, tab_buttons_box = self._build_tab_bar()
+        self.tab_bar_box = tab_bar
+        self.tab_buttons_box = tab_buttons_box
+
+        if GTK_MAJOR >= 4:
+            content_stack = self.stack
+            if Gtk.DropTarget is not None:
+                content_overlay = Gtk.Overlay()
+                content_overlay.set_child(self.stack)
+                draw_area = Gtk.DrawingArea()
+                draw_area.set_can_target(False)
+                draw_area.set_draw_func(self._draw_dnd_overlay)
+                self._dnd_overlay_draw_area = draw_area
+                content_overlay.add_overlay(draw_area)
+                self._setup_dnd_controllers(content_overlay)
+                content_stack = content_overlay
+
+            right_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+            right_box.append(tab_bar)
+            right_box.append(content_stack)
+            right_box.set_vexpand(True)
+        else:
+            content_overlay_gtk3 = Gtk.Overlay()
+            content_overlay_gtk3.add(self.stack)
+            dnd_highlight = Gtk.Frame()
+            self._add_css_class(dnd_highlight, "cmux-dnd-highlight")
+            dnd_highlight.set_no_show_all(True)
+            dnd_highlight.set_can_focus(False)
+            dnd_highlight.set_sensitive(False)
+            self._dnd_overlay_draw_area = dnd_highlight
+            content_overlay_gtk3.add_overlay(dnd_highlight)
+            self._setup_dnd_controllers_gtk3(content_overlay_gtk3)
+            right_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+            right_box.pack_start(tab_bar, False, False, 0)
+            right_box.pack_start(content_overlay_gtk3, True, True, 0)
+
+        paned = self._build_paned(Gtk.Orientation.HORIZONTAL, self.sidebar, right_box)
         self._add_css_class(paned, "cmux-root")
         paned.set_position(SIDEBAR_WIDTH)
         return paned
@@ -6060,7 +6185,6 @@ class CMUXLinuxWindow:
         return False
 
     def refresh_sidebar(self) -> None:
-        workspace = self._current_workspace()
         selected_row: Gtk.ListBoxRow | None = None
         handler_id = self._sidebar_selection_handler_id
         if handler_id is not None:
@@ -6073,23 +6197,35 @@ class CMUXLinuxWindow:
             else:
                 for child in self.sidebar.get_children():
                     self.sidebar.remove(child)
-            for surface in workspace.surfaces.values():
+            for workspace in self.workspaces.values():
                 row = Gtk.ListBoxRow()
-                self._add_css_class(row, "cmux-sidebar-row")
-                row.surface_id = surface.id  # type: ignore[attr-defined]
-                label = Gtk.Label(label=surface.title, xalign=0.0)
-                self._add_css_class(label, "cmux-sidebar-title")
-                label.set_margin_top(8)
-                label.set_margin_bottom(8)
-                label.set_margin_start(12)
-                label.set_margin_end(12)
+                row.workspace_id = workspace.id  # type: ignore[attr-defined]
+                row_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+                self._add_css_class(row_box, "cmux-workspace-row")
+                dot = Gtk.Label(label="")
+                self._add_css_class(dot, "cmux-workspace-dot")
+                if workspace.custom_color:
+                    dot_css = f"* {{ background: {workspace.custom_color}; }}"
+                    dot_provider = Gtk.CssProvider()
+                    if GTK_MAJOR >= 4:
+                        dot_provider.load_from_data(dot_css.encode("utf-8"))
+                        dot.get_style_context().add_provider(dot_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+                    else:
+                        dot_provider.load_from_data(dot_css)
+                        dot.get_style_context().add_provider(dot_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+                label = Gtk.Label(label=workspace.name, xalign=0.0, ellipsize=3)
+                self._add_css_class(label, "cmux-workspace-label")
                 if GTK_MAJOR >= 4:
-                    row.set_child(label)
+                    row_box.append(dot)
+                    row_box.append(label)
+                    row.set_child(row_box)
                     self.sidebar.append(row)
                 else:
-                    row.add(label)
+                    row_box.pack_start(dot, False, False, 0)
+                    row_box.pack_start(label, True, True, 0)
+                    row.add(row_box)
                     self.sidebar.add(row)
-                if surface.id == workspace.current_surface_id:
+                if workspace.id == self.current_workspace_id:
                     selected_row = row
             if selected_row is not None:
                 self.sidebar.select_row(selected_row)
@@ -6101,6 +6237,389 @@ class CMUXLinuxWindow:
                 self.sidebar.handler_unblock(handler_id)
         if GTK_MAJOR < 4:
             self.sidebar.show_all()
+        self.refresh_tab_bar()
+
+    def _on_workspace_sidebar_row_selected(self, _listbox: Gtk.ListBox, row: Gtk.ListBoxRow | None) -> None:
+        if self._refreshing_sidebar or row is None:
+            return
+        workspace_id = getattr(row, "workspace_id", None)
+        if workspace_id and workspace_id != self.current_workspace_id:
+            self.select_workspace_from_params({"workspace_id": workspace_id})
+
+    def _build_tab_bar(self) -> tuple[Gtk.Box, Gtk.Box]:
+        bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        self._add_css_class(bar, "cmux-tab-bar")
+        tabs_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        if GTK_MAJOR >= 4:
+            tabs_box.set_hexpand(True)
+        else:
+            tabs_box.set_hexpand(True)
+        actions_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        self._add_css_class(actions_box, "cmux-tab-actions")
+        actions_box.set_valign(Gtk.Align.CENTER)
+        for icon_names, tooltip, fallback, callback in (
+            (
+                ("view-split-left-right-symbolic", "view-dual-symbolic"),
+                _("Split horizontally"),
+                "||",
+                lambda: self.split_surface_from_params({"orientation": "horizontal"}),
+            ),
+            (
+                ("view-split-top-bottom-symbolic", "view-grid-symbolic"),
+                _("Split vertically"),
+                "=",
+                lambda: self.split_surface_from_params({"orientation": "vertical"}),
+            ),
+            (
+                ("web-browser-symbolic",),
+                _("Open browser"),
+                "B",
+                lambda: self.open_browser_from_params({}),
+            ),
+            (
+                ("tab-new-symbolic", "list-add-symbolic"),
+                _("New terminal"),
+                "+",
+                lambda: self.create_surface(),
+            ),
+        ):
+            btn = self._build_icon_button(icon_names, tooltip, fallback)
+            self._add_css_class(btn, "cmux-icon-button")
+            self._add_css_class(btn, "cmux-header-button")
+            btn.set_tooltip_text(tooltip)
+            btn.connect("clicked", lambda *_, cb=callback: cb())
+            if GTK_MAJOR >= 4:
+                actions_box.append(btn)
+            else:
+                actions_box.pack_start(btn, False, False, 0)
+        close_btn = self._build_icon_button(("window-close-symbolic", "window-close"), _("Close pane"), "x")
+        self._add_css_class(close_btn, "cmux-icon-button")
+        self._add_css_class(close_btn, "cmux-close-button")
+        close_btn.set_tooltip_text(_("Close pane"))
+        close_btn.connect("clicked", lambda *_: self.close_pane_from_params({}))
+        if GTK_MAJOR >= 4:
+            actions_box.append(close_btn)
+            bar.append(tabs_box)
+            bar.append(actions_box)
+        else:
+            actions_box.pack_start(close_btn, False, False, 0)
+            bar.pack_start(tabs_box, True, True, 0)
+            bar.pack_end(actions_box, False, False, 0)
+        return bar, tabs_box
+
+    def refresh_tab_bar(self) -> None:
+        if self.tab_buttons_box is None:
+            return
+        tabs_box = self.tab_buttons_box
+        if GTK_MAJOR >= 4:
+            while child := tabs_box.get_first_child():
+                tabs_box.remove(child)
+        else:
+            for child in tabs_box.get_children():
+                tabs_box.remove(child)
+        workspace = self._current_workspace()
+        for surface in workspace.surfaces.values():
+            is_active = surface.id == workspace.current_surface_id
+            sid = surface.id
+            tab_label = Gtk.Label(label=surface.title, ellipsize=3)
+            tab_label.set_max_width_chars(18)
+            if GTK_MAJOR >= 4:
+                tab_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+                self._add_css_class(tab_box, "cmux-tab")
+                if is_active:
+                    self._add_css_class(tab_box, "cmux-tab-active")
+                click = Gtk.GestureClick.new()
+                click.connect("released", lambda _g, _n, _x, _y, s=sid: self._on_tab_clicked(s))
+                tab_box.add_controller(click)
+                tab_box.append(tab_label)
+                close_btn = Gtk.Button()
+                close_icon = Gtk.Image.new_from_icon_name("window-close-symbolic")
+                close_btn.set_child(close_icon)
+                self._add_css_class(close_btn, "cmux-tab-close")
+                close_btn.connect("clicked", lambda *_, s=sid: self._on_tab_close_clicked(s))
+                tab_box.append(close_btn)
+                self._attach_tab_drag_source(tab_box, sid)
+                tabs_box.append(tab_box)
+            else:
+                # GTK3: EventBox as drag source + button-release-event for select.
+                # Using button-RELEASE (not press) avoids conflict with drag threshold detection.
+                # Inner close Gtk.Button has its own GDK window → its click doesn't reach EventBox.
+                try:
+                    from gi.repository import Gdk as _Gdk
+                except ImportError:
+                    _Gdk = None
+                tab_inner = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+                self._add_css_class(tab_inner, "cmux-tab")
+                if is_active:
+                    self._add_css_class(tab_inner, "cmux-tab-active")
+                tab_label.set_xalign(0)
+                tab_inner.pack_start(tab_label, True, True, 4)
+                close_btn = Gtk.Button(label="×")
+                self._add_css_class(close_btn, "cmux-tab-close")
+                close_btn.connect("clicked", lambda *_, s=sid: self._on_tab_close_clicked(s))
+                tab_inner.pack_start(close_btn, False, False, 0)
+                tab_ebox = Gtk.EventBox()
+                if _Gdk:
+                    tab_ebox.add_events(
+                        _Gdk.EventMask.BUTTON_PRESS_MASK
+                        | _Gdk.EventMask.BUTTON_RELEASE_MASK
+                        | _Gdk.EventMask.BUTTON1_MOTION_MASK
+                    )
+                tab_ebox.add(tab_inner)
+                tab_ebox.connect(
+                    "button-release-event",
+                    lambda w, e, s=sid: self._on_tab_release_gtk3(w, e, s),
+                )
+                self._attach_tab_drag_source(tab_ebox, sid)
+                tabs_box.pack_start(tab_ebox, False, False, 0)
+        if GTK_MAJOR < 4:
+            tabs_box.show_all()
+
+    def _on_tab_clicked(self, surface_id: str) -> None:
+        self.select_surface(surface_id)
+        self.refresh_tab_bar()
+
+    def _on_tab_close_clicked(self, surface_id: str) -> None:
+        self.close_surface_from_params({"surface_id": surface_id})
+
+    def _on_tab_release_gtk3(self, widget: Any, event: Any, surface_id: str) -> bool:
+        # Only select if left-click release and drag hasn't started
+        if event.button == 1 and not self._dnd_dragging_surface_id:
+            self._on_tab_clicked(surface_id)
+        return False
+
+    def _attach_tab_drag_source(self, tab_btn: Gtk.Button, surface_id: str) -> None:
+        try:
+            from gi.repository import Gdk
+        except ImportError:
+            return
+        if GTK_MAJOR >= 4:
+            if not hasattr(Gtk, "DragSource"):
+                return
+            drag = Gtk.DragSource.new()
+            drag.set_actions(Gdk.DragAction.MOVE)
+
+            def _prepare(_src: Any, _x: float, _y: float) -> "Gdk.ContentProvider | None":
+                val = GObject.Value()
+                val.init(GObject.TYPE_STRING)
+                val.set_string(surface_id)
+                return Gdk.ContentProvider.new_for_value(val)
+
+            def _drag_begin(_src: Any, _drag: Any) -> None:
+                self._dnd_dragging_surface_id = surface_id
+
+            drag.connect("prepare", _prepare)
+            drag.connect("drag-begin", _drag_begin)
+            tab_btn.add_controller(drag)
+        else:
+            tab_btn.drag_source_set(Gdk.ModifierType.BUTTON1_MASK, [], Gdk.DragAction.MOVE)
+            tab_btn.drag_source_add_text_targets()
+            tab_btn.connect(
+                "drag-data-get",
+                lambda w, ctx, sel, info, t, sid=surface_id: sel.set_text(sid, -1),
+            )
+            tab_btn.connect(
+                "drag-begin",
+                lambda w, ctx, sid=surface_id: setattr(self, "_dnd_dragging_surface_id", sid),
+            )
+            tab_btn.connect(
+                "drag-end",
+                lambda w, ctx: setattr(self, "_dnd_dragging_surface_id", None),
+            )
+
+    def _setup_dnd_controllers(self, overlay: Gtk.Widget) -> None:
+        if GTK_MAJOR < 4 or not hasattr(Gtk, "DropTarget"):
+            return
+        try:
+            from gi.repository import Gdk
+        except ImportError:
+            return
+        drop = Gtk.DropTarget.new(GObject.TYPE_STRING, Gdk.DragAction.MOVE)
+        drop.connect("motion", self._on_dnd_motion)
+        drop.connect("drop", self._on_dnd_drop)
+        drop.connect("leave", self._on_dnd_leave)
+        overlay.add_controller(drop)
+
+    def _dnd_zone_from_coords(self, x: float, y: float, w: float, h: float) -> str:
+        if w <= 0 or h <= 0:
+            return "center"
+        if x < w * 0.25:
+            return "left"
+        if x > w * 0.75:
+            return "right"
+        if y < h * 0.25:
+            return "top"
+        if y > h * 0.75:
+            return "bottom"
+        return "center"
+
+    def _on_dnd_motion(self, _target: Any, x: float, y: float) -> "int":
+        try:
+            from gi.repository import Gdk
+        except ImportError:
+            return 0
+        w = self.stack.get_allocated_width() if hasattr(self.stack, "get_allocated_width") else 1
+        h = self.stack.get_allocated_height() if hasattr(self.stack, "get_allocated_height") else 1
+        zone = self._dnd_zone_from_coords(x, y, float(w), float(h))
+        if zone != self._dnd_active_zone:
+            self._dnd_active_zone = zone
+            if self._dnd_overlay_draw_area is not None:
+                self._dnd_overlay_draw_area.queue_draw()
+        return int(Gdk.DragAction.MOVE)
+
+    def _on_dnd_drop(self, _target: Any, value: Any, x: float, y: float) -> bool:
+        source_id = str(value) if value else self._dnd_dragging_surface_id
+        zone = self._dnd_active_zone
+        self._dnd_active_zone = None
+        self._dnd_dragging_surface_id = None
+        if self._dnd_overlay_draw_area is not None:
+            self._dnd_overlay_draw_area.queue_draw()
+        if not source_id or not zone or zone == "center":
+            return False
+        direction_map = {"top": "up", "bottom": "down", "left": "left", "right": "right"}
+        direction = direction_map.get(zone)
+        if not direction:
+            return False
+        try:
+            workspace = self._current_workspace()
+            if source_id not in workspace.surfaces:
+                return False
+            target_surface = self._current_surface()
+            if source_id == target_surface.id:
+                return False
+            self.drag_surface_to_split_from_params({
+                "surface_id": source_id,
+                "target_surface_id": target_surface.id,
+                "direction": direction,
+            })
+            self.refresh_tab_bar()
+            return True
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _on_dnd_leave(self, _target: Any) -> None:
+        self._dnd_active_zone = None
+        self._dnd_dragging_surface_id = None
+        if self._dnd_overlay_draw_area is not None:
+            self._dnd_overlay_draw_area.queue_draw()
+
+    def _draw_dnd_overlay(self, _widget: Any, cr: Any, width: int, height: int) -> None:
+        zone = self._dnd_active_zone
+        if not zone or zone == "center":
+            return
+        cr.set_source_rgba(0.04, 0.52, 1.0, 0.18)
+        if zone == "left":
+            cr.rectangle(0, 0, width * 0.5, height)
+        elif zone == "right":
+            cr.rectangle(width * 0.5, 0, width * 0.5, height)
+        elif zone == "top":
+            cr.rectangle(0, 0, width, height * 0.5)
+        else:
+            cr.rectangle(0, height * 0.5, width, height * 0.5)
+        cr.fill()
+        cr.set_source_rgba(0.04, 0.52, 1.0, 0.85)
+        cr.set_line_width(2.0)
+        if zone == "left":
+            cr.rectangle(1, 1, width * 0.5 - 2, height - 2)
+        elif zone == "right":
+            cr.rectangle(width * 0.5 + 1, 1, width * 0.5 - 2, height - 2)
+        elif zone == "top":
+            cr.rectangle(1, 1, width - 2, height * 0.5 - 2)
+        else:
+            cr.rectangle(1, height * 0.5 + 1, width - 2, height * 0.5 - 2)
+        cr.stroke()
+
+    def _draw_dnd_overlay_gtk3(self, widget: Any, cr: Any) -> bool:
+        return False
+
+    def _setup_dnd_controllers_gtk3(self, overlay: Gtk.Widget) -> None:
+        try:
+            from gi.repository import Gdk
+        except ImportError:
+            return
+        # DestDefaults.DROP only — we handle motion/status ourselves to avoid conflict
+        overlay.drag_dest_set(Gtk.DestDefaults.DROP, [], Gdk.DragAction.MOVE)
+        overlay.drag_dest_add_text_targets()
+        overlay.add_events(
+            Gdk.EventMask.POINTER_MOTION_MASK
+            | Gdk.EventMask.BUTTON_PRESS_MASK
+            | Gdk.EventMask.BUTTON_RELEASE_MASK
+        )
+        overlay.connect("drag-motion", self._on_dnd_motion_gtk3)
+        overlay.connect("drag-leave", self._on_dnd_leave_gtk3)
+        overlay.connect("drag-data-received", self._on_dnd_drop_gtk3)
+        overlay.connect("get-child-position", self._on_dnd_overlay_position_gtk3)
+
+    def _on_dnd_motion_gtk3(self, widget: Any, context: Any, x: int, y: int, time: int) -> bool:
+        try:
+            from gi.repository import Gdk
+        except ImportError:
+            return False
+        w = self.stack.get_allocated_width()
+        h = self.stack.get_allocated_height()
+        zone = self._dnd_zone_from_coords(float(x), float(y), float(w), float(h))
+        if zone != self._dnd_active_zone:
+            self._dnd_active_zone = zone
+            highlight = self._dnd_overlay_draw_area
+            if highlight is not None:
+                if zone and zone != "center":
+                    highlight.show()
+                    widget.queue_resize()
+                else:
+                    highlight.hide()
+        Gdk.drag_status(context, Gdk.DragAction.MOVE, time)
+        return True
+
+    def _on_dnd_overlay_position_gtk3(self, overlay: Any, widget: Any, allocation: Any) -> bool:
+        zone = self._dnd_active_zone
+        if not zone or zone == "center" or widget is not self._dnd_overlay_draw_area:
+            return False
+        w = self.stack.get_allocated_width()
+        h = self.stack.get_allocated_height()
+        if zone == "left":
+            allocation.x, allocation.y, allocation.width, allocation.height = 0, 0, w // 2, h
+        elif zone == "right":
+            allocation.x, allocation.y, allocation.width, allocation.height = w // 2, 0, w // 2, h
+        elif zone == "top":
+            allocation.x, allocation.y, allocation.width, allocation.height = 0, 0, w, h // 2
+        else:
+            allocation.x, allocation.y, allocation.width, allocation.height = 0, h // 2, w, h // 2
+        return True
+
+    def _on_dnd_leave_gtk3(self, widget: Any, context: Any, time: int) -> None:
+        self._dnd_active_zone = None
+        self._dnd_dragging_surface_id = None
+        if self._dnd_overlay_draw_area is not None:
+            self._dnd_overlay_draw_area.hide()
+
+    def _on_dnd_drop_gtk3(self, widget: Any, context: Any, x: int, y: int, selection: Any, info: int, time: int) -> None:
+        source_id = (selection.get_text() if selection else None) or self._dnd_dragging_surface_id
+        zone = self._dnd_active_zone
+        self._dnd_active_zone = None
+        self._dnd_dragging_surface_id = None
+        if self._dnd_overlay_draw_area is not None:
+            self._dnd_overlay_draw_area.hide()
+        if not source_id or not zone or zone == "center":
+            return
+        direction_map = {"top": "up", "bottom": "down", "left": "left", "right": "right"}
+        direction = direction_map.get(zone)
+        if not direction:
+            return
+        try:
+            workspace = self._current_workspace()
+            if source_id not in workspace.surfaces:
+                return
+            target_surface = self._current_surface()
+            if source_id == target_surface.id:
+                return
+            self.drag_surface_to_split_from_params({
+                "surface_id": source_id,
+                "target_surface_id": target_surface.id,
+                "direction": direction,
+            })
+            self.refresh_tab_bar()
+        except Exception:  # noqa: BLE001
+            pass
 
     def select_surface(self, surface_id: str) -> None:
         workspace = self._current_workspace()
@@ -6108,6 +6627,7 @@ class CMUXLinuxWindow:
             return
         workspace.current_surface_id = surface_id
         self.stack.set_visible_child_name(surface_id)
+        self.refresh_tab_bar()
 
     def _select_relative_surface(self, offset: int) -> None:
         workspace = self._current_workspace()
