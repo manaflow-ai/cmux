@@ -88,7 +88,6 @@ struct NumpadIMECommitDeduplicator {
         guard let index = pendingCommits.firstIndex(where: { pendingCommit in
             pendingCommit.text == text && pendingCommit.sourceId == sourceId
         }) else {
-            pendingCommits.removeAll()
             return false
         }
 

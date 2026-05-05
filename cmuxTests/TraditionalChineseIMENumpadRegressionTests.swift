@@ -123,7 +123,7 @@ final class TraditionalChineseIMENumpadRegressionTests: XCTestCase {
         ))
     }
 
-    func testDeduplicatorClearsPendingFallbackAfterMismatch() throws {
+    func testDeduplicatorPreservesPendingFallbackAfterUnmatchedCommit() throws {
         var deduplicator = NumpadIMECommitDeduplicator()
         let event = try keypadEvent(text: "1", keyCode: 83)
         deduplicator.recordFallback(
@@ -139,8 +139,44 @@ final class TraditionalChineseIMENumpadRegressionTests: XCTestCase {
             externalCommittedTextDepth: 0,
             keyTextAccumulatorIsActive: false
         ))
+        XCTAssertTrue(deduplicator.shouldSuppressCommit(
+            "1",
+            currentEvent: nil,
+            sourceId: "com.apple.inputmethod.TCIM.Pinyin",
+            externalCommittedTextDepth: 0,
+            keyTextAccumulatorIsActive: false
+        ))
+    }
+
+    func testDeduplicatorClearsOnlyMatchedFallbackAfterKeyMismatch() throws {
+        var deduplicator = NumpadIMECommitDeduplicator()
+        deduplicator.recordFallback(
+            text: "1",
+            event: try keypadEvent(text: "1", keyCode: 83),
+            sourceId: "com.apple.inputmethod.TCIM.Pinyin"
+        )
+        deduplicator.recordFallback(
+            text: "2",
+            event: try keypadEvent(text: "2", keyCode: 84),
+            sourceId: "com.apple.inputmethod.TCIM.Pinyin"
+        )
+
         XCTAssertFalse(deduplicator.shouldSuppressCommit(
             "1",
+            currentEvent: try keypadEvent(text: "1", keyCode: 84),
+            sourceId: "com.apple.inputmethod.TCIM.Pinyin",
+            externalCommittedTextDepth: 0,
+            keyTextAccumulatorIsActive: false
+        ))
+        XCTAssertFalse(deduplicator.shouldSuppressCommit(
+            "1",
+            currentEvent: nil,
+            sourceId: "com.apple.inputmethod.TCIM.Pinyin",
+            externalCommittedTextDepth: 0,
+            keyTextAccumulatorIsActive: false
+        ))
+        XCTAssertTrue(deduplicator.shouldSuppressCommit(
+            "2",
             currentEvent: nil,
             sourceId: "com.apple.inputmethod.TCIM.Pinyin",
             externalCommittedTextDepth: 0,
