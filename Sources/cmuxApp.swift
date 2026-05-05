@@ -5845,7 +5845,7 @@ struct SettingsView: View {
             _ = await previousTask?.result
             do {
                 try await Task.detached(priority: .userInitiated) { [mode] in
-                    try TerminalThemeSettings.apply(mode)
+                    _ = try TerminalThemeSettings.apply(mode)
                 }.value
             } catch {
                 let errorDescription = error.localizedDescription
