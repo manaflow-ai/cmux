@@ -12291,7 +12291,7 @@ class TerminalController {
         var activeMode: String?
         var missingWindow = false
 
-        DispatchQueue.main.sync {
+        v2MainSync {
             let preferredWindow: NSWindow?
             if let requestedWindowId {
                 preferredWindow = AppDelegate.shared?.mainWindow(for: requestedWindowId)
@@ -12348,7 +12348,7 @@ class TerminalController {
         var visible = false
         var activeMode = ""
 
-        DispatchQueue.main.sync {
+        v2MainSync {
             let result = AppDelegate.shared?.debugRevealRightSidebarInActiveMainWindow(
                 mode: mode,
                 focusFirstItem: false,
