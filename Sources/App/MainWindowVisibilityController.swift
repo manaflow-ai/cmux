@@ -322,14 +322,32 @@ final class MainWindowVisibilityController {
 
     @discardableResult
     func orderFrontApplicationWindowsBeforeActivation(windows: [NSWindow], reason: Reason) -> NSWindow? {
-        let focusWindow = showApplicationWindows(
-            windows: windows,
+        let allWindows = uniqueWindows(windows)
+        let revealTargets = passiveApplicationActivationRestoreTargets(in: allWindows)
+        let focusWindow = reveal(
+            revealTargets,
+            preferredWindow: nil,
             reason: reason,
             activation: .none,
-            makeKey: false,
-            consumeDismissedWindowRestoreTargets: false
+            makeKey: false
         )
         pendingApplicationActivationKeyRestoreTarget = focusWindow
+        return focusWindow
+    }
+
+    @discardableResult
+    func restoreApplicationWindowsAfterActivation(windows: [NSWindow], reason: Reason) -> NSWindow? {
+        let allWindows = uniqueWindows(windows)
+        let revealTargets = passiveApplicationActivationRestoreTargets(in: allWindows)
+        let focusWindow = reveal(
+            revealTargets,
+            preferredWindow: nil,
+            reason: reason,
+            activation: .none
+        )
+        dismissedWindowRestoreTargets.removeAll { dismissedWindow in
+            revealTargets.contains { $0 === dismissedWindow }
+        }
         return focusWindow
     }
 
@@ -405,6 +423,29 @@ final class MainWindowVisibilityController {
 
         log("reveal", reason: reason, windows: windows)
         return focusWindow
+    }
+
+    private func passiveApplicationActivationRestoreTargets(in allWindows: [NSWindow]) -> [NSWindow] {
+        let capturedTargets = appHiddenWindowRestoreTargets.filter { capturedWindow in
+            allWindows.contains { $0 === capturedWindow } &&
+                !dependencies.windowOperations.isMiniaturized(capturedWindow)
+        }
+        let dismissedTargets = dismissedWindowRestoreTargets.filter { dismissedWindow in
+            allWindows.contains { $0 === dismissedWindow } &&
+                !dependencies.windowOperations.isMiniaturized(dismissedWindow)
+        }
+
+        if dependencies.isApplicationHidden() {
+            dependencies.unhideApplication()
+        }
+
+        if !capturedTargets.isEmpty {
+            appHiddenWindowRestoreTargets.removeAll { capturedWindow in
+                capturedTargets.contains { $0 === capturedWindow }
+            }
+            return capturedTargets
+        }
+        return dismissedTargets
     }
 
     private func resolvedPreferredFocusWindow(preferredWindow: NSWindow?, in windows: [NSWindow]) -> NSWindow? {

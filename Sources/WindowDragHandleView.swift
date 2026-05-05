@@ -202,7 +202,7 @@ func performStandardTitlebarDoubleClick(window: NSWindow?) -> StandardTitlebarDo
     let action = resolvedStandardTitlebarDoubleClickAction(globalDefaults: globalDefaults)
     switch action {
     case .miniaturize:
-        AppDelegate.shared?.dismissMainWindowFromWindowChrome(window)
+        window.miniaturize(nil)
     case .zoom:
         window.zoom(nil)
     case .none:

@@ -2,16 +2,7 @@ import AppKit
 
 @MainActor
 final class CmuxMainWindow: NSWindow {
-    var miniaturizeHandler: ((NSWindow) -> Void)?
     private var isSoftHiddenForVisibilityController = false
-
-    override func miniaturize(_ sender: Any?) {
-        if let miniaturizeHandler {
-            miniaturizeHandler(self)
-            return
-        }
-        super.miniaturize(sender)
-    }
 
     func setSoftHiddenForVisibilityController(_ isSoftHidden: Bool) {
         isSoftHiddenForVisibilityController = isSoftHidden

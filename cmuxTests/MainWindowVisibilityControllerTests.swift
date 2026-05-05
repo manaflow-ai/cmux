@@ -346,6 +346,52 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
         XCTAssertEqual(madeKeyWindows.filter { $0 === window }.count, 1)
     }
 
+    func testPassiveActivationDoesNotRestoreOnlyMiniaturizedWindows() {
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+
+        var miniaturizedIds: Set<ObjectIdentifier> = [ObjectIdentifier(window)]
+        var deminiaturizedWindows: [NSWindow] = []
+        var orderedRegardlessWindows: [NSWindow] = []
+        var madeKeyWindows: [NSWindow] = []
+        var activationCount = 0
+
+        let controller = MainWindowVisibilityController(
+            dependencies: .init(
+                isActivationSuppressed: { false },
+                setActiveMainWindow: { _ in },
+                isApplicationHidden: { false },
+                activateRunningApplication: { _ in activationCount += 1 },
+                windowOperations: makeWindowOperations(
+                    isMiniaturized: { miniaturizedIds.contains(ObjectIdentifier($0)) },
+                    deminiaturize: { window in
+                        miniaturizedIds.remove(ObjectIdentifier(window))
+                        deminiaturizedWindows.append(window)
+                    },
+                    makeKey: { madeKeyWindows.append($0) },
+                    orderFrontRegardless: { orderedRegardlessWindows.append($0) }
+                )
+            )
+        )
+
+        XCTAssertNil(
+            controller.orderFrontApplicationWindowsBeforeActivation(
+                windows: [window],
+                reason: .applicationWillBecomeActive
+            )
+        )
+        XCTAssertNil(
+            controller.restoreApplicationWindowsAfterActivation(
+                windows: [window],
+                reason: .applicationDidBecomeActive
+            )
+        )
+        XCTAssertTrue(deminiaturizedWindows.isEmpty)
+        XCTAssertTrue(orderedRegardlessWindows.isEmpty)
+        XCTAssertTrue(madeKeyWindows.isEmpty)
+        XCTAssertEqual(activationCount, 0)
+    }
+
     private func makeWindow() -> NSWindow {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 120, height: 80),

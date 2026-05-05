@@ -1469,12 +1469,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 #endif
 
-    func applicationWillBecomeActive(_ notification: Notification) { if !hasVisibleMainTerminalWindow() { _ = mainWindowVisibilityController.orderFrontApplicationWindowsBeforeActivation(windows: mainWindowsForVisibilityController(), reason: .applicationWillBecomeActive) } }
+    func applicationWillBecomeActive(_ notification: Notification) {
+        if !hasVisibleMainTerminalWindow() {
+            _ = mainWindowVisibilityController.orderFrontApplicationWindowsBeforeActivation(
+                windows: mainWindowsForVisibilityController(),
+                reason: .applicationWillBecomeActive
+            )
+        }
+    }
 
     func applicationDidBecomeActive(_ notification: Notification) {
         let activationWindows = mainWindowsForVisibilityController()
-        if mainWindowVisibilityController.finishPendingApplicationActivationRestore(windows: activationWindows, reason: .applicationDidBecomeActive) == nil, !hasVisibleMainTerminalWindow() {
-            _ = mainWindowVisibilityController.showApplicationWindows(windows: activationWindows, reason: .applicationDidBecomeActive, activation: .none)
+        if mainWindowVisibilityController.finishPendingApplicationActivationRestore(
+            windows: activationWindows,
+            reason: .applicationDidBecomeActive
+        ) == nil, !hasVisibleMainTerminalWindow() {
+            _ = mainWindowVisibilityController.restoreApplicationWindowsAfterActivation(
+                windows: activationWindows,
+                reason: .applicationDidBecomeActive
+            )
         }
         sentryBreadcrumb("app.didBecomeActive", category: "lifecycle", data: [
             "tabCount": tabManager?.tabs.count ?? 0
@@ -6898,9 +6911,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             backing: .buffered,
             defer: false
         )
-        window.miniaturizeHandler = { [weak self] window in
-            self?.dismissMainWindowFromWindowChrome(window)
-        }
         window.animationBehavior = .none
         // When creating a new window from an existing native fullscreen window,
         // temporarily opt out of fullscreen tiling so AppKit doesn't place the
