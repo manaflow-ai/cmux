@@ -593,8 +593,15 @@ final class CmuxWebView: WKWebView {
         }
 #endif
         if event.keyCode == 36 || event.keyCode == 76 {
-            // Always bypass app/menu key-equivalent routing for Return/Enter so WebKit
-            // receives the keyDown path used by form submission handlers.
+            // Let configured cmux shortcuts claim Return/Enter first, then keep
+            // ordinary Return-bearing events on WebKit's keyDown path for forms
+            // and editors.
+            if AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true {
+#if DEBUG
+                handled = true
+#endif
+                return true
+            }
             return false
         }
 
