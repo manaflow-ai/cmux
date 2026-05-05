@@ -231,6 +231,7 @@
 		A5001540 /* PortScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001541 /* PortScanner.swift */; };
 		C7A501000000000000000002 /* CmuxTopSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A501000000000000000001 /* CmuxTopSnapshot.swift */; };
 		C7A508000000000000000002 /* CmuxTopSnapshotScopeCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A508000000000000000001 /* CmuxTopSnapshotScopeCache.swift */; };
+		C7A50D000000000000000002 /* CmuxTopProcessCPUTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50D000000000000000001 /* CmuxTopProcessCPUTracker.swift */; };
 		C7A502000000000000000002 /* TaskManagerWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A502000000000000000001 /* TaskManagerWindowController.swift */; };
 		C7A506000000000000000002 /* TaskManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A506000000000000000001 /* TaskManagerView.swift */; };
 		C7A507000000000000000002 /* TaskManagerResourcesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A507000000000000000001 /* TaskManagerResourcesTests.swift */; };
@@ -575,6 +576,7 @@
 		C7A50B000000000000000001 /* TerminalControllerV2ParamParsingSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalControllerV2ParamParsingSupport.swift; sourceTree = "<group>"; };
 		C7A501000000000000000001 /* CmuxTopSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopSnapshot.swift; sourceTree = "<group>"; };
 		C7A508000000000000000001 /* CmuxTopSnapshotScopeCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopSnapshotScopeCache.swift; sourceTree = "<group>"; };
+		C7A50D000000000000000001 /* CmuxTopProcessCPUTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopProcessCPUTracker.swift; sourceTree = "<group>"; };
 		C7A502000000000000000001 /* TaskManagerWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskManagerWindowController.swift; sourceTree = "<group>"; };
 		C7A506000000000000000001 /* TaskManagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskManagerView.swift; sourceTree = "<group>"; };
 		C7A507000000000000000001 /* TaskManagerResourcesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskManagerResourcesTests.swift; sourceTree = "<group>"; };
@@ -1054,6 +1056,7 @@
 						C7A505000000000000000001 /* TerminalControllerTopSupport.swift */,
 				C7A501000000000000000001 /* CmuxTopSnapshot.swift */,
 				C7A508000000000000000001 /* CmuxTopSnapshotScopeCache.swift */,
+				C7A50D000000000000000001 /* CmuxTopProcessCPUTracker.swift */,
 				C7A502000000000000000001 /* TaskManagerWindowController.swift */,
 				C7A506000000000000000001 /* TaskManagerView.swift */,
 				C7A503000000000000000001 /* TaskManagerSnapshot.swift */,
@@ -1629,6 +1632,7 @@
 					C7A505000000000000000002 /* TerminalControllerTopSupport.swift in Sources */,
 				C7A501000000000000000002 /* CmuxTopSnapshot.swift in Sources */,
 				C7A508000000000000000002 /* CmuxTopSnapshotScopeCache.swift in Sources */,
+				C7A50D000000000000000002 /* CmuxTopProcessCPUTracker.swift in Sources */,
 				C7A502000000000000000002 /* TaskManagerWindowController.swift in Sources */,
 				C7A506000000000000000002 /* TaskManagerView.swift in Sources */,
 				C7A503000000000000000002 /* TaskManagerSnapshot.swift in Sources */,

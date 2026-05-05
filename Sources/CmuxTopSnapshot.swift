@@ -45,7 +45,6 @@ struct CmuxTopProcessScope: Sendable {
 }
 
 final class CmuxTopProcessSnapshot: @unchecked Sendable {
-    private static let cpuScale = 2048.0
     private static let pidPathBufferSize = 4096
 
     let sampledAt: Date
@@ -95,7 +94,7 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
         [
             "sampled_at": ISO8601DateFormatter().string(from: sampledAt),
             "source": "sysctl+proc_pidinfo",
-            "cpu_source": "kinfo_proc.p_pctcpu",
+            "cpu_source": "proc_pidinfo.PROC_PIDTASKINFO.pti_total_user+pti_total_system",
             "memory_source": "proc_pidinfo.PROC_PIDTASKINFO",
             "process_details": includesProcessDetails
         ]
@@ -269,9 +268,24 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
                 let count = min(processes.count, length / stride)
                 let sampledProcesses = Array(processes.prefix(count))
                 let activeScopeKeys = Set(sampledProcesses.map { scopeCacheKey(from: $0) })
-                let processInfos = sampledProcesses.compactMap {
-                    processInfo(from: $0, includeProcessDetails: includeProcessDetails)
+                let sampledAtNanoseconds = cpuSampleClockNanoseconds()
+                let previousCPUSamples = previousCPUSamplesForCapture()
+                var currentCPUSamples: [CmuxTopProcessScopeCacheKey: CmuxTopProcessCPUSample] = [:]
+                var processInfos: [CmuxTopProcessInfo] = []
+                processInfos.reserveCapacity(sampledProcesses.count)
+                for process in sampledProcesses {
+                    guard let processInfo = processInfo(
+                        from: process,
+                        includeProcessDetails: includeProcessDetails,
+                        sampledAtNanoseconds: sampledAtNanoseconds,
+                        previousCPUSamples: previousCPUSamples,
+                        currentCPUSamples: &currentCPUSamples
+                    ) else {
+                        continue
+                    }
+                    processInfos.append(processInfo)
                 }
+                recordCPUSamples(currentCPUSamples, activeKeys: activeScopeKeys)
                 pruneCMUXScopeCache(activeKeys: activeScopeKeys)
                 return processInfos
             }
@@ -285,22 +299,34 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
 
     private static func processInfo(
         from kinfo: kinfo_proc,
-        includeProcessDetails: Bool
+        includeProcessDetails: Bool,
+        sampledAtNanoseconds: UInt64,
+        previousCPUSamples: [CmuxTopProcessScopeCacheKey: CmuxTopProcessCPUSample],
+        currentCPUSamples: inout [CmuxTopProcessScopeCacheKey: CmuxTopProcessCPUSample]
     ) -> CmuxTopProcessInfo? {
         let pid = Int(kinfo.kp_proc.p_pid)
         guard pid > 0 else { return nil }
 
         let taskInfo = taskInfo(for: pid)
+        let cacheKey = scopeCacheKey(from: kinfo)
         let fallbackName = fixedString(kinfo.kp_proc.p_comm)
         let name = includeProcessDetails ? processName(pid: pid, fallback: fallbackName) : fallbackName
         let path = includeProcessDetails ? processPath(pid: pid) : nil
         let rawTTY = Int64(kinfo.kp_eproc.e_tdev)
         let ttyDevice = rawTTY > 0 ? rawTTY : nil
-        let cmuxScope = cachedCMUXScope(for: pid, cacheKey: scopeCacheKey(from: kinfo))
+        let cmuxScope = cachedCMUXScope(for: pid, cacheKey: cacheKey)
         let rawProcessGroupID = Int(kinfo.kp_eproc.e_pgid)
         let processGroupID = rawProcessGroupID > 0 ? rawProcessGroupID : nil
         let rawTerminalProcessGroupID = Int(kinfo.kp_eproc.e_tpgid)
         let terminalProcessGroupID = rawTerminalProcessGroupID > 0 ? rawTerminalProcessGroupID : nil
+        let cpuPercent: Double
+        if let taskInfo {
+            let currentCPUSample = cpuSample(from: taskInfo, sampledAtNanoseconds: sampledAtNanoseconds)
+            currentCPUSamples[cacheKey] = currentCPUSample
+            cpuPercent = Self.cpuPercent(current: currentCPUSample, previous: previousCPUSamples[cacheKey])
+        } else {
+            cpuPercent = 0
+        }
 
         return CmuxTopProcessInfo(
             pid: pid,
@@ -312,7 +338,7 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
             cmuxSurfaceID: cmuxScope?.surfaceID,
             processGroupID: processGroupID,
             terminalProcessGroupID: terminalProcessGroupID,
-            cpuPercent: max(0, Double(kinfo.kp_proc.p_pctcpu) / cpuScale * 100.0),
+            cpuPercent: cpuPercent,
             residentBytes: int64Clamped(taskInfo?.pti_resident_size ?? 0),
             virtualBytes: int64Clamped(taskInfo?.pti_virtual_size ?? 0),
             threadCount: Int(taskInfo?.pti_threadnum ?? 0)
