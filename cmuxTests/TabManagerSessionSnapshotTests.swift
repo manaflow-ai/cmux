@@ -47,7 +47,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertNotNil(manager.selectedTabId)
     }
 
-    func testSessionSnapshotExcludesRemoteWorkspacesFromRestore() throws {
+    func testSessionSnapshotIncludesRemoteWorkspacesForRestore() throws {
         let manager = TabManager()
         let remoteWorkspace = manager.addWorkspace(select: true)
         let configuration = WorkspaceRemoteConfiguration(
@@ -68,9 +68,10 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
 
         let snapshot = manager.sessionSnapshot(includeScrollback: false)
 
-        XCTAssertEqual(snapshot.workspaces.count, 1)
-        XCTAssertNil(snapshot.selectedWorkspaceIndex)
-        XCTAssertFalse(snapshot.workspaces.contains { $0.processTitle == remoteWorkspace.title })
+        XCTAssertEqual(snapshot.workspaces.count, 2)
+        XCTAssertEqual(snapshot.selectedWorkspaceIndex, 1)
+        let remoteSnapshot = try XCTUnwrap(snapshot.workspaces.first { $0.processTitle == remoteWorkspace.title })
+        XCTAssertEqual(remoteSnapshot.remote?.destination, "cmux-macmini")
     }
 
     func testSessionSnapshotRestoresSSHWorkspaceDescriptor() throws {
@@ -94,15 +95,48 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         )
         remoteWorkspace.configureRemoteConnection(configuration, autoConnect: false)
 
-        let snapshot = manager.sessionSnapshot(includeScrollback: false)
+        let snapshotURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-session-restore-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: snapshotURL) }
+        let snapshot = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: Date().timeIntervalSince1970,
+            windows: [
+                SessionWindowSnapshot(
+                    frame: nil,
+                    display: nil,
+                    tabManager: manager.sessionSnapshot(includeScrollback: false),
+                    sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil)
+                ),
+            ]
+        )
+        XCTAssertTrue(SessionPersistenceStore.save(snapshot, fileURL: snapshotURL))
+        let persistedTabManager = try XCTUnwrap(
+            SessionPersistenceStore.load(fileURL: snapshotURL)?.windows.first?.tabManager
+        )
+        let remoteSnapshot = try XCTUnwrap(
+            persistedTabManager.workspaces.first { $0.customTitle == "Remote Mac mini" }?.remote
+        )
+        XCTAssertEqual(remoteSnapshot.destination, "dev@example.com")
+        XCTAssertEqual(remoteSnapshot.port, 2222)
+        XCTAssertEqual(remoteSnapshot.identityFile, "/Users/test/.ssh/id_ed25519")
+        XCTAssertEqual(remoteSnapshot.sshOptions, [
+            "ControlPath=/tmp/cmux-ssh-%C",
+            "StrictHostKeyChecking=accept-new",
+        ])
 
         let restored = TabManager()
-        restored.restoreSessionSnapshot(snapshot)
+        restored.restoreSessionSnapshot(persistedTabManager)
 
         let restoredWorkspace = try XCTUnwrap(
             restored.tabs.first { $0.customTitle == "Remote Mac mini" }
         )
         XCTAssertTrue(restoredWorkspace.isRemoteWorkspace)
         XCTAssertEqual(restoredWorkspace.remoteDisplayTarget, "dev@example.com:2222")
+        XCTAssertTrue(restoredWorkspace.hasActiveRemoteTerminalSessions)
+        XCTAssertEqual(
+            restoredWorkspace.remoteConfiguration?.terminalStartupCommand,
+            "ssh -p 2222 -i /Users/test/.ssh/id_ed25519 -o ControlPath=/tmp/cmux-ssh-%C -o StrictHostKeyChecking=accept-new -tt dev@example.com"
+        )
     }
 }

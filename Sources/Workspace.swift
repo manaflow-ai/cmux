@@ -228,7 +228,8 @@ extension Workspace {
             statusEntries: statusSnapshots,
             logEntries: logSnapshots,
             progress: progressSnapshot,
-            gitBranch: gitBranchSnapshot
+            gitBranch: gitBranchSnapshot,
+            remote: remoteConfiguration?.sessionSnapshot()
         )
     }
 
@@ -241,6 +242,11 @@ extension Workspace {
         restoredAgentSnapshotsByPanelId.removeAll(keepingCapacity: false)
         restoredAgentAutoResumePendingPanelIds.removeAll(keepingCapacity: false)
         invalidatedRestoredAgentFingerprintsByPanelId.removeAll(keepingCapacity: false)
+
+        let restoredRemoteConfiguration = snapshot.remote?.workspaceConfiguration()
+        if let restoredRemoteConfiguration {
+            remoteConfiguration = restoredRemoteConfiguration
+        }
 
         let normalizedCurrentDirectory = snapshot.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         if !normalizedCurrentDirectory.isEmpty {
@@ -297,6 +303,13 @@ extension Workspace {
             focusPanel(fallbackFocusedPanelId)
         } else {
             scheduleFocusReconcile()
+        }
+
+        if let restoredRemoteConfiguration {
+            configureRemoteConnection(
+                restoredRemoteConfiguration,
+                autoConnect: !SessionRestorePolicy.isRunningUnderAutomatedTests()
+            )
         }
     }
 
@@ -6523,9 +6536,89 @@ struct WorkspaceRemoteDaemonStatus: Equatable {
     }
 }
 
-enum WorkspaceRemoteTransport: String, Equatable {
+enum WorkspaceRemoteTransport: String, Codable, Equatable, Sendable {
     case ssh
     case websocket
+}
+
+extension SessionRemoteWorkspaceSnapshot {
+    func workspaceConfiguration() -> WorkspaceRemoteConfiguration? {
+        guard transport == .ssh else { return nil }
+        let normalizedDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedDestination.isEmpty else { return nil }
+        let normalizedPort = port.flatMap { port in
+            (1...65535).contains(port) ? port : nil
+        }
+
+        return WorkspaceRemoteConfiguration(
+            transport: transport,
+            destination: normalizedDestination,
+            port: normalizedPort,
+            identityFile: Self.normalizedOptional(identityFile),
+            sshOptions: Self.normalizedSSHOptions(sshOptions),
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: sshReconnectCommand(destination: normalizedDestination),
+            foregroundAuthToken: nil,
+            daemonWebSocketEndpoint: nil,
+            skipDaemonBootstrap: skipDaemonBootstrap == true
+        )
+    }
+
+    private func sshReconnectCommand(destination normalizedDestination: String) -> String? {
+        guard transport == .ssh else { return nil }
+
+        var arguments = ["ssh"]
+        if let port, port > 0 {
+            arguments += ["-p", String(port)]
+        }
+        if let identityFile = Self.normalizedOptional(identityFile) {
+            arguments += ["-i", identityFile]
+        }
+        let normalizedOptions = Self.normalizedSSHOptions(sshOptions)
+        for option in normalizedOptions {
+            arguments += ["-o", option]
+        }
+        if !Self.hasSSHOptionKey(normalizedOptions, key: "RequestTTY") {
+            arguments.append("-tt")
+        }
+        arguments.append(normalizedDestination)
+        return arguments.map(Self.shellQuote).joined(separator: " ")
+    }
+
+    private static func normalizedOptional(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func normalizedSSHOptions(_ options: [String]) -> [String] {
+        options.compactMap { option in
+            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+    }
+
+    private static func hasSSHOptionKey(_ options: [String], key: String) -> Bool {
+        let loweredKey = key.lowercased()
+        return options.contains { option in
+            option
+                .split(whereSeparator: { $0 == "=" || $0.isWhitespace })
+                .first
+                .map { String($0).lowercased() == loweredKey } ?? false
+        }
+    }
+
+    private static func shellQuote(_ value: String) -> String {
+        let safePattern = "^[A-Za-z0-9_@%+=:,./-]+$"
+        if value.range(of: safePattern, options: .regularExpression) != nil {
+            return value
+        }
+        return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+    }
 }
 
 struct WorkspaceRemoteWebSocketDaemonEndpoint: Equatable {
@@ -6642,6 +6735,27 @@ struct WorkspaceRemoteConfiguration: Equatable {
             .first
             .map(String.init)?
             .lowercased()
+    }
+}
+
+extension WorkspaceRemoteConfiguration {
+    func sessionSnapshot() -> SessionRemoteWorkspaceSnapshot? {
+        guard transport == .ssh else { return nil }
+        let normalizedDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedDestination.isEmpty else { return nil }
+        let normalizedIdentity = identityFile?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return SessionRemoteWorkspaceSnapshot(
+            transport: transport,
+            destination: normalizedDestination,
+            port: port,
+            identityFile: normalizedIdentity?.isEmpty == false ? normalizedIdentity : nil,
+            sshOptions: sshOptions.compactMap { option in
+                let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? nil : trimmed
+            },
+            skipDaemonBootstrap: skipDaemonBootstrap
+        )
     }
 }
 
