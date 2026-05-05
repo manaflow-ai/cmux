@@ -113,7 +113,36 @@ final class TerminalThemeSettingsTests: XCTestCase {
         )
 
         XCTAssertEqual(selection.mode, .named("Catppuccin Mocha"))
+        XCTAssertEqual(selection.rawValue, "Catppuccin Mocha")
         XCTAssertEqual(selection.sourcePath, configURL.path)
+    }
+
+    func testTerminalThemeCustomClearsLegacyManagedConfigWhenCurrentConfigIsMissing() throws {
+        let appSupport = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-test-terminal-theme-legacy-clear-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: appSupport) }
+
+        let legacyURL = appSupport
+            .appendingPathComponent(TerminalThemeSettings.defaultManagedBundleIdentifier, isDirectory: true)
+            .appendingPathComponent("config", isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: legacyURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try """
+        # cmux themes start
+        theme = Catppuccin Mocha
+        # cmux themes end
+        """.write(to: legacyURL, atomically: true, encoding: .utf8)
+
+        let writtenURL = try TerminalThemeSettings.apply(.custom, appSupportDirectory: appSupport)
+
+        XCTAssertEqual(
+            writtenURL,
+            TerminalThemeSettings.managedConfigURL(appSupportDirectory: appSupport)
+        )
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacyURL.path))
     }
 
     func testManagedThemeWritesUseRequestedBundleIdentifier() throws {

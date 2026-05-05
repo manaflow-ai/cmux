@@ -297,23 +297,25 @@ public enum TerminalThemeSettings {
             throw CocoaError(.fileNoSuchFile)
         }
         let configURL = managedConfigURL(appSupportDirectory: appSupportDirectory, bundleIdentifier: bundleIdentifier)
-        guard let existingContents = try readOptionalThemeOverrideContents(at: configURL) else {
-            return configURL
-        }
-
-        let strippedContents = removingManagedThemeState(from: existingContents)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if strippedContents.isEmpty {
-            do {
-                try fileManager.removeItem(at: configURL)
-            } catch {
-                guard isThemeOverrideFileNotFoundError(error) else {
-                    throw error
-                }
+        for candidateURL in managedConfigURLs(appSupportDirectory: appSupportDirectory, bundleIdentifier: bundleIdentifier) {
+            guard let existingContents = try readOptionalThemeOverrideContents(at: candidateURL) else {
+                continue
             }
-        } else {
-            try strippedContents.appending("\n").write(to: configURL, atomically: true, encoding: .utf8)
+
+            let strippedContents = removingManagedThemeState(from: existingContents)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if strippedContents.isEmpty {
+                do {
+                    try fileManager.removeItem(at: candidateURL)
+                } catch {
+                    guard isThemeOverrideFileNotFoundError(error) else {
+                        throw error
+                    }
+                }
+            } else {
+                try strippedContents.appending("\n").write(to: candidateURL, atomically: true, encoding: .utf8)
+            }
         }
 
         return configURL

@@ -5298,8 +5298,10 @@ struct SettingsView: View {
     @State private var showLanguageRestartAlert = false
     @State private var isResettingSettings = false
     @State private var workspaceTabPaletteEntries = WorkspaceTabColorSettings.palette()
-    @State private var terminalThemeSelection = TerminalThemeSettings.managedSelection()
-    @State private var terminalThemeNames = TerminalThemeSettings.availableThemeNames()
+    @State private var terminalThemeSelection = TerminalThemeSelection.custom
+    @State private var terminalThemeNames: [String] = []
+    @State private var terminalThemeApplyTask: Task<Void, Never>?
+    @State private var terminalThemeApplyGeneration = 0
 
     private var selectedWorkspacePlacement: NewWorkspacePlacement {
         NewWorkspacePlacement(rawValue: newWorkspacePlacement) ?? WorkspacePlacementSettings.defaultPlacement
@@ -5821,24 +5823,43 @@ struct SettingsView: View {
     }
 
     private func refreshTerminalThemeSettings() {
-        terminalThemeSelection = TerminalThemeSettings.managedSelection()
-        terminalThemeNames = TerminalThemeSettings.availableThemeNames()
+        Task.detached(priority: .userInitiated) {
+            let selection = TerminalThemeSettings.managedSelection()
+            let names = TerminalThemeSettings.availableThemeNames()
+            await MainActor.run {
+                terminalThemeSelection = selection
+                terminalThemeNames = names
+            }
+        }
     }
 
     private func applyTerminalTheme(_ mode: TerminalThemeMode) {
-        Task.detached(priority: .userInitiated) { [mode] in
+        terminalThemeSelection = TerminalThemeSettings.parseSelection(
+            rawValue: mode.rawThemeValue,
+            sourcePath: terminalThemeSelection.sourcePath
+        )
+        terminalThemeApplyGeneration += 1
+        let generation = terminalThemeApplyGeneration
+        let previousTask = terminalThemeApplyTask
+        terminalThemeApplyTask = Task { [mode, previousTask, generation] in
+            _ = await previousTask?.result
             do {
-                try TerminalThemeSettings.apply(mode)
+                try await Task.detached(priority: .userInitiated) { [mode] in
+                    try TerminalThemeSettings.apply(mode)
+                }.value
             } catch {
                 let errorDescription = error.localizedDescription
                 await MainActor.run {
+                    guard terminalThemeApplyGeneration == generation else { return }
                     Self.terminalThemeLogger.error("Failed to apply terminal theme: \(errorDescription, privacy: .private)")
                     NSSound.beep()
+                    refreshTerminalThemeSettings()
                 }
                 return
             }
 
             await MainActor.run {
+                guard terminalThemeApplyGeneration == generation else { return }
                 GhosttyConfig.invalidateLoadCache()
                 GhosttyApp.shared.reloadConfiguration(
                     source: "settings.terminalTheme",
