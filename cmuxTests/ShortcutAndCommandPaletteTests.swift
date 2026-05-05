@@ -388,7 +388,7 @@ final class FullScreenShortcutTests: XCTestCase {
 }
 
 
-final class CommandPaletteKeyboardNavigationTests: XCTestCase {
+@MainActor final class CommandPaletteKeyboardNavigationTests: XCTestCase {
     func testArrowKeysMoveSelectionWithoutModifiers() {
         XCTAssertEqual(
             commandPaletteSelectionDeltaForKeyboardNavigation(
