@@ -1468,15 +1468,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 #endif
 
-    func applicationDidBecomeActive(_ notification: Notification) {
-        if !hasVisibleMainTerminalWindow() {
-            _ = mainWindowVisibilityController.showApplicationWindows(
-                windows: mainWindowsForVisibilityController(),
-                reason: .applicationDidBecomeActive,
-                activation: .none
-            )
-        }
+    func applicationWillBecomeActive(_ notification: Notification) { if !hasVisibleMainTerminalWindow() { _ = mainWindowVisibilityController.orderFrontApplicationWindowsBeforeActivation(windows: mainWindowsForVisibilityController(), reason: .applicationWillBecomeActive) } }
 
+    func applicationDidBecomeActive(_ notification: Notification) {
+        let activationWindows = mainWindowsForVisibilityController()
+        if mainWindowVisibilityController.finishPendingApplicationActivationRestore(windows: activationWindows, reason: .applicationDidBecomeActive) == nil, !hasVisibleMainTerminalWindow() {
+            _ = mainWindowVisibilityController.showApplicationWindows(windows: activationWindows, reason: .applicationDidBecomeActive, activation: .none)
+        }
         sentryBreadcrumb("app.didBecomeActive", category: "lifecycle", data: [
             "tabCount": tabManager?.tabs.count ?? 0
         ])
@@ -5999,7 +5997,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func hasVisibleMainTerminalWindow() -> Bool {
         mainWindowContexts.values.contains { context in
             guard let window = resolvedWindow(for: context) else { return false }
-            return window.isVisible && !window.isMiniaturized
+            return window.isVisible && !window.isMiniaturized && window.alphaValue > 0.001
         }
     }
 
