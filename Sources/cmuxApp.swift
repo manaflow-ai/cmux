@@ -4778,12 +4778,12 @@ final class AppIconAppearanceObserver: NSObject {
     private var observation: AppIconAppearanceObservation?
     private var launchObserver: NSObjectProtocol?
     private var hasDeferredStartPending = false
+    private var lastAppliedImageName: String?
 
     init(environment: Environment = .live()) {
         self.environment = environment
         super.init()
     }
-
     func startObserving() {
         // Tahoe crashes if effectiveAppearance is touched during App.init(),
         // so defer the first automatic-icon apply until launch completes.
@@ -4804,9 +4804,9 @@ final class AppIconAppearanceObserver: NSObject {
     func stopObserving() {
         observation?.invalidate()
         observation = nil
+        lastAppliedImageName = nil
         cancelDeferredStart()
     }
-
     private func deferStartUntilLaunchIfNeeded() {
         hasDeferredStartPending = true
         guard launchObserver == nil else { return }
@@ -4823,14 +4823,14 @@ final class AppIconAppearanceObserver: NSObject {
         environment.removeObserver(launchObserver)
         self.launchObserver = nil
     }
-
     private func applyIconForCurrentAppearance() {
         guard environment.isApplicationFinishedLaunching() else { return }
         guard let isDark = environment.currentAppearanceIsDark() else { return }
         let imageName = isDark ? "AppIconDark" : "AppIconLight"
-        if let icon = environment.imageForName(imageName) {
-            environment.setApplicationIconImage(icon)
-        }
+        guard imageName != lastAppliedImageName,
+              let icon = environment.imageForName(imageName) else { return }
+        environment.setApplicationIconImage(icon)
+        lastAppliedImageName = imageName
     }
 }
 

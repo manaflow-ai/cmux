@@ -894,7 +894,6 @@ final class SystemWideHotkeyController {
     private var shortcut = SystemWideHotkeySettings.defaultShortcut
     private var registeredShortcut: StoredShortcut?
     private var registeredHotKeyRegistration: CarbonHotKeyRegistration?
-    private var hiddenWindowRestoreTargets: [NSWindow] = []
 
     private init() {}
 
@@ -936,7 +935,9 @@ final class SystemWideHotkeyController {
             object: NSApp,
             queue: .main
         ) { [weak self] _ in
-            self?.captureHiddenWindowRestoreTargets()
+            MainActor.assumeIsolated {
+                self?.captureHiddenWindowRestoreTargets()
+            }
         }
 
         refreshRegistration()
@@ -1066,80 +1067,20 @@ final class SystemWideHotkeyController {
         cmuxDebugLog("globalHotkey.fire shortcut=\(shortcut.displayString) active=\(NSApp.isActive ? 1 : 0)")
 #endif
 
-        DispatchQueue.main.async { [weak self] in
+        Task { @MainActor [weak self] in
             self?.toggleApplicationVisibility()
         }
         return OSStatus(noErr)
     }
 
+    @MainActor
     private func toggleApplicationVisibility() {
-        // Only treat the hotkey as a "hide" toggle when cmux itself is the
-        // frontmost app and has at least one visible window. If the user
-        // pressed the hotkey from another app, cmux is not frontmost (even if
-        // some of its windows are still on screen) and the expected behavior
-        // is to bring cmux forward, not hide it.
-        let isFrontmost = NSApp.isActive && !NSApp.isHidden
-        let hasVisibleWindow = NSApp.windows.contains { $0.isVisible && !$0.isMiniaturized }
-        if isFrontmost && hasVisibleWindow {
-            captureHiddenWindowRestoreTargets()
-            NSApp.hide(nil)
-            return
-        }
-
-        showAllApplicationWindows()
+        AppDelegate.shared?.toggleApplicationVisibilityFromGlobalHotkey()
     }
 
+    @MainActor
     private func captureHiddenWindowRestoreTargets() {
-        hiddenWindowRestoreTargets = NSApp.windows.filter { $0.isVisible || $0.isMiniaturized }
-    }
-
-    private func showAllApplicationWindows() {
-        let allWindows = NSApp.windows
-        let revealTargets: [NSWindow]
-
-        if NSApp.isHidden {
-            NSApp.unhide(nil)
-            let capturedTargets = hiddenWindowRestoreTargets.filter { window in
-                allWindows.contains { $0 === window }
-            }
-            hiddenWindowRestoreTargets.removeAll()
-            revealTargets = capturedTargets.isEmpty
-                ? allWindows.filter(\.isMiniaturized)
-                : capturedTargets
-        } else {
-            revealTargets = allWindows.filter { $0.isVisible || $0.isMiniaturized }
-        }
-
-        guard !revealTargets.isEmpty else { return }
-
-        for window in revealTargets where window.isMiniaturized {
-            window.deminiaturize(nil)
-        }
-
-        NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
-
-        let focusWindow = preferredFocusWindow(from: revealTargets)
-        focusWindow?.makeKeyAndOrderFront(nil)
-
-        for window in revealTargets where window !== focusWindow {
-            window.orderFrontRegardless()
-        }
-    }
-
-    private func preferredFocusWindow(from windows: [NSWindow]) -> NSWindow? {
-        if let keyWindow = NSApp.keyWindow,
-           windows.contains(where: { $0 === keyWindow }) {
-            return keyWindow
-        }
-
-        if let mainWindow = NSApp.mainWindow,
-           windows.contains(where: { $0 === mainWindow }) {
-            return mainWindow
-        }
-
-        return windows.first(where: \.canBecomeMain)
-            ?? windows.first(where: \.canBecomeKey)
-            ?? windows.first
+        AppDelegate.shared?.captureMainWindowVisibilityRestoreTargetsForApplicationHide()
     }
 }
 
