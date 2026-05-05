@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import SQLite3
 import SwiftUI
 import XCTest
 
@@ -95,6 +96,41 @@ final class SessionIndexViewTests: XCTestCase {
         store.setCurrentDirectoryIfChanged("/foo")
 
         XCTAssertEqual(emittedValues, ["/foo"])
+    }
+
+    func testCodexSQLSearchMatchesRolloutTranscriptContent() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-index-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let sessionsRoot = tempDir.appendingPathComponent("sessions", isDirectory: true)
+        try FileManager.default.createDirectory(at: sessionsRoot, withIntermediateDirectories: true)
+
+        let rolloutURL = sessionsRoot.appendingPathComponent("rollout-codex-transcript-match.jsonl")
+        let transcript = """
+        {"timestamp":"2026-05-01T09:00:00.000Z","type":"session_meta","payload":{"id":"codex-transcript-match","cwd":"/tmp/project"}}
+        {"timestamp":"2026-05-01T09:01:00.000Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\\"cmd\\":\\"tail -n 80 /tmp/cmux-debug-task-activation-performance-harness.log\\"}","call_id":"call_1"}}
+        """
+        try transcript.write(to: rolloutURL, atomically: true, encoding: .utf8)
+
+        let stateDB = tempDir.appendingPathComponent("state_5.sqlite")
+        try makeCodexStateDatabase(
+            at: stateDB,
+            rolloutURL: rolloutURL,
+            sessionId: "codex-transcript-match"
+        )
+
+        let outcome = await SessionIndexStore.loadCodexEntriesForTesting(
+            stateDBPath: stateDB.path,
+            needle: "/tmp/cmux-debug-task-activation-performance-harness.log",
+            offset: 0,
+            limit: 10,
+            sessionsRoot: sessionsRoot.path
+        )
+
+        XCTAssertEqual(outcome.errors, [])
+        XCTAssertEqual(outcome.entries.map(\.sessionId), ["codex-transcript-match"])
     }
 
     func testSectionPopoverHostCoordinatorSkipsHiddenRefreshes() {
@@ -215,6 +251,79 @@ final class SessionIndexViewTests: XCTestCase {
     private func pumpRunLoop() {
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
     }
+
+    private func makeCodexStateDatabase(
+        at url: URL,
+        rolloutURL: URL,
+        sessionId: String
+    ) throws {
+        var db: OpaquePointer?
+        guard sqlite3_open(url.path, &db) == SQLITE_OK, let db else {
+            throw SQLiteTestError(message: "open failed")
+        }
+        defer { sqlite3_close(db) }
+
+        try executeSQL(
+            """
+            CREATE TABLE threads (
+                id TEXT PRIMARY KEY,
+                rollout_path TEXT NOT NULL,
+                cwd TEXT NOT NULL,
+                title TEXT NOT NULL,
+                model TEXT,
+                git_branch TEXT,
+                approval_mode TEXT NOT NULL,
+                sandbox_policy TEXT NOT NULL,
+                reasoning_effort TEXT,
+                first_user_message TEXT NOT NULL,
+                updated_at_ms INTEGER,
+                archived INTEGER NOT NULL DEFAULT 0
+            );
+            """,
+            db: db
+        )
+
+        let sql = """
+            INSERT INTO threads (
+                id, rollout_path, cwd, title, model, git_branch,
+                approval_mode, sandbox_policy, reasoning_effort,
+                first_user_message, updated_at_ms, archived
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0);
+            """
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
+            throw SQLiteTestError(message: sqliteMessage(db) ?? "insert prepare failed")
+        }
+        defer { sqlite3_finalize(stmt) }
+
+        let transient = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
+        sqlite3_bind_text(stmt, 1, sessionId, -1, transient)
+        sqlite3_bind_text(stmt, 2, rolloutURL.path, -1, transient)
+        sqlite3_bind_text(stmt, 3, "/tmp/project", -1, transient)
+        sqlite3_bind_text(stmt, 4, "unrelated title", -1, transient)
+        sqlite3_bind_text(stmt, 5, "gpt-5.5", -1, transient)
+        sqlite3_bind_text(stmt, 6, "main", -1, transient)
+        sqlite3_bind_text(stmt, 7, "never", -1, transient)
+        sqlite3_bind_text(stmt, 8, #"{"type":"danger-full-access"}"#, -1, transient)
+        sqlite3_bind_text(stmt, 9, "medium", -1, transient)
+        sqlite3_bind_text(stmt, 10, "metadata does not contain the query", -1, transient)
+        sqlite3_bind_int64(stmt, 11, 1_777_624_800_000)
+
+        guard sqlite3_step(stmt) == SQLITE_DONE else {
+            throw SQLiteTestError(message: sqliteMessage(db) ?? "insert failed")
+        }
+    }
+
+    private func executeSQL(_ sql: String, db: OpaquePointer) throws {
+        guard sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK else {
+            throw SQLiteTestError(message: sqliteMessage(db) ?? "exec failed")
+        }
+    }
+
+    private func sqliteMessage(_ db: OpaquePointer) -> String? {
+        guard let cString = sqlite3_errmsg(db) else { return nil }
+        return String(cString: cString)
+    }
 }
 
 private struct SessionPopoverHarness {
@@ -222,4 +331,8 @@ private struct SessionPopoverHarness {
     let section: IndexSection
     let search: SessionSearchFn
     let loadSnapshot: DirectorySnapshotFn
+}
+
+private struct SQLiteTestError: Error {
+    let message: String
 }

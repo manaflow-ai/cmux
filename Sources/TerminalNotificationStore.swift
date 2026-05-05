@@ -694,9 +694,14 @@ final class TerminalNotificationStore: ObservableObject {
     @Published private(set) var notifications: [TerminalNotification] = [] {
         didSet {
             indexes = Self.buildIndexes(for: notifications)
+            let nextMenuSnapshot = NotificationMenuSnapshotBuilder.make(notifications: notifications)
+            if notificationMenuSnapshot != nextMenuSnapshot {
+                notificationMenuSnapshot = nextMenuSnapshot
+            }
             refreshDockBadge()
         }
     }
+    @Published private(set) var notificationMenuSnapshot = NotificationMenuSnapshotBuilder.make(notifications: [])
     @Published private(set) var focusedReadIndicatorByTabId: [UUID: UUID] = [:]
     @Published private(set) var authorizationState: NotificationAuthorizationState = .unknown
 
@@ -1075,7 +1080,10 @@ final class TerminalNotificationStore: ObservableObject {
         center.removeDeliveredNotificationsOffMain(withIdentifiers: [id.uuidString])
     }
 
-    func clearAll() {
+    func clearAll(discardQueuedNotifications: Bool = true) {
+        if discardQueuedNotifications {
+            TerminalMutationBus.shared.discardPendingNotifications()
+        }
         guard !notifications.isEmpty || !focusedReadIndicatorByTabId.isEmpty else { return }
         let ids = notifications.map { $0.id.uuidString }
         notifications.removeAll()
@@ -1084,7 +1092,14 @@ final class TerminalNotificationStore: ObservableObject {
         center.removePendingNotificationRequestsOffMain(withIdentifiers: ids)
     }
 
-    func clearNotifications(forTabId tabId: UUID, surfaceId: UUID?) {
+    func clearNotifications(
+        forTabId tabId: UUID,
+        surfaceId: UUID?,
+        discardQueuedNotifications: Bool = true
+    ) {
+        if discardQueuedNotifications {
+            TerminalMutationBus.shared.discardPendingNotifications(forTabId: tabId, surfaceId: surfaceId)
+        }
         var updated: [TerminalNotification] = []
         updated.reserveCapacity(notifications.count)
         var idsToClear: [String] = []
@@ -1102,7 +1117,10 @@ final class TerminalNotificationStore: ObservableObject {
         center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
     }
 
-    func clearNotifications(forTabId tabId: UUID) {
+    func clearNotifications(forTabId tabId: UUID, discardQueuedNotifications: Bool = true) {
+        if discardQueuedNotifications {
+            TerminalMutationBus.shared.discardPendingNotifications(forTabId: tabId)
+        }
         var updated: [TerminalNotification] = []
         updated.reserveCapacity(notifications.count)
         var idsToClear: [String] = []
@@ -1178,6 +1196,18 @@ final class TerminalNotificationStore: ObservableObject {
         origin: AuthorizationRequestOrigin,
         _ completion: @escaping (Bool) -> Void
     ) {
+        if origin == .notificationDelivery,
+           let cachedDecision = Self.cachedDeliveryAuthorizationDecision(
+               for: authorizationState,
+               isAppActive: AppFocusState.isAppActive()
+           ) {
+            if !cachedDecision, authorizationState == .notDetermined {
+                hasDeferredAuthorizationRequest = true
+            }
+            completion(cachedDecision)
+            return
+        }
+
         logAuthorization("ensure start origin=\(origin.rawValue)")
         center.getNotificationSettings { [weak self] settings in
             DispatchQueue.main.async {
@@ -1194,8 +1224,10 @@ final class TerminalNotificationStore: ObservableObject {
                 case .authorized, .provisional, .ephemeral:
                     completion(true)
                 case .denied:
-                    self.logAuthorization("ensure denied origin=\(origin.rawValue) prompting_settings")
-                    self.promptToEnableNotifications()
+                    if origin != .notificationDelivery {
+                        self.logAuthorization("ensure denied origin=\(origin.rawValue) prompting_settings")
+                        self.promptToEnableNotifications()
+                    }
                     completion(false)
                 case .notDetermined:
                     if Self.shouldDeferAutomaticAuthorizationRequest(
@@ -1255,12 +1287,10 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     private func promptToEnableNotifications() {
-        DispatchQueue.main.async { [weak self] in
-            guard let self, !self.hasPromptedForSettings else { return }
-            self.logAuthorization("prompt settings shown")
-            self.hasPromptedForSettings = true
-            self.presentNotificationSettingsPrompt(attempt: 0)
-        }
+        guard !hasPromptedForSettings else { return }
+        logAuthorization("prompt settings shown")
+        hasPromptedForSettings = true
+        presentNotificationSettingsPrompt(attempt: 0)
     }
 
     private func presentNotificationSettingsPrompt(attempt: Int) {
@@ -1407,6 +1437,7 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func replaceNotificationsForTesting(_ notifications: [TerminalNotification]) {
+        TerminalMutationBus.shared.discardPendingNotifications()
         self.notifications = notifications
         focusedReadIndicatorByTabId.removeAll()
     }

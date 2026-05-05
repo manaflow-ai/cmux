@@ -6,7 +6,15 @@ export type AuthedUser = {
   primaryEmail: string | null;
   billingCustomerType: "team" | "user";
   billingTeamId: string;
+  selectedTeamId: string | null;
+  teams: readonly AuthedTeam[];
   teamIds: readonly string[];
+  userBillingPlanId: string | null;
+  billingPlanId: string | null;
+};
+
+export type AuthedTeam = {
+  id: string;
   billingPlanId: string | null;
 };
 
@@ -56,7 +64,10 @@ async function authedUserFromStackUser(user: StackUserLike): Promise<AuthedUser>
     selectedTeam?.id,
     ...listedTeams.map((team) => team.id),
   ]);
-  const billingTeam = selectedTeam ?? listedTeams[0] ?? null;
+  const teams = uniqueTeams([selectedTeam, ...listedTeams]);
+  const billingTeam = selectedTeam ?? (teams.length === 1 ? teams[0] : null);
+  const userBillingPlanId = planIdFromMetadata(user.clientReadOnlyMetadata) ?? null;
+  const billingPlanId = planIdFromMetadata(billingTeam?.clientReadOnlyMetadata) ?? userBillingPlanId;
 
   return {
     id: user.id,
@@ -64,10 +75,14 @@ async function authedUserFromStackUser(user: StackUserLike): Promise<AuthedUser>
     primaryEmail: user.primaryEmail,
     billingCustomerType: billingTeam ? "team" : "user",
     billingTeamId: billingTeam?.id ?? user.id,
+    selectedTeamId: selectedTeam?.id ?? null,
+    teams: teams.map((team) => ({
+      id: team.id,
+      billingPlanId: planIdFromMetadata(team.clientReadOnlyMetadata),
+    })),
     teamIds,
-    billingPlanId: planIdFromMetadata(billingTeam?.clientReadOnlyMetadata) ??
-      planIdFromMetadata(user.clientReadOnlyMetadata) ??
-      null,
+    userBillingPlanId,
+    billingPlanId,
   };
 }
 
@@ -104,6 +119,17 @@ function planIdFromMetadata(metadata: unknown): string | null {
 
 function uniqueStrings(values: readonly (string | undefined)[]): readonly string[] {
   return [...new Set(values.filter((value): value is string => typeof value === "string" && value.length > 0))];
+}
+
+function uniqueTeams(values: readonly (TeamLike | null | undefined)[]): readonly TeamLike[] {
+  const teams: TeamLike[] = [];
+  const seen = new Set<string>();
+  for (const team of values) {
+    if (!team || seen.has(team.id)) continue;
+    seen.add(team.id);
+    teams.push(team);
+  }
+  return teams;
 }
 
 export function unauthorized(): Response {

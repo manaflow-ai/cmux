@@ -4,12 +4,10 @@ import CMUXWorkstream
 import Observation
 import SwiftUI
 
-#if DEBUG
 private func rightSidebarDebugResponder(_ responder: NSResponder?) -> String {
     guard let responder else { return "nil" }
     return String(describing: type(of: responder))
 }
-#endif
 
 /// Mode shown in the right sidebar (the panel toggled by ⌘⌥B).
 enum RightSidebarMode: String, CaseIterable {
@@ -17,6 +15,7 @@ enum RightSidebarMode: String, CaseIterable {
     case find
     case sessions
     case feed
+    case dock
 
     var label: String {
         switch self {
@@ -24,6 +23,7 @@ enum RightSidebarMode: String, CaseIterable {
         case .find: return String(localized: "rightSidebar.mode.find", defaultValue: "Find")
         case .sessions: return String(localized: "rightSidebar.mode.sessions", defaultValue: "Sessions")
         case .feed: return String(localized: "rightSidebar.mode.feed", defaultValue: "Feed")
+        case .dock: return String(localized: "rightSidebar.mode.dock", defaultValue: "Dock")
         }
     }
 
@@ -33,6 +33,7 @@ enum RightSidebarMode: String, CaseIterable {
         case .find: return "magnifyingglass"
         case .sessions: return "bubble.left.and.text.bubble.right"
         case .feed: return "dot.radiowaves.left.and.right"
+        case .dock: return "dock.rectangle"
         }
     }
 
@@ -42,6 +43,7 @@ enum RightSidebarMode: String, CaseIterable {
         case .find: return .switchRightSidebarToFind
         case .sessions: return .switchRightSidebarToSessions
         case .feed: return .switchRightSidebarToFeed
+        case .dock: return .switchRightSidebarToDock
         }
     }
 }
@@ -60,6 +62,9 @@ extension RightSidebarMode {
         }
         if KeyboardShortcutSettings.shortcut(for: .switchRightSidebarToFeed).matches(event: event) {
             return .feed
+        }
+        if KeyboardShortcutSettings.shortcut(for: .switchRightSidebarToDock).matches(event: event) {
+            return .dock
         }
         return nil
     }
@@ -138,13 +143,16 @@ struct RightSidebarPanelView: View {
     @ObservedObject var fileExplorerState: FileExplorerState
     @ObservedObject var sessionIndexStore: SessionIndexStore
     let titlebarHeight: CGFloat
+    let workspaceId: UUID?
     let onResumeSession: ((SessionEntry) -> Void)?
+    let onOpenFilePreview: (String) -> Void
 
     @StateObject private var modeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOrControl) { window in
         guard let responder = window.firstResponder else { return false }
         return AppDelegate.shared?.isRightSidebarFocusResponder(responder, in: window) == true
     }
     @StateObject private var focusShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
+    @StateObject private var dockStore = DockControlsStore()
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey)
     private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
@@ -160,9 +168,7 @@ struct RightSidebarPanelView: View {
         ZStack(alignment: .topLeading) {
             VStack(spacing: 0) {
                 modeBar
-                    .overlay(alignment: .bottom) {
-                        WindowChromeBorder(orientation: .horizontal, ignoresSafeArea: false)
-                    }
+                    .rightSidebarChromeBottomBorder()
                 contentForMode
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -191,6 +197,8 @@ struct RightSidebarPanelView: View {
             modeShortcutHintMonitor.stop()
             focusShortcutHintMonitor.stop()
         }
+        .onChange(of: fileExplorerState.mode) { _, mode in if mode != .dock { dockStore.deactivate() } }
+        .onChange(of: fileExplorerState.isVisible) { _, visible in if !visible { dockStore.deactivate() } }
     }
 
     private var modeBar: some View {
@@ -216,10 +224,14 @@ struct RightSidebarPanelView: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(.leading, 4)
-        .padding(.trailing, 6)
-        .padding(.vertical, 4)
-        .frame(height: titlebarHeight)
+        .rightSidebarChromeBar(leadingPadding: 4, trailingPadding: 6, height: titlebarHeight)
+        .background(MinimalModeTitlebarControlHitRegionView())
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("RightSidebarModeBar")
+        .reportRightSidebarChromeGeometryForBonsplitUITest(
+            isVisible: true,
+            titlebarHeight: titlebarHeight
+        )
     }
 
     @ViewBuilder
@@ -248,9 +260,19 @@ struct RightSidebarPanelView: View {
     private var contentForMode: some View {
         switch fileExplorerState.mode {
         case .files:
-            FileExplorerPanelView(store: fileExplorerStore, state: fileExplorerState, presentation: .files)
+            FileExplorerPanelView(
+                store: fileExplorerStore,
+                state: fileExplorerState,
+                onOpenFilePreview: onOpenFilePreview,
+                presentation: .files
+            )
         case .find:
-            FileExplorerPanelView(store: fileExplorerStore, state: fileExplorerState, presentation: .find)
+            FileExplorerPanelView(
+                store: fileExplorerStore,
+                state: fileExplorerState,
+                onOpenFilePreview: onOpenFilePreview,
+                presentation: .find
+            )
         case .sessions:
             SessionIndexView(store: sessionIndexStore, onResume: onResumeSession)
                 .onAppear {
@@ -258,6 +280,8 @@ struct RightSidebarPanelView: View {
                 }
         case .feed:
             FeedPanelView()
+        case .dock:
+            DockPanelView(rootDirectory: sessionIndexDirectory, workspaceId: workspaceId, store: dockStore)
         }
     }
 
@@ -393,12 +417,10 @@ private struct ModeBarButton: View {
                     pendingChip
                 }
             }
-            .foregroundColor(isSelected ? .primary : .secondary)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(backgroundColor)
+            .rightSidebarChromePill(
+                isSelected: isSelected,
+                isHovered: isHovered,
+                geometryKeyPrefix: "rightSidebarModeControl_\(mode.rawValue)"
             )
             .overlay(alignment: .trailing) {
                 if showsShortcutHint {
@@ -425,16 +447,6 @@ private struct ModeBarButton: View {
             )
         }
         return mode.label
-    }
-
-    private var backgroundColor: Color {
-        if isSelected {
-            return Color.primary.opacity(0.10)
-        }
-        if isHovered {
-            return Color.primary.opacity(0.05)
-        }
-        return Color.clear
     }
 
     /// Subtle inline count chip that sits after the label instead of

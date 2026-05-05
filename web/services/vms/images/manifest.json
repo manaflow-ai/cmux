@@ -30,12 +30,24 @@
       "version": "freestyle-sc-mt237",
       "imageId": "sc-mt237w1nd7c7673bd03m",
       "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
-      "defaultForLocalDev": true,
+      "defaultForLocalDev": false,
       "cmuxdRemoteCommit": "pre-manifest",
       "builtAt": "2026-04-24T00:00:00.000Z",
       "builderScriptVersion": "pre-manifest",
       "validationStatus": "passed",
       "notes": "Freestyle snapshot with cmuxd-remote WebSocket PTY/RPC, locale, sudo, and Python/OpenSSL fixes."
+    },
+    {
+      "provider": "freestyle",
+      "version": "freestyle-rpclease-20260502a",
+      "imageId": "sh-6ch5p9k23xrcx24056n8",
+      "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
+      "defaultForLocalDev": true,
+      "cmuxdRemoteCommit": "c678f473c3d606f697f2607a8216751023808394",
+      "builtAt": "2026-05-02T09:32:48.440Z",
+      "builderScriptVersion": "3b7bc6901346b7056dc8bcac7ef2ca4300ee1e2001fcbde5ebaaa443a0ed4e59",
+      "validationStatus": "passed",
+      "notes": "Validated Freestyle WebSocket PTY/RPC and browser proxy smoke. binarySha256=dd8867cf67131a10bf973d4a579938949d7ac5a1ebc3ea591b04ce1c8724705c"
     }
   ]
 }

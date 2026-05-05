@@ -422,6 +422,9 @@ enum FileExplorerError: LocalizedError {
 // MARK: - State (visibility toggle)
 
 final class FileExplorerState: ObservableObject {
+    private static let modeKey = "rightSidebar.mode"
+    private static let feedDockMigrationKey = "rightSidebar.feedDockMigrationApplied"
+
     @Published var isVisible: Bool {
         didSet { UserDefaults.standard.set(isVisible, forKey: "fileExplorer.isVisible") }
     }
@@ -442,7 +445,7 @@ final class FileExplorerState: ObservableObject {
 
     /// Active mode for the right sidebar (file tree or session index).
     @Published var mode: RightSidebarMode {
-        didSet { UserDefaults.standard.set(mode.rawValue, forKey: "rightSidebar.mode") }
+        didSet { UserDefaults.standard.set(mode.rawValue, forKey: Self.modeKey) }
     }
 
     init() {
@@ -454,8 +457,15 @@ final class FileExplorerState: ObservableObject {
         self.dividerPosition = storedPosition > 0 ? CGFloat(storedPosition) : 0.6
         let storedShowHidden = defaults.object(forKey: "fileExplorer.showHidden")
         self.showHiddenFiles = storedShowHidden == nil ? true : defaults.bool(forKey: "fileExplorer.showHidden")
-        let storedMode = defaults.string(forKey: "rightSidebar.mode") ?? RightSidebarMode.files.rawValue
-        self.mode = RightSidebarMode(rawValue: storedMode) ?? .files
+        let storedMode = defaults.string(forKey: Self.modeKey) ?? RightSidebarMode.files.rawValue
+        if storedMode == RightSidebarMode.feed.rawValue,
+           defaults.bool(forKey: Self.feedDockMigrationKey) == false {
+            self.mode = .dock
+            defaults.set(RightSidebarMode.dock.rawValue, forKey: Self.modeKey)
+            defaults.set(true, forKey: Self.feedDockMigrationKey)
+        } else {
+            self.mode = RightSidebarMode(rawValue: storedMode) ?? .files
+        }
     }
 
     func toggle() {
@@ -495,6 +505,7 @@ final class FileExplorerStore: ObservableObject {
     @Published var rootNodes: [FileExplorerNode] = []
     @Published private(set) var isRootLoading: Bool = false
     @Published private(set) var gitStatusByPath: [String: GitFileStatus] = [:]
+    @Published private(set) var contentRevision = 0
 
     var provider: FileExplorerProvider?
 
@@ -610,6 +621,7 @@ final class FileExplorerStore: ObservableObject {
         #if DEBUG
         NSLog("[FileExplorer] reload() path=\(rootPath) provider=\(type(of: provider).self)")
         #endif
+        contentRevision &+= 1
         cancelAllLoads()
         rootNodes = []
         nodesByPath = [:]

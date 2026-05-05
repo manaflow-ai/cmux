@@ -203,6 +203,8 @@ enum CmuxGhosttyConfigPathResolver {
         let legacyConfig = directory.appendingPathComponent("config", isDirectory: false)
         let configGhostty = directory.appendingPathComponent("config.ghostty", isDirectory: false)
         if isNonEmptyRegularFile(configGhostty, fileManager: fileManager) {
+            // Do not layer legacy config under config.ghostty. Older builds wrote
+            // explicit dark colors there, which blocks appearance-driven themes.
             return [configGhostty]
         }
         if isNonEmptyRegularFile(legacyConfig, fileManager: fileManager) {

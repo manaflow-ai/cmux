@@ -28,6 +28,7 @@ struct GhosttyConfig {
     // Colors (from theme or config)
     var backgroundColor: NSColor = NSColor(hex: "#272822")!
     var backgroundOpacity: Double = 1.0
+    var backgroundBlur: GhosttyBackgroundBlur = .disabled
     var foregroundColor: NSColor = NSColor(hex: "#fdfff1")!
     var cursorColor: NSColor = NSColor(hex: "#c0c1b5")!
     var cursorTextColor: NSColor = NSColor(hex: "#8d8e82")!
@@ -108,12 +109,11 @@ struct GhosttyConfig {
             return []
         }
 
-        return CmuxGhosttyConfigPathResolver.loadConfigURLs(
+        return GhosttyApp.cmuxAppSupportConfigURLs(
             currentBundleIdentifier: currentBundleIdentifier,
             appSupportDirectory: appSupport,
             fileManager: fileManager
-        )
-        .map(\.path)
+        ).map(\.path)
     }
 
     mutating func resolveSidebarBackground(preferredColorScheme: ColorSchemePreference) {
@@ -180,7 +180,10 @@ struct GhosttyConfig {
         if startupPreviewProfile.loadsRealUserConfig {
             for path in configPaths {
                 if let contents = readConfigFile(at: path) {
-                    config.parse(contents)
+                    config.parse(
+                        contents,
+                        loadingThemesImmediatelyFor: preferredColorScheme
+                    )
                 }
             }
 
@@ -195,12 +198,18 @@ struct GhosttyConfig {
         } else if let contents = startupPreviewProfile.previewConfigContents(
             preferredColorScheme: preferredColorScheme
         ) {
-            config.parse(contents)
+            config.parse(
+                contents,
+                loadingThemesImmediatelyFor: preferredColorScheme
+            )
         }
         #else
         for path in configPaths {
             if let contents = readConfigFile(at: path) {
-                config.parse(contents)
+                config.parse(
+                    contents,
+                    loadingThemesImmediatelyFor: preferredColorScheme
+                )
             }
         }
 
@@ -213,16 +222,6 @@ struct GhosttyConfig {
             )
         }
         #endif
-
-        // Load theme if specified
-        if let themeName = config.theme {
-            config.loadTheme(
-                themeName,
-                environment: ProcessInfo.processInfo.environment,
-                bundleResourceURL: Bundle.main.resourceURL,
-                preferredColorScheme: preferredColorScheme
-            )
-        }
 
         config.resolveSidebarBackground(preferredColorScheme: preferredColorScheme)
         config.applySidebarAppearanceToUserDefaults()
@@ -345,7 +344,10 @@ struct GhosttyConfig {
         }
     }
 
-    mutating func parse(_ contents: String) {
+    mutating func parse(
+        _ contents: String,
+        loadingThemesImmediatelyFor preferredColorScheme: ColorSchemePreference? = nil
+    ) {
         let lines = contents.components(separatedBy: .newlines)
         for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
@@ -371,6 +373,14 @@ struct GhosttyConfig {
                     }
                 case "theme":
                     theme = value
+                    if let preferredColorScheme {
+                        loadTheme(
+                            value,
+                            environment: ProcessInfo.processInfo.environment,
+                            bundleResourceURL: Bundle.main.resourceURL,
+                            preferredColorScheme: preferredColorScheme
+                        )
+                    }
                 case "working-directory":
                     workingDirectory = value
                 case "scrollback-limit":
@@ -384,6 +394,10 @@ struct GhosttyConfig {
                 case "background-opacity":
                     if let opacity = Double(value) {
                         backgroundOpacity = opacity
+                    }
+                case "background-blur":
+                    if let parsedBlur = Self.parseBackgroundBlur(value) {
+                        backgroundBlur = parsedBlur
                     }
                 case "foreground":
                     if let color = NSColor(hex: value) {
@@ -448,6 +462,24 @@ struct GhosttyConfig {
         return parsed
     }
 
+    private static func parseBackgroundBlur(_ value: String) -> GhosttyBackgroundBlur? {
+        switch value {
+        case "false", "0":
+            return .disabled
+        case "true":
+            return .radius(20)
+        case "macos-glass-regular":
+            return .macosGlassRegular
+        case "macos-glass-clear":
+            return .macosGlassClear
+        default:
+            guard let radius = parseIntegerLiteral(value), radius > 0, radius <= Int(UInt8.max) else {
+                return nil
+            }
+            return .radius(radius)
+        }
+    }
+
     mutating func loadTheme(_ name: String) {
         loadTheme(
             name,
@@ -480,11 +512,8 @@ struct GhosttyConfig {
         }
     }
 
-    static func currentColorSchemePreference(
-        appAppearance: NSAppearance? = NSApp?.effectiveAppearance
-    ) -> ColorSchemePreference {
-        let bestMatch = appAppearance?.bestMatch(from: [.darkAqua, .aqua])
-        return bestMatch == .darkAqua ? .dark : .light
+    static func currentColorSchemePreference(appAppearance: NSAppearance? = nil, defaults: UserDefaults = .standard, systemAppearance: AppearanceSettings.SystemAppearance? = nil) -> ColorSchemePreference {
+        AppearanceSettings.colorSchemePreference(appAppearance: appAppearance, defaults: defaults, systemAppearance: systemAppearance)
     }
 
     static func resolveThemeName(
