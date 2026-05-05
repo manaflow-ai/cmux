@@ -44,6 +44,7 @@
 		E3309A07 /* cmuxApp+EqualizeSplitsMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3309A08 /* cmuxApp+EqualizeSplitsMenu.swift */; };
 		E3309A09 /* AppDelegateEqualizeSplitsShortcutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3309A0A /* AppDelegateEqualizeSplitsShortcutTests.swift */; };
 		E3309A0B /* KeyboardShortcutSettingsEqualizeSplitsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3309A0C /* KeyboardShortcutSettingsEqualizeSplitsTests.swift */; };
+		A17110000000000000000001 /* KeyboardShortcutSpaceKeyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17110000000000000000002 /* KeyboardShortcutSpaceKeyTests.swift */; };
 		C0DEF0A40000000000000001 /* CmuxConfigContextMenuTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0A40000000000000002 /* CmuxConfigContextMenuTests.swift */; };
 		D0B10000A1B2C3D4E5F60001 /* TerminalPaneDropTargetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10001A1B2C3D4E5F60001 /* TerminalPaneDropTargetView.swift */; };
 		D0B10002A1B2C3D4E5F60001 /* BonsplitTabBarPassThrough.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10003A1B2C3D4E5F60001 /* BonsplitTabBarPassThrough.swift */; };
@@ -107,6 +108,7 @@
 		A72C9F4179B54DF38E99A021 /* CmuxCLIPathInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A4FE96C3F394FC6A6D4B018 /* CmuxCLIPathInstaller.swift */; };
 		E8BA79E246754A8B99A0B823 /* ScreenIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47D5AA7D29C94F5CA865B2BF /* ScreenIdentity.swift */; };
 		5C3E0454B6C24B02A2F091A8 /* ShortcutRoutingSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B42A82C6AA614E74873D9A5F /* ShortcutRoutingSupport.swift */; };
+		76027A12C93B4538BF22C71E /* ShortcutBareStartRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB7F2E9143904957AAA70726 /* ShortcutBareStartRouting.swift */; };
 		E5C0F1A0E5C0F1A0E5C0F1A0 /* TerminalFindEscapeRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5C0F1A1E5C0F1A1E5C0F1A1 /* TerminalFindEscapeRouting.swift */; };
 		1A8BEE693C9E4C3190CB7F20 /* MenuBarExtraController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7934BB35B66491B1BCA8064 /* MenuBarExtraController.swift */; };
 		2F0C05000000000000000002 /* MainWindowFocusController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F0C05000000000000000001 /* MainWindowFocusController.swift */; };
@@ -288,6 +290,7 @@
 		F4100000A1B2C3D4E5F60718 /* PortScannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4100001A1B2C3D4E5F60718 /* PortScannerTests.swift */; };
 		F5000000A1B2C3D4E5F60718 /* SessionPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5000001A1B2C3D4E5F60718 /* SessionPersistenceTests.swift */; };
 		F6000000A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6000001A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift */; };
+		725746692D9647948561044D /* AppDelegateBareSpaceShortcutRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17FCD4CC61D54A2F8F2F463D /* AppDelegateBareSpaceShortcutRoutingTests.swift */; };
 		F6001000A1B2C3D4E5F60718 /* ShortcutUnbindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6001001A1B2C3D4E5F60718 /* ShortcutUnbindingTests.swift */; };
 		F6100000A1B2C3D4E5F60718 /* WorkspaceRemoteConnectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6100001A1B2C3D4E5F60718 /* WorkspaceRemoteConnectionTests.swift */; };
 		F7000000A1B2C3D4E5F60718 /* WorkspaceContentViewVisibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7000001A1B2C3D4E5F60718 /* WorkspaceContentViewVisibilityTests.swift */; };
@@ -422,6 +425,7 @@
 		C34670010000000000000002 /* AppDelegateRenameShortcutContextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateRenameShortcutContextTests.swift; sourceTree = "<group>"; };
 		C34670020000000000000002 /* KeyboardShortcutContextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutContextTests.swift; sourceTree = "<group>"; };
 		E3309A0C /* KeyboardShortcutSettingsEqualizeSplitsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSettingsEqualizeSplitsTests.swift; sourceTree = "<group>"; };
+		A17110000000000000000002 /* KeyboardShortcutSpaceKeyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSpaceKeyTests.swift; sourceTree = "<group>"; };
 		7E7E6EF344A568AC7FEE3715 /* cmuxUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = cmuxUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		818DBCD4AB69EB72573E8138 /* SidebarResizeUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarResizeUITests.swift; sourceTree = "<group>"; };
 		970226F3C99D0D937CD00539 /* BrowserConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserConfigTests.swift; sourceTree = "<group>"; };
@@ -468,6 +472,7 @@
 		8A4FE96C3F394FC6A6D4B018 /* CmuxCLIPathInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmuxCLIPathInstaller.swift; sourceTree = "<group>"; };
 		47D5AA7D29C94F5CA865B2BF /* ScreenIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ScreenIdentity.swift; sourceTree = "<group>"; };
 		B42A82C6AA614E74873D9A5F /* ShortcutRoutingSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ShortcutRoutingSupport.swift; sourceTree = "<group>"; };
+		AB7F2E9143904957AAA70726 /* ShortcutBareStartRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ShortcutBareStartRouting.swift; sourceTree = "<group>"; };
 		E5C0F1A1E5C0F1A1E5C0F1A1 /* TerminalFindEscapeRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/TerminalFindEscapeRouting.swift; sourceTree = "<group>"; };
 		C7934BB35B66491B1BCA8064 /* MenuBarExtraController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MenuBarExtraController.swift; sourceTree = "<group>"; };
 		A500D011A1B2C3D4E5F60718 /* DebugLogging.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/DebugLogging.swift; sourceTree = "<group>"; };
@@ -657,6 +662,7 @@
 		F4100001A1B2C3D4E5F60718 /* PortScannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortScannerTests.swift; sourceTree = "<group>"; };
 		F5000001A1B2C3D4E5F60718 /* SessionPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPersistenceTests.swift; sourceTree = "<group>"; };
 		F6000001A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateShortcutRoutingTests.swift; sourceTree = "<group>"; };
+		17FCD4CC61D54A2F8F2F463D /* AppDelegateBareSpaceShortcutRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateBareSpaceShortcutRoutingTests.swift; sourceTree = "<group>"; };
 		E3309A0A /* AppDelegateEqualizeSplitsShortcutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateEqualizeSplitsShortcutTests.swift; sourceTree = "<group>"; };
 		F6001001A1B2C3D4E5F60718 /* ShortcutUnbindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutUnbindingTests.swift; sourceTree = "<group>"; };
 		F6100001A1B2C3D4E5F60718 /* WorkspaceRemoteConnectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRemoteConnectionTests.swift; sourceTree = "<group>"; };
@@ -863,6 +869,7 @@
 				8A4FE96C3F394FC6A6D4B018 /* CmuxCLIPathInstaller.swift */,
 				47D5AA7D29C94F5CA865B2BF /* ScreenIdentity.swift */,
 				B42A82C6AA614E74873D9A5F /* ShortcutRoutingSupport.swift */,
+				AB7F2E9143904957AAA70726 /* ShortcutBareStartRouting.swift */,
 				E5C0F1A1E5C0F1A1E5C0F1A1 /* TerminalFindEscapeRouting.swift */,
 				C7934BB35B66491B1BCA8064 /* MenuBarExtraController.swift */,
 				A500D011A1B2C3D4E5F60718 /* DebugLogging.swift */,
@@ -1040,6 +1047,7 @@
 				F5000001A1B2C3D4E5F60718 /* SessionPersistenceTests.swift */,
 				FA100001A1B2C3D4E5F60718 /* BrowserImportMappingTests.swift */,
 				F6000001A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift */,
+				17FCD4CC61D54A2F8F2F463D /* AppDelegateBareSpaceShortcutRoutingTests.swift */,
 				C34670010000000000000002 /* AppDelegateRenameShortcutContextTests.swift */,
 				E3309A0A /* AppDelegateEqualizeSplitsShortcutTests.swift */,
 				F6001001A1B2C3D4E5F60718 /* ShortcutUnbindingTests.swift */,
@@ -1068,6 +1076,7 @@
 				E3337002E3337002E3337002 /* KeyboardShortcutSettingsFileStoreStartupTests.swift */,
 				C34670020000000000000002 /* KeyboardShortcutContextTests.swift */,
 				E3309A0C /* KeyboardShortcutSettingsEqualizeSplitsTests.swift */,
+				A17110000000000000000002 /* KeyboardShortcutSpaceKeyTests.swift */,
 				1A1B2C3D4E5F607180000004 /* WorkspacePromptSubmitTests.swift */,
 				C0DE31390000000000000102 /* CMUXOpenCommandTests.swift */,
 				BEE83F8394D90ACACD8E19DD /* WindowAndDragTests.swift */,
@@ -1371,6 +1380,7 @@
 				A72C9F4179B54DF38E99A021 /* CmuxCLIPathInstaller.swift in Sources */,
 				E8BA79E246754A8B99A0B823 /* ScreenIdentity.swift in Sources */,
 				5C3E0454B6C24B02A2F091A8 /* ShortcutRoutingSupport.swift in Sources */,
+				76027A12C93B4538BF22C71E /* ShortcutBareStartRouting.swift in Sources */,
 				E5C0F1A0E5C0F1A0E5C0F1A0 /* TerminalFindEscapeRouting.swift in Sources */,
 				1A8BEE693C9E4C3190CB7F20 /* MenuBarExtraController.swift in Sources */,
 				A500D010A1B2C3D4E5F60718 /* DebugLogging.swift in Sources */,
@@ -1585,6 +1595,7 @@
 				F5000000A1B2C3D4E5F60718 /* SessionPersistenceTests.swift in Sources */,
 				FA100000A1B2C3D4E5F60718 /* BrowserImportMappingTests.swift in Sources */,
 				F6000000A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift in Sources */,
+				725746692D9647948561044D /* AppDelegateBareSpaceShortcutRoutingTests.swift in Sources */,
 				C34670010000000000000001 /* AppDelegateRenameShortcutContextTests.swift in Sources */,
 				E3309A09 /* AppDelegateEqualizeSplitsShortcutTests.swift in Sources */,
 				F6001000A1B2C3D4E5F60718 /* ShortcutUnbindingTests.swift in Sources */,
@@ -1612,6 +1623,7 @@
 				E3337001E3337001E3337001 /* KeyboardShortcutSettingsFileStoreStartupTests.swift in Sources */,
 				C34670020000000000000001 /* KeyboardShortcutContextTests.swift in Sources */,
 				E3309A0B /* KeyboardShortcutSettingsEqualizeSplitsTests.swift in Sources */,
+				A17110000000000000000001 /* KeyboardShortcutSpaceKeyTests.swift in Sources */,
 				1A1B2C3D4E5F607180000003 /* WorkspacePromptSubmitTests.swift in Sources */,
 				C0DE31390000000000000101 /* CMUXOpenCommandTests.swift in Sources */,
 				063BC42CEE257D6213A2E30C /* WindowAndDragTests.swift in Sources */,
