@@ -812,22 +812,14 @@ struct DockPanelView: View {
     @ObservedObject var store: DockControlsStore
 
     var body: some View {
-        VStack(spacing: 0) {
-            toolbar
-            Divider()
-            content
-        }
-        .onAppear {
-            store.activate(rootDirectory: rootDirectory, workspaceId: workspaceId)
+        content
+        .task(id: activationID) {
+            await MainActor.run {
+                store.activate(rootDirectory: rootDirectory, workspaceId: workspaceId)
+            }
         }
         .onDisappear {
             store.deactivate()
-        }
-        .onChange(of: rootDirectory) { _, newValue in
-            store.activate(rootDirectory: newValue, workspaceId: workspaceId)
-        }
-        .onChange(of: workspaceId) { _, newValue in
-            store.activate(rootDirectory: rootDirectory, workspaceId: newValue)
         }
         .background(
             DockKeyboardFocusBridge(store: store)
@@ -836,52 +828,8 @@ struct DockPanelView: View {
         .accessibilityIdentifier("DockPanel")
     }
 
-    private var toolbar: some View {
-        HStack(spacing: 6) {
-            Text(store.sourceLabel)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Spacer(minLength: 4)
-            Button {
-                store.openConfiguration()
-            } label: {
-                Image(systemName: "doc.text")
-                    .font(.system(size: 11, weight: .medium))
-            }
-            .buttonStyle(.plain)
-            .help(String(localized: "dock.action.openConfig", defaultValue: "Open Dock Config"))
-            .accessibilityLabel(String(localized: "dock.action.openConfig", defaultValue: "Open Dock Config"))
-
-            Button {
-                openDockDocs()
-            } label: {
-                Image(systemName: "questionmark.circle")
-                    .font(.system(size: 11, weight: .medium))
-            }
-            .buttonStyle(.plain)
-            .help(String(localized: "dock.action.openDocs", defaultValue: "Open Dock Documentation"))
-            .accessibilityLabel(String(localized: "dock.action.openDocs", defaultValue: "Open Dock Documentation"))
-
-            Button {
-                store.reload(rootDirectory: rootDirectory, workspaceId: workspaceId)
-            } label: {
-                Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 11, weight: .medium))
-            }
-            .buttonStyle(.plain)
-            .help(String(localized: "dock.action.reload", defaultValue: "Reload Dock"))
-            .accessibilityLabel(String(localized: "dock.action.reload", defaultValue: "Reload Dock"))
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .frame(height: 29)
-    }
-
-    private func openDockDocs() {
-        guard let url = URL(string: "https://cmux.com/docs/dock") else { return }
-        NSWorkspace.shared.open(url)
+    private var activationID: DockPanelActivationID {
+        DockPanelActivationID(rootDirectory: rootDirectory, workspaceId: workspaceId)
     }
 
     @ViewBuilder
@@ -917,6 +865,11 @@ struct DockPanelView: View {
             )
         }
     }
+}
+
+private struct DockPanelActivationID: Equatable {
+    let rootDirectory: String?
+    let workspaceId: UUID?
 }
 
 private struct DockControlsLayoutView: View {
