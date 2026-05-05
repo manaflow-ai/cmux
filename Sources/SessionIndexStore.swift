@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CMUXAgentLaunch
 import Combine
 import Foundation
 import SQLite3
@@ -10,25 +11,9 @@ enum SessionAgent: String, CaseIterable, Identifiable, Hashable, Codable, Sendab
     case claude
     case codex
     case opencode
+    case rovodev
 
     var id: String { rawValue }
-
-    var displayName: String {
-        switch self {
-        case .claude: return String(localized: "sessionIndex.agent.claude", defaultValue: "Claude Code")
-        case .codex: return String(localized: "sessionIndex.agent.codex", defaultValue: "Codex")
-        case .opencode: return String(localized: "sessionIndex.agent.opencode", defaultValue: "OpenCode")
-        }
-    }
-
-    /// Asset catalog image name for the agent's brand mark.
-    var assetName: String {
-        switch self {
-        case .claude: return "AgentIcons/Claude"
-        case .codex: return "AgentIcons/Codex"
-        case .opencode: return "AgentIcons/OpenCode"
-        }
-    }
 }
 
 enum OpenCodeDatabaseSnapshot {
@@ -96,6 +81,7 @@ enum AgentSpecifics: Hashable {
     case claude(model: String?, permissionMode: String?)
     case codex(model: String?, approvalPolicy: String?, sandboxMode: String?, effort: String?)
     case opencode(providerModel: String?, agentName: String?)
+    case rovodev
 }
 
 struct SessionEntry: Identifiable, Hashable {
@@ -123,10 +109,10 @@ struct SessionEntry: Identifiable, Hashable {
             if let permissionMode, !permissionMode.isEmpty {
                 parts.append("--permission-mode \(Self.shellQuote(permissionMode))")
             }
-            return Self.withShellEnvironment(
-                claudeConfigDirectoryForResume.map { ["CLAUDE_CONFIG_DIR": $0] } ?? [:],
-                command: parts.joined(separator: " ")
-            )
+            let environment = claudeConfigDirectoryForResume.map {
+                ["CLAUDE_CONFIG_DIR": $0, "CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV": "1", "CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS": "CLAUDE_CONFIG_DIR"]
+            } ?? [:]
+            return Self.withShellEnvironment(environment, command: parts.joined(separator: " "))
         case let .codex(model, approval, sandbox, effort):
             var parts = ["codex resume \(sessionId)"]
             if let model, !model.isEmpty {
@@ -151,6 +137,8 @@ struct SessionEntry: Identifiable, Hashable {
                 parts.append("--agent \(Self.shellQuote(agentName))")
             }
             return parts.joined(separator: " ")
+        case .rovodev:
+            return "acli rovodev run --restore \(Self.shellQuote(sessionId))"
         }
     }
 
@@ -173,7 +161,7 @@ struct SessionEntry: Identifiable, Hashable {
         }
         let configComponents = Array(pathComponents[..<projectsIndex])
         let configDir = NSString.path(withComponents: configComponents)
-        return configDir.isEmpty ? nil : configDir
+        return configDir.isEmpty ? nil : ClaudeConfigDirectoryPath.preferredPath(configDir)
     }
 
     private static func withShellEnvironment(
@@ -209,11 +197,11 @@ struct SessionEntry: Identifiable, Hashable {
                 return String(localized: "sessionIndex.localCommand", defaultValue: "Local command")
             }
             if Self.isClaudeSyntheticEnvelope(trimmed) {
-                return String(localized: "sessionIndex.untitled", defaultValue: "Untitled session")
+                return String(localized: "sessionIndex.untitled", defaultValue: "Untitled chat")
             }
         }
         if trimmed.isEmpty {
-            return String(localized: "sessionIndex.untitled", defaultValue: "Untitled session")
+            return String(localized: "sessionIndex.untitled", defaultValue: "Untitled chat")
         }
         return trimmed
     }
@@ -514,12 +502,14 @@ final class SessionIndexStore: ObservableObject {
         let sections: [IndexSection]
         switch grouping {
         case .agent:
-            sections = agentOrder.map { agent in
-                IndexSection(
+            let buckets = Dictionary(grouping: visible, by: \.agent)
+            sections = agentOrder.compactMap { agent in
+                guard let entries = buckets[agent], !entries.isEmpty else { return nil }
+                return IndexSection(
                     key: .agent(agent),
                     title: agent.displayName,
                     icon: .agent(agent),
-                    entries: visible.filter { $0.agent == agent }
+                    entries: entries
                 )
             }
         case .directory:
@@ -731,7 +721,11 @@ final class SessionIndexStore: ObservableObject {
             needle: "", agent: .opencode, cwdFilter: cwdFilter,
             offset: 0, limit: bigLimit, errorBag: bag
         )
-        var merged = (await c) + (await x) + (await o)
+        async let r = Self.timedAgent(
+            needle: "", agent: .rovodev, cwdFilter: cwdFilter,
+            offset: 0, limit: bigLimit, errorBag: bag
+        )
+        var merged = (await c) + (await x) + (await o) + (await r)
         if Task.isCancelled {
             return DirectorySnapshot(cwd: key, entries: [], errors: [])
         }
@@ -792,7 +786,7 @@ final class SessionIndexStore: ObservableObject {
     private static let headByteCap = 64 * 1024
     private static let tailByteCap = 32 * 1024
     /// Hard cap on candidate files inspected per call to keep deep-page searches bounded.
-    private static let searchMaxFiles = 1500
+    nonisolated static let searchMaxFiles = 1500
 
     private static func scanAll() async -> [SessionEntry] {
         // Initial scan errors are silently ignored — UI just shows the cached
@@ -802,7 +796,8 @@ final class SessionIndexStore: ObservableObject {
         async let claude = loadClaudeEntries(needle: "", cwdFilter: nil, offset: 0, limit: perAgentLimit)
         async let codex = loadCodexEntries(needle: "", cwdFilter: nil, offset: 0, limit: perAgentLimit, errorBag: bag)
         async let opencode = loadOpenCodeEntries(needle: "", cwdFilter: nil, offset: 0, limit: perAgentLimit, errorBag: bag)
-        let combined = await claude + codex + opencode
+        async let rovodev = loadRovoDevEntries(needle: "", cwdFilter: nil, offset: 0, limit: perAgentLimit, errorBag: bag)
+        let combined = await claude + codex + opencode + rovodev
         return combined.sorted { $0.modified > $1.modified }
     }
 
@@ -840,7 +835,7 @@ final class SessionIndexStore: ObservableObject {
             let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return }
             let configDir = (trimmed as NSString).expandingTildeInPath
-            let standardized = (configDir as NSString).standardizingPath
+            let standardized = ClaudeConfigDirectoryPath.preferredPath(configDir)
             let projectsRoot = (standardized as NSString).appendingPathComponent("projects")
             var isDirectory: ObjCBool = false
             guard fm.fileExists(atPath: projectsRoot, isDirectory: &isDirectory),
@@ -964,7 +959,7 @@ final class SessionIndexStore: ObservableObject {
     /// envelope/system wrapper (`<environment_context>...`, `<user_instructions>`,
     /// `<permissions>`, AGENTS.md preamble) that we don't want to surface as a
     /// session title.
-    nonisolated private static func realCodexUserMessage(_ raw: String) -> String? {
+    nonisolated static func realCodexUserMessage(_ raw: String) -> String? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         let envelopePrefixes = [
@@ -1222,12 +1217,12 @@ final class SessionIndexStore: ObservableObject {
         return (providerModel, agentName?.isEmpty == false ? agentName : nil)
     }
 
-    nonisolated private static func sqliteText(_ stmt: OpaquePointer, _ index: Int32) -> String? {
+    nonisolated static func sqliteText(_ stmt: OpaquePointer, _ index: Int32) -> String? {
         guard let cString = sqlite3_column_text(stmt, index) else { return nil }
         return String(cString: cString)
     }
 
-    nonisolated private static func sqliteMessage(_ db: OpaquePointer?) -> String? {
+    nonisolated static func sqliteMessage(_ db: OpaquePointer?) -> String? {
         guard let db, let cString = sqlite3_errmsg(db) else { return nil }
         return String(cString: cString)
     }
@@ -1310,7 +1305,11 @@ final class SessionIndexStore: ObservableObject {
                 needle: needle, agent: .opencode, cwdFilter: cwdFilter,
                 offset: 0, limit: target, errorBag: bag
             )
-            let merged = (await c) + (await x) + (await o)
+            async let r = Self.timedAgent(
+                needle: needle, agent: .rovodev, cwdFilter: cwdFilter,
+                offset: 0, limit: target, errorBag: bag
+            )
+            let merged = (await c) + (await x) + (await o) + (await r)
             let sorted = merged.sorted { $0.modified > $1.modified }
             entries = Array(sorted.dropFirst(offset).prefix(limit))
         }
@@ -1340,6 +1339,7 @@ final class SessionIndexStore: ObservableObject {
         case .claude: return await loadClaudeEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit)
         case .codex: return await loadCodexEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
         case .opencode: return loadOpenCodeEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
+        case .rovodev: return loadRovoDevEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
         }
     }
 
@@ -1374,7 +1374,7 @@ final class SessionIndexStore: ObservableObject {
     /// `process.terminate()`, killing the in-flight rg instead of letting it
     /// grind to completion. Wait is also async (via `terminationHandler`) so we
     /// don't tie up a cooperative-pool thread on `waitUntilExit`.
-    nonisolated private static func ripgrepMatchingPaths(
+    nonisolated static func ripgrepMatchingPaths(
         needle: String, root: String, fileGlob: String
     ) async -> [URL]? {
         guard let rg = cachedRipgrepPath else { return nil }
@@ -1591,7 +1591,7 @@ final class SessionIndexStore: ObservableObject {
         needle: String, cwdFilter: String?, offset: Int, limit: Int,
         errorBag: ErrorBag
     ) async -> [SessionEntry] {
-        if let viaSQL = loadCodexEntriesViaSQL(
+        if let viaSQL = await loadCodexEntriesViaSQL(
             needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit,
             errorBag: errorBag
         ) {
@@ -1602,128 +1602,13 @@ final class SessionIndexStore: ObservableObject {
         )
     }
 
-    /// SQL-backed Codex loader. Returns nil if `state_5.sqlite` doesn't exist
-    /// (signaling caller to fall back to the disk scan). On schema mismatch or
-    /// other SQL errors, appends a user-facing message to `errorBag` and still
-    /// returns nil so the caller can fall back.
-    nonisolated private static func loadCodexEntriesViaSQL(
-        needle: String, cwdFilter: String?, offset: Int, limit: Int,
-        errorBag: ErrorBag
-    ) -> [SessionEntry]? {
-        let dbPath = ("~/.codex/state_5.sqlite" as NSString).expandingTildeInPath
-        let fm = FileManager.default
-        guard fm.fileExists(atPath: dbPath) else { return nil }
-
-        // Snapshot DB + WAL/SHM to avoid contention with a running Codex.
-        let snapshotDir = fm.temporaryDirectory.appendingPathComponent(
-            "cmux-codex-search-\(UUID().uuidString)", isDirectory: true
-        )
-        do { try fm.createDirectory(at: snapshotDir, withIntermediateDirectories: true) } catch { return nil }
-        defer { try? fm.removeItem(at: snapshotDir) }
-        let snapshotDB = snapshotDir.appendingPathComponent("state.db")
-        do { try fm.copyItem(atPath: dbPath, toPath: snapshotDB.path) } catch { return nil }
-        for sidecar in ["-wal", "-shm"] {
-            let src = dbPath + sidecar
-            let dst = snapshotDB.path + sidecar
-            if fm.fileExists(atPath: src) { try? fm.copyItem(atPath: src, toPath: dst) }
+    nonisolated static func fileContainsNeedle(url: URL, needle: String) -> Bool {
+        guard !needle.isEmpty,
+              let data = try? Data(contentsOf: url, options: .mappedIfSafe),
+              let text = String(data: data, encoding: .utf8) else {
+            return false
         }
-
-        var db: OpaquePointer?
-        guard sqlite3_open_v2(snapshotDB.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
-            errorBag.add("Codex: cannot open state_5.sqlite (\(sqliteMessage(db) ?? "unknown error"))")
-            sqlite3_close(db)
-            return nil
-        }
-        defer { sqlite3_close(db) }
-
-        var sql = """
-            SELECT id, rollout_path, cwd, title, model, git_branch,
-                   approval_mode, sandbox_policy, reasoning_effort,
-                   first_user_message, updated_at_ms
-            FROM threads
-            WHERE archived = 0
-            """
-        var conditions: [String] = []
-        if !needle.isEmpty {
-            // Match against title, first_user_message, cwd, and git_branch.
-            conditions.append("(LOWER(title) LIKE ?1 OR LOWER(first_user_message) LIKE ?1 OR LOWER(cwd) LIKE ?1 OR LOWER(git_branch) LIKE ?1)")
-        }
-        if cwdFilter != nil {
-            conditions.append("cwd = ?\(needle.isEmpty ? 1 : 2)")
-        }
-        if !conditions.isEmpty {
-            sql += " AND " + conditions.joined(separator: " AND ")
-        }
-        sql += " ORDER BY updated_at_ms DESC LIMIT \(limit) OFFSET \(offset)"
-
-        var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
-            errorBag.add("Codex: schema unsupported — \(sqliteMessage(db) ?? "prepare failed"). Falling back to file scan.")
-            sqlite3_finalize(stmt)
-            return nil
-        }
-        defer { sqlite3_finalize(stmt) }
-
-        let SQLITE_TRANSIENT_FN = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
-        if !needle.isEmpty {
-            sqlite3_bind_text(stmt, 1, "%\(needle)%", -1, SQLITE_TRANSIENT_FN)
-        }
-        if let cwdFilter {
-            sqlite3_bind_text(stmt, needle.isEmpty ? 1 : 2, cwdFilter, -1, SQLITE_TRANSIENT_FN)
-        }
-
-        var results: [SessionEntry] = []
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            let sid = sqliteText(stmt, 0) ?? ""
-            let rollout = sqliteText(stmt, 1) ?? ""
-            let cwd = sqliteText(stmt, 2)
-            let titleField = sqliteText(stmt, 3) ?? ""
-            let model = sqliteText(stmt, 4)
-            let branch = sqliteText(stmt, 5)
-            let approval = sqliteText(stmt, 6)
-            let sandboxJSON = sqliteText(stmt, 7)
-            let effort = sqliteText(stmt, 8)
-            let firstMsg = sqliteText(stmt, 9) ?? ""
-            let updatedMs = sqlite3_column_int64(stmt, 10)
-            let modified = Date(timeIntervalSince1970: TimeInterval(updatedMs) / 1000.0)
-
-            // Codex stores sandbox_policy as JSON like {"type":"danger-full-access"}.
-            let sandboxMode = sandboxJSON
-                .flatMap { $0.data(using: .utf8) }
-                .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
-                .flatMap { $0["type"] as? String }
-
-            // Prefer Codex's curated `title`. Fall back to first_user_message,
-            // skipping envelope wrappers (<environment_context>, etc.).
-            let displayTitle: String
-            if !titleField.isEmpty {
-                displayTitle = titleField
-            } else if let real = realCodexUserMessage(firstMsg) {
-                displayTitle = real
-            } else {
-                displayTitle = ""
-            }
-
-            let fileURL: URL? = rollout.isEmpty ? nil : URL(fileURLWithPath: rollout)
-            results.append(SessionEntry(
-                id: "codex:" + (fileURL?.path ?? sid),
-                agent: .codex,
-                sessionId: sid,
-                title: displayTitle,
-                cwd: cwd,
-                gitBranch: branch?.isEmpty == false ? branch : nil,
-                pullRequest: nil,
-                modified: modified,
-                fileURL: fileURL,
-                specifics: .codex(
-                    model: model?.isEmpty == false ? model : nil,
-                    approvalPolicy: approval?.isEmpty == false ? approval : nil,
-                    sandboxMode: sandboxMode,
-                    effort: effort?.isEmpty == false ? effort : nil
-                )
-            ))
-        }
-        return results
+        return text.range(of: needle, options: [.caseInsensitive, .literal]) != nil
     }
 
     /// Disk-scan fallback for Codex when state_5.sqlite isn't present (very old

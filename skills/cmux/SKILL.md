@@ -30,10 +30,36 @@ cmux list-pane-surfaces --pane pane:1
 cmux new-workspace
 cmux new-split right --panel pane:1
 cmux move-surface --surface surface:7 --pane pane:2 --focus true
+cmux split-off --surface surface:7 right
 cmux reorder-surface --surface surface:7 --before surface:3
 
 # attention cue
 cmux trigger-flash --surface surface:7
+```
+
+## Settings and Docs
+
+Use `cmux docs settings` before changing cmux-owned settings. It prints the docs URL, schema URL, raw GitHub resources, cmux.json paths, and reload command.
+
+```bash
+cmux docs settings
+cmux settings path
+```
+
+cmux-owned settings live in `~/.config/cmux/cmux.json`. Legacy `~/.config/cmux/settings.json` and `~/Library/Application Support/com.cmuxterm.app/settings.json` files are read only as fallback for missing keys. Before editing, copy any existing `cmux.json` file to a timestamped `.bak` next to it so the user can revert. Edit the user file, then reload:
+
+```bash
+cmux reload-config
+```
+
+Use cmux settings for app behavior, sidebar, notifications, browser behavior, automation, workspace colors, and cmux-owned shortcuts. Terminal rendering settings such as font, cursor style, theme, and scrollback belong in Ghostty config.
+
+Open the UI when useful:
+
+```bash
+cmux settings
+cmux settings cmux-json
+cmux settings shortcuts
 ```
 
 ## Handle Model

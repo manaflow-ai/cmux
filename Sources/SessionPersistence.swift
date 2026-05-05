@@ -225,8 +225,8 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var workingDirectory: String?
     var scrollback: String?
     var agent: SessionRestorableAgentSnapshot?
+    var tmuxStartCommand: String?
 }
-
 struct SessionBrowserPanelSnapshot: Codable, Sendable {
     var urlString: String?
     var profileID: UUID?
@@ -238,6 +238,10 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
 }
 
 struct SessionMarkdownPanelSnapshot: Codable, Sendable {
+    var filePath: String
+}
+
+struct SessionFilePreviewPanelSnapshot: Codable, Sendable {
     var filePath: String
 }
 
@@ -255,6 +259,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var terminal: SessionTerminalPanelSnapshot?
     var browser: SessionBrowserPanelSnapshot?
     var markdown: SessionMarkdownPanelSnapshot?
+    var filePreview: SessionFilePreviewPanelSnapshot?
 }
 
 enum SessionSplitOrientation: String, Codable, Sendable {

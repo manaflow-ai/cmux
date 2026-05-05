@@ -4,7 +4,7 @@ import { buildAlternates } from "../../../../i18n/seo";
 import { Link } from "../../../../i18n/navigation";
 import { CodeBlock } from "../../components/code-block";
 import { Callout } from "../../components/callout";
-import settingsSchema from "../../../../data/cmux-settings.schema.json";
+import settingsSchema from "../../../../data/cmux.schema.json";
 import { shortcutCategories, type LocalizedText } from "../../../../data/cmux-shortcuts";
 
 type SchemaProperty = {
@@ -30,9 +30,9 @@ const typedSettingsSchema = settingsSchema as SchemaDocument;
 const schemaProperties = typedSettingsSchema.properties ?? {};
 const schemaUrl =
   typedSettingsSchema.$id ??
-  "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux-settings.schema.json";
+  "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json";
 const schemaSourceUrl =
-  "https://github.com/manaflow-ai/cmux/blob/main/web/data/cmux-settings.schema.json";
+  "https://github.com/manaflow-ai/cmux/blob/main/web/data/cmux.schema.json";
 const sectionOrder = [
   "app",
   "terminal",
@@ -41,7 +41,9 @@ const sectionOrder = [
   "workspaceColors",
   "sidebarAppearance",
   "automation",
-  "customCommands",
+  "actions",
+  "ui",
+  "commands",
   "browser",
   "shortcuts",
 ] as const;
@@ -53,7 +55,8 @@ const settingsFileExample = `{
   // "app": {
   //   "appearance": "dark",
   //   "menuBarOnly": false,
-  //   "newWorkspacePlacement": "afterCurrent"
+  //   "newWorkspacePlacement": "afterCurrent",
+  //   "iMessageMode": true
   // },
 
   // "terminal": {
@@ -76,7 +79,8 @@ const settingsFileExample = `{
   // "shortcuts": {
   //   "bindings": {
   //     "toggleSidebar": "cmd+b",
-  //     "newTab": ["ctrl+b", "c"]
+  //     "newTab": ["ctrl+b", "c"],
+  //     "commandPalettePrevious": null
   //   }
   // },
 }`;
@@ -249,28 +253,30 @@ scrollback-limit = 50000000
 split-divider-color = #3e4451
 working-directory = ~/code`}</CodeBlock>
 
-      <h2 id="settings-json" className="scroll-mt-24">cmux settings.json</h2>
+      <h2 id="cmux-json" className="scroll-mt-24">cmux.json</h2>
       <p>
-        cmux keeps app-owned settings in a separate user file instead of mixing them into Ghostty
-        config. On launch, if neither settings location exists, cmux writes a commented template to{" "}
-        <code>~/.config/cmux/settings.json</code>.
+        cmux keeps app-owned settings, shortcuts, actions, custom commands, and workspace layouts in{" "}
+        <code>~/.config/cmux/cmux.json</code>. Terminal rendering still lives in Ghostty config.
+        On launch, if the file is missing, cmux writes a commented template there.
       </p>
       <p>
-        Open cmux Settings, then use the <code>settings.json</code> section to open the active file
+        Open cmux Settings, then use the <code>cmux.json</code> section to open the canonical file
         in your preferred text editor.
       </p>
       <ol>
         <li>
-          <code>~/.config/cmux/settings.json</code>
+          <code>~/.config/cmux/cmux.json</code>
         </li>
         <li>
-          <code>~/Library/Application Support/com.cmuxterm.app/settings.json</code>
+          <code>.cmux/cmux.json</code> in a project for project-scoped actions and workspace commands
         </li>
       </ol>
       <Callout type="info">
-        <strong>Precedence:</strong> <code>~/.config/cmux/settings.json</code> wins over the
-        Application Support fallback. File-managed values override the value saved in the Settings
-        window. Remove a key to fall back to the Settings value again.
+        <strong>Precedence:</strong> global <code>~/.config/cmux/cmux.json</code> settings override
+        values saved in the Settings window. Legacy <code>~/.config/cmux/settings.json</code> and
+        Application Support settings files are read only as fallback for missing settings keys.
+        Project-local <code>.cmux/cmux.json</code> can override actions, commands, and UI action
+        wiring, but not global app preferences.
       </Callout>
       <Callout type="info">
         <strong>Reload:</strong> edit the file, then use <code>Cmd+Shift+,</code> or{" "}
@@ -286,15 +292,16 @@ working-directory = ~/code`}</CodeBlock>
         at <a href={schemaUrl}>{schemaUrl}</a> and the source lives at{" "}
         <a href={schemaSourceUrl}>{schemaSourceUrl}</a>.
       </p>
-      <CodeBlock title="~/.config/cmux/settings.json" lang="json">
+      <CodeBlock title="~/.config/cmux/cmux.json" lang="json">
         {settingsFileExample}
       </CodeBlock>
 
       <h2>Schema reference</h2>
       <p>
-        This reference covers every supported key in <code>settings.json</code>. The embedded
+        This reference covers every supported global settings key in <code>cmux.json</code>. The embedded
         browser, terminal, sidebar, notifications, automation, and cmux-owned keyboard shortcuts
-        all live here.
+        all live here. Actions and workspace commands are documented on the{" "}
+        <Link href="/docs/custom-commands">custom commands page</Link>.
       </p>
 
       <h3>Metadata</h3>
@@ -348,9 +355,13 @@ working-directory = ~/code`}</CodeBlock>
         <code>shortcuts.bindings</code>
       </h3>
       <p>
-        Use a string for a single shortcut, or a two-item array for a chord. Example:{" "}
-        <code>[&quot;ctrl+b&quot;, &quot;c&quot;]</code>. Numbered actions use <code>1</code> as
-        the stored default and still match digits <code>1</code> through <code>9</code>.
+        Use a string for a single shortcut, a two-item array for a chord, or <code>null</code> to
+        unbind a shortcut in <code>shortcuts.bindings</code>. Unbind aliases also include
+        empty string (<code>&quot;&quot;</code>), <code>none</code>, <code>clear</code>,{" "}
+        <code>unbound</code>, and <code>disabled</code>. Example chord:{" "}
+        <code>[&quot;ctrl+b&quot;, &quot;c&quot;]</code>. Numbered actions use{" "}
+        <code>1</code> as the stored default and still match digits <code>1</code> through{" "}
+        <code>9</code>.
       </p>
       <p>
         The defaults below are the same cmux-owned actions listed on the{" "}

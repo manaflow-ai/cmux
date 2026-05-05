@@ -94,9 +94,11 @@ final class TerminalPanel: Panel, ObservableObject {
         workingDirectory: String? = nil,
         portOrdinal: Int = 0,
         initialCommand: String? = nil,
+        tmuxStartCommand: String? = nil,
         initialInput: String? = nil,
         initialEnvironmentOverrides: [String: String] = [:],
-        additionalEnvironment: [String: String] = [:]
+        additionalEnvironment: [String: String] = [:],
+        focusPlacement: TerminalSurfaceFocusPlacement = .workspace
     ) {
         let surface = TerminalSurface(
             tabId: workspaceId,
@@ -104,9 +106,11 @@ final class TerminalPanel: Panel, ObservableObject {
             configTemplate: configTemplate,
             workingDirectory: workingDirectory,
             initialCommand: initialCommand,
+            tmuxStartCommand: tmuxStartCommand,
             initialInput: initialInput,
             initialEnvironmentOverrides: initialEnvironmentOverrides,
-            additionalEnvironment: additionalEnvironment
+            additionalEnvironment: additionalEnvironment,
+            focusPlacement: focusPlacement
         )
         surface.portOrdinal = portOrdinal
         self.init(workspaceId: workspaceId, surface: surface)

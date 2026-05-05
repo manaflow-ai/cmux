@@ -16,7 +16,7 @@ export type BeginCreateResult =
   | { readonly inserted: false; readonly vm: CloudVmRow };
 
 export type VmRepositoryShape = {
-  readonly listUserVms: (userId: string) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
+  readonly listUserVms: (userId: string, billingTeamId?: string | null) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
   readonly beginCreate: (input: {
     readonly userId: string;
     readonly billingTeamId: string;
@@ -104,13 +104,17 @@ async function findByIdempotencyKey(
 }
 
 export const VmRepositoryLive = Layer.succeed(VmRepository, {
-  listUserVms: (userId) =>
+  listUserVms: (userId, billingTeamId) =>
     dbEffect("listUserVms", async () => {
       const db = cloudDb();
+      const teamId = billingTeamId?.trim();
       return await db
         .select()
         .from(cloudVms)
-        .where(and(eq(cloudVms.userId, userId), ne(cloudVms.status, "destroyed")))
+        .where(teamId
+          ? and(eq(cloudVms.userId, userId), eq(cloudVms.billingTeamId, teamId), ne(cloudVms.status, "destroyed"))
+          : and(eq(cloudVms.userId, userId), ne(cloudVms.status, "destroyed"))
+        )
         .orderBy(desc(cloudVms.createdAt));
     }),
 
