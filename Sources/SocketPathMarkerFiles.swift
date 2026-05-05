@@ -6,7 +6,7 @@ enum SocketPathMarkerFiles {
 
     private enum Variant: Equatable {
         case stable
-        case nightly
+        case nightly(slug: String?)
         case staging(slug: String?)
         case dev(slug: String?)
 
@@ -14,7 +14,10 @@ enum SocketPathMarkerFiles {
             switch self {
             case .stable:
                 return SocketPathMarkerFiles.stableAppSupportFileName
-            case .nightly:
+            case .nightly(let slug):
+                if let slug {
+                    return "nightly-\(slug)-last-socket-path"
+                }
                 return "nightly-last-socket-path"
             case .staging(let slug):
                 if let slug {
@@ -33,7 +36,10 @@ enum SocketPathMarkerFiles {
             switch self {
             case .stable:
                 return SocketPathMarkerFiles.stableTmpPath
-            case .nightly:
+            case .nightly(let slug):
+                if let slug {
+                    return "/tmp/cmux-nightly-\(slug)-last-socket-path"
+                }
                 return "/tmp/cmux-nightly-last-socket-path"
             case .staging(let slug):
                 if let slug {
@@ -78,8 +84,11 @@ enum SocketPathMarkerFiles {
         environment: [String: String]
     ) -> Variant {
         let bundleId = bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if bundleId == "com.cmuxterm.app.nightly" || bundleId.hasPrefix("com.cmuxterm.app.nightly.") {
-            return .nightly
+        if bundleId == "com.cmuxterm.app.nightly" {
+            return .nightly(slug: nil)
+        }
+        if bundleId.hasPrefix("com.cmuxterm.app.nightly.") {
+            return .nightly(slug: bundleSuffixSlug(bundleId, prefix: "com.cmuxterm.app.nightly."))
         }
         if bundleId == "com.cmuxterm.app.staging" {
             return .staging(slug: nil)
@@ -89,7 +98,7 @@ enum SocketPathMarkerFiles {
         }
         if bundleId == SocketControlSettings.baseDebugBundleIdentifier {
             if let tag = SocketControlSettings.launchTag(environment: environment) {
-                return .dev(slug: sanitizeMarkerSlug(tag))
+                return .dev(slug: sanitizeSocketSlug(tag))
             }
             return .dev(slug: nil)
         }
@@ -101,10 +110,10 @@ enum SocketPathMarkerFiles {
 
     private static func bundleSuffixSlug(_ bundleIdentifier: String, prefix: String) -> String? {
         let suffix = String(bundleIdentifier.dropFirst(prefix.count))
-        return sanitizeMarkerSlug(suffix)
+        return sanitizeSocketSlug(suffix)
     }
 
-    private static func sanitizeMarkerSlug(_ raw: String) -> String? {
+    static func sanitizeSocketSlug(_ raw: String) -> String? {
         let slug = raw
             .lowercased()
             .replacingOccurrences(of: ".", with: "-")

@@ -57,6 +57,12 @@ def _sanitize_tag_slug(raw: str) -> str:
     return cleaned or "agent"
 
 
+def _sanitize_marker_slug(raw: str) -> Optional[str]:
+    cleaned = re.sub(r"[^a-z0-9]+", "-", (raw or "").strip().lower())
+    cleaned = re.sub(r"-+", "-", cleaned).strip("-")
+    return cleaned or None
+
+
 def _sanitize_bundle_suffix(raw: str) -> str:
     # Must match scripts/reload.sh sanitize_bundle() so tagged tests can
     # reliably target the correct app via AppleScript.
@@ -89,17 +95,22 @@ def _last_socket_path_files() -> List[str]:
     marker = "last-socket-path"
     tmp_marker = "/tmp/cmux-last-socket-path"
 
-    if bundle_id == "com.cmuxterm.app.nightly" or bundle_id.startswith("com.cmuxterm.app.nightly."):
+    if bundle_id == "com.cmuxterm.app.nightly":
         marker = "nightly-last-socket-path"
         tmp_marker = "/tmp/cmux-nightly-last-socket-path"
+    elif bundle_id.startswith("com.cmuxterm.app.nightly."):
+        suffix = bundle_id.removeprefix("com.cmuxterm.app.nightly.")
+        slug = _sanitize_marker_slug(suffix)
+        marker = f"nightly-{slug}-last-socket-path" if slug else "nightly-last-socket-path"
+        tmp_marker = f"/tmp/cmux-nightly-{slug}-last-socket-path" if slug else "/tmp/cmux-nightly-last-socket-path"
     elif bundle_id == "com.cmuxterm.app.staging" or bundle_id.startswith("com.cmuxterm.app.staging."):
         suffix = bundle_id.removeprefix("com.cmuxterm.app.staging.")
-        slug = _sanitize_tag_slug(suffix) if suffix != bundle_id else ""
+        slug = _sanitize_marker_slug(suffix) if suffix != bundle_id else ""
         marker = f"staging-{slug}-last-socket-path" if slug else "staging-last-socket-path"
         tmp_marker = f"/tmp/cmux-staging-{slug}-last-socket-path" if slug else "/tmp/cmux-staging-last-socket-path"
     elif bundle_id == _DEFAULT_DEBUG_BUNDLE_ID or bundle_id.startswith(f"{_DEFAULT_DEBUG_BUNDLE_ID}."):
         suffix = bundle_id.removeprefix(f"{_DEFAULT_DEBUG_BUNDLE_ID}.")
-        slug = _sanitize_tag_slug(suffix) if suffix != bundle_id else ""
+        slug = _sanitize_marker_slug(suffix) if suffix != bundle_id else ""
         marker = f"dev-{slug}-last-socket-path" if slug else "dev-last-socket-path"
         tmp_marker = f"/tmp/cmux-dev-{slug}-last-socket-path" if slug else "/tmp/cmux-dev-last-socket-path"
 

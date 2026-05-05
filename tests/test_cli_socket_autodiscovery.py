@@ -83,32 +83,11 @@ class PingServer:
             server.close()
 
 
-def write_marker(home: str, marker_name: str, tmp_marker: str, socket_path: str) -> None:
+def write_marker(home: str, marker_name: str, socket_path: str) -> None:
     app_support = os.path.join(home, "Library", "Application Support", "cmux")
     os.makedirs(app_support, exist_ok=True)
     with open(os.path.join(app_support, marker_name), "w", encoding="utf-8") as f:
         f.write(f"{socket_path}\n")
-    with open(tmp_marker, "w", encoding="utf-8") as f:
-        f.write(f"{socket_path}\n")
-
-
-def snapshot_file(path: str) -> bytes | None:
-    try:
-        with open(path, "rb") as f:
-            return f.read()
-    except OSError:
-        return None
-
-
-def restore_file(path: str, data: bytes | None) -> None:
-    try:
-        if data is None:
-            os.remove(path)
-            return
-        with open(path, "wb") as f:
-            f.write(data)
-    except OSError:
-        pass
 
 
 def bundled_cli_for_variant(cli_path: str, root: str, app_name: str, bundle_id: str) -> str:
@@ -202,11 +181,7 @@ def test_variant_last_socket_markers(cli_path: str) -> bool:
     pid = os.getpid()
     stable_socket = f"/tmp/cmux-issue3542-stable-{pid}.sock"
     nightly_socket = f"/tmp/cmux-issue3542-nightly-{pid}.sock"
-    tmp_markers = [
-        "/tmp/cmux-last-socket-path",
-        "/tmp/cmux-nightly-last-socket-path",
-    ]
-    marker_backups = {path: snapshot_file(path) for path in tmp_markers}
+    dev_agent_socket = f"/tmp/cmux-issue3542-dev-agent-{pid}.sock"
 
     with tempfile.TemporaryDirectory(prefix="cmux-cli-variant-home-") as home, \
             tempfile.TemporaryDirectory(prefix="cmux-cli-variant-apps-") as apps:
@@ -222,25 +197,32 @@ def test_variant_last_socket_markers(cli_path: str) -> bool:
             "cmux NIGHTLY",
             "com.cmuxterm.app.nightly",
         )
+        dev_agent_cli = bundled_cli_for_variant(
+            cli_path,
+            apps,
+            "cmux DEV agent",
+            "com.cmuxterm.app.debug.agent",
+        )
 
-        write_marker(home, "last-socket-path", tmp_markers[0], stable_socket)
-        write_marker(home, "nightly-last-socket-path", tmp_markers[1], nightly_socket)
+        write_marker(home, "last-socket-path", stable_socket)
+        write_marker(home, "nightly-last-socket-path", nightly_socket)
+        write_marker(home, "dev-agent-last-socket-path", dev_agent_socket)
 
         try:
             if not expect_ping_uses_socket(stable_cli, home, stable_socket, "stable"):
                 return False
             if not expect_ping_uses_socket(nightly_cli, home, nightly_socket, "nightly"):
                 return False
+            if not expect_ping_uses_socket(dev_agent_cli, home, dev_agent_socket, "dev-agent"):
+                return False
         finally:
-            for path in [stable_socket, nightly_socket]:
+            for path in [stable_socket, nightly_socket, dev_agent_socket]:
                 try:
                     os.remove(path)
                 except OSError:
                     pass
-            for path, data in marker_backups.items():
-                restore_file(path, data)
 
-    print("PASS: stable and nightly bundled CLIs read variant-specific socket markers")
+    print("PASS: bundled CLIs read variant-specific socket markers")
     return True
 
 

@@ -472,20 +472,32 @@ struct SocketControlSettings {
         if let taggedDebugPath = taggedDebugSocketPath(bundleIdentifier: bundleIdentifier, environment: [:]) {
             return taggedDebugPath
         }
-        if bundleIdentifier == "com.cmuxterm.app.nightly"
-            || bundleIdentifier?.hasPrefix("com.cmuxterm.app.nightly.") == true {
+        if bundleIdentifier == "com.cmuxterm.app.nightly" {
             return "/tmp/cmux-nightly.sock"
+        }
+        if let slug = variantSlug(bundleIdentifier: bundleIdentifier, prefix: "com.cmuxterm.app.nightly.") {
+            return "/tmp/cmux-nightly-\(slug).sock"
         }
         if isDebugLikeBundleIdentifier(bundleIdentifier) || isDebugBuild {
             return "/tmp/cmux-debug.sock"
         }
-        if isStagingBundleIdentifier(bundleIdentifier) {
+        if bundleIdentifier == "com.cmuxterm.app.staging" {
             return "/tmp/cmux-staging.sock"
+        }
+        if let slug = variantSlug(bundleIdentifier: bundleIdentifier, prefix: "com.cmuxterm.app.staging.") {
+            return "/tmp/cmux-\(slug).sock"
         }
         return resolvedStableDefaultSocketPath(
             currentUserID: currentUserID,
             probeStableDefaultPathEntry: probeStableDefaultPathEntry
         )
+    }
+
+    private static func variantSlug(bundleIdentifier: String?, prefix: String) -> String? {
+        guard let bundleIdentifier,
+              bundleIdentifier.hasPrefix(prefix) else { return nil }
+        let suffix = String(bundleIdentifier.dropFirst(prefix.count))
+        return SocketPathMarkerFiles.sanitizeSocketSlug(suffix)
     }
 
     static func userScopedStableSocketPath(currentUserID: uid_t = getuid()) -> String {
