@@ -72,6 +72,22 @@ final class RovoDevHookConfigTests: XCTestCase {
         XCTAssertTrue(installed.contains("command: \"cmux hooks rovodev stop --message \\\"done\\\" \\\\ next\\nline\""))
     }
 
+    func testUninstallLeavesDanglingMarkedBlockUntouched() {
+        let existing = """
+        eventHooks:
+          events:
+            # cmux hooks rovodev begin
+            - name: on_complete
+              commands:
+                - command: "cmux hooks rovodev stop"
+        sessions:
+          persistenceDir: /tmp/rovo
+
+        """
+
+        XCTAssertEqual(RovoDevHookConfig.uninstalling(from: existing), existing)
+    }
+
     private static let events = [
         RovoDevHookConfig.Event(name: "on_complete", command: "cmux hooks rovodev stop"),
         RovoDevHookConfig.Event(name: "on_error", command: "cmux hooks rovodev stop"),

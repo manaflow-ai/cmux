@@ -2251,6 +2251,21 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                 "--yolo"
             ]
         )
+        XCTAssertNil(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "/opt/homebrew/bin/acli",
+                    "rovodev",
+                    "run",
+                    "--restore",
+                    "old-session",
+                    "--prompt",
+                    "do not replay"
+                ],
+                launcher: "rovodev",
+                fallbackKind: "rovodev"
+            )
+        )
     }
 
     func testAgentLaunchSanitizerMatchesAdditionalHookAgentResumePolicies() {

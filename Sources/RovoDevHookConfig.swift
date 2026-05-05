@@ -77,23 +77,27 @@ enum RovoDevHookConfig {
     }
 
     private static func removingMarkedBlock(_ lines: [String]) -> [String] {
-        var result: [String] = []
-        var skipping = false
-        for line in lines {
-            if line.trimmingCharacters(in: .whitespaces) == beginMarker {
-                if result.last?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true {
-                    result.removeLast()
-                }
-                skipping = true
+        var result = lines
+        var index = 0
+        while index < result.count {
+            guard result[index].trimmingCharacters(in: .whitespaces) == beginMarker else {
+                index += 1
                 continue
             }
-            if skipping {
-                if line.trimmingCharacters(in: .whitespaces) == endMarker {
-                    skipping = false
-                }
+
+            guard let endIndex = result[(index + 1)...].firstIndex(where: {
+                $0.trimmingCharacters(in: .whitespaces) == endMarker
+            }) else {
+                index += 1
                 continue
             }
-            result.append(line)
+
+            let removalStart = result.indices.contains(index - 1)
+                && result[index - 1].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? index - 1
+                : index
+            result.removeSubrange(removalStart...endIndex)
+            index = removalStart
         }
         return result
     }

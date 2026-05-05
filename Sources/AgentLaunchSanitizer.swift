@@ -996,6 +996,16 @@ enum AgentLaunchSanitizer {
         ],
         droppedOptionPrefixes: [
             "--restore="
+        ],
+        rejectOptions: [
+            "--prompt",
+            "-p",
+            "--prompt-interactive",
+            "-i",
+            "--print",
+            "--input-format",
+            "--output-format",
+            "-o"
         ]
     )
 
