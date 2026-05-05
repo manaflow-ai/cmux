@@ -401,6 +401,31 @@ final class GhosttyConfigTests: XCTestCase {
         }
     }
 
+    func testCmuxAppSupportConfigURLsPreferConfigGhosttyOverLegacyConfig() throws {
+        try withTemporaryAppSupportDirectory { appSupportDirectory in
+            _ = try writeAppSupportConfig(
+                appSupportDirectory: appSupportDirectory,
+                bundleIdentifier: "com.cmuxterm.app",
+                filename: "config",
+                contents: "font-size = 13\n"
+            )
+            let releaseConfigURL = try writeAppSupportConfig(
+                appSupportDirectory: appSupportDirectory,
+                bundleIdentifier: "com.cmuxterm.app",
+                filename: "config.ghostty",
+                contents: "font-size = 14\n"
+            )
+
+            XCTAssertEqual(
+                GhosttyApp.cmuxAppSupportConfigURLs(
+                    currentBundleIdentifier: "com.cmuxterm.app",
+                    appSupportDirectory: appSupportDirectory
+                ),
+                [releaseConfigURL]
+            )
+        }
+    }
+
     func testCmuxAppSupportConfigURLsPreferCurrentBundleConfigWhenPresent() throws {
         try withTemporaryAppSupportDirectory { appSupportDirectory in
             _ = try writeAppSupportConfig(
@@ -426,6 +451,50 @@ final class GhosttyConfigTests: XCTestCase {
         }
     }
 
+    func testCmuxAppSupportConfigURLsUseNightlyConfigWhenPresent() throws {
+        try withTemporaryAppSupportDirectory { appSupportDirectory in
+            _ = try writeAppSupportConfig(
+                appSupportDirectory: appSupportDirectory,
+                bundleIdentifier: "com.cmuxterm.app",
+                filename: "config.ghostty",
+                contents: "font-size = 13\n"
+            )
+            let nightlyConfigURL = try writeAppSupportConfig(
+                appSupportDirectory: appSupportDirectory,
+                bundleIdentifier: "com.cmuxterm.app.nightly",
+                filename: "config.ghostty",
+                contents: "font-size = 15\n"
+            )
+
+            XCTAssertEqual(
+                GhosttyApp.cmuxAppSupportConfigURLs(
+                    currentBundleIdentifier: "com.cmuxterm.app.nightly",
+                    appSupportDirectory: appSupportDirectory
+                ),
+                [nightlyConfigURL]
+            )
+        }
+    }
+
+    func testCmuxAppSupportConfigURLsUseReleaseConfigForNightlyWithoutCurrentConfig() throws {
+        try withTemporaryAppSupportDirectory { appSupportDirectory in
+            let releaseConfigURL = try writeAppSupportConfig(
+                appSupportDirectory: appSupportDirectory,
+                bundleIdentifier: "com.cmuxterm.app",
+                filename: "config.ghostty",
+                contents: "font-size = 13\n"
+            )
+
+            XCTAssertEqual(
+                GhosttyApp.cmuxAppSupportConfigURLs(
+                    currentBundleIdentifier: "com.cmuxterm.app.nightly",
+                    appSupportDirectory: appSupportDirectory
+                ),
+                [releaseConfigURL]
+            )
+        }
+    }
+
     func testCmuxAppSupportConfigURLsSkipReleaseFallbackForNonDebugBundle() throws {
         try withTemporaryAppSupportDirectory { appSupportDirectory in
             _ = try writeAppSupportConfig(
@@ -440,6 +509,47 @@ final class GhosttyConfigTests: XCTestCase {
                     currentBundleIdentifier: "com.example.other-app",
                     appSupportDirectory: appSupportDirectory
                 ).isEmpty
+            )
+        }
+    }
+
+    func testCmuxConfigPathResolverOpensLegacyConfigWhenConfigGhosttyIsEmpty() throws {
+        try withTemporaryAppSupportDirectory { appSupportDirectory in
+            let legacyConfigURL = try writeAppSupportConfig(
+                appSupportDirectory: appSupportDirectory,
+                bundleIdentifier: "com.cmuxterm.app",
+                filename: "config",
+                contents: "background = #000000\n"
+            )
+            _ = try writeAppSupportConfig(
+                appSupportDirectory: appSupportDirectory,
+                bundleIdentifier: "com.cmuxterm.app",
+                filename: "config.ghostty",
+                contents: ""
+            )
+
+            XCTAssertEqual(
+                CmuxGhosttyConfigPathResolver.activeOrEditableConfigURL(
+                    currentBundleIdentifier: "com.cmuxterm.app",
+                    appSupportDirectory: appSupportDirectory
+                ),
+                legacyConfigURL
+            )
+        }
+    }
+
+    func testCmuxConfigPathResolverTargetsCurrentConfigGhosttyWhenNoActiveConfigExists() throws {
+        try withTemporaryAppSupportDirectory { appSupportDirectory in
+            let expectedURL = appSupportDirectory
+                .appendingPathComponent("com.cmuxterm.app.debug.issue-3518", isDirectory: true)
+                .appendingPathComponent("config.ghostty", isDirectory: false)
+
+            XCTAssertEqual(
+                CmuxGhosttyConfigPathResolver.activeOrEditableConfigURL(
+                    currentBundleIdentifier: "com.cmuxterm.app.debug.issue-3518",
+                    appSupportDirectory: appSupportDirectory
+                ),
+                expectedURL
             )
         }
     }
