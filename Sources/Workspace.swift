@@ -36,6 +36,11 @@ enum WorkspacePendingTerminalInputPolicy {
     }
 }
 
+// @unchecked Sendable safety: This type is only ever accessed on the MainActor
+// (created, mutated, and read exclusively from Workspace methods which run on main).
+// The Sendable conformance is needed because it's stored in a dictionary that crosses
+// an isolation boundary in the notification observer closure, but all actual access
+// is serialized on the main thread.
 private final class WorkspacePendingTerminalInputObserver: @unchecked Sendable {
     var observer: NSObjectProtocol?
 }
@@ -13597,8 +13602,15 @@ extension Workspace: BonsplitDelegate {
                     // Keep the existing placeholder tab identity and replace only the panel mapping.
                     // This avoids an extra create+close tab churn that can transiently render an
                     // empty pane during drag-to-split of a single-tab pane.
-                    let inheritedConfig = inheritedTerminalConfig(inPane: originalPane)
+                    var inheritedConfig = inheritedTerminalConfig(inPane: originalPane)
                     let remoteCommand = remoteTerminalStartupCommand()
+                    // Hold the PTY open after the remote session ends so the user sees
+                    // the exit message rather than a silently-respawned local login shell.
+                    if remoteCommand != nil {
+                        var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
+                        template.waitAfterCommand = true
+                        inheritedConfig = template
+                    }
 
                     let replacementPanel = TerminalPanel(
                         workspaceId: id,
@@ -13667,10 +13679,17 @@ extension Workspace: BonsplitDelegate {
         )
 #endif
 
-        let inheritedConfig = inheritedTerminalConfig(
+        var inheritedConfig = inheritedTerminalConfig(
             preferredPanelId: sourcePanelId,
             inPane: originalPane
         )
+        // Hold the PTY open after the remote session ends so the user sees
+        // the exit message rather than a silently-respawned local login shell.
+        if remoteTerminalStartupCommand != nil {
+            var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
+            template.waitAfterCommand = true
+            inheritedConfig = template
+        }
 
         let newPanel = TerminalPanel(
             workspaceId: id,
@@ -13697,6 +13716,9 @@ extension Workspace: BonsplitDelegate {
         ) else {
             panels.removeValue(forKey: newPanel.id)
             panelTitles.removeValue(forKey: newPanel.id)
+            if remoteTerminalStartupCommand != nil {
+                untrackRemoteTerminalSurface(newPanel.id)
+            }
             terminalInheritanceFontPointsByPanelId.removeValue(forKey: newPanel.id)
             return
         }
