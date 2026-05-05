@@ -3818,16 +3818,30 @@ class GhosttyApp {
                     // C so the lock is always released before any Swift runs
                     // — tracked in #3560. Until that lands, do NOT remove
                     // this DispatchQueue.main.async.
+                    let preferredWorkspaceId = workspace.id
                     let surfaceId = termSurface.id
                     DispatchQueue.main.async {
-                        guard workspace.openOrFocusMarkdownSplit(
+                        // Re-resolve workspace at dispatch time: tabs can move
+                        // between workspaces in the runloop gap, so the
+                        // captured value may be stale. Mirrors the deferred
+                        // browser path's pattern.
+                        let resolvedWorkspace = AppDelegate.shared?.workspaceContainingPanel(
+                            panelId: surfaceId,
+                            preferredWorkspaceId: preferredWorkspaceId
+                        ) ?? workspace
+                        // TOCTOU re-check: file may have been removed/renamed
+                        // since the synchronous gate. Fall through if so.
+                        guard CmdClickMarkdownRouteSettings.shouldRoute(path: fileURL.path) else {
+                            NSWorkspace.shared.open(fileURL)
+                            return
+                        }
+                        guard resolvedWorkspace.openOrFocusMarkdownSplit(
                             from: surfaceId,
                             filePath: fileURL.path
                         ) == nil else { return }
-                        // Async fallback: if the split could not be created
-                        // (e.g. the source pane disappeared between commit and
-                        // dispatch), surface the file through the system opener
-                        // so the click is not silently lost.
+                        // Split creation failed (source pane gone between
+                        // commit and dispatch) — surface via system opener so
+                        // the click is not silently lost.
                         NSWorkspace.shared.open(fileURL)
                     }
                     return true
