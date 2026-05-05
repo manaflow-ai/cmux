@@ -374,8 +374,8 @@ def assert_disabled_omx_hud_does_not_split(
         raise AssertionError(f"disabled HUD split should not print a pane id: {proc.stdout!r}")
     if state.split_params:
         raise AssertionError(f"disabled HUD should not create a split: {state.split_params!r}")
-    if state.resize_params or state.sent_text:
-        raise AssertionError("disabled HUD should not resize or launch a command")
+    if state.resize_params or state.sent_text or state.equalize_params:
+        raise AssertionError("disabled HUD should not resize, equalize, or launch a command")
 
 
 def main() -> int:

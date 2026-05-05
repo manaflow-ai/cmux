@@ -3879,7 +3879,7 @@ struct CMUXCLI {
         }
     }
 
-    private func intFromAny(_ value: Any?) -> Int? {
+    func intFromAny(_ value: Any?) -> Int? {
         if let i = value as? Int { return i }
         if let n = value as? NSNumber { return n.intValue }
         if let s = value as? String { return Int(s) }
@@ -11158,7 +11158,7 @@ struct CMUXCLI {
         return (workspaceId, paneId)
     }
 
-    private func tmuxSelectedSurfaceId(
+    func tmuxSelectedSurfaceId(
         workspaceId: String,
         paneId: String,
         client: SocketClient
@@ -11381,500 +11381,6 @@ struct CMUXCLI {
         return context
     }
 
-    /// Enrich a tmux format context dictionary with pane geometry data from the
-    /// enriched pane.list response. Computes character-cell positions from pixel
-    /// frames and cell dimensions so tmux format variables like #{pane_width},
-    /// #{pane_height}, #{pane_left}, #{pane_top}, #{window_width}, #{window_height}
-    /// render correctly.
-    private func tmuxEnrichContextWithGeometry(
-        _ context: inout [String: String],
-        pane: [String: Any],
-        containerFrame: [String: Any]?
-    ) {
-        let isFocused = (pane["focused"] as? Bool) == true
-        context["pane_active"] = isFocused ? "1" : "0"
-
-        guard let columns = pane["columns"] as? Int,
-              let rows = pane["rows"] as? Int else { return }
-
-        context["pane_width"] = String(columns)
-        context["pane_height"] = String(rows)
-
-        let cellW = pane["cell_width_px"] as? Int ?? 0
-        let cellH = pane["cell_height_px"] as? Int ?? 0
-        guard cellW > 0, cellH > 0 else { return }
-
-        if let frame = pane["pixel_frame"] as? [String: Any] {
-            let px = frame["x"] as? Double ?? 0
-            let py = frame["y"] as? Double ?? 0
-            context["pane_left"] = String(Int(px) / cellW)
-            context["pane_top"] = String(Int(py) / cellH)
-        }
-
-        if let cf = containerFrame {
-            let cw = cf["width"] as? Double ?? 0
-            let ch = cf["height"] as? Double ?? 0
-            context["window_width"] = String(max(Int(cw) / cellW, 1))
-            context["window_height"] = String(max(Int(ch) / cellH, 1))
-        }
-    }
-
-    private func tmuxShellQuote(_ value: String) -> String {
-        "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
-    }
-
-    private func tmuxShellCommandBody(commandTokens: [String], cwd: String?) -> String? {
-        let trimmedCwd = cwd?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let commandText = commandTokens.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard (trimmedCwd?.isEmpty == false) || !commandText.isEmpty else {
-            return nil
-        }
-
-        var pieces: [String] = []
-        if let trimmedCwd, !trimmedCwd.isEmpty {
-            pieces.append("cd -- \(tmuxShellQuote(resolvePath(trimmedCwd)))")
-        }
-        if !commandText.isEmpty {
-            pieces.append(commandText)
-        }
-        return pieces.joined(separator: " && ")
-    }
-
-    private func tmuxShellCommandText(commandTokens: [String], cwd: String?) -> String? {
-        tmuxShellCommandBody(commandTokens: commandTokens, cwd: cwd).map { $0 + "\r" }
-    }
-
-    private func tmuxStartCommand(commandTokens: [String]) -> String? {
-        let commandText = commandTokens.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
-        return commandText.isEmpty ? nil : commandText
-    }
-
-    private func tmuxShellWords(_ commandText: String) -> [String] {
-        var words: [String] = []
-        var current = ""
-        var inSingleQuote = false
-        var inDoubleQuote = false
-        var escaping = false
-
-        for character in commandText {
-            if escaping {
-                current.append(character)
-                escaping = false
-                continue
-            }
-            if character == "\\" && !inSingleQuote {
-                escaping = true
-                continue
-            }
-            if character == "'" && !inDoubleQuote {
-                inSingleQuote.toggle()
-                continue
-            }
-            if character == "\"" && !inSingleQuote {
-                inDoubleQuote.toggle()
-                continue
-            }
-            if character.isWhitespace && !inSingleQuote && !inDoubleQuote {
-                if !current.isEmpty {
-                    words.append(current)
-                    current = ""
-                }
-                continue
-            }
-            current.append(character)
-        }
-
-        if !current.isEmpty {
-            words.append(current)
-        }
-        return words
-    }
-
-    private func tmuxLooksLikeShellAssignment(_ token: String) -> Bool {
-        guard let equalsIndex = token.firstIndex(of: "="), equalsIndex != token.startIndex else {
-            return false
-        }
-        let name = token[..<equalsIndex]
-        guard let first = name.first, first == "_" || first.isLetter else {
-            return false
-        }
-        return name.allSatisfy { $0 == "_" || $0.isLetter || $0.isNumber }
-    }
-
-    private func tmuxCurrentCommandName(from startCommand: String) -> String? {
-        for token in tmuxShellWords(startCommand) {
-            let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
-            if tmuxLooksLikeShellAssignment(trimmed) { continue }
-            let lower = trimmed.lowercased()
-            if lower == "env" || lower == "exec" || lower == "command" { continue }
-            let basename = (trimmed as NSString).lastPathComponent
-            return basename.isEmpty ? trimmed : basename
-        }
-        return nil
-    }
-
-    private func tmuxFormatRequestsPaneCommand(_ format: String?) -> Bool {
-        guard let format else { return false }
-        return format.contains("#{pane_start_command}") || format.contains("#{pane_current_command}")
-    }
-
-    private func tmuxLegacyOMXHudStartCommand(
-        workspaceId: String,
-        surfaceId: String,
-        client: SocketClient
-    ) -> String? {
-        guard let payload = try? client.sendV2(method: "surface.read_text", params: [
-            "workspace_id": workspaceId,
-            "surface_id": surfaceId,
-            "lines": 4
-        ]),
-            let text = payload["text"] as? String else {
-            return nil
-        }
-        let lower = text.lowercased()
-        guard lower.contains("[omx#"),
-              lower.contains("turns:"),
-              lower.contains("session:") else {
-            return nil
-        }
-        return "node omx.js hud --watch"
-    }
-
-    private func tmuxPaneLooksLikeOMXHud(workspaceId: String, paneId: String, client: SocketClient) -> Bool {
-        guard let surfaceId = try? tmuxSelectedSurfaceId(
-            workspaceId: workspaceId,
-            paneId: paneId,
-            client: client
-        ) else {
-            return false
-        }
-
-        if let payload = try? client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId]),
-           let surfaces = payload["surfaces"] as? [[String: Any]],
-           let surface = surfaces.first(where: { ($0["id"] as? String) == surfaceId }) {
-            let paneStartCommand = [
-                surface["tmux_start_command"],
-                surface["pane_start_command"],
-                surface["initial_command"]
-            ]
-                .compactMap { ($0 as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .first { !$0.isEmpty }
-
-            if let paneStartCommand,
-               tmuxCommandLooksLikeOMXHud(tmuxShellWords(paneStartCommand)) {
-                return true
-            }
-        }
-
-        return tmuxLegacyOMXHudStartCommand(
-            workspaceId: workspaceId,
-            surfaceId: surfaceId,
-            client: client
-        ) != nil
-    }
-
-    private func tmuxStartupScript(commandTokens: [String], cwd: String?) -> String? {
-        let commandText = commandTokens.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !commandText.isEmpty else {
-            return nil
-        }
-
-        let scriptURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-tmux-command-\(UUID().uuidString.lowercased()).sh")
-        var lines = [
-            "#!/bin/sh",
-            "rm -f -- \"$0\" 2>/dev/null || true"
-        ]
-        if let cwd = cwd?.trimmingCharacters(in: .whitespacesAndNewlines), !cwd.isEmpty {
-            lines.append("cd -- \(tmuxShellQuote(resolvePath(cwd))) || exit $?")
-        }
-        lines.append("exec \"${SHELL:-/bin/sh}\" -lc \(tmuxShellQuote(commandText))")
-        do {
-            try (lines.joined(separator: "\n") + "\n").write(
-                to: scriptURL,
-                atomically: true,
-                encoding: .utf8
-            )
-            try FileManager.default.setAttributes(
-                [.posixPermissions: 0o700],
-                ofItemAtPath: scriptURL.path
-            )
-            return scriptURL.path
-        } catch {
-            return nil
-        }
-    }
-
-    private func tmuxSplitSizeCells(_ raw: String?) -> Int? {
-        guard let raw else { return nil }
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, !trimmed.contains("%") else { return nil }
-        return Int(trimmed)
-    }
-
-    private func tmuxBooleanValue(_ raw: Any?) -> Bool? {
-        if let bool = raw as? Bool {
-            return bool
-        }
-        if let number = raw as? NSNumber {
-            return number.intValue != 0
-        }
-        guard let string = raw as? String else {
-            return nil
-        }
-        switch string.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "1", "true", "yes", "on", "enabled":
-            return true
-        case "0", "false", "no", "off", "disabled":
-            return false
-        default:
-            return nil
-        }
-    }
-
-    private func tmuxDictionaryValue(_ raw: Any?) -> [String: Any]? {
-        if let dictionary = raw as? [String: Any] {
-            return dictionary
-        }
-        if let dictionary = raw as? NSDictionary {
-            return dictionary as? [String: Any]
-        }
-        return nil
-    }
-
-    private func tmuxHudConfigDictionaryDisablesHud(_ dictionary: [String: Any], allowTopLevelHUDKeys: Bool) -> Bool {
-        if allowTopLevelHUDKeys {
-            if tmuxBooleanValue(dictionary["enabled"]) == false {
-                return true
-            }
-            if tmuxBooleanValue(dictionary["disabled"]) == true {
-                return true
-            }
-        }
-
-        if tmuxBooleanValue(dictionary["hudEnabled"]) == false {
-            return true
-        }
-        if tmuxBooleanValue(dictionary["omxHudEnabled"]) == false {
-            return true
-        }
-        if tmuxBooleanValue(dictionary["hudDisabled"]) == true {
-            return true
-        }
-        if tmuxBooleanValue(dictionary["omxHudDisabled"]) == true {
-            return true
-        }
-
-        let nestedCandidates: [Any?] = [
-            dictionary["hud"],
-            dictionary["omxHud"],
-            dictionary["hudPane"],
-            tmuxDictionaryValue(dictionary["omx"])?["hud"]
-        ]
-        for candidate in nestedCandidates {
-            guard let nested = tmuxDictionaryValue(candidate) else { continue }
-            if tmuxBooleanValue(nested["enabled"]) == false {
-                return true
-            }
-            if tmuxBooleanValue(nested["disabled"]) == true {
-                return true
-            }
-        }
-
-        return false
-    }
-
-    private func tmuxHudConfigFileDisablesHud(_ url: URL, allowTopLevelHUDKeys: Bool) -> Bool {
-        guard let data = try? Data(contentsOf: url),
-              let object = try? JSONSerialization.jsonObject(with: data, options: []),
-              let dictionary = object as? [String: Any] else {
-            return false
-        }
-        return tmuxHudConfigDictionaryDisablesHud(dictionary, allowTopLevelHUDKeys: allowTopLevelHUDKeys)
-    }
-
-    private func tmuxOMXHudConfigDisablesHud(cwd: String?) -> Bool {
-        let environment = ProcessInfo.processInfo.environment
-        if tmuxBooleanValue(environment["OMX_HUD_ENABLED"]) == false
-            || tmuxBooleanValue(environment["CMUX_OMX_HUD_ENABLED"]) == false
-            || tmuxBooleanValue(environment["OMX_HUD_DISABLED"]) == true
-            || tmuxBooleanValue(environment["CMUX_OMX_HUD_DISABLED"]) == true {
-            return true
-        }
-
-        var candidates: [(URL, Bool)] = []
-        let fileManager = FileManager.default
-        if let cwd = cwd?.trimmingCharacters(in: .whitespacesAndNewlines), !cwd.isEmpty {
-            let cwdURL = URL(fileURLWithPath: resolvePath(cwd), isDirectory: true)
-            candidates.append((cwdURL.appendingPathComponent(".omx/hud-config.json"), true))
-            candidates.append((cwdURL.appendingPathComponent(".omx/config.json"), false))
-            candidates.append((cwdURL.appendingPathComponent(".omx-config.json"), false))
-        }
-
-        let homePath = environment["HOME"] ?? NSHomeDirectory()
-        let homeURL = URL(fileURLWithPath: homePath, isDirectory: true)
-        candidates.append((homeURL.appendingPathComponent(".omx/hud-config.json"), true))
-        candidates.append((homeURL.appendingPathComponent(".omx/config.json"), false))
-        candidates.append((homeURL.appendingPathComponent(".codex/.omx-config.json"), false))
-
-        for (url, allowTopLevelHUDKeys) in candidates where fileManager.isReadableFile(atPath: url.path) {
-            if tmuxHudConfigFileDisablesHud(url, allowTopLevelHUDKeys: allowTopLevelHUDKeys) {
-                return true
-            }
-        }
-
-        return false
-    }
-
-    private func tmuxCommandTextContainsWord(_ commandText: String, word: String) -> Bool {
-        let escapedWord = NSRegularExpression.escapedPattern(for: word)
-        let pattern = "(^|[^A-Za-z0-9_-])\(escapedWord)([^A-Za-z0-9_-]|$)"
-        return commandText.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
-    }
-
-    private func tmuxCommandLooksLikeOMXHud(_ commandTokens: [String]) -> Bool {
-        let commandText = commandTokens.joined(separator: " ")
-        let lowered = commandText.lowercased()
-        guard tmuxCommandTextContainsWord(lowered, word: "hud") else {
-            return false
-        }
-
-        let environment = ProcessInfo.processInfo.environment
-        let launchedThroughOMXShim = environment["CMUX_OMX_CMUX_BIN"] != nil
-            || environment["CMUX_AGENT_LAUNCH_KIND"] == "omx"
-        if launchedThroughOMXShim {
-            return true
-        }
-
-        return lowered.contains("omx") || lowered.contains("oh-my-codex")
-    }
-
-    private func tmuxResizePaneToCells(
-        workspaceId: String,
-        paneId: String,
-        targetCells: Int,
-        currentCellsKey: String,
-        cellSizeKey: String,
-        client: SocketClient
-    ) throws {
-        guard targetCells > 0 else { return }
-        let panePayload = try client.sendV2(method: "pane.list", params: ["workspace_id": workspaceId])
-        let panes = panePayload["panes"] as? [[String: Any]] ?? []
-        guard let matchingPane = panes.first(where: { ($0["id"] as? String) == paneId }),
-              let cellSize = intFromAny(matchingPane[cellSizeKey]), cellSize > 0 else {
-            return
-        }
-        let axis = currentCellsKey == "columns" ? "horizontal" : "vertical"
-        _ = try? client.sendV2(method: "pane.resize", params: [
-            "workspace_id": workspaceId,
-            "pane_id": paneId,
-            "absolute_axis": axis,
-            "target_pixels": targetCells * cellSize
-        ])
-    }
-
-    private func tmuxInitialDividerPosition(
-        workspaceId: String,
-        paneId: String,
-        newPaneDirection: String,
-        targetCells: Int,
-        client: SocketClient
-    ) throws -> Double? {
-        guard targetCells > 0 else { return nil }
-        let panePayload = try client.sendV2(method: "pane.list", params: ["workspace_id": workspaceId])
-        let panes = panePayload["panes"] as? [[String: Any]] ?? []
-        guard let matchingPane = panes.first(where: { ($0["id"] as? String) == paneId }) else {
-            return nil
-        }
-
-        let currentCells: Int?
-        switch newPaneDirection {
-        case "left", "right":
-            currentCells = intFromAny(matchingPane["columns"])
-        default:
-            currentCells = intFromAny(matchingPane["rows"])
-        }
-
-        guard let currentCells, currentCells > 0 else { return nil }
-        let requested = min(targetCells, max(currentCells - 1, 1))
-        let rawPosition: Double
-        switch newPaneDirection {
-        case "left", "up":
-            rawPosition = Double(requested) / Double(currentCells)
-        default:
-            rawPosition = Double(currentCells - requested) / Double(currentCells)
-        }
-        return min(max(rawPosition, 0.1), 0.9)
-    }
-
-    private func tmuxSpecialKeyText(_ token: String) -> String? {
-        switch token.lowercased() {
-        case "enter", "c-m", "kpenter":
-            return "\r"
-        case "tab", "c-i":
-            return "\t"
-        case "space":
-            return " "
-        case "bspace", "backspace":
-            return "\u{7f}"
-        case "escape", "esc", "c-[":
-            return "\u{1b}"
-        case "c-c":
-            return "\u{03}"
-        case "c-d":
-            return "\u{04}"
-        case "c-z":
-            return "\u{1a}"
-        case "c-l":
-            return "\u{0c}"
-        default:
-            return nil
-        }
-    }
-
-    private func tmuxSendKeysText(from tokens: [String], literal: Bool) -> String {
-        if literal {
-            return tokens.joined(separator: " ")
-        }
-
-        var result = ""
-        var pendingSpace = false
-        for token in tokens {
-            if let special = tmuxSpecialKeyText(token) {
-                result += special
-                pendingSpace = false
-                continue
-            }
-            if pendingSpace {
-                result += " "
-            }
-            result += token
-            pendingSpace = true
-        }
-        return result
-    }
-
-    private func prependPathEntries(_ newEntries: [String], to currentPath: String?) -> String {
-        var ordered: [String] = []
-        var seen: Set<String> = []
-        for entry in newEntries + (currentPath?.split(separator: ":").map(String.init) ?? []) where !entry.isEmpty {
-            if seen.insert(entry).inserted {
-                ordered.append(entry)
-            }
-        }
-        return ordered.joined(separator: ":")
-    }
-
-    private struct TmuxCompatFocusedContext {
-        let socketPath: String
-        let workspaceId: String
-        let windowId: String?
-        let paneHandle: String
-        let paneId: String?
-        let surfaceId: String?
-    }
-
     private func tmuxCompatResolvedSocketPath(processEnvironment: [String: String]) throws -> String {
         let envSocketPath = try CLISocketEnvironment.socketPath(in: processEnvironment)
 
@@ -11943,51 +11449,6 @@ struct CMUXCLI {
             client.close()
             return nil
         }
-    }
-
-    private func isCmuxClaudeWrapper(at path: String) -> Bool {
-        guard let data = FileManager.default.contents(atPath: path) else { return false }
-        let prefixData = data.prefix(512)
-        guard let prefix = String(data: prefixData, encoding: .utf8) else { return false }
-        return prefix.contains("cmux claude wrapper - injects hooks and session tracking")
-    }
-
-    private func resolveExecutableInSearchPath(
-        _ name: String,
-        searchPath: String?,
-        skip: ((String) -> Bool)? = nil
-    ) -> String? {
-        let entries = searchPath?.split(separator: ":").map(String.init) ?? []
-        for entry in entries where !entry.isEmpty {
-            let candidate = URL(fileURLWithPath: entry, isDirectory: true)
-                .appendingPathComponent(name, isDirectory: false)
-                .path
-            guard FileManager.default.isExecutableFile(atPath: candidate) else { continue }
-            if let skip, skip(candidate) { continue }
-            return candidate
-        }
-        return nil
-    }
-
-    private func resolveClaudeExecutable(searchPath: String?) -> String? {
-        resolveExecutableInSearchPath(
-            "claude",
-            searchPath: searchPath,
-            skip: { self.isCmuxClaudeWrapper(at: $0) }
-        )
-    }
-
-    private func claudeTeamsHasExplicitTeammateMode(commandArgs: [String]) -> Bool {
-        commandArgs.contains { arg in
-            arg == "--teammate-mode" || arg.hasPrefix("--teammate-mode=")
-        }
-    }
-
-    private func claudeTeamsLaunchArguments(commandArgs: [String]) -> [String] {
-        guard !claudeTeamsHasExplicitTeammateMode(commandArgs: commandArgs) else {
-            return commandArgs
-        }
-        return ["--teammate-mode", "auto"] + commandArgs
     }
 
     private func exportAgentLaunchCommandEnvironment(
@@ -13132,6 +12593,9 @@ struct CMUXCLI {
             )
             let isOMXHud = tmuxCommandLooksLikeOMXHud(parsed.positional)
             if isOMXHud && tmuxOMXHudConfigDisablesHud(cwd: parsed.value("-c")) {
+                tmuxWriteDebugDiagnostic(
+                    "OMX HUD disabled by config; cwd=\(parsed.value("-c") ?? "<default>") command=\(parsed.positional.joined(separator: " "))"
+                )
                 return
             }
 
@@ -13173,14 +12637,22 @@ struct CMUXCLI {
                !cwd.isEmpty {
                 splitParams["working_directory"] = resolvePath(cwd)
             }
-            let startupScript = tmuxStartupScript(commandTokens: parsed.positional, cwd: parsed.value("-c"))
+            let startupScript = isOMXHud
+                ? tmuxStartupScript(commandTokens: parsed.positional, cwd: parsed.value("-c"))
+                : nil
             if let startupScript {
                 splitParams["initial_command"] = startupScript
             }
             if let startCommand = tmuxStartCommand(commandTokens: parsed.positional) {
                 splitParams["tmux_start_command"] = startCommand
             }
-            let sizeTargetPaneId = target.paneId ?? (try? tmuxResolvePaneTarget(parsed.value("-t"), client: client).paneId)
+            let sizeTargetPaneId = target.paneId
+                ?? (try? tmuxResolvePaneTarget(parsed.value("-t"), client: client).paneId)
+                ?? (try? tmuxPaneIdForSurface(
+                    workspaceId: target.workspaceId,
+                    surfaceId: target.surfaceId,
+                    client: client
+                ))
             if let targetPaneId = sizeTargetPaneId,
                let targetCells = tmuxSplitSizeCells(parsed.value("-l")),
                let dividerPosition = try? tmuxInitialDividerPosition(
@@ -13427,7 +12899,7 @@ struct CMUXCLI {
             if !hasDirectionalFlags, let absWidth = parsed.value("-x").flatMap({ Int($0.replacingOccurrences(of: "%", with: "")) }) {
                 // Absolute width: resize-pane -t <pane> -x <columns>
                 // Compute pixel delta from current width to desired width.
-                try? tmuxResizePaneToCells(
+                try tmuxResizePaneToCells(
                     workspaceId: target.workspaceId,
                     paneId: target.paneId,
                     targetCells: absWidth,
@@ -13436,7 +12908,7 @@ struct CMUXCLI {
                     client: client
                 )
             } else if !hasDirectionalFlags, let absHeight = parsed.value("-y").flatMap({ Int($0.replacingOccurrences(of: "%", with: "")) }) {
-                try? tmuxResizePaneToCells(
+                try tmuxResizePaneToCells(
                     workspaceId: target.workspaceId,
                     paneId: target.paneId,
                     targetCells: absHeight,

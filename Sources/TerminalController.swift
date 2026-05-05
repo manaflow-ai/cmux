@@ -3827,7 +3827,7 @@ class TerminalController {
         return ref
     }
 
-    private func v2ResolveHandleRef(_ handle: String) -> UUID? {
+    func v2ResolveHandleRef(_ handle: String) -> UUID? {
         for kind in V2HandleKind.allCases {
             if let id = v2UUIDByRef[kind]?[handle] {
                 return id
@@ -3936,162 +3936,6 @@ class TerminalController {
                 }
             }
         }
-    }
-
-    // MARK: - V2 Param Parsing
-
-    func v2String(_ params: [String: Any], _ key: String) -> String? {
-        guard let raw = params[key] as? String else { return nil }
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    func v2StringArray(_ params: [String: Any], _ key: String) -> [String]? {
-        if let raw = params[key] as? [String] {
-            let normalized = raw
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-            return normalized
-        }
-        if let raw = params[key] as? [Any] {
-            let normalized = raw
-                .compactMap { $0 as? String }
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-            return normalized
-        }
-        if let single = v2String(params, key) {
-            return [single]
-        }
-        return nil
-    }
-
-    private func v2StringMap(_ params: [String: Any], _ key: String) -> [String: String]? {
-        guard let raw = params[key] else { return nil }
-        if let dict = raw as? [String: String] {
-            return dict
-        }
-        if let anyDict = raw as? [String: Any] {
-            var out: [String: String] = [:]
-            for (k, value) in anyDict {
-                guard let stringValue = value as? String else { continue }
-                out[k] = stringValue
-            }
-            return out
-        }
-        return nil
-    }
-
-    private func v2ActionKey(_ params: [String: Any], _ key: String = "action") -> String? {
-        guard let action = v2String(params, key) else { return nil }
-        return action.lowercased().replacingOccurrences(of: "-", with: "_")
-    }
-
-    private func v2RawString(_ params: [String: Any], _ key: String) -> String? {
-        params[key] as? String
-    }
-
-    func v2UUID(_ params: [String: Any], _ key: String) -> UUID? {
-        guard let s = v2String(params, key) else { return nil }
-        if let uuid = UUID(uuidString: s) {
-            return uuid
-        }
-        return v2ResolveHandleRef(s)
-    }
-
-    private func v2UUIDAny(_ raw: Any?) -> UUID? {
-        guard let s = raw as? String else { return nil }
-        let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        if let uuid = UUID(uuidString: trimmed) {
-            return uuid
-        }
-        return v2ResolveHandleRef(trimmed)
-    }
-    func v2Bool(_ params: [String: Any], _ key: String) -> Bool? {
-        if let b = params[key] as? Bool { return b }
-        if let n = params[key] as? NSNumber { return n.boolValue }
-        if let s = params[key] as? String {
-            switch s.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-            case "1", "true", "yes", "on":
-                return true
-            case "0", "false", "no", "off":
-                return false
-            default:
-                return nil
-            }
-        }
-        return nil
-    }
-
-    private func v2LocatePane(_ paneUUID: UUID) -> (windowId: UUID, tabManager: TabManager, workspace: Workspace, paneId: PaneID)? {
-        guard let app = AppDelegate.shared else { return nil }
-        let windows = app.listMainWindowSummaries()
-        for item in windows {
-            guard let tm = app.tabManagerFor(windowId: item.windowId) else { continue }
-            for ws in tm.tabs {
-                if let paneId = ws.bonsplitController.allPaneIds.first(where: { $0.id == paneUUID }) {
-                    return (item.windowId, tm, ws, paneId)
-                }
-            }
-        }
-        return nil
-    }
-    private func v2Int(_ params: [String: Any], _ key: String) -> Int? {
-        if let i = params[key] as? Int { return i }
-        if let n = params[key] as? NSNumber { return n.intValue }
-        if let s = params[key] as? String { return Int(s) }
-        return nil
-    }
-
-    private func v2Double(_ params: [String: Any], _ key: String) -> Double? {
-        if let d = params[key] as? Double { return d }
-        if let f = params[key] as? Float { return Double(f) }
-        if let n = params[key] as? NSNumber { return n.doubleValue }
-        if let s = params[key] as? String { return Double(s) }
-        return nil
-    }
-
-    private func v2HasNonNullParam(_ params: [String: Any], _ key: String) -> Bool {
-        guard let raw = params[key] else { return false }
-        return !(raw is NSNull)
-    }
-
-    private func v2StrictInt(_ params: [String: Any], _ key: String) -> Int? {
-        v2StrictIntAny(params[key])
-    }
-
-    private func v2StrictIntAny(_ raw: Any?) -> Int? {
-        guard let raw else { return nil }
-
-        if let numberValue = raw as? NSNumber {
-            if CFGetTypeID(numberValue) == CFBooleanGetTypeID() {
-                return nil
-            }
-            let doubleValue = numberValue.doubleValue
-            guard doubleValue.isFinite, floor(doubleValue) == doubleValue else {
-                return nil
-            }
-            return Int(exactly: doubleValue)
-        }
-
-        if let intValue = raw as? Int {
-            return intValue
-        }
-
-        if let stringValue = raw as? String {
-            return Int(stringValue.trimmingCharacters(in: .whitespacesAndNewlines))
-        }
-
-        return nil
-    }
-
-    private func v2PanelType(_ params: [String: Any], _ key: String) -> PanelType? {
-        guard let s = v2String(params, key) else { return nil }
-        let normalized = s.replacingOccurrences(of: "-", with: "")
-            .replacingOccurrences(of: "_", with: "")
-            .lowercased()
-        return PanelType(rawValue: normalized)
     }
 
     // MARK: - V2 Context Resolution
@@ -5954,15 +5798,14 @@ class TerminalController {
         let panelType = v2PanelType(params, "type") ?? .terminal
         let urlStr = v2String(params, "url")
         let url = urlStr.flatMap { URL(string: $0) }
-        let requestedWorkingDirectory = v2RawString(params, "working_directory")?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let workingDirectory = (requestedWorkingDirectory?.isEmpty == false) ? requestedWorkingDirectory : nil
-        let requestedInitialCommand = v2RawString(params, "initial_command")?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let initialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
-        let requestedTmuxStartCommand = v2RawString(params, "tmux_start_command")?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let tmuxStartCommand = (requestedTmuxStartCommand?.isEmpty == false) ? requestedTmuxStartCommand : nil
-        let initialDividerPosition = v2Double(params, "initial_divider_position").map {
-            min(max($0, 0.1), 0.9)
+        let workingDirectory = v2OptionalTrimmedRawString(params, "working_directory")
+        let initialCommand = v2OptionalTrimmedRawString(params, "initial_command")
+        let tmuxStartCommand = v2OptionalTrimmedRawString(params, "tmux_start_command")
+        let parsedInitialDivider = v2InitialDividerPosition(params)
+        if let error = parsedInitialDivider.error {
+            return error
         }
+        let initialDividerPosition = parsedInitialDivider.value
         if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
             return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
         }
@@ -6046,12 +5889,9 @@ class TerminalController {
         let panelType = v2PanelType(params, "type") ?? .terminal
         let urlStr = v2String(params, "url")
         let url = urlStr.flatMap { URL(string: $0) }
-        let requestedWorkingDirectory = v2RawString(params, "working_directory")?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let workingDirectory = (requestedWorkingDirectory?.isEmpty == false) ? requestedWorkingDirectory : nil
-        let requestedInitialCommand = v2RawString(params, "initial_command")?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let initialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
-        let requestedTmuxStartCommand = v2RawString(params, "tmux_start_command")?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let tmuxStartCommand = (requestedTmuxStartCommand?.isEmpty == false) ? requestedTmuxStartCommand : nil
+        let workingDirectory = v2OptionalTrimmedRawString(params, "working_directory")
+        let initialCommand = v2OptionalTrimmedRawString(params, "initial_command")
+        let tmuxStartCommand = v2OptionalTrimmedRawString(params, "tmux_start_command")
         if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
             return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
         }
@@ -7340,21 +7180,20 @@ class TerminalController {
         let panelType = v2PanelType(params, "type") ?? .terminal
         let urlStr = v2String(params, "url")
         let url = urlStr.flatMap { URL(string: $0) }
-        let requestedWorkingDirectory = v2RawString(params, "working_directory")?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let workingDirectory = (requestedWorkingDirectory?.isEmpty == false) ? requestedWorkingDirectory : nil
-        let requestedInitialCommand = v2RawString(params, "initial_command")?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let initialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
-        let requestedTmuxStartCommand = v2RawString(params, "tmux_start_command")?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let tmuxStartCommand = (requestedTmuxStartCommand?.isEmpty == false) ? requestedTmuxStartCommand : nil
+        let workingDirectory = v2OptionalTrimmedRawString(params, "working_directory")
+        let initialCommand = v2OptionalTrimmedRawString(params, "initial_command")
+        let tmuxStartCommand = v2OptionalTrimmedRawString(params, "tmux_start_command")
         if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
             return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
         }
 
         let orientation = direction.orientation
         let insertFirst = direction.insertFirst
-        let initialDividerPosition = v2Double(params, "initial_divider_position").map {
-            min(max($0, 0.1), 0.9)
+        let parsedInitialDivider = v2InitialDividerPosition(params)
+        if let error = parsedInitialDivider.error {
+            return error
         }
+        let initialDividerPosition = parsedInitialDivider.value
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to create pane", data: nil)
         v2MainSync {
@@ -7414,141 +7253,6 @@ class TerminalController {
             ])
         }
         return result
-    }
-
-    private enum V2PaneResizeDirection: String {
-        case left
-        case right
-        case up
-        case down
-
-        var splitOrientation: String {
-            switch self {
-            case .left, .right:
-                return "horizontal"
-            case .up, .down:
-                return "vertical"
-            }
-        }
-
-        /// A split controls the target pane's right/bottom edge when target is first child,
-        /// and left/top edge when target is second child.
-        var requiresPaneInFirstChild: Bool {
-            switch self {
-            case .right, .down:
-                return true
-            case .left, .up:
-                return false
-            }
-        }
-
-        /// Positive value moves divider toward second child (right/down).
-        var dividerDeltaSign: CGFloat {
-            requiresPaneInFirstChild ? 1 : -1
-        }
-    }
-
-    private struct V2PaneResizeCandidate {
-        let splitId: UUID
-        let orientation: String
-        let paneInFirstChild: Bool
-        let dividerPosition: CGFloat
-        let axisPixels: CGFloat
-    }
-
-    private struct V2PaneResizeTrace {
-        let containsTarget: Bool
-        let bounds: CGRect
-    }
-
-    private func v2PaneResizeCollectCandidates(
-        node: ExternalTreeNode,
-        targetPaneId: String,
-        candidates: inout [V2PaneResizeCandidate]
-    ) -> V2PaneResizeTrace {
-        switch node {
-        case .pane(let pane):
-            let bounds = CGRect(
-                x: pane.frame.x,
-                y: pane.frame.y,
-                width: pane.frame.width,
-                height: pane.frame.height
-            )
-            return V2PaneResizeTrace(containsTarget: pane.id == targetPaneId, bounds: bounds)
-
-        case .split(let split):
-            let first = v2PaneResizeCollectCandidates(
-                node: split.first,
-                targetPaneId: targetPaneId,
-                candidates: &candidates
-            )
-            let second = v2PaneResizeCollectCandidates(
-                node: split.second,
-                targetPaneId: targetPaneId,
-                candidates: &candidates
-            )
-
-            let combinedBounds = first.bounds.union(second.bounds)
-            let containsTarget = first.containsTarget || second.containsTarget
-
-            if containsTarget,
-               let splitUUID = UUID(uuidString: split.id) {
-                let orientation = split.orientation.lowercased()
-                let axisPixels: CGFloat = orientation == "horizontal"
-                    ? combinedBounds.width
-                    : combinedBounds.height
-                candidates.append(V2PaneResizeCandidate(
-                    splitId: splitUUID,
-                    orientation: orientation,
-                    paneInFirstChild: first.containsTarget,
-                    dividerPosition: CGFloat(split.dividerPosition),
-                    axisPixels: max(axisPixels, 1)
-                ))
-            }
-
-            return V2PaneResizeTrace(containsTarget: containsTarget, bounds: combinedBounds)
-        }
-    }
-
-    private func v2SetAbsolutePaneSize(
-        workspace: Workspace,
-        paneUUID: UUID,
-        axis: String,
-        targetPixels: CGFloat
-    ) -> (splitId: UUID, oldPosition: CGFloat, newPosition: CGFloat)? {
-        guard targetPixels > 0 else { return nil }
-        let orientationName: String
-        switch axis.lowercased() {
-        case "horizontal":
-            orientationName = "horizontal"
-        case "vertical":
-            orientationName = "vertical"
-        default:
-            return nil
-        }
-
-        var candidates: [V2PaneResizeCandidate] = []
-        let trace = v2PaneResizeCollectCandidates(
-            node: workspace.bonsplitController.treeSnapshot(),
-            targetPaneId: paneUUID.uuidString,
-            candidates: &candidates
-        )
-        guard trace.containsTarget,
-              let candidate = candidates.first(where: { $0.orientation == orientationName }) else {
-            return nil
-        }
-
-        let targetFraction = targetPixels / candidate.axisPixels
-        let requested = candidate.paneInFirstChild ? targetFraction : (1 - targetFraction)
-        let clamped = min(max(requested, 0.1), 0.9)
-        guard workspace.bonsplitController.setDividerPosition(
-            clamped,
-            forSplit: candidate.splitId,
-            fromExternal: true
-        ) else {
-            return nil
-        }
-        return (candidate.splitId, candidate.dividerPosition, clamped)
     }
 
     private func v2PaneResize(params: [String: Any]) -> V2CallResult {
