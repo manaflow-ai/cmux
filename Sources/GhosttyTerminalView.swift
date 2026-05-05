@@ -2675,51 +2675,11 @@ class GhosttyApp {
         appSupportDirectory: URL,
         fileManager: FileManager = .default
     ) -> [URL] {
-        guard let currentBundleIdentifier, !currentBundleIdentifier.isEmpty else { return [] }
-
-        func existingConfigURLs(for bundleIdentifier: String) -> [URL] {
-            let directory = appSupportDirectory.appendingPathComponent(bundleIdentifier, isDirectory: true)
-            let legacy = directory.appendingPathComponent("config", isDirectory: false)
-            let preferred = directory.appendingPathComponent("config.ghostty", isDirectory: false)
-
-            func regularFileSize(_ url: URL) -> Int? {
-                guard let attrs = try? fileManager.attributesOfItem(atPath: url.path),
-                      let type = attrs[.type] as? FileAttributeType,
-                      type == .typeRegular,
-                      let size = attrs[.size] as? NSNumber else {
-                    return nil
-                }
-                return size.intValue
-            }
-
-            let preferredSize = regularFileSize(preferred)
-            if let preferredSize, preferredSize > 0 {
-                // `config.ghostty` is the canonical app-support config. Do not also
-                // layer the legacy `config` underneath it: older cmux builds wrote
-                // explicit dark colors there, which pins the runtime background and
-                // prevents appearance-driven theme pairs from switching.
-                return [preferred]
-            }
-
-            let legacySize = regularFileSize(legacy)
-            if let legacySize, legacySize > 0 {
-                return [legacy]
-            }
-
-            return []
-        }
-
-        let currentURLs = existingConfigURLs(for: currentBundleIdentifier)
-        if !currentURLs.isEmpty {
-            return currentURLs
-        }
-        if SocketControlSettings.isDebugLikeBundleIdentifier(currentBundleIdentifier) {
-            let releaseURLs = existingConfigURLs(for: releaseBundleIdentifier)
-            if !releaseURLs.isEmpty {
-                return releaseURLs
-            }
-        }
-        return []
+        CmuxGhosttyConfigPathResolver.loadConfigURLs(
+            currentBundleIdentifier: currentBundleIdentifier,
+            appSupportDirectory: appSupportDirectory,
+            fileManager: fileManager
+        )
     }
 
     static func shouldApplyDefaultBackgroundUpdate(
@@ -2946,21 +2906,18 @@ class GhosttyApp {
 
     func openConfigurationInTextEdit() {
         #if os(macOS)
-        let path = ghosttyStringValue(ghostty_config_open_path())
-        guard !path.isEmpty else { return }
-        let fileURL = URL(fileURLWithPath: path)
+        let environment = ConfigSourceEnvironment.live()
+        let fileURL: URL
+        do {
+            fileURL = try environment.materializeCmuxConfigFileIfNeeded()
+        } catch {
+            NSSound.beep()
+            return
+        }
         let editorURL = URL(fileURLWithPath: "/System/Applications/TextEdit.app")
         let configuration = NSWorkspace.OpenConfiguration()
         NSWorkspace.shared.open([fileURL], withApplicationAt: editorURL, configuration: configuration)
         #endif
-    }
-
-    private func ghosttyStringValue(_ value: ghostty_string_s) -> String {
-        defer { ghostty_string_free(value) }
-        guard let ptr = value.ptr, value.len > 0 else { return "" }
-        let rawPtr = UnsafeRawPointer(ptr).assumingMemoryBound(to: UInt8.self)
-        let buffer = UnsafeBufferPointer(start: rawPtr, count: Int(value.len))
-        return String(decoding: buffer, as: UTF8.self)
     }
 
     private func resetDefaultBackgroundUpdateScope(source: String) {
@@ -4336,38 +4293,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
         return merged
     }
 
-    static let managedTerminalType = "xterm-256color"
-    static let managedTerminalProgram = "ghostty"
-    static let managedColorTerm = "truecolor"
-
-    static func applyManagedTerminalIdentityEnvironment(
-        to environment: inout [String: String],
-        protectedKeys: inout Set<String>
-    ) {
-        environment["TERM"] = managedTerminalType
-        protectedKeys.insert("TERM")
-        environment["COLORTERM"] = managedColorTerm
-        protectedKeys.insert("COLORTERM")
-        environment["TERM_PROGRAM"] = managedTerminalProgram
-        protectedKeys.insert("TERM_PROGRAM")
-    }
-
-    static func mergedStartupEnvironment(
-        base: [String: String],
-        protectedKeys: Set<String>,
-        additionalEnvironment: [String: String],
-        initialEnvironmentOverrides: [String: String]
-    ) -> [String: String] {
-        var merged = base
-        for (key, value) in additionalEnvironment where !key.isEmpty && !value.isEmpty && !protectedKeys.contains(key) {
-            merged[key] = value
-        }
-        for (key, value) in initialEnvironmentOverrides where !protectedKeys.contains(key) {
-            merged[key] = value
-        }
-        return merged
-    }
-
     func isAttached(to view: GhosttyNSView) -> Bool {
         attachedView === view && surface != nil
     }
@@ -4921,7 +4846,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
         setManagedEnvironmentValue("CMUX_TAB_ID", tabId.uuidString)
         let socketPath = SocketControlSettings.socketPath()
         setManagedEnvironmentValue("CMUX_SOCKET_PATH", socketPath)
-        env.removeValue(forKey: "CMUX_SOCKET")
+        setManagedEnvironmentValue("CMUX_SOCKET", "")
+        if let inheritedClaudeConfigDir = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"],
+           !inheritedClaudeConfigDir.isEmpty {
+            env["CLAUDE_CONFIG_DIR"] = ClaudeConfigDirectoryPath.preferredPath(inheritedClaudeConfigDir)
+        }
         if let bundledCLIURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux"),
            FileManager.default.isExecutableFile(atPath: bundledCLIURL.path) {
             setManagedEnvironmentValue("CMUX_BUNDLED_CLI_PATH", bundledCLIURL.path)
@@ -5028,7 +4957,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             additionalEnvironment: additionalEnvironment,
             initialEnvironmentOverrides: initialEnvironmentOverrides
         )
-        env.removeValue(forKey: "CMUX_SOCKET")
+        env["CMUX_SOCKET"] = ""
 
         if !env.isEmpty {
             envVars.reserveCapacity(env.count)

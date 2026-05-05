@@ -108,10 +108,10 @@ struct SessionEntry: Identifiable, Hashable {
             if let permissionMode, !permissionMode.isEmpty {
                 parts.append("--permission-mode \(Self.shellQuote(permissionMode))")
             }
-            return Self.withShellEnvironment(
-                claudeConfigDirectoryForResume.map { ["CLAUDE_CONFIG_DIR": $0] } ?? [:],
-                command: parts.joined(separator: " ")
-            )
+            let environment = claudeConfigDirectoryForResume.map {
+                ["CLAUDE_CONFIG_DIR": $0, "CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV": "1", "CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS": "CLAUDE_CONFIG_DIR"]
+            } ?? [:]
+            return Self.withShellEnvironment(environment, command: parts.joined(separator: " "))
         case let .codex(model, approval, sandbox, effort):
             var parts = ["codex resume \(sessionId)"]
             if let model, !model.isEmpty {
@@ -160,7 +160,7 @@ struct SessionEntry: Identifiable, Hashable {
         }
         let configComponents = Array(pathComponents[..<projectsIndex])
         let configDir = NSString.path(withComponents: configComponents)
-        return configDir.isEmpty ? nil : configDir
+        return configDir.isEmpty ? nil : ClaudeConfigDirectoryPath.preferredPath(configDir)
     }
 
     private static func withShellEnvironment(
@@ -834,7 +834,7 @@ final class SessionIndexStore: ObservableObject {
             let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return }
             let configDir = (trimmed as NSString).expandingTildeInPath
-            let standardized = (configDir as NSString).standardizingPath
+            let standardized = ClaudeConfigDirectoryPath.preferredPath(configDir)
             let projectsRoot = (standardized as NSString).appendingPathComponent("projects")
             var isDirectory: ObjCBool = false
             guard fm.fileExists(atPath: projectsRoot, isDirectory: &isDirectory),
