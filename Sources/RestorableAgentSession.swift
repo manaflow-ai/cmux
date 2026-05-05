@@ -234,18 +234,21 @@ private enum AgentResumeCommandBuilder {
         var commandParts: [String] = []
         if let env = launchCommand?.environment, !env.isEmpty {
             var environmentParts: [String] = []
-            var shouldPreserveClaudeAuthSelectionEnvironment = false
+            var preservedClaudeAuthSelectionEnvironmentKeys: [String] = []
             for key in env.keys.sorted() {
                 guard isSafeEnvironmentKey(key),
                       let value = sanitizedEnvironmentValue(key: key, value: env[key]) else { continue }
                 environmentParts.append("\(key)=\(value)")
                 if kind == .claude,
                    claudeAuthSelectionEnvironmentKeys.contains(key) {
-                    shouldPreserveClaudeAuthSelectionEnvironment = true
+                    preservedClaudeAuthSelectionEnvironmentKeys.append(key)
                 }
             }
-            if shouldPreserveClaudeAuthSelectionEnvironment {
+            if !preservedClaudeAuthSelectionEnvironmentKeys.isEmpty {
                 environmentParts.append("CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1")
+                environmentParts.append(
+                    "CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=\(preservedClaudeAuthSelectionEnvironmentKeys.joined(separator: ","))"
+                )
             }
             if !environmentParts.isEmpty {
                 commandParts.append("env")

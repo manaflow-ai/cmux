@@ -439,6 +439,7 @@ def test_live_socket_preserves_claude_auth_for_resume_launch(failures: list[str]
     inherited = {
         **expected_auth_env,
         "CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV": "1",
+        "CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS": "CLAUDE_CONFIG_DIR,ANTHROPIC_MODEL",
     }
     code, auth_env, real_argv, stderr = run_wrapper_auth_env(
         argv=["--resume", "claude-session-123"],
@@ -448,6 +449,23 @@ def test_live_socket_preserves_claude_auth_for_resume_launch(failures: list[str]
     for key, value in expected_auth_env.items():
         expect(auth_env.get(key) == value, f"resume auth env: expected {key}={value!r}, got {auth_env.get(key)!r}", failures)
     expect("--session-id" not in real_argv, f"resume auth env: expected no injected session id, got {real_argv}", failures)
+
+
+def test_live_socket_preserves_only_listed_claude_auth_keys(failures: list[str]) -> None:
+    inherited = {
+        "CLAUDE_CONFIG_DIR": "/tmp/stale-claude-config",
+        "ANTHROPIC_MODEL": "resume-model",
+        "CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV": "1",
+        "CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS": "ANTHROPIC_MODEL",
+    }
+    code, auth_env, real_argv, stderr = run_wrapper_auth_env(
+        argv=["--resume", "claude-session-123"],
+        inherited_env=inherited,
+    )
+    expect(code == 0, f"listed auth env: wrapper exited {code}: {stderr}", failures)
+    expect(auth_env.get("ANTHROPIC_MODEL") == "resume-model", f"listed auth env: expected model preserved, got {auth_env.get('ANTHROPIC_MODEL')!r}", failures)
+    expect(auth_env.get("CLAUDE_CONFIG_DIR") == "__UNSET__", f"listed auth env: expected unlisted CLAUDE_CONFIG_DIR unset, got {auth_env.get('CLAUDE_CONFIG_DIR')!r}", failures)
+    expect("--session-id" not in real_argv, f"listed auth env: expected no injected session id, got {real_argv}", failures)
 
 
 def test_live_socket_enforces_heap_cap_for_space_separated_flag(failures: list[str]) -> None:
@@ -591,6 +609,7 @@ def main() -> int:
     test_plain_claude_launch_argv_has_no_empty_argument(failures)
     test_live_socket_clears_inherited_claude_auth_for_fresh_launch(failures)
     test_live_socket_preserves_claude_auth_for_resume_launch(failures)
+    test_live_socket_preserves_only_listed_claude_auth_keys(failures)
     test_live_socket_enforces_heap_cap_for_space_separated_flag(failures)
     test_live_socket_tmpdir_failure_skips_node_options_injection(failures)
     test_live_socket_does_not_duplicate_bypass_availability_flag(failures)

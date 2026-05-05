@@ -87,12 +87,26 @@ case "${CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV:-}" in
     1|true|TRUE|yes|YES) PRESERVE_CLAUDE_AUTH_SELECTION_ENV=true ;;
 esac
 
+should_preserve_claude_auth_selection_key() {
+    [[ "$PRESERVE_CLAUDE_AUTH_SELECTION_ENV" == true ]] || return 1
+
+    local configured_keys="${CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS:-}"
+    [[ -n "$configured_keys" ]] || return 0
+
+    configured_keys="${configured_keys//,/ }"
+    local configured_key
+    for configured_key in $configured_keys; do
+        [[ "$configured_key" == "$1" ]] && return 0
+    done
+    return 1
+}
+
 clear_inherited_claude_auth_selection_env() {
     [[ "${IN_CMUX:-0}" == "1" ]] || return 0
-    [[ "$PRESERVE_CLAUDE_AUTH_SELECTION_ENV" == true ]] && return 0
 
     local key
     for key in "${CLAUDE_AUTH_SELECTION_ENV_KEYS[@]}"; do
+        should_preserve_claude_auth_selection_key "$key" && continue
         unset "$key"
     done
 }

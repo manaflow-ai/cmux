@@ -126,6 +126,7 @@ struct SessionEntry: Identifiable, Hashable {
             var environment = claudeConfigDirectoryForResume.map { ["CLAUDE_CONFIG_DIR": $0] } ?? [:]
             if !environment.isEmpty {
                 environment["CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV"] = "1"
+                environment["CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS"] = "CLAUDE_CONFIG_DIR"
             }
             return Self.withShellEnvironment(
                 environment,
