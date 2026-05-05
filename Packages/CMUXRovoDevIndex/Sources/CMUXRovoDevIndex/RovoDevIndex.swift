@@ -70,6 +70,9 @@ public enum RovoDevIndex {
         sessionsRoot: String = Self.defaultSessionsRoot()
     ) -> RovoDevIndexResult {
         guard limit > 0 else { return RovoDevIndexResult(sessions: [], errors: []) }
+        guard offset >= 0 else { return RovoDevIndexResult(sessions: [], errors: []) }
+        let (target, overflow) = offset.addingReportingOverflow(limit)
+        guard !overflow else { return RovoDevIndexResult(sessions: [], errors: []) }
 
         let normalizedNeedle = needle.lowercased()
         let fileManager = FileManager.default
@@ -133,7 +136,6 @@ public enum RovoDevIndex {
         }
         candidates.sort { $0.mtime > $1.mtime }
 
-        let target = offset + limit
         var matchedCount = 0
         var sessions: [RovoDevIndexedSession] = []
         sessions.reserveCapacity(limit)

@@ -52,6 +52,40 @@ struct RovoDevIndexTests {
         #expect(result.errors[0].contains("Rovo Dev: cannot read metadata"))
     }
 
+    @Test("Rejects invalid pagination inputs")
+    func rejectsInvalidPaginationInputs() throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.tempDir) }
+
+        try writeSession(
+            in: fixture.sessionsRoot,
+            id: "valid-session",
+            title: "Ship Rovo Dev support",
+            cwd: "/tmp/rovo repo",
+            modified: Date(timeIntervalSince1970: 200)
+        )
+
+        let negativeOffset = RovoDevIndex.loadSessions(
+            needle: "",
+            cwdFilter: nil,
+            offset: -1,
+            limit: 10,
+            sessionsRoot: fixture.sessionsRoot.path
+        )
+        let overflow = RovoDevIndex.loadSessions(
+            needle: "",
+            cwdFilter: nil,
+            offset: Int.max,
+            limit: 1,
+            sessionsRoot: fixture.sessionsRoot.path
+        )
+
+        #expect(negativeOffset.sessions == [])
+        #expect(negativeOffset.errors == [])
+        #expect(overflow.sessions == [])
+        #expect(overflow.errors == [])
+    }
+
     private func makeFixture() throws -> (tempDir: URL, sessionsRoot: URL) {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-rovodev-index-\(UUID().uuidString)", isDirectory: true)
