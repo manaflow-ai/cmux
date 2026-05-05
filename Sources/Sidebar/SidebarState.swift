@@ -9,7 +9,9 @@ enum PortalGeometrySyncUrgency {
     static func requestImmediateExternalGeometrySyncForNextLayoutPass() { immediateExternalGeometrySyncRequested = true; immediateExternalGeometrySyncGeneration &+= 1 }
     static func noteImmediateExternalGeometrySyncUsed() {
         let generation = immediateExternalGeometrySyncGeneration
-        DispatchQueue.main.async { if immediateExternalGeometrySyncGeneration == generation { immediateExternalGeometrySyncRequested = false } }
+        Task { @MainActor in
+            if immediateExternalGeometrySyncGeneration == generation { immediateExternalGeometrySyncRequested = false }
+        }
     }
 }
 
