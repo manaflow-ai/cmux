@@ -29,10 +29,19 @@ struct CmuxTopProcessInfo: Sendable {
     let name: String
     let path: String?
     let ttyDevice: Int64?
+    let cmuxWorkspaceID: UUID?
+    let cmuxSurfaceID: UUID?
+    let processGroupID: Int?
+    let terminalProcessGroupID: Int?
     let cpuPercent: Double
     let residentBytes: Int64
     let virtualBytes: Int64
     let threadCount: Int
+}
+
+struct CmuxTopProcessScope: Sendable {
+    let workspaceID: UUID?
+    let surfaceID: UUID?
 }
 
 final class CmuxTopProcessSnapshot: @unchecked Sendable {
@@ -44,6 +53,7 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
     private let processesByPID: [Int: CmuxTopProcessInfo]
     private let childrenByParentPID: [Int: [Int]]
     private let pidsByTTYDevice: [Int64: [Int]]
+    private let pidsByCMUXSurfaceID: [UUID: [Int]]
 
     static func capture(includeProcessDetails: Bool = false) -> CmuxTopProcessSnapshot {
         CmuxTopProcessSnapshot(
@@ -64,6 +74,7 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
 
         var children: [Int: [Int]] = [:]
         var ttyMap: [Int64: [Int]] = [:]
+        var cmuxSurfaceMap: [UUID: [Int]] = [:]
         for process in processes {
             if process.parentPID > 0 {
                 children[process.parentPID, default: []].append(process.pid)
@@ -71,9 +82,13 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
             if let ttyDevice = process.ttyDevice {
                 ttyMap[ttyDevice, default: []].append(process.pid)
             }
+            if let cmuxSurfaceID = process.cmuxSurfaceID {
+                cmuxSurfaceMap[cmuxSurfaceID, default: []].append(process.pid)
+            }
         }
         self.childrenByParentPID = children.mapValues { $0.sorted() }
         self.pidsByTTYDevice = ttyMap.mapValues { $0.sorted() }
+        self.pidsByCMUXSurfaceID = cmuxSurfaceMap.mapValues { $0.sorted() }
     }
 
     func samplePayload() -> [String: Any] {
@@ -91,6 +106,10 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
             return []
         }
         return Set(pidsByTTYDevice[device] ?? [])
+    }
+
+    func pids(forCMUXSurfaceID surfaceID: UUID) -> Set<Int> {
+        Set(pidsByCMUXSurfaceID[surfaceID] ?? [])
     }
 
     func expandedPIDs(rootPIDs: Set<Int>) -> Set<Int> {
@@ -152,6 +171,28 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
         return roots.compactMap { processTreeNode(pid: $0, allowedPIDs: allowedPIDs, visited: &visited) }
     }
 
+    func topLevelPIDs(for pids: Set<Int>) -> Set<Int> {
+        let allowedPIDs = Set(pids.filter { processesByPID[$0] != nil })
+        return allowedPIDs.filter { pid in
+            guard let parent = processesByPID[pid]?.parentPID else { return true }
+            return !allowedPIDs.contains(parent)
+        }
+    }
+
+    func foregroundProcessGroupIDs(for pids: Set<Int>) -> Set<Int> {
+        Set(
+            pids.compactMap { pid in
+                guard let process = processesByPID[pid],
+                      let processGroupID = process.processGroupID,
+                      let foregroundGroupID = process.terminalProcessGroupID,
+                      processGroupID == foregroundGroupID else {
+                    return nil
+                }
+                return foregroundGroupID
+            }
+        )
+    }
+
     private func processTreeNode(
         pid: Int,
         allowedPIDs: Set<Int>,
@@ -182,6 +223,26 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
         } else {
             payload["tty_device"] = NSNull()
         }
+        if let cmuxWorkspaceID = process.cmuxWorkspaceID {
+            payload["cmux_workspace_id"] = cmuxWorkspaceID.uuidString
+        } else {
+            payload["cmux_workspace_id"] = NSNull()
+        }
+        if let cmuxSurfaceID = process.cmuxSurfaceID {
+            payload["cmux_surface_id"] = cmuxSurfaceID.uuidString
+        } else {
+            payload["cmux_surface_id"] = NSNull()
+        }
+        if let processGroupID = process.processGroupID {
+            payload["pgid"] = processGroupID
+        } else {
+            payload["pgid"] = NSNull()
+        }
+        if let terminalProcessGroupID = process.terminalProcessGroupID {
+            payload["tpgid"] = terminalProcessGroupID
+        } else {
+            payload["tpgid"] = NSNull()
+        }
         return payload
     }
 
@@ -206,9 +267,13 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
             }
             if result == 0 {
                 let count = min(processes.count, length / stride)
-                return processes.prefix(count).compactMap {
+                let sampledProcesses = Array(processes.prefix(count))
+                let activeScopeKeys = Set(sampledProcesses.map { scopeCacheKey(from: $0) })
+                let processInfos = sampledProcesses.compactMap {
                     processInfo(from: $0, includeProcessDetails: includeProcessDetails)
                 }
+                pruneCMUXScopeCache(activeKeys: activeScopeKeys)
+                return processInfos
             }
 
             guard errno == ENOMEM else {
@@ -231,6 +296,11 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
         let path = includeProcessDetails ? processPath(pid: pid) : nil
         let rawTTY = Int64(kinfo.kp_eproc.e_tdev)
         let ttyDevice = rawTTY > 0 ? rawTTY : nil
+        let cmuxScope = cachedCMUXScope(for: pid, cacheKey: scopeCacheKey(from: kinfo))
+        let rawProcessGroupID = Int(kinfo.kp_eproc.e_pgid)
+        let processGroupID = rawProcessGroupID > 0 ? rawProcessGroupID : nil
+        let rawTerminalProcessGroupID = Int(kinfo.kp_eproc.e_tpgid)
+        let terminalProcessGroupID = rawTerminalProcessGroupID > 0 ? rawTerminalProcessGroupID : nil
 
         return CmuxTopProcessInfo(
             pid: pid,
@@ -238,11 +308,107 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
             name: name.isEmpty ? "pid-\(pid)" : name,
             path: path,
             ttyDevice: ttyDevice,
+            cmuxWorkspaceID: cmuxScope?.workspaceID,
+            cmuxSurfaceID: cmuxScope?.surfaceID,
+            processGroupID: processGroupID,
+            terminalProcessGroupID: terminalProcessGroupID,
             cpuPercent: max(0, Double(kinfo.kp_proc.p_pctcpu) / cpuScale * 100.0),
             residentBytes: int64Clamped(taskInfo?.pti_resident_size ?? 0),
             virtualBytes: int64Clamped(taskInfo?.pti_virtual_size ?? 0),
             threadCount: Int(taskInfo?.pti_threadnum ?? 0)
         )
+    }
+
+    static func cmuxScope(for pid: Int) -> CmuxTopProcessScope? {
+        guard pid > 0, pid <= Int(Int32.max) else { return nil }
+
+        var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, Int32(pid)]
+        var size: size_t = 0
+        guard sysctl(&mib, u_int(mib.count), nil, &size, nil, 0) == 0,
+              size > MemoryLayout<Int32>.size else {
+            return nil
+        }
+
+        var buffer = [UInt8](repeating: 0, count: size)
+        let success = buffer.withUnsafeMutableBytes { rawBuffer in
+            sysctl(&mib, u_int(mib.count), rawBuffer.baseAddress, &size, nil, 0) == 0
+        }
+        guard success else { return nil }
+
+        return cmuxScope(fromKernProcArgs: Array(buffer.prefix(Int(size))))
+    }
+
+    static func cmuxScope(fromKernProcArgs bytes: [UInt8]) -> CmuxTopProcessScope? {
+        guard bytes.count > MemoryLayout<Int32>.size else { return nil }
+
+        var argcRaw: Int32 = 0
+        withUnsafeMutableBytes(of: &argcRaw) { rawBuffer in
+            rawBuffer.copyBytes(from: bytes.prefix(MemoryLayout<Int32>.size))
+        }
+        let argc = Int(Int32(littleEndian: argcRaw))
+        guard argc > 0 else { return nil }
+
+        var index = MemoryLayout<Int32>.size
+        skipString(in: bytes, index: &index)
+        skipNulls(in: bytes, index: &index)
+
+        for _ in 0..<argc {
+            guard index < bytes.count else { return nil }
+            skipString(in: bytes, index: &index)
+            skipNulls(in: bytes, index: &index)
+        }
+
+        var workspaceID: UUID?
+        var surfaceID: UUID?
+        while index < bytes.count {
+            skipNulls(in: bytes, index: &index)
+            guard index < bytes.count else { break }
+
+            let start = index
+            skipString(in: bytes, index: &index)
+            guard start < index,
+                  let entry = String(bytes: bytes[start..<index], encoding: .utf8) else {
+                continue
+            }
+
+            if let value = value(inEnvironmentEntry: entry, forKey: "CMUX_WORKSPACE_ID") {
+                workspaceID = UUID(uuidString: value) ?? workspaceID
+            } else if workspaceID == nil,
+                      let value = value(inEnvironmentEntry: entry, forKey: "CMUX_TAB_ID") {
+                workspaceID = UUID(uuidString: value)
+            } else if let value = value(inEnvironmentEntry: entry, forKey: "CMUX_SURFACE_ID") {
+                surfaceID = UUID(uuidString: value) ?? surfaceID
+            } else if surfaceID == nil,
+                      let value = value(inEnvironmentEntry: entry, forKey: "CMUX_PANEL_ID") {
+                surfaceID = UUID(uuidString: value)
+            }
+
+            if workspaceID != nil, surfaceID != nil {
+                break
+            }
+        }
+
+        guard workspaceID != nil || surfaceID != nil else { return nil }
+        return CmuxTopProcessScope(workspaceID: workspaceID, surfaceID: surfaceID)
+    }
+
+    private static func value(inEnvironmentEntry entry: String, forKey key: String) -> String? {
+        let prefix = "\(key)="
+        guard entry.hasPrefix(prefix) else { return nil }
+        let value = String(entry.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
+    }
+
+    private static func skipString(in bytes: [UInt8], index: inout Int) {
+        while index < bytes.count, bytes[index] != 0 {
+            index += 1
+        }
+    }
+
+    private static func skipNulls(in bytes: [UInt8], index: inout Int) {
+        while index < bytes.count, bytes[index] == 0 {
+            index += 1
+        }
     }
 
     private static func taskInfo(for pid: Int) -> proc_taskinfo? {
