@@ -581,13 +581,13 @@ def test_live_socket_whitespace_home_uses_safe_cache_fallback(failures: list[str
     )
     if sys.platform == "darwin":
         expect(
-            require_path == "/var/tmp/cmux/com.cmuxterm.app/cmux-claude-node-options/restore-node-options.cjs",
+            require_path == f"/var/tmp/cmux-{os.getuid()}/com.cmuxterm.app/cmux-claude-node-options/restore-node-options.cjs",
             f"whitespace HOME fallback: expected macOS fallback cache path, got {require_path!r}",
             failures,
         )
     else:
         expect(
-            require_path == "/var/tmp/cmux/cmux-claude-node-options/restore-node-options.cjs",
+            require_path == f"/var/tmp/cmux-{os.getuid()}/cmux-claude-node-options/restore-node-options.cjs",
             f"whitespace HOME fallback: expected Linux fallback cache path, got {require_path!r}",
             failures,
         )
@@ -768,7 +768,7 @@ def main() -> int:
     test_live_socket_preserves_claude_auth_for_resume_launch(failures)
     test_live_socket_preserves_only_listed_claude_auth_keys(failures)
     test_live_socket_enforces_heap_cap_for_space_separated_flag(failures)
-    test_live_socket_whitespace_cache_path_skips_node_options_injection(failures)
+    test_live_socket_whitespace_home_uses_safe_cache_fallback(failures)
     test_live_socket_whitespace_xdg_cache_home_falls_back(failures)
     test_live_socket_relative_xdg_cache_home_falls_back(failures)
     test_live_socket_does_not_duplicate_bypass_availability_flag(failures)

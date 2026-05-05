@@ -11541,8 +11541,10 @@ struct CMUXCLI {
     """
 
     private struct ClaudeNodeOptionsCachePathError: LocalizedError {
+        let path: String
+
         var errorDescription: String? {
-            "Claude NODE_OPTIONS restore module path contains whitespace and cannot be used with --require."
+            "Claude NODE_OPTIONS restore module path is unsafe for --require: \(path)"
         }
     }
 
@@ -11624,9 +11626,15 @@ struct CMUXCLI {
         // not contain whitespace, since Node.js splits NODE_OPTIONS on
         // whitespace and the --require=<path> flag is not quoted.
         let root = try claudeNodeOptionsRestoreModuleRoot()
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: nil)
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: root.path)
         let restoreModuleURL = root.appendingPathComponent("restore-node-options.cjs", isDirectory: false)
         try writeShimIfChanged(Self.claudeNodeOptionsRestoreModule, to: restoreModuleURL)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: restoreModuleURL.path)
         return restoreModuleURL
     }
 
@@ -11665,19 +11673,40 @@ struct CMUXCLI {
 #endif
         let root = cacheRoot.appendingPathComponent("cmux-claude-node-options", isDirectory: true)
         guard root.path.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else {
-            throw ClaudeNodeOptionsCachePathError()
+            throw ClaudeNodeOptionsCachePathError(path: root.path)
         }
         return root
     }
 
     private func claudeNodeOptionsFallbackCacheRoot(appScoped: Bool) throws -> URL {
-        var root = URL(fileURLWithPath: "/var/tmp", isDirectory: true)
-            .appendingPathComponent("cmux", isDirectory: true)
+        let uid = getuid()
+        let privateBase = URL(fileURLWithPath: "/var/tmp", isDirectory: true)
+            .appendingPathComponent("cmux-\(uid)", isDirectory: true)
+        guard (try? FileManager.default.destinationOfSymbolicLink(atPath: privateBase.path)) == nil else {
+            throw ClaudeNodeOptionsCachePathError(path: privateBase.path)
+        }
+        try FileManager.default.createDirectory(
+            at: privateBase,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: privateBase.path)
+        let attributes = try FileManager.default.attributesOfItem(atPath: privateBase.path)
+        let owner = (attributes[.ownerAccountID] as? NSNumber)?.uint32Value
+        guard owner == uid else {
+            throw ClaudeNodeOptionsCachePathError(path: privateBase.path)
+        }
+        let values = try privateBase.resourceValues(forKeys: [.isSymbolicLinkKey])
+        guard values.isSymbolicLink != true else {
+            throw ClaudeNodeOptionsCachePathError(path: privateBase.path)
+        }
+
+        var root = privateBase
         if appScoped {
             root = root.appendingPathComponent("com.cmuxterm.app", isDirectory: true)
         }
         guard root.path.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else {
-            throw ClaudeNodeOptionsCachePathError()
+            throw ClaudeNodeOptionsCachePathError(path: root.path)
         }
         return root
     }

@@ -325,53 +325,86 @@ func ensureClaudeNodeOptionsRestoreModule() (string, error) {
 	homeDir, homeDirErr := os.UserHomeDir()
 	if homeDirErr != nil {
 		homeDir = ""
+		fmt.Fprintf(os.Stderr, "cmux: warning: could not determine home directory for NODE_OPTIONS cache: %v; using fallback cache path\n", homeDirErr)
 	}
-	cacheRoot, err := claudeNodeOptionsCacheRoot(runtime.GOOS, os.Getenv("XDG_CACHE_HOME"), homeDir)
-	if err != nil {
-		if homeDirErr != nil {
-			return "", fmt.Errorf("could not determine home directory for NODE_OPTIONS cache: %w", homeDirErr)
+	dir, fallbackBase := claudeNodeOptionsCacheDir(runtime.GOOS, os.Getenv("XDG_CACHE_HOME"), homeDir, os.Getuid())
+	if fallbackBase != "" {
+		if err := ensurePrivateNodeOptionsCacheBase(fallbackBase, os.Getuid()); err != nil {
+			return "", err
 		}
-		return "", err
 	}
-	subdir := "cmux"
-	if runtime.GOOS == "darwin" {
-		subdir = "com.cmuxterm.app"
-	}
-	dir := filepath.Join(cacheRoot, subdir, "cmux-claude-node-options")
 	if pathContainsWhitespace(dir) {
 		return "", fmt.Errorf("NODE_OPTIONS restore module path contains whitespace: %s", dir)
 	}
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return "", err
+	}
+	if err := os.Chmod(dir, 0700); err != nil {
 		return "", err
 	}
 	restoreModulePath := filepath.Join(dir, "restore-node-options.cjs")
 	if err := writeShimIfChanged(restoreModulePath, claudeNodeOptionsRestoreModuleScript); err != nil {
 		return "", err
 	}
+	if err := os.Chmod(restoreModulePath, 0600); err != nil {
+		return "", err
+	}
 	return restoreModulePath, nil
 }
 
-func claudeNodeOptionsCacheRoot(goos, xdgCacheHome, homeDir string) (string, error) {
+func claudeNodeOptionsCacheDir(goos, xdgCacheHome, homeDir string, uid int) (dir string, fallbackBase string) {
 	if goos == "darwin" {
 		if homeDir != "" {
-			cacheRoot := filepath.Join(homeDir, "Library", "Caches")
-			if !pathContainsWhitespace(filepath.Join(cacheRoot, "com.cmuxterm.app", "cmux-claude-node-options")) {
-				return cacheRoot, nil
+			dir := filepath.Join(homeDir, "Library", "Caches", "com.cmuxterm.app", "cmux-claude-node-options")
+			if !pathContainsWhitespace(dir) {
+				return dir, ""
 			}
 		}
-		return filepath.Join("/var/tmp", "cmux"), nil
+		fallbackBase := claudeNodeOptionsFallbackBase(uid)
+		return filepath.Join(fallbackBase, "com.cmuxterm.app", "cmux-claude-node-options"), fallbackBase
 	}
 
 	if xdgCacheHome != "" && filepath.IsAbs(xdgCacheHome) && !pathContainsWhitespace(xdgCacheHome) {
-		return xdgCacheHome, nil
+		return filepath.Join(xdgCacheHome, "cmux", "cmux-claude-node-options"), ""
 	}
 	if homeDir != "" {
-		cacheRoot := filepath.Join(homeDir, ".cache")
-		if !pathContainsWhitespace(filepath.Join(cacheRoot, "cmux", "cmux-claude-node-options")) {
-			return cacheRoot, nil
+		dir := filepath.Join(homeDir, ".cache", "cmux", "cmux-claude-node-options")
+		if !pathContainsWhitespace(dir) {
+			return dir, ""
 		}
 	}
-	return filepath.Join("/var/tmp", "cmux"), nil
+	fallbackBase := claudeNodeOptionsFallbackBase(uid)
+	return filepath.Join(fallbackBase, "cmux-claude-node-options"), fallbackBase
+}
+
+func claudeNodeOptionsFallbackBase(uid int) string {
+	return filepath.Join("/var/tmp", fmt.Sprintf("cmux-%d", uid))
+}
+
+func ensurePrivateNodeOptionsCacheBase(path string, uid int) error {
+	if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("NODE_OPTIONS fallback cache base is a symlink: %s", path)
+	} else if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.MkdirAll(path, 0700); err != nil {
+		return err
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("NODE_OPTIONS fallback cache base is a symlink: %s", path)
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return fmt.Errorf("could not determine NODE_OPTIONS fallback cache base owner: %s", path)
+	}
+	if int(stat.Uid) != uid {
+		return fmt.Errorf("NODE_OPTIONS fallback cache base owner is %d, expected %d: %s", stat.Uid, uid, path)
+	}
+	return os.Chmod(path, 0700)
 }
 
 func pathContainsWhitespace(path string) bool {
