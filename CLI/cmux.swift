@@ -15885,15 +15885,13 @@ struct CMUXCLI {
     /// `cmux hooks pi session-start` / `session-end` so cmux's restorable-session store
     /// gets the same lifecycle data Vault already collects for codex/opencode/etc.
     private static let piSessionExtensionSource = #"""
-    // cmux-pi-session-extension-marker v1
+    // cmux-pi-session-extension-marker v2
     // Bridges pi session lifecycle events into cmux's restorable session store.
     // Installed by `cmux hooks pi install` or `cmux hooks setup`.
     // DO NOT EDIT MANUALLY. cmux upgrades this file in place.
     import { spawnSync } from "node:child_process";
     import * as fs from "node:fs";
     import * as path from "node:path";
-
-    const CMUX_PI_BRIDGE_INSTALLED_KEY = Symbol.for("cmux.pi.session.bridge.installed");
 
     function firstString(...values) {
       for (const value of values) {
@@ -16013,9 +16011,6 @@ struct CMUXCLI {
     }
 
     export default async function (pi) {
-      if (globalThis[CMUX_PI_BRIDGE_INSTALLED_KEY]) return;
-      globalThis[CMUX_PI_BRIDGE_INSTALLED_KEY] = true;
-
       pi.on("session_start", async (event, ctx) => {
         const { sessionId, sessionFile, cwd } = sessionFieldsFromCtx(ctx);
         if (!sessionId) return; // ephemeral / --no-session, nothing to restore
@@ -16028,6 +16023,21 @@ struct CMUXCLI {
             reason: event && event.reason,
             session_file: sessionFile,
             previous_session_file: event && event.previousSessionFile,
+          },
+          cwd
+        );
+      });
+
+      pi.on("agent_end", async (_event, ctx) => {
+        const { sessionId, sessionFile, cwd } = sessionFieldsFromCtx(ctx);
+        if (!sessionId) return;
+        sendHook(
+          "stop",
+          {
+            session_id: sessionId,
+            cwd,
+            event: "agent_end",
+            session_file: sessionFile,
           },
           cwd
         );
