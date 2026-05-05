@@ -5826,7 +5826,7 @@ struct SettingsView: View {
     }
 
     private func applyTerminalTheme(_ mode: TerminalThemeMode) {
-        Task { @concurrent in
+        Task.detached(priority: .userInitiated) { [mode] in
             do {
                 try TerminalThemeSettings.apply(mode)
             } catch {
