@@ -168,6 +168,7 @@ private struct FeedSecondaryFilterButton: View {
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
         .help(filter.label)
+        .accessibilityIdentifier("FeedFilterButton.\(filter.rawValue)")
     }
 }
 
@@ -343,6 +344,7 @@ private struct FeedListView: View {
         }
         .feedZeroScrollContentMargins()
         .feedReportHeight(onActivityViewportHeightChange)
+        .accessibilityIdentifier("FeedHistoryList")
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
@@ -651,6 +653,8 @@ private struct FeedRowSurface: View {
                 isHovered = hovering
             }
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("FeedRow.\(snapshot.workstreamId)")
     }
 
     private var rowBackgroundFill: Color {
@@ -696,7 +700,9 @@ private extension View {
         onGeometryChange(for: CGFloat.self, of: { proxy in
             proxy.size.height
         }) { height in
-            action(height)
+            Task { @MainActor in
+                action(height)
+            }
         }
     }
 }

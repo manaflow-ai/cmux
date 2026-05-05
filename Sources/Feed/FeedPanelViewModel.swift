@@ -105,6 +105,9 @@ final class FeedPanelViewModel {
                 self?.arm()
             }
         }
+#if DEBUG
+        recordActivityPaginationUITest(stage: "arm")
+#endif
         requestAutomaticActivityPageIfNeeded()
     }
 
@@ -161,10 +164,16 @@ final class FeedPanelViewModel {
         ) else { return }
 
         activityPaginationState.recordRequest(metrics: metrics)
+#if DEBUG
+        recordActivityPaginationUITest(stage: "auto.request")
+#endif
         automaticLoadTask = Task { @MainActor [weak self] in
             guard let self else { return }
             await self.loadOlderItemsIfPossible()
             self.automaticLoadTask = nil
+#if DEBUG
+            self.recordActivityPaginationUITest(stage: "auto.idle")
+#endif
             self.requestAutomaticActivityPageIfNeeded()
         }
     }
@@ -174,6 +183,24 @@ final class FeedPanelViewModel {
         await FeedCoordinator.shared.store?.loadOlderItems()
         arm()
     }
+
+#if DEBUG
+    private func recordActivityPaginationUITest(stage: String) {
+        _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(
+            envKey: "CMUX_UI_TEST_FEED_ACTIVITY_PAGINATION_PATH"
+        ) { payload in
+            let metrics = activityPaginationMetrics.normalized
+            payload["stage"] = stage
+            payload["itemsCount"] = "\(items.count)"
+            payload["hasMorePersistedItems"] = hasMorePersistedItems ? "1" : "0"
+            payload["isLoadingOlderItems"] = isLoadingOlderItems ? "1" : "0"
+            payload["activityAutoPaginationActive"] = activityPaginationState.isActive ? "1" : "0"
+            payload["activityAutoPagesRequested"] = "\(activityPaginationState.automaticPagesRequested)"
+            payload["activityViewportHeight"] = "\(Int(metrics.viewportHeight.rounded()))"
+            payload["activityContentHeight"] = "\(Int(metrics.contentHeight.rounded()))"
+        }
+    }
+#endif
 }
 
 struct FeedHistoryLoadMoreRow: View {
@@ -198,6 +225,7 @@ struct FeedHistoryLoadMoreRow: View {
         }
         .buttonStyle(.plain)
         .disabled(isLoading)
+        .accessibilityIdentifier("FeedHistoryLoadMoreButton")
     }
 
     private var label: String {
