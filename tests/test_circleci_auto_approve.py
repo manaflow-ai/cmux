@@ -47,10 +47,24 @@ def http_error(url: str, status: int) -> urllib.error.HTTPError:
   return urllib.error.HTTPError(url, status, "not found", hdrs=None, fp=None)
 
 
+def request_headers(request: Any) -> dict[str, str]:
+  return {name.lower(): value for name, value in request.header_items()}
+
+
+def assert_github_auth(request: Any) -> None:
+  assert request_headers(request).get("authorization") == "Bearer github-token"
+
+
+def assert_circleci_auth(request: Any) -> None:
+  assert request_headers(request).get("circle-token") == "circle-token"
+
+
 @contextmanager
 def env(**updates: str):
   old = os.environ.copy()
-  os.environ.clear()
+  for key in list(os.environ):
+    if key.startswith(("GITHUB_", "CIRCLECI_", "PR_", "TRUSTED_", "DRY_RUN")):
+      del os.environ[key]
   os.environ.update(updates)
   try:
     yield
@@ -93,13 +107,25 @@ def fake_check_runs() -> dict[str, Any]:
   }
 
 
-def fake_workflow_jobs() -> dict[str, Any]:
+def fake_check_runs_without_hold(count: int = 100) -> dict[str, Any]:
+  return {
+    "check_runs": [
+      {
+        "name": f"check-{index}",
+        "details_url": f"https://example.test/check-{index}",
+      }
+      for index in range(count)
+    ]
+  }
+
+
+def fake_workflow_jobs(status: str = "blocked") -> dict[str, Any]:
   return {
     "items": [
       {
         "name": "hold-for-approval",
         "type": "approval",
-        "status": "blocked",
+        "status": status,
         "approval_request_id": APPROVAL_ID,
       }
     ]
@@ -119,9 +145,13 @@ def test_allowlisted_user_approves_without_membership_lookup() -> None:
 
   def urlopen(request: Any, timeout: int = 20) -> FakeResponse:
     calls.append((request.get_method(), request.full_url))
+    if request.full_url.startswith("https://api.github.test/"):
+      assert_github_auth(request)
+    if request.full_url.startswith("https://circleci.test/"):
+      assert_circleci_auth(request)
     if response := trusted_user_response(request.full_url):
       return response
-    if request.full_url.endswith("/check-runs?per_page=100"):
+    if request.full_url.endswith("/check-runs?per_page=100&page=1"):
       return FakeResponse(fake_check_runs())
     if request.full_url.endswith(f"/workflow/{WORKFLOW_ID}/job"):
       return FakeResponse(fake_workflow_jobs())
@@ -145,11 +175,15 @@ def test_visible_org_member_approves() -> None:
 
   def urlopen(request: Any, timeout: int = 20) -> FakeResponse:
     calls.append((request.get_method(), request.full_url))
+    if request.full_url.startswith("https://api.github.test/"):
+      assert_github_auth(request)
+    if request.full_url.startswith("https://circleci.test/"):
+      assert_circleci_auth(request)
     if response := trusted_user_response(request.full_url):
       return response
     if request.full_url.endswith("/orgs/manaflow-ai/members/alice"):
       return FakeResponse()
-    if request.full_url.endswith("/check-runs?per_page=100"):
+    if request.full_url.endswith("/check-runs?per_page=100&page=1"):
       return FakeResponse(fake_check_runs())
     if request.full_url.endswith(f"/workflow/{WORKFLOW_ID}/job"):
       return FakeResponse(fake_workflow_jobs())
@@ -170,6 +204,8 @@ def test_non_member_does_not_call_circleci() -> None:
 
   def urlopen(request: Any, timeout: int = 20) -> FakeResponse:
     calls.append((request.get_method(), request.full_url))
+    if request.full_url.startswith("https://api.github.test/"):
+      assert_github_auth(request)
     if response := trusted_user_response(request.full_url):
       return response
     if request.full_url.endswith("/orgs/manaflow-ai/members/mallory"):
@@ -184,6 +220,82 @@ def test_non_member_does_not_call_circleci() -> None:
   assert all("circleci.test" not in url for _, url in calls)
 
 
+def test_membership_api_error_does_not_call_circleci() -> None:
+  calls: list[tuple[str, str]] = []
+
+  def urlopen(request: Any, timeout: int = 20) -> FakeResponse:
+    calls.append((request.get_method(), request.full_url))
+    if request.full_url.startswith("https://api.github.test/"):
+      assert_github_auth(request)
+    if response := trusted_user_response(request.full_url):
+      return response
+    if request.full_url.endswith("/orgs/manaflow-ai/members/alice"):
+      raise http_error(request.full_url, 403)
+    raise AssertionError(f"unexpected request: {request.full_url}")
+
+  with env(**base_env("alice")):
+    module = load_module()
+    with mock.patch.object(module.urllib.request, "urlopen", urlopen):
+      assert module.run() == 0
+
+  assert all("circleci.test" not in url for _, url in calls)
+
+
+def test_already_approved_does_not_post() -> None:
+  calls: list[tuple[str, str]] = []
+
+  def urlopen(request: Any, timeout: int = 20) -> FakeResponse:
+    calls.append((request.get_method(), request.full_url))
+    if request.full_url.startswith("https://api.github.test/"):
+      assert_github_auth(request)
+    if request.full_url.startswith("https://circleci.test/"):
+      assert_circleci_auth(request)
+    if response := trusted_user_response(request.full_url):
+      return response
+    if request.full_url.endswith("/check-runs?per_page=100&page=1"):
+      return FakeResponse(fake_check_runs())
+    if request.full_url.endswith(f"/workflow/{WORKFLOW_ID}/job"):
+      return FakeResponse(fake_workflow_jobs(status="success"))
+    raise AssertionError(f"unexpected request: {request.full_url}")
+
+  with env(**base_env("lawrencecchen")):
+    module = load_module()
+    with mock.patch.object(module.urllib.request, "urlopen", urlopen):
+      assert module.run() == 0
+
+  assert not any(method == "POST" for method, _ in calls)
+
+
+def test_dry_run_paginates_and_does_not_post() -> None:
+  calls: list[tuple[str, str]] = []
+  test_env = base_env("lawrencecchen")
+  test_env["DRY_RUN"] = "1"
+
+  def urlopen(request: Any, timeout: int = 20) -> FakeResponse:
+    calls.append((request.get_method(), request.full_url))
+    if request.full_url.startswith("https://api.github.test/"):
+      assert_github_auth(request)
+    if request.full_url.startswith("https://circleci.test/"):
+      assert_circleci_auth(request)
+    if response := trusted_user_response(request.full_url):
+      return response
+    if request.full_url.endswith("/check-runs?per_page=100&page=1"):
+      return FakeResponse(fake_check_runs_without_hold())
+    if request.full_url.endswith("/check-runs?per_page=100&page=2"):
+      return FakeResponse(fake_check_runs())
+    if request.full_url.endswith(f"/workflow/{WORKFLOW_ID}/job"):
+      return FakeResponse(fake_workflow_jobs())
+    raise AssertionError(f"unexpected request: {request.full_url}")
+
+  with env(**test_env):
+    module = load_module()
+    with mock.patch.object(module.urllib.request, "urlopen", urlopen):
+      assert module.run() == 0
+
+  assert any(url.endswith("/check-runs?per_page=100&page=2") for _, url in calls)
+  assert not any(method == "POST" for method, _ in calls)
+
+
 def test_unresolvable_allowlisted_login_fails_closed() -> None:
   calls: list[tuple[str, str]] = []
   test_env = base_env("lawrencecchen")
@@ -191,6 +303,8 @@ def test_unresolvable_allowlisted_login_fails_closed() -> None:
 
   def urlopen(request: Any, timeout: int = 20) -> FakeResponse:
     calls.append((request.get_method(), request.full_url))
+    if request.full_url.startswith("https://api.github.test/"):
+      assert_github_auth(request)
     if request.full_url.endswith("/users/lawrencecchen"):
       return FakeResponse({"login": "lawrencecchen", "id": 54008264})
     if request.full_url.endswith("/users/austyinywang"):
@@ -214,6 +328,9 @@ def main() -> None:
   test_allowlisted_user_approves_without_membership_lookup()
   test_visible_org_member_approves()
   test_non_member_does_not_call_circleci()
+  test_membership_api_error_does_not_call_circleci()
+  test_already_approved_does_not_post()
+  test_dry_run_paginates_and_does_not_post()
   test_unresolvable_allowlisted_login_fails_closed()
   print("PASS: CircleCI auto approval trusts only allowlisted users or org members")
 

@@ -7,6 +7,7 @@ import re
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from typing import Any
@@ -14,7 +15,8 @@ from typing import Any
 
 GITHUB_API = os.environ.get("GITHUB_API_URL", "https://api.github.com")
 CIRCLECI_API = os.environ.get("CIRCLECI_API_URL", "https://circleci.com/api/v2")
-WORKFLOW_RE = re.compile(r"/workflows/([0-9a-fA-F-]{36})(?:[/?#]|$)")
+UUID_RE = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+WORKFLOW_RE = re.compile(rf"/workflows/({UUID_RE})(?:[/?#]|$)")
 
 
 @dataclass(frozen=True)
@@ -102,7 +104,18 @@ def is_org_member(config: Config) -> bool:
     if error.code == 404:
       print(f"{config.pr_author} is not visible as a member of {config.trusted_org}")
       return False
-    raise
+    reason = getattr(error, "reason", None) or getattr(error, "msg", "")
+    print(
+      f"Org membership check for {config.pr_author} in {config.trusted_org} "
+      f"failed with HTTP {error.code} {reason}; treating as untrusted"
+    )
+    return False
+  except urllib.error.URLError as error:
+    print(
+      f"Org membership check for {config.pr_author} in {config.trusted_org} "
+      f"failed with {error}; treating as untrusted"
+    )
+    return False
 
 
 def validate_trusted_users(config: Config) -> None:
@@ -118,9 +131,19 @@ def validate_trusted_users(config: Config) -> None:
 
 
 def check_runs(config: Config) -> list[dict[str, Any]]:
-  url = f"{GITHUB_API}/repos/{config.repository}/commits/{config.pr_head_sha}/check-runs?per_page=100"
-  payload = request_json(url, token=config.github_token)
-  return payload.get("check_runs", [])
+  checks: list[dict[str, Any]] = []
+  page = 1
+  while True:
+    url = (
+      f"{GITHUB_API}/repos/{config.repository}/commits/{config.pr_head_sha}/check-runs"
+      f"?per_page=100&page={page}"
+    )
+    payload = request_json(url, token=config.github_token)
+    items = payload.get("check_runs", [])
+    checks.extend(items)
+    if len(items) < 100:
+      return checks
+    page += 1
 
 
 def circleci_workflow_id_from_check(check: dict[str, Any]) -> str | None:
@@ -143,22 +166,28 @@ def find_circleci_workflow(config: Config) -> str | None:
 
 
 def find_approval_request(config: Config, workflow_id: str) -> tuple[str, str] | None:
-  url = f"{CIRCLECI_API}/workflow/{workflow_id}/job"
-  payload = request_json(url, token=config.circleci_token, token_header="Circle-Token")
-  for job in payload.get("items", []):
-    if job.get("name") != config.hold_job_name:
-      continue
-    if job.get("type") != "approval":
-      continue
-    status = str(job.get("status") or "")
-    if status == "success":
-      print(f"CircleCI approval job {config.hold_job_name} is already approved")
+  page_token = ""
+  while True:
+    url = f"{CIRCLECI_API}/workflow/{workflow_id}/job"
+    if page_token:
+      url += f"?page-token={urllib.parse.quote(page_token)}"
+    payload = request_json(url, token=config.circleci_token, token_header="Circle-Token")
+    for job in payload.get("items", []):
+      if job.get("name") != config.hold_job_name:
+        continue
+      if job.get("type") != "approval":
+        continue
+      status = str(job.get("status") or "")
+      if status == "success":
+        print(f"CircleCI approval job {config.hold_job_name} is already approved")
+        return None
+      approval_request_id = job.get("approval_request_id") or job.get("id")
+      if not approval_request_id:
+        raise SystemExit(f"Approval job {config.hold_job_name} has no approval_request_id")
+      return (str(approval_request_id), status)
+    page_token = str(payload.get("next_page_token") or "")
+    if not page_token:
       return None
-    approval_request_id = job.get("approval_request_id") or job.get("id")
-    if not approval_request_id:
-      raise SystemExit(f"Approval job {config.hold_job_name} has no approval_request_id")
-    return (str(approval_request_id), status)
-  return None
 
 
 def approve(config: Config, workflow_id: str, approval_request_id: str) -> None:
