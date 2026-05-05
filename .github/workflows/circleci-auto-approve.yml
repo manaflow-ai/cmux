@@ -34,6 +34,8 @@ jobs:
           CIRCLECI_TOKEN: ${{ secrets.CIRCLECI_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          PR_HEAD_OWNER: ${{ github.event.pull_request.head.repo.owner.login }}
+          PR_HEAD_OWNER_ID: ${{ github.event.pull_request.head.repo.owner.id }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
           PR_AUTHOR_ID: ${{ github.event.pull_request.user.id }}

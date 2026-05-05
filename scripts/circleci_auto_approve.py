@@ -23,6 +23,8 @@ WORKFLOW_RE = re.compile(rf"/workflows/({UUID_RE})(?:[/?#]|$)")
 class Config:
   repository: str
   pr_head_repository: str
+  pr_head_owner: str
+  pr_head_owner_id: int
   pr_head_sha: str
   pr_author: str
   pr_author_id: int
@@ -53,6 +55,8 @@ def load_config() -> Config:
   return Config(
     repository=require_env("GITHUB_REPOSITORY"),
     pr_head_repository=os.environ.get("PR_HEAD_REPOSITORY", require_env("GITHUB_REPOSITORY")),
+    pr_head_owner=os.environ.get("PR_HEAD_OWNER", ""),
+    pr_head_owner_id=int(os.environ.get("PR_HEAD_OWNER_ID", "0") or "0"),
     pr_head_sha=require_env("PR_HEAD_SHA"),
     pr_author=require_env("PR_AUTHOR"),
     pr_author_id=int(require_env("PR_AUTHOR_ID")),
@@ -89,35 +93,54 @@ def request_json(url: str, *, token: str, token_header: str = "Authorization", m
   return json.loads(data.decode("utf-8"))
 
 
-def is_org_member(config: Config) -> bool:
+def is_trusted_pr_source(config: Config) -> bool:
   validate_trusted_users(config)
 
-  if config.trusted_users.get(config.pr_author) == config.pr_author_id:
-    print(f"{config.pr_author} ({config.pr_author_id}) is explicitly trusted")
+  if not is_trusted_subject(config, config.pr_author, config.pr_author_id, "PR author"):
+    return False
+
+  if not config.pr_head_owner or config.pr_head_owner_id <= 0:
+    print("PR head repository owner is unavailable; treating as untrusted")
+    return False
+
+  if config.pr_head_owner == config.pr_author and config.pr_head_owner_id == config.pr_author_id:
+    return True
+
+  return is_trusted_subject(
+    config,
+    config.pr_head_owner,
+    config.pr_head_owner_id,
+    "PR head repository owner",
+  )
+
+
+def is_trusted_subject(config: Config, login: str, user_id: int, label: str) -> bool:
+  if config.trusted_users.get(login) == user_id:
+    print(f"{label} {login} ({user_id}) is explicitly trusted")
     return True
 
   token = os.environ.get("GITHUB_ORG_READ_TOKEN", "")
   if not token:
     print(f"GITHUB_ORG_READ_TOKEN is not configured; cannot verify membership in {config.trusted_org}")
     return False
-  url = f"{GITHUB_API}/orgs/{config.trusted_org}/members/{config.pr_author}"
+  url = f"{GITHUB_API}/orgs/{config.trusted_org}/members/{login}"
   try:
     request_json(url, token=token)
-    print(f"{config.pr_author} is a member of {config.trusted_org}")
+    print(f"{label} {login} is a member of {config.trusted_org}")
     return True
   except urllib.error.HTTPError as error:
     if error.code == 404:
-      print(f"{config.pr_author} is not visible as a member of {config.trusted_org}")
+      print(f"{label} {login} is not visible as a member of {config.trusted_org}")
       return False
     reason = getattr(error, "reason", None) or getattr(error, "msg", "")
     print(
-      f"Org membership check for {config.pr_author} in {config.trusted_org} "
+      f"Org membership check for {label} {login} in {config.trusted_org} "
       f"failed with HTTP {error.code} {reason}; treating as untrusted"
     )
     return False
   except urllib.error.URLError as error:
     print(
-      f"Org membership check for {config.pr_author} in {config.trusted_org} "
+      f"Org membership check for {label} {login} in {config.trusted_org} "
       f"failed with {error}; treating as untrusted"
     )
     return False
@@ -216,8 +239,8 @@ def run() -> int:
   if config.pr_head_repository == config.repository:
     print("Same-repository PR does not need CircleCI hold approval")
     return 0
-  if not is_org_member(config):
-    print("Not approving CircleCI for untrusted PR author")
+  if not is_trusted_pr_source(config):
+    print("Not approving CircleCI for untrusted PR source")
     return 0
   if not config.circleci_token and not config.dry_run:
     raise SystemExit("Missing CIRCLECI_TOKEN for trusted PR author")

@@ -85,6 +85,8 @@ def base_env(author: str) -> dict[str, str]:
     "CIRCLECI_API_URL": "https://circleci.test/api/v2",
     "GITHUB_REPOSITORY": "manaflow-ai/cmux",
     "PR_HEAD_REPOSITORY": "contributor/cmux",
+    "PR_HEAD_OWNER": author,
+    "PR_HEAD_OWNER_ID": author_ids[author],
     "PR_HEAD_SHA": "abc123",
     "PR_AUTHOR": author,
     "PR_AUTHOR_ID": author_ids[author],
@@ -242,6 +244,33 @@ def test_missing_org_token_does_not_call_circleci_for_non_allowlisted_member() -
 
   assert all("/orgs/manaflow-ai/members/alice" not in url for _, url in calls)
   assert all("circleci.test" not in url for _, url in calls)
+
+
+def test_trusted_author_cannot_approve_untrusted_fork_owner() -> None:
+  calls: list[tuple[str, str]] = []
+  test_env = base_env("lawrencecchen")
+  test_env["PR_HEAD_REPOSITORY"] = "mallory/cmux"
+  test_env["PR_HEAD_OWNER"] = "mallory"
+  test_env["PR_HEAD_OWNER_ID"] = "2222"
+
+  def urlopen(request: Any, timeout: int = 20) -> FakeResponse:
+    calls.append((request.get_method(), request.full_url))
+    if request.full_url.startswith("https://api.github.test/"):
+      assert_github_auth(request)
+    if response := trusted_user_response(request.full_url):
+      return response
+    if request.full_url.endswith("/orgs/manaflow-ai/members/mallory"):
+      raise http_error(request.full_url, 404)
+    raise AssertionError(f"unexpected request: {request.full_url}")
+
+  with env(**test_env):
+    module = load_module()
+    with mock.patch.object(module.urllib.request, "urlopen", urlopen):
+      assert module.run() == 0
+
+  urls = [url for _, url in calls]
+  assert any(url.endswith("/orgs/manaflow-ai/members/mallory") for url in urls)
+  assert all("circleci.test" not in url for url in urls)
 
 
 def test_same_repository_pr_does_not_poll_circleci() -> None:
@@ -412,6 +441,7 @@ def main() -> None:
   test_visible_org_member_approves()
   test_non_member_does_not_call_circleci()
   test_missing_org_token_does_not_call_circleci_for_non_allowlisted_member()
+  test_trusted_author_cannot_approve_untrusted_fork_owner()
   test_same_repository_pr_does_not_poll_circleci()
   test_hold_check_name_accepts_legacy_and_workflow_prefixed_names()
   test_membership_api_error_does_not_call_circleci()
