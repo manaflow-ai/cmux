@@ -865,14 +865,15 @@ class cmux:
         self._call("notification.clear")
 
     def simulate_bell(self, surface: Union[str, int], workspace: Union[str, int, None] = None) -> dict:
-        sid = self._resolve_surface_id(surface)
+        target_workspace_id: Optional[str] = None
+        if workspace is not None:
+            target_workspace_id = self._resolve_workspace_id(workspace)
+        sid = self._resolve_surface_id(surface, workspace_id=target_workspace_id)
         if not sid:
             raise cmuxError(f"Invalid surface: {surface!r}")
         params: dict = {"surface_id": sid}
-        if workspace is not None:
-            wid = self._resolve_workspace_id(workspace) if isinstance(workspace, (str, int)) else None
-            if wid:
-                params["workspace_id"] = wid
+        if target_workspace_id:
+            params["workspace_id"] = target_workspace_id
         return self._call("bell.simulate", params) or {}
 
     def list_bell_surfaces(self, workspace: Union[str, int, None] = None) -> list[str]:
@@ -888,7 +889,21 @@ class cmux:
             for entry in entries:
                 out.extend(entry.get("surface_ids") or [])
             return sorted(out)
-        target = self._resolve_workspace_id(workspace) if isinstance(workspace, (str, int)) else None
+        # bell.list returns workspace_id as a UUID. _resolve_workspace_id may
+        # return a ref string (e.g. "workspace:1"); normalize to UUID via
+        # workspace.list lookup so the filter matches the response shape.
+        target = self._resolve_workspace_id(workspace)
+        if target and ":" in target:
+            ws_items = (self._call("workspace.list") or {}).get("workspaces") or []
+            ref_index_str = target.split(":", 1)[1]
+            try:
+                ref_index = int(ref_index_str)
+            except ValueError:
+                ref_index = -1
+            for row in ws_items:
+                if int(row.get("index", -1)) == ref_index:
+                    target = str(row.get("id"))
+                    break
         if not target:
             return []
         for entry in entries:

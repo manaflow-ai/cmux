@@ -8045,7 +8045,11 @@ class TerminalController {
     private func v2BellList() -> [String: Any] {
         var entries: [[String: Any]] = []
         v2MainSync {
-            for (tabId, surfaceIds) in TerminalNotificationStore.shared.bellRangSurfacesByTab {
+            // Sort by tabId so the JSON workspaces array is deterministic for
+            // tests; surface_ids inside each entry are already sorted.
+            let snapshot = TerminalNotificationStore.shared.bellRangSurfacesByTab
+            for tabId in snapshot.keys.sorted(by: { $0.uuidString < $1.uuidString }) {
+                guard let surfaceIds = snapshot[tabId] else { continue }
                 entries.append([
                     "workspace_id": tabId.uuidString,
                     "surface_ids": surfaceIds.map { $0.uuidString }.sorted(),

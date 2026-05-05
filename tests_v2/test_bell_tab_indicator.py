@@ -23,7 +23,7 @@ code path, not a test-only shortcut.
 import os
 import sys
 import time
-from typing import List
+from typing import List, Optional
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -36,6 +36,20 @@ def surface_id_for_index(client: cmux, index: int) -> str:
         if entry[0] == index:
             return entry[1]
     raise RuntimeError(f"Surface index {index} not found")
+
+
+def focused_surface_id(client: cmux, workspace: Optional[str] = None) -> str:
+    """Return the focused surface id within `workspace` (or current if None).
+
+    Uses the third tuple element from list_surfaces (focused flag) rather
+    than assuming index 0 is focused — surface ordering is not guaranteed
+    to match focus order.
+    """
+    surfaces = client.list_surfaces(workspace=workspace) if workspace else client.list_surfaces()
+    for index, sid, focused in surfaces:
+        if focused:
+            return sid
+    raise RuntimeError(f"No focused surface found in workspace={workspace}; surfaces={surfaces}")
 
 
 def first_two_terminal_indices(client: cmux) -> tuple[int, int]:
@@ -57,8 +71,13 @@ def wait_for_bell(client: cmux, surface_id: str, present: bool, timeout: float =
 
 
 def main() -> int:
+    rc = 1
+    ws_a: Optional[str] = None
+    ws_b: Optional[str] = None
+    client: Optional[cmux] = None
     try:
-        with cmux() as client:
+        client = cmux().__enter__()
+        try:
             # Make app focus deterministic for the visibility-suppression check.
             client.set_app_focus(True)
 
@@ -75,7 +94,7 @@ def main() -> int:
                 return 1
 
             ws_b_surface_id = ws_b_surfaces[0][1]
-            ws_a_focused_surface_id = ws_a_surfaces[0][1]
+            ws_a_focused_surface_id = focused_surface_id(client, workspace=ws_a)
 
             client.simulate_bell(ws_b_surface_id, workspace=ws_b)
             if not wait_for_bell(client, ws_b_surface_id, present=True):
@@ -146,25 +165,40 @@ def main() -> int:
                 print("FAIL: Pre-condition - bell before workspace close not recorded")
                 return 1
             client.close_workspace(ws_b)
+            ws_b = None
             if not wait_for_bell(client, ws_b_surface_focused, present=False, timeout=3.0):
                 print(f"FAIL: Closing workspace did not clear its bells; bells={client.list_bell_surfaces()}")
                 return 1
 
-            # Cleanup
-            try:
-                client.close_workspace(ws_a)
-            except Exception:
-                pass
-            try:
-                client.set_app_focus(None)
-            except Exception:
-                pass
-
             print("PASS: bell-features = title indicator records, suppresses, and clears as expected")
+            rc = 0
             return 0
+        finally:
+            # Cleanup runs on every exit path so a mid-scenario failure does
+            # not leak workspaces or app-focus override into subsequent runs.
+            if client is not None:
+                if ws_b is not None:
+                    try:
+                        client.close_workspace(ws_b)
+                    except Exception:
+                        pass
+                if ws_a is not None:
+                    try:
+                        client.close_workspace(ws_a)
+                    except Exception:
+                        pass
+                try:
+                    client.set_app_focus(None)
+                except Exception:
+                    pass
+                try:
+                    client.__exit__(None, None, None)
+                except Exception:
+                    pass
     except (cmuxError, RuntimeError) as exc:
         print(f"FAIL: {exc}")
         return 1
+    return rc
 
 
 if __name__ == "__main__":
