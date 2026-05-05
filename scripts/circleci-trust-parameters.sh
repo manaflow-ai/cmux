@@ -4,7 +4,6 @@ set -euo pipefail
 output_path="${1:-/tmp/continue-params.json}"
 trusted_org="${CIRCLECI_TRUSTED_GITHUB_ORG:-manaflow-ai}"
 branch="${CIRCLECI_PIPELINE_BRANCH:-}"
-repo_owner="${CIRCLECI_PIPELINE_REPO_OWNER:-}"
 sender_login="${CIRCLECI_PIPELINE_SENDER_LOGIN:-}"
 
 require_approval=true
@@ -69,9 +68,6 @@ check_github_membership() {
 if [ "$branch" = "main" ]; then
   require_approval=false
   reason="main-branch"
-elif [ "$repo_owner" = "$trusted_org" ]; then
-  require_approval=false
-  reason="trusted-org-repository"
 elif ! is_safe_github_component "$trusted_org" || ! is_safe_github_component "$sender_login"; then
   require_approval=true
   reason="missing-or-invalid-github-sender"

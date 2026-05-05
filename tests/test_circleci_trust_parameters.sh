@@ -96,8 +96,11 @@ fi
 run_gate main main external-repo outsider "" false
 assert_no_curl main
 
-run_gate org_branch feature manaflow-ai outsider "" false
-assert_no_curl org_branch
+run_gate repo_owner_not_enough feature manaflow-ai mallory secret true 404
+assert_curl_contains repo_owner_not_enough "https://api.github.com/orgs/manaflow-ai/members/mallory"
+
+run_gate trusted_org_member feature manaflow-ai alice secret false 204
+assert_curl_contains trusted_org_member "https://api.github.com/orgs/manaflow-ai/members/alice"
 
 run_gate private_member feature outsider-fork alice secret false 204
 assert_curl_contains private_member "https://api.github.com/orgs/manaflow-ai/members/alice"

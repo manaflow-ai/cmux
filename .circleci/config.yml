@@ -15,7 +15,6 @@ jobs:
           command: ./scripts/circleci-trust-parameters.sh /tmp/continue-params.json
           environment:
             CIRCLECI_PIPELINE_BRANCH: "<< pipeline.git.branch >>"
-            CIRCLECI_PIPELINE_REPO_OWNER: "<< pipeline.git.repo_owner >>"
             CIRCLECI_PIPELINE_SENDER_LOGIN: "<< pipeline.event.github.sender.login >>"
             CIRCLECI_TRUSTED_GITHUB_ORG: manaflow-ai
       - continuation/continue:
