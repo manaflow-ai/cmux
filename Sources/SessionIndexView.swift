@@ -1043,11 +1043,6 @@ private enum SessionTranscriptRole: Equatable, Sendable {
     }
 }
 
-private enum SessionTranscriptLoadError: Error {
-    case missingFile
-    case databaseError(String)
-}
-
 private enum SessionTranscriptLoader {
     private static let streamChunkSize = 256 * 1024
     private static let maxPreviewRecordBytes = 2 * 1024 * 1024
@@ -1102,6 +1097,14 @@ private enum SessionTranscriptLoader {
         guard FileManager.default.fileExists(atPath: url.path) else {
             throw SessionTranscriptLoadError.missingFile
         }
+        if agent == .rovodev,
+           let preview = try RovoDevTranscriptPreview.load(from: url, limit: maxPreviewTurns) {
+            return coalesce(preview.enumerated().map { index, turn in
+                let role = transcriptRole(from: turn.role) ?? .event
+                return SessionTranscriptTurn(id: index, role: role, text: truncatedText(turn.text, role: role))
+            })
+        }
+
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
 
@@ -1272,10 +1275,7 @@ private enum SessionTranscriptLoader {
         return coalesce(turns)
     }
 
-    private static func sqliteText(_ stmt: OpaquePointer, _ index: Int32) -> String? {
-        guard let cString = sqlite3_column_text(stmt, index) else { return nil }
-        return String(cString: cString)
-    }
+    private static func sqliteText(_ stmt: OpaquePointer, _ index: Int32) -> String? { sqlite3_column_text(stmt, index).map { String(cString: $0) } }
 
     private static func sqliteMessage(_ db: OpaquePointer?) -> String? {
         guard let db, let cString = sqlite3_errmsg(db) else { return nil }

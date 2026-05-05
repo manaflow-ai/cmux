@@ -325,7 +325,9 @@
 		FE003104 /* SessionIndexStore+CodexSQL.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003004 /* SessionIndexStore+CodexSQL.swift */; };
 		FE003105 /* RovoDevIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003005 /* RovoDevIndex.swift */; };
 		FE003106 /* SessionAgentPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003006 /* SessionAgentPresentation.swift */; };
+		FE003107 /* RovoDevTranscriptPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003007 /* RovoDevTranscriptPreview.swift */; };
 		F5300000A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5300001A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift */; };
+		F5300002A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5300003A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -710,6 +712,8 @@
 		FE003004 /* SessionIndexStore+CodexSQL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionIndexStore+CodexSQL.swift"; sourceTree = "<group>"; };
 		FE003005 /* RovoDevIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RovoDevIndex.swift; sourceTree = "<group>"; };
 		FE003006 /* SessionAgentPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionAgentPresentation.swift; sourceTree = "<group>"; };
+		FE003007 /* RovoDevTranscriptPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RovoDevTranscriptPreview.swift; sourceTree = "<group>"; };
+		F5300003A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RovoDevTranscriptPreviewTests.swift; sourceTree = "<group>"; };
 		IC000002 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder; path = AppIcon.icon; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -1029,6 +1033,7 @@
 				FE003004 /* SessionIndexStore+CodexSQL.swift */,
 				FE003005 /* RovoDevIndex.swift */,
 				FE003006 /* SessionAgentPresentation.swift */,
+				FE003007 /* RovoDevTranscriptPreview.swift */,
 				FE003002 /* SessionIndexView.swift */,
 				B7F9A601B7F9A601B7F9A601 /* RightSidebarChromeGeometryReporting.swift */,
 				B7F9A605B7F9A605B7F9A605 /* RightSidebarChromeStyle.swift */,
@@ -1084,6 +1089,7 @@
 				F4100001A1B2C3D4E5F60718 /* PortScannerTests.swift */,
 				F5000001A1B2C3D4E5F60718 /* SessionPersistenceTests.swift */,
 				F5300001A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift */,
+				F5300003A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift */,
 				FA100001A1B2C3D4E5F60718 /* BrowserImportMappingTests.swift */,
 				F6000001A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift */,
 				17FCD4CC61D54A2F8F2F463D /* AppDelegateBareSpaceShortcutRoutingTests.swift */,
@@ -1556,6 +1562,7 @@
 				FE003104 /* SessionIndexStore+CodexSQL.swift in Sources */,
 				FE003105 /* RovoDevIndex.swift in Sources */,
 				FE003106 /* SessionAgentPresentation.swift in Sources */,
+				FE003107 /* RovoDevTranscriptPreview.swift in Sources */,
 				FE003102 /* SessionIndexView.swift in Sources */,
 				B7F9A600B7F9A600B7F9A600 /* RightSidebarChromeGeometryReporting.swift in Sources */,
 				B7F9A604B7F9A604B7F9A604 /* RightSidebarChromeStyle.swift in Sources */,
@@ -1649,6 +1656,7 @@
 				F4100000A1B2C3D4E5F60718 /* PortScannerTests.swift in Sources */,
 				F5000000A1B2C3D4E5F60718 /* SessionPersistenceTests.swift in Sources */,
 				F5300000A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift in Sources */,
+				F5300002A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift in Sources */,
 				FA100000A1B2C3D4E5F60718 /* BrowserImportMappingTests.swift in Sources */,
 				F6000000A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift in Sources */,
 				725746692D9647948561044D /* AppDelegateBareSpaceShortcutRoutingTests.swift in Sources */,
