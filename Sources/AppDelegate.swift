@@ -2556,12 +2556,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         } else {
             let displays = currentDisplayGeometries()
             let fallbackGeometry = persistedWindowGeometry()
+            let sharedGeometryHint = SharedWindowGeometryHintStore.load()
             if let restoredFrame = Self.resolvedStartupPrimaryWindowFrame(
                 primarySnapshot: nil,
                 fallbackFrame: fallbackGeometry?.frame,
                 fallbackDisplaySnapshot: fallbackGeometry?.display,
                 availableDisplays: displays.available,
-                fallbackDisplay: displays.fallback
+                fallbackDisplay: displays.fallback,
+                sharedGeometryHint: sharedGeometryHint
             ) {
                 primaryWindow.setFrame(restoredFrame, display: true)
             }
@@ -2719,7 +2721,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         fallbackFrame: SessionRectSnapshot?,
         fallbackDisplaySnapshot: SessionDisplaySnapshot?,
         availableDisplays: [SessionDisplayGeometry],
-        fallbackDisplay: SessionDisplayGeometry?
+        fallbackDisplay: SessionDisplayGeometry?,
+        sharedGeometryHint: SharedWindowGeometryHint? = nil
     ) -> CGRect? {
         if let primary = resolvedWindowFrame(
             from: primarySnapshot?.frame,
@@ -2730,11 +2733,94 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return primary
         }
 
-        return resolvedWindowFrame(
+        if let fallback = resolvedWindowFrame(
             from: fallbackFrame,
             display: fallbackDisplaySnapshot,
             availableDisplays: availableDisplays,
             fallbackDisplay: fallbackDisplay
+        ) {
+            return fallback
+        }
+
+        return resolvedFreshMainWindowFrame(
+            sharedGeometryHint: sharedGeometryHint,
+            availableDisplays: availableDisplays,
+            fallbackDisplay: fallbackDisplay
+        )
+    }
+
+    nonisolated static func resolvedFreshMainWindowFrame(
+        sharedGeometryHint: SharedWindowGeometryHint?,
+        availableDisplays: [SessionDisplayGeometry],
+        fallbackDisplay: SessionDisplayGeometry?
+    ) -> CGRect {
+        if let hintFrame = resolvedWindowFrame(
+            from: sharedGeometryHint?.frame,
+            display: sharedGeometryHint?.display,
+            availableDisplays: availableDisplays,
+            fallbackDisplay: fallbackDisplay
+        ), isUsableFreshWindowFrame(
+            hintFrame,
+            availableDisplays: availableDisplays,
+            fallbackDisplay: fallbackDisplay
+        ) {
+            return hintFrame
+        }
+
+        return defaultFreshMainWindowFrame(
+            availableDisplays: availableDisplays,
+            fallbackDisplay: fallbackDisplay
+        )
+    }
+
+    private nonisolated static func isUsableFreshWindowFrame(
+        _ frame: CGRect,
+        availableDisplays: [SessionDisplayGeometry],
+        fallbackDisplay: SessionDisplayGeometry?
+    ) -> Bool {
+        let displays = availableDisplays.isEmpty ? Array([fallbackDisplay].compactMap { $0 }) : availableDisplays
+        let visibleFrame = displays
+            .map(\.visibleFrame)
+            .filter { !$0.isNull && !$0.isEmpty }
+            .max { lhs, rhs in
+                intersectionArea(lhs, frame) < intersectionArea(rhs, frame)
+            } ?? fallbackDisplay?.visibleFrame
+        let maximumWidth = visibleFrame?.standardized.width ?? frame.width
+        let maximumHeight = visibleFrame?.standardized.height ?? frame.height
+        let minimumWidth = min(CGFloat(SessionPersistencePolicy.minimumFreshWindowWidth), maximumWidth)
+        let minimumHeight = min(CGFloat(SessionPersistencePolicy.minimumFreshWindowHeight), maximumHeight)
+        return frame.width >= minimumWidth && frame.height >= minimumHeight
+    }
+
+    private nonisolated static func defaultFreshMainWindowFrame(
+        availableDisplays: [SessionDisplayGeometry],
+        fallbackDisplay: SessionDisplayGeometry?
+    ) -> CGRect {
+        let display = fallbackDisplay ?? availableDisplays.first
+        guard let visibleFrame = display?.visibleFrame.standardized,
+              visibleFrame.width.isFinite,
+              visibleFrame.height.isFinite,
+              visibleFrame.width > 0,
+              visibleFrame.height > 0 else {
+            return CGRect(x: 0, y: 0, width: 1_000, height: 700)
+        }
+
+        let minWidth = min(CGFloat(SessionPersistencePolicy.minimumFreshWindowWidth), visibleFrame.width)
+        let minHeight = min(CGFloat(SessionPersistencePolicy.minimumFreshWindowHeight), visibleFrame.height)
+        let targetWidth = min(visibleFrame.width, max(minWidth, visibleFrame.width * 0.8))
+        let targetHeight = min(visibleFrame.height, max(minHeight, visibleFrame.height * 0.8))
+        let requestedFrame = CGRect(
+            x: visibleFrame.midX - targetWidth / 2,
+            y: visibleFrame.midY - targetHeight / 2,
+            width: targetWidth,
+            height: targetHeight
+        )
+
+        return clampFrame(
+            requestedFrame,
+            within: visibleFrame,
+            minWidth: minWidth,
+            minHeight: minHeight
         )
     }
 
@@ -3470,7 +3556,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
             }
             if let snapshot {
-                _ = SessionPersistenceStore.save(snapshot)
+                _ = SessionPersistenceStore.save(
+                    snapshot,
+                    sharedWindowGeometryHintFileURL: SharedWindowGeometryHintStore.defaultFileURL(),
+                    writerBundleIdentifier: Bundle.main.bundleIdentifier
+                )
             } else if removeWhenEmpty {
                 SessionPersistenceStore.removeSnapshot()
             }
@@ -6810,12 +6900,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let shouldTemporarilyDisallowFullScreenTiling =
             sessionWindowSnapshot == nil && sourceWindowIsNativeFullScreen
         let initialRect: NSRect
+        let didUseFreshFallbackInitialFrame: Bool
         if sessionWindowSnapshot == nil, let existingFrame {
             // Convert frame rect to content rect so the new window matches the
             // source window's actual size (frame includes titlebar insets).
             initialRect = NSWindow.contentRect(forFrameRect: existingFrame, styleMask: styleMask)
+            didUseFreshFallbackInitialFrame = false
+        } else if sessionWindowSnapshot == nil {
+            let displays = currentDisplayGeometries()
+            let sharedGeometryHint = SharedWindowGeometryHintStore.load()
+            let freshFrame = Self.resolvedFreshMainWindowFrame(
+                sharedGeometryHint: sharedGeometryHint,
+                availableDisplays: displays.available,
+                fallbackDisplay: displays.fallback
+            )
+            initialRect = NSWindow.contentRect(forFrameRect: freshFrame, styleMask: styleMask)
+            didUseFreshFallbackInitialFrame = true
         } else {
             initialRect = NSRect(x: 0, y: 0, width: 460, height: 360)
+            didUseFreshFallbackInitialFrame = false
         }
 
         let window = NSWindow(
@@ -6843,6 +6946,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             window.setFrame(restoredFrame, display: false)
         } else if let sourceWindow {
             positionNewMainWindow(window, relativeTo: sourceWindow)
+        } else if didUseFreshFallbackInitialFrame {
+            lastCascadePoint = NSPoint(x: window.frame.minX, y: window.frame.maxY)
         } else {
             window.center()
             // Cascade using the same algorithm as upstream Ghostty: seed from

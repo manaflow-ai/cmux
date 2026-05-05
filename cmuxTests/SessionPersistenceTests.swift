@@ -814,6 +814,37 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(frame.height, 700, accuracy: 0.001)
     }
 
+    func testFreshMainWindowFallbackIgnoresTinySharedGeometryHint() {
+        let tinyHint = SharedWindowGeometryHint(
+            version: SharedWindowGeometryHintStore.schemaVersion,
+            updatedAt: 1_234,
+            writerBundleIdentifier: "com.cmuxterm.app.debug.legacy",
+            frame: SessionRectSnapshot(x: 470, y: 520, width: 460, height: 360),
+            display: SessionDisplaySnapshot(
+                displayID: 7,
+                frame: SessionRectSnapshot(x: 0, y: 0, width: 1_600, height: 1_000),
+                visibleFrame: SessionRectSnapshot(x: 0, y: 40, width: 1_600, height: 920)
+            )
+        )
+        let display = AppDelegate.SessionDisplayGeometry(
+            displayID: 7,
+            frame: CGRect(x: 0, y: 0, width: 1_600, height: 1_000),
+            visibleFrame: CGRect(x: 0, y: 40, width: 1_600, height: 920)
+        )
+
+        let frame = AppDelegate.resolvedFreshMainWindowFrame(
+            sharedGeometryHint: tinyHint,
+            availableDisplays: [display],
+            fallbackDisplay: display
+        )
+
+        XCTAssertTrue(display.visibleFrame.contains(frame))
+        XCTAssertGreaterThanOrEqual(frame.width, 800)
+        XCTAssertGreaterThanOrEqual(frame.height, 600)
+        XCTAssertNotEqual(frame.width, 460, accuracy: 0.001)
+        XCTAssertNotEqual(frame.height, 360, accuracy: 0.001)
+    }
+
     func testSavingSessionSnapshotAlsoWritesSharedWindowGeometryHint() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-window-hint-\(UUID().uuidString)", isDirectory: true)
