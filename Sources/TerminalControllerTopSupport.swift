@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 extension TerminalController {
     func v2TopTagIdentifier(workspaceId: UUID, key: String) -> String {
@@ -45,7 +46,8 @@ extension TerminalController {
         var allPIDs: Set<Int> = []
         for index in windows.indices {
             var workspaces = windows[index]["workspaces"] as? [[String: Any]] ?? []
-            var windowPIDs: Set<Int> = []
+            let appProcessRootPIDs = Set(v2TopIntArray(windows[index]["app_process_pids"]))
+            var windowPIDs = processSnapshot.expandedPIDs(rootPIDs: appProcessRootPIDs)
             var windowTopLevelPIDs: Set<Int> = []
             var windowForegroundProcessGroupIDs: Set<Int> = []
             for workspaceIndex in workspaces.indices {
@@ -61,9 +63,11 @@ extension TerminalController {
                 windowForegroundProcessGroupIDs.formUnion(v2TopIntArray(workspaces[workspaceIndex]["foreground_pgids"]))
             }
             windows[index]["workspaces"] = workspaces
+            windows[index]["app_process_pids"] = appProcessRootPIDs.sorted()
+            windowTopLevelPIDs.formUnion(processSnapshot.topLevelPIDs(for: windowPIDs))
             windows[index]["top_level_pids"] = windowTopLevelPIDs.sorted()
             windows[index]["foreground_pgids"] = windowForegroundProcessGroupIDs.sorted()
-            windows[index]["resources"] = processSnapshot.summaryPayload(for: windowPIDs)
+            windows[index]["resources"] = processSnapshot.summaryPayload(for: windowPIDs, rootPIDs: appProcessRootPIDs)
             allPIDs.formUnion(windowPIDs)
         }
         return allPIDs
@@ -274,6 +278,18 @@ extension TerminalController {
             return UUID(uuidString: value.trimmingCharacters(in: .whitespacesAndNewlines))
         }
         return nil
+    }
+
+    nonisolated func v2AttachTopApplicationProcess(to windows: inout [[String: Any]]) {
+        guard let firstIndex = windows.indices.first else { return }
+
+        let appProcessID = Int(Darwin.getpid())
+        guard appProcessID > 0 else { return }
+
+        windows[firstIndex]["app_process_pids"] = [appProcessID]
+        for index in windows.indices where index != firstIndex {
+            windows[index]["app_process_pids"] = []
+        }
     }
 
 }
