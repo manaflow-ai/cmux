@@ -1,5 +1,13 @@
 import Foundation
 
+// NOTE: `nonisolated async` (no `@concurrent`) is intentional and matches the
+// existing per-agent loaders — `loadClaudeEntries`, `loadCodexEntries`,
+// `loadOpenCodeEntries`, `loadRovoDevEntries` in `SessionIndexStore.swift`
+// all use the same form. Greptile flagged the lack of `@concurrent` on the pi
+// helpers (https://github.com/manaflow-ai/cmux/pull/3562#discussion_r3190351731);
+// adopting it on Pi alone would diverge from the cross-agent pattern. Any
+// change here should land for every parser at once — tracked under #3578.
+//
 // NOTE: This file lives in the app target rather than a SwiftPM package even
 // though most of its logic is pure Foundation. The reason is dependency
 // surface: `loadPiEntries` and `extractPiMetadata` rely on `forEachJSONLine`,
