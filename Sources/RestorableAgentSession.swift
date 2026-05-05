@@ -490,7 +490,6 @@ struct RestorableAgentSessionIndex: Sendable {
 
         for (key, detected) in processDetectedSnapshots(
             registry: registry,
-            homeDirectory: homeDirectory,
             fileManager: fileManager
         ) {
             if let existing = resolved[key], existing.updatedAt > detected.updatedAt {

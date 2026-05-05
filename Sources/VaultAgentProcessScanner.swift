@@ -3,13 +3,27 @@ import Foundation
 extension RestorableAgentSessionIndex {
     static func processDetectedSnapshots(
         registry: CmuxVaultAgentRegistry,
-        homeDirectory: String,
         fileManager: FileManager
     ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] {
         guard !registry.registrations.isEmpty else { return [:] }
         let capturedAt = Date().timeIntervalSince1970
         let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: false)
         var resolved: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] = [:]
+        var registriesByWorkingDirectory: [String: CmuxVaultAgentRegistry] = [:]
+
+        func registry(for workingDirectory: String?) -> CmuxVaultAgentRegistry {
+            guard let workingDirectory else { return registry }
+            let key = (workingDirectory as NSString).standardizingPath
+            if let cached = registriesByWorkingDirectory[key] {
+                return cached
+            }
+            let resolved = registry.mergingProjectConfig(
+                workingDirectory: key,
+                fileManager: fileManager
+            )
+            registriesByWorkingDirectory[key] = resolved
+            return resolved
+        }
 
         for process in processSnapshot.cmuxScopedProcesses() {
             guard let workspaceId = process.cmuxWorkspaceID,
@@ -24,14 +38,7 @@ extension RestorableAgentSessionIndex {
                 environment: processArguments.environment
             )
             let cwd = normalized(observed.environment["CMUX_AGENT_LAUNCH_CWD"] ?? observed.environment["PWD"])
-            let processRegistry = cwd == nil
-                ? registry
-                : CmuxVaultAgentRegistry.load(
-                    homeDirectory: homeDirectory,
-                    workingDirectory: cwd,
-                    environment: observed.environment,
-                    fileManager: fileManager
-                )
+            let processRegistry = registry(for: cwd)
             guard let registration = processRegistry.registrations.first(where: { $0.detect.matches(observed) }),
                   let sessionId = registration.sessionIdSource.sessionId(
                       from: observed,

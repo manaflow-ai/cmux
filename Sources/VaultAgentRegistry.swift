@@ -268,6 +268,21 @@ struct CmuxVaultAgentRegistry: Sendable {
         registrations.first { $0.id == id }
     }
 
+    func mergingProjectConfig(
+        workingDirectory: String?,
+        fileManager: FileManager = .default
+    ) -> CmuxVaultAgentRegistry {
+        guard let workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !workingDirectory.isEmpty,
+              let path = Self.findLocalConfig(startingAt: workingDirectory, fileManager: fileManager),
+              let config = Self.decodeConfig(at: path, fileManager: fileManager),
+              let agents = config.vault?.agents,
+              !agents.isEmpty else {
+            return self
+        }
+        return CmuxVaultAgentRegistry(registrations: registrations + agents)
+    }
+
     static func load(
         homeDirectory: String = NSHomeDirectory(),
         workingDirectory: String? = nil,
