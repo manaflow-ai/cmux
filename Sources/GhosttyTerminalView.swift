@@ -4143,6 +4143,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private let configTemplate: CmuxSurfaceConfigTemplate?
     private let workingDirectory: String?
     private let initialCommand: String?
+    private let tmuxStartCommand: String?
     private let initialInput: String?
     private let initialEnvironmentOverrides: [String: String]
     var requestedWorkingDirectory: String? { workingDirectory }
@@ -4240,6 +4241,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         configTemplate: CmuxSurfaceConfigTemplate?,
         workingDirectory: String? = nil,
         initialCommand: String? = nil,
+        tmuxStartCommand: String? = nil,
         initialInput: String? = nil,
         initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:],
@@ -4252,6 +4254,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
         self.workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.initialCommand = (trimmedCommand?.isEmpty == false) ? trimmedCommand : nil
+        let trimmedTmuxStartCommand = tmuxStartCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.tmuxStartCommand = (trimmedTmuxStartCommand?.isEmpty == false) ? trimmedTmuxStartCommand : nil
         let trimmedInput = initialInput?.isEmpty == false ? initialInput : nil
         self.initialInput = trimmedInput
         self.initialEnvironmentOverrides = Self.mergedNormalizedEnvironment(base: [:], overrides: initialEnvironmentOverrides)
@@ -4333,6 +4337,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     func debugInitialCommand() -> String? {
         initialCommand
+    }
+
+    func debugTmuxStartCommand() -> String? {
+        tmuxStartCommand
     }
 
     func debugPortalHostLease() -> (hostId: String?, paneId: UUID?, inWindow: Bool?, area: CGFloat?) {
