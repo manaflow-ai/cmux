@@ -55,6 +55,7 @@ class CmuxPerfRunner:
         self.cli_path = self.app_path / "Contents/Resources/bin/cmux"
         self.fixture_root = self.make_fixture_root(args.fixture_root)
         self.proc: subprocess.Popen | None = None
+        self.heavy_scrollback_surfaces: set[str] = set()
         self.result: dict = {
             "tag": self.tag,
             "app_path": str(self.app_path),
@@ -76,7 +77,7 @@ class CmuxPerfRunner:
     def default_app_path(self) -> pathlib.Path:
         return pathlib.Path.home() / (
             f"Library/Developer/Xcode/DerivedData/cmux-{self.tag_slug}/"
-            f"Build/Products/Debug/cmux DEV {self.tag}.app"
+            f"Build/Products/Debug/cmux DEV {self.tag_slug}.app"
         )
 
     def check_paths(self) -> None:
@@ -316,6 +317,8 @@ class CmuxPerfRunner:
             surfaces: list[str] = []
             for pane in panes:
                 surfaces.extend(pane.get("surface_refs", []))
+            if i == 1:
+                self.heavy_scrollback_surfaces = set(surfaces)
             terminals.extend((ws, surface, cwd) for surface in surfaces)
 
             if surfaces:
@@ -351,7 +354,11 @@ class CmuxPerfRunner:
     def seed_scrollback(self, terminals: list[tuple[str, str, pathlib.Path]]) -> None:
         pending: dict[str, tuple[str, str]] = {}
         for idx, (ws, surface, _cwd) in enumerate(terminals, 1):
-            lines = self.args.heavy_scrollback_lines if idx <= self.args.heavy_workspace_panes + self.args.heavy_tabbed_panes else self.args.other_scrollback_lines
+            lines = (
+                self.args.heavy_scrollback_lines
+                if surface in self.heavy_scrollback_surfaces
+                else self.args.other_scrollback_lines
+            )
             token = f"PERF_{idx:03d}"
             payload = "x" * self.args.line_payload_chars
             command = (
