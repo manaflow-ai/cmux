@@ -2,7 +2,6 @@ import AppKit
 import Bonsplit
 import CMUXWorkstream
 import SwiftUI
-
 #if DEBUG
 private func feedDebugResponderSummary(_ responder: NSResponder?) -> String {
     guard let responder else { return "nil" }
@@ -43,17 +42,6 @@ private extension WorkstreamExitPlanMode {
         }
     }
 }
-
-enum FeedPermissionActionPolicy {
-    static func supportsPersistentPermissionModes(source: WorkstreamSource) -> Bool {
-        source != .codex
-    }
-
-    static func supportsBypassPermissions(source: WorkstreamSource) -> Bool {
-        source != .codex && source != .claude
-    }
-}
-
 /// Right-sidebar Feed view. Matches the Sessions page visual language:
 /// compact rows with SF Symbol + 13pt title + secondary metadata,
 /// full-width hover backgrounds, and control-bar pill buttons styled
