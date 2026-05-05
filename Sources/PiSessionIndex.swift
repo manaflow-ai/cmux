@@ -51,23 +51,32 @@ extension SessionIndexStore {
             }
         } else {
             // Cwd filter fast path: encode the filter to the directory name
-            // pi uses, look only in that directory. Falls back to a full walk
-            // if the directory doesn't exist (pi may not have written there yet).
+            // pi uses, look only in that directory.
+            //
+            // If the encoded dir is missing OR contains nothing, fall back
+            // to walking every other top-level dir under sessionsRoot — we
+            // still cwd-filter again post-parse via the JSONL header so
+            // alternate-encoding paths (e.g. cwds containing `-` that pi's
+            // one-way encoder collapses) are recovered.
+            //
+            // Critically, the wider walk is GATED on the encoded dir being
+            // empty. The previous behavior unconditionally appended every
+            // sibling directory's files; with searchMaxFiles=1500 + a global
+            // mtime-sort, newer sessions in unrelated cwds could evict
+            // older sessions in the requested cwd before we ever parsed
+            // them.
             if let cwdFilter, !cwdFilter.isEmpty {
                 let dirName = piEncodedSessionDirName(cwd: cwdFilter)
                 let dirURL = rootURL.appendingPathComponent(dirName, isDirectory: true)
                 if fm.fileExists(atPath: dirURL.path) {
                     candidates.append(contentsOf: enumeratePiJSONL(in: dirURL, fileManager: fm))
                 }
-                // Also scan the rest of the tree in case the user passed an
-                // alternate-encoding path or pi's encoding diverges in some
-                // edge (it's a one-way hash for paths with `-` in them).
-                // We'll cwd-filter again post-parse via the JSONL header.
-                if let topEnumerator = fm.enumerator(
+                if candidates.isEmpty,
+                   let topEnumerator = fm.enumerator(
                     at: rootURL,
                     includingPropertiesForKeys: [.isDirectoryKey],
                     options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants]
-                ) {
+                   ) {
                     // URL `!=` is unreliable across constructions (trailing slash,
                     // file:// vs /private/, etc.). Compare by lastPathComponent
                     // since dirName is unique under sessionsRoot.

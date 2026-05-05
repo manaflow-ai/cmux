@@ -287,6 +287,50 @@ final class PiSessionIndexTests: XCTestCase {
         XCTAssertEqual(outcome.entries.first?.cwd, "/tmp/repo-b")
     }
 
+    /// Regression: cwd-scoped scan with a populated encoded dir must NOT
+    /// also walk every other top-level dir under sessionsRoot.
+    ///
+    /// Before the fix, the second scan was unconditional and produced a
+    /// global mtime-sorted candidate list that, with searchMaxFiles=1500,
+    /// could evict older sessions from the *requested* cwd. This test
+    /// pins the requested cwd's older session as still being returned
+    /// even when sessions in an unrelated cwd have newer mtimes.
+    func testCwdFilterDoesNotEvictOlderRequestedSessionsForNewerForeignOnes() async throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.tempDir) }
+
+        // Older session in the requested cwd.
+        try writeSession(
+            in: fixture.sessionsRoot,
+            id: "session-requested-old",
+            cwd: "/tmp/requested-cwd",
+            sessionInfoName: "Older requested-cwd session",
+            modified: Date(timeIntervalSince1970: 1_000)
+        )
+        // Many newer sessions in an unrelated cwd. Pre-fix, these would
+        // outrank the older requested-cwd session in the global mtime
+        // sort and could push it past the searchMaxFiles cap.
+        for index in 0..<5 {
+            try writeSession(
+                in: fixture.sessionsRoot,
+                id: "session-other-\(index)",
+                cwd: "/tmp/other-cwd",
+                sessionInfoName: "Other-cwd session \(index)",
+                modified: Date(timeIntervalSince1970: 10_000 + TimeInterval(index))
+            )
+        }
+
+        let outcome = await SessionIndexStore.loadPiEntriesForTesting(
+            sessionsRoot: fixture.sessionsRoot.path,
+            cwdFilter: "/tmp/requested-cwd"
+        )
+
+        XCTAssertEqual(outcome.errors, [])
+        XCTAssertEqual(outcome.entries.count, 1, "only the requested cwd's session should be returned")
+        XCTAssertEqual(outcome.entries.first?.cwd, "/tmp/requested-cwd")
+        XCTAssertEqual(outcome.entries.first?.title, "Older requested-cwd session")
+    }
+
     func testMissingRootIsEmptyWithoutError() async throws {
         let fixture = try makeFixture()
         defer { try? FileManager.default.removeItem(at: fixture.tempDir) }
