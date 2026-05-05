@@ -11,7 +11,7 @@ extension RestorableAgentSessionIndex {
         var resolved: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] = [:]
         var registriesByWorkingDirectory: [String: CmuxVaultAgentRegistry] = [:]
 
-        func registry(for workingDirectory: String?) -> CmuxVaultAgentRegistry {
+        func registryForWorkingDirectory(_ workingDirectory: String?) -> CmuxVaultAgentRegistry {
             guard let workingDirectory else { return registry }
             let key = (workingDirectory as NSString).standardizingPath
             if let cached = registriesByWorkingDirectory[key] {
@@ -38,7 +38,7 @@ extension RestorableAgentSessionIndex {
                 environment: processArguments.environment
             )
             let cwd = normalized(observed.environment["CMUX_AGENT_LAUNCH_CWD"] ?? observed.environment["PWD"])
-            let processRegistry = registry(for: cwd)
+            let processRegistry = registryForWorkingDirectory(cwd)
             guard let registration = processRegistry.registrations.first(where: { $0.detect.matches(observed) }),
                   let sessionId = registration.sessionIdSource.sessionId(
                       from: observed,
