@@ -265,12 +265,7 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
 
         UserDefaults.standard.set(false, forKey: defaultsKey)
         notificationCenter.post(name: UserDefaults.didChangeNotification, object: UserDefaults.standard)
-        drainMainQueue()
-
-        let sanitized = try JSONCParser.preprocess(data: Data(contentsOf: primaryURL))
-        let root = try XCTUnwrap(JSONSerialization.jsonObject(with: sanitized) as? [String: Any])
-        let sidebarAppearance = try XCTUnwrap(root["sidebarAppearance"] as? [String: Any])
-        XCTAssertEqual(sidebarAppearance["matchTerminalBackground"] as? Bool, false)
+        try waitForSidebarAppearanceMatchTerminalBackground(false, in: primaryURL)
         let updatedContents = try String(contentsOf: primaryURL, encoding: .utf8)
         XCTAssertTrue(updatedContents.contains("User comments in cmux.json must survive Settings UI writes."))
 
@@ -302,11 +297,17 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
         }
     }
 
-    private func drainMainQueue() {
-        let drained = expectation(description: "drain main queue")
-        DispatchQueue.main.async {
-            drained.fulfill()
+    private func waitForSidebarAppearanceMatchTerminalBackground(_ expectedValue: Bool, in url: URL) throws {
+        let deadline = Date().addingTimeInterval(2)
+        while Date() < deadline {
+            let sanitized = try JSONCParser.preprocess(data: Data(contentsOf: url))
+            if let root = try JSONSerialization.jsonObject(with: sanitized) as? [String: Any],
+               let sidebarAppearance = root["sidebarAppearance"] as? [String: Any],
+               sidebarAppearance["matchTerminalBackground"] as? Bool == expectedValue {
+                return
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
         }
-        wait(for: [drained], timeout: 1)
+        XCTFail("Timed out waiting for sidebarAppearance.matchTerminalBackground to persist")
     }
 }

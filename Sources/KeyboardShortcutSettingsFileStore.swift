@@ -137,6 +137,7 @@ final class CmuxSettingsFileStore {
     private var primaryWatcher: ShortcutSettingsFileWatcher?
     private var fallbackWatchers: [ShortcutSettingsFileWatcher] = []
     private var defaultsCancellable: AnyCancellable?
+    private var pendingDefaultsPersistWorkItem: DispatchWorkItem?
     private var socketPasswordObserver: NSObjectProtocol?
 
     private var shortcutsByAction: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
@@ -180,12 +181,12 @@ final class CmuxSettingsFileStore {
         defaultsCancellable = notificationCenter.publisher(for: UserDefaults.didChangeNotification)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
-                self?.persistUserDefaultsSettingsChangeIfNeeded()
+                self?.scheduleUserDefaultsSettingsPersist()
             }
         socketPasswordObserver = notificationCenter.addObserver(
             forName: SocketControlPasswordStore.didChangeNotification,
             object: nil,
-            queue: nil
+            queue: .main
         ) { [weak self] _ in
             self?.reapplyManagedSettingsIfNeeded()
         }
@@ -195,6 +196,7 @@ final class CmuxSettingsFileStore {
         primaryWatcher?.stop()
         fallbackWatchers.forEach { $0.stop() }
         defaultsCancellable?.cancel()
+        pendingDefaultsPersistWorkItem?.cancel()
         if let socketPasswordObserver {
             notificationCenter.removeObserver(socketPasswordObserver)
         }
@@ -290,10 +292,20 @@ final class CmuxSettingsFileStore {
         applyManagedSettings(snapshot: snapshot, updateBackups: false)
     }
 
+    private func scheduleUserDefaultsSettingsPersist() {
+        pendingDefaultsPersistWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            pendingDefaultsPersistWorkItem = nil
+            persistUserDefaultsSettingsChangeIfNeeded()
+        }
+        pendingDefaultsPersistWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(50), execute: workItem)
+    }
+
     private func persistUserDefaultsSettingsChangeIfNeeded() {
         let currentValues = currentSettingsJSONValuesFromUserDefaults()
         let changedValues: [String: ManagedSettingsValue] = synchronized {
-            guard !isApplyingManagedSettings else { return [:] }
             return currentValues.filter { path, value in
                 lastPersistedSettingsValues[path] != value
             }
