@@ -10,6 +10,7 @@ public enum WorkstreamSource: String, Codable, Sendable, CaseIterable, Equatable
     case cursor
     case opencode
     case gemini
+    case deepseekTUI = "deepseek-tui"
     case copilot
     case codebuddy
     case factory

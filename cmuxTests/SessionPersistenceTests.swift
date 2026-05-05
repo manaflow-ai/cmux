@@ -1173,6 +1173,14 @@ final class SessionPersistenceTests: XCTestCase {
                 ]
             ),
             (
+                .deepseekTUI,
+                [
+                    "/usr/local/bin/deepseek",
+                    "--config",
+                    "/tmp/deepseek.toml",
+                ]
+            ),
+            (
                 .copilot,
                 [
                     "/usr/local/bin/copilot",
@@ -1328,6 +1336,8 @@ final class SessionPersistenceTests: XCTestCase {
                 resolvedEnvironment = ["OPENCODE_CONFIG_DIR": "/tmp/opencode"]
             case .rovodev:
                 resolvedEnvironment = [:]
+            case .deepseekTUI:
+                resolvedEnvironment = ["CMUX_DEEPSEEK_TUI_SESSIONS_DIR": "/tmp/deepseek sessions"]
             case .copilot:
                 resolvedEnvironment = ["COPILOT_HOME": "/tmp/copilot"]
             case .codebuddy:

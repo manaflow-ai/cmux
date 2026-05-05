@@ -115,6 +115,20 @@ final class RestorableAgentNonInteractiveTests: XCTestCase {
                 source: nil
             )
         )
+        let deepSeekExec = SessionRestorableAgentSnapshot(
+            kind: .deepseekTUI,
+            sessionId: "deepseek-session-123",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "deepseek-tui",
+                executablePath: "deepseek",
+                arguments: ["deepseek", "exec", "fix this"],
+                workingDirectory: nil,
+                environment: nil,
+                capturedAt: nil,
+                source: nil
+            )
+        )
         let cursorPrint = SessionRestorableAgentSnapshot(
             kind: .cursor,
             sessionId: "cursor-session-123",
@@ -193,6 +207,7 @@ final class RestorableAgentNonInteractiveTests: XCTestCase {
         XCTAssertNil(opencodePR.resumeCommand)
         XCTAssertNil(geminiPrompt.resumeCommand)
         XCTAssertNil(rovoDevAuth.resumeCommand)
+        XCTAssertNil(deepSeekExec.resumeCommand)
         XCTAssertNil(cursorPrint.resumeCommand)
         XCTAssertNil(copilotPrompt.resumeCommand)
         XCTAssertNil(codeBuddyPrint.resumeCommand)

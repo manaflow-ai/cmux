@@ -77,6 +77,41 @@ extension SocketListenerAcceptPolicyTests {
         )
     }
 
+    func testDeepSeekTUIResumeCommandUsesResumeSubcommandAndPreservesGlobals() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .deepseekTUI,
+            sessionId: "deepseek-session-123",
+            workingDirectory: "/tmp/deepseek repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "deepseek-tui",
+                executablePath: "/opt/homebrew/bin/deepseek",
+                arguments: [
+                    "/opt/homebrew/bin/deepseek",
+                    "--config",
+                    "/tmp/deepseek.toml",
+                    "--workspace",
+                    "/tmp/deepseek repo",
+                    "resume",
+                    "old-session",
+                    "--yolo",
+                    "initial prompt should not replay"
+                ],
+                workingDirectory: "/tmp/deepseek repo",
+                environment: [
+                    "DEEPSEEK_API_KEY": "secret",
+                    "CMUX_DEEPSEEK_TUI_SESSIONS_DIR": "/tmp/deepseek sessions"
+                ],
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "cd '/tmp/deepseek repo' && 'env' 'CMUX_DEEPSEEK_TUI_SESSIONS_DIR=/tmp/deepseek sessions' '/opt/homebrew/bin/deepseek' '--config' '/tmp/deepseek.toml' '--workspace' '/tmp/deepseek repo' '--yolo' 'resume' 'deepseek-session-123'"
+        )
+    }
+
     func testAdditionalHookAgentResumeCommandsUseVerifiedCLIResumeFlags() {
         let cursor = SessionRestorableAgentSnapshot(
             kind: .cursor,
@@ -335,6 +370,27 @@ extension SocketListenerAcceptPolicyTests {
                 launcher: "rovodev",
                 fallbackKind: "rovodev"
             )
+        )
+        XCTAssertEqual(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "/opt/homebrew/bin/deepseek",
+                    "--config",
+                    "/tmp/deepseek.toml",
+                    "resume",
+                    "old-session",
+                    "--yolo",
+                    "initial prompt should not replay"
+                ],
+                launcher: "deepseek-tui",
+                fallbackKind: "deepseek-tui"
+            ),
+            [
+                "/opt/homebrew/bin/deepseek",
+                "--config",
+                "/tmp/deepseek.toml",
+                "--yolo"
+            ]
         )
     }
 

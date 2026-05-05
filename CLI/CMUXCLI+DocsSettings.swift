@@ -92,6 +92,7 @@ extension CMUXCLI {
             commands: [
                 "cmux codex install-hooks",
                 "cmux hooks opencode install",
+                "cmux hooks deepseek-tui install",
                 "cmux hooks setup",
             ]
         ),

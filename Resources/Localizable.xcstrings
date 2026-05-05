@@ -105489,6 +105489,29 @@
         }
       }
     },
+    "sessionIndex.agent.deepseekTUI": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek-TUI"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek-TUI"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek-TUI"
+          }
+        }
+      }
+    },
     "sessionIndex.untitled": {
       "extractionState": "manual",
       "localizations": {

@@ -8398,7 +8398,7 @@ struct CMUXCLI {
             agent. Claude Code hooks are injected automatically by the cmux Claude wrapper.
 
             Agents:
-              codex, opencode, cursor, gemini, rovodev, copilot, codebuddy, factory, qoder
+              codex, opencode, cursor, gemini, rovodev, deepseek-tui, copilot, codebuddy, factory, qoder
 
             Hook targets:
               setup              Install hooks for all supported agents on PATH
@@ -14315,6 +14315,23 @@ struct CMUXCLI {
         )
     }
 
+    private func parseAgentHookInput(
+        def: AgentHookDef,
+        rawInput: String,
+        env: [String: String],
+        subcommand: String
+    ) -> ClaudeHookParsedInput {
+        guard def.name == "deepseek-tui",
+              rawInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return parseClaudeHookInput(rawInput: rawInput)
+        }
+        let hookEventName = DeepSeekTUIHookPayload.hookEventName(forSubcommand: subcommand)
+        return parseClaudeHookInput(rawInput: DeepSeekTUIHookPayload.jsonString(
+            hookEventName: hookEventName,
+            environment: env
+        ))
+    }
+
     private func compactClaudeHookObject(_ object: [String: Any]) -> [String: Any] {
         var compact: [String: Any] = [:]
 
@@ -15607,6 +15624,7 @@ struct CMUXCLI {
             case flat       // Cursor: {"hooks": {"event": [{"command": "..."}]}, "version": 1}
             case nested(timeoutMs: Int)  // Codex/Gemini: nested with type/command/timeout
             case rovoDevYAML
+            case deepSeekTUITOML
         }
 
         struct HookEvent {
@@ -15660,6 +15678,7 @@ struct CMUXCLI {
         "session-start": .sessionStart,
         "prompt-submit": .promptSubmit,
         "stop": .stop,
+        "on-error": .stop,
         "agent-response": .stop,
         "shell-exec": .promptSubmit,
         "shell-done": .noop,
@@ -15725,6 +15744,20 @@ struct CMUXCLI {
                 .init(agentEvent: "on_complete", cmuxSubcommand: "stop"),
                 .init(agentEvent: "on_error", cmuxSubcommand: "stop"),
                 .init(agentEvent: "on_tool_permission", cmuxSubcommand: "prompt-submit"),
+            ]
+        ),
+        AgentHookDef(
+            name: "deepseek-tui", displayName: "DeepSeek-TUI", statusKey: "deepseek-tui",
+            configDir: ".deepseek", configFile: "config.toml", binaryName: "deepseek",
+            sessionStoreSuffix: "deepseek-tui", disableEnvVar: "CMUX_DEEPSEEK_TUI_HOOKS_DISABLED",
+            hookMarker: "cmux hooks deepseek-tui", format: .deepSeekTUITOML,
+            events: [
+                .init(agentEvent: "session_start", cmuxSubcommand: "session-start"),
+                .init(agentEvent: "message_submit", cmuxSubcommand: "prompt-submit"),
+                .init(agentEvent: "tool_call_before", cmuxSubcommand: "pre-tool-use"),
+                .init(agentEvent: "tool_call_after", cmuxSubcommand: "post-tool-use"),
+                .init(agentEvent: "on_error", cmuxSubcommand: "on-error"),
+                .init(agentEvent: "session_end", cmuxSubcommand: "stop"),
             ]
         ),
         AgentHookDef(
@@ -15831,7 +15864,7 @@ struct CMUXCLI {
                     "hooks": [["type": "command", "command": cmd, "timeout": timeoutMs] as [String: Any]]
                 ] as [String: Any])
                 result[event.agentEvent] = groups
-            case .rovoDevYAML:
+            case .rovoDevYAML, .deepSeekTUITOML:
                 break
             }
         }
@@ -15852,7 +15885,7 @@ struct CMUXCLI {
                     "hooks": [["type": "command", "command": feedCmd, "timeout": feedTimeoutMs] as [String: Any]]
                 ] as [String: Any])
                 result[agentEvent] = groups
-            case .rovoDevYAML:
+            case .rovoDevYAML, .deepSeekTUITOML:
                 break
             }
         }
@@ -16163,6 +16196,25 @@ export default CMUXSessionRestore;
     }
 
     private func installRovoDevHooks(_ def: AgentHookDef) throws {
+        try installTextConfigHooks(def, content: rovoDevHooksContent)
+    }
+
+    private func uninstallRovoDevHooks(_ def: AgentHookDef) throws {
+        try uninstallTextConfigHooks(def, content: rovoDevHooksContent)
+    }
+
+    private func installDeepSeekTUIHooks(_ def: AgentHookDef) throws {
+        try installTextConfigHooks(def, content: deepSeekTUIHooksContent)
+    }
+
+    private func uninstallDeepSeekTUIHooks(_ def: AgentHookDef) throws {
+        try uninstallTextConfigHooks(def, content: deepSeekTUIHooksContent)
+    }
+
+    private func installTextConfigHooks(
+        _ def: AgentHookDef,
+        content: (String, AgentHookDef, Bool) throws -> String
+    ) throws {
         let fm = FileManager.default
         let configDir = def.resolvedConfigDir()
         let filePath = "\(configDir)/\(def.configFile)"
@@ -16174,8 +16226,8 @@ export default CMUXSessionRestore;
             return
         }
 
-        let oldString = try readRovoDevConfig(filePath: filePath, displayName: def.displayName)
-        let newString = try rovoDevHooksContent(existing: oldString, def: def, shouldInstall: true)
+        let oldString = try readTextHookConfig(filePath: filePath, displayName: def.displayName)
+        let newString = try content(oldString, def, true)
         if oldString == newString {
             print("\(def.displayName) hooks already up to date at \(filePath)")
             return
@@ -16198,7 +16250,10 @@ export default CMUXSessionRestore;
         print("\(def.displayName) hooks installed at \(filePath)")
     }
 
-    private func uninstallRovoDevHooks(_ def: AgentHookDef) throws {
+    private func uninstallTextConfigHooks(
+        _ def: AgentHookDef,
+        content: (String, AgentHookDef, Bool) throws -> String
+    ) throws {
         let fm = FileManager.default
         let configDir = def.resolvedConfigDir()
         let filePath = "\(configDir)/\(def.configFile)"
@@ -16206,17 +16261,17 @@ export default CMUXSessionRestore;
             print("No \(def.configFile) found at \(filePath)")
             return
         }
-        let oldString = try readRovoDevConfig(filePath: filePath, displayName: def.displayName)
-        let newString = try rovoDevHooksContent(existing: oldString, def: def, shouldInstall: false)
+        let oldString = try readTextHookConfig(filePath: filePath, displayName: def.displayName)
+        let newString = try content(oldString, def, false)
         guard oldString != newString else {
             print("Removed 0 cmux hook(s) from \(filePath)")
             return
         }
         try newString.write(toFile: filePath, atomically: true, encoding: .utf8)
-        print("Removed Rovo Dev cmux hooks from \(filePath)")
+        print("Removed \(def.displayName) cmux hooks from \(filePath)")
     }
 
-    private func readRovoDevConfig(filePath: String, displayName: String) throws -> String {
+    private func readTextHookConfig(filePath: String, displayName: String) throws -> String {
         let fm = FileManager.default
         guard fm.fileExists(atPath: filePath) else { return "" }
         do {
@@ -16243,6 +16298,23 @@ export default CMUXSessionRestore;
         return RovoDevHookConfig.uninstalling(from: existing)
     }
 
+    private func deepSeekTUIHooksContent(
+        existing: String,
+        def: AgentHookDef,
+        shouldInstall: Bool
+    ) throws -> String {
+        let events = def.events.map { event in
+            DeepSeekTUIHookConfig.Event(
+                name: event.agentEvent,
+                command: hookCommand(for: def, event: event)
+            )
+        }
+        if shouldInstall {
+            return DeepSeekTUIHookConfig.installing(events: events, in: existing)
+        }
+        return DeepSeekTUIHookConfig.uninstalling(from: existing)
+    }
+
     private func installAgentHooks(_ def: AgentHookDef) throws {
         if def.name == "opencode" {
             try installOpenCodePluginHooks(def)
@@ -16250,6 +16322,10 @@ export default CMUXSessionRestore;
         }
         if def.name == "rovodev" {
             try installRovoDevHooks(def)
+            return
+        }
+        if def.name == "deepseek-tui" {
+            try installDeepSeekTUIHooks(def)
             return
         }
 
@@ -16309,7 +16385,7 @@ export default CMUXSessionRestore;
                     rewrittenGroups.append(group)
                 }
                 hooks[event] = rewrittenGroups.isEmpty ? nil : rewrittenGroups
-            case .rovoDevYAML:
+            case .rovoDevYAML, .deepSeekTUITOML:
                 break
             }
         }
@@ -16325,7 +16401,7 @@ export default CMUXSessionRestore;
                 var groups = hooks[event] as? [[String: Any]] ?? []
                 if let newGroups = value as? [[String: Any]] { groups.append(contentsOf: newGroups) }
                 hooks[event] = groups
-            case .rovoDevYAML:
+            case .rovoDevYAML, .deepSeekTUITOML:
                 break
             }
         }
@@ -16423,6 +16499,10 @@ export default CMUXSessionRestore;
             try uninstallRovoDevHooks(def)
             return
         }
+        if def.name == "deepseek-tui" {
+            try uninstallDeepSeekTUIHooks(def)
+            return
+        }
 
         let fm = FileManager.default
         let configDir = def.resolvedConfigDir()
@@ -16465,7 +16545,7 @@ export default CMUXSessionRestore;
                     rewrittenGroups.append(group)
                 }
                 hooks[event] = rewrittenGroups.isEmpty ? nil : rewrittenGroups
-            case .rovoDevYAML:
+            case .rovoDevYAML, .deepSeekTUITOML:
                 break
             }
         }
@@ -16511,6 +16591,9 @@ export default CMUXSessionRestore;
         if def.name == "rovodev" {
             return RovoDevSessionResolver.inferredRovoDevSessionId(cwd: cwd, env: env) ?? ""
         }
+        if def.name == "deepseek-tui" {
+            return normalizedHookValue(env["DEEPSEEK_SESSION_ID"]) ?? ""
+        }
         return normalizedHookValue(env["CMUX_SURFACE_ID"]) ?? ""
     }
 
@@ -16531,7 +16614,7 @@ export default CMUXSessionRestore;
         let surfaceArg = optionValue(hookArgs, name: "--surface") ?? (hookWsFlag == nil ? env["CMUX_SURFACE_ID"] : nil)
 
         let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let input = parseClaudeHookInput(rawInput: rawInput)
+        let input = parseAgentHookInput(def: def, rawInput: rawInput, env: env, subcommand: subcommand)
 
         let store = ClaudeHookSessionStore(
             processEnv: env.merging(
@@ -18821,6 +18904,7 @@ export default CMUXSessionRestore;
             case "cursor":   envKey = "CMUX_CURSOR_PID"
             case "gemini":   envKey = "CMUX_GEMINI_PID"
             case "rovodev":  envKey = "CMUX_ROVODEV_PID"
+            case "deepseek-tui": envKey = "CMUX_DEEPSEEK_TUI_PID"
             case "copilot":  envKey = "CMUX_COPILOT_PID"
             default:         envKey = ""
             }

@@ -28,6 +28,7 @@ public enum AgentLaunchEnvironmentPolicy {
         "ANTHROPIC_MODEL",
         "CLAUDE_CONFIG_DIR",
         "CMUX_CUSTOM_CLAUDE_PATH",
+        "CMUX_DEEPSEEK_TUI_SESSIONS_DIR",
         "CMUX_ROVODEV_SESSIONS_DIR",
         "CODEX_HOME",
         "CODEBUDDY_BASE_URL",

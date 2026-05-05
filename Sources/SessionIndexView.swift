@@ -1104,6 +1104,9 @@ private enum SessionTranscriptLoader {
                 return SessionTranscriptTurn(id: index, role: role, text: truncatedText(turn.text, role: role))
             })
         }
+        if agent == .deepseekTUI {
+            return try loadDeepSeekTUISynchronously(from: url)
+        }
 
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
@@ -1187,6 +1190,28 @@ private enum SessionTranscriptLoader {
             appendTurnLimitMarker(to: &turns, id: lineIndex)
         }
 
+        return coalesce(turns)
+    }
+
+    private static func loadDeepSeekTUISynchronously(from url: URL) throws -> [SessionTranscriptTurn] {
+        let data = try Data(contentsOf: url)
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let messages = object["messages"] as? [[String: Any]] else {
+            throw SessionTranscriptLoadError.missingFile
+        }
+
+        var turns: [SessionTranscriptTurn] = []
+        turns.reserveCapacity(min(messages.count, maxPreviewTurns))
+        for (index, message) in messages.enumerated() {
+            guard turns.count < maxPreviewTurns else {
+                appendTurnLimitMarker(to: &turns, id: index)
+                break
+            }
+            guard let turn = parseGenericMessage(message, agent: .deepseekTUI, id: index) else {
+                continue
+            }
+            turns.append(turn)
+        }
         return coalesce(turns)
     }
 
@@ -1305,7 +1330,7 @@ private enum SessionTranscriptLoader {
             return parseClaudeLine(object, id: id)
         case .codex:
             return parseCodexLine(object, id: id)
-        case .opencode, .rovodev:
+        case .opencode, .rovodev, .deepseekTUI:
             return parseGenericLine(object, agent: agent, id: id)
         }
     }
@@ -1585,7 +1610,7 @@ private enum SessionTranscriptLoader {
         case .codex:
             return containsAny(data, needles: codexResponseItemNeedles)
                 && containsAny(data, needles: codexPreviewNeedles)
-        case .opencode, .rovodev:
+        case .opencode, .rovodev, .deepseekTUI:
             return containsAny(data, needles: genericRoleNeedles)
         }
     }
@@ -1599,7 +1624,7 @@ private enum SessionTranscriptLoader {
             if containsAny(data, needles: [Data(#""type":"user""#.utf8), Data(#""type": "user""#.utf8)]) {
                 return .user
             }
-        case .codex, .opencode, .rovodev:
+        case .codex, .opencode, .rovodev, .deepseekTUI:
             if containsAny(data, needles: [Data(#""role":"assistant""#.utf8), Data(#""role": "assistant""#.utf8)]) {
                 return .assistant
             }

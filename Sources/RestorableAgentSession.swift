@@ -143,6 +143,10 @@ enum AgentResumeCommandBuilder {
             let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "acli")
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "rovodev", args: original.tail) else { return nil }
             return [original.executable, "rovodev", "run", "--restore", sessionId] + preserved
+        case .deepseekTUI:
+            let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "deepseek")
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "deepseek-tui", args: original.tail) else { return nil }
+            return [original.executable] + preserved + ["resume", sessionId]
         case .copilot:
             return resumeWithOption(
                 kind: "copilot",
