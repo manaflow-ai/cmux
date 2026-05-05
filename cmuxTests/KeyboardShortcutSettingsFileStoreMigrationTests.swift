@@ -227,6 +227,52 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
         )
     }
 
+    func testSettingsUIAppStorageChangePersistsManagedSidebarAppearanceToConfig() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let primaryURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "schemaVersion": 1,
+              "sidebarAppearance": {
+                "matchTerminalBackground": true
+              }
+            }
+            """,
+            to: primaryURL
+        )
+
+        let defaultsKey = "sidebarMatchTerminalBackground"
+        let backupsKey = "cmux.settingsFile.backups.v1"
+        let previousDefaultsValue = UserDefaults.standard.object(forKey: defaultsKey)
+        let previousBackupsValue = UserDefaults.standard.object(forKey: backupsKey)
+        defer {
+            restoreDefaultsValue(previousDefaultsValue, key: defaultsKey)
+            restoreDefaultsValue(previousBackupsValue, key: backupsKey)
+        }
+
+        let notificationCenter = NotificationCenter()
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: primaryURL.path,
+            fallbackPath: nil,
+            notificationCenter: notificationCenter,
+            startWatching: true
+        )
+        XCTAssertTrue(UserDefaults.standard.bool(forKey: defaultsKey))
+
+        UserDefaults.standard.set(false, forKey: defaultsKey)
+        notificationCenter.post(name: UserDefaults.didChangeNotification, object: UserDefaults.standard)
+
+        let sanitized = try JSONCParser.preprocess(data: Data(contentsOf: primaryURL))
+        let root = try XCTUnwrap(JSONSerialization.jsonObject(with: sanitized) as? [String: Any])
+        let sidebarAppearance = try XCTUnwrap(root["sidebarAppearance"] as? [String: Any])
+        XCTAssertEqual(sidebarAppearance["matchTerminalBackground"] as? Bool, false)
+
+        withExtendedLifetime(store) {}
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-settings-migration-\(UUID().uuidString)",
@@ -242,5 +288,13 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
             withIntermediateDirectories: true
         )
         try contents.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    private func restoreDefaultsValue(_ value: Any?, key: String) {
+        if let value {
+            UserDefaults.standard.set(value, forKey: key)
+        } else {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
     }
 }
