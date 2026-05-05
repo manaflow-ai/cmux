@@ -387,6 +387,33 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertTrue(contents.hasSuffix(reset))
     }
 
+    func testSessionScrollbackPersistenceHonorsReportedShellState() {
+        XCTAssertTrue(
+            Workspace.shouldPersistSessionScrollback(
+                shellActivityState: .promptIdle,
+                fallbackNeedsConfirmClose: true
+            )
+        )
+        XCTAssertFalse(
+            Workspace.shouldPersistSessionScrollback(
+                shellActivityState: .commandRunning,
+                fallbackNeedsConfirmClose: false
+            )
+        )
+        XCTAssertFalse(
+            Workspace.shouldPersistSessionScrollback(
+                shellActivityState: .unknown,
+                fallbackNeedsConfirmClose: true
+            )
+        )
+        XCTAssertTrue(
+            Workspace.shouldPersistSessionScrollback(
+                shellActivityState: nil,
+                fallbackNeedsConfirmClose: false
+            )
+        )
+    }
+
     func testTruncatedScrollbackAvoidsLeadingPartialANSICSISequence() {
         let maxChars = SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
         let source = "\u{001B}[31m"

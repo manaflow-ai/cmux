@@ -26,6 +26,46 @@ export interface VersionMedia {
 }
 
 export const changelogMedia: Record<string, VersionMedia> = {
+  "0.64.0": {
+    title: "Feed, Vault, Cloud VMs, Dock, Passkeys, File Explorer",
+    features: [
+      {
+        title: "Feed",
+        description:
+          "A new Feed mode in the right sidebar surfaces actionable agent events inline: permission requests, plan approvals, and questions land where you can answer them. Ships with cmux feed-hook and an OpenCode plugin so any agent plugs into the same flow.",
+      },
+      {
+        title: "Vault",
+        description:
+          "The Sessions panel (renamed Vault) restores prior panes and resumes Claude Code, Codex, OpenCode, Gemini, and Rovo Dev sessions across relaunch. Sessions also persist when you close the last window via the red X.",
+      },
+      {
+        title: "cmux Cloud VMs",
+        description:
+          "cmux vm new, cmux vm shell, and cmux vm attach spin up Freestyle-backed cloud workspaces from the terminal. The image bakes cmuxd-remote and a systemd-activated socket so connections come up clean.",
+      },
+      {
+        title: "Dock",
+        description:
+          "Mount any TUI as a right-sidebar control surface, configurable per project in .cmux/dock.json or globally in ~/.config/cmux/dock.json. Ships with the cmux feed TUI as the first built-in Dock control.",
+      },
+      {
+        title: "Passkeys, WebAuthn, and FIDO2",
+        description:
+          "Sign in to passkey-protected sites directly inside cmux browser panes. Reworked inside-out signing keeps the notarized Developer ID build compatible with macOS authentication services.",
+      },
+      {
+        title: "File Explorer",
+        description:
+          "A Finder-like file explorer sidebar with full SSH support so remote workspaces get the same tree view as local ones.",
+      },
+      {
+        title: "Task Manager",
+        description:
+          "A built-in Task Manager window plus cmux top CLI shows a live snapshot of windows, workspaces, panes, surfaces, and browser webviews, with jumps from the manager into the matching surface.",
+      },
+    ],
+  },
   "0.63.0": {
     title: "SSH, Claude Code Teams, oh-my-openagent, Browser Import, Minimal Mode",
     features: [

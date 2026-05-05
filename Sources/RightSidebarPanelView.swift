@@ -60,10 +60,12 @@ extension RightSidebarMode {
         if KeyboardShortcutSettings.shortcut(for: .switchRightSidebarToSessions).matches(event: event) {
             return .sessions
         }
-        if KeyboardShortcutSettings.shortcut(for: .switchRightSidebarToFeed).matches(event: event) {
+        if KeyboardShortcutSettings.shortcut(for: .switchRightSidebarToFeed).matches(event: event),
+           RightSidebarMode.feed.isAvailable() {
             return .feed
         }
-        if KeyboardShortcutSettings.shortcut(for: .switchRightSidebarToDock).matches(event: event) {
+        if KeyboardShortcutSettings.shortcut(for: .switchRightSidebarToDock).matches(event: event),
+           RightSidebarMode.dock.isAvailable() {
             return .dock
         }
         return nil
@@ -156,12 +158,20 @@ struct RightSidebarPanelView: View {
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey)
     private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
+    @AppStorage(RightSidebarBetaFeatureSettings.feedEnabledKey)
+    private var feedEnabled = RightSidebarBetaFeatureSettings.defaultFeedEnabled
+    @AppStorage(RightSidebarBetaFeatureSettings.dockEnabledKey)
+    private var dockEnabled = RightSidebarBetaFeatureSettings.defaultDockEnabled
 
     // Re-reading the observable store inside modeBar causes SwiftUI to
     // track the pending count so the badge updates live when hooks push
     // new items.
     private var feedPendingCount: Int {
         FeedCoordinator.shared.store?.pending.count ?? 0
+    }
+
+    private var availableModes: [RightSidebarMode] {
+        RightSidebarMode.availableModes(feedEnabled: feedEnabled, dockEnabled: dockEnabled)
     }
 
     var body: some View {
@@ -192,20 +202,25 @@ struct RightSidebarPanelView: View {
         .onAppear {
             modeShortcutHintMonitor.start()
             focusShortcutHintMonitor.start()
+            fileExplorerState.refreshModeAvailability()
         }
         .onDisappear {
             modeShortcutHintMonitor.stop()
             focusShortcutHintMonitor.stop()
         }
-        .onChange(of: fileExplorerState.mode) { _, mode in if mode != .dock { dockStore.deactivate() } }
+        .onChange(of: fileExplorerState.mode) { _, mode in
+            if mode != .dock { dockStore.deactivate() }
+        }
         .onChange(of: fileExplorerState.isVisible) { _, visible in if !visible { dockStore.deactivate() } }
+        .onChange(of: feedEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
+        .onChange(of: dockEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
     }
 
     private var modeBar: some View {
         let _ = keyboardShortcutSettingsObserver.revision
         let showsModeShortcutHints = alwaysShowShortcutHints || modeShortcutHintMonitor.isModifierPressed
         return HStack(spacing: 4) {
-            ForEach(RightSidebarMode.allCases, id: \.rawValue) { mode in
+            ForEach(availableModes, id: \.rawValue) { mode in
                 ModeBarButton(
                     mode: mode,
                     isSelected: fileExplorerState.mode == mode,
@@ -290,15 +305,27 @@ struct RightSidebarPanelView: View {
     }
 
     private func selectMode(_ mode: RightSidebarMode) {
-        if fileExplorerState.mode != mode {
-            fileExplorerState.mode = mode
-        }
-        if mode == .sessions {
+        fileExplorerState.mode = mode
+        if fileExplorerState.mode == .sessions {
             sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)
             if sessionIndexStore.entries.isEmpty {
                 sessionIndexStore.reload()
             }
         }
+    }
+
+    private func refreshModeAvailabilityAndFocusIfNeeded() {
+        let previousMode = fileExplorerState.mode
+        fileExplorerState.refreshModeAvailability()
+        guard previousMode != fileExplorerState.mode,
+              fileExplorerState.isVisible,
+              let window = NSApp.keyWindow ?? NSApp.mainWindow
+        else { return }
+        _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+            mode: fileExplorerState.mode,
+            focusFirstItem: false,
+            preferredWindow: window
+        )
     }
 }
 
