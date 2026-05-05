@@ -4868,7 +4868,6 @@ struct ContentView: View {
             var isProgrammaticMutation = false
             weak var parentField: CommandPaletteNativeTextField?
             var pendingFocusRequest: Bool?
-            // Deinit is nonisolated; the token must remain reachable for teardown.
             nonisolated(unsafe) var editorTextDidChangeObserver: NSObjectProtocol?
             weak var observedEditor: NSTextView?
 
@@ -4876,11 +4875,7 @@ struct ContentView: View {
                 self.parent = parent
             }
 
-            deinit {
-                if let editorTextDidChangeObserver {
-                    NotificationCenter.default.removeObserver(editorTextDidChangeObserver)
-                }
-            }
+            deinit { editorTextDidChangeObserver.map(NotificationCenter.default.removeObserver) }
 
             func controlTextDidChange(_ obj: Notification) {
                 guard !isProgrammaticMutation else { return }
@@ -4969,10 +4964,7 @@ struct ContentView: View {
                     object: editor,
                     queue: .main
                 ) { [weak self, weak editor] _ in
-                    MainActor.assumeIsolated {
-                        guard let self, !self.isProgrammaticMutation, let editor else { return }
-                        self.parent.text = editor.string
-                    }
+                    MainActor.assumeIsolated { if let self, !self.isProgrammaticMutation, let editor { self.parent.text = editor.string } }
                 }
             }
 
