@@ -572,7 +572,11 @@ func terminalResponsePrefix(data []byte) (int, bool) {
 		if bytes.HasPrefix(data, response) {
 			return len(response), false
 		}
-		if len(data) >= len("\x1b") && bytes.HasPrefix(response, data) {
+		// All filtered responses share the prefix "\x1b[?9", so only buffer
+		// once that prefix is confirmed. Shorter frames (lone ESC, "\x1b[",
+		// "\x1b[?") pass through immediately so a user pressing Escape in
+		// vim/neovim isn't held back waiting for the next frame.
+		if len(data) >= len("\x1b[?9") && bytes.HasPrefix(response, data) {
 			return 0, true
 		}
 	}
