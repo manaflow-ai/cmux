@@ -11540,7 +11540,11 @@ struct CMUXCLI {
     delete process.env.CMUX_ORIGINAL_NODE_OPTIONS_PRESENT;
     """
 
-    private struct ClaudeNodeOptionsCachePathError: Error {}
+    private struct ClaudeNodeOptionsCachePathError: LocalizedError {
+        var errorDescription: String? {
+            "Claude NODE_OPTIONS restore module path contains whitespace and cannot be used with --require."
+        }
+    }
 
     private func configureClaudeTeamsEnvironment(
         processEnvironment: [String: String],
@@ -11631,10 +11635,15 @@ struct CMUXCLI {
         let cacheRoot: URL
 #if os(macOS)
         let homePath = environment["HOME"] ?? NSHomeDirectory()
-        cacheRoot = URL(fileURLWithPath: homePath, isDirectory: true)
+        let preferredRoot = URL(fileURLWithPath: homePath, isDirectory: true)
             .appendingPathComponent("Library", isDirectory: true)
             .appendingPathComponent("Caches", isDirectory: true)
             .appendingPathComponent("com.cmuxterm.app", isDirectory: true)
+        if preferredRoot.path.rangeOfCharacter(from: .whitespacesAndNewlines) == nil {
+            cacheRoot = preferredRoot
+        } else {
+            cacheRoot = try claudeNodeOptionsFallbackCacheRoot(appScoped: true)
+        }
 #else
         if let xdgCacheHome = environment["XDG_CACHE_HOME"],
            !xdgCacheHome.isEmpty,
@@ -11644,12 +11653,29 @@ struct CMUXCLI {
                 .appendingPathComponent("cmux", isDirectory: true)
         } else {
             let homePath = environment["HOME"] ?? NSHomeDirectory()
-            cacheRoot = URL(fileURLWithPath: homePath, isDirectory: true)
+            let preferredRoot = URL(fileURLWithPath: homePath, isDirectory: true)
                 .appendingPathComponent(".cache", isDirectory: true)
                 .appendingPathComponent("cmux", isDirectory: true)
+            if preferredRoot.path.rangeOfCharacter(from: .whitespacesAndNewlines) == nil {
+                cacheRoot = preferredRoot
+            } else {
+                cacheRoot = try claudeNodeOptionsFallbackCacheRoot(appScoped: false)
+            }
         }
 #endif
         let root = cacheRoot.appendingPathComponent("cmux-claude-node-options", isDirectory: true)
+        guard root.path.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else {
+            throw ClaudeNodeOptionsCachePathError()
+        }
+        return root
+    }
+
+    private func claudeNodeOptionsFallbackCacheRoot(appScoped: Bool) throws -> URL {
+        var root = URL(fileURLWithPath: "/var/tmp", isDirectory: true)
+            .appendingPathComponent("cmux", isDirectory: true)
+        if appScoped {
+            root = root.appendingPathComponent("com.cmuxterm.app", isDirectory: true)
+        }
         guard root.path.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else {
             throw ClaudeNodeOptionsCachePathError()
         }

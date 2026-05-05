@@ -559,7 +559,7 @@ def test_live_socket_enforces_heap_cap_for_space_separated_flag(failures: list[s
     expect(child_node_options == restored, f"space-separated heap flag: expected child NODE_OPTIONS restored, got {child_node_options!r}", failures)
 
 
-def test_live_socket_whitespace_cache_path_skips_node_options_injection(failures: list[str]) -> None:
+def test_live_socket_whitespace_home_uses_safe_cache_fallback(failures: list[str]) -> None:
     with tempfile.TemporaryDirectory(prefix="cmux claude wrapper bad home ") as td:
         code, real_argv, cmux_log, stderr, claudecode, node_options, runtime_node_options, child_node_options, _, _ = run_wrapper(
             socket_state="live",
@@ -567,14 +567,32 @@ def test_live_socket_whitespace_cache_path_skips_node_options_injection(failures
             home=str(Path(td) / "home with spaces"),
             xdg_cache_home="",
         )
-    expect(code == 0, f"whitespace cache path: wrapper exited {code}: {stderr}", failures)
-    expect("--settings" in real_argv, f"whitespace cache path: missing --settings in args: {real_argv}", failures)
-    expect("--session-id" in real_argv, f"whitespace cache path: missing --session-id in args: {real_argv}", failures)
-    expect(any(" ping" in line for line in cmux_log), f"whitespace cache path: expected cmux ping, got {cmux_log}", failures)
-    expect(claudecode == "__UNSET__", f"whitespace cache path: expected CLAUDECODE unset, got {claudecode!r}", failures)
-    expect(node_options == "__UNSET__", f"whitespace cache path: expected NODE_OPTIONS injection to be skipped, got {node_options!r}", failures)
-    expect(runtime_node_options == "__UNSET__", f"whitespace cache path: expected runtime NODE_OPTIONS passthrough, got {runtime_node_options!r}", failures)
-    expect(child_node_options == "__UNSET__", f"whitespace cache path: expected child NODE_OPTIONS passthrough, got {child_node_options!r}", failures)
+    expect(code == 0, f"whitespace HOME fallback: wrapper exited {code}: {stderr}", failures)
+    expect("--settings" in real_argv, f"whitespace HOME fallback: missing --settings in args: {real_argv}", failures)
+    expect("--session-id" in real_argv, f"whitespace HOME fallback: missing --session-id in args: {real_argv}", failures)
+    expect(any(" ping" in line for line in cmux_log), f"whitespace HOME fallback: expected cmux ping, got {cmux_log}", failures)
+    expect(claudecode == "__UNSET__", f"whitespace HOME fallback: expected CLAUDECODE unset, got {claudecode!r}", failures)
+    require_path = require_path_from_node_options(node_options)
+    expect(require_path != "", f"whitespace HOME fallback: expected NODE_OPTIONS restore preload, got {node_options!r}", failures)
+    expect(
+        not any(ch.isspace() for ch in require_path),
+        f"whitespace HOME fallback: expected whitespace-free restore path, got {require_path!r}",
+        failures,
+    )
+    if sys.platform == "darwin":
+        expect(
+            require_path == "/var/tmp/cmux/com.cmuxterm.app/cmux-claude-node-options/restore-node-options.cjs",
+            f"whitespace HOME fallback: expected macOS fallback cache path, got {require_path!r}",
+            failures,
+        )
+    else:
+        expect(
+            require_path == "/var/tmp/cmux/cmux-claude-node-options/restore-node-options.cjs",
+            f"whitespace HOME fallback: expected Linux fallback cache path, got {require_path!r}",
+            failures,
+        )
+    expect(runtime_node_options == "__UNSET__", f"whitespace HOME fallback: expected runtime NODE_OPTIONS restored, got {runtime_node_options!r}", failures)
+    expect(child_node_options == "__UNSET__", f"whitespace HOME fallback: expected child NODE_OPTIONS restored, got {child_node_options!r}", failures)
 
 
 def test_live_socket_whitespace_xdg_cache_home_falls_back(failures: list[str]) -> None:

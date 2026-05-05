@@ -322,9 +322,15 @@ func ensureClaudeNodeOptionsRestoreModule() (string, error) {
 	// long-running Claude sessions). The path must not contain whitespace,
 	// since Node.js splits NODE_OPTIONS on whitespace and the
 	// --require=<path> flag is not quoted downstream.
-	homeDir, _ := os.UserHomeDir()
+	homeDir, homeDirErr := os.UserHomeDir()
+	if homeDirErr != nil {
+		homeDir = ""
+	}
 	cacheRoot, err := claudeNodeOptionsCacheRoot(runtime.GOOS, os.Getenv("XDG_CACHE_HOME"), homeDir)
 	if err != nil {
+		if homeDirErr != nil {
+			return "", fmt.Errorf("could not determine home directory for NODE_OPTIONS cache: %w", homeDirErr)
+		}
 		return "", err
 	}
 	subdir := "cmux"
@@ -347,19 +353,25 @@ func ensureClaudeNodeOptionsRestoreModule() (string, error) {
 
 func claudeNodeOptionsCacheRoot(goos, xdgCacheHome, homeDir string) (string, error) {
 	if goos == "darwin" {
-		if homeDir == "" {
-			return "", fmt.Errorf("HOME is required for Claude NODE_OPTIONS cache path")
+		if homeDir != "" {
+			cacheRoot := filepath.Join(homeDir, "Library", "Caches")
+			if !pathContainsWhitespace(filepath.Join(cacheRoot, "com.cmuxterm.app", "cmux-claude-node-options")) {
+				return cacheRoot, nil
+			}
 		}
-		return filepath.Join(homeDir, "Library", "Caches"), nil
+		return filepath.Join("/var/tmp", "cmux"), nil
 	}
 
 	if xdgCacheHome != "" && filepath.IsAbs(xdgCacheHome) && !pathContainsWhitespace(xdgCacheHome) {
 		return xdgCacheHome, nil
 	}
-	if homeDir == "" {
-		return "", fmt.Errorf("HOME is required for Claude NODE_OPTIONS cache path")
+	if homeDir != "" {
+		cacheRoot := filepath.Join(homeDir, ".cache")
+		if !pathContainsWhitespace(filepath.Join(cacheRoot, "cmux", "cmux-claude-node-options")) {
+			return cacheRoot, nil
+		}
 	}
-	return filepath.Join(homeDir, ".cache"), nil
+	return filepath.Join("/var/tmp", "cmux"), nil
 }
 
 func pathContainsWhitespace(path string) bool {

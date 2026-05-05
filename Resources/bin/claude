@@ -165,6 +165,9 @@ ensure_node_options_restore_module() {
     local guard_dir
     if [[ "$(uname)" == "Darwin" ]]; then
         guard_dir="${HOME}/Library/Caches/com.cmuxterm.app/cmux-claude-node-options"
+        if [[ "$guard_dir" == *[[:space:]]* ]]; then
+            guard_dir="/var/tmp/cmux/com.cmuxterm.app/cmux-claude-node-options"
+        fi
     # Reject XDG_CACHE_HOME values containing whitespace, since the
     # path is interpolated unquoted into NODE_OPTIONS=--require=<path>
     # below and node would split on the space (the same failure mode
@@ -173,8 +176,14 @@ ensure_node_options_restore_module() {
         guard_dir="${XDG_CACHE_HOME}/cmux/cmux-claude-node-options"
     else
         guard_dir="${HOME}/.cache/cmux/cmux-claude-node-options"
+        if [[ "$guard_dir" == *[[:space:]]* ]]; then
+            guard_dir="/var/tmp/cmux/cmux-claude-node-options"
+        fi
     fi
-    [[ "$guard_dir" != *[[:space:]]* ]] || return 1
+    if [[ "$guard_dir" == *[[:space:]]* ]]; then
+        printf 'cmux: warning: cache path contains whitespace (%s); skipping NODE_OPTIONS restore module\n' "$guard_dir" >&2
+        return 1
+    fi
     local guard_path="$guard_dir/restore-node-options.cjs"
     mkdir -p "$guard_dir" || return 1
     local temp_path

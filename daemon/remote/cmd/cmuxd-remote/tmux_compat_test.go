@@ -422,6 +422,14 @@ func TestClaudeNodeOptionsCacheRoot(t *testing.T) {
 		t.Fatalf("mac cache root = %q, want %q", macRoot, want)
 	}
 
+	macFallbackRoot, err := claudeNodeOptionsCacheRoot("darwin", "/ignored/xdg", "/Users/first last")
+	if err != nil {
+		t.Fatalf("mac fallback cache root error: %v", err)
+	}
+	if want := filepath.Join("/var/tmp", "cmux"); macFallbackRoot != want {
+		t.Fatalf("mac fallback cache root = %q, want %q", macFallbackRoot, want)
+	}
+
 	linuxXDGRoot, err := claudeNodeOptionsCacheRoot("linux", "/home/tester/.xdg-cache", "/home/tester")
 	if err != nil {
 		t.Fatalf("linux XDG cache root error: %v", err)
@@ -444,6 +452,14 @@ func TestClaudeNodeOptionsCacheRoot(t *testing.T) {
 	}
 	if want := filepath.Join("/home/tester", ".cache"); linuxRelativeFallbackRoot != want {
 		t.Fatalf("linux relative fallback cache root = %q, want %q", linuxRelativeFallbackRoot, want)
+	}
+
+	linuxUnsafeHomeFallbackRoot, err := claudeNodeOptionsCacheRoot("linux", "", "/home/first last")
+	if err != nil {
+		t.Fatalf("linux unsafe home fallback cache root error: %v", err)
+	}
+	if want := filepath.Join("/var/tmp", "cmux"); linuxUnsafeHomeFallbackRoot != want {
+		t.Fatalf("linux unsafe home fallback cache root = %q, want %q", linuxUnsafeHomeFallbackRoot, want)
 	}
 }
 
