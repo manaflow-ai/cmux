@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import SwiftUI
 
@@ -46,6 +47,61 @@ struct CmuxTaskManagerRow: Identifiable {
     let detail: String
     let resources: CmuxTaskManagerResources
     let isDimmed: Bool
+    let workspaceId: UUID?
+    let surfaceId: UUID?
+    let terminalSurfaceId: UUID?
+    let processId: Int?
+    let rootProcessIds: [Int]
+    let foregroundProcessGroupIds: [Int]
+    let agentAssetName: String?
+
+    var canViewWorkspace: Bool {
+        workspaceId != nil
+    }
+
+    var canViewTerminal: Bool {
+        workspaceId != nil && terminalSurfaceId != nil
+    }
+
+    var canKillProcess: Bool {
+        !killableProcessIds.isEmpty
+    }
+
+    var killableProcessIds: [Int] {
+        var ids = resources.processIds
+        if let processId {
+            ids.append(processId)
+        }
+        let currentPID = Int(getpid())
+        return Array(Set(ids))
+            .filter { $0 > 1 && $0 != currentPID }
+            .sorted()
+    }
+
+    var gracefulProcessIds: [Int] {
+        var ids = rootProcessIds
+        if ids.isEmpty, let processId {
+            ids.append(processId)
+        }
+        if ids.isEmpty {
+            ids = resources.processIds
+        }
+        return safeProcessIds(ids)
+    }
+
+    var gracefulProcessGroupIds: [Int] {
+        let currentProcessGroupId = Int(getpgrp())
+        return Array(Set(foregroundProcessGroupIds))
+            .filter { $0 > 1 && $0 != currentProcessGroupId }
+            .sorted()
+    }
+
+    private func safeProcessIds(_ ids: [Int]) -> [Int] {
+        let currentPID = Int(getpid())
+        return Array(Set(ids))
+            .filter { $0 > 1 && $0 != currentPID }
+            .sorted()
+    }
 }
 
 struct CmuxTaskManagerResources {
@@ -54,17 +110,20 @@ struct CmuxTaskManagerResources {
     let cpuPercent: Double
     let residentBytes: Int64
     let processCount: Int
+    let processIds: [Int]
 
     init(cpuPercent: Double, residentBytes: Int64, processCount: Int) {
         self.cpuPercent = cpuPercent
         self.residentBytes = residentBytes
         self.processCount = processCount
+        self.processIds = []
     }
 
     init(_ payload: [String: Any]) {
         self.cpuPercent = Self.double(payload["cpu_percent"])
         self.residentBytes = Self.int64(payload["resident_bytes"])
         self.processCount = Self.int(payload["process_count"]) ?? 0
+        self.processIds = Self.intArray(payload["pids"])
     }
 
     private static func double(_ raw: Any?) -> Double {
@@ -95,6 +154,12 @@ struct CmuxTaskManagerResources {
             return Int(value.trimmingCharacters(in: .whitespacesAndNewlines))
         }
         return nil
+    }
+
+    private static func intArray(_ raw: Any?) -> [Int] {
+        if let values = raw as? [Int] { return values }
+        guard let values = raw as? [Any] else { return [] }
+        return values.compactMap(int)
     }
 }
 

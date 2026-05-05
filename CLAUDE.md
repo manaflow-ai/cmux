@@ -155,7 +155,13 @@ the source of truth for VM lifecycle, active VM limits, idempotency, and usage e
 
 ## Debug event log
 
-All debug events (keys, mouse, focus, splits, tabs) go to a unified log in DEBUG builds:
+When adding debug event instrumentation, put events (keys, mouse, focus, splits, tabs)
+in the unified DEBUG build log:
+
+This section describes the required destination and shape for debug logs when they
+are added. It is not a blanket requirement to add debug logs to every new code path.
+Most temporary probes should be added only during the dogfood debug loop and removed
+before merge.
 
 ```bash
 tail -f "$(cat /tmp/cmux-last-debug-log-path 2>/dev/null || echo /tmp/cmux-debug.log)"

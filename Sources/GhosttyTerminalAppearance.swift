@@ -105,4 +105,3 @@ enum GhosttyNotificationKey {
     static let selectionBackground = "ghostty.selectionBackground"
     static let selectionForeground = "ghostty.selectionForeground"
 }
-
