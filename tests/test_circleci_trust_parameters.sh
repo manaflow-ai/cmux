@@ -63,6 +63,7 @@ run_gate() {
     CIRCLECI_PIPELINE_REPO_OWNER="$repo_owner" \
     CIRCLECI_PIPELINE_SENDER_LOGIN="$sender" \
     CIRCLECI_TRUSTED_GITHUB_ORG="manaflow-ai" \
+    CIRCLECI_TRUSTED_GITHUB_USERS="lawrencecchen,austyinywang" \
     GITHUB_TOKEN="$token" \
     "$SCRIPT" "$out" > "$TMP_DIR/$name.stdout"
 
@@ -98,6 +99,12 @@ assert_no_curl main
 
 run_gate repo_owner_not_enough feature manaflow-ai mallory secret true 404
 assert_curl_contains repo_owner_not_enough "https://api.github.com/orgs/manaflow-ai/members/mallory"
+
+run_gate lawrence_allowlist feature external-repo lawrencecchen "" false
+assert_no_curl lawrence_allowlist
+
+run_gate austyin_allowlist feature external-repo austyinywang "" false
+assert_no_curl austyin_allowlist
 
 run_gate trusted_org_member feature manaflow-ai alice secret false 204
 assert_curl_contains trusted_org_member "https://api.github.com/orgs/manaflow-ai/members/alice"

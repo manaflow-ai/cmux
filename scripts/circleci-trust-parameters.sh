@@ -3,6 +3,7 @@ set -euo pipefail
 
 output_path="${1:-/tmp/continue-params.json}"
 trusted_org="${CIRCLECI_TRUSTED_GITHUB_ORG:-manaflow-ai}"
+trusted_users="${CIRCLECI_TRUSTED_GITHUB_USERS:-}"
 branch="${CIRCLECI_PIPELINE_BRANCH:-}"
 sender_login="${CIRCLECI_PIPELINE_SENDER_LOGIN:-}"
 
@@ -24,6 +25,26 @@ is_safe_github_component() {
 write_parameters() {
   mkdir -p "$(dirname "$output_path")"
   printf '{\n  "require_approval": %s\n}\n' "$require_approval" > "$output_path"
+}
+
+is_trusted_user() {
+  local candidate="$1"
+  local normalized_list="${trusted_users//[[:space:]]/}"
+  local user
+  local users=()
+
+  if [ -z "$candidate" ] || [ -z "$normalized_list" ]; then
+    return 1
+  fi
+
+  IFS=',' read -r -a users <<< "$normalized_list"
+  for user in "${users[@]}"; do
+    if [ "$user" = "$candidate" ] && is_safe_github_component "$user"; then
+      return 0
+    fi
+  done
+
+  return 1
 }
 
 check_github_membership() {
@@ -71,6 +92,9 @@ if [ "$branch" = "main" ]; then
 elif ! is_safe_github_component "$trusted_org" || ! is_safe_github_component "$sender_login"; then
   require_approval=true
   reason="missing-or-invalid-github-sender"
+elif is_trusted_user "$sender_login"; then
+  require_approval=false
+  reason="trusted-github-user"
 elif [ -n "${GITHUB_TOKEN:-${GH_TOKEN:-}}" ]; then
   check_github_membership "members"
 else

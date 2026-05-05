@@ -17,6 +17,7 @@ jobs:
             CIRCLECI_PIPELINE_BRANCH: "<< pipeline.git.branch >>"
             CIRCLECI_PIPELINE_SENDER_LOGIN: "<< pipeline.event.github.sender.login >>"
             CIRCLECI_TRUSTED_GITHUB_ORG: manaflow-ai
+            CIRCLECI_TRUSTED_GITHUB_USERS: lawrencecchen,austyinywang
       - continuation/continue:
           configuration_path: .circleci/continue_config.yml
           parameters: /tmp/continue-params.json
