@@ -96,7 +96,10 @@ def is_org_member(config: Config) -> bool:
     print(f"{config.pr_author} ({config.pr_author_id}) is explicitly trusted")
     return True
 
-  token = os.environ.get("GITHUB_ORG_READ_TOKEN") or config.github_token
+  token = os.environ.get("GITHUB_ORG_READ_TOKEN", "")
+  if not token:
+    print(f"GITHUB_ORG_READ_TOKEN is not configured; cannot verify membership in {config.trusted_org}")
+    return False
   url = f"{GITHUB_API}/orgs/{config.trusted_org}/members/{config.pr_author}"
   try:
     request_json(url, token=token)

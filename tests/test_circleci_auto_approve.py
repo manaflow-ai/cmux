@@ -91,6 +91,7 @@ def base_env(author: str) -> dict[str, str]:
     "TRUSTED_GITHUB_ORG": "manaflow-ai",
     "TRUSTED_GITHUB_USERS": "lawrencecchen:54008264,austinywang:38676809",
     "GITHUB_TOKEN": "github-token",
+    "GITHUB_ORG_READ_TOKEN": "github-token",
     "CIRCLECI_TOKEN": "circle-token",
     "CIRCLECI_APPROVAL_MAX_ATTEMPTS": "1",
     "CIRCLECI_APPROVAL_POLL_SECONDS": "0",
@@ -218,6 +219,28 @@ def test_non_member_does_not_call_circleci() -> None:
     with mock.patch.object(module.urllib.request, "urlopen", urlopen):
       assert module.run() == 0
 
+  assert all("circleci.test" not in url for _, url in calls)
+
+
+def test_missing_org_token_does_not_call_circleci_for_non_allowlisted_member() -> None:
+  calls: list[tuple[str, str]] = []
+  test_env = base_env("alice")
+  del test_env["GITHUB_ORG_READ_TOKEN"]
+
+  def urlopen(request: Any, timeout: int = 20) -> FakeResponse:
+    calls.append((request.get_method(), request.full_url))
+    if request.full_url.startswith("https://api.github.test/"):
+      assert_github_auth(request)
+    if response := trusted_user_response(request.full_url):
+      return response
+    raise AssertionError(f"unexpected request: {request.full_url}")
+
+  with env(**test_env):
+    module = load_module()
+    with mock.patch.object(module.urllib.request, "urlopen", urlopen):
+      assert module.run() == 0
+
+  assert all("/orgs/manaflow-ai/members/alice" not in url for _, url in calls)
   assert all("circleci.test" not in url for _, url in calls)
 
 
@@ -388,6 +411,7 @@ def main() -> None:
   test_allowlisted_user_approves_without_membership_lookup()
   test_visible_org_member_approves()
   test_non_member_does_not_call_circleci()
+  test_missing_org_token_does_not_call_circleci_for_non_allowlisted_member()
   test_same_repository_pr_does_not_poll_circleci()
   test_hold_check_name_accepts_legacy_and_workflow_prefixed_names()
   test_membership_api_error_does_not_call_circleci()
