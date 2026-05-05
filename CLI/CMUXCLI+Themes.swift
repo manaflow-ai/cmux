@@ -4,8 +4,6 @@ import TerminalThemeCore
 
 extension CMUXCLI {
     static let cmuxThemeOverrideBundleIdentifier = "com.cmuxterm.app"
-    static let cmuxThemesBlockStart = "# cmux themes start"
-    static let cmuxThemesBlockEnd = "# cmux themes end"
     static let cmuxThemesReloadNotificationName = "com.cmuxterm.themes.reload-config"
 
     typealias ThemeSelection = TerminalThemeSelection
