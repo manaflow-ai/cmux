@@ -15611,6 +15611,15 @@ struct CMUXCLI {
         /// approve/deny a permission / plan / question.
         let feedHookEvents: [String]
         let postInstallAction: PostInstallAction?
+        /// Whether `cmux hooks setup` requires the agent's `~/<configDir>` to
+        /// exist before installing. Most agents (Codex, Cursor, Gemini, ...)
+        /// keep their config under `~/.<agent>/` and we use that as a
+        /// "is the agent installed?" probe. OpenCode and Pi don't write a
+        /// config dir on first invocation — they ship plugin/extension
+        /// scaffolding that we own — so they need to be exempt from the gate.
+        /// Set to `false` for agents whose `installHooksForAgent` creates its
+        /// own scaffold under `~/`.
+        let requiresConfigDir: Bool
 
         enum HookFormat {
             case flat       // Cursor: {"hooks": {"event": [{"command": "..."}]}, "version": 1}
@@ -15649,7 +15658,8 @@ struct CMUXCLI {
              sessionStoreSuffix: String, disableEnvVar: String, hookMarker: String,
              format: HookFormat, events: [HookEvent],
              feedHookEvents: [String] = [],
-             postInstallAction: PostInstallAction? = nil) {
+             postInstallAction: PostInstallAction? = nil,
+             requiresConfigDir: Bool = true) {
             self.name = name; self.displayName = displayName; self.statusKey = statusKey
             self.configDir = configDir; self.configFile = configFile
             self.configDirEnvOverride = configDirEnvOverride
@@ -15658,6 +15668,7 @@ struct CMUXCLI {
             self.hookMarker = hookMarker; self.format = format; self.events = events
             self.feedHookEvents = feedHookEvents
             self.postInstallAction = postInstallAction
+            self.requiresConfigDir = requiresConfigDir
         }
     }
 
@@ -15696,7 +15707,10 @@ struct CMUXCLI {
             configDir: ".config/opencode", configFile: "plugins/cmux-session.js", configDirEnvOverride: "OPENCODE_CONFIG_DIR",
             sessionStoreSuffix: "opencode", disableEnvVar: "CMUX_OPENCODE_HOOKS_DISABLED",
             hookMarker: "cmux hooks opencode", format: .flat,
-            events: []
+            events: [],
+            // OpenCode's plugin file is created by our installer; the user is
+            // not expected to have ~/.config/opencode populated beforehand.
+            requiresConfigDir: false
         ),
         AgentHookDef(
             name: "cursor", displayName: "Cursor", statusKey: "cursor",
@@ -15792,7 +15806,11 @@ struct CMUXCLI {
             configDir: ".pi/agent", configFile: "extensions/cmux-vault/index.ts",
             sessionStoreSuffix: "pi", disableEnvVar: "CMUX_PI_HOOKS_DISABLED",
             hookMarker: "cmux hooks pi", format: .flat,
-            events: []  // pi loads the bundled TS extension that emits hooks itself
+            events: [],  // pi loads the bundled TS extension that emits hooks itself
+            // pi auto-creates ~/.pi/agent on first run; our installer drops
+            // the cmux-vault extension under it so the dir is allowed to be
+            // missing at install time.
+            requiresConfigDir: false
         ),
     ]
 
@@ -19776,7 +19794,7 @@ export default CMUXSessionRestore;
         for def in Self.agentDefs {
             if let filter = agentFilter, filter.lowercased() != def.name { continue }
             let configDir = def.resolvedConfigDir()
-            if def.name != "opencode" && def.name != "pi", !fm.fileExists(atPath: configDir) {
+            if def.requiresConfigDir, !fm.fileExists(atPath: configDir) {
                 print("  \(def.name): skipped (config dir not found)")
                 skipped += 1
                 continue
