@@ -578,6 +578,7 @@ private struct TerminalPickerMenu: View {
 private struct TerminalPane: View {
     @EnvironmentObject private var store: CmxConnectionStore
     @State private var visibleGridSize: TerminalGridSize?
+    @State private var surfaceResetNonce = 0
     let terminal: CmxTerminal
     private let showsBoundsOverlay = CmxLaunchConfiguration.showsTerminalBoundsOverlay()
 
@@ -590,8 +591,10 @@ private struct TerminalPane: View {
                     renderSize: store.renderSize(for: terminal.id),
                     outputRevision: store.terminalOutputRevision,
                     hostPlatform: store.selectedHostPlatform,
-                    visibleGridSize: $visibleGridSize
+                    visibleGridSize: $visibleGridSize,
+                    surfaceResetNonce: $surfaceResetNonce
                 )
+                    .id("\(terminal.id)-\(surfaceResetNonce)")
                     .frame(width: proxy.size.width, height: proxy.size.height)
                     .clipped()
 

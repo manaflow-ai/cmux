@@ -337,6 +337,25 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
         XCTAssertFalse(accessibilityValue.contains("stale-before-reset"))
     }
 
+    func testGhosttySurfaceBlankReplayRequestsSurfaceResetAndPtyReplay() async throws {
+        let (surfaceView, delegate) = try makeSurfaceView()
+        surfaceView.frame = CGRect(x: 0, y: 0, width: 390, height: 640)
+        surfaceView.layoutIfNeeded()
+
+        let processedExpectation = expectation(description: "Ghostty processed blank PTY output")
+        processedExpectation.assertForOverFulfill = false
+        surfaceView.onOutputProcessedForTesting = {
+            processedExpectation.fulfill()
+        }
+
+        surfaceView.processOutput(Data("\u{1B}[2J\u{1B}[H".utf8))
+
+        await fulfillment(of: [processedExpectation], timeout: 5.0)
+        XCTAssertTrue(surfaceView.requestServerReplayIfBlank())
+        XCTAssertEqual(delegate.surfaceResetRequestCount, 1)
+        XCTAssertEqual(delegate.ptyReplayRequestCount, 1)
+    }
+
     func testGhosttySurfaceCanForceInitialGridReportAfterCoordinatorBinding() throws {
         let (surfaceView, delegate) = try makeSurfaceView()
         surfaceView.frame = CGRect(x: 0, y: 0, width: 390, height: 640)
@@ -412,6 +431,8 @@ private final class DelegateRecorder: GhosttyTerminalSurfaceViewDelegate {
     var onInput: ((Data) -> Void)?
     var lastSize: TerminalGridSize?
     var resizeCount = 0
+    var surfaceResetRequestCount = 0
+    var ptyReplayRequestCount = 0
 
     func ghosttyTerminalSurfaceView(_ surfaceView: GhosttyTerminalSurfaceView, didProduceInput data: Data) {
         onInput?(data)
@@ -420,6 +441,14 @@ private final class DelegateRecorder: GhosttyTerminalSurfaceViewDelegate {
     func ghosttyTerminalSurfaceView(_ surfaceView: GhosttyTerminalSurfaceView, didResize size: TerminalGridSize) {
         lastSize = size
         resizeCount += 1
+    }
+
+    func ghosttyTerminalSurfaceViewDidRequestSurfaceReset(_ surfaceView: GhosttyTerminalSurfaceView) {
+        surfaceResetRequestCount += 1
+    }
+
+    func ghosttyTerminalSurfaceViewDidRequestPtyReplay(_ surfaceView: GhosttyTerminalSurfaceView) {
+        ptyReplayRequestCount += 1
     }
 }
 

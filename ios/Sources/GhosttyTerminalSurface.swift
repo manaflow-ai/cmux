@@ -33,6 +33,7 @@ public protocol GhosttyTerminalSurfaceViewDelegate: AnyObject {
     func ghosttyTerminalSurfaceView(_ surfaceView: GhosttyTerminalSurfaceView, didProduceInput data: Data)
     func ghosttyTerminalSurfaceView(_ surfaceView: GhosttyTerminalSurfaceView, didResize size: TerminalGridSize)
     func ghosttyTerminalSurfaceView(_ surfaceView: GhosttyTerminalSurfaceView, didMeasureMaximumViewport size: TerminalGridSize)
+    func ghosttyTerminalSurfaceViewDidRequestSurfaceReset(_ surfaceView: GhosttyTerminalSurfaceView)
     func ghosttyTerminalSurfaceViewDidRequestPtyReplay(_ surfaceView: GhosttyTerminalSurfaceView)
 }
 
@@ -43,6 +44,8 @@ public extension GhosttyTerminalSurfaceViewDelegate {
     ) {}
 
     func ghosttyTerminalSurfaceViewDidRequestPtyReplay(_ surfaceView: GhosttyTerminalSurfaceView) {}
+
+    func ghosttyTerminalSurfaceViewDidRequestSurfaceReset(_ surfaceView: GhosttyTerminalSurfaceView) {}
 }
 
 public enum TerminalFontZoomDirection: Equatable {
@@ -1057,7 +1060,7 @@ public final class GhosttyTerminalSurfaceView: UIView {
         #if DEBUG
         cmuxDebugLog("ios.ghostty.blankSurfaceReplayRequest")
         #endif
-        resetForTerminalReuse()
+        delegate?.ghosttyTerminalSurfaceViewDidRequestSurfaceReset(self)
         delegate?.ghosttyTerminalSurfaceViewDidRequestPtyReplay(self)
         return true
     }
@@ -2290,10 +2293,14 @@ struct CmxGhosttyTerminalView: UIViewRepresentable {
     let outputRevision: Int
     let hostPlatform: CmxHostPlatform
     @Binding var visibleGridSize: TerminalGridSize?
+    @Binding var surfaceResetNonce: Int
 
     @MainActor
     func makeCoordinator() -> Coordinator {
-        Coordinator(visibleGridSize: $visibleGridSize)
+        Coordinator(
+            visibleGridSize: $visibleGridSize,
+            surfaceResetNonce: $surfaceResetNonce
+        )
     }
 
     @MainActor
@@ -2360,9 +2367,14 @@ struct CmxGhosttyTerminalView: UIViewRepresentable {
         private var lastAppliedRenderSize: CmxTerminalSize?
         private var lastAppliedOutputID = 0
         private var visibleGridSize: Binding<TerminalGridSize?>
+        private var surfaceResetNonce: Binding<Int>
 
-        init(visibleGridSize: Binding<TerminalGridSize?>) {
+        init(
+            visibleGridSize: Binding<TerminalGridSize?>,
+            surfaceResetNonce: Binding<Int>
+        ) {
             self.visibleGridSize = visibleGridSize
+            self.surfaceResetNonce = surfaceResetNonce
         }
 
         func unregisterOutputSink() {
@@ -2455,6 +2467,11 @@ struct CmxGhosttyTerminalView: UIViewRepresentable {
         func ghosttyTerminalSurfaceViewDidRequestPtyReplay(_ surfaceView: GhosttyTerminalSurfaceView) {
             guard let terminalID else { return }
             store?.requestPtyReplay(terminalID: terminalID)
+        }
+
+        func ghosttyTerminalSurfaceViewDidRequestSurfaceReset(_ surfaceView: GhosttyTerminalSurfaceView) {
+            guard self.surfaceView === surfaceView else { return }
+            surfaceResetNonce.wrappedValue += 1
         }
     }
 }
