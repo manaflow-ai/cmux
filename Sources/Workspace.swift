@@ -13594,16 +13594,21 @@ extension Workspace: BonsplitDelegate {
                     // This avoids an extra create+close tab churn that can transiently render an
                     // empty pane during drag-to-split of a single-tab pane.
                     let inheritedConfig = inheritedTerminalConfig(inPane: originalPane)
+                    let remoteCommand = remoteTerminalStartupCommand()
 
                     let replacementPanel = TerminalPanel(
                         workspaceId: id,
                         context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
                         configTemplate: inheritedConfig,
-                        portOrdinal: portOrdinal
+                        portOrdinal: portOrdinal,
+                        initialCommand: remoteCommand
                     )
                     configureTerminalPanel(replacementPanel)
                     panels[replacementPanel.id] = replacementPanel
                     panelTitles[replacementPanel.id] = replacementPanel.displayTitle
+                    if remoteCommand != nil {
+                        trackRemoteTerminalSurface(replacementPanel.id)
+                    }
                     seedTerminalInheritanceFontPoints(panelId: replacementPanel.id, configTemplate: inheritedConfig)
                     surfaceIdToPanelId[replacementTab.id] = replacementPanel.id
 
@@ -13649,6 +13654,7 @@ extension Workspace: BonsplitDelegate {
         // (or fall back to defaults) instead of leaving an empty selector pane.
         let sourceTabId = controller.selectedTab(inPane: originalPane)?.id
         let sourcePanelId = sourceTabId.flatMap { panelIdFromSurfaceId($0) }
+        let remoteTerminalStartupCommand = remoteTerminalStartupCommand()
 
 #if DEBUG
         cmuxDebugLog(
@@ -13666,11 +13672,15 @@ extension Workspace: BonsplitDelegate {
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
-            portOrdinal: portOrdinal
+            portOrdinal: portOrdinal,
+            initialCommand: remoteTerminalStartupCommand
         )
         configureTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
+        if remoteTerminalStartupCommand != nil {
+            trackRemoteTerminalSurface(newPanel.id)
+        }
         seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: inheritedConfig)
 
         guard let newTabId = bonsplitController.createTab(
