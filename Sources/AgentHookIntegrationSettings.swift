@@ -430,7 +430,10 @@ enum AgentHookIntegrationSettings {
                 )
             }
 
-            let originalConfigDir = expandedHomePath(configDir)
+            let originalConfigDir = URL(
+                fileURLWithPath: configDirectoryPath(for: agent) ?? expandedHomePath(configDir).path,
+                isDirectory: true
+            )
             let tempConfigDir = tempHome.appendingPathComponent(configDir, isDirectory: true)
             try fm.createDirectory(at: tempConfigDir.deletingLastPathComponent(), withIntermediateDirectories: true)
             if fm.fileExists(atPath: originalConfigDir.path) {
@@ -457,8 +460,12 @@ enum AgentHookIntegrationSettings {
             }
 
             let relativePaths = diffRelativePaths(for: agent)
+            let configPrefix = "\(configDir)/"
             let diffs = relativePaths.compactMap { relativePath in
-                let oldURL = URL(fileURLWithPath: NSString(string: "~/\(relativePath)").expandingTildeInPath)
+                let configRelativePath = relativePath.hasPrefix(configPrefix)
+                    ? String(relativePath.dropFirst(configPrefix.count))
+                    : relativePath
+                let oldURL = originalConfigDir.appendingPathComponent(configRelativePath)
                 let newURL = tempHome.appendingPathComponent(relativePath)
                 return unifiedDiff(relativePath: relativePath, oldURL: oldURL, newURL: newURL)
             }
