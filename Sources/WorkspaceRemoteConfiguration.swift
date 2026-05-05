@@ -35,12 +35,12 @@ private enum WorkspaceRemoteSSHOptionFilter {
     }
 }
 
-enum WorkspaceRemoteTransport: String, Codable, Equatable, Sendable {
+nonisolated enum WorkspaceRemoteTransport: String, Codable, Equatable, Sendable {
     case ssh
     case websocket
 }
 
-struct SessionRemoteWorkspaceSnapshot: Codable, Equatable, Sendable {
+nonisolated struct SessionRemoteWorkspaceSnapshot: Codable, Equatable, Sendable {
     var transport: WorkspaceRemoteTransport
     var destination: String
     var port: Int?
