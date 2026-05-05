@@ -59,7 +59,12 @@ public enum SocketPathVariant: Equatable {
 public enum SocketPathMarkerFiles {
     public static let stableAppSupportFileName = "last-socket-path"
     public static let stableTmpPath = "/tmp/cmux-last-socket-path"
+    public static let nightlyBundleIdentifier = "com.cmuxterm.app.nightly"
+    public static let stagingBundleIdentifier = "com.cmuxterm.app.staging"
     public static let defaultBaseDebugBundleIdentifier = "com.cmuxterm.app.debug"
+    public static let defaultDebugSocketPath = "/tmp/cmux-debug.sock"
+    public static let defaultNightlySocketPath = "/tmp/cmux-nightly.sock"
+    public static let defaultStagingSocketPath = "/tmp/cmux-staging.sock"
 
     public static func appSupportFileURL(
         fileName: String = stableAppSupportFileName,
@@ -96,17 +101,19 @@ public enum SocketPathMarkerFiles {
         baseDebugBundleIdentifier: String = defaultBaseDebugBundleIdentifier
     ) -> SocketPathVariant {
         let bundleId = bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if bundleId == "com.cmuxterm.app.nightly" {
+        if bundleId == nightlyBundleIdentifier {
             return .nightly(slug: nil)
         }
-        if bundleId.hasPrefix("com.cmuxterm.app.nightly.") {
-            return .nightly(slug: bundleSuffixSlug(bundleId, prefix: "com.cmuxterm.app.nightly."))
+        let nightlyPrefix = nightlyBundleIdentifier + "."
+        if bundleId.hasPrefix(nightlyPrefix) {
+            return .nightly(slug: bundleSuffixSlug(bundleId, prefix: nightlyPrefix))
         }
-        if bundleId == "com.cmuxterm.app.staging" {
+        if bundleId == stagingBundleIdentifier {
             return .staging(slug: nil)
         }
-        if bundleId.hasPrefix("com.cmuxterm.app.staging.") {
-            return .staging(slug: bundleSuffixSlug(bundleId, prefix: "com.cmuxterm.app.staging."))
+        let stagingPrefix = stagingBundleIdentifier + "."
+        if bundleId.hasPrefix(stagingPrefix) {
+            return .staging(slug: bundleSuffixSlug(bundleId, prefix: stagingPrefix))
         }
         if bundleId == baseDebugBundleIdentifier {
             if let tag = normalized(environment["CMUX_TAG"]),
@@ -119,6 +126,41 @@ public enum SocketPathMarkerFiles {
             return .dev(slug: bundleSuffixSlug(bundleId, prefix: "\(baseDebugBundleIdentifier)."))
         }
         return .stable
+    }
+
+    public static func defaultSocketPath(
+        bundleIdentifier: String?,
+        environment: [String: String],
+        isDebugBuild: Bool,
+        stableSocketPath: String,
+        baseDebugBundleIdentifier: String = defaultBaseDebugBundleIdentifier,
+        debugSocketPath: String = defaultDebugSocketPath,
+        nightlySocketPath: String = defaultNightlySocketPath,
+        stagingSocketPath: String = defaultStagingSocketPath
+    ) -> String {
+        switch variant(
+            bundleIdentifier: bundleIdentifier,
+            environment: environment,
+            baseDebugBundleIdentifier: baseDebugBundleIdentifier
+        ) {
+        case .stable:
+            return isDebugBuild ? debugSocketPath : stableSocketPath
+        case .nightly(let slug):
+            if let slug {
+                return "/tmp/cmux-nightly-\(slug).sock"
+            }
+            return nightlySocketPath
+        case .staging(let slug):
+            if let slug {
+                return "/tmp/cmux-staging-\(slug).sock"
+            }
+            return stagingSocketPath
+        case .dev(let slug):
+            if let slug {
+                return "/tmp/cmux-debug-\(slug).sock"
+            }
+            return debugSocketPath
+        }
     }
 
     public static func sanitizeSocketSlug(_ raw: String) -> String? {

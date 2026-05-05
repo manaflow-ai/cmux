@@ -58,25 +58,15 @@ enum CLISocketPathResolver {
         bundleIdentifier: String?,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> String {
-        switch SocketPathMarkerFiles.variant(bundleIdentifier: bundleIdentifier, environment: environment) {
-        case .stable:
-            return stableDefaultSocketPath
-        case .nightly(let slug):
-            if let slug {
-                return "/tmp/cmux-nightly-\(slug).sock"
-            }
-            return nightlySocketPath
-        case .staging(let slug):
-            if let slug {
-                return "/tmp/cmux-\(slug).sock"
-            }
-            return stagingSocketPath
-        case .dev(let slug):
-            if let slug {
-                return "/tmp/cmux-debug-\(slug).sock"
-            }
-            return fallbackSocketPath
-        }
+        SocketPathMarkerFiles.defaultSocketPath(
+            bundleIdentifier: bundleIdentifier,
+            environment: environment,
+            isDebugBuild: false,
+            stableSocketPath: stableDefaultSocketPath,
+            debugSocketPath: fallbackSocketPath,
+            nightlySocketPath: nightlySocketPath,
+            stagingSocketPath: stagingSocketPath
+        )
     }
 
     private static var stableDefaultSocketPath: String {
@@ -86,13 +76,9 @@ enum CLISocketPathResolver {
         return stablePath ?? legacyDefaultSocketPath
     }
 
-    static func isImplicitDefaultPath(_ path: String) -> Bool {
-        isImplicitDefaultPath(path, bundleIdentifier: currentAppBundleIdentifier())
-    }
-
     static func isImplicitDefaultPath(
         _ path: String,
-        bundleIdentifier: String?,
+        bundleIdentifier: String? = currentAppBundleIdentifier(),
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> Bool {
         knownImplicitDefaultPaths(bundleIdentifier: bundleIdentifier, environment: environment).contains(path)
@@ -205,6 +191,10 @@ enum CLISocketPathResolver {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { return false }
         defer { Darwin.close(fd) }
+        let originalFlags = fcntl(fd, F_GETFL, 0)
+        guard originalFlags >= 0 else { return false }
+        guard fcntl(fd, F_SETFL, originalFlags | O_NONBLOCK) >= 0 else { return false }
+        defer { _ = fcntl(fd, F_SETFL, originalFlags) }
 
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
@@ -221,7 +211,30 @@ enum CLISocketPathResolver {
                 Darwin.connect(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
             }
         }
-        return result == 0
+        if result == 0 {
+            return true
+        }
+        let connectErrno = errno
+        guard connectErrno == EINPROGRESS || connectErrno == EAGAIN || connectErrno == EWOULDBLOCK else {
+            return false
+        }
+
+        var pollFD = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
+        guard poll(&pollFD, 1, 150) > 0 else {
+            return false
+        }
+        guard (pollFD.revents & Int16(POLLOUT)) != 0 else {
+            return false
+        }
+
+        var socketError: Int32 = 0
+        var socketErrorLength = socklen_t(MemoryLayout<Int32>.size)
+        let optionResult = withUnsafeMutablePointer(to: &socketError) { errorPointer in
+            withUnsafeMutablePointer(to: &socketErrorLength) { lengthPointer in
+                getsockopt(fd, SOL_SOCKET, SO_ERROR, errorPointer, lengthPointer)
+            }
+        }
+        return optionResult == 0 && socketError == 0
     }
 
     private static func knownImplicitDefaultPaths(

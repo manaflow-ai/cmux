@@ -470,32 +470,15 @@ struct SocketControlSettings {
         currentUserID: uid_t = getuid(),
         probeStableDefaultPathEntry: (String) -> StableDefaultSocketPathEntry = inspectStableDefaultSocketPathEntry
     ) -> String {
-        let variant = SocketPathMarkerFiles.variant(
+        SocketPathMarkerFiles.defaultSocketPath(
             bundleIdentifier: bundleIdentifier,
             environment: [:],
+            isDebugBuild: isDebugBuild,
+            stableSocketPath: resolvedStableDefaultSocketPath(
+                currentUserID: currentUserID,
+                probeStableDefaultPathEntry: probeStableDefaultPathEntry
+            ),
             baseDebugBundleIdentifier: baseDebugBundleIdentifier
-        )
-        if case .dev(let slug) = variant, let slug {
-            return "/tmp/cmux-debug-\(slug).sock"
-        }
-        if case .nightly(let slug) = variant {
-            if let slug {
-                return "/tmp/cmux-nightly-\(slug).sock"
-            }
-            return "/tmp/cmux-nightly.sock"
-        }
-        if isDebugLikeBundleIdentifier(bundleIdentifier) || isDebugBuild {
-            return "/tmp/cmux-debug.sock"
-        }
-        if case .staging(let slug) = variant {
-            if let slug {
-                return "/tmp/cmux-\(slug).sock"
-            }
-            return "/tmp/cmux-staging.sock"
-        }
-        return resolvedStableDefaultSocketPath(
-            currentUserID: currentUserID,
-            probeStableDefaultPathEntry: probeStableDefaultPathEntry
         )
     }
 

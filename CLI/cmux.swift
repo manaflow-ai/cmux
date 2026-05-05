@@ -1606,28 +1606,8 @@ struct CMUXCLI {
     private static let browserDisabledDefaultsKey = "browserDisabledOverride"
     private static let defaultBrowserSettingsDomain = "com.cmuxterm.app"
 
-    private static func currentExecutableURL() -> URL? {
-        var size: UInt32 = 0
-        _ = _NSGetExecutablePath(nil, &size)
-        guard size > 0 else {
-            return Bundle.main.executableURL?
-                .resolvingSymlinksInPath()
-                .standardizedFileURL
-        }
-
-        var buffer = Array<CChar>(repeating: 0, count: Int(size))
-        guard _NSGetExecutablePath(&buffer, &size) == 0 else {
-            return Bundle.main.executableURL?
-                .resolvingSymlinksInPath()
-                .standardizedFileURL
-        }
-        return URL(fileURLWithPath: String(cString: buffer))
-            .resolvingSymlinksInPath()
-            .standardizedFileURL
-    }
-
     private static func containingAppBundleIdentifier() -> String? {
-        guard let executableURL = currentExecutableURL() else { return nil }
+        guard let executableURL = CLIExecutableLocator.currentExecutableURL() else { return nil }
         var current = executableURL.deletingLastPathComponent().standardizedFileURL
         while current.path != "/" {
             if current.pathExtension == "app",
