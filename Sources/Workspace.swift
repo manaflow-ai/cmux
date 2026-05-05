@@ -245,7 +245,10 @@ extension Workspace {
 
         let restoredRemoteConfiguration = snapshot.remote?.workspaceConfiguration()
         if let restoredRemoteConfiguration {
-            remoteConfiguration = restoredRemoteConfiguration
+            configureRemoteConnection(
+                restoredRemoteConfiguration,
+                autoConnect: !SessionRestorePolicy.isRunningUnderAutomatedTests()
+            )
         }
 
         let normalizedCurrentDirectory = snapshot.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -303,13 +306,6 @@ extension Workspace {
             focusPanel(fallbackFocusedPanelId)
         } else {
             scheduleFocusReconcile()
-        }
-
-        if let restoredRemoteConfiguration {
-            configureRemoteConnection(
-                restoredRemoteConfiguration,
-                autoConnect: !SessionRestorePolicy.isRunningUnderAutomatedTests()
-            )
         }
     }
 

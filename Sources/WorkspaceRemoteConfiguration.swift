@@ -1,5 +1,40 @@
 import Foundation
 
+private enum WorkspaceRemoteSSHOptionFilter {
+    private static let transientControlSocketKeys: Set<String> = [
+        "controlmaster",
+        "controlpath",
+        "controlpersist",
+    ]
+
+    static func durableOptions(_ options: [String]) -> [String] {
+        options.compactMap { option in
+            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }.filter { option in
+            guard let key = optionKey(option) else { return true }
+            return !transientControlSocketKeys.contains(key)
+        }
+    }
+
+    static func hasOptionKey(_ options: [String], key: String) -> Bool {
+        let loweredKey = key.lowercased()
+        return options.contains { option in
+            optionKey(option) == loweredKey
+        }
+    }
+
+    private static func optionKey(_ option: String) -> String? {
+        let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return trimmed
+            .split(whereSeparator: { $0 == "=" || $0.isWhitespace })
+            .first
+            .map(String.init)?
+            .lowercased()
+    }
+}
+
 enum WorkspaceRemoteTransport: String, Codable, Equatable, Sendable {
     case ssh
     case websocket
@@ -111,23 +146,7 @@ struct WorkspaceRemoteConfiguration: Equatable {
     }
 
     private static func proxyBrokerSSHOptions(_ options: [String]) -> [String] {
-        options.compactMap { option in
-            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return nil }
-            return trimmed
-        }.filter { option in
-            proxyBrokerSSHOptionKey(option) != "controlpath"
-        }
-    }
-
-    private static func proxyBrokerSSHOptionKey(_ option: String) -> String? {
-        let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        return trimmed
-            .split(whereSeparator: { $0 == "=" || $0.isWhitespace })
-            .first
-            .map(String.init)?
-            .lowercased()
+        WorkspaceRemoteSSHOptionFilter.durableOptions(options)
     }
 }
 
@@ -184,20 +203,11 @@ extension SessionRemoteWorkspaceSnapshot {
     }
 
     private static func normalizedSSHOptions(_ options: [String]) -> [String] {
-        options.compactMap { option in
-            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? nil : trimmed
-        }
+        WorkspaceRemoteSSHOptionFilter.durableOptions(options)
     }
 
     private static func hasSSHOptionKey(_ options: [String], key: String) -> Bool {
-        let loweredKey = key.lowercased()
-        return options.contains { option in
-            option
-                .split(whereSeparator: { $0 == "=" || $0.isWhitespace })
-                .first
-                .map { String($0).lowercased() == loweredKey } ?? false
-        }
+        WorkspaceRemoteSSHOptionFilter.hasOptionKey(options, key: key)
     }
 
     private static func shellQuote(_ value: String) -> String {
@@ -221,10 +231,7 @@ extension WorkspaceRemoteConfiguration {
             destination: normalizedDestination,
             port: port,
             identityFile: normalizedIdentity?.isEmpty == false ? normalizedIdentity : nil,
-            sshOptions: sshOptions.compactMap { option in
-                let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-                return trimmed.isEmpty ? nil : trimmed
-            },
+            sshOptions: WorkspaceRemoteSSHOptionFilter.durableOptions(sshOptions),
             skipDaemonBootstrap: skipDaemonBootstrap
         )
     }

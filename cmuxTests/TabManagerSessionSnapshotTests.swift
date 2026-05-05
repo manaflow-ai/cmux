@@ -113,6 +113,8 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             identityFile: "/Users/test/.ssh/id_ed25519",
             sshOptions: [
                 "ControlPath=/tmp/cmux-ssh-%C",
+                "ControlMaster=auto",
+                "ControlPersist=60s",
                 "StrictHostKeyChecking=accept-new",
             ],
             localProxyPort: nil,
@@ -152,7 +154,6 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(remoteSnapshot.port, 2222)
         XCTAssertEqual(remoteSnapshot.identityFile, "/Users/test/.ssh/id_ed25519")
         XCTAssertEqual(remoteSnapshot.sshOptions, [
-            "ControlPath=/tmp/cmux-ssh-%C",
             "StrictHostKeyChecking=accept-new",
         ])
 
@@ -170,7 +171,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertNil(restoredWorkspace.terminalPanel(for: restoredPanelId)?.requestedWorkingDirectory)
         XCTAssertEqual(
             restoredWorkspace.remoteConfiguration?.terminalStartupCommand,
-            "ssh -p 2222 -i /Users/test/.ssh/id_ed25519 -o ControlPath=/tmp/cmux-ssh-%C -o StrictHostKeyChecking=accept-new -tt dev@example.com"
+            "ssh -p 2222 -i /Users/test/.ssh/id_ed25519 -o StrictHostKeyChecking=accept-new -tt dev@example.com"
         )
     }
 }
