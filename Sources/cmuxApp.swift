@@ -5971,7 +5971,7 @@ struct SettingsView: View {
                                 openWindow(id: ConfigSettingsView.windowID)
                             } label: {
                                 Text(String(localized: "settings.app.configWindow.openButton", defaultValue: "Open Config"))
-                                    .font(.system(size: 13, weight: .medium))
+                                    .font(.system(size: 13, weight: .regular))
                             }
                             .buttonStyle(.bordered)
                             .controlSize(.small)
