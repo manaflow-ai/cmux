@@ -117,3 +117,20 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
         )
     }
 }
+
+final class SidebarWorkspaceRowInteractionStateTests: XCTestCase {
+    func testHoverRevealIsIndependentFromStaleContextMenuVisibility() {
+        var state = SidebarWorkspaceRowInteractionState()
+
+        state.contextMenuDidAppear()
+        state.setPointerHovering(true)
+
+        XCTAssertTrue(
+            state.shouldShowCloseButton(
+                canCloseWorkspace: true,
+                showsWorkspaceShortcutHint: false
+            ),
+            "A stale context-menu lifecycle flag must not permanently suppress hover-only close affordances."
+        )
+    }
+}
