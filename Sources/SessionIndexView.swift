@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CMUXHermesAgentIndex
 import SQLite3
 import SwiftUI
 import UniformTypeIdentifiers
@@ -1084,6 +1085,12 @@ private enum SessionTranscriptLoader {
                 try loadOpenCodeSynchronously(sessionId: sessionId)
             }.value
         }
+        if entry.agent == .hermesAgent {
+            let sessionId = entry.sessionId
+            return try await Task.detached(priority: .userInitiated) {
+                try loadHermesAgentSynchronously(sessionId: sessionId)
+            }.value
+        }
         guard let url = entry.fileURL else {
             throw SessionTranscriptLoadError.missingFile
         }
@@ -1275,6 +1282,28 @@ private enum SessionTranscriptLoader {
         return coalesce(turns)
     }
 
+    private static func loadHermesAgentSynchronously(sessionId: String) throws -> [SessionTranscriptTurn] {
+        do {
+            let turns = try HermesAgentIndex.loadTranscript(sessionId: sessionId, limit: maxPreviewTurns)
+            return coalesce(turns.enumerated().compactMap { index, turn in
+                let role = transcriptRole(from: turn.role) ?? (turn.toolName == nil ? .event : .tool)
+                let text: String
+                if role == .tool, let toolName = turn.toolName, !toolName.isEmpty {
+                    text = [toolName, turn.content].joined(separator: "\n\n")
+                } else {
+                    text = turn.content
+                }
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { return nil }
+                return SessionTranscriptTurn(id: index, role: role, text: truncatedText(trimmed, role: role))
+            })
+        } catch HermesAgentIndexError.missingDatabase {
+            throw SessionTranscriptLoadError.missingFile
+        } catch let HermesAgentIndexError.sqlite(message) {
+            throw SessionTranscriptLoadError.databaseError(message)
+        }
+    }
+
     private static func sqliteText(_ stmt: OpaquePointer, _ index: Int32) -> String? { sqlite3_column_text(stmt, index).map { String(cString: $0) } }
 
     private static func sqliteMessage(_ db: OpaquePointer?) -> String? {
@@ -1305,7 +1334,7 @@ private enum SessionTranscriptLoader {
             return parseClaudeLine(object, id: id)
         case .codex:
             return parseCodexLine(object, id: id)
-        case .opencode, .rovodev:
+        case .opencode, .rovodev, .hermesAgent:
             return parseGenericLine(object, agent: agent, id: id)
         }
     }
@@ -1585,7 +1614,7 @@ private enum SessionTranscriptLoader {
         case .codex:
             return containsAny(data, needles: codexResponseItemNeedles)
                 && containsAny(data, needles: codexPreviewNeedles)
-        case .opencode, .rovodev:
+        case .opencode, .rovodev, .hermesAgent:
             return containsAny(data, needles: genericRoleNeedles)
         }
     }
@@ -1599,7 +1628,7 @@ private enum SessionTranscriptLoader {
             if containsAny(data, needles: [Data(#""type":"user""#.utf8), Data(#""type": "user""#.utf8)]) {
                 return .user
             }
-        case .codex, .opencode, .rovodev:
+        case .codex, .opencode, .rovodev, .hermesAgent:
             if containsAny(data, needles: [Data(#""role":"assistant""#.utf8), Data(#""role": "assistant""#.utf8)]) {
                 return .assistant
             }

@@ -8402,7 +8402,7 @@ struct CMUXCLI {
             agent. Claude Code hooks are injected automatically by the cmux Claude wrapper.
 
             Agents:
-              codex, opencode, cursor, gemini, rovodev, copilot, codebuddy, factory, qoder
+              codex, opencode, cursor, gemini, rovodev, hermes-agent, copilot, codebuddy, factory, qoder
 
             Hook targets:
               setup              Install hooks for all supported agents on PATH
@@ -15611,6 +15611,7 @@ struct CMUXCLI {
             case flat       // Cursor: {"hooks": {"event": [{"command": "..."}]}, "version": 1}
             case nested(timeoutMs: Int)  // Codex/Gemini: nested with type/command/timeout
             case rovoDevYAML
+            case hermesAgentYAML
         }
 
         struct HookEvent {
@@ -15732,6 +15733,22 @@ struct CMUXCLI {
             ]
         ),
         AgentHookDef(
+            name: "hermes-agent", displayName: "Hermes Agent", statusKey: "hermes-agent",
+            configDir: ".hermes", configFile: "config.yaml", configDirEnvOverride: "HERMES_HOME",
+            binaryName: "hermes",
+            sessionStoreSuffix: "hermes-agent", disableEnvVar: "CMUX_HERMES_AGENT_HOOKS_DISABLED",
+            hookMarker: "cmux hooks hermes-agent", format: .hermesAgentYAML,
+            events: [
+                .init(agentEvent: "on_session_start", cmuxSubcommand: "session-start"),
+                .init(agentEvent: "pre_llm_call", cmuxSubcommand: "prompt-submit"),
+                .init(agentEvent: "post_llm_call", cmuxSubcommand: "agent-response"),
+                .init(agentEvent: "on_session_end", cmuxSubcommand: "session-end"),
+                .init(agentEvent: "on_session_finalize", cmuxSubcommand: "session-end"),
+                .init(agentEvent: "on_session_reset", cmuxSubcommand: "session-start"),
+            ],
+            feedHookEvents: ["pre_tool_call", "post_tool_call", "pre_approval_request"]
+        ),
+        AgentHookDef(
             name: "copilot", displayName: "Copilot", statusKey: "copilot",
             configDir: ".copilot", configFile: "config.json", configDirEnvOverride: "COPILOT_HOME",
             sessionStoreSuffix: "copilot", disableEnvVar: "CMUX_COPILOT_HOOKS_DISABLED",
@@ -15835,7 +15852,7 @@ struct CMUXCLI {
                     "hooks": [["type": "command", "command": cmd, "timeout": timeoutMs] as [String: Any]]
                 ] as [String: Any])
                 result[event.agentEvent] = groups
-            case .rovoDevYAML:
+            case .rovoDevYAML, .hermesAgentYAML:
                 break
             }
         }
@@ -15856,7 +15873,7 @@ struct CMUXCLI {
                     "hooks": [["type": "command", "command": feedCmd, "timeout": feedTimeoutMs] as [String: Any]]
                 ] as [String: Any])
                 result[agentEvent] = groups
-            case .rovoDevYAML:
+            case .rovoDevYAML, .hermesAgentYAML:
                 break
             }
         }
@@ -16178,7 +16195,7 @@ export default CMUXSessionRestore;
             return
         }
 
-        let oldString = try readRovoDevConfig(filePath: filePath, displayName: def.displayName)
+        let oldString = try readAgentHookConfig(filePath: filePath, displayName: def.displayName)
         let newString = try rovoDevHooksContent(existing: oldString, def: def, shouldInstall: true)
         if oldString == newString {
             print("\(def.displayName) hooks already up to date at \(filePath)")
@@ -16210,7 +16227,7 @@ export default CMUXSessionRestore;
             print("No \(def.configFile) found at \(filePath)")
             return
         }
-        let oldString = try readRovoDevConfig(filePath: filePath, displayName: def.displayName)
+        let oldString = try readAgentHookConfig(filePath: filePath, displayName: def.displayName)
         let newString = try rovoDevHooksContent(existing: oldString, def: def, shouldInstall: false)
         guard oldString != newString else {
             print("Removed 0 cmux hook(s) from \(filePath)")
@@ -16220,7 +16237,7 @@ export default CMUXSessionRestore;
         print("Removed Rovo Dev cmux hooks from \(filePath)")
     }
 
-    private func readRovoDevConfig(filePath: String, displayName: String) throws -> String {
+    private func readAgentHookConfig(filePath: String, displayName: String) throws -> String {
         let fm = FileManager.default
         guard fm.fileExists(atPath: filePath) else { return "" }
         do {
@@ -16247,6 +16264,102 @@ export default CMUXSessionRestore;
         return RovoDevHookConfig.uninstalling(from: existing)
     }
 
+    private func hermesAgentShellCommand(_ script: String) -> String {
+        "sh -c \(shellQuote(script))"
+    }
+
+    private func hermesAgentEvents(def: AgentHookDef) -> [HermesAgentHookConfig.Event] {
+        var events = def.events.map { event in
+            HermesAgentHookConfig.Event(
+                name: event.agentEvent,
+                command: hermesAgentShellCommand(hookCommand(for: def, event: event)),
+                timeout: 5
+            )
+        }
+        events.append(contentsOf: def.feedHookEvents.map { agentEvent in
+            HermesAgentHookConfig.Event(
+                name: agentEvent,
+                command: hermesAgentShellCommand(feedHookCommand(for: def, agentEvent: agentEvent)),
+                timeout: 120
+            )
+        })
+        return events
+    }
+
+    private func installHermesAgentHooks(_ def: AgentHookDef) throws {
+        let fm = FileManager.default
+        let configDir = def.resolvedConfigDir()
+        let filePath = "\(configDir)/\(def.configFile)"
+        let allowlistPath = "\(configDir)/shell-hooks-allowlist.json"
+        let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
+            || ProcessInfo.processInfo.arguments.contains("-y")
+
+        guard fm.fileExists(atPath: configDir) else {
+            print("~/\(def.configDir)/ does not exist. Install \(def.displayName) first.")
+            return
+        }
+
+        let events = hermesAgentEvents(def: def)
+        let oldString = try readAgentHookConfig(filePath: filePath, displayName: def.displayName)
+        let newString = HermesAgentHookConfig.installing(events: events, in: oldString)
+
+        if oldString != newString {
+            if !skipConfirm {
+                Self.printInstallPreview(
+                    path: filePath,
+                    oldContent: oldString,
+                    newContent: newString,
+                    fallbackContent: newString
+                )
+                print("\nProceed? [y/N] ", terminator: "")
+                guard readLine()?.lowercased().hasPrefix("y") == true else {
+                    print("Aborted.")
+                    return
+                }
+            }
+            try newString.write(toFile: filePath, atomically: true, encoding: .utf8)
+            print("\(def.displayName) hooks installed at \(filePath)")
+        } else {
+            print("\(def.displayName) hooks already up to date at \(filePath)")
+        }
+
+        let oldAllowlist = fm.contents(atPath: allowlistPath)
+        let newAllowlist = try HermesAgentHookAllowlist.installing(events: events, in: oldAllowlist)
+        if oldAllowlist != newAllowlist {
+            try newAllowlist.write(to: URL(fileURLWithPath: allowlistPath), options: .atomic)
+            print("Approved \(def.displayName) cmux shell hooks in \(allowlistPath)")
+        }
+    }
+
+    private func uninstallHermesAgentHooks(_ def: AgentHookDef) throws {
+        let fm = FileManager.default
+        let configDir = def.resolvedConfigDir()
+        let filePath = "\(configDir)/\(def.configFile)"
+        let allowlistPath = "\(configDir)/shell-hooks-allowlist.json"
+        let events = hermesAgentEvents(def: def)
+
+        if fm.fileExists(atPath: filePath) {
+            let oldString = try readAgentHookConfig(filePath: filePath, displayName: def.displayName)
+            let newString = HermesAgentHookConfig.uninstalling(from: oldString)
+            if oldString != newString {
+                try newString.write(toFile: filePath, atomically: true, encoding: .utf8)
+                print("Removed Hermes Agent cmux hooks from \(filePath)")
+            } else {
+                print("Removed 0 cmux hook(s) from \(filePath)")
+            }
+        } else {
+            print("No \(def.configFile) found at \(filePath)")
+        }
+
+        guard fm.fileExists(atPath: allowlistPath) else { return }
+        let oldAllowlist = fm.contents(atPath: allowlistPath)
+        let newAllowlist = try HermesAgentHookAllowlist.uninstalling(events: events, from: oldAllowlist)
+        if oldAllowlist != newAllowlist {
+            try newAllowlist.write(to: URL(fileURLWithPath: allowlistPath), options: .atomic)
+            print("Removed Hermes Agent cmux shell hook approvals from \(allowlistPath)")
+        }
+    }
+
     private func installAgentHooks(_ def: AgentHookDef) throws {
         if def.name == "opencode" {
             try installOpenCodePluginHooks(def)
@@ -16254,6 +16367,10 @@ export default CMUXSessionRestore;
         }
         if def.name == "rovodev" {
             try installRovoDevHooks(def)
+            return
+        }
+        if def.name == "hermes-agent" {
+            try installHermesAgentHooks(def)
             return
         }
 
@@ -16313,7 +16430,7 @@ export default CMUXSessionRestore;
                     rewrittenGroups.append(group)
                 }
                 hooks[event] = rewrittenGroups.isEmpty ? nil : rewrittenGroups
-            case .rovoDevYAML:
+            case .rovoDevYAML, .hermesAgentYAML:
                 break
             }
         }
@@ -16329,7 +16446,7 @@ export default CMUXSessionRestore;
                 var groups = hooks[event] as? [[String: Any]] ?? []
                 if let newGroups = value as? [[String: Any]] { groups.append(contentsOf: newGroups) }
                 hooks[event] = groups
-            case .rovoDevYAML:
+            case .rovoDevYAML, .hermesAgentYAML:
                 break
             }
         }
@@ -16427,6 +16544,10 @@ export default CMUXSessionRestore;
             try uninstallRovoDevHooks(def)
             return
         }
+        if def.name == "hermes-agent" {
+            try uninstallHermesAgentHooks(def)
+            return
+        }
 
         let fm = FileManager.default
         let configDir = def.resolvedConfigDir()
@@ -16469,7 +16590,7 @@ export default CMUXSessionRestore;
                     rewrittenGroups.append(group)
                 }
                 hooks[event] = rewrittenGroups.isEmpty ? nil : rewrittenGroups
-            case .rovoDevYAML:
+            case .rovoDevYAML, .hermesAgentYAML:
                 break
             }
         }
@@ -18839,6 +18960,7 @@ export default CMUXSessionRestore;
             case "cursor":   envKey = "CMUX_CURSOR_PID"
             case "gemini":   envKey = "CMUX_GEMINI_PID"
             case "rovodev":  envKey = "CMUX_ROVODEV_PID"
+            case "hermes-agent": envKey = "CMUX_HERMES_AGENT_PID"
             case "copilot":  envKey = "CMUX_COPILOT_PID"
             default:         envKey = ""
             }
@@ -18982,6 +19104,32 @@ export default CMUXSessionRestore;
             }
         }
 
+        if source == "hermes-agent" {
+            switch event {
+            case "pre_tool_call":
+                if Self.sideEffectingTools.contains(toolName) {
+                    return ("PermissionRequest", true)
+                }
+                return ("PreToolUse", false)
+            case "post_tool_call":
+                return ("PostToolUse", false)
+            case "pre_approval_request":
+                return ("Notification", false)
+            case "post_approval_response":
+                return ("Notification", false)
+            case "pre_llm_call":
+                return ("UserPromptSubmit", false)
+            case "post_llm_call":
+                return ("Stop", false)
+            case "on_session_start":
+                return ("SessionStart", false)
+            case "on_session_end", "on_session_finalize":
+                return ("SessionEnd", false)
+            default:
+                return ("PreToolUse", false)
+            }
+        }
+
         switch event {
         case "PreToolUse", "beforeShellExecution":
             if source == "codex" { return ("PreToolUse", false) }
@@ -19033,6 +19181,7 @@ export default CMUXSessionRestore;
         "NotebookEdit",
         "apply_patch",   // Codex
         "shell",         // Codex / other agents
+        "terminal",      // Hermes Agent
     ]
 
     private static let skipInterviewAndPlanAnswer = "Skip interview and plan immediately"
@@ -19121,6 +19270,10 @@ export default CMUXSessionRestore;
             return out
         }
 
+        func hermesAgentBlock(_ message: String) -> String {
+            encode(["action": "block", "message": message])
+        }
+
         switch kind {
         case "permission":
             let mode = decision["mode"] as? String ?? "deny"
@@ -19148,6 +19301,12 @@ export default CMUXSessionRestore;
                     ))
                 }
                 return encode(permissionRequestHookDecision(behavior: "allow"))
+            }
+            if source == "hermes-agent" {
+                if mode == "deny" {
+                    return hermesAgentBlock("User denied permission via cmux Feed.")
+                }
+                return "{}"
             }
             if mode == "deny" {
                 return encode(nonClaudePreToolDecision(
@@ -19200,6 +19359,15 @@ export default CMUXSessionRestore;
                     updatedInput: jsonDictionary(from: toolInput),
                     updatedPermissions: updatedPermissions
                 ))
+            }
+            if source == "hermes-agent" {
+                if let feedback, !feedback.isEmpty {
+                    return hermesAgentBlock("User rejected the plan via cmux Feed and wants this change: \(feedback)")
+                }
+                if mode == "deny" {
+                    return hermesAgentBlock("User rejected the plan via cmux Feed.")
+                }
+                return "{}"
             }
             if let feedback, !feedback.isEmpty {
                 let reason = "User rejected the plan via cmux Feed and wants this change: \(feedback)"
@@ -19254,6 +19422,17 @@ export default CMUXSessionRestore;
                     reason: message,
                     additionalContext: message
                 ))
+            }
+            if source == "hermes-agent" {
+                let body: String
+                if selections.isEmpty {
+                    body = "The user submitted an empty answer."
+                } else if selections.count == 1 {
+                    body = "The user answered: \(selections[0])"
+                } else {
+                    body = "The user answered: \(selections.joined(separator: ", "))"
+                }
+                return hermesAgentBlock(body)
             }
             if source == "claude" {
                 let updatedInput = claudeAskUserQuestionInput(

@@ -12,6 +12,7 @@ enum SessionAgent: String, CaseIterable, Identifiable, Hashable, Codable, Sendab
     case codex
     case opencode
     case rovodev
+    case hermesAgent = "hermes-agent"
 
     var id: String { rawValue }
 }
@@ -82,6 +83,7 @@ enum AgentSpecifics: Hashable {
     case codex(model: String?, approvalPolicy: String?, sandboxMode: String?, effort: String?)
     case opencode(providerModel: String?, agentName: String?)
     case rovodev
+    case hermesAgent(source: String?, model: String?)
 }
 
 struct SessionEntry: Identifiable, Hashable {
@@ -139,6 +141,16 @@ struct SessionEntry: Identifiable, Hashable {
             return parts.joined(separator: " ")
         case .rovodev:
             return "acli rovodev run --restore \(Self.shellQuote(sessionId))"
+        case let .hermesAgent(source, model):
+            var parts = ["hermes"]
+            if source == "tui" {
+                parts.append("--tui")
+            }
+            parts.append("--resume \(Self.shellQuote(sessionId))")
+            if let model, !model.isEmpty {
+                parts.append("--model \(Self.shellQuote(model))")
+            }
+            return parts.joined(separator: " ")
         }
     }
 
@@ -725,7 +737,11 @@ final class SessionIndexStore: ObservableObject {
             needle: "", agent: .rovodev, cwdFilter: cwdFilter,
             offset: 0, limit: bigLimit, errorBag: bag
         )
-        var merged = (await c) + (await x) + (await o) + (await r)
+        async let h = Self.timedAgent(
+            needle: "", agent: .hermesAgent, cwdFilter: cwdFilter,
+            offset: 0, limit: bigLimit, errorBag: bag
+        )
+        var merged = (await c) + (await x) + (await o) + (await r) + (await h)
         if Task.isCancelled {
             return DirectorySnapshot(cwd: key, entries: [], errors: [])
         }
@@ -797,7 +813,8 @@ final class SessionIndexStore: ObservableObject {
         async let codex = loadCodexEntries(needle: "", cwdFilter: nil, offset: 0, limit: perAgentLimit, errorBag: bag)
         async let opencode = loadOpenCodeEntries(needle: "", cwdFilter: nil, offset: 0, limit: perAgentLimit, errorBag: bag)
         async let rovodev = loadRovoDevEntries(needle: "", cwdFilter: nil, offset: 0, limit: perAgentLimit, errorBag: bag)
-        let combined = await claude + codex + opencode + rovodev
+        async let hermesAgent = loadHermesAgentEntries(needle: "", cwdFilter: nil, offset: 0, limit: perAgentLimit, errorBag: bag)
+        let combined = await claude + codex + opencode + rovodev + hermesAgent
         return combined.sorted { $0.modified > $1.modified }
     }
 
@@ -1309,7 +1326,11 @@ final class SessionIndexStore: ObservableObject {
                 needle: needle, agent: .rovodev, cwdFilter: cwdFilter,
                 offset: 0, limit: target, errorBag: bag
             )
-            let merged = (await c) + (await x) + (await o) + (await r)
+            async let h = Self.timedAgent(
+                needle: needle, agent: .hermesAgent, cwdFilter: cwdFilter,
+                offset: 0, limit: target, errorBag: bag
+            )
+            let merged = (await c) + (await x) + (await o) + (await r) + (await h)
             let sorted = merged.sorted { $0.modified > $1.modified }
             entries = Array(sorted.dropFirst(offset).prefix(limit))
         }
@@ -1340,6 +1361,7 @@ final class SessionIndexStore: ObservableObject {
         case .codex: return await loadCodexEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
         case .opencode: return loadOpenCodeEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
         case .rovodev: return loadRovoDevEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
+        case .hermesAgent: return loadHermesAgentEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
         }
     }
 

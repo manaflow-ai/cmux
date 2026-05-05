@@ -91,6 +91,7 @@ extension CMUXCLI {
             ],
             commands: [
                 "cmux codex install-hooks",
+                "cmux hooks hermes-agent install",
                 "cmux hooks opencode install",
                 "cmux hooks setup",
             ]

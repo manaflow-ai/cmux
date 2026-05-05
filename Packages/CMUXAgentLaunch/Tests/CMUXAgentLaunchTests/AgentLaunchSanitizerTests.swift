@@ -35,4 +35,43 @@ struct AgentLaunchSanitizerTests {
             ) == ["cursor-agent", "--model", "gpt-5.4", "--sandbox", "enabled"]
         )
     }
+
+    @Test("Preserves Hermes inherited flags without replaying startup-only input")
+    func preservesHermesInheritedFlagsWithoutReplayingStartupOnlyInput() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "hermes",
+                    "--profile",
+                    "work",
+                    "--tui",
+                    "--skills",
+                    "github-auth",
+                    "-s",
+                    "hermes-agent-dev",
+                    "--api-key",
+                    "secret",
+                    "--image",
+                    "/tmp/cat.png",
+                    "--worktree",
+                    "--resume",
+                    "old-session",
+                    "--source",
+                    "cli",
+                    "initial prompt should not replay"
+                ],
+                launcher: "hermes-agent",
+                fallbackKind: "hermes-agent"
+            ) == [
+                "hermes",
+                "--profile",
+                "work",
+                "--tui",
+                "--skills",
+                "github-auth",
+                "-s",
+                "hermes-agent-dev"
+            ]
+        )
+    }
 }

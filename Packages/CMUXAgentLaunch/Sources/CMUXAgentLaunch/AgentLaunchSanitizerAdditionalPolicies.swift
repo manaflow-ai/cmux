@@ -385,4 +385,96 @@ extension AgentLaunchSanitizer {
             "-o"
         ]
     )
+
+    static let hermesAgentNonRestorableCommands: Set<String> = [
+        "acp",
+        "auth",
+        "backup",
+        "config",
+        "cron",
+        "curator",
+        "debug",
+        "doctor",
+        "gateway",
+        "help",
+        "hooks",
+        "import",
+        "kanban",
+        "logs",
+        "mcp",
+        "model",
+        "plugins",
+        "setup",
+        "sessions",
+        "skills",
+        "status",
+        "tools",
+        "uninstall",
+        "update",
+        "version"
+    ]
+
+    static let hermesAgentPolicy = Policy(
+        valueOptions: [
+            "--api-key",
+            "--base-url",
+            "--image",
+            "--max-turns",
+            "--model",
+            "-m",
+            "--profile",
+            "-p",
+            "--provider",
+            "--resume",
+            "-r",
+            "--skills",
+            "-s",
+            "--source",
+            "--toolsets",
+            "-t"
+        ],
+        optionalValueOptions: [
+            "--continue",
+            "-c"
+        ],
+        variadicOptions: [
+            "--skills",
+            "-s"
+        ],
+        nonRestorableCommands: hermesAgentNonRestorableCommands,
+        droppedOptions: [
+            "--api-key",
+            "--continue",
+            "-c",
+            "--image",
+            "--resume",
+            "-r",
+            "--source",
+            "--verbose",
+            "-v",
+            "--worktree",
+            "-w"
+        ],
+        droppedOptionPrefixes: [
+            "--api-key=",
+            "--continue=",
+            "-c=",
+            "--image=",
+            "--resume=",
+            "-r=",
+            "--source=",
+            "--worktree=",
+            "-w="
+        ],
+        rejectOptions: [
+            "--oneshot",
+            "-z",
+            "--query",
+            "-q",
+            "--quiet",
+            "-Q",
+            "--list-tools",
+            "--list-toolsets"
+        ]
+    )
 }
