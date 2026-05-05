@@ -324,10 +324,12 @@ jobs:
 workflows:
   ci-trusted:
     when:
-      not:
-        matches:
-          pattern: "^pull/.*"
-          value: << pipeline.git.branch >>
+      and:
+        - << pipeline.git.branch >>
+        - not:
+            matches:
+              pattern: "^pull/.*"
+              value: << pipeline.git.branch >>
     jobs:
       - macos-unit-tests
       - macos-debug-build
@@ -335,9 +337,11 @@ workflows:
 
   ci-gated:
     when:
-      matches:
-        pattern: "^pull/.*"
-        value: << pipeline.git.branch >>
+      or:
+        - matches:
+            pattern: "^pull/.*"
+            value: << pipeline.git.branch >>
+        - << pipeline.git.tag >>
     jobs:
       - hold-for-approval:
           type: approval
