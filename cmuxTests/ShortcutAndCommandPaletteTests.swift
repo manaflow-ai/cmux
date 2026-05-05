@@ -388,7 +388,7 @@ final class FullScreenShortcutTests: XCTestCase {
 }
 
 
-final class CommandPaletteKeyboardNavigationTests: XCTestCase {
+@MainActor final class CommandPaletteKeyboardNavigationTests: XCTestCase {
     func testArrowKeysMoveSelectionWithoutModifiers() {
         XCTAssertEqual(
             commandPaletteSelectionDeltaForKeyboardNavigation(
@@ -1598,25 +1598,6 @@ final class LastSurfaceCloseShortcutSettingsTests: XCTestCase {
         XCTAssertFalse(LastSurfaceCloseShortcutSettings.closesWorkspace(defaults: defaults))
     }
 }
-
-
-final class AppearanceSettingsTests: XCTestCase {
-    func testResolvedModeDefaultsToSystemWhenUnset() {
-        let suiteName = "AppearanceSettingsTests.Default.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        defaults.removeObject(forKey: AppearanceSettings.appearanceModeKey)
-
-        let resolved = AppearanceSettings.resolvedMode(defaults: defaults)
-        XCTAssertEqual(resolved, .system)
-        XCTAssertEqual(defaults.string(forKey: AppearanceSettings.appearanceModeKey), AppearanceMode.system.rawValue)
-    }
-}
-
 
 final class QuitWarningSettingsTests: XCTestCase {
     func testDefaultWarnBeforeQuitIsEnabledWhenUnset() {

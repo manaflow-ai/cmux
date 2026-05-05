@@ -952,7 +952,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertEqual(invalidPrimaryStore.activeSourcePath, primaryURL.path)
     }
 
-    func testShortcutSettingsFileOverridesPersistedShortcutValues() throws {
+    func testPersistedShortcutOverridesSettingsFileShortcutValues() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
@@ -981,10 +981,9 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
 
         XCTAssertEqual(
             KeyboardShortcutSettings.shortcut(for: .newTab),
-            StoredShortcut(key: "b", command: false, shift: false, option: false, control: true, chordKey: "c")
+            StoredShortcut(key: "n", command: true, shift: false, option: false, control: false)
         )
         XCTAssertTrue(KeyboardShortcutSettings.isManagedBySettingsFile(.newTab))
-        XCTAssertNotNil(KeyboardShortcutSettings.settingsFileManagedSubtitle(for: .newTab))
     }
 
     @MainActor
@@ -1034,16 +1033,14 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         )
     }
 
-    func testManagedShortcutWritesDoNotOverwritePersistedValue() throws {
+    func testSettingsFileShortcutCanBeOverriddenFromUI() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
         let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
         let missingSettingsFileURL = directoryURL.appendingPathComponent("missing.json", isDirectory: false)
-        let persistedShortcut = StoredShortcut(key: "n", command: true, shift: false, option: false, control: false)
+        let editedShortcut = StoredShortcut(key: "n", command: true, shift: false, option: false, control: false)
         let managedShortcut = StoredShortcut(key: "b", command: false, shift: false, option: false, control: true, chordKey: "c")
-
-        KeyboardShortcutSettings.setShortcut(persistedShortcut, for: .newTab)
 
         try writeSettingsFile(
             """
@@ -1065,9 +1062,13 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .newTab), managedShortcut)
 
         KeyboardShortcutSettings.setShortcut(
-            StoredShortcut(key: "t", command: true, shift: false, option: false, control: false),
+            editedShortcut,
             for: .newTab
         )
+
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .newTab), editedShortcut)
+
+        KeyboardShortcutSettings.resetShortcut(for: .newTab)
 
         XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .newTab), managedShortcut)
 
@@ -1078,7 +1079,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         )
 
         XCTAssertFalse(KeyboardShortcutSettings.isManagedBySettingsFile(.newTab))
-        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .newTab), persistedShortcut)
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .newTab), KeyboardShortcutSettings.Action.newTab.defaultShortcut)
     }
 
     func testSystemWideHotkeySettingsPreserveInvalidManagedShortcutWithoutFallingBackToDefault() throws {
@@ -1961,7 +1962,6 @@ final class StoredShortcutMatchingTests: XCTestCase {
             ),
             action: .openBrowser,
             currentShortcut: KeyboardShortcutSettings.Action.openBrowser.defaultShortcut,
-            isManagedBySettingsFile: { _ in false },
             shortcutForAction: { $0.defaultShortcut }
         )
 
@@ -1979,7 +1979,6 @@ final class StoredShortcutMatchingTests: XCTestCase {
             ),
             action: .openBrowser,
             currentShortcut: KeyboardShortcutSettings.Action.openBrowser.defaultShortcut,
-            isManagedBySettingsFile: { _ in false },
             shortcutForAction: { $0.defaultShortcut }
         )
 
@@ -2824,6 +2823,30 @@ final class WorkspaceReorderTests: XCTestCase {
         XCTAssertTrue(manager.reorderWorkspace(tabId: firstPinned.id, toIndex: 999))
         XCTAssertEqual(manager.tabs.map(\.id), [secondPinned.id, firstPinned.id, unpinned.id])
     }
+
+    @MainActor
+    func testDetachedWorkspaceInsertionOverrideClampsAfterPinnedSegment() {
+        let manager = TabManager()
+        let firstPinned = manager.tabs[0]
+        manager.setPinned(firstPinned, pinned: true)
+        let secondPinned = manager.addWorkspace()
+        manager.setPinned(secondPinned, pinned: true)
+        let source = manager.addWorkspace()
+        manager.selectWorkspace(source)
+
+        guard let panelId = source.focusedPanelId,
+              let detached = source.detachSurface(panelId: panelId),
+              let inserted = manager.addWorkspace(
+                fromDetachedSurface: detached,
+                insertionIndexOverride: 0
+              ) else {
+            XCTFail("Expected detached workspace insertion to succeed")
+            return
+        }
+
+        XCTAssertEqual(manager.tabs.map(\.id), [firstPinned.id, secondPinned.id, inserted.id, source.id])
+        XCTAssertFalse(inserted.isPinned)
+    }
 }
 
 @MainActor
@@ -2913,6 +2936,23 @@ final class WorkspaceTeardownTests: XCTestCase {
         XCTAssertTrue(workspace.panelCustomTitles.isEmpty)
         XCTAssertTrue(workspace.pinnedPanelIds.isEmpty)
         XCTAssertTrue(workspace.manualUnreadPanelIds.isEmpty)
+    }
+
+    func testDisabledPortalRenderingDoesNotRestoreTerminalVisibility() throws {
+#if DEBUG
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let terminalPanel = try XCTUnwrap(workspace.terminalPanel(for: panelId))
+
+        terminalPanel.hostedView.setVisibleInUI(true)
+        workspace.setPortalRenderingEnabled(false, reason: "test")
+        XCTAssertFalse(terminalPanel.hostedView.debugPortalVisibleInUI)
+
+        workspace.debugReconcileTerminalPortalVisibilityForTesting()
+        XCTAssertFalse(terminalPanel.hostedView.debugPortalVisibleInUI)
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
     }
 }
 

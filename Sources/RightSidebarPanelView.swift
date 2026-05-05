@@ -21,7 +21,7 @@ enum RightSidebarMode: String, CaseIterable {
         switch self {
         case .files: return String(localized: "rightSidebar.mode.files", defaultValue: "Files")
         case .find: return String(localized: "rightSidebar.mode.find", defaultValue: "Find")
-        case .sessions: return String(localized: "rightSidebar.mode.sessions", defaultValue: "Sessions")
+        case .sessions: return String(localized: "rightSidebar.mode.sessions", defaultValue: "Vault")
         case .feed: return String(localized: "rightSidebar.mode.feed", defaultValue: "Feed")
         case .dock: return String(localized: "rightSidebar.mode.dock", defaultValue: "Dock")
         }
@@ -31,7 +31,7 @@ enum RightSidebarMode: String, CaseIterable {
         switch self {
         case .files: return "folder"
         case .find: return "magnifyingglass"
-        case .sessions: return "bubble.left.and.text.bubble.right"
+        case .sessions: return "books.vertical"
         case .feed: return "dot.radiowaves.left.and.right"
         case .dock: return "dock.rectangle"
         }

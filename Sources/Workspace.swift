@@ -23,40 +23,6 @@ private func debugWorkspaceDescriptionPreview(_ text: String?, limit: Int = 120)
 }
 #endif
 
-struct CmuxSurfaceConfigTemplate {
-    var fontSize: Float32 = 0
-    var workingDirectory: String?
-    var command: String?
-    var environmentVariables: [String: String] = [:]
-    var initialInput: String?
-    var waitAfterCommand: Bool = false
-
-    init() {}
-
-    init(cConfig: ghostty_surface_config_s) {
-        fontSize = cConfig.font_size
-        if let workingDirectory = cConfig.working_directory {
-            self.workingDirectory = String(cString: workingDirectory, encoding: .utf8)
-        }
-        if let command = cConfig.command {
-            self.command = String(cString: command, encoding: .utf8)
-        }
-        if let initialInput = cConfig.initial_input {
-            self.initialInput = String(cString: initialInput, encoding: .utf8)
-        }
-        if cConfig.env_var_count > 0, let envVars = cConfig.env_vars {
-            for index in 0..<Int(cConfig.env_var_count) {
-                let envVar = envVars[index]
-                if let key = String(cString: envVar.key, encoding: .utf8),
-                   let value = String(cString: envVar.value, encoding: .utf8) {
-                    environmentVariables[key] = value
-                }
-            }
-        }
-        waitAfterCommand = cConfig.wait_after_command
-    }
-}
-
 enum WorkspacePendingTerminalInputReason {
     case configurationCommand
 }
@@ -72,76 +38,6 @@ enum WorkspacePendingTerminalInputPolicy {
 
 private final class WorkspacePendingTerminalInputObserver: @unchecked Sendable {
     var observer: NSObjectProtocol?
-}
-
-func cmuxSurfaceContextName(_ context: ghostty_surface_context_e) -> String {
-    switch context {
-    case GHOSTTY_SURFACE_CONTEXT_WINDOW:
-        return "window"
-    case GHOSTTY_SURFACE_CONTEXT_TAB:
-        return "tab"
-    case GHOSTTY_SURFACE_CONTEXT_SPLIT:
-        return "split"
-    default:
-        return "unknown(\(context))"
-    }
-}
-
-private func cmuxPointerAppearsLive(_ pointer: UnsafeMutableRawPointer?) -> Bool {
-    guard let pointer,
-          malloc_zone_from_ptr(pointer) != nil else {
-        return false
-    }
-    return malloc_size(pointer) > 0
-}
-
-func cmuxSurfacePointerAppearsLive(_ surface: ghostty_surface_t) -> Bool {
-    // Best-effort check: reject pointers that no longer belong to an active
-    // malloc zone allocation. A Swift wrapper around `ghostty_surface_t` can
-    // remain non-nil after the backing native surface has already been freed.
-    cmuxPointerAppearsLive(surface)
-}
-
-func cmuxCurrentSurfaceFontSizePoints(_ surface: ghostty_surface_t) -> Float? {
-    guard cmuxSurfacePointerAppearsLive(surface) else {
-        return nil
-    }
-
-    guard let quicklookFont = ghostty_surface_quicklook_font(surface) else {
-        return nil
-    }
-
-    let ctFont = Unmanaged<CTFont>.fromOpaque(quicklookFont).takeUnretainedValue()
-    let points = Float(CTFontGetSize(ctFont))
-    guard points > 0 else { return nil }
-    return points
-}
-
-func cmuxInheritedSurfaceConfig(
-    sourceSurface: ghostty_surface_t,
-    context: ghostty_surface_context_e
-) -> CmuxSurfaceConfigTemplate {
-    let inherited = ghostty_surface_inherited_config(sourceSurface, context)
-    var config = CmuxSurfaceConfigTemplate(cConfig: inherited)
-
-    // Make runtime zoom inheritance explicit, even when Ghostty's
-    // inherit-font-size config is disabled.
-    let runtimePoints = cmuxCurrentSurfaceFontSizePoints(sourceSurface)
-    if let points = runtimePoints {
-        config.fontSize = points
-    }
-
-#if DEBUG
-    let inheritedText = String(format: "%.2f", inherited.font_size)
-    let runtimeText = runtimePoints.map { String(format: "%.2f", $0) } ?? "nil"
-    let finalText = String(format: "%.2f", config.fontSize)
-    cmuxDebugLog(
-        "zoom.inherit context=\(cmuxSurfaceContextName(context)) " +
-        "inherited=\(inheritedText) runtime=\(runtimeText) final=\(finalText)"
-    )
-#endif
-
-    return config
 }
 
 struct SidebarStatusEntry: Equatable {
@@ -7305,6 +7201,7 @@ final class Workspace: Identifiable, ObservableObject {
     let bonsplitController: BonsplitController
     private struct SurfaceTabBarExecutableButton {
         let button: CmuxSurfaceTabBarButton
+        let builtInAction: CmuxSurfaceTabBarBuiltInAction?
         let workspaceCommand: CmuxResolvedCommand?
         let terminalCommandSourcePath: String?
     }
@@ -8027,6 +7924,7 @@ final class Workspace: Identifiable, ObservableObject {
                         button.id,
                         SurfaceTabBarExecutableButton(
                             button: button,
+                            builtInAction: nil,
                             workspaceCommand: nil,
                             terminalCommandSourcePath: button.actionSourcePath ?? terminalCommandSourcePaths[button.id]
                         )
@@ -8037,7 +7935,20 @@ final class Workspace: Identifiable, ObservableObject {
                         button.id,
                         SurfaceTabBarExecutableButton(
                             button: button,
+                            builtInAction: nil,
                             workspaceCommand: workspaceCommand,
+                            terminalCommandSourcePath: nil
+                        )
+                    )
+                }
+                if case .builtIn(let builtInAction) = button.action,
+                   builtInAction.bonsplitAction == nil {
+                    return (
+                        button.id,
+                        SurfaceTabBarExecutableButton(
+                            button: button,
+                            builtInAction: builtInAction,
+                            workspaceCommand: nil,
                             terminalCommandSourcePath: nil
                         )
                     )
@@ -8126,6 +8037,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var layoutFollowUpAttemptScheduled = false
     private var layoutFollowUpAttemptVersion: Int = 0
     private var layoutFollowUpStalledAttemptCount = 0
+    private var portalRenderingEnabled = true
     private var isAttemptingLayoutFollowUp = false
     private var isNormalizingPinnedTabOrder = false
     private var pendingNonFocusSplitFocusReassert: PendingNonFocusSplitFocusReassert?
@@ -10682,6 +10594,8 @@ final class Workspace: Identifiable, ObservableObject {
         // Hide portal-hosted content up front so a workspace being torn down
         // cannot keep drawing above the next selected/restored workspace while
         // panel close work is still unwinding.
+        portalRenderingEnabled = false
+        clearLayoutFollowUp()
         hideAllTerminalPortalViews()
         hideAllBrowserPortalViews()
         let panelEntries = Array(panels)
@@ -11079,11 +10993,11 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @discardableResult
-    func reorderSurface(panelId: UUID, toIndex index: Int) -> Bool {
+    func reorderSurface(panelId: UUID, toIndex index: Int, focus: Bool = true) -> Bool {
         guard let tabId = surfaceIdFromPanelId(panelId) else { return false }
         guard bonsplitController.reorderTab(tabId, toIndex: index) else { return false }
 
-        if let paneId = paneId(forPanelId: panelId) {
+        if focus, let paneId = paneId(forPanelId: panelId) {
             applyTabSelection(tabId: tabId, inPane: paneId)
         } else {
             scheduleFocusReconcile()
@@ -11698,6 +11612,23 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    func setPortalRenderingEnabled(_ enabled: Bool, reason: String) {
+        let changed = portalRenderingEnabled != enabled
+        portalRenderingEnabled = enabled
+        if enabled {
+            if changed {
+                beginEventDrivenLayoutFollowUp(
+                    reason: reason,
+                    includeGeometry: true
+                )
+            }
+        } else {
+            clearLayoutFollowUp()
+            hideAllTerminalPortalViews()
+            hideAllBrowserPortalViews()
+        }
+    }
+
     // MARK: - Utility
 
     /// Writes a small shell wrapper that prints a banner ("remote ssh ended — target X"),
@@ -11813,6 +11744,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func reconcileFocusState() {
+        guard portalRenderingEnabled else { return }
         guard !isReconcilingFocusState else { return }
         isReconcilingFocusState = true
         defer { isReconcilingFocusState = false }
@@ -11869,6 +11801,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// Reconcile focus/first-responder convergence.
     /// Coalesce to the next main-queue turn so bonsplit selection/pane mutations settle first.
     private func scheduleFocusReconcile() {
+        guard portalRenderingEnabled else { return }
 #if DEBUG
         if isDetachingCloseTransaction {
             debugFocusReconcileScheduledDuringDetachCount += 1
@@ -11878,6 +11811,10 @@ final class Workspace: Identifiable, ObservableObject {
         focusReconcileScheduled = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            guard self.portalRenderingEnabled else {
+                self.focusReconcileScheduled = false
+                return
+            }
             self.focusReconcileScheduled = false
             self.reconcileFocusState()
         }
@@ -11890,6 +11827,7 @@ final class Workspace: Identifiable, ObservableObject {
         terminalFocusPanelId: UUID? = nil,
         includeGeometry: Bool = false
     ) {
+        guard portalRenderingEnabled else { return }
         layoutFollowUpReason = reason
         if let browserPanelId {
             layoutFollowUpBrowserPanelId = browserPanelId
@@ -12014,6 +11952,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func scheduleLayoutFollowUpAttempt() {
+        guard portalRenderingEnabled else { return }
         guard layoutFollowUpTimeoutWorkItem != nil else { return }
         guard !layoutFollowUpAttemptScheduled else { return }
 
@@ -12023,6 +11962,11 @@ final class Workspace: Identifiable, ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self else { return }
             guard self.layoutFollowUpAttemptVersion == version else { return }
+            guard self.portalRenderingEnabled else {
+                self.layoutFollowUpAttemptScheduled = false
+                self.clearLayoutFollowUp()
+                return
+            }
             self.layoutFollowUpAttemptScheduled = false
             self.attemptEventDrivenLayoutFollowUp()
         }
@@ -12087,6 +12031,12 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func attemptEventDrivenLayoutFollowUp() {
         guard layoutFollowUpTimeoutWorkItem != nil, !isAttemptingLayoutFollowUp else { return }
+        guard portalRenderingEnabled else {
+            clearLayoutFollowUp()
+            hideAllTerminalPortalViews()
+            hideAllBrowserPortalViews()
+            return
+        }
         isAttemptingLayoutFollowUp = true
         defer { isAttemptingLayoutFollowUp = false }
 
@@ -12231,7 +12181,7 @@ final class Workspace: Identifiable, ObservableObject {
         return needsFollowUpPass
     }
 
-    private func scheduleTerminalGeometryReconcile() {
+    func scheduleTerminalGeometryReconcile() {
         beginEventDrivenLayoutFollowUp(
             reason: "workspace.geometry",
             includeGeometry: true
@@ -12239,6 +12189,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func renderedVisiblePanelIdsForCurrentLayout() -> Set<UUID> {
+        guard portalRenderingEnabled else { return [] }
         let renderedPaneIds = bonsplitController.zoomedPaneId.map { [$0] } ?? bonsplitController.allPaneIds
         var visiblePanelIds: Set<UUID> = []
 
@@ -12307,6 +12258,13 @@ final class Workspace: Identifiable, ObservableObject {
 
         return false
     }
+
+#if DEBUG
+    @discardableResult
+    func debugReconcileTerminalPortalVisibilityForTesting() -> Bool {
+        reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
+    }
+#endif
 
     @discardableResult
     private func reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: String) -> Bool {
@@ -13837,13 +13795,32 @@ extension Workspace: BonsplitDelegate {
     }
 
     private func executeSurfaceTabBarCommandButton(identifier: String, inPane pane: PaneID) {
-        guard let executable = surfaceTabBarCommandButtons[identifier],
-              let globalConfigPath = surfaceTabBarButtonGlobalConfigPath else {
+        guard let executable = surfaceTabBarCommandButtons[identifier] else {
             return
         }
         let presentingWindow = selectedTerminalPanel(inPane: pane)?.hostedView.window
             ?? NSApp.keyWindow
             ?? NSApp.mainWindow
+
+        if let builtInAction = executable.builtInAction {
+            switch builtInAction {
+            case .newWorkspace:
+                owningTabManager?.addWorkspace()
+            case .cloudVM:
+                _ = AppDelegate.shared?.performCloudVMAction(
+                    tabManager: owningTabManager,
+                    preferredWindow: presentingWindow,
+                    debugSource: "surfaceTabBar.cloudVM"
+                )
+            case .newTerminal, .newBrowser, .splitRight, .splitDown:
+                break
+            }
+            return
+        }
+
+        guard let globalConfigPath = surfaceTabBarButtonGlobalConfigPath else {
+            return
+        }
 
         if let workspaceCommand = executable.workspaceCommand {
             bonsplitController.focusPane(pane)
