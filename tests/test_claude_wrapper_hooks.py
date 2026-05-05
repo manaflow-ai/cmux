@@ -58,6 +58,7 @@ def run_wrapper(
     node_options: str | None = None,
     tmpdir: str | None = None,
     hooks_disabled: bool = False,
+    extra_env: dict[str, str] | None = None,
 ) -> tuple[int, list[str], list[str], str, str, str, str, str, str, str]:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-test-") as td:
         tmp = Path(td)
@@ -190,6 +191,8 @@ exit 0
             env["TMPDIR"] = tmpdir
         if node_options is not None:
             env["NODE_OPTIONS"] = node_options
+        if extra_env is not None:
+            env.update(extra_env)
 
         try:
             proc = subprocess.run(
@@ -631,6 +634,51 @@ def test_live_socket_bad_tmpdir_still_uses_durable_node_options_injection(failur
     )
     expect(runtime_node_options == "__UNSET__", f"bad tmpdir: expected runtime NODE_OPTIONS restored, got {runtime_node_options!r}", failures)
     expect(child_node_options == "__UNSET__", f"bad tmpdir: expected child NODE_OPTIONS restored, got {child_node_options!r}", failures)
+
+
+def test_live_socket_restore_dir_override_keeps_sanitizer_suffix(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-restore-override-") as td:
+        override_root = Path(td) / "custom restore root"
+        code, _, _, stderr, _, node_options, runtime_node_options, child_node_options, _, _ = run_wrapper(
+            socket_state="live",
+            argv=["hello"],
+            extra_env={"CMUX_NODE_OPTIONS_RESTORE_DIR": str(override_root)},
+        )
+        expected_restore_path = override_root / "cmux" / "node-options" / "restore-node-options.cjs"
+
+        expect(code == 0, f"restore dir override: wrapper exited {code}: {stderr}", failures)
+        require_flag, remaining_flags = restore_require_and_remaining(node_options)
+        restore_path = require_flag.removeprefix("--require=")
+        expect(
+            require_flag.startswith("--require="),
+            f"restore dir override: expected NODE_OPTIONS restore preload, got {node_options!r}",
+            failures,
+        )
+        expect(
+            Path(restore_path) == expected_restore_path,
+            f"restore dir override: expected sanitizer-visible restore path {expected_restore_path}, got {restore_path!r}",
+            failures,
+        )
+        expect(
+            expected_restore_path.exists(),
+            f"restore dir override: expected wrapper to write restore module at {expected_restore_path}",
+            failures,
+        )
+        expect(
+            remaining_flags == "--max-old-space-size=4096",
+            f"restore dir override: expected injected heap cap after preload, got {node_options!r}",
+            failures,
+        )
+        expect(
+            runtime_node_options == "__UNSET__",
+            f"restore dir override: expected runtime NODE_OPTIONS restored, got {runtime_node_options!r}",
+            failures,
+        )
+        expect(
+            child_node_options == "__UNSET__",
+            f"restore dir override: expected child NODE_OPTIONS restored, got {child_node_options!r}",
+            failures,
+        )
 
 
 def test_live_socket_does_not_duplicate_bypass_availability_flag(failures: list[str]) -> None:

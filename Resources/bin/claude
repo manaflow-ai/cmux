@@ -215,6 +215,13 @@ node_options_restore_dir() {
         while [[ "$override" == */ && "$override" != "/" ]]; do
             override="${override%/}"
         done
+        case "$override" in
+            */cmux/node-options|*/cmux-claude-node-options)
+                ;;
+            *)
+                override="${override%/}/cmux/node-options"
+                ;;
+        esac
         printf '%s' "$override"
         return 0
     fi
