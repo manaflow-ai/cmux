@@ -1097,8 +1097,8 @@ private enum SessionTranscriptLoader {
         guard FileManager.default.fileExists(atPath: url.path) else {
             throw SessionTranscriptLoadError.missingFile
         }
-        if agent == .rovodev,
-           let preview = try RovoDevTranscriptPreview.load(from: url, limit: maxPreviewTurns) {
+        if agent == .rovodev {
+            guard let preview = try RovoDevTranscriptPreview.load(from: url, limit: maxPreviewTurns) else { throw SessionTranscriptLoadError.missingFile }
             return coalesce(preview.enumerated().map { index, turn in
                 let role = transcriptRole(from: turn.role) ?? .event
                 return SessionTranscriptTurn(id: index, role: role, text: truncatedText(turn.text, role: role))
