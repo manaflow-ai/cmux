@@ -69,6 +69,17 @@ var (
 	wsLeaseMu           sync.Mutex
 )
 
+// Terminal-generated answers for Ghostty color-scheme probing and the
+// corresponding DECRQM form. They are not user keystrokes, and forwarding them
+// into the PTY can leave literal ?997... text in the shell input buffer.
+var terminalResponseValues = [][]byte{
+	[]byte("\x1b[?997;1n"),
+	[]byte("\x1b[?997;2n"),
+	[]byte("\x1b[?997;0$y"),
+	[]byte("\x1b[?997;1$y"),
+	[]byte("\x1b[?997;2$y"),
+}
+
 func runWebSocketPTYServer(ctx context.Context, cfg wsPTYServerConfig, stderr io.Writer) error {
 	addr := cfg.ListenAddr
 	if strings.TrimSpace(addr) == "" {
@@ -557,21 +568,11 @@ func (f *ptyInputFilter) filter(payload []byte) []byte {
 }
 
 func terminalResponsePrefix(data []byte) (int, bool) {
-	// These are terminal-generated answers for Ghostty color-scheme probing and
-	// the corresponding DECRQM form. They are not user keystrokes, and forwarding
-	// them into the PTY can leave literal ?997... text in the shell input buffer.
-	responses := [][]byte{
-		[]byte("\x1b[?997;1n"),
-		[]byte("\x1b[?997;2n"),
-		[]byte("\x1b[?997;0$y"),
-		[]byte("\x1b[?997;1$y"),
-		[]byte("\x1b[?997;2$y"),
-	}
-	for _, response := range responses {
+	for _, response := range terminalResponseValues {
 		if bytes.HasPrefix(data, response) {
 			return len(response), false
 		}
-		if len(data) >= len("\x1b[?9") && bytes.HasPrefix(response, data) {
+		if len(data) >= len("\x1b") && bytes.HasPrefix(response, data) {
 			return 0, true
 		}
 	}
