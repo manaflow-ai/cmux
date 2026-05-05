@@ -4460,19 +4460,14 @@ struct ContentView: View {
         let commandPaletteListMaxHeight: CGFloat = 450
         let commandPaletteRowHeight: CGFloat = 24
         let commandPaletteEmptyStateHeight: CGFloat = 44
-        let commandPaletteListContentHeight = visibleResults.isEmpty
-            ? commandPaletteEmptyStateHeight
-            : CGFloat(visibleResults.count) * commandPaletteRowHeight
+        let commandPaletteListContentHeight = visibleResults.isEmpty ? commandPaletteEmptyStateHeight : CGFloat(visibleResults.count) * commandPaletteRowHeight
         let commandPaletteListHeight = min(commandPaletteListMaxHeight, commandPaletteListContentHeight)
         return VStack(spacing: 0) {
             HStack(spacing: 8) {
                 CommandPaletteSearchFieldRepresentable(
                     placeholder: commandPaletteSearchPlaceholder,
                     text: $commandPaletteQuery,
-                    isFocused: Binding(
-                        get: { isCommandPaletteSearchFocused },
-                        set: { isCommandPaletteSearchFocused = $0 }
-                    ),
+                    isFocused: Binding(get: { isCommandPaletteSearchFocused }, set: { isCommandPaletteSearchFocused = $0 }),
                     onSubmit: runSelectedCommandPaletteResult,
                     onEscape: { dismissCommandPalette() },
                     onMoveSelection: moveCommandPaletteSelection(by:),
@@ -4858,8 +4853,7 @@ struct ContentView: View {
         }
     }
 
-    // Keep navigation on the AppKit field editor so deleting the ">" prefix
-    // cannot drop the palette's arrow-key handlers during the scope switch.
+    // Keep navigation on the AppKit field editor so scope switches preserve arrow-key handlers.
     private struct CommandPaletteSearchFieldRepresentable: NSViewRepresentable {
         let placeholder: String
         @Binding var text: String
@@ -4909,15 +4903,12 @@ struct ContentView: View {
 
             func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
                 if let delta = commandPaletteSelectionDeltaForFieldEditorCommand(commandSelector, event: NSApp.currentEvent) {
-                    parent.onMoveSelection(delta)
-                    return true
+                    parent.onMoveSelection(delta); return true
                 }
 
                 switch commandSelector {
-                case #selector(NSResponder.moveDown(_:)),
-                     #selector(NSResponder.moveUp(_:)):
-                    guard let event = NSApp.currentEvent else { return false }
-                    return parent.onUnhandledNavigationKey(event)
+                case #selector(NSResponder.moveDown(_:)), #selector(NSResponder.moveUp(_:)):
+                    return NSApp.currentEvent.map(parent.onUnhandledNavigationKey) ?? false
                 case #selector(NSResponder.insertNewline(_:)):
                     guard !textView.hasMarkedText() else { return false }
                     parent.onSubmit()
@@ -8458,12 +8449,8 @@ struct ContentView: View {
         resultCount: Int
     ) -> UnitPoint? {
         guard resultCount > 0 else { return nil }
-        if selectedIndex <= 0 {
-            return UnitPoint.top
-        }
-        if selectedIndex >= resultCount - 1 {
-            return UnitPoint.bottom
-        }
+        if selectedIndex <= 0 { return UnitPoint.top }
+        if selectedIndex >= resultCount - 1 { return UnitPoint.bottom }
         return nil
     }
 
@@ -8527,11 +8514,8 @@ struct ContentView: View {
         guard let target = commandPaletteRestoreFocusTarget,
               target.intent == .terminal(.surface),
               let workspace = tabManager.tabs.first(where: { $0.id == target.workspaceId }),
-              let terminalPanel = workspace.panels[target.panelId] as? TerminalPanel else {
-            return false
-        }
-        terminalPanel.hostedView.forwardKeyDownToSurface(event)
-        return true
+              let terminalPanel = workspace.panels[target.panelId] as? TerminalPanel else { return false }
+        terminalPanel.hostedView.forwardKeyDownToSurface(event); return true
     }
 
     static func commandPaletteShouldPopRenameInputOnDelete(

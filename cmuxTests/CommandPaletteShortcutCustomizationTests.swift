@@ -264,6 +264,51 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
         }
     }
 
+    func testChordedCommandPaletteNextShortcutMovesSelection() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        withCommandPaletteFieldEditor(appDelegate: appDelegate) { window in
+            withTemporaryCommandPaletteShortcut(.commandPaletteNext) {
+                KeyboardShortcutSettings.setShortcut(
+                    StoredShortcut(key: "b", command: false, shift: false, option: false, control: true, chordKey: "n"),
+                    for: .commandPaletteNext
+                )
+                let moveExpectation = expectation(description: "Expected chorded next shortcut to move selection")
+                var observedDeltas: [Int] = []
+                var observedWindow: NSWindow?
+                let moveToken = NotificationCenter.default.addObserver(forName: .commandPaletteMoveSelection, object: nil, queue: nil) { notification in
+                    observedWindow = notification.object as? NSWindow
+                    if let delta = notification.userInfo?["delta"] as? Int {
+                        observedDeltas.append(delta)
+                        moveExpectation.fulfill()
+                    }
+                }
+                defer { NotificationCenter.default.removeObserver(moveToken) }
+
+                guard let prefixEvent = makeKeyDownEvent(key: "b", modifiers: [.control], keyCode: 11, windowNumber: window.windowNumber),
+                      let actionEvent = makeKeyDownEvent(key: "n", modifiers: [], keyCode: 45, windowNumber: window.windowNumber) else {
+                    XCTFail("Failed to construct command-palette chord events")
+                    return
+                }
+
+                #if DEBUG
+                XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: prefixEvent))
+                XCTAssertEqual(observedDeltas, [], "Chord prefix must arm without moving selection")
+                XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: actionEvent))
+                #else
+                XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+                #endif
+
+                wait(for: [moveExpectation], timeout: 1.0)
+                XCTAssertEqual(observedWindow?.windowNumber, window.windowNumber)
+                XCTAssertEqual(observedDeltas, [1])
+            }
+        }
+    }
+
     private func withCommandPaletteFieldEditor(
         appDelegate: AppDelegate,
         _ body: (NSWindow) -> Void
@@ -298,7 +343,13 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
     }
 
     private func withTemporaryCommandPalettePreviousShortcut(_ body: () -> Void) {
-        let action = KeyboardShortcutSettings.Action.commandPalettePrevious
+        withTemporaryCommandPaletteShortcut(.commandPalettePrevious, body)
+    }
+
+    private func withTemporaryCommandPaletteShortcut(
+        _ action: KeyboardShortcutSettings.Action,
+        _ body: () -> Void
+    ) {
         let hadPersistedShortcut = UserDefaults.standard.object(forKey: action.defaultsKey) != nil
         let originalShortcut = KeyboardShortcutSettings.shortcut(for: action)
         defer {

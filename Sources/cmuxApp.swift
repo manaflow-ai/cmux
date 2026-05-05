@@ -8131,9 +8131,7 @@ private struct GlobalHotkeySection: View {
             ShortcutRecorderSettingsControl(
                 action: SystemWideHotkeySettings.action,
                 shortcut: $shortcut,
-                subtitle: isManagedBySettingsFile
-                    ? KeyboardShortcutSettings.settingsFileManagedSubtitle(for: SystemWideHotkeySettings.action)
-                    : nil,
+                subtitle: isManagedBySettingsFile ? KeyboardShortcutSettings.settingsFileManagedSubtitle(for: SystemWideHotkeySettings.action) : nil,
                 isDisabled: isManagedBySettingsFile
             )
                 .padding(.horizontal, 14)

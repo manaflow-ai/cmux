@@ -2183,11 +2183,7 @@ extension StoredShortcut {
 
     private static func isUnboundConfigToken(_ rawValue: String) -> Bool {
         let normalized = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return normalized.isEmpty ||
-            normalized == "none" ||
-            normalized == "clear" ||
-            normalized == "unbound" ||
-            normalized == "disabled"
+        return normalized.isEmpty || normalized == "none" || normalized == "clear" || normalized == "unbound" || normalized == "disabled"
     }
 }
 

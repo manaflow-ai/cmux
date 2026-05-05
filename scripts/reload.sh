@@ -610,7 +610,9 @@ fi
 if [[ -d "$PWD/ghostty" ]]; then
   BIN_DIR="$APP_PATH/Contents/Resources/bin"
   GHOSTTY_HELPER_DEST="$BIN_DIR/ghostty"
-  if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
+  if [[ -x "$GHOSTTY_HELPER_DEST" ]]; then
+    echo "Preserving Xcode-built ghostty CLI helper at $GHOSTTY_HELPER_DEST"
+  elif [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
     echo "Skipping direct ghostty CLI helper zig build (CMUX_SKIP_ZIG_BUILD=1)"
   else
     mkdir -p "$BIN_DIR"

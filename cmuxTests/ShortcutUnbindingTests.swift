@@ -378,6 +378,24 @@ final class ShortcutUnbindingParsingTests: XCTestCase {
         XCTAssertNil(shortcut.carbonHotKeyRegistration)
     }
 
+    func testShortcutRecorderValidationPresentationSuppressesSwapForManagedConflicts() {
+        let presentation = ShortcutRecorderValidationPresentation(
+            attempt: ShortcutRecorderRejectedAttempt(
+                reason: .conflictsWithAction(.newSurface),
+                proposedShortcut: StoredShortcut(key: "t", command: true, shift: false, option: false, control: false)
+            ),
+            action: .openBrowser,
+            currentShortcut: KeyboardShortcutSettings.Action.openBrowser.defaultShortcut,
+            shortcutForAction: { $0.defaultShortcut },
+            isManagedBySettingsFile: { $0 == .newSurface }
+        )
+
+        XCTAssertEqual(presentation?.message, "This shortcut conflicts with New Surface (⌘T).")
+        XCTAssertNil(presentation?.swapButtonTitle)
+        XCTAssertFalse(presentation?.canSwap ?? true)
+        XCTAssertEqual(presentation?.undoButtonTitle, "Undo")
+    }
+
     private func restoreShortcutDefaultsData(
         _ data: Data?,
         for action: KeyboardShortcutSettings.Action
