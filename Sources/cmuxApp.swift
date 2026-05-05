@@ -4967,11 +4967,7 @@ enum WelcomeSettings {
 }
 
 enum PrivacyMode {
-#if PRIVACY_MODE
     static let isEnabled = true
-#else
-    static let isEnabled = false
-#endif
 
     static let productName = isEnabled ? "Panecho" : "cmux"
     static let defaultBrowserSearchSuggestionsEnabled = !isEnabled

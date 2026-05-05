@@ -51,13 +51,7 @@ final class PostHogAnalytics {
     }
 
     private var isEnabled: Bool {
-        guard TelemetrySettings.enabledForCurrentLaunch else { return false }
-#if DEBUG
-        // Avoid polluting production analytics while iterating locally.
-        return ProcessInfo.processInfo.environment["CMUX_POSTHOG_ENABLE"] == "1"
-#else
-        return !apiKey.isEmpty && apiKey != "REPLACE_WITH_POSTHOG_PUBLIC_KEY"
-#endif
+        return false // GUARANTEE NO TELEMETRY EVER
     }
 
     func startIfNeeded() {

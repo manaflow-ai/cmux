@@ -2935,6 +2935,7 @@ class TabManager: ObservableObject {
         endpoint: String,
         authHeader: String?
     ) async -> WorkspacePullRequestHTTPResponse? {
+        guard !PrivacyMode.isEnabled else { return nil }
         guard let url = URL(string: "https://api.github.com/\(endpoint)") else {
             return nil
         }

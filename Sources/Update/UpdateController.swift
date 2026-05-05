@@ -14,7 +14,7 @@ enum UpdateSettings {
 
     static func apply(to defaults: UserDefaults) {
         defaults.register(defaults: [
-            automaticChecksKey: !PrivacyMode.isEnabled,
+            automaticChecksKey: false,
             automaticallyUpdateKey: false,
             scheduledCheckIntervalKey: scheduledCheckInterval,
             sendProfileInfoKey: false,

@@ -36,11 +36,7 @@ import Sentry
 
 /// Add a Sentry breadcrumb for user-action context in hang/crash reports.
 func sentryBreadcrumb(_ message: String, category: String = "ui", data: [String: Any]? = nil) {
-    guard TelemetrySettings.enabledForCurrentLaunch else { return }
-    let crumb = Breadcrumb(level: .info, category: category)
-    crumb.message = message
-    crumb.data = data
-    SentrySDK.addBreadcrumb(crumb)
+    return
 }
 
 private func sentryCaptureMessage(
@@ -50,14 +46,7 @@ private func sentryCaptureMessage(
     data: [String: Any]?,
     contextKey: String?
 ) {
-    guard TelemetrySettings.enabledForCurrentLaunch else { return }
-    _ = SentrySDK.capture(message: message) { scope in
-        scope.setLevel(level)
-        scope.setTag(value: category, key: "category")
-        if let data {
-            scope.setContext(value: data, key: contextKey ?? category)
-        }
-    }
+    return
 }
 
 func sentryCaptureWarning(
