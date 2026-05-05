@@ -48,10 +48,6 @@ class cmuxError(Exception):
 _APP_SUPPORT_DIR = os.path.expanduser("~/Library/Application Support/cmux")
 _STABLE_SOCKET_PATH = os.path.join(_APP_SUPPORT_DIR, "cmux.sock")
 _LEGACY_STABLE_SOCKET_PATH = "/tmp/cmux.sock"
-_LAST_SOCKET_PATH_FILES = [
-    os.path.join(_APP_SUPPORT_DIR, "last-socket-path"),
-    "/tmp/cmux-last-socket-path",
-]
 _DEFAULT_DEBUG_BUNDLE_ID = "com.cmuxterm.app.debug"
 
 
@@ -88,8 +84,33 @@ def _default_bundle_id() -> str:
     return _DEFAULT_DEBUG_BUNDLE_ID
 
 
+def _last_socket_path_files() -> List[str]:
+    bundle_id = _default_bundle_id()
+    marker = "last-socket-path"
+    tmp_marker = "/tmp/cmux-last-socket-path"
+
+    if bundle_id == "com.cmuxterm.app.nightly" or bundle_id.startswith("com.cmuxterm.app.nightly."):
+        marker = "nightly-last-socket-path"
+        tmp_marker = "/tmp/cmux-nightly-last-socket-path"
+    elif bundle_id == "com.cmuxterm.app.staging" or bundle_id.startswith("com.cmuxterm.app.staging."):
+        suffix = bundle_id.removeprefix("com.cmuxterm.app.staging.")
+        slug = _sanitize_tag_slug(suffix) if suffix != bundle_id else ""
+        marker = f"staging-{slug}-last-socket-path" if slug else "staging-last-socket-path"
+        tmp_marker = f"/tmp/cmux-staging-{slug}-last-socket-path" if slug else "/tmp/cmux-staging-last-socket-path"
+    elif bundle_id == _DEFAULT_DEBUG_BUNDLE_ID or bundle_id.startswith(f"{_DEFAULT_DEBUG_BUNDLE_ID}."):
+        suffix = bundle_id.removeprefix(f"{_DEFAULT_DEBUG_BUNDLE_ID}.")
+        slug = _sanitize_tag_slug(suffix) if suffix != bundle_id else ""
+        marker = f"dev-{slug}-last-socket-path" if slug else "dev-last-socket-path"
+        tmp_marker = f"/tmp/cmux-dev-{slug}-last-socket-path" if slug else "/tmp/cmux-dev-last-socket-path"
+
+    return [
+        os.path.join(_APP_SUPPORT_DIR, marker),
+        tmp_marker,
+    ]
+
+
 def _read_last_socket_path() -> Optional[str]:
-    for marker_path in _LAST_SOCKET_PATH_FILES:
+    for marker_path in _last_socket_path_files():
         try:
             with open(marker_path, "r", encoding="utf-8") as f:
                 path = f.read().strip()
