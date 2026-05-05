@@ -673,6 +673,28 @@ def test_live_socket_quoted_linux_home_uses_safe_cache_fallback(failures: list[s
     expect(child_node_options == "__UNSET__", f"quoted HOME fallback: expected child NODE_OPTIONS restored, got {child_node_options!r}", failures)
 
 
+def test_live_socket_empty_linux_home_uses_safe_cache_fallback(failures: list[str]) -> None:
+    code, _, _, stderr, _, node_options, runtime_node_options, child_node_options, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        home="",
+        xdg_cache_home=UNSET_XDG_CACHE_HOME,
+        fake_uname="Linux",
+        fake_gnu_stat_probe=True,
+    )
+    expect(code == 0, f"empty HOME fallback: wrapper exited {code}: {stderr}", failures)
+    require_path = require_path_from_node_options(node_options)
+    expect(require_path != "", f"empty HOME fallback: expected NODE_OPTIONS restore preload, got {node_options!r}", failures)
+    expect(
+        require_path == f"/var/tmp/cmux-{os.getuid()}/cmux-claude-node-options/restore-node-options.cjs",  # noqa: S108
+        f"empty HOME fallback: expected Linux fallback cache path, got {require_path!r}",
+        failures,
+    )
+    expect_restore_module_hardened(require_path, "empty HOME fallback", failures)
+    expect(runtime_node_options == "__UNSET__", f"empty HOME fallback: expected runtime NODE_OPTIONS restored, got {runtime_node_options!r}", failures)
+    expect(child_node_options == "__UNSET__", f"empty HOME fallback: expected child NODE_OPTIONS restored, got {child_node_options!r}", failures)
+
+
 def test_live_socket_whitespace_xdg_cache_home_falls_back(failures: list[str]) -> None:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-cache-") as td:
         tmp = Path(td)
@@ -884,6 +906,7 @@ def main() -> int:
     test_live_socket_enforces_heap_cap_for_space_separated_flag(failures)
     test_live_socket_whitespace_home_uses_safe_cache_fallback(failures)
     test_live_socket_quoted_linux_home_uses_safe_cache_fallback(failures)
+    test_live_socket_empty_linux_home_uses_safe_cache_fallback(failures)
     test_live_socket_whitespace_xdg_cache_home_falls_back(failures)
     test_live_socket_quoted_linux_xdg_cache_home_falls_back(failures)
     test_live_socket_relative_xdg_cache_home_falls_back(failures)
