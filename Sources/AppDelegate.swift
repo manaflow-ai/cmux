@@ -10645,15 +10645,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
         }
 
-        let paletteUsesInlineTextHandling = commandPaletteShortcutWindow.map {
-            isCommandPaletteMultilineTextResponderActive(in: $0)
-        } ?? false
+        let paletteUsesInlineTextHandling = commandPaletteShortcutWindow.map { isCommandPaletteMultilineTextResponderActive(in: $0) } ?? false
 
-        let paletteSelectionDelta = commandPaletteSelectionDeltaForKeyboardNavigation(
-            flags: event.modifierFlags,
-            chars: chars,
-            keyCode: event.keyCode
-        )
+        let paletteSelectionDelta = commandPaletteSelectionDeltaForKeyboardNavigation(flags: event.modifierFlags, chars: chars, keyCode: event.keyCode, nextShortcut: KeyboardShortcutSettings.shortcutIfBound(for: .commandPaletteNext), previousShortcut: KeyboardShortcutSettings.shortcutIfBound(for: .commandPalettePrevious))
 
         if shouldRouteCommandPaletteSelectionNavigation(
             delta: paletteSelectionDelta,
@@ -10662,12 +10656,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ),
            let delta = paletteSelectionDelta,
            let paletteWindow = commandPaletteShortcutWindow {
-            NotificationCenter.default.post(
-                name: .commandPaletteMoveSelection,
-                object: paletteWindow,
-                userInfo: ["delta": delta]
-            )
+            NotificationCenter.default.post(name: .commandPaletteMoveSelection, object: paletteWindow, userInfo: ["delta": delta])
             return true
+        }
+
+        let shouldRouteConfiguredPaletteSelection = commandPaletteShortcutWindow != nil && shouldRouteCommandPaletteSelectionNavigation(delta: 1, isInteractive: commandPaletteInteractiveInTargetWindow, usesInlineTextHandling: paletteUsesInlineTextHandling)
+
+        if shouldRouteConfiguredPaletteSelection, let paletteWindow = commandPaletteShortcutWindow {
+            for (action, delta) in [(KeyboardShortcutSettings.Action.commandPaletteNext, 1), (.commandPalettePrevious, -1)] {
+                guard KeyboardShortcutSettings.shortcut(for: action).hasChord, matchConfiguredShortcut(event: event, action: action) else { continue }
+                NotificationCenter.default.post(name: .commandPaletteMoveSelection, object: paletteWindow, userInfo: ["delta": delta])
+                return true
+            }
         }
 
         if commandPaletteInteractiveInTargetWindow,
@@ -10730,11 +10730,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             stopBrowserOmnibarSelectionRepeat()
         }
 
-        // Keep Cmd+P/Cmd+N inside the focused browser omnibar for Chrome-like
-        // suggestion navigation, and avoid opening command palette switcher.
-        // Scope the omnibar check to the shortcut's routed window context so a
-        // focused omnibar in another window does not suppress Cmd+P here.
         let hasFocusedAddressBarInShortcutContext = focusedBrowserAddressBarPanelIdForShortcutEvent(event) != nil
+
+        if shouldRouteConfiguredPaletteSelection, activeConfiguredShortcutChordPrefixForCurrentEvent == nil, armConfiguredShortcutChordIfNeeded(event: event, actions: [.commandPaletteNext, .commandPalettePrevious]) {
+            return true
+        }
 
         if commandPaletteEffectiveInTargetWindow {
             if matchConfiguredShortcut(event: event, action: .commandPalette) {

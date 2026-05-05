@@ -6004,12 +6004,16 @@ struct SettingsView: View {
                             String(localized: "settings.app.configWindow", defaultValue: "Terminal Config"),
                             subtitle: String(
                                 localized: "settings.app.configWindow.subtitle",
-                                defaultValue: "Open the cmux config, standalone Ghostty config, and merged preview in one utility window."
+                                defaultValue: "Open the cmux terminal config and generated preview in one utility window."
                             ),
+                            controlWidth: pickerColumnWidth,
                             searchAnchorID: SettingsSearchIndex.settingID(for: .app, idSuffix: "terminal-config")
                         ) {
-                            Button(String(localized: "settings.app.configWindow.openButton", defaultValue: "Open Config Window")) {
+                            Button {
                                 openWindow(id: ConfigSettingsView.windowID)
+                            } label: {
+                                Text(String(localized: "settings.app.configWindow.openButton", defaultValue: "Open Config"))
+                                    .font(.system(size: 13, weight: .regular))
                             }
                             .buttonStyle(.bordered)
                             .controlSize(.small)
@@ -7670,12 +7674,7 @@ private struct SettingsCardRow<Trailing: View>: View {
         self.trailing = trailing()
     }
 
-    private var searchAnchorIDs: [String] {
-        if let searchAnchorID {
-            return [searchAnchorID]
-        }
-        return configurationReview.searchAnchorIDs
-    }
+    private var searchAnchorIDs: [String] { searchAnchorID.map { [$0] } ?? configurationReview.searchAnchorIDs }
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
@@ -7931,6 +7930,7 @@ private struct AppIconPickerRow: View {
 private struct GlobalHotkeySection: View {
     @AppStorage(SystemWideHotkeySettings.enabledKey) private var isEnabled = SystemWideHotkeySettings.defaultEnabled
     @State private var shortcut = KeyboardShortcutSettings.shortcut(for: SystemWideHotkeySettings.action)
+    @State private var isManagedBySettingsFile = SystemWideHotkeySettings.isManagedBySettingsFile()
 
     private var enabledBinding: Binding<Bool> {
         Binding(
@@ -7976,7 +7976,9 @@ private struct GlobalHotkeySection: View {
 
             ShortcutRecorderSettingsControl(
                 action: SystemWideHotkeySettings.action,
-                shortcut: $shortcut
+                shortcut: $shortcut,
+                subtitle: isManagedBySettingsFile ? KeyboardShortcutSettings.settingsFileManagedSubtitle(for: SystemWideHotkeySettings.action) : nil,
+                isDisabled: isManagedBySettingsFile
             )
                 .padding(.horizontal, 14)
                 .padding(.vertical, 9)
@@ -8001,8 +8003,12 @@ private struct GlobalHotkeySection: View {
 
     private func syncFromDefaults() {
         let latestShortcut = KeyboardShortcutSettings.shortcut(for: SystemWideHotkeySettings.action)
+        let latestManagedState = SystemWideHotkeySettings.isManagedBySettingsFile()
         if latestShortcut != shortcut {
             shortcut = latestShortcut
+        }
+        if latestManagedState != isManagedBySettingsFile {
+            isManagedBySettingsFile = latestManagedState
         }
     }
 }

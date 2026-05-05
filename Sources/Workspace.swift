@@ -12855,7 +12855,8 @@ extension Workspace: BonsplitDelegate {
             return
         }
 
-        if shouldTreatCurrentEventAsExplicitFocusIntent() {
+        let explicitFocusIntent = shouldTreatCurrentEventAsExplicitFocusIntent()
+        if explicitFocusIntent {
             markExplicitFocusIntent(on: effectiveFocusedPanelId)
         }
         let activationIntent = focusIntent ?? panel.preferredFocusIntentForActivation()
@@ -12891,7 +12892,7 @@ extension Workspace: BonsplitDelegate {
             reassertAppKitFocus: reassertAppKitFocus
         )
         let focusIntentAllowsBrowserOmnibarAutofocus =
-            shouldTreatCurrentEventAsExplicitFocusIntent() ||
+            explicitFocusIntent ||
             TerminalController.socketCommandAllowsInAppFocusMutations()
         if let browserPanel = panel as? BrowserPanel,
            shouldAllowBrowserOmnibarAutofocus(for: activationIntent),
@@ -12962,10 +12963,7 @@ extension Workspace: BonsplitDelegate {
         NotificationCenter.default.post(
             name: .ghosttyDidFocusSurface,
             object: nil,
-            userInfo: [
-                GhosttyNotificationKey.tabId: self.id,
-                GhosttyNotificationKey.surfaceId: panelId
-            ]
+            userInfo: [GhosttyNotificationKey.tabId: self.id, GhosttyNotificationKey.surfaceId: panelId, GhosttyNotificationKey.explicitFocusIntent: explicitFocusIntent]
         )
 #if DEBUG
         let prevPanelShort = previousFocusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
