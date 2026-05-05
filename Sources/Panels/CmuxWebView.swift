@@ -593,16 +593,7 @@ final class CmuxWebView: WKWebView {
         }
 #endif
         if event.keyCode == 36 || event.keyCode == 76 {
-            // Let configured cmux shortcuts claim Return/Enter first, then keep
-            // ordinary Return-bearing events on WebKit's keyDown path for forms
-            // and editors.
-            if AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true {
-#if DEBUG
-                handled = true
-#endif
-                return true
-            }
-            return false
+            return AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true
         }
 
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
