@@ -1,0 +1,190 @@
+name: Activation performance
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch or SHA to test
+        required: false
+        default: ""
+      runner:
+        description: macOS runner
+        required: false
+        default: warp-macos-15-arm64-6x
+        type: choice
+        options:
+          - warp-macos-15-arm64-6x
+          - depot-macos-latest
+      workspace_count:
+        description: Fixture workspace count
+        required: false
+        default: "12"
+      heavy_scrollback_lines:
+        description: Lines per terminal in the selected heavy workspace
+        required: false
+        default: "2400"
+      other_scrollback_lines:
+        description: Lines per terminal in other workspaces
+        required: false
+        default: "1400"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  activation-session:
+    runs-on: ${{ inputs.runner || 'warp-macos-15-arm64-6x' }}
+    timeout-minutes: 30
+    env:
+      PERF_TAG: perfci
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          submodules: recursive
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
+            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
+          else
+            XCODE_APP="$(ls -d /Applications/Xcode*.app 2>/dev/null | sort | tail -n 1 || true)"
+            if [ -n "$XCODE_APP" ]; then
+              XCODE_DIR="$XCODE_APP/Contents/Developer"
+            else
+              echo "No Xcode.app found under /Applications" >&2
+              exit 1
+            fi
+          fi
+          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
+          export DEVELOPER_DIR="$XCODE_DIR"
+          xcodebuild -version
+
+      - name: Download pre-built GhosttyKit.xcframework
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./scripts/download-prebuilt-ghosttykit.sh
+
+      - name: Install zig
+        run: |
+          set -euo pipefail
+          ZIG_REQUIRED="0.15.2"
+          if command -v zig >/dev/null 2>&1 && zig version 2>/dev/null | grep -q "^${ZIG_REQUIRED}"; then
+            echo "zig ${ZIG_REQUIRED} already installed"
+          else
+            echo "Installing zig ${ZIG_REQUIRED}"
+            case "$(uname -m)" in
+              arm64) ZIG_ARCH="aarch64" ;;
+              x86_64) ZIG_ARCH="x86_64" ;;
+              *)
+                echo "Unsupported macOS runner architecture: $(uname -m)" >&2
+                exit 1
+                ;;
+            esac
+            ZIG_DIR="/tmp/zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}"
+            curl -fSL "https://ziglang.org/download/${ZIG_REQUIRED}/zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}.tar.xz" -o /tmp/zig.tar.xz
+            tar xf /tmp/zig.tar.xz -C /tmp
+            sudo mkdir -p /usr/local/bin /usr/local/lib
+            sudo cp -f "${ZIG_DIR}/zig" /usr/local/bin/zig
+            sudo rm -rf /usr/local/lib/zig
+            sudo mkdir -p /usr/local/lib/zig
+            sudo cp -R "${ZIG_DIR}/lib/." /usr/local/lib/zig/
+            zig version
+          fi
+
+      - name: Build tagged app
+        run: ./scripts/reload.sh --tag "$PERF_TAG"
+
+      - name: Run activation session benchmark
+        run: |
+          set -euo pipefail
+          mkdir -p perf-results
+          python3 scripts/perf-activation-session.py \
+            --tag "$PERF_TAG" \
+            --workspace-count "${{ inputs.workspace_count || '12' }}" \
+            --heavy-scrollback-lines "${{ inputs.heavy_scrollback_lines || '2400' }}" \
+            --other-scrollback-lines "${{ inputs.other_scrollback_lines || '1400' }}" \
+            --synthetic-scrollback-fallback \
+            --output perf-results/activation-session.json \
+            --junit perf-results/activation-session.junit.xml
+
+      - name: Run Cmd-Tab activation benchmark
+        run: |
+          set -euo pipefail
+          APP_PATH="$HOME/Library/Developer/Xcode/DerivedData/cmux-$PERF_TAG/Build/Products/Debug/cmux DEV $PERF_TAG.app"
+          swift scripts/bench-window-visibility.swift \
+            "$APP_PATH" \
+            "com.cmuxterm.app.debug.$PERF_TAG" \
+            30 \
+            --cmd-tab-activation \
+            --cg-visibility \
+            > perf-results/cmd-tab-activation.txt
+          cat perf-results/cmd-tab-activation.txt
+
+      - name: Write benchmark summary
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ ! -f perf-results/activation-session.json ]; then
+            echo "No benchmark results were written." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+          result = json.loads(Path("perf-results/activation-session.json").read_text())
+          measurements = result.get("measurements", {})
+          fixture = result.get("fixture", {})
+          no_scroll = measurements.get("snapshot_no_scrollback", {})
+          real_scroll = measurements.get("snapshot_with_real_scrollback", {})
+          with_scroll = measurements.get("snapshot_with_scrollback", {})
+          print("## Activation Session Performance")
+          print("")
+          print(f"- Fixture: {fixture.get('workspaces')} workspaces, {fixture.get('terminal_surfaces')} terminals, {fixture.get('scrollback_done')} scrollback-ready terminals")
+          if real_scroll:
+            print(f"- Real scrollback snapshot: {real_scroll.get('elapsed_ms')} ms, {real_scroll.get('shape', {}).get('scrollback_chars')} chars")
+          real_capture = fixture.get("real_scrollback_capture") or {}
+          if real_capture:
+            print(f"- Real scrollback capture polling: {real_capture.get('attempts')} attempts over {real_capture.get('wait_ms')} ms at {real_capture.get('refresh_rate_hz')} Hz")
+            print(f"- Added CI time from capture polling: {real_capture.get('retry_overhead_ms')} ms measured, {int(real_capture.get('timeout_s') or 0)} s worst case")
+          synthetic_seed = fixture.get("synthetic_scrollback_fallback")
+          if synthetic_seed:
+            print(f"- Synthetic scrollback fallback: {synthetic_seed.get('scrollback_chars')} chars across {synthetic_seed.get('terminals')} terminals ({fixture.get('synthetic_scrollback_fallback_reason')})")
+          print(f"- Launch socket ready: {measurements.get('launch_socket_ready_ms')} ms")
+          print(f"- Snapshot without scrollback: {no_scroll.get('elapsed_ms')} ms")
+          print(f"- Snapshot with scrollback: {with_scroll.get('elapsed_ms')} ms")
+          print(f"- Scrollback chars captured: {with_scroll.get('shape', {}).get('scrollback_chars')}")
+          print(f"- Restore socket ready: {measurements.get('restore_socket_ready_ms')} ms")
+          cmd_tab_path = Path("perf-results/cmd-tab-activation.txt")
+          if cmd_tab_path.exists():
+            print("")
+            print("## Cmd-Tab Activation Performance")
+            print("")
+            for line in cmd_tab_path.read_text().splitlines():
+              if line:
+                print(f"- `{line}`")
+          failures = result.get("failures") or []
+          if failures:
+            print("")
+            print("### Budget Failures")
+            for failure in failures:
+              print(f"- {failure}")
+          PY
+
+      - name: Upload benchmark results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: activation-session-performance
+          path: perf-results/
+          if-no-files-found: ignore
+
+      - name: Cleanup tagged app
+        if: always()
+        run: |
+          pkill -f "cmux DEV ${PERF_TAG}.app/Contents/MacOS/cmux DEV" || true
+          rm -f "/tmp/cmux-debug-${PERF_TAG}.sock"
