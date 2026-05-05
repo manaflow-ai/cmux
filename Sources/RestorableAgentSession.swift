@@ -20,10 +20,22 @@ enum AgentResumeCommandBuilder {
         kind: RestorableAgentKind,
         sessionId: String,
         launchCommand: AgentLaunchCommandSnapshot?,
-        workingDirectory: String?
+        workingDirectory: String?,
+        registrationOverride: CmuxVaultAgentRegistration? = nil
     ) -> String? {
+        let registry = registrationOverride.map {
+            CmuxVaultAgentRegistry(registrations: [$0])
+        } ?? CmuxVaultAgentRegistry.load(
+            workingDirectory: workingDirectory ?? launchCommand?.workingDirectory
+        )
+        let customRegistration = registrationOverride ?? kind.customAgentID.flatMap { registry.registration(id: $0) }
         guard !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              let argv = resumeArguments(kind: kind, sessionId: sessionId, launchCommand: launchCommand),
+              let argv = resumeArguments(
+                  kind: kind,
+                  sessionId: sessionId,
+                  launchCommand: launchCommand,
+                  customRegistration: customRegistration
+              ),
               !argv.isEmpty else {
             return nil
         }
@@ -37,7 +49,9 @@ enum AgentResumeCommandBuilder {
         commandParts.append(contentsOf: argv)
 
         var shellCommand = commandParts.map(shellSingleQuoted).joined(separator: " ")
-        let cwd = normalized(workingDirectory ?? launchCommand?.workingDirectory)
+        let cwd = customRegistration?.cwd == .ignore
+            ? nil
+            : normalized(workingDirectory ?? launchCommand?.workingDirectory)
         if let cwd {
             shellCommand = "cd \(shellSingleQuoted(cwd)) && \(shellCommand)"
         }
@@ -75,7 +89,8 @@ enum AgentResumeCommandBuilder {
     private static func resumeArguments(
         kind: RestorableAgentKind,
         sessionId: String,
-        launchCommand: AgentLaunchCommandSnapshot?
+        launchCommand: AgentLaunchCommandSnapshot?,
+        customRegistration: CmuxVaultAgentRegistration?
     ) -> [String]? {
         switch launchCommand?.launcher {
         case "claudeTeams":
@@ -104,6 +119,15 @@ enum AgentResumeCommandBuilder {
             return nil
         default:
             break
+        }
+
+        if case .custom = kind {
+            guard let customRegistration else { return nil }
+            return customResumeArguments(
+                registration: customRegistration,
+                sessionId: sessionId,
+                launchCommand: launchCommand
+            )
         }
 
         switch kind {
@@ -175,7 +199,88 @@ enum AgentResumeCommandBuilder {
                 option: "--resume",
                 sessionId: sessionId
             )
+        case .custom:
+            return nil
         }
+    }
+
+    private static func customResumeArguments(
+        registration: CmuxVaultAgentRegistration,
+        sessionId: String,
+        launchCommand: AgentLaunchCommandSnapshot?
+    ) -> [String]? {
+        let templateParts = splitShellWords(registration.resumeCommand)
+        guard !templateParts.isEmpty else { return nil }
+        let original = commandParts(
+            launchCommand: launchCommand,
+            fallbackExecutable: registration.defaultExecutable
+        )
+        let sessionDirectory = normalized(registration.sessionDirectory).map {
+            ($0 as NSString).expandingTildeInPath
+        }
+        let replacements: [String: String] = [
+            "sessionId": sessionId,
+            "sessionPath": sessionId,
+            "executable": original.executable,
+            "cwd": normalized(launchCommand?.workingDirectory) ?? "",
+            "sessionDir": sessionDirectory ?? "",
+        ]
+        let resolved = templateParts.compactMap { part -> String? in
+            var value = part
+            for (key, replacement) in replacements {
+                value = value.replacingOccurrences(of: "{{\(key)}}", with: replacement)
+            }
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        return resolved.isEmpty ? nil : resolved
+    }
+
+    private static func splitShellWords(_ command: String) -> [String] {
+        enum Quote {
+            case single
+            case double
+        }
+
+        var words: [String] = []
+        var current = ""
+        var quote: Quote?
+        var escaping = false
+
+        func finishWord() {
+            guard !current.isEmpty else { return }
+            words.append(current)
+            current = ""
+        }
+
+        for character in command {
+            if escaping {
+                current.append(character)
+                escaping = false
+                continue
+            }
+            if character == "\\" {
+                escaping = true
+                continue
+            }
+            switch (quote, character) {
+            case (.single, "'"), (.double, "\""):
+                quote = nil
+            case (nil, "'"):
+                quote = .single
+            case (nil, "\""):
+                quote = .double
+            case (nil, " "), (nil, "\t"), (nil, "\n"):
+                finishWord()
+            default:
+                current.append(character)
+            }
+        }
+        if escaping {
+            current.append("\\")
+        }
+        finishWord()
+        return words
     }
 
     private static func resumeWithOption(
@@ -346,8 +451,13 @@ struct RestorableAgentSessionIndex: Sendable {
     ) -> RestorableAgentSessionIndex {
         let decoder = JSONDecoder()
         var resolved: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] = [:]
+        let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
+        let builtInKindIDs = Set(RestorableAgentKind.allCases.map(\.rawValue))
+        let hookKinds = RestorableAgentKind.allCases + registry.registrations.compactMap {
+            builtInKindIDs.contains($0.id) ? nil : .custom($0.id)
+        }
 
-        for kind in RestorableAgentKind.allCases {
+        for kind in hookKinds {
             let fileURL = kind.hookStoreFileURL(homeDirectory: homeDirectory)
             guard fileManager.fileExists(atPath: fileURL.path),
                   let data = try? Data(contentsOf: fileURL),
@@ -377,7 +487,86 @@ struct RestorableAgentSessionIndex: Sendable {
             }
         }
 
+        for (key, detected) in processDetectedSnapshots(
+            registry: registry,
+            homeDirectory: homeDirectory,
+            fileManager: fileManager
+        ) {
+            if let existing = resolved[key], existing.updatedAt > detected.updatedAt {
+                continue
+            }
+            resolved[key] = detected
+        }
+
         return RestorableAgentSessionIndex(snapshotsByPanel: resolved.mapValues(\.snapshot))
+    }
+
+    private static func processDetectedSnapshots(
+        registry: CmuxVaultAgentRegistry,
+        homeDirectory: String,
+        fileManager: FileManager
+    ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] {
+        guard !registry.registrations.isEmpty else { return [:] }
+        let capturedAt = Date().timeIntervalSince1970
+        let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: false)
+        var resolved: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] = [:]
+
+        for process in processSnapshot.cmuxScopedProcesses() {
+            guard let workspaceId = process.cmuxWorkspaceID,
+                  let panelId = process.cmuxSurfaceID,
+                  let processArguments = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: process.pid) else {
+                continue
+            }
+            let observed = VaultObservedAgentProcess(
+                processName: process.name,
+                processPath: process.path,
+                arguments: processArguments.arguments,
+                environment: processArguments.environment
+            )
+            let cwd = normalizedWorkingDirectory(
+                observed.environment["CMUX_AGENT_LAUNCH_CWD"]
+                    ?? observed.environment["PWD"]
+            )
+            let processRegistry = cwd == nil
+                ? registry
+                : CmuxVaultAgentRegistry.load(
+                    homeDirectory: homeDirectory,
+                    workingDirectory: cwd,
+                    environment: observed.environment,
+                    fileManager: fileManager
+                )
+            guard let registration = processRegistry.registrations.first(where: { $0.detect.matches(observed) }),
+                  let sessionId = registration.sessionIdSource.sessionId(
+                      from: observed,
+                      registration: registration,
+                      fileManager: fileManager
+                  ) else {
+                continue
+            }
+
+            let executablePath = normalizedWorkingDirectory(observed.arguments.first)
+                ?? normalizedWorkingDirectory(process.path)
+                ?? registration.defaultExecutable
+            let arguments = observed.arguments.isEmpty ? [executablePath] : observed.arguments
+            let snapshot = SessionRestorableAgentSnapshot(
+                kind: .custom(registration.id),
+                sessionId: sessionId,
+                workingDirectory: registration.cwd == .ignore ? nil : cwd,
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: registration.id,
+                    executablePath: executablePath,
+                    arguments: arguments,
+                    workingDirectory: cwd,
+                    environment: observed.environment,
+                    capturedAt: capturedAt,
+                    source: "process"
+                )
+            )
+            let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
+            resolved[key] = (snapshot: snapshot, updatedAt: capturedAt)
+        }
+
+        return resolved
     }
 
     private static func normalizedWorkingDirectory(_ rawValue: String?) -> String? {
@@ -390,5 +579,215 @@ struct RestorableAgentSessionIndex: Sendable {
 
     private init(snapshotsByPanel: [PanelKey: SessionRestorableAgentSnapshot]) {
         self.snapshotsByPanel = snapshotsByPanel
+    }
+}
+
+private struct VaultObservedAgentProcess: Sendable {
+    let processName: String
+    let processPath: String?
+    let arguments: [String]
+    let environment: [String: String]
+
+    var executableBasenames: [String] {
+        var names: [String] = []
+        if !processName.isEmpty {
+            names.append(processName)
+        }
+        if let processPath, !processPath.isEmpty {
+            names.append((processPath as NSString).lastPathComponent)
+        }
+        if let first = arguments.first, !first.isEmpty {
+            names.append((first as NSString).lastPathComponent)
+        }
+        var seen = Set<String>()
+        return names.filter { seen.insert($0).inserted }
+    }
+}
+
+private extension CmuxVaultAgentDetectRule {
+    func matches(_ process: VaultObservedAgentProcess) -> Bool {
+        if let processName, !processName.isEmpty,
+           process.executableBasenames.contains(where: {
+               $0.compare(processName, options: [.caseInsensitive, .literal]) == .orderedSame
+           }) {
+            return true
+        }
+        guard !argvContains.isEmpty else { return false }
+        return argvContains.allSatisfy { needle in
+            if needle.contains("/") || needle.contains(" ") {
+                let joinedArguments = process.arguments.joined(separator: "\u{0}")
+                return joinedArguments.range(of: needle, options: [.caseInsensitive, .literal]) != nil
+            }
+            return process.arguments.contains { argument in
+                argument.compare(needle, options: [.caseInsensitive, .literal]) == .orderedSame
+                    || (argument as NSString).lastPathComponent.compare(
+                        needle,
+                        options: [.caseInsensitive, .literal]
+                    ) == .orderedSame
+            }
+        }
+    }
+}
+
+private extension CmuxVaultAgentSessionIDSource {
+    func sessionId(
+        from process: VaultObservedAgentProcess,
+        registration: CmuxVaultAgentRegistration,
+        fileManager: FileManager
+    ) -> String? {
+        switch self {
+        case .argvOption(let option):
+            return process.arguments.value(afterOption: option)
+        case .piSessionFile:
+            if let session = process.arguments.value(afterOption: "--session") {
+                return PiSessionLocator.resolvedSessionPath(
+                    session,
+                    for: process,
+                    registration: registration,
+                    fileManager: fileManager
+                ) ?? session
+            }
+            return PiSessionLocator.latestSessionPath(
+                for: process,
+                registration: registration,
+                fileManager: fileManager
+            )
+        }
+    }
+}
+
+private extension Array where Element == String {
+    func value(afterOption option: String) -> String? {
+        for index in indices {
+            let argument = self[index]
+            if argument == option {
+                let nextIndex = self.index(after: index)
+                guard nextIndex < endIndex else { return nil }
+                let value = self[nextIndex].trimmingCharacters(in: .whitespacesAndNewlines)
+                return value.isEmpty ? nil : value
+            }
+            let prefix = option + "="
+            if argument.hasPrefix(prefix) {
+                let value = String(argument.dropFirst(prefix.count))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                return value.isEmpty ? nil : value
+            }
+        }
+        return nil
+    }
+}
+
+enum PiSessionLocator {
+    static func defaultSessionsRoot(homeDirectory: String = NSHomeDirectory()) -> String {
+        let standardizedHome = (homeDirectory as NSString).standardizingPath
+        return (standardizedHome as NSString).appendingPathComponent(".pi/agent/sessions")
+    }
+
+    static func projectDirectoryName(for workingDirectory: String) -> String? {
+        let trimmed = workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let withoutLeadingSlash = trimmed.hasPrefix("/") ? String(trimmed.dropFirst()) : trimmed
+        let sanitized = withoutLeadingSlash
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+        guard !sanitized.isEmpty else { return nil }
+        return "--\(sanitized)--"
+    }
+
+    fileprivate static func latestSessionPath(
+        for process: VaultObservedAgentProcess,
+        registration: CmuxVaultAgentRegistration,
+        fileManager: FileManager
+    ) -> String? {
+        newestJSONLFile(
+            in: candidateSessionDirectory(
+                for: process,
+                registration: registration
+            ),
+            fileManager: fileManager
+        )?.path
+    }
+
+    fileprivate static func resolvedSessionPath(
+        _ session: String,
+        for process: VaultObservedAgentProcess,
+        registration: CmuxVaultAgentRegistration,
+        fileManager: FileManager
+    ) -> String? {
+        let trimmed = session.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if trimmed.contains("/") {
+            let expanded = (trimmed as NSString).expandingTildeInPath
+            return fileManager.fileExists(atPath: expanded) ? expanded : trimmed
+        }
+
+        let directory = candidateSessionDirectory(for: process, registration: registration)
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: directory, isDirectory: &isDirectory),
+              isDirectory.boolValue,
+              let enumerator = fileManager.enumerator(
+                  at: URL(fileURLWithPath: directory, isDirectory: true),
+                  includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
+                  options: [.skipsHiddenFiles]
+              ) else {
+            return nil
+        }
+
+        var newest: (url: URL, modified: Date)?
+        for case let url as URL in enumerator where url.pathExtension == "jsonl" {
+            guard url.deletingPathExtension().lastPathComponent.contains(trimmed) else { continue }
+            let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
+            guard values?.isRegularFile == true,
+                  let modified = values?.contentModificationDate else {
+                continue
+            }
+            if newest == nil || modified > newest!.modified {
+                newest = (url, modified)
+            }
+        }
+        return newest?.url.path
+    }
+
+    private static func candidateSessionDirectory(
+        for process: VaultObservedAgentProcess,
+        registration: CmuxVaultAgentRegistration
+    ) -> String {
+        let sessionRoot = process.arguments.value(afterOption: "--session-dir")
+            ?? process.environment["PI_CODING_AGENT_SESSION_DIR"]
+            ?? registration.sessionDirectory
+            ?? defaultSessionsRoot()
+        let expandedRoot = (sessionRoot as NSString).expandingTildeInPath
+
+        if let cwd = process.environment["CMUX_AGENT_LAUNCH_CWD"] ?? process.environment["PWD"],
+           let projectDirectory = projectDirectoryName(for: cwd) {
+            return (expandedRoot as NSString).appendingPathComponent(projectDirectory)
+        }
+        return expandedRoot
+    }
+
+    static func newestJSONLFile(in directory: String, fileManager: FileManager = .default) -> URL? {
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: directory, isDirectory: &isDirectory),
+              isDirectory.boolValue,
+              let enumerator = fileManager.enumerator(
+                  at: URL(fileURLWithPath: directory, isDirectory: true),
+                  includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
+                  options: [.skipsHiddenFiles]
+              ) else {
+            return nil
+        }
+
+        var newest: (url: URL, modified: Date)?
+        for case let url as URL in enumerator where url.pathExtension == "jsonl" {
+            let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
+            guard values?.isRegularFile == true,
+                  let modified = values?.contentModificationDate else {
+                continue
+            }
+            if newest == nil || modified > newest!.modified {
+                newest = (url, modified)
+            }
+        }
+        return newest?.url
     }
 }

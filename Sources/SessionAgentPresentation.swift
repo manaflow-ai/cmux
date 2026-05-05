@@ -7,6 +7,11 @@ extension SessionAgent {
         case .codex: return String(localized: "sessionIndex.agent.codex", defaultValue: "Codex")
         case .opencode: return String(localized: "sessionIndex.agent.opencode", defaultValue: "OpenCode")
         case .rovodev: return String(localized: "sessionIndex.agent.rovodev", defaultValue: "Rovo Dev")
+        case .registered(let id):
+            if id == "pi" {
+                return String(localized: "sessionIndex.agent.pi", defaultValue: "Pi")
+            }
+            return CmuxVaultAgentRegistry.load().registration(id: id)?.name ?? id
         }
     }
 
@@ -17,6 +22,8 @@ extension SessionAgent {
         case .codex: return "AgentIcons/Codex"
         case .opencode: return "AgentIcons/OpenCode"
         case .rovodev: return "AgentIcons/RovoDev"
+        case .registered:
+            return "AgentIcons/OpenCode"
         }
     }
 }

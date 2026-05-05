@@ -7,13 +7,58 @@ import SQLite3
 
 // MARK: - Agents
 
-enum SessionAgent: String, CaseIterable, Identifiable, Hashable, Codable, Sendable {
+enum SessionAgent: Identifiable, Hashable, Codable, Sendable {
     case claude
     case codex
     case opencode
     case rovodev
+    case registered(String)
 
     var id: String { rawValue }
+
+    static let builtInCases: [SessionAgent] = [.claude, .codex, .opencode, .rovodev]
+
+    init?(rawValue: String) {
+        let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch value {
+        case "claude": self = .claude
+        case "codex": self = .codex
+        case "opencode": self = .opencode
+        case "rovodev": self = .rovodev
+        default:
+            guard CmuxVaultAgentRegistration.isValidID(value) else { return nil }
+            self = .registered(value)
+        }
+    }
+
+    var rawValue: String {
+        switch self {
+        case .claude: return "claude"
+        case .codex: return "codex"
+        case .opencode: return "opencode"
+        case .rovodev: return "rovodev"
+        case .registered(let id): return id
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let value = try container.decode(String.self)
+        guard let agent = SessionAgent(rawValue: value) else {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "Invalid session agent '\(value)'"
+                )
+            )
+        }
+        self = agent
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 
 enum OpenCodeDatabaseSnapshot {
@@ -82,6 +127,7 @@ enum AgentSpecifics: Hashable {
     case codex(model: String?, approvalPolicy: String?, sandboxMode: String?, effort: String?)
     case opencode(providerModel: String?, agentName: String?)
     case rovodev
+    case registered(CmuxVaultAgentRegistration)
 }
 
 struct SessionEntry: Identifiable, Hashable {
@@ -139,6 +185,26 @@ struct SessionEntry: Identifiable, Hashable {
             return parts.joined(separator: " ")
         case .rovodev:
             return "acli rovodev run --restore \(Self.shellQuote(sessionId))"
+        case .registered(let registration):
+            guard let kind = RestorableAgentKind(rawValue: registration.id),
+                  let command = AgentResumeCommandBuilder.resumeShellCommand(
+                      kind: kind,
+                      sessionId: sessionId,
+                      launchCommand: AgentLaunchCommandSnapshot(
+                          launcher: registration.id,
+                          executablePath: nil,
+                          arguments: [registration.defaultExecutable],
+                          workingDirectory: cwd,
+                          environment: nil,
+                          capturedAt: nil,
+                          source: "vault"
+                      ),
+                      workingDirectory: nil,
+                      registrationOverride: registration
+                  ) else {
+                return "\(Self.shellQuote(registration.defaultExecutable)) --session \(Self.shellQuote(sessionId))"
+            }
+            return command
         }
     }
 
@@ -634,12 +700,19 @@ final class SessionIndexStore: ObservableObject {
     private static func loadAgentOrder() -> [SessionAgent] {
         let stored = UserDefaults.standard.array(forKey: agentOrderDefaultsKey) as? [String] ?? []
         var ordered: [SessionAgent] = stored.compactMap { SessionAgent(rawValue: $0) }
-        for agent in SessionAgent.allCases where !ordered.contains(agent) {
+        for agent in defaultAgentOrder() where !ordered.contains(agent) {
             ordered.append(agent)
         }
         var seen = Set<SessionAgent>()
         ordered = ordered.filter { seen.insert($0).inserted }
         return ordered
+    }
+
+    private static func defaultAgentOrder() -> [SessionAgent] {
+        let builtInIDs = Set(SessionAgent.builtInCases.map(\.rawValue))
+        return SessionAgent.builtInCases + CmuxVaultAgentRegistry.load().registrations.compactMap {
+            builtInIDs.contains($0.id) ? nil : .registered($0.id)
+        }
     }
 
     private static func loadDirectoryOrder() -> [String] {
@@ -709,23 +782,14 @@ final class SessionIndexStore: ObservableObject {
         // Claude's `searchMaxFiles` cap still applies (currently 1500); if
         // anyone has more Claude sessions in a single cwd we'll bump it.
         let bigLimit = 10_000
-        async let c = Self.timedAgent(
-            needle: "", agent: .claude, cwdFilter: cwdFilter,
-            offset: 0, limit: bigLimit, errorBag: bag
+        var merged = await Self.loadAgents(
+            Self.defaultAgentOrder(),
+            needle: "",
+            cwdFilter: cwdFilter,
+            offset: 0,
+            limit: bigLimit,
+            errorBag: bag
         )
-        async let x = Self.timedAgent(
-            needle: "", agent: .codex, cwdFilter: cwdFilter,
-            offset: 0, limit: bigLimit, errorBag: bag
-        )
-        async let o = Self.timedAgent(
-            needle: "", agent: .opencode, cwdFilter: cwdFilter,
-            offset: 0, limit: bigLimit, errorBag: bag
-        )
-        async let r = Self.timedAgent(
-            needle: "", agent: .rovodev, cwdFilter: cwdFilter,
-            offset: 0, limit: bigLimit, errorBag: bag
-        )
-        var merged = (await c) + (await x) + (await o) + (await r)
         if Task.isCancelled {
             return DirectorySnapshot(cwd: key, entries: [], errors: [])
         }
@@ -793,11 +857,14 @@ final class SessionIndexStore: ObservableObject {
         // entries we did get. Errors get surfaced when the user actively
         // searches via the popover.
         let bag = ErrorBag()
-        async let claude = loadClaudeEntries(needle: "", cwdFilter: nil, offset: 0, limit: perAgentLimit)
-        async let codex = loadCodexEntries(needle: "", cwdFilter: nil, offset: 0, limit: perAgentLimit, errorBag: bag)
-        async let opencode = loadOpenCodeEntries(needle: "", cwdFilter: nil, offset: 0, limit: perAgentLimit, errorBag: bag)
-        async let rovodev = loadRovoDevEntries(needle: "", cwdFilter: nil, offset: 0, limit: perAgentLimit, errorBag: bag)
-        let combined = await claude + codex + opencode + rovodev
+        let combined = await loadAgents(
+            defaultAgentOrder(),
+            needle: "",
+            cwdFilter: nil,
+            offset: 0,
+            limit: perAgentLimit,
+            errorBag: bag
+        )
         return combined.sorted { $0.modified > $1.modified }
     }
 
@@ -1293,27 +1360,47 @@ final class SessionIndexStore: ObservableObject {
             // Multi-agent merge: fetch the union of (offset+limit) per agent so the
             // merge-sort can produce a stable global ordering, then slice.
             let target = offset + limit
-            async let c = Self.timedAgent(
-                needle: needle, agent: .claude, cwdFilter: cwdFilter,
-                offset: 0, limit: target, errorBag: bag
+            let merged = await Self.loadAgents(
+                Self.defaultAgentOrder(),
+                needle: needle,
+                cwdFilter: cwdFilter,
+                offset: 0,
+                limit: target,
+                errorBag: bag
             )
-            async let x = Self.timedAgent(
-                needle: needle, agent: .codex, cwdFilter: cwdFilter,
-                offset: 0, limit: target, errorBag: bag
-            )
-            async let o = Self.timedAgent(
-                needle: needle, agent: .opencode, cwdFilter: cwdFilter,
-                offset: 0, limit: target, errorBag: bag
-            )
-            async let r = Self.timedAgent(
-                needle: needle, agent: .rovodev, cwdFilter: cwdFilter,
-                offset: 0, limit: target, errorBag: bag
-            )
-            let merged = (await c) + (await x) + (await o) + (await r)
             let sorted = merged.sorted { $0.modified > $1.modified }
             entries = Array(sorted.dropFirst(offset).prefix(limit))
         }
         return SearchOutcome(entries: entries, errors: bag.snapshot())
+    }
+
+    nonisolated private static func loadAgents(
+        _ agents: [SessionAgent],
+        needle: String,
+        cwdFilter: String?,
+        offset: Int,
+        limit: Int,
+        errorBag: ErrorBag
+    ) async -> [SessionEntry] {
+        await withTaskGroup(of: [SessionEntry].self) { group in
+            for agent in agents {
+                group.addTask {
+                    await timedAgent(
+                        needle: needle,
+                        agent: agent,
+                        cwdFilter: cwdFilter,
+                        offset: offset,
+                        limit: limit,
+                        errorBag: errorBag
+                    )
+                }
+            }
+            var merged: [SessionEntry] = []
+            for await entries in group {
+                merged.append(contentsOf: entries)
+            }
+            return merged
+        }
     }
 
     nonisolated private static func timedAgent(
@@ -1340,7 +1427,227 @@ final class SessionIndexStore: ObservableObject {
         case .codex: return await loadCodexEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
         case .opencode: return loadOpenCodeEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
         case .rovodev: return loadRovoDevEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
+        case .registered(let id):
+            guard let registration = CmuxVaultAgentRegistry.load(
+                workingDirectory: cwdFilter
+            ).registration(id: id) else {
+                return []
+            }
+            return await loadRegisteredAgentEntries(
+                registration: registration,
+                needle: needle,
+                cwdFilter: cwdFilter,
+                offset: offset,
+                limit: limit
+            )
         }
+    }
+
+    private struct RegisteredAgentJSONLMetadata {
+        var title: String = ""
+        var cwd: String?
+        var branch: String?
+    }
+
+    nonisolated private static func loadRegisteredAgentEntries(
+        registration: CmuxVaultAgentRegistration,
+        needle: String,
+        cwdFilter: String?,
+        offset: Int,
+        limit: Int
+    ) async -> [SessionEntry] {
+        let roots = registeredSessionRoots(registration: registration, cwdFilter: cwdFilter)
+        guard !roots.isEmpty else { return [] }
+        let fm = FileManager.default
+
+        var candidates: [(url: URL, modified: Date, prefilteredByRipgrep: Bool)] = []
+        if !needle.isEmpty {
+            for root in roots {
+                guard let rgPaths = await ripgrepMatchingPaths(
+                    needle: needle,
+                    root: root,
+                    fileGlob: "*.jsonl"
+                ) else {
+                    candidates.append(
+                        contentsOf: enumerateRegisteredJSONLCandidates(root: root).map {
+                            (url: $0.0, modified: $0.1, prefilteredByRipgrep: false)
+                        }
+                    )
+                    continue
+                }
+                for url in rgPaths {
+                    guard let attrs = try? fm.attributesOfItem(atPath: url.path),
+                          let modified = attrs[.modificationDate] as? Date else {
+                        continue
+                    }
+                    candidates.append((url, modified, true))
+                }
+            }
+        } else {
+            for root in roots {
+                candidates.append(
+                    contentsOf: enumerateRegisteredJSONLCandidates(root: root).map {
+                        (url: $0.0, modified: $0.1, prefilteredByRipgrep: false)
+                    }
+                )
+            }
+        }
+
+        candidates.sort { $0.modified > $1.modified }
+        let target = offset + limit
+        var matches: [SessionEntry] = []
+        var scanned = 0
+        for candidate in candidates {
+            if Task.isCancelled { break }
+            if matches.count >= target { break }
+            if scanned >= searchMaxFiles { break }
+            scanned += 1
+
+            if !needle.isEmpty && !candidate.prefilteredByRipgrep {
+                let head = readFileHead(url: candidate.url, byteCap: headByteCap)
+                let tail = readFileTail(url: candidate.url, byteCap: tailByteCap)
+                let combined = head + "\n" + tail
+                guard combined.range(of: needle, options: [.caseInsensitive, .literal]) != nil else {
+                    continue
+                }
+            }
+
+            let metadata = extractRegisteredJSONLMetadata(
+                url: candidate.url,
+                registration: registration,
+                fallbackCWD: cwdFilter
+            )
+            if let cwdFilter, metadata.cwd != cwdFilter {
+                continue
+            }
+            matches.append(SessionEntry(
+                id: "\(registration.id):\(candidate.url.path)",
+                agent: .registered(registration.id),
+                sessionId: candidate.url.path,
+                title: metadata.title,
+                cwd: metadata.cwd,
+                gitBranch: metadata.branch,
+                pullRequest: nil,
+                modified: candidate.modified,
+                fileURL: candidate.url,
+                specifics: .registered(registration)
+            ))
+        }
+        return Array(matches.dropFirst(offset).prefix(limit))
+    }
+
+    nonisolated private static func registeredSessionRoots(
+        registration: CmuxVaultAgentRegistration,
+        cwdFilter: String?
+    ) -> [String] {
+        let configuredRoot = registration.sessionDirectory.map {
+            ($0 as NSString).expandingTildeInPath
+        }
+        guard let root = configuredRoot else {
+            return []
+        }
+        if registration.id == "pi",
+           let cwdFilter,
+           let projectDirectory = PiSessionLocator.projectDirectoryName(for: cwdFilter) {
+            return [(root as NSString).appendingPathComponent(projectDirectory)]
+        }
+        return [root]
+    }
+
+    nonisolated private static func enumerateRegisteredJSONLCandidates(root: String) -> [(URL, Date)] {
+        let fm = FileManager.default
+        var isDirectory: ObjCBool = false
+        guard fm.fileExists(atPath: root, isDirectory: &isDirectory),
+              isDirectory.boolValue,
+              let enumerator = fm.enumerator(
+                  at: URL(fileURLWithPath: root, isDirectory: true),
+                  includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
+                  options: [.skipsHiddenFiles]
+              ) else {
+            return []
+        }
+        var candidates: [(URL, Date)] = []
+        for case let url as URL in enumerator where url.pathExtension == "jsonl" {
+            let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
+            guard values?.isRegularFile == true,
+                  let modified = values?.contentModificationDate else {
+                continue
+            }
+            candidates.append((url, modified))
+        }
+        return candidates
+    }
+
+    nonisolated private static func extractRegisteredJSONLMetadata(
+        url: URL,
+        registration: CmuxVaultAgentRegistration,
+        fallbackCWD: String?
+    ) -> RegisteredAgentJSONLMetadata {
+        var metadata = RegisteredAgentJSONLMetadata()
+        metadata.cwd = fallbackCWD
+        forEachJSONLine(url: url, maxBytes: 512 * 1024) { object in
+            if metadata.cwd == nil {
+                metadata.cwd = firstString(
+                    in: object,
+                    keys: ["cwd", "workingDirectory", "workspacePath", "projectPath", "directory"]
+                )
+            }
+            if metadata.branch == nil,
+               let git = object["git"] as? [String: Any] {
+                metadata.branch = firstString(in: git, keys: ["branch", "gitBranch"])
+            }
+            if metadata.branch == nil {
+                metadata.branch = firstString(in: object, keys: ["gitBranch", "branch"])
+            }
+            if metadata.title.isEmpty,
+               let title = firstString(in: object, keys: ["title", "prompt", "text", "content"]) {
+                metadata.title = title
+            }
+            if metadata.title.isEmpty,
+               let message = object["message"] as? [String: Any] {
+                metadata.title = firstString(in: message, keys: ["content", "text"]) ?? ""
+            }
+            if metadata.title.isEmpty,
+               let messages = object["messages"] as? [[String: Any]] {
+                for message in messages {
+                    if let role = firstString(in: message, keys: ["role"]),
+                       role == "user",
+                       let title = firstString(in: message, keys: ["content", "text"]) {
+                        metadata.title = title
+                        break
+                    }
+                }
+            }
+            return !metadata.title.isEmpty && metadata.cwd != nil
+        }
+        if metadata.cwd == nil,
+           registration.id == "pi" {
+            metadata.cwd = piCWDInferred(from: url)
+        }
+        return metadata
+    }
+
+    nonisolated private static func firstString(in object: [String: Any], keys: [String]) -> String? {
+        for key in keys {
+            guard let value = object[key] as? String else { continue }
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+        return nil
+    }
+
+    nonisolated private static func piCWDInferred(from url: URL) -> String? {
+        let directoryName = url.deletingLastPathComponent().lastPathComponent
+        guard directoryName.hasPrefix("--"),
+              directoryName.hasSuffix("--"),
+              directoryName.count > 4 else {
+            return nil
+        }
+        let body = String(directoryName.dropFirst(2).dropLast(2))
+        guard !body.isEmpty else { return nil }
+        return "/" + body.replacingOccurrences(of: "-", with: "/")
     }
 
     /// Path to `rg` (ripgrep), if installed. Resolved once. nil when not found —

@@ -13,6 +13,7 @@ struct CmuxConfigFile: Codable, Sendable {
     var newWorkspaceCommand: String?
     var surfaceTabBarButtons: [CmuxSurfaceTabBarButton]?
     var commands: [CmuxCommandDefinition]
+    var vault: CmuxVaultConfigDefinition?
 
     private enum CodingKeys: String, CodingKey {
         case actions
@@ -20,6 +21,7 @@ struct CmuxConfigFile: Codable, Sendable {
         case newWorkspaceCommand
         case surfaceTabBarButtons
         case commands
+        case vault
     }
 
     init(
@@ -27,13 +29,15 @@ struct CmuxConfigFile: Codable, Sendable {
         ui: CmuxConfigUIDefinition? = nil,
         newWorkspaceCommand: String? = nil,
         surfaceTabBarButtons: [CmuxSurfaceTabBarButton]? = nil,
-        commands: [CmuxCommandDefinition] = []
+        commands: [CmuxCommandDefinition] = [],
+        vault: CmuxVaultConfigDefinition? = nil
     ) {
         self.actions = actions
         self.ui = ui
         self.newWorkspaceCommand = newWorkspaceCommand
         self.surfaceTabBarButtons = surfaceTabBarButtons
         self.commands = commands
+        self.vault = vault
     }
 
     init(from decoder: Decoder) throws {
@@ -79,6 +83,7 @@ struct CmuxConfigFile: Codable, Sendable {
             surfaceTabBarButtons = nil
         }
         commands = try container.decodeIfPresent([CmuxCommandDefinition].self, forKey: .commands) ?? []
+        vault = try container.decodeIfPresent(CmuxVaultConfigDefinition.self, forKey: .vault)
     }
 
     private static func normalizedActions(

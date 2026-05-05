@@ -105474,6 +105474,23 @@
         }
       }
     },
+    "sessionIndex.agent.pi": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        }
+      }
+    },
     "sessionIndex.agent.rovodev": {
       "extractionState": "manual",
       "localizations": {
