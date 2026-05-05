@@ -658,7 +658,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let windowNumber: Int?
     }
     private var pendingConfiguredShortcutChord: PendingConfiguredShortcutChord?
-    private var activeConfiguredShortcutChordPrefixForCurrentEvent: ShortcutStroke?
+    var activeConfiguredShortcutChordPrefixForCurrentEvent: ShortcutStroke?
     var shortcutEventFocusContextCache: ShortcutEventFocusContextCache?
     private var configuredShortcutChordActions: [KeyboardShortcutSettings.Action] = []
     private var ghosttyConfigObserver: NSObjectProtocol?
@@ -6616,7 +6616,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
-    private func preferredMainWindowContextForShortcutRouting(event: NSEvent) -> MainWindowContext? {
+    func preferredMainWindowContextForShortcutRouting(event: NSEvent) -> MainWindowContext? {
         if let context = mainWindowContext(forShortcutEvent: event, debugSource: "shortcut.routing") {
             return context
         }
@@ -10861,8 +10861,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Fast path for normal typing and terminal navigation keys (for example Up-arrow
         // history): after command-palette/notification handling and browser omnibar
-        // arrow navigation above, plain key events have no app-level shortcut behavior.
-        if normalizedFlags.isEmpty && activeConfiguredShortcutChordPrefixForCurrentEvent == nil {
+        // arrow navigation above, most plain key events have no app-level shortcut behavior.
+        if shouldBypassPlainKeyShortcutRouting(event: event, normalizedFlags: normalizedFlags) {
             return false
         }
 
@@ -12384,7 +12384,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return false
     }
 
-    private func configuredCmuxShortcutActions(
+    func configuredCmuxShortcutActions(
         for context: MainWindowContext?
     ) -> [CmuxResolvedConfigAction] {
         context?.cmuxConfigStore?.shortcutActions() ?? []
