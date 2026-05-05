@@ -391,8 +391,8 @@ final class MainWindowFocusController {
             publishFeedFocusSnapshot()
             return true
         }
-        if let request = rightSidebarFocusState.request, request.mode == mode {
-            return focusRightSidebar(mode: mode, target: request.target)
+        if let stateTarget = rightSidebarRestoreTargetFromState(mode: mode) {
+            return restoreRightSidebarFocus(mode: mode, target: stateTarget)
         }
         if mode == .find {
             return focusFileSearch()

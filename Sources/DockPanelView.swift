@@ -851,7 +851,7 @@ struct DockPanelView: View {
                 }
             )
         } else if store.controls.isEmpty {
-            DockEmptyView()
+            Color.clear.accessibilityHidden(true)
         } else {
             DockControlsLayoutView(
                 snapshots: store.controlSnapshots,

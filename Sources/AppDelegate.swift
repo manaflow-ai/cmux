@@ -1419,6 +1419,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if TelemetrySettings.enabledForCurrentLaunch && !isRunningUnderXCTestCached {
             PostHogAnalytics.shared.trackActive(reason: "didBecomeActive")
         }
+        _ = restoreMainWindowKeyboardFocusAfterApplicationBecameActive()
 
         guard let notificationStore else { return }
         notificationStore.handleApplicationDidBecomeActive()
@@ -5156,6 +5157,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func contextForMainWindow(_ window: NSWindow?) -> MainWindowContext? {
         guard let window else { return nil }
         return contextForMainTerminalWindow(window)
+    }
+
+    @discardableResult
+    private func restoreMainWindowKeyboardFocusAfterApplicationBecameActive() -> Bool {
+        var seenWindows = Set<ObjectIdentifier>()
+        let candidateWindows = [NSApp.keyWindow, NSApp.mainWindow].compactMap { $0 } + NSApp.orderedWindows
+        for window in candidateWindows {
+            guard isMainTerminalWindow(window),
+                  seenWindows.insert(ObjectIdentifier(window)).inserted else { continue }
+            guard let context = contextForMainTerminalWindow(window) else { continue }
+            setActiveMainWindow(window)
+            if context.keyboardFocusCoordinator.restoreTargetAfterWindowBecameKey() {
+                return true
+            }
+        }
+
+        guard let context = preferredRegisteredMainWindowContext() else {
+            return false
+        }
+        if let window = context.window ?? windowForMainWindowId(context.windowId) {
+            setActiveMainWindow(window)
+        }
+        return context.keyboardFocusCoordinator.restoreTargetAfterWindowBecameKey()
     }
 
     private func liveMainWindowContext(for tabManager: TabManager) -> MainWindowContext? {
