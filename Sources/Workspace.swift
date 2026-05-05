@@ -8372,23 +8372,15 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func syncPinnedStateForTab(_ tabId: TabID, panelId: UUID) {
         let isPinned = pinnedPanelIds.contains(panelId)
-        if let panel = panels[panelId] {
-            let kind = surfaceKind(for: panel)
-            if let tab = bonsplitController.tab(tabId),
-               tab.kind == kind,
-               tab.isPinned == isPinned {
-                return
-            }
-            bonsplitController.updateTab(
-                tabId,
-                kind: .some(kind),
-                isPinned: isPinned
-            )
+        let kind = panels[panelId].map { surfaceKind(for: $0) }
+        if let tab = bonsplitController.tab(tabId),
+           tab.isPinned == isPinned,
+           kind.map({ tab.kind == $0 }) ?? true {
+            return
+        }
+        if let kind {
+            bonsplitController.updateTab(tabId, kind: .some(kind), isPinned: isPinned)
         } else {
-            if let tab = bonsplitController.tab(tabId),
-               tab.isPinned == isPinned {
-                return
-            }
             bonsplitController.updateTab(tabId, isPinned: isPinned)
         }
     }
@@ -11442,17 +11434,8 @@ final class Workspace: Identifiable, ObservableObject {
             "converged=\(selectionAlreadyConverged ? 1 : 0) " +
             "currentPanel=\(currentPanelShort)"
         )
-        if shouldSuppressReentrantRefocus {
-            cmuxDebugLog(
-                "focus.panel.skipReentrant panel=\(panelId.uuidString.prefix(5)) " +
-                "reason=firstResponderAlreadyConverged"
-            )
-        }
 #endif
-        if shouldSuppressReentrantRefocus,
-           currentlyFocusedPanelId == panelId {
-            return
-        }
+        if shouldSuppressReentrantRefocus, currentlyFocusedPanelId == panelId { return }
 
         if let targetPaneId, !selectionAlreadyConverged {
 #if DEBUG

@@ -1871,9 +1871,7 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
         var isAppHidden = false
         var hideCount = 0
         var unhideCount = 0
-        var deminiaturizedWindows: [NSWindow] = []
-        var madeKeyWindows: [NSWindow] = []
-        var orderedRegardlessWindows: [NSWindow] = []
+        var deminiaturizedWindows: [NSWindow] = [], madeKeyWindows: [NSWindow] = []
         var activationCount = 0
 
         let controller = MainWindowVisibilityController(
@@ -1899,8 +1897,7 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
                         miniaturizedIds.remove(ObjectIdentifier(window))
                         deminiaturizedWindows.append(window)
                     },
-                    makeKey: { madeKeyWindows.append($0) },
-                    orderFrontRegardless: { orderedRegardlessWindows.append($0) }
+                    makeKey: { madeKeyWindows.append($0) }
                 )
             )
         )
@@ -1920,7 +1917,6 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
         XCTAssertEqual(activationCount, 1)
         XCTAssertTrue(madeKeyWindows.contains { $0 === visibleWindow })
         XCTAssertFalse(deminiaturizedWindows.contains { $0 === miniaturizedWindow })
-        XCTAssertFalse(orderedRegardlessWindows.contains { $0 === miniaturizedWindow })
     }
 
     func testShowApplicationWindowsStillRestoresMiniaturizedWindowsWhenNoHiddenTargetsWereCaptured() {
@@ -1961,10 +1957,8 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
         defer { window.orderOut(nil) }
 
         let visibleIds: Set<ObjectIdentifier> = [ObjectIdentifier(window)]
-        var orderedOutWindows: [NSWindow] = []
-        var orderedRegardlessWindows: [NSWindow] = []
-        var deminiaturizedWindows: [NSWindow] = []
-        var madeKeyWindows: [NSWindow] = []
+        var orderedOutWindows: [NSWindow] = [], orderedRegardlessWindows: [NSWindow] = []
+        var deminiaturizedWindows: [NSWindow] = [], madeKeyWindows: [NSWindow] = []
         var activationCount = 0
 
         let controller = MainWindowVisibilityController(
