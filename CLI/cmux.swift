@@ -102,27 +102,8 @@ private final class CLISocketSentryTelemetry {
             return Bundle.main
         }
 
-        guard let executableURL = CLIExecutableLocator.currentExecutableURL() else {
-            return Bundle.main
-        }
-
-        var current = executableURL.deletingLastPathComponent().standardizedFileURL
-        while true {
-            if current.pathExtension == "app", let bundle = Bundle(url: current) {
-                return bundle
-            }
-
-            if current.lastPathComponent == "Contents" {
-                let appURL = current.deletingLastPathComponent().standardizedFileURL
-                if appURL.pathExtension == "app", let bundle = Bundle(url: appURL) {
-                    return bundle
-                }
-            }
-
-            guard let parent = CLIExecutableLocator.parentSearchURL(for: current) else {
-                break
-            }
-            current = parent
+        if let bundle = CLIExecutableLocator.enclosingAppBundle() {
+            return bundle
         }
 
         return Bundle.main
@@ -1611,29 +1592,7 @@ struct CMUXCLI {
     private static let defaultBrowserSettingsDomain = "com.cmuxterm.app"
 
     private static func containingAppBundleIdentifier() -> String? {
-        guard let executableURL = CLIExecutableLocator.currentExecutableURL() else { return nil }
-        var current = executableURL.deletingLastPathComponent().standardizedFileURL
-        while current.path != "/" {
-            if current.pathExtension == "app",
-               let bundle = Bundle(url: current),
-               let bundleIdentifier = normalizedEnvValue(bundle.bundleIdentifier) {
-                return bundleIdentifier
-            }
-
-            if current.lastPathComponent == "Contents" {
-                let appURL = current.deletingLastPathComponent().standardizedFileURL
-                if appURL.pathExtension == "app",
-                   let bundle = Bundle(url: appURL),
-                   let bundleIdentifier = normalizedEnvValue(bundle.bundleIdentifier) {
-                    return bundleIdentifier
-                }
-            }
-
-            let parent = current.deletingLastPathComponent().standardizedFileURL
-            guard parent.path != current.path else { break }
-            current = parent
-        }
-        return nil
+        normalizedEnvValue(CLIExecutableLocator.enclosingAppBundle()?.bundleIdentifier)
     }
 
     private static func browserSettingsDomain(environment: [String: String]) -> String {

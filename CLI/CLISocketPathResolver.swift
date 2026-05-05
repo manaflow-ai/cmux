@@ -33,6 +33,35 @@ enum CLIExecutableLocator {
         }
         return parent
     }
+
+    static func enclosingAppBundle() -> Bundle? {
+        enclosingAppBundle(startingAt: currentExecutableURL())
+    }
+
+    static func enclosingAppBundle(startingAt executableURL: URL?) -> Bundle? {
+        guard let executableURL else {
+            return nil
+        }
+
+        var current = executableURL.deletingLastPathComponent().standardizedFileURL
+        while true {
+            if current.pathExtension == "app", let bundle = Bundle(url: current) {
+                return bundle
+            }
+
+            if current.lastPathComponent == "Contents" {
+                let appURL = current.deletingLastPathComponent().standardizedFileURL
+                if appURL.pathExtension == "app", let bundle = Bundle(url: appURL) {
+                    return bundle
+                }
+            }
+
+            guard let parent = parentSearchURL(for: current) else {
+                return nil
+            }
+            current = parent
+        }
+    }
 }
 
 enum CLISocketPathSource {
@@ -285,7 +314,7 @@ enum CLISocketPathResolver {
     }
 
     static func currentAppBundleIdentifier() -> String? {
-        if let bundleIdentifier = enclosingAppBundle()?.bundleIdentifier?
+        if let bundleIdentifier = CLIExecutableLocator.enclosingAppBundle()?.bundleIdentifier?
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !bundleIdentifier.isEmpty {
             return bundleIdentifier
@@ -302,31 +331,6 @@ enum CLISocketPathResolver {
 #else
         return "com.cmuxterm.app"
 #endif
-    }
-
-    private static func enclosingAppBundle() -> Bundle? {
-        guard let executableURL = CLIExecutableLocator.currentExecutableURL() else {
-            return nil
-        }
-
-        var current = executableURL.deletingLastPathComponent().standardizedFileURL
-        while true {
-            if current.pathExtension == "app", let bundle = Bundle(url: current) {
-                return bundle
-            }
-
-            if current.lastPathComponent == "Contents" {
-                let appURL = current.deletingLastPathComponent().standardizedFileURL
-                if appURL.pathExtension == "app", let bundle = Bundle(url: appURL) {
-                    return bundle
-                }
-            }
-
-            guard let parent = CLIExecutableLocator.parentSearchURL(for: current) else {
-                return nil
-            }
-            current = parent
-        }
     }
 
     private static func normalized(_ value: String?) -> String? {
