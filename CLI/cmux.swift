@@ -2178,18 +2178,21 @@ struct CMUXCLI {
             return
         }
 
-        // Codex hooks management (no socket needed)
         if command == "codex" {
+            // Backwards compatibility for old hook setup docs/scripts. Hidden from help.
             let sub = commandArgs.first?.lowercased() ?? "help"
+            guard let codexDef = Self.agentDef(named: "codex") else { throw CLIError(message: "Codex hook integration is unavailable.") }
             if sub == "install-hooks" {
-                try installHooksForAgent(Self.agentDef(named: "codex")!, arguments: Array(commandArgs.dropFirst()))
+                try installHooksForAgent(codexDef, arguments: Array(commandArgs.dropFirst()))
                 return
             } else if sub == "uninstall-hooks" {
-                try uninstallHooksForAgent(Self.agentDef(named: "codex")!, arguments: Array(commandArgs.dropFirst()))
+                try uninstallHooksForAgent(codexDef, arguments: Array(commandArgs.dropFirst()))
                 return
             }
         }
-
+        if command == "setup-hooks" || command == "uninstall-hooks" { try runSetupHooks(uninstall: command == "uninstall-hooks"); return } // Backwards compatibility for old hook setup docs/scripts.
+        if (command == "codex-hook" || command == "feed-hook"), processEnv["CMUX_SURFACE_ID"]?.isEmpty != false, processEnv["CMUX_WORKSPACE_ID"]?.isEmpty != false,
+           !commandArgs.contains(where: { $0 == "--workspace" || $0 == "--surface" || $0.hasPrefix("--workspace=") || $0.hasPrefix("--surface=") }) { print("{}"); return } // Backwards compatibility for old installed hooks outside cmux terminals.
         if command == "hooks" {
             if try runHooksNoSocketCommand(commandArgs: commandArgs) {
                 return
@@ -2285,8 +2288,7 @@ struct CMUXCLI {
             }
         }
 
-        let capturesSocketErrorsInsideCommand = command == "claude-hook" || command == "hooks"
-
+        let capturesSocketErrorsInsideCommand = ["claude-hook", "codex-hook", "feed-hook", "hooks"].contains(command) // Backwards compatibility aliases stay hidden from help.
         do {
         switch command {
         case "ping":
@@ -3336,7 +3338,11 @@ struct CMUXCLI {
                 captureSocketTransportError(telemetry: cliTelemetry, stage: "claude_hook_dispatch", error: error, client: client)
                 throw error
             }
-
+        case "codex-hook": // Backwards compatibility for older installed Codex hooks. Hidden from help.
+            guard let codexDef = Self.agentDef(named: "codex") else { print("{}"); return }
+            try runGenericAgentHook(def: codexDef, commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
+        case "feed-hook": // Backwards compatibility for older installed Feed hooks. Hidden from help.
+            try runFeedHook(commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
         case "hooks":
             try runHooksSocketCommand(commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
 
@@ -14073,15 +14079,12 @@ struct CMUXCLI {
         client: SocketClient
     ) throws -> String {
         if let preferred = nonEmptyClaudeHookIdentifier(preferred) {
-            if isUUID(preferred) {
-                return preferred
-            }
             return try resolveWorkspaceIdForClaudeHook(preferred, client: client)
         }
-        if let fallback = nonEmptyClaudeHookIdentifier(fallback), isUUID(fallback) {
-            return fallback
+        if let fallback = nonEmptyClaudeHookIdentifier(fallback) {
+            return try resolveWorkspaceIdForClaudeHook(fallback, client: client)
         }
-        return try resolveWorkspaceIdForClaudeHook(fallback, client: client)
+        return try resolveWorkspaceIdForClaudeHook(nil, client: client)
     }
 
     private func resolvePreferredSurfaceIdForClaudeHook(
@@ -14091,15 +14094,12 @@ struct CMUXCLI {
         client: SocketClient
     ) throws -> String {
         if let preferred = nonEmptyClaudeHookIdentifier(preferred) {
-            if isUUID(preferred) {
-                return preferred
-            }
             return try resolveSurfaceIdForClaudeHook(preferred, workspaceId: workspaceId, client: client)
         }
-        if let fallback = nonEmptyClaudeHookIdentifier(fallback), isUUID(fallback) {
-            return fallback
+        if let fallback = nonEmptyClaudeHookIdentifier(fallback) {
+            return try resolveSurfaceIdForClaudeHook(fallback, workspaceId: workspaceId, client: client)
         }
-        return try resolveSurfaceIdForClaudeHook(fallback, workspaceId: workspaceId, client: client)
+        return try resolveSurfaceIdForClaudeHook(nil, workspaceId: workspaceId, client: client)
     }
 
     private func nonEmptyClaudeHookIdentifier(_ value: String?) -> String? {
@@ -16646,35 +16646,35 @@ export default CMUXSessionRestore;
         }
     }
 
-    private func updateOpenCodePluginRegistration(configDir: URL, shouldInstall: Bool) throws {
-        let configURL = configDir.appendingPathComponent("opencode.json", isDirectory: false)
+    private func updateOpenCodePluginRegistration(configDir: URL, shouldInstall: Bool) throws -> Bool {
+        let configURL = configDir.appendingPathComponent("opencode.json", isDirectory: false); let existingData = try? Data(contentsOf: configURL)
         var config: [String: Any]
-        if let data = try? Data(contentsOf: configURL) {
-            guard let decoded = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                throw CLIError(message: "Failed to parse \(configURL.path). Fix the JSON syntax and retry.")
-            }
+        if let data = existingData {
+            guard let decoded = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw CLIError(message: "Failed to parse \(configURL.path). Fix the JSON syntax and retry.") }
             config = decoded
         } else {
             config = [:]
         }
-
         var plugins = Self.openCodePluginListRemovingSessionPlugin((config["plugin"] as? [Any]) ?? [])
-        if shouldInstall,
-           !Self.openCodePluginListContains(plugins, spec: Self.openCodeSessionPluginConfigSpec) {
-            plugins.append(Self.openCodeSessionPluginConfigSpec)
-        }
+        if shouldInstall, !Self.openCodePluginListContains(plugins, spec: Self.openCodeSessionPluginConfigSpec) { plugins.append(Self.openCodeSessionPluginConfigSpec) }
         config["plugin"] = plugins
-
         let output = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys])
+        if existingData == output { return false }
         try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
         try output.write(to: configURL, options: .atomic)
+        return true
     }
 
     private func installOpenCodePluginHooks(_ def: AgentHookDef) throws {
         let pluginURL = openCodeSessionPluginURL(for: def)
-        let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
-            || ProcessInfo.processInfo.arguments.contains("-y")
-
+        let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes") || ProcessInfo.processInfo.arguments.contains("-y")
+        let existing = (try? String(contentsOf: pluginURL, encoding: .utf8)) ?? ""
+        let configDir = URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true)
+        if existing == Self.openCodeSessionPluginSource {
+            print(try updateOpenCodePluginRegistration(configDir: configDir, shouldInstall: true) ? "OpenCode hooks installed at \(pluginURL.path)" : "OpenCode hooks already up to date at \(pluginURL.path)")
+            return
+        }
+        if !existing.isEmpty, !existing.contains(Self.openCodeSessionPluginMarker) { throw CLIError(message: "\(pluginURL.path) exists and is not a cmux plugin; leaving it alone") }
         if !skipConfirm {
             print("Will write OpenCode cmux plugin to \(pluginURL.path):")
             print(Self.openCodeSessionPluginSource)
@@ -16684,10 +16684,8 @@ export default CMUXSessionRestore;
                 return
             }
         }
-
-        let configDir = URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true)
         try writeOpenCodeSessionPlugin(in: configDir)
-        try updateOpenCodePluginRegistration(configDir: configDir, shouldInstall: true)
+        _ = try updateOpenCodePluginRegistration(configDir: configDir, shouldInstall: true)
         print("OpenCode hooks installed at \(pluginURL.path)")
     }
 
@@ -16698,21 +16696,18 @@ export default CMUXSessionRestore;
             print("No OpenCode cmux plugin found at \(pluginURL.path)")
             return
         }
-
         let existing = (try? String(contentsOf: pluginURL, encoding: .utf8)) ?? ""
         guard existing.contains(Self.openCodeSessionPluginMarker) else {
             print("Refusing to remove \(pluginURL.path): missing cmux marker")
             return
         }
-
         try fm.removeItem(at: pluginURL)
-        try updateOpenCodePluginRegistration(
+        _ = try updateOpenCodePluginRegistration(
             configDir: URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true),
             shouldInstall: false
         )
         print("Removed OpenCode cmux plugin from \(pluginURL.path)")
     }
-
     private func installAgentHooks(_ def: AgentHookDef) throws {
         if def.name == "opencode" {
             try installOpenCodePluginHooks(def)
@@ -17029,7 +17024,13 @@ export default CMUXSessionRestore;
 
         case .promptSubmit:
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
-            let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(preferred: mapped?.workspaceId, fallback: workspaceArg, client: client)
+            let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(preferred: workspaceArg, fallback: mapped?.workspaceId, client: client)
+            let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
+                preferred: surfaceArg,
+                fallback: mapped?.surfaceId,
+                workspaceId: workspaceId,
+                client: client
+            )
             sendAgentFeedTelemetry(workspaceId: workspaceId)
             let pid = mapped?.pid ?? inferredCodexAgentPID()
             let launchCommand = agentLaunchCommandFromEnvironment(
@@ -17042,7 +17043,7 @@ export default CMUXSessionRestore;
                 try? store.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
-                    surfaceId: mapped?.surfaceId ?? (surfaceArg ?? ""),
+                    surfaceId: surfaceId,
                     cwd: input.cwd ?? mapped?.cwd,
                     pid: pid,
                     launchCommand: launchCommand
@@ -17060,7 +17061,7 @@ export default CMUXSessionRestore;
                     transcriptPath: normalizedHookValue(input.transcriptPath),
                     cwd: input.cwd ?? mapped?.cwd,
                     workspaceId: workspaceId,
-                    surfaceId: mapped?.surfaceId ?? surfaceArg,
+                    surfaceId: surfaceId,
                     env: env
                 )
             }
@@ -17068,8 +17069,8 @@ export default CMUXSessionRestore;
         case .stop:
             do {
                 let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
-                let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(preferred: mapped?.workspaceId, fallback: workspaceArg, client: client)
-                let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(preferred: mapped?.surfaceId, fallback: surfaceArg, workspaceId: workspaceId, client: client)
+                let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(preferred: workspaceArg, fallback: mapped?.workspaceId, client: client)
+                let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(preferred: surfaceArg, fallback: mapped?.surfaceId, workspaceId: workspaceId, client: client)
                 sendAgentFeedTelemetry(workspaceId: workspaceId)
                 let pid = mapped?.pid ?? inferredCodexAgentPID()
                 let codexFailure: CodexHookFailureSummary?
@@ -19058,22 +19059,63 @@ export default CMUXSessionRestore;
 
     private func bundledOpenCodePluginSource() throws -> String {
         // The plugin JS is bundled into the .app via `Resources/opencode-plugin.js`.
-        // When running from the dev CLI binary (out of DerivedData), Bundle.main
-        // might resolve to the .app bundle or fall back to a checked-in resource
-        // copy next to the running binary.
-        if let url = Bundle.main.url(forResource: "opencode-plugin", withExtension: "js"),
-           let contents = try? String(contentsOf: url, encoding: .utf8) {
-            return contents
+        // The `cmux` CLI is often launched from `Contents/Resources/bin/cmux`,
+        // where Bundle.main can be the CLI executable rather than the containing
+        // app. Search the real executable path before falling back to repo dev
+        // paths used by `swift run`-style local builds.
+        for url in openCodePluginResourceCandidates() {
+            if let contents = try? String(contentsOf: url, encoding: .utf8) {
+                return contents
+            }
         }
-        // Fallback for `swift run`-style local dev.
+        throw CLIError(message: "bundled opencode-plugin.js not found (Bundle.main, app bundle, executable, and repo fallbacks)")
+    }
+
+    private func openCodePluginResourceCandidates() -> [URL] {
+        let fileManager = FileManager.default
+        var candidates: [URL] = []
+        var seen: Set<String> = []
+
+        func appendIfExisting(_ url: URL?) {
+            guard let url else { return }
+            let standardized = url.standardizedFileURL
+            guard seen.insert(standardized.path).inserted else { return }
+            guard fileManager.fileExists(atPath: standardized.path) else { return }
+            candidates.append(standardized)
+        }
+
+        appendIfExisting(Bundle.main.url(forResource: "opencode-plugin", withExtension: "js"))
+        appendIfExisting(Bundle.main.resourceURL?.appendingPathComponent("opencode-plugin.js", isDirectory: false))
+
+        if let executableURL = resolvedExecutableURL() {
+            let execDir = executableURL.deletingLastPathComponent().standardizedFileURL
+            for relativePath in ["opencode-plugin.js", "../opencode-plugin.js", "../../Resources/opencode-plugin.js", "../../../Contents/Resources/opencode-plugin.js"] {
+                appendIfExisting(execDir.appendingPathComponent(relativePath, isDirectory: false).standardizedFileURL)
+            }
+
+            var current = execDir
+            for _ in 0..<4 {
+                if current.pathExtension == "app" {
+                    appendIfExisting(current.appendingPathComponent("Contents/Resources/opencode-plugin.js", isDirectory: false))
+                    break
+                }
+                let projectMarker = current.appendingPathComponent("GhosttyTabs.xcodeproj/project.pbxproj")
+                let repoResource = current.appendingPathComponent("Resources/opencode-plugin.js", isDirectory: false)
+                if fileManager.fileExists(atPath: projectMarker.path),
+                   fileManager.fileExists(atPath: repoResource.path) {
+                    appendIfExisting(repoResource)
+                    break
+                }
+                current = current.deletingLastPathComponent().standardizedFileURL
+            }
+        }
+
         let devRelative = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Resources/opencode-plugin.js")
-        if let contents = try? String(contentsOf: devRelative, encoding: .utf8) {
-            return contents
-        }
-        throw CLIError(message: "bundled opencode-plugin.js not found (Bundle.main + fallback)")
+        appendIfExisting(devRelative)
+        return candidates
     }
 
     private func installOpenCodePlugin(projectLocal: Bool) throws {
@@ -20322,7 +20364,6 @@ export default CMUXSessionRestore;
           hooks setup|uninstall [--agent <name>]
           hooks <agent> <install|uninstall|event> [options; opencode supports --project]
           hooks feed --source <agent> [--event <event>]
-          codex <install-hooks|uninstall-hooks>   (compatibility alias)
           ping
           version
           capabilities
@@ -20387,7 +20428,6 @@ export default CMUXSessionRestore;
           clear-log [--workspace <id|ref>]
           list-log [--workspace <id|ref>] [--limit <n>]
           sidebar-state [--workspace <id|ref>]
-          claude-hook <session-start|stop|notification> [--workspace <id|ref>] [--surface <id|ref>]   (compatibility alias)
           set-app-focus <active|inactive|clear>
           simulate-app-active
 

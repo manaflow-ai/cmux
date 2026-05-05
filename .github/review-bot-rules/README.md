@@ -4,7 +4,7 @@ These rules are the shared source of truth for Greptile and CodeRabbit custom Sw
 
 The rule files are intentionally short and focused. Each one defines one class of issue, concrete failure cases, allowed cases, and the expected reporting shape. Keep new rules narrow enough that a reviewer can apply the rule to a full PR diff without turning it into a broad style guide.
 
-Greptile is configured to publish a GitHub status check. CodeRabbit is configured with error-mode custom pre-merge checks, which can block when the repository's CodeRabbit request-changes workflow is enabled.
+Greptile is configured to publish a GitHub status check and inline findings. CodeRabbit is configured with assertive review, request-changes workflow, and error-mode custom pre-merge checks so unresolved findings can block merge through CodeRabbit's review flow.
 
 Current rules:
 
@@ -13,6 +13,7 @@ Current rules:
 - `swift-blocking-runtime.md`
 - `swift-concurrency-modernization.md`
 - `swift-concurrent-annotation.md`
+- `swift-file-package-boundaries.md`
 - `swift-logging.md`
 - `swiftui-state-layout.md`
 

@@ -31,6 +31,12 @@
       "severity": "high"
     },
     {
+      "id": "cmux-swift-file-package-boundaries",
+      "rule": "Flag Swift changes that add too much unrelated responsibility to one file or miss a SwiftPM package boundary: new production Swift files over 400 lines without one responsibility, files over 800 lines, large additions to existing oversized files, mixed UI/state/persistence/network/parsing/protocol code, or independently testable feature logic kept in the app target instead of a small package.",
+      "scope": ["**/*.swift", "**/Package.swift", "GhosttyTabs.xcodeproj/**"],
+      "severity": "high"
+    },
+    {
       "id": "cmux-swift-logging",
       "rule": "Flag production Swift diagnostics that bypass unified logging or risk leaking sensitive data: print/debugPrint/dump/NSLog in app or runtime code, ad hoc stdout or file logging, MainActor-coupled file-scoped Logger constants, or unredacted secrets, tokens, customer content, or personal data.",
       "scope": ["**/*.swift", "**/Package.swift"],
