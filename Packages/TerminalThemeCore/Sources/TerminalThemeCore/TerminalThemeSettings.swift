@@ -320,7 +320,9 @@ public enum TerminalThemeSettings {
     }
 
     public static func removingManagedThemeState(from contents: String) -> String {
-        let pattern = #"(?ms)\n?# cmux themes start\n.*?\n# cmux themes end\n?"#
+        let escapedStart = NSRegularExpression.escapedPattern(for: managedBlockStart)
+        let escapedEnd = NSRegularExpression.escapedPattern(for: managedBlockEnd)
+        let pattern = "(?ms)\\n?\(escapedStart)\\n.*?\\n\(escapedEnd)\\n?"
         guard let regex = try? NSRegularExpression(pattern: pattern) else {
             return contents
         }

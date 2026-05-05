@@ -5826,21 +5826,26 @@ struct SettingsView: View {
     }
 
     private func applyTerminalTheme(_ mode: TerminalThemeMode) {
-        do {
-            try TerminalThemeSettings.apply(
-                mode,
-                reload: {
-                    GhosttyConfig.invalidateLoadCache()
-                    GhosttyApp.shared.reloadConfiguration(
-                        source: "settings.terminalTheme",
-                        reloadSettingsFromFile: false
-                    )
+        Task { @concurrent in
+            do {
+                try TerminalThemeSettings.apply(mode)
+            } catch {
+                let errorDescription = error.localizedDescription
+                await MainActor.run {
+                    Self.terminalThemeLogger.error("Failed to apply terminal theme: \(errorDescription, privacy: .private)")
+                    NSSound.beep()
                 }
-            )
-            refreshTerminalThemeSettings()
-        } catch {
-            Self.terminalThemeLogger.error("Failed to apply terminal theme: \(error.localizedDescription, privacy: .private)")
-            NSSound.beep()
+                return
+            }
+
+            await MainActor.run {
+                GhosttyConfig.invalidateLoadCache()
+                GhosttyApp.shared.reloadConfiguration(
+                    source: "settings.terminalTheme",
+                    reloadSettingsFromFile: false
+                )
+                refreshTerminalThemeSettings()
+            }
         }
     }
 
