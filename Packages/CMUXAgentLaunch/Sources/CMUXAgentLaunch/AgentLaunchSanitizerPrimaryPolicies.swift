@@ -357,7 +357,11 @@ extension AgentLaunchSanitizer {
             "-c",
             "--resume",
             "-r",
-            "--no-session"
+            "--no-session",
+            // One-shot prompt flags — drop so the recorded launch can be
+            // resumed as an interactive `pi --session <id>` session.
+            "--print",
+            "-p"
         ],
         droppedOptionPrefixes: [
             "--session=",
@@ -365,8 +369,6 @@ extension AgentLaunchSanitizer {
         ],
         rejectOptions: [
             // These are incompatible with restoring an interactive session
-            "--print",
-            "-p",
             "--export",
             "--list-models",
             "--help",
