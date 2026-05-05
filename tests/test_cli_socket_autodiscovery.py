@@ -34,8 +34,9 @@ def resolve_cmux_cli() -> str:
 
 
 class PingServer:
-    def __init__(self, socket_path: str):
+    def __init__(self, socket_path: str, response: bytes = b"PONG\n"):
         self.socket_path = socket_path
+        self.response = response
         self.ready = threading.Event()
         self.error: Exception | None = None
         self._thread = threading.Thread(target=self._run, daemon=True)
@@ -73,7 +74,7 @@ class PingServer:
                         data += chunk
 
                     if b"ping" in data:
-                        conn.sendall(b"PONG\n")
+                        conn.sendall(self.response)
                         return
             raise RuntimeError("Did not receive ping command on test socket")
         except Exception as exc:  # pragma: no cover - explicit surface on failure
@@ -115,7 +116,11 @@ def bundled_cli_for_variant(cli_path: str, root: str, app_name: str, bundle_id: 
     return bundled_cli
 
 
-def run_ping(cli_path: str, home: str) -> subprocess.CompletedProcess[str]:
+def run_ping(
+    cli_path: str,
+    home: str,
+    extra_env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env["HOME"] = home
     env.pop("CMUX_SOCKET_PATH", None)
@@ -124,6 +129,8 @@ def run_ping(cli_path: str, home: str) -> subprocess.CompletedProcess[str]:
     env.pop("CMUX_TAG", None)
     env["CMUX_CLI_SENTRY_DISABLED"] = "1"
     env["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+    if extra_env:
+        env.update(extra_env)
     return subprocess.run(
         [cli_path, "ping"],
         text=True,
@@ -177,11 +184,68 @@ def expect_ping_uses_socket(cli_path: str, home: str, socket_path: str, label: s
     return True
 
 
+def expect_ping_ignores_dev_tag(
+    cli_path: str,
+    home: str,
+    expected_socket_path: str,
+    rogue_socket_path: str,
+    rogue_tag: str,
+    label: str,
+) -> bool:
+    expected_server = PingServer(expected_socket_path)
+    rogue_server = PingServer(rogue_socket_path, response=b"WRONG\n")
+    expected_server.start()
+    rogue_server.start()
+
+    for server_label, server in [
+        (label, expected_server),
+        ("rogue dev", rogue_server),
+    ]:
+        if not server.wait_ready(2.0):
+            print(f"FAIL: {server_label} socket server did not become ready")
+            return False
+        if server.error is not None:
+            print(f"FAIL: {server_label} socket server failed to start: {server.error}")
+            return False
+
+    try:
+        proc = run_ping(cli_path, home, extra_env={"CMUX_TAG": rogue_tag})
+    except Exception as exc:
+        print(f"FAIL: invoking {label} cmux ping failed: {exc}")
+        return False
+    finally:
+        expected_server.join(timeout=2.0)
+        rogue_server.join(timeout=2.0)
+        for path in [expected_socket_path, rogue_socket_path]:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+
+    if proc.returncode != 0:
+        print(f"FAIL: {label} cmux ping returned non-zero status")
+        print(f"stdout={proc.stdout!r}")
+        print(f"stderr={proc.stderr!r}")
+        return False
+
+    if proc.stdout.strip() != "PONG":
+        print(f"FAIL: {label} cmux ping followed CMUX_TAG to the rogue dev socket")
+        print(f"stdout={proc.stdout!r}")
+        print(f"stderr={proc.stderr!r}")
+        return False
+
+    return True
+
+
 def test_variant_last_socket_markers(cli_path: str) -> bool:
     pid = os.getpid()
     stable_socket = f"/tmp/cmux-issue3542-stable-{pid}.sock"
     nightly_socket = f"/tmp/cmux-issue3542-nightly-{pid}.sock"
     dev_agent_socket = f"/tmp/cmux-issue3542-dev-agent-{pid}.sock"
+    rogue_stable_socket = f"/tmp/cmux-debug-rogue-stable-{pid}.sock"
+    rogue_stable_tag = f"rogue-stable-{pid}"
+    rogue_nightly_socket = f"/tmp/cmux-debug-rogue-nightly-{pid}.sock"
+    rogue_nightly_tag = f"rogue-nightly-{pid}"
 
     with tempfile.TemporaryDirectory(prefix="cmux-cli-variant-home-") as home, \
             tempfile.TemporaryDirectory(prefix="cmux-cli-variant-apps-") as apps:
@@ -215,8 +279,32 @@ def test_variant_last_socket_markers(cli_path: str) -> bool:
                 return False
             if not expect_ping_uses_socket(dev_agent_cli, home, dev_agent_socket, "dev-agent"):
                 return False
+            if not expect_ping_ignores_dev_tag(
+                stable_cli,
+                home,
+                stable_socket,
+                rogue_stable_socket,
+                rogue_stable_tag,
+                "stable with stray CMUX_TAG",
+            ):
+                return False
+            if not expect_ping_ignores_dev_tag(
+                nightly_cli,
+                home,
+                nightly_socket,
+                rogue_nightly_socket,
+                rogue_nightly_tag,
+                "nightly with stray CMUX_TAG",
+            ):
+                return False
         finally:
-            for path in [stable_socket, nightly_socket, dev_agent_socket]:
+            for path in [
+                stable_socket,
+                nightly_socket,
+                dev_agent_socket,
+                rogue_stable_socket,
+                rogue_nightly_socket,
+            ]:
                 try:
                     os.remove(path)
                 except OSError:
