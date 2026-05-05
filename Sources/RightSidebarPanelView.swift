@@ -212,8 +212,8 @@ struct RightSidebarPanelView: View {
             if mode != .dock { dockStore.deactivate() }
         }
         .onChange(of: fileExplorerState.isVisible) { _, visible in if !visible { dockStore.deactivate() } }
-        .onChange(of: feedEnabled) { _, _ in fileExplorerState.refreshModeAvailability() }
-        .onChange(of: dockEnabled) { _, _ in fileExplorerState.refreshModeAvailability() }
+        .onChange(of: feedEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
+        .onChange(of: dockEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
     }
 
     private var modeBar: some View {
@@ -312,6 +312,20 @@ struct RightSidebarPanelView: View {
                 sessionIndexStore.reload()
             }
         }
+    }
+
+    private func refreshModeAvailabilityAndFocusIfNeeded() {
+        let previousMode = fileExplorerState.mode
+        fileExplorerState.refreshModeAvailability()
+        guard previousMode != fileExplorerState.mode,
+              fileExplorerState.isVisible,
+              let window = NSApp.keyWindow ?? NSApp.mainWindow
+        else { return }
+        _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+            mode: fileExplorerState.mode,
+            focusFirstItem: false,
+            preferredWindow: window
+        )
     }
 }
 
