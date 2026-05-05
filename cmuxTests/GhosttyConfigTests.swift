@@ -1315,6 +1315,27 @@ final class GhosttyTerminalStartupEnvironmentTests: XCTestCase {
         XCTAssertEqual(merged["COLORTERM"], TerminalSurface.managedColorTerm)
         XCTAssertEqual(merged["TERM_PROGRAM"], TerminalSurface.managedTerminalProgram)
     }
+
+    func testMergedStartupEnvironmentNeutralizesInheritedClaudeAuthSelection() {
+        let merged = TerminalSurface.mergedStartupEnvironment(
+            base: [
+                "CLAUDE_CONFIG_DIR": "/tmp/stale-claude-config",
+                "ANTHROPIC_API_KEY": "stale-api-key",
+                "ANTHROPIC_AUTH_TOKEN": "stale-auth-token",
+                "ANTHROPIC_MODEL": "stale-model",
+                "CUSTOM_FLAG": "1"
+            ],
+            protectedKeys: [],
+            additionalEnvironment: [:],
+            initialEnvironmentOverrides: [:]
+        )
+
+        XCTAssertEqual(merged["CLAUDE_CONFIG_DIR"], "")
+        XCTAssertEqual(merged["ANTHROPIC_API_KEY"], "")
+        XCTAssertEqual(merged["ANTHROPIC_AUTH_TOKEN"], "")
+        XCTAssertEqual(merged["ANTHROPIC_MODEL"], "")
+        XCTAssertEqual(merged["CUSTOM_FLAG"], "1")
+    }
 }
 
 @MainActor
