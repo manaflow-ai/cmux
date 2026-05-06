@@ -7,6 +7,7 @@ import XCTest
 #endif
 
 private let appDelegateLastSurfaceCloseShortcutDefaultsKey = "closeWorkspaceOnLastSurfaceShortcut"
+private let appDelegatePersistedWindowGeometryDefaultsKey = "cmux.session.lastWindowGeometry.v2"
 private final class FakeWKInspectorContainerView: NSView {}
 private final class FocusableTestView: NSView {
     override var acceptsFirstResponder: Bool { true }
@@ -740,6 +741,62 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             window.collectionBehavior.contains(.fullScreenDisallowsTiling),
             "Main windows should still support standard macOS Split View when not created from a fullscreen source"
         )
+    }
+
+    func testCreateMainWindowUsesPersistedGeometryWhenNoSourceWindow() throws {
+        let previousShared = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        defer { AppDelegate.shared = previousShared }
+
+        let defaults = UserDefaults.standard
+        let previousPersistedGeometry = defaults.object(forKey: appDelegatePersistedWindowGeometryDefaultsKey)
+        var windowId: UUID?
+        defer {
+            if let windowId {
+                closeWindow(withId: windowId)
+            }
+            restoreDefaultsValue(
+                previousPersistedGeometry,
+                forKey: appDelegatePersistedWindowGeometryDefaultsKey,
+                defaults: defaults
+            )
+        }
+
+        let screen = try XCTUnwrap(NSScreen.main ?? NSScreen.screens.first)
+        let visibleFrame = screen.visibleFrame
+        let savedWidth = max(
+            CGFloat(SessionPersistencePolicy.minimumWindowWidth),
+            min(1_100, visibleFrame.width - 40)
+        )
+        let savedHeight = max(
+            CGFloat(SessionPersistencePolicy.minimumWindowHeight),
+            min(760, visibleFrame.height - 40)
+        )
+        let savedFrame = CGRect(
+            x: visibleFrame.midX - savedWidth / 2,
+            y: visibleFrame.midY - savedHeight / 2,
+            width: savedWidth,
+            height: savedHeight
+        )
+        let payload = AppDelegate.PersistedWindowGeometry(
+            version: AppDelegate.persistedWindowGeometrySchemaVersion,
+            frame: SessionRectSnapshot(savedFrame),
+            display: SessionDisplaySnapshot(
+                displayID: screen.cmuxDisplayID,
+                frame: SessionRectSnapshot(screen.frame),
+                visibleFrame: SessionRectSnapshot(screen.visibleFrame)
+            )
+        )
+        defaults.set(try JSONEncoder().encode(payload), forKey: appDelegatePersistedWindowGeometryDefaultsKey)
+
+        let createdWindowId = appDelegate.createMainWindow(shouldActivate: false, sourceWindow: nil)
+        windowId = createdWindowId
+
+        let window = try XCTUnwrap(window(withId: createdWindowId))
+        XCTAssertEqual(window.frame.minX, savedFrame.minX, accuracy: 1)
+        XCTAssertEqual(window.frame.minY, savedFrame.minY, accuracy: 1)
+        XCTAssertEqual(window.frame.width, savedFrame.width, accuracy: 1)
+        XCTAssertEqual(window.frame.height, savedFrame.height, accuracy: 1)
     }
 
     func testCreateMainWindowTemporarilyDisallowsFullScreenTilingFromFullscreenSource() {
