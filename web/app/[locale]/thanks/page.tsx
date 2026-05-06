@@ -1,3 +1,4 @@
+import Image from "next/image";
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { buildAlternates } from "../../../i18n/seo";
@@ -29,230 +30,31 @@ export async function generateMetadata({
 function Step({
   n,
   title,
-  illustration,
+  imageSrc,
+  imageAlt,
 }: {
   n: number;
   title: string;
-  illustration: React.ReactNode;
+  imageSrc: string;
+  imageAlt: string;
 }) {
   return (
     <div className="rounded-2xl border border-border bg-code-bg/40 p-5 flex flex-col items-center text-center">
       <div className="size-7 rounded-full bg-foreground text-background text-xs font-semibold flex items-center justify-center mb-4">
         {n}
       </div>
-      <div className="h-32 flex items-center justify-center mb-4">
-        {illustration}
+      <div className="w-full aspect-[11/7] flex items-center justify-center mb-4">
+        <Image
+          src={imageSrc}
+          alt={imageAlt}
+          width={880}
+          height={560}
+          className="w-full h-full object-contain"
+          priority={n === 1}
+        />
       </div>
       <p className="text-[15px] leading-snug">{title}</p>
     </div>
-  );
-}
-
-function DmgIllustration() {
-  return (
-    <svg
-      width="96"
-      height="96"
-      viewBox="0 0 96 96"
-      fill="none"
-      aria-hidden="true"
-    >
-      <rect
-        x="14"
-        y="10"
-        width="68"
-        height="76"
-        rx="8"
-        fill="var(--background)"
-        stroke="currentColor"
-        strokeOpacity="0.3"
-        strokeWidth="1.5"
-      />
-      <text
-        x="48"
-        y="44"
-        textAnchor="middle"
-        fontSize="11"
-        fontWeight="600"
-        fill="currentColor"
-      >
-        cmux
-      </text>
-      <text
-        x="48"
-        y="58"
-        textAnchor="middle"
-        fontSize="9"
-        fill="currentColor"
-        opacity="0.6"
-      >
-        macos.dmg
-      </text>
-    </svg>
-  );
-}
-
-function DragIllustration() {
-  return (
-    <svg
-      width="160"
-      height="80"
-      viewBox="0 0 160 80"
-      fill="none"
-      aria-hidden="true"
-    >
-      <rect
-        x="6"
-        y="14"
-        width="56"
-        height="56"
-        rx="12"
-        fill="var(--background)"
-        stroke="currentColor"
-        strokeOpacity="0.3"
-        strokeWidth="1.5"
-      />
-      <text
-        x="34"
-        y="48"
-        textAnchor="middle"
-        fontSize="11"
-        fontWeight="600"
-        fill="currentColor"
-      >
-        cmux
-      </text>
-      <path
-        d="M70 42 L92 42"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-      />
-      <path
-        d="M88 36 L94 42 L88 48"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        fill="none"
-      />
-      <rect
-        x="100"
-        y="14"
-        width="56"
-        height="56"
-        rx="8"
-        fill="var(--background)"
-        stroke="currentColor"
-        strokeOpacity="0.3"
-        strokeWidth="1.5"
-      />
-      <path
-        d="M110 28 L120 28 L124 32 L146 32 L146 58 L110 58 Z"
-        fill="none"
-        stroke="currentColor"
-        strokeOpacity="0.6"
-        strokeWidth="1.5"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function LaunchIllustration() {
-  return (
-    <svg
-      width="160"
-      height="80"
-      viewBox="0 0 160 80"
-      fill="none"
-      aria-hidden="true"
-    >
-      <rect
-        x="6"
-        y="50"
-        width="148"
-        height="22"
-        rx="11"
-        fill="var(--background)"
-        stroke="currentColor"
-        strokeOpacity="0.25"
-        strokeWidth="1.5"
-      />
-      <rect
-        x="14"
-        y="54"
-        width="14"
-        height="14"
-        rx="3"
-        fill="currentColor"
-        opacity="0.3"
-      />
-      <rect
-        x="34"
-        y="54"
-        width="14"
-        height="14"
-        rx="3"
-        fill="currentColor"
-        opacity="0.3"
-      />
-      <rect
-        x="58"
-        y="6"
-        width="44"
-        height="44"
-        rx="10"
-        fill="var(--background)"
-        stroke="currentColor"
-        strokeOpacity="0.5"
-        strokeWidth="1.5"
-      />
-      <text
-        x="80"
-        y="32"
-        textAnchor="middle"
-        fontSize="11"
-        fontWeight="600"
-        fill="currentColor"
-      >
-        cmux
-      </text>
-      <path
-        d="M80 50 L80 62"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeDasharray="2 3"
-      />
-      <rect
-        x="68"
-        y="56"
-        width="24"
-        height="10"
-        rx="2"
-        fill="currentColor"
-        opacity="0.6"
-      />
-      <rect
-        x="112"
-        y="54"
-        width="14"
-        height="14"
-        rx="3"
-        fill="currentColor"
-        opacity="0.3"
-      />
-      <rect
-        x="132"
-        y="54"
-        width="14"
-        height="14"
-        rx="3"
-        fill="currentColor"
-        opacity="0.3"
-      />
-    </svg>
   );
 }
 
@@ -320,17 +122,20 @@ export default function ThanksPage() {
           <Step
             n={1}
             title={t("step1")}
-            illustration={<DmgIllustration />}
+            imageSrc="/thanks/step1.png"
+            imageAlt={t("step1Alt")}
           />
           <Step
             n={2}
             title={t("step2")}
-            illustration={<DragIllustration />}
+            imageSrc="/thanks/step2.png"
+            imageAlt={t("step2Alt")}
           />
           <Step
             n={3}
             title={t("step3")}
-            illustration={<LaunchIllustration />}
+            imageSrc="/thanks/step3.png"
+            imageAlt={t("step3Alt")}
           />
         </div>
 
