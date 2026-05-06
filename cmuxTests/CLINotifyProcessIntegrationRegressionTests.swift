@@ -112,7 +112,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let result = runClaudeHook(
             context: context,
             arguments: ["hooks", "claude", "session-end"],
-            standardInput: #"{"session_id":"unknown-late-session","cwd":"\#(context.root.path)","hook_event_name":"SessionEnd"}"#
+            standardInput: #"{"session_id":"\#(staleSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionEnd"}"#
         )
 
         XCTAssertFalse(result.timedOut, result.stderr)
