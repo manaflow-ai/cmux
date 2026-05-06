@@ -91,10 +91,7 @@ extension CmuxUseSupport {
         for filename in ["setup.sh", "install.sh"] {
             let url = checkoutURL.appendingPathComponent(filename, isDirectory: false)
             guard let contents = try? String(contentsOf: url, encoding: .utf8) else { continue }
-            if let value = firstRegexCapture(
-                pattern: #"(?m)(?:EXPECTED_DIR|INSTALL_DIR|TARGET_DIR|CONFIG_DIR)\s*=\s*["']((?:\$HOME|~)/[^"']+)["']"#,
-                in: contents
-            ) {
+            if let value = firstInstallDirectoryAssignment(in: contents) {
                 return normalizedManifestPath(value)
             }
         }
@@ -107,6 +104,18 @@ extension CmuxUseSupport {
         ] {
             if let value = firstRegexCapture(pattern: pattern, in: readme) {
                 return normalizedManifestPath(value)
+            }
+        }
+        return nil
+    }
+
+    private static func firstInstallDirectoryAssignment(in contents: String) -> String? {
+        let assignmentPattern = #"^(?:export\s+)?(?:EXPECTED_DIR|INSTALL_DIR|TARGET_DIR|CONFIG_DIR)\s*=\s*["']((?:\$HOME|~)/[^"']+)["']"#
+        for rawLine in contents.split(separator: "\n", omittingEmptySubsequences: false) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            guard !line.hasPrefix("#") else { continue }
+            if let value = firstRegexCapture(pattern: assignmentPattern, in: line) {
+                return value
             }
         }
         return nil
