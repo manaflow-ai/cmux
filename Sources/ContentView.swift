@@ -12688,6 +12688,7 @@ private struct TabItemView: View, Equatable {
     @State private var rowHeight: CGFloat = 1
     @State private var workspaceFinderDirectoryCache = WorkspaceFinderDirectoryCache()
     @State private var workspaceFinderDirectoryRefreshID: UInt64 = 0
+    @State private var workspaceFinderDirectoryOpenRequest: WorkspaceFinderDirectoryOpenRequest?
 
     var isMultiSelected: Bool {
         selectedTabIds.contains(tab.id)
@@ -13243,6 +13244,12 @@ private struct TabItemView: View, Equatable {
             guard !Task.isCancelled else { return }
             workspaceFinderDirectoryCache = cache
         }
+        .task(id: workspaceFinderDirectoryOpenRequest) {
+            guard let request = workspaceFinderDirectoryOpenRequest else { return }
+            await WorkspaceFinderDirectoryOpener.openInFinder(request.directoryURL)
+            guard !Task.isCancelled, workspaceFinderDirectoryOpenRequest == request else { return }
+            workspaceFinderDirectoryOpenRequest = nil
+        }
         .onReceive(
             tab.sidebarImmediateObservationPublisher
                 .receive(on: RunLoop.main)
@@ -13477,7 +13484,7 @@ private struct TabItemView: View, Equatable {
             }
 
             Button(String(localized: "contextMenu.showWorkspaceInFinder", defaultValue: "Show in Finder")) {
-                WorkspaceFinderDirectoryOpener.openInFinder(finderDirectoryURL)
+                workspaceFinderDirectoryOpenRequest = WorkspaceFinderDirectoryOpenRequest(directoryURL: finderDirectoryURL)
             }
             .disabled(finderDirectoryURL == nil)
         }

@@ -16,6 +16,11 @@ struct WorkspaceFinderDirectoryCache: Equatable, Sendable {
     }
 }
 
+struct WorkspaceFinderDirectoryOpenRequest: Equatable, Sendable {
+    var id = UUID()
+    var directoryURL: URL?
+}
+
 enum WorkspaceFinderDirectoryResolver {
     @MainActor
     static func path(for workspace: Workspace) -> String? {
@@ -48,17 +53,16 @@ enum WorkspaceFinderDirectoryResolver {
 
 enum WorkspaceFinderDirectoryOpener {
     @MainActor
-    static func openInFinder(_ directoryURL: URL?) {
+    static func openInFinder(_ directoryURL: URL?) async {
         guard let directoryURL else {
             NSSound.beep()
             return
         }
-        Task { @MainActor in
-            if let refreshedURL = await WorkspaceFinderDirectoryResolver.existingDirectoryURL(for: directoryURL.path) {
-                NSWorkspace.shared.activateFileViewerSelecting([refreshedURL])
-            } else {
-                NSSound.beep()
-            }
+        if let refreshedURL = await WorkspaceFinderDirectoryResolver.existingDirectoryURL(for: directoryURL.path) {
+            guard !Task.isCancelled else { return }
+            NSWorkspace.shared.activateFileViewerSelecting([refreshedURL])
+        } else {
+            NSSound.beep()
         }
     }
 }
