@@ -11,14 +11,8 @@ final class KeyboardShortcutSettingsObserver: ObservableObject {
     private var recorderCancellable: AnyCancellable?
 
     private init(notificationCenter: NotificationCenter = .default) {
-        settingsCancellable = notificationCenter.publisher(for: KeyboardShortcutSettings.didChangeNotification)
-            .sink { [weak self] _ in
-                self?.revision &+= 1
-            }
-        recorderCancellable = notificationCenter.publisher(for: KeyboardShortcutRecorderActivity.didChangeNotification)
-            .sink { [weak self] _ in
-                self?.revision &+= 1
-            }
+        settingsCancellable = notificationCenter.publisher(for: KeyboardShortcutSettings.didChangeNotification).receive(on: DispatchQueue.main).sink { [weak self] _ in self?.revision &+= 1 }
+        recorderCancellable = notificationCenter.publisher(for: KeyboardShortcutRecorderActivity.didChangeNotification).receive(on: DispatchQueue.main).sink { [weak self] _ in self?.revision &+= 1 }
     }
 }
 
@@ -180,6 +174,7 @@ final class CmuxSettingsFileStore {
         }
 
         defaultsCancellable = notificationCenter.publisher(for: UserDefaults.didChangeNotification)
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 guard let self, self.shouldScheduleManagedSettingsReapply() else { return }
                 Task { @MainActor in self.reapplyManagedSettingsIfNeeded() }
@@ -187,7 +182,7 @@ final class CmuxSettingsFileStore {
         socketPasswordObserver = notificationCenter.addObserver(
             forName: SocketControlPasswordStore.didChangeNotification,
             object: nil,
-            queue: nil
+            queue: .main
         ) { [weak self] _ in
             guard let self, self.shouldScheduleManagedSettingsReapply() else { return }
             Task { @MainActor in self.reapplyManagedSettingsIfNeeded() }
@@ -1118,20 +1113,8 @@ final class CmuxSettingsFileStore {
             }
         }
 
-        if defaultsKey == TerminalScrollBarSettings.showScrollBarKey, didMutateStoredValue {
-            TerminalScrollBarSettings.notifyDidChange(notificationCenter: notificationCenter)
-        }
-
-        switch defaultsKey {
-        case LanguageSettings.languageKey:
-            let language = AppLanguage(rawValue: UserDefaults.standard.string(forKey: defaultsKey) ?? "") ?? .system
-            LanguageSettings.apply(language)
-        case AppearanceSettings.appearanceModeKey:
-            AppearanceSettings.applyStoredMode(rawValue: UserDefaults.standard.string(forKey: defaultsKey), source: "cmuxConfig.applyManagedDefault")
-        case AppIconSettings.modeKey:
-            AppIconSettings.applyIcon(AppIconSettings.resolvedMode())
-        default:
-            break
+        if didMutateStoredValue {
+            applyManagedDefaultSideEffects(for: defaultsKey, notifyScrollBar: defaultsKey == TerminalScrollBarSettings.showScrollBarKey, source: "cmuxConfig.applyManagedDefault")
         }
     }
 
@@ -1149,37 +1132,53 @@ final class CmuxSettingsFileStore {
             return
         }
 
+        var didMutateStoredValue = false
         switch backup {
         case .absent:
-            defaults.removeObject(forKey: defaultsKey)
+            if defaults.object(forKey: defaultsKey) != nil { defaults.removeObject(forKey: defaultsKey); didMutateStoredValue = true }
         case .bool(let value):
-            defaults.set(value, forKey: defaultsKey)
+            if defaults.object(forKey: defaultsKey) as? Bool != value { defaults.set(value, forKey: defaultsKey); didMutateStoredValue = true }
         case .int(let value):
-            defaults.set(value, forKey: defaultsKey)
+            if defaults.object(forKey: defaultsKey) as? Int != value { defaults.set(value, forKey: defaultsKey); didMutateStoredValue = true }
         case .double(let value):
-            defaults.set(value, forKey: defaultsKey)
+            if defaults.object(forKey: defaultsKey) as? Double != value { defaults.set(value, forKey: defaultsKey); didMutateStoredValue = true }
         case .string(let value):
-            defaults.set(value, forKey: defaultsKey)
+            if defaults.string(forKey: defaultsKey) != value { defaults.set(value, forKey: defaultsKey); didMutateStoredValue = true }
         case .stringArray(let value):
-            defaults.set(value, forKey: defaultsKey)
+            if defaults.array(forKey: defaultsKey) as? [String] != value { defaults.set(value, forKey: defaultsKey); didMutateStoredValue = true }
         case .stringDictionary(let value):
-            defaults.set(value, forKey: defaultsKey)
+            if defaults.dictionary(forKey: defaultsKey) as? [String: String] != value { defaults.set(value, forKey: defaultsKey); didMutateStoredValue = true }
         }
 
-        if defaultsKey == TerminalScrollBarSettings.showScrollBarKey {
-            TerminalScrollBarSettings.notifyDidChange(notificationCenter: notificationCenter)
+        if didMutateStoredValue {
+            applyManagedDefaultSideEffects(for: defaultsKey, notifyScrollBar: defaultsKey == TerminalScrollBarSettings.showScrollBarKey, source: "cmuxConfig.restoreUserDefault")
+        }
+    }
+
+    private func applyManagedDefaultSideEffects(for defaultsKey: String, notifyScrollBar: Bool, source: String) {
+        let notificationCenter = notificationCenter
+        let language = defaultsKey == LanguageSettings.languageKey ? AppLanguage(rawValue: UserDefaults.standard.string(forKey: defaultsKey) ?? "") ?? .system : nil
+        let shouldApplyAppearance = defaultsKey == AppearanceSettings.appearanceModeKey
+        let appearanceRawValue = shouldApplyAppearance ? UserDefaults.standard.string(forKey: defaultsKey) : nil
+        let appIconMode = defaultsKey == AppIconSettings.modeKey ? AppIconSettings.resolvedMode() : nil
+        let apply = {
+            if notifyScrollBar {
+                TerminalScrollBarSettings.notifyDidChange(notificationCenter: notificationCenter)
+            }
+
+            if let language {
+                LanguageSettings.apply(language)
+            } else if shouldApplyAppearance {
+                AppearanceSettings.applyStoredMode(rawValue: appearanceRawValue, source: source)
+            } else if let appIconMode {
+                AppIconSettings.applyIcon(appIconMode)
+            }
         }
 
-        switch defaultsKey {
-        case LanguageSettings.languageKey:
-            let language = AppLanguage(rawValue: UserDefaults.standard.string(forKey: defaultsKey) ?? "") ?? .system
-            LanguageSettings.apply(language)
-        case AppearanceSettings.appearanceModeKey:
-            AppearanceSettings.applyStoredMode(rawValue: UserDefaults.standard.string(forKey: defaultsKey), source: "cmuxConfig.restoreUserDefault")
-        case AppIconSettings.modeKey:
-            AppIconSettings.applyIcon(AppIconSettings.resolvedMode())
-        default:
-            break
+        if Thread.isMainThread {
+            apply()
+        } else {
+            DispatchQueue.main.async { apply() }
         }
     }
 
