@@ -170,14 +170,42 @@ extension CmuxUseSupport {
             .split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
             .first
             .map(String.init)
-        let prefix = firstLine?.lowercased() ?? ""
-        if prefix.contains("bash") {
+        switch shebangInterpreter(from: firstLine) {
+        case "bash":
             return "bash \(relativePath)"
-        }
-        if prefix.contains("zsh") {
+        case "zsh":
             return "zsh \(relativePath)"
+        default:
+            return "sh \(relativePath)"
         }
-        return "sh \(relativePath)"
+    }
+
+    private static func shebangInterpreter(from firstLine: String?) -> String? {
+        guard var shebang = firstLine?.trimmingCharacters(in: .whitespacesAndNewlines),
+              shebang.hasPrefix("#!") else {
+            return nil
+        }
+        shebang.removeFirst(2)
+
+        let tokens = shebang.split(whereSeparator: { $0.isWhitespace })
+        guard let command = tokens.first else { return nil }
+        let commandName = pathBasename(String(command)).lowercased()
+        if commandName != "env" {
+            return commandName
+        }
+
+        for token in tokens.dropFirst() {
+            let value = String(token)
+            if value.hasPrefix("-") || value.contains("=") {
+                continue
+            }
+            return pathBasename(value).lowercased()
+        }
+        return nil
+    }
+
+    private static func pathBasename(_ path: String) -> String {
+        path.split(separator: "/", omittingEmptySubsequences: true).last.map(String.init) ?? path
     }
 
     private static func sanitizedString(_ raw: Any?) -> String? {
