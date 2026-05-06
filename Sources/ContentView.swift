@@ -13648,16 +13648,10 @@ private struct TabItemView: View, Equatable {
               let directory = tab.sidebarDirectoriesInDisplayOrder().first else {
             return nil
         }
-        let directoryURL = URL(
+        return URL(
             fileURLWithPath: NSString(string: directory).expandingTildeInPath,
             isDirectory: true
         ).standardizedFileURL
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: directoryURL.path, isDirectory: &isDirectory),
-              isDirectory.boolValue else {
-            return nil
-        }
-        return directoryURL
     }
 
     private var backgroundColor: Color {
