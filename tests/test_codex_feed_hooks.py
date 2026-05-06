@@ -143,6 +143,14 @@ def wait_for_monitor_pids(session_id: str, *, present: bool, timeout: float) -> 
     raise AssertionError(f"monitor for {session_id} did not {state}; last pids={last}")
 
 
+def assert_monitor_remains_present(session_id: str, *, duration: float) -> None:
+    deadline = time.monotonic() + duration
+    while time.monotonic() < deadline:
+        if not monitor_pids_for_session(session_id):
+            raise AssertionError("turn-less Stop reaped a session-wide monitor")
+        time.sleep(0.1)
+
+
 def test_codex_stop_reaps_transcript_monitor(cli_path: str, root: Path) -> None:
     socket_path = root / "cmux-monitor.sock"
     state_dir = root / "hook-state"
@@ -264,7 +272,7 @@ def test_codex_stop_without_turn_keeps_session_wide_monitor(cli_path: str, root:
                     f"hooks codex stop failed exit={result.returncode}\n"
                     f"stdout={result.stdout}\nstderr={result.stderr}"
                 )
-            wait_for_monitor_pids(session_id, present=True, timeout=2)
+            assert_monitor_remains_present(session_id, duration=1.0)
 
             result = subprocess.run(
                 [cli_path, "--socket", str(socket_path), "hooks", "codex", "session-end"],
