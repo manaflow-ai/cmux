@@ -2,6 +2,10 @@ import AppKit
 import PDFKit
 
 nonisolated final class FilePreviewTaskSlot {
+    // SAFETY: this slot is intentionally nonisolated so AppKit view deinit paths
+    // can cancel outstanding preview loads synchronously. The lock is the
+    // narrow synchronization boundary between MainActor replacement and
+    // nonisolated teardown; it must not protect broader preview state.
     private let lock = NSLock()
     private var task: Task<Void, Never>?
 
