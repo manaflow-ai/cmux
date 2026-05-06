@@ -17,6 +17,7 @@ public enum HermesAgentHookConfig {
 
     private static let beginMarker = "# cmux hooks hermes-agent begin"
     private static let endMarker = "# cmux hooks hermes-agent end"
+    private static let restoreLineMarkerPrefix = "\(beginMarker) restore-line-base64:"
 
     public static func installing(events: [Event], in existing: String) -> String {
         guard !events.isEmpty else {
@@ -27,8 +28,12 @@ public enum HermesAgentHookConfig {
         lines = removingMarkedBlocks(lines)
 
         if let hooksIndex = hooksLineIndex(in: lines) {
+            let hooksRestoreLine: String?
             if inlineEmptyHooksLine(lines[hooksIndex]) {
+                hooksRestoreLine = lines[hooksIndex]
                 lines[hooksIndex] = "\(leadingWhitespace(lines[hooksIndex]))hooks:"
+            } else {
+                hooksRestoreLine = nil
             }
             let childIndent = leadingWhitespace(lines[hooksIndex]) + "  "
             let existingEvents = directEventLineIndexes(in: lines, hooksIndex: hooksIndex)
@@ -44,16 +49,26 @@ public enum HermesAgentHookConfig {
             }
 
             for (event, eventIndex) in matchedEvents.sorted(by: { $0.eventIndex > $1.eventIndex }) {
+                let eventRestoreLine: String?
                 if inlineEmptyEventLine(lines[eventIndex]) {
-                    lines[eventIndex] = emptyEventHeaderLine(lines[eventIndex])
+                    let originalLine = lines[eventIndex]
+                    let headerLine = emptyEventHeaderLine(originalLine)
+                    eventRestoreLine = originalLine == headerLine ? nil : originalLine
+                    lines[eventIndex] = headerLine
+                } else {
+                    eventRestoreLine = nil
                 }
                 let entryIndent = leadingWhitespace(lines[eventIndex]) + "  "
-                let block = hookListBlock(events: [event], itemIndent: entryIndent)
+                let block = hookListBlock(events: [event], itemIndent: entryIndent, restoreLine: eventRestoreLine)
                 lines.insert(contentsOf: block, at: eventIndex + 1)
             }
 
             if !missingEvents.isEmpty {
-                let block = eventSectionsBlock(events: missingEvents, childIndent: childIndent)
+                let block = eventSectionsBlock(
+                    events: missingEvents,
+                    childIndent: childIndent,
+                    restoreLine: hooksRestoreLine
+                )
                 lines.insert(contentsOf: block, at: hooksIndex + 1)
             }
         } else {
@@ -89,10 +104,15 @@ public enum HermesAgentHookConfig {
         lines.isEmpty ? "" : lines.joined(separator: "\n") + "\n"
     }
 
-    private static func eventSectionsBlock(events: [Event], childIndent: String, includeMarkers: Bool = true) -> [String] {
+    private static func eventSectionsBlock(
+        events: [Event],
+        childIndent: String,
+        includeMarkers: Bool = true,
+        restoreLine: String? = nil
+    ) -> [String] {
         var lines: [String] = []
         if includeMarkers {
-            lines.append("\(childIndent)\(beginMarker)")
+            lines.append("\(childIndent)\(beginMarkerLine(restoreLine: restoreLine))")
         }
         for event in events {
             lines.append("\(childIndent)\(event.name):")
@@ -104,8 +124,8 @@ public enum HermesAgentHookConfig {
         return lines
     }
 
-    private static func hookListBlock(events: [Event], itemIndent: String) -> [String] {
-        var lines = ["\(itemIndent)\(beginMarker)"]
+    private static func hookListBlock(events: [Event], itemIndent: String, restoreLine: String? = nil) -> [String] {
+        var lines = ["\(itemIndent)\(beginMarkerLine(restoreLine: restoreLine))"]
         lines.append(contentsOf: hookEntries(events: events, itemIndent: itemIndent))
         lines.append("\(itemIndent)\(endMarker)")
         return lines
@@ -127,7 +147,7 @@ public enum HermesAgentHookConfig {
         var result = lines
         var index = 0
         while index < result.count {
-            guard result[index].trimmingCharacters(in: .whitespaces) == beginMarker else {
+            guard isBeginMarkerLine(result[index]) else {
                 index += 1
                 continue
             }
@@ -135,6 +155,12 @@ public enum HermesAgentHookConfig {
                 $0.trimmingCharacters(in: .whitespaces) == endMarker
             }) else {
                 index += 1
+                continue
+            }
+            if let restoreLine = restoreLine(fromBeginMarkerLine: result[index]),
+               result.indices.contains(index - 1) {
+                result[index - 1] = restoreLine
+                result.removeSubrange(index...endIndex)
                 continue
             }
             let removalStart = result.indices.contains(index - 1)
@@ -145,6 +171,26 @@ public enum HermesAgentHookConfig {
             index = removalStart
         }
         return result
+    }
+
+    private static func beginMarkerLine(restoreLine: String?) -> String {
+        guard let restoreLine else { return beginMarker }
+        let encoded = Data(restoreLine.utf8).base64EncodedString()
+        return "\(restoreLineMarkerPrefix) \(encoded)"
+    }
+
+    private static func isBeginMarkerLine(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        return trimmed == beginMarker || trimmed.hasPrefix("\(restoreLineMarkerPrefix) ")
+    }
+
+    private static func restoreLine(fromBeginMarkerLine line: String) -> String? {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard trimmed.hasPrefix("\(restoreLineMarkerPrefix) ") else { return nil }
+        let encoded = trimmed.dropFirst(restoreLineMarkerPrefix.count)
+            .trimmingCharacters(in: .whitespaces)
+        guard let data = Data(base64Encoded: encoded) else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 
     private static func hooksLineIndex(in lines: [String]) -> Int? {

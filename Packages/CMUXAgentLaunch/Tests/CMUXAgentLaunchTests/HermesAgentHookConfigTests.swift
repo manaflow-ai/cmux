@@ -88,6 +88,26 @@ struct HermesAgentHookConfigTests {
         #expect(installed.contains("  post_tool_call:\n    # cmux hooks hermes-agent begin"))
         #expect(!installed.contains("pre_tool_call: []\n    # cmux hooks hermes-agent begin"))
         #expect(!installed.contains("post_tool_call: {} # intentionally empty\n    # cmux hooks hermes-agent begin"))
+        #expect(HermesAgentHookConfig.uninstalling(from: installed) == existing)
+    }
+
+    @Test("Uninstalls inline-empty hooks root")
+    func uninstallsInlineEmptyHooksRoot() {
+        let existing = """
+        model: anthropic/claude-sonnet-4.6
+        hooks: [] # intentionally empty
+
+        """
+        let events = [
+            HermesAgentHookConfig.Event(name: "pre_tool_call", command: "sh -c 'cmux hooks feed --source hermes-agent --event pre_tool_call'"),
+            HermesAgentHookConfig.Event(name: "post_tool_call", command: "sh -c 'cmux hooks feed --source hermes-agent --event post_tool_call'"),
+        ]
+
+        let installed = HermesAgentHookConfig.installing(events: events, in: existing)
+
+        #expect(installed.contains("hooks:\n  # cmux hooks hermes-agent begin restore-line-base64:"))
+        #expect(installed.contains("  pre_tool_call:"))
+        #expect(HermesAgentHookConfig.uninstalling(from: installed) == existing)
     }
 
     @Test("Allowlist install and uninstall only touches cmux commands")
