@@ -8906,7 +8906,11 @@ final class Workspace: Identifiable, ObservableObject {
     func sidebarFinderDirectory() -> String? {
         guard !isRemoteWorkspace else { return nil }
         let panelIds = sidebarOrderedPanelIds()
-        let localPanelIds = panelIds.filter { !remoteDetectedSurfaceIds.contains($0) && !isRemoteTerminalSurface($0) }
+        let localPanelIds = panelIds.filter {
+            !remoteDetectedSurfaceIds.contains($0)
+                && !isRemoteTerminalSurface($0)
+                && !pendingRemoteTerminalChildExitSurfaceIds.contains($0)
+        }
         return sidebarDirectoriesInDisplayOrder(orderedPanelIds: localPanelIds, includeFallback: panelIds.isEmpty || localPanelIds.count == panelIds.count).first
     }
 
