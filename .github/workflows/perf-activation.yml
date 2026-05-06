@@ -95,6 +95,7 @@ jobs:
                 echo "Downloading ${url} (attempt ${attempt})"
                 if curl --http1.1 -fL \
                   --connect-timeout 20 \
+                  --max-time 300 \
                   --speed-time 120 \
                   --speed-limit 1024 \
                   --retry 5 \
