@@ -129,6 +129,13 @@ extension SessionIndexStore {
         let target = offset + limit
         var matches: [SessionEntry] = []
         var scanned = 0
+        // Diagnostic parity with sibling loaders (RovoDev records per-file
+        // inspect/read failures via errorBag.add). We collect paths whose
+        // session header didn't parse, then surface a single summary line
+        // (count + first path) at the end — keeps the index UI signal
+        // present without spamming one entry per file. Greptile / coderabbit
+        // discussion r3192135211.
+        var unparseable: [String] = []
         for (url, mtime) in candidates {
             if Task.isCancelled { break }
             if matches.count >= target { break }
@@ -149,7 +156,17 @@ extension SessionIndexStore {
                 continue
             }
 
-            guard let parsed = extractPiMetadata(url: url) else { continue }
+            guard let parsed = extractPiMetadata(url: url) else {
+                // Distinguish 'empty file' (pi created the JSONL but hasn't
+                // written the header yet — normal during session init) from
+                // 'corrupt header'. Only record the latter so the index UI
+                // doesn't flag transient empty-on-startup files as errors.
+                let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
+                if size > 0 {
+                    unparseable.append(url.path)
+                }
+                continue
+            }
             if parsed.version != 3 { continue }
             if let cwdFilter, parsed.cwd != cwdFilter { continue }
 
@@ -169,6 +186,12 @@ extension SessionIndexStore {
                 fileURL: url,
                 specifics: .pi(provider: parsed.provider, model: parsed.model)
             ))
+        }
+        if let firstUnparseable = unparseable.first {
+            // Match RovoDev's "<Agent>: cannot <verb> <path> (<reason>)" shape.
+            errorBag.add(
+                "Pi: skipped \(unparseable.count) session file(s) with unreadable header (e.g. \(firstUnparseable))"
+            )
         }
         return Array(matches.dropFirst(offset).prefix(limit))
     }

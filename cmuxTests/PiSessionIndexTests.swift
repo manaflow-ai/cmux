@@ -256,7 +256,57 @@ final class PiSessionIndexTests: XCTestCase {
         )
 
         XCTAssertEqual(outcome.entries, [])
+        // Empty files are NOT recorded in the error bag — pi creates the
+        // JSONL synchronously on session start but the header write isn't
+        // necessarily atomic; flagging zero-byte files as parse errors
+        // would surface transient init-state files as corruption.
         XCTAssertEqual(outcome.errors, [])
+    }
+
+    /// Regression: a file that exists with non-trivial bytes but no parseable
+    /// session header (e.g. truncated mid-write, hand-edited, accidentally
+    /// piped output) is recorded in the ErrorBag so the index UI can show
+    /// a count + first path. Sibling loaders (RovoDev) record per-file
+    /// inspect/read failures the same way.
+    func testCorruptJSONLProducesErrorBagSummary() async throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.tempDir) }
+
+        let dir = fixture.sessionsRoot.appendingPathComponent("--tmp-corrupt--", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        // Two corrupt files: each has bytes but no `"type":"session"` line.
+        let urlA = dir.appendingPathComponent("a.jsonl")
+        let urlB = dir.appendingPathComponent("b.jsonl")
+        try "not even json {{{".data(using: .utf8)!.write(to: urlA)
+        try "{\"type\":\"message\"}\n".data(using: .utf8)!.write(to: urlB)
+
+        // And one good file alongside, to confirm the good entry still ranks
+        // and the error summary is additive (doesn't suppress success).
+        try writeSession(
+            in: fixture.sessionsRoot,
+            id: "019dfabc-good",
+            cwd: "/tmp/corrupt-mix",
+            sessionInfoName: "Healthy session"
+        )
+
+        let outcome = await SessionIndexStore.loadPiEntriesForTesting(
+            sessionsRoot: fixture.sessionsRoot.path
+        )
+
+        XCTAssertEqual(outcome.entries.count, 1)
+        XCTAssertEqual(outcome.entries.first?.title, "Healthy session")
+        XCTAssertEqual(
+            outcome.errors.count, 1,
+            "Expected one summary line for the two corrupt files; got \(outcome.errors)"
+        )
+        let summary = outcome.errors.first ?? ""
+        XCTAssertTrue(summary.hasPrefix("Pi: skipped 2 session file(s)"), "got: \(summary)")
+        // The summary references one of the two corrupt paths so an operator
+        // can locate the offender without depending on iteration order.
+        XCTAssertTrue(
+            summary.contains(urlA.path) || summary.contains(urlB.path),
+            "summary should reference at least one offending path; got: \(summary)"
+        )
     }
 
     func testCwdFilterRestrictsToMatchingDirectory() async throws {
