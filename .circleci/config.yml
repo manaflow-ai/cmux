@@ -155,12 +155,26 @@ jobs:
           command: |
             SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
             run_unit_tests() {
-              xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux-unit -configuration Debug \
+              (
+                while true; do
+                  sleep 60
+                  echo "Unit tests still running..."
+                done
+              ) &
+              HEARTBEAT_PID=$!
+              trap 'kill "$HEARTBEAT_PID" 2>/dev/null || true' RETURN
+
+              /usr/bin/perl -e 'alarm shift; exec @ARGV' 2700 \
+                xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux-unit -configuration Debug \
                 -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
                 -disableAutomaticPackageResolution \
                 -destination "platform=macOS" \
                 -skip-testing:cmuxTests/AppDelegateShortcutRoutingTests/testCmdWClosesWindowWhenClosingLastSurfaceInLastWorkspace \
                 test 2>&1
+              EXIT_CODE=$?
+              kill "$HEARTBEAT_PID" 2>/dev/null || true
+              trap - RETURN
+              return "$EXIT_CODE"
             }
 
             set +e
