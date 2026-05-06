@@ -58,147 +58,57 @@ function DragToApplicationsSvg({ title }: { title: string }) {
       aria-label={title}
     >
       <defs>
-        <linearGradient id="cmuxBlue1" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="#4a8cff" />
-          <stop offset="100%" stopColor="#1f6cff" />
+        <linearGradient id="s1-iconFill" x1="110" y1="0" x2="110" y2="220" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stopColor="#ffffff" />
+          <stop offset="0.58" stopColor="#fbfcfe" />
+          <stop offset="1" stopColor="#eef3f9" />
         </linearGradient>
-        <linearGradient id="folderBlue" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#5aa6ff" />
-          <stop offset="100%" stopColor="#1f6cff" />
+        <linearGradient id="s1-chevronFill" x1="84" y1="72" x2="146" y2="148" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stopColor="#4a8cff" />
+          <stop offset="1" stopColor="#1f6cff" />
         </linearGradient>
-        <linearGradient id="folderTab" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#7ab9ff" />
-          <stop offset="100%" stopColor="#3d83e6" />
+        <linearGradient id="s1-folderBack" x1="152" y1="24" x2="152" y2="94" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stopColor="#a9dbff" />
+          <stop offset="1" stopColor="#5f9ff0" />
         </linearGradient>
-        <linearGradient id="iconShine1" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#ffffff" />
-          <stop offset="100%" stopColor="#f1f3f7" />
+        <linearGradient id="s1-folderFront" x1="152" y1="76" x2="152" y2="220" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stopColor="#7fc4ff" />
+          <stop offset="1" stopColor="#2e7be0" />
         </linearGradient>
-        <filter
-          id="softShadow1"
-          x="-20%"
-          y="-20%"
-          width="140%"
-          height="140%"
-        >
-          <feGaussianBlur in="SourceAlpha" stdDeviation="6" />
-          <feOffset dx="0" dy="6" />
-          <feComponentTransfer>
-            <feFuncA type="linear" slope="0.28" />
-          </feComponentTransfer>
-          <feMerge>
-            <feMergeNode />
-            <feMergeNode in="SourceGraphic" />
-          </feMerge>
+        <filter id="s1-blur12" x="-40%" y="-40%" width="180%" height="180%">
+          <feGaussianBlur stdDeviation="10" />
         </filter>
-        <filter
-          id="softShadow2"
-          x="-20%"
-          y="-20%"
-          width="140%"
-          height="140%"
-        >
-          <feGaussianBlur in="SourceAlpha" stdDeviation="8" />
-          <feOffset dx="0" dy="8" />
-          <feComponentTransfer>
-            <feFuncA type="linear" slope="0.32" />
-          </feComponentTransfer>
-          <feMerge>
-            <feMergeNode />
-            <feMergeNode in="SourceGraphic" />
-          </feMerge>
+        <filter id="s1-blur8" x="-40%" y="-40%" width="180%" height="180%">
+          <feGaussianBlur stdDeviation="6" />
         </filter>
-        <marker
-          id="arrowHead"
-          viewBox="0 0 12 12"
-          refX="6"
-          refY="6"
-          markerWidth="10"
-          markerHeight="10"
-          orient="auto-start-reverse"
-        >
-          <path d="M0,0 L12,6 L0,12 L3,6 Z" fill="#7a8597" />
+        <marker id="s1-dragArrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="10" markerHeight="10" orient="auto">
+          <path d="M1 1.2L8.6 5L1 8.8" fill="none" stroke="currentColor" strokeOpacity="0.56" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
         </marker>
       </defs>
 
-      <g transform="translate(180 280) rotate(-8)" filter="url(#softShadow1)">
-        <rect
-          x="-110"
-          y="-110"
-          width="220"
-          height="220"
-          rx="50"
-          ry="50"
-          fill="url(#iconShine1)"
-          stroke="#e3e6ec"
-          strokeWidth="1"
-        />
-        <rect
-          x="-110"
-          y="-110"
-          width="220"
-          height="36"
-          rx="50"
-          ry="50"
-          fill="#ffffff"
-          opacity="0.6"
-        />
-        <path
-          d="M -38 -52 L 40 0 L -38 52"
-          fill="none"
-          stroke="url(#cmuxBlue1)"
-          strokeWidth="22"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
+      <g transform="translate(88 156) rotate(-6 110 110)">
+        <path d="M56 0H164C197 0 220 23 220 56V164C220 197 197 220 164 220H56C23 220 0 197 0 164V56C0 23 23 0 56 0Z" transform="translate(8 12)" fill="#000000" fillOpacity="0.15" filter="url(#s1-blur12)" />
+        <path d="M56 0H164C197 0 220 23 220 56V164C220 197 197 220 164 220H56C23 220 0 197 0 164V56C0 23 23 0 56 0Z" fill="url(#s1-iconFill)" stroke="#8893a3" strokeOpacity="0.18" />
+        <path d="M63 8H157C186 8 212 28 212 63V157C212 192 192 212 157 212H63C28 212 8 192 8 157V63C8 28 28 8 63 8Z" fill="none" stroke="#ffffff" strokeOpacity="0.72" strokeWidth="2" />
+        <path d="M84 74L142 110L84 146" fill="none" stroke="url(#s1-chevronFill)" strokeWidth="20" strokeLinecap="round" strokeLinejoin="round" />
       </g>
 
-      <g
-        transform="translate(252 348)"
-        fill="#ffffff"
-        stroke="#1a1a1a"
-        strokeWidth="2"
-        strokeLinejoin="round"
-      >
-        <path d="M0 0 L0 30 L8 22 L13 33 L18 31 L13 20 L24 20 Z" />
+      <path d="M306 242C383 155 493 153 573 226" fill="none" stroke="currentColor" strokeOpacity="0.48" strokeWidth="3.5" strokeLinecap="round" strokeDasharray="7 11" markerEnd="url(#s1-dragArrow)" />
+
+      <g transform="translate(516 154)">
+        <ellipse cx="152" cy="214" rx="116" ry="16" fill="#000000" fillOpacity="0.12" filter="url(#s1-blur8)" />
+        <path d="M24 94V48C24 34 36 24 50 24H100C116 24 127 29 135 41L143 52H252C268 52 280 64 280 80V94H24Z" fill="url(#s1-folderBack)" stroke="#175291" strokeOpacity="0.12" />
+        <path d="M16 94C16 84 24 76 34 76H270C280 76 288 84 288 94V182C288 203 271 220 250 220H54C33 220 16 203 16 182V94Z" fill="url(#s1-folderFront)" stroke="#12447e" strokeOpacity="0.14" />
+        <path d="M40 55H126C132 55 137 57 141 61" fill="none" stroke="#ffffff" strokeOpacity="0.38" strokeWidth="3" strokeLinecap="round" />
+        <path d="M38 95H266" fill="none" stroke="#ffffff" strokeOpacity="0.42" strokeWidth="3" strokeLinecap="round" />
+        <path d="M105 171C120 145 134 119 151 93" fill="none" stroke="#ffffff" strokeWidth="20" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M211 171C195 142 181 117 151 93" fill="none" stroke="#ffffff" strokeWidth="20" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M121 145C144 141 168 141 191 145" fill="none" stroke="#ffffff" strokeWidth="18" strokeLinecap="round" strokeLinejoin="round" />
       </g>
 
-      <g
-        fill="none"
-        stroke="#7a8597"
-        strokeWidth="3.5"
-        strokeLinecap="round"
-        strokeDasharray="2 12"
-        opacity="0.7"
-      >
-        <path
-          d="M 320 200 Q 440 100 560 200"
-          markerEnd="url(#arrowHead)"
-        />
-      </g>
-
-      <g transform="translate(700 280)" filter="url(#softShadow2)">
-        <path
-          d="M -150 -90 L -60 -90 L -40 -70 L 150 -70 L 150 -50 L -150 -50 Z"
-          fill="url(#folderTab)"
-        />
-        <rect
-          x="-150"
-          y="-72"
-          width="300"
-          height="180"
-          rx="20"
-          ry="20"
-          fill="url(#folderBlue)"
-        />
-        <path
-          d="M -150 -52 Q 0 -40 150 -52 L 150 -40 Q 0 -28 -150 -40 Z"
-          fill="#ffffff"
-          opacity="0.18"
-        />
-        <g fill="#ffffff">
-          <path d="M -44 60 L 0 -42 L 44 60 L 24 60 L 14 36 L -14 36 L -24 60 Z M -7 18 L 7 18 L 0 1 Z" />
-        </g>
+      <g transform="translate(278 334) rotate(10)">
+        <path d="M0 0V40L10 30L19 50L29 45L20 25H38L0 0Z" transform="translate(2 3)" fill="#000000" fillOpacity="0.18" filter="url(#s1-blur8)" />
+        <path d="M0 0V40L10 30L19 50L29 45L20 25H38L0 0Z" fill="#ffffff" stroke="#0f1115" strokeWidth="2.2" strokeLinejoin="round" />
       </g>
     </svg>
   );
@@ -214,162 +124,69 @@ function DockSvg({ title }: { title: string }) {
       aria-label={title}
     >
       <defs>
-        <linearGradient id="cmuxBlue2" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="#4a8cff" />
-          <stop offset="100%" stopColor="#1f6cff" />
+        <linearGradient id="s2-dockFill" x1="440" y1="215" x2="440" y2="389" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stopColor="#2c2f38" stopOpacity="0.55" />
+          <stop offset="1" stopColor="#15171c" stopOpacity="0.65" />
         </linearGradient>
-        <linearGradient id="finderBlue" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#7fb3ff" />
-          <stop offset="100%" stopColor="#2e6ff0" />
+        <linearGradient id="s2-dockHighlight" x1="440" y1="228" x2="440" y2="272" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stopColor="#ffffff" stopOpacity="0.26" />
+          <stop offset="1" stopColor="#ffffff" stopOpacity="0" />
         </linearGradient>
-        <linearGradient id="messagesGreen" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#5be37b" />
-          <stop offset="100%" stopColor="#1aab46" />
+        <linearGradient id="s2-finderFill" x1="70" y1="0" x2="70" y2="140" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stopColor="#6aa6ff" />
+          <stop offset="1" stopColor="#2e6ff0" />
         </linearGradient>
-        <linearGradient id="dockGlass" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#3a3f4a" stopOpacity="0.55" />
-          <stop offset="100%" stopColor="#1a1d24" stopOpacity="0.65" />
+        <linearGradient id="s2-cmuxFill" x1="70" y1="0" x2="70" y2="140" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stopColor="#ffffff" />
+          <stop offset="1" stopColor="#eef2f9" />
         </linearGradient>
-        <linearGradient id="dockHighlight" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#ffffff" stopOpacity="0.45" />
-          <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
+        <linearGradient id="s2-cmuxChevron" x1="49" y1="43" x2="90" y2="97" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stopColor="#4a8cff" />
+          <stop offset="1" stopColor="#1f6cff" />
         </linearGradient>
-        <linearGradient id="iconShine2" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#ffffff" />
-          <stop offset="100%" stopColor="#eef0f5" />
+        <linearGradient id="s2-messageFill" x1="70" y1="0" x2="70" y2="140" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stopColor="#5ee07b" />
+          <stop offset="1" stopColor="#18a943" />
         </linearGradient>
-        <filter
-          id="dockShadow"
-          x="-10%"
-          y="-30%"
-          width="120%"
-          height="180%"
-        >
-          <feGaussianBlur in="SourceAlpha" stdDeviation="14" />
-          <feOffset dx="0" dy="18" />
-          <feComponentTransfer>
-            <feFuncA type="linear" slope="0.35" />
-          </feComponentTransfer>
-          <feMerge>
-            <feMergeNode />
-            <feMergeNode in="SourceGraphic" />
-          </feMerge>
+        <filter id="s2-blur14" x="-35%" y="-35%" width="170%" height="170%">
+          <feGaussianBlur stdDeviation="14" />
         </filter>
-        <filter
-          id="iconShadow"
-          x="-30%"
-          y="-30%"
-          width="160%"
-          height="160%"
-        >
-          <feGaussianBlur in="SourceAlpha" stdDeviation="3" />
-          <feOffset dx="0" dy="3" />
-          <feComponentTransfer>
-            <feFuncA type="linear" slope="0.35" />
-          </feComponentTransfer>
-          <feMerge>
-            <feMergeNode />
-            <feMergeNode in="SourceGraphic" />
-          </feMerge>
+        <filter id="s2-blur18" x="-35%" y="-35%" width="170%" height="170%">
+          <feGaussianBlur stdDeviation="18" />
         </filter>
+        <clipPath id="s2-finderClip">
+          <path d="M34 0H106C126 0 140 14 140 34V106C140 126 126 140 106 140H34C14 140 0 126 0 106V34C0 14 14 0 34 0Z" />
+        </clipPath>
       </defs>
 
-      <g transform="translate(440 320)" filter="url(#dockShadow)">
-        <rect
-          x="-300"
-          y="-90"
-          width="600"
-          height="180"
-          rx="56"
-          ry="56"
-          fill="url(#dockGlass)"
-          stroke="#ffffff"
-          strokeOpacity="0.18"
-          strokeWidth="1.5"
-        />
-        <rect
-          x="-292"
-          y="-86"
-          width="584"
-          height="60"
-          rx="44"
-          ry="44"
-          fill="url(#dockHighlight)"
-          opacity="0.7"
-        />
+      <rect x="130" y="233" width="620" height="174" rx="56" fill="#000000" fillOpacity="0.32" filter="url(#s2-blur14)" />
+      <ellipse cx="440" cy="414" rx="250" ry="24" fill="#000000" fillOpacity="0.14" filter="url(#s2-blur18)" />
+
+      <rect x="130" y="215" width="620" height="174" rx="56" fill="url(#s2-dockFill)" />
+      <rect x="130.5" y="215.5" width="619" height="173" rx="55.5" fill="none" stroke="#ffffff" strokeOpacity="0.16" />
+      <rect x="144" y="227" width="592" height="40" rx="32" fill="url(#s2-dockHighlight)" />
+
+      <g transform="translate(190 233)">
+        <path d="M34 0H106C126 0 140 14 140 34V106C140 126 126 140 106 140H34C14 140 0 126 0 106V34C0 14 14 0 34 0Z" fill="url(#s2-finderFill)" stroke="#ffffff" strokeOpacity="0.12" />
+        <rect x="70" y="0" width="70" height="140" fill="#ffffff" clipPath="url(#s2-finderClip)" />
+        <path d="M70 14V104" fill="none" stroke="#1a3a78" strokeOpacity="0.9" strokeWidth="4.5" strokeLinecap="round" />
+        <path d="M39 58C43 54 49 54 53 58" fill="none" stroke="#1a3a78" strokeWidth="4.5" strokeLinecap="round" />
+        <path d="M87 58C91 54 97 54 101 58" fill="none" stroke="#1a3a78" strokeWidth="4.5" strokeLinecap="round" />
+        <path d="M46 93C57 104 83 104 94 93" fill="none" stroke="#18243b" strokeWidth="5" strokeLinecap="round" />
       </g>
 
-      <g transform="translate(280 320)" filter="url(#iconShadow)">
-        <rect
-          x="-66"
-          y="-66"
-          width="132"
-          height="132"
-          rx="30"
-          ry="30"
-          fill="url(#finderBlue)"
-        />
-        <path d="M 0 -52 A 52 52 0 0 1 0 52 Z" fill="#ffffff" />
-        <rect x="-22" y="-26" width="8" height="22" rx="3" fill="#1a3a78" />
-        <rect x="14" y="-26" width="8" height="22" rx="3" fill="#1a3a78" />
-        <path
-          d="M -22 18 Q 0 34 22 18"
-          fill="none"
-          stroke="#1a3a78"
-          strokeWidth="5"
-          strokeLinecap="round"
-        />
+      <g transform="translate(370 233)">
+        <path d="M34 0H106C126 0 140 14 140 34V106C140 126 126 140 106 140H34C14 140 0 126 0 106V34C0 14 14 0 34 0Z" fill="url(#s2-cmuxFill)" stroke="#94a0b2" strokeOpacity="0.18" />
+        <path d="M40 6H100C121 6 134 19 134 40V100C134 121 121 134 100 134H40C19 134 6 121 6 100V40C6 19 19 6 40 6Z" fill="none" stroke="#ffffff" strokeOpacity="0.68" strokeWidth="1.8" />
+        <path d="M49 43L90 70L49 97" fill="none" stroke="url(#s2-cmuxChevron)" strokeWidth="14" strokeLinecap="round" strokeLinejoin="round" />
       </g>
 
-      <g transform="translate(440 320)" filter="url(#iconShadow)">
-        <rect
-          x="-66"
-          y="-66"
-          width="132"
-          height="132"
-          rx="30"
-          ry="30"
-          fill="url(#iconShine2)"
-          stroke="#dfe3ea"
-          strokeWidth="1"
-        />
-        <rect
-          x="-66"
-          y="-66"
-          width="132"
-          height="22"
-          rx="30"
-          ry="30"
-          fill="#ffffff"
-          opacity="0.7"
-        />
-        <path
-          d="M -22 -32 L 24 0 L -22 32"
-          fill="none"
-          stroke="url(#cmuxBlue2)"
-          strokeWidth="14"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
+      <g transform="translate(550 233)">
+        <path d="M34 0H106C126 0 140 14 140 34V106C140 126 126 140 106 140H34C14 140 0 126 0 106V34C0 14 14 0 34 0Z" fill="url(#s2-messageFill)" stroke="#ffffff" strokeOpacity="0.12" />
+        <path d="M44 49H97C108 49 117 58 117 69V87C117 98 108 107 97 107H67L50 120L55 107H44C33 107 24 98 24 87V69C24 58 33 49 44 49Z" fill="none" stroke="#ffffff" strokeWidth="11" strokeLinecap="round" strokeLinejoin="round" />
       </g>
 
-      <g transform="translate(600 320)" filter="url(#iconShadow)">
-        <rect
-          x="-66"
-          y="-66"
-          width="132"
-          height="132"
-          rx="30"
-          ry="30"
-          fill="url(#messagesGreen)"
-        />
-        <path
-          d="M -38 -22 Q -38 -42 -18 -42 L 30 -42 Q 50 -42 50 -22 L 50 6 Q 50 26 30 26 L 4 26 L -14 42 L -10 26 L -18 26 Q -38 26 -38 6 Z"
-          fill="#ffffff"
-        />
-      </g>
-
-      <circle cx="440" cy="412" r="4" fill="#ffffff" opacity="0.85" />
+      <circle cx="440" cy="405" r="4.5" fill="#ffffff" fillOpacity="0.56" />
     </svg>
   );
 }
