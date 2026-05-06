@@ -415,6 +415,8 @@ extension AgentLaunchSanitizer {
     ]
 
     static let hermesAgentPolicy = Policy(
+        // Boolean flags such as --tui pass through by default unless they are
+        // explicitly rejected or dropped below.
         valueOptions: [
             "--api-key",
             "--base-url",

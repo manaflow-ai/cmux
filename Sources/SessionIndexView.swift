@@ -1280,8 +1280,10 @@ private enum SessionTranscriptLoader {
             return parseClaudeLine(object, id: id)
         case .codex:
             return parseCodexLine(object, id: id)
-        case .opencode, .rovodev, .hermesAgent:
+        case .opencode, .rovodev:
             return parseGenericLine(object, agent: agent, id: id)
+        case .hermesAgent:
+            return nil
         }
     }
 
@@ -1560,8 +1562,10 @@ private enum SessionTranscriptLoader {
         case .codex:
             return containsAny(data, needles: codexResponseItemNeedles)
                 && containsAny(data, needles: codexPreviewNeedles)
-        case .opencode, .rovodev, .hermesAgent:
+        case .opencode, .rovodev:
             return containsAny(data, needles: genericRoleNeedles)
+        case .hermesAgent:
+            return false
         }
     }
 
@@ -1574,7 +1578,7 @@ private enum SessionTranscriptLoader {
             if containsAny(data, needles: [Data(#""type":"user""#.utf8), Data(#""type": "user""#.utf8)]) {
                 return .user
             }
-        case .codex, .opencode, .rovodev, .hermesAgent:
+        case .codex, .opencode, .rovodev:
             if containsAny(data, needles: [Data(#""role":"assistant""#.utf8), Data(#""role": "assistant""#.utf8)]) {
                 return .assistant
             }
@@ -1584,6 +1588,8 @@ private enum SessionTranscriptLoader {
             if containsAny(data, needles: [Data(#""type":"function_call""#.utf8), Data(#""type": "function_call""#.utf8)]) {
                 return .tool
             }
+        case .hermesAgent:
+            return nil
         }
         return nil
     }

@@ -100,4 +100,30 @@ struct HermesAgentHookConfigTests {
         #expect(remaining.count == 1)
         #expect(remaining.first?["command"] as? String == "echo user")
     }
+
+    @Test("Allowlist install preserves non-conforming approvals")
+    func allowlistInstallPreservesNonConformingApprovals() throws {
+        let existing = """
+        {
+          "approvals": [
+            {
+              "event": "pre_tool_call",
+              "command": 12,
+              "scope": "third-party"
+            }
+          ]
+        }
+        """.data(using: .utf8)
+        let events = [
+            HermesAgentHookConfig.Event(name: "pre_tool_call", command: "sh -c 'cmux hooks feed --source hermes-agent --event pre_tool_call'"),
+        ]
+
+        let installed = try HermesAgentHookAllowlist.installing(events: events, in: existing)
+        let installedObject = try #require(JSONSerialization.jsonObject(with: installed) as? [String: Any])
+        let approvals = try #require(installedObject["approvals"] as? [[String: Any]])
+
+        #expect(approvals.count == 2)
+        #expect(approvals.contains { $0["scope"] as? String == "third-party" })
+        #expect(approvals.contains { $0["command"] as? String == events[0].command })
+    }
 }

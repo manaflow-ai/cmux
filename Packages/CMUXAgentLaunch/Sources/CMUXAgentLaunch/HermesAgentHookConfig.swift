@@ -204,9 +204,11 @@ public enum HermesAgentHookAllowlist {
         var object = try decode(existing)
         let approvals = object["approvals"] as? [[String: Any]] ?? []
         var keyed: [String: [String: Any]] = [:]
+        var passthrough: [[String: Any]] = []
         for approval in approvals {
             guard let event = approval["event"] as? String,
                   let command = approval["command"] as? String else {
+                passthrough.append(approval)
                 continue
             }
             keyed[key(event: event, command: command)] = approval
@@ -220,10 +222,11 @@ public enum HermesAgentHookAllowlist {
                 "approved_at": iso,
             ]
         }
-        object["approvals"] = keyed.values.sorted {
+        let ownedApprovals = keyed.values.sorted {
             (($0["event"] as? String) ?? "", ($0["command"] as? String) ?? "")
                 < ((($1["event"] as? String) ?? ""), (($1["command"] as? String) ?? ""))
         }
+        object["approvals"] = passthrough + ownedApprovals
         return try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
     }
 
