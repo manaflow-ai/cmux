@@ -104,7 +104,11 @@ private extension CmuxVaultAgentDetectRule {
             }
         } ?? true
         let argvContainsMatch = argvContains.isEmpty || argvContains.allSatisfy { needle in
-            if needle.contains("/") || needle.contains(" ") {
+            if needle.contains(" ") {
+                let joinedArguments = process.arguments.joined(separator: " ")
+                return joinedArguments.range(of: needle, options: [.caseInsensitive, .literal]) != nil
+            }
+            if needle.contains("/") {
                 let joinedArguments = process.arguments.joined(separator: "\u{0}")
                 return joinedArguments.range(of: needle, options: [.caseInsensitive, .literal]) != nil
             }
