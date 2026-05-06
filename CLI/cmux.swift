@@ -14696,6 +14696,12 @@ struct CMUXCLI {
         case failure(CodexHookFailureCandidate)
     }
 
+    private enum CodexMonitorOwnerState {
+        case alive
+        case gone
+        case unknown
+    }
+
     private func summarizeCodexHookFailure(
         parsedInput: ClaudeHookParsedInput,
         sessionId: String,
@@ -15165,8 +15171,8 @@ struct CMUXCLI {
             createdAt: Date().timeIntervalSince1970,
             retiredAt: nil
         )
+        try? pruneExpiredCodexMonitorLeases(env: env)
         do {
-            try pruneExpiredCodexMonitorLeases(env: env)
             try writeCodexMonitorLease(record, to: path)
             return path
         } catch {
@@ -15234,20 +15240,21 @@ struct CMUXCLI {
         try? FileManager.default.removeItem(atPath: path)
     }
 
-    private func codexMonitorOwnerIsAlive(workspaceId: String, surfaceId: String?, client: SocketClient) -> Bool {
-        guard client.connectionAppearsOpen() else { return false }
+    private func codexMonitorOwnerState(workspaceId: String, surfaceId: String?, client: SocketClient) -> CodexMonitorOwnerState {
+        guard client.connectionAppearsOpen() else { return .gone }
         guard let payload = try? client.sendV2(
             method: "surface.list",
             params: ["workspace_id": workspaceId],
             responseTimeout: Self.codexMonitorOwnerCheckTimeoutSeconds
         ) else {
-            return false
+            return .unknown
         }
         let surfaces = payload["surfaces"] as? [[String: Any]] ?? []
-        guard let surfaceId, !surfaceId.isEmpty else { return !surfaces.isEmpty }
-        return surfaces.contains { surface in
+        guard let surfaceId, !surfaceId.isEmpty else { return surfaces.isEmpty ? .gone : .alive }
+        let ownerFound = surfaces.contains { surface in
             (surface["id"] as? String) == surfaceId || (surface["ref"] as? String) == surfaceId
         }
+        return ownerFound ? .alive : .gone
     }
 
     private func startCodexTranscriptMonitor(
@@ -15327,7 +15334,7 @@ struct CMUXCLI {
             let now = Date()
             if now >= nextOwnerCheck {
                 nextOwnerCheck = now.addingTimeInterval(Self.codexMonitorOwnerCheckIntervalSeconds)
-                if !codexMonitorOwnerIsAlive(workspaceId: workspaceId, surfaceId: surfaceId, client: client) {
+                if codexMonitorOwnerState(workspaceId: workspaceId, surfaceId: surfaceId, client: client) == .gone {
                     return
                 }
             }

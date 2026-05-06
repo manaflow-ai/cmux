@@ -18,10 +18,18 @@ from claude_teams_test_utils import resolve_cmux_cli
 
 
 class FakeCmuxSocket:
-    def __init__(self, path: Path, decision: dict | None, surfaces: list[dict] | None = None):
+    def __init__(
+        self,
+        path: Path,
+        decision: dict | None,
+        surfaces: list[dict] | None = None,
+        drop_first_surface_list: bool = False,
+    ):
         self.path = path
         self.decision = decision
         self.surfaces = surfaces if surfaces is not None else [{"id": "surface-codex-feed-test"}]
+        self.drop_first_surface_list = drop_first_surface_list
+        self._dropped_surface_list = False
         self.frames: list[dict] = []
         self._ready = threading.Event()
         self._stop = threading.Event()
@@ -78,6 +86,9 @@ class FakeCmuxSocket:
                     self.frames.append(frame)
                     result: dict = {"status": "acknowledged"}
                     if frame.get("method") == "surface.list":
+                        if self.drop_first_surface_list and not self._dropped_surface_list:
+                            self._dropped_surface_list = True
+                            continue
                         result = {"surfaces": self.surfaces}
                     elif self.decision is not None:
                         result = {
@@ -238,6 +249,61 @@ def test_codex_monitor_exits_when_workspace_has_no_surfaces(cli_path: str, root:
             )
         if not any(frame.get("method") == "surface.list" for frame in fake.frames):
             raise AssertionError(f"monitor did not query owner surfaces: {fake.frames!r}")
+
+
+def test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-monitor-timeout.sock"
+    transcript_path = root / "codex-session-timeout.jsonl"
+    turn_id = f"codex-monitor-timeout-turn-{os.getpid()}"
+    transcript_lines = [
+        {"type": "event_msg", "payload": {"type": "task_started", "turn_id": turn_id}},
+        {"type": "event_msg", "payload": {"type": "error", "turn_id": turn_id, "message": "stream disconnected"}},
+        {"type": "event_msg", "payload": {"type": "turn_complete", "turn_id": turn_id}},
+    ]
+    transcript_path.write_text(
+        "\n".join(json.dumps(line) for line in transcript_lines) + "\n",
+        encoding="utf-8",
+    )
+
+    session_id = f"codex-monitor-timeout-session-{os.getpid()}"
+    env = os.environ.copy()
+    env["CMUX_SOCKET_PATH"] = str(socket_path)
+    env["CMUX_WORKSPACE_ID"] = "workspace-codex-feed-test"
+
+    with FakeCmuxSocket(socket_path, None, drop_first_surface_list=True) as fake:
+        result = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "codex",
+                "monitor",
+                "--workspace",
+                "workspace-codex-feed-test",
+                "--session",
+                session_id,
+                "--turn",
+                turn_id,
+                "--transcript",
+                str(transcript_path),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=5,
+        )
+        if result.returncode != 0:
+            raise AssertionError(
+                f"hooks codex monitor failed exit={result.returncode}\n"
+                f"stdout={result.stdout}\nstderr={result.stderr}"
+            )
+        if not fake._dropped_surface_list:
+            raise AssertionError(f"monitor did not exercise transient owner timeout: {fake.frames!r}")
+        raw_commands = [frame.get("raw", "") for frame in fake.frames]
+        if not any(command.startswith("set_status codex ") for command in raw_commands):
+            raise AssertionError(f"monitor exited before publishing transcript failure: {fake.frames!r}")
 
 
 def run_feed_hook(cli_path: str, socket_path: Path, payload: dict, decision: dict | None) -> tuple[dict, dict]:
@@ -422,6 +488,7 @@ def main() -> int:
         try:
             test_codex_stop_reaps_transcript_monitor(cli_path, root)
             test_codex_monitor_exits_when_workspace_has_no_surfaces(cli_path, root)
+            test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path, root)
             test_install_adds_codex_permission_request_hook(cli_path, root)
             test_permission_reply_uses_codex_permission_request_schema(cli_path, root)
             test_codex_persistent_permission_modes_degrade_to_once(cli_path, root)
