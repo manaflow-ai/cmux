@@ -29,11 +29,8 @@ enum TerminalImageTransferPreparedContent: Equatable {
 }
 
 enum TerminalAgentPromptPaste {
-    private static let startSequence = "\u{001B}[200~"
-    private static let endSequence = "\u{001B}[201~"
-
-    static func bracketedSequence(for text: String) -> String {
-        "\(startSequence)\(controlSafeText(text))\(endSequence)"
+    static func text(for text: String) -> String {
+        controlSafeText(text)
     }
 
     private static func controlSafeText(_ text: String) -> String {
@@ -59,15 +56,8 @@ enum TerminalDroppedTextDelivery {
         case .terminalPaste:
             surface?.sendText(text)
         case .agentPromptPaste:
-            surface?.sendBracketedPasteText(text)
+            surface?.sendText(TerminalAgentPromptPaste.text(for: text))
         }
-    }
-}
-
-extension TerminalSurface {
-    func sendBracketedPasteText(_ text: String) {
-        guard !text.isEmpty else { return }
-        sendInput(TerminalAgentPromptPaste.bracketedSequence(for: text))
     }
 }
 

@@ -79,17 +79,16 @@ final class FinderFileDropRegressionTests: XCTestCase {
         )
     }
 
-    func testAgentPromptDropPasteWrapsEscapedImagePathInBracketedPaste() throws {
+    func testAgentPromptDropPasteUsesTextPastePathWithoutEmbeddingControlSequences() throws {
         let fileURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("agent dropped \(UUID().uuidString)")
             .appendingPathExtension("png")
 
         let escapedPath = TerminalImageTransferPlanner.escapeForShell(fileURL.path)
-        let sequence = TerminalAgentPromptPaste.bracketedSequence(for: escapedPath)
+        let pastedText = TerminalAgentPromptPaste.text(for: escapedPath)
 
-        XCTAssertTrue(sequence.hasPrefix("\u{001B}[200~"))
-        XCTAssertTrue(sequence.hasSuffix("\u{001B}[201~"))
-        XCTAssertTrue(sequence.contains(escapedPath))
+        XCTAssertEqual(pastedText, escapedPath)
+        XCTAssertFalse(pastedText.unicodeScalars.contains { $0.value == 0x1B })
     }
 
     func testLegacyFinderFilenameDropPlanInsertsEscapedLocalPath() throws {
