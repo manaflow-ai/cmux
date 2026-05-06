@@ -206,4 +206,51 @@ final class WorkspaceCustomLayoutTests: XCTestCase {
         XCTAssertEqual(result.path, fileURL.path)
         XCTAssertNil(result.failure)
     }
+
+    @MainActor
+    func testConfigWorkspaceCommandMarkdownLayoutResolvesRelativeBaseCwdToAbsolutePath() throws {
+        let originalCwd = FileManager.default.currentDirectoryPath
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-config-layout-relative-base-\(UUID().uuidString)", isDirectory: true)
+        let workspaceDir = root.appendingPathComponent("workspace", isDirectory: true)
+        try FileManager.default.createDirectory(at: workspaceDir, withIntermediateDirectories: true)
+        defer {
+            _ = FileManager.default.changeCurrentDirectoryPath(originalCwd)
+            try? FileManager.default.removeItem(at: root)
+        }
+        XCTAssertTrue(FileManager.default.changeCurrentDirectoryPath(root.path))
+
+        let readmeURL = workspaceDir.appendingPathComponent("README.md")
+        try "# Readme\n".write(to: readmeURL, atomically: true, encoding: .utf8)
+
+        let layoutJSON = """
+        {
+          "pane": {
+            "surfaces": [
+              { "type": "markdown", "path": "README.md" }
+            ]
+          }
+        }
+        """
+        let layoutData = try XCTUnwrap(layoutJSON.data(using: .utf8))
+        let layout = try JSONDecoder().decode(CmuxLayoutNode.self, from: layoutData)
+        let manager = TabManager()
+        let command = CmuxCommandDefinition(
+            name: "Docs command",
+            workspace: CmuxWorkspaceDefinition(name: "Docs", cwd: "workspace", layout: layout)
+        )
+
+        XCTAssertTrue(CmuxConfigExecutor.execute(
+            command: command,
+            tabManager: manager,
+            baseCwd: ".",
+            configSourcePath: nil,
+            globalConfigPath: "/tmp/cmux-test-global-config.json"
+        ))
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        XCTAssertEqual(workspace.currentDirectory, workspaceDir.path)
+        let markdownPanel = try XCTUnwrap(workspace.panels.values.compactMap { $0 as? MarkdownPanel }.first)
+        XCTAssertEqual(markdownPanel.filePath, readmeURL.path)
+    }
 }

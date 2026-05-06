@@ -17,7 +17,7 @@ func logCustomLayoutMarkdownPathFailure(
     )
 }
 
-private func absoluteCustomLayoutDirectory(_ directory: String) -> String {
+func absoluteCustomLayoutDirectory(_ directory: String) -> String {
     let expandedDirectory = NSString(string: directory).expandingTildeInPath
     if expandedDirectory.hasPrefix("/") {
         return NSString(string: expandedDirectory).standardizingPath
