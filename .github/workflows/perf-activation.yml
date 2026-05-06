@@ -86,7 +86,17 @@ jobs:
                 ;;
             esac
             ZIG_DIR="/tmp/zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}"
-            curl -fSL "https://ziglang.org/download/${ZIG_REQUIRED}/zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}.tar.xz" -o /tmp/zig.tar.xz
+            ZIG_URL="https://ziglang.org/download/${ZIG_REQUIRED}/zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}.tar.xz"
+            for attempt in 1 2 3 4 5; do
+              if curl -fSL "$ZIG_URL" -o /tmp/zig.tar.xz; then
+                break
+              fi
+              if [ "$attempt" -eq 5 ]; then
+                exit 1
+              fi
+              rm -f /tmp/zig.tar.xz
+              sleep $((attempt * 5))
+            done
             tar xf /tmp/zig.tar.xz -C /tmp
             sudo mkdir -p /usr/local/bin /usr/local/lib
             sudo cp -f "${ZIG_DIR}/zig" /usr/local/bin/zig
