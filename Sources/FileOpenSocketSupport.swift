@@ -12,19 +12,18 @@ enum CmuxReadableFilePathResolver {
         _ rawPath: String,
         relativeTo basePath: String? = nil
     ) -> (path: String?, failure: CmuxReadableFilePathResolutionFailure?) {
-        let trimmedPath = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedPath.isEmpty else {
+        guard !rawPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return (
                 nil,
                 CmuxReadableFilePathResolutionFailure(
                     code: "invalid_params",
                     message: "Path must not be empty",
-                    path: trimmedPath
+                    path: rawPath
                 )
             )
         }
 
-        let expandedPath = NSString(string: trimmedPath).expandingTildeInPath
+        let expandedPath = NSString(string: rawPath).expandingTildeInPath
         let filePath: String
         if expandedPath.hasPrefix("/") {
             filePath = NSString(string: expandedPath).standardizingPath

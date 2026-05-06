@@ -157,4 +157,53 @@ final class WorkspaceCustomLayoutTests: XCTestCase {
         let createdWorkspace = tabManager.addWorkspace(workingDirectory: layoutBaseCwd, select: false)
         XCTAssertEqual(createdWorkspace.currentDirectory, root.path)
     }
+
+    @MainActor
+    func testNewWorkspaceLayoutBaseCwdResolvesRelativeRequestedCwdFromInheritedDirectory() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-layout-markdown-relative-cwd-\(UUID().uuidString)", isDirectory: true)
+        let app = root.appendingPathComponent("app", isDirectory: true)
+        try FileManager.default.createDirectory(at: app, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let readmeURL = app.appendingPathComponent("README.md")
+        try "# Readme\n".write(to: readmeURL, atomically: true, encoding: .utf8)
+
+        let layoutJSON = """
+        {
+          "pane": {
+            "surfaces": [
+              { "type": "markdown", "path": "README.md" }
+            ]
+          }
+        }
+        """
+        let layoutData = try XCTUnwrap(layoutJSON.data(using: .utf8))
+        let layout = try JSONDecoder().decode(CmuxLayoutNode.self, from: layoutData)
+
+        let tabManager = TabManager()
+        let sourceWorkspace = try XCTUnwrap(tabManager.selectedWorkspace)
+        sourceWorkspace.currentDirectory = root.path
+
+        let layoutBaseCwd = customLayoutBaseCwdForNewWorkspace(tabManager: tabManager, requestedCwd: "./app")
+        XCTAssertEqual(layoutBaseCwd, app.path)
+        XCTAssertNil(layout.firstMarkdownPathResolutionFailure(relativeTo: layoutBaseCwd))
+
+        let createdWorkspace = tabManager.addWorkspace(workingDirectory: layoutBaseCwd, select: false)
+        XCTAssertEqual(createdWorkspace.currentDirectory, app.path)
+    }
+
+    func testReadableFilePathResolverPreservesLiteralWhitespaceInFileNames() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-layout-markdown-whitespace-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let fileURL = root.appendingPathComponent(" note .md")
+        try "# Note\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let result = CmuxReadableFilePathResolver.resolve(fileURL.path)
+        XCTAssertEqual(result.path, fileURL.path)
+        XCTAssertNil(result.failure)
+    }
 }

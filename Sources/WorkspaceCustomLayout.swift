@@ -17,13 +17,29 @@ func logCustomLayoutMarkdownPathFailure(
     )
 }
 
+private func absoluteCustomLayoutDirectory(_ directory: String) -> String {
+    let expandedDirectory = NSString(string: directory).expandingTildeInPath
+    if expandedDirectory.hasPrefix("/") {
+        return NSString(string: expandedDirectory).standardizingPath
+    }
+    let currentDirectory = NSString(string: FileManager.default.currentDirectoryPath)
+    return NSString(
+        string: currentDirectory.appendingPathComponent(expandedDirectory)
+    ).standardizingPath
+}
+
 func customLayoutBaseCwdForNewWorkspace(
     tabManager: TabManager,
     requestedCwd: String?
 ) -> String {
-    tabManager.normalizedWorkingDirectory(requestedCwd)
-        ?? tabManager.preferredWorkingDirectoryForNewTab(workspace: tabManager.selectedWorkspace)
+    let inheritedCwd = tabManager.preferredWorkingDirectoryForNewTab(workspace: tabManager.selectedWorkspace)
         ?? FileManager.default.homeDirectoryForCurrentUser.path
+    let baseCwd = absoluteCustomLayoutDirectory(inheritedCwd)
+    let resolvedCwd = CmuxConfigStore.resolveCwd(
+        tabManager.normalizedWorkingDirectory(requestedCwd),
+        relativeTo: baseCwd
+    )
+    return absoluteCustomLayoutDirectory(resolvedCwd)
 }
 
 // MARK: - cmux.json custom layout
