@@ -7,7 +7,10 @@ extension SessionAgent {
         case .codex: return String(localized: "sessionIndex.agent.codex", defaultValue: "Codex")
         case .opencode: return String(localized: "sessionIndex.agent.opencode", defaultValue: "OpenCode")
         case .rovodev: return String(localized: "sessionIndex.agent.rovodev", defaultValue: "Rovo Dev")
-        case .pi: return String(localized: "sessionIndex.agent.pi", defaultValue: "Pi")
+        // Brand name; not translated. Mirrors the convention applied to other
+        // engine/brand literals across the codebase
+        // (https://github.com/manaflow-ai/cmux/pull/3562#discussion_r3192272326).
+        case .pi: return "Pi"
         }
     }
 
