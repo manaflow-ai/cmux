@@ -192,6 +192,60 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         XCTAssertEqual(dockTileNotificationCount, 0)
     }
 
+    func testSidebarMatchTerminalBackgroundUserDefaultSurvivesSettingsFileReapply() throws {
+        let defaults = UserDefaults.standard
+        let key = "sidebarMatchTerminalBackground"
+        let previousValue = defaults.object(forKey: key)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousValue {
+                defaults.set(previousValue, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+
+        defaults.removeObject(forKey: key)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "sidebarAppearance": {
+                "matchTerminalBackground": true
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        let notificationCenter = NotificationCenter()
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            notificationCenter: notificationCenter,
+            startWatching: true
+        )
+
+        XCTAssertEqual(defaults.object(forKey: key) as? Bool, true)
+
+        defaults.set(false, forKey: key)
+        withExtendedLifetime(store) {
+            notificationCenter.post(name: UserDefaults.didChangeNotification, object: defaults)
+            XCTAssertEqual(defaults.object(forKey: key) as? Bool, false)
+        }
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-settings-startup-\(UUID().uuidString)",
