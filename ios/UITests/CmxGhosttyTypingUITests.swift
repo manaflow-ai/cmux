@@ -2,20 +2,14 @@ import UIKit
 import XCTest
 
 final class CmxGhosttyTypingUITests: XCTestCase {
-    private let app = XCUIApplication()
-
     override func setUpWithError() throws {
         continueAfterFailure = false
-        app.launchEnvironment = [
-            "CMUX_IOS_BRIDGE_TICKET": Self.directTicket,
-            "CMUX_IOS_AUTOCONNECT": "1",
-            "CMUX_IOS_UI_TESTING_ECHO_SESSION": "1",
-        ]
-        app.launch()
     }
 
+    @MainActor
     func testTypingIntoGhosttyRendersEchoedOutput() throws {
-        let terminal = try openTerminal()
+        let app = launchApp()
+        let terminal = try openTerminal(in: app)
 
         terminal.tap()
         let input = app.descendants(matching: .any)["terminal.input"]
@@ -25,11 +19,10 @@ final class CmxGhosttyTypingUITests: XCTestCase {
         XCTAssertTrue(waitForTerminalValue(terminal, containing: "UI_GHOSTTY_SYNC_OK", timeout: 10))
     }
 
+    @MainActor
     func testRepeatedPinchZoomKeepsGhosttyResponsive() throws {
-        app.terminate()
-        app.launch()
-
-        let terminal = try openTerminal()
+        let app = launchApp()
+        let terminal = try openTerminal(in: app)
 
         for _ in 0..<8 {
             terminal.pinch(withScale: 0.55, velocity: -1)
@@ -44,12 +37,10 @@ final class CmxGhosttyTypingUITests: XCTestCase {
         XCTAssertTrue(waitForTerminalValue(terminal, containing: "ZOOM_OK", timeout: 10))
     }
 
+    @MainActor
     func testPaletteIndexedPromptUsesRemoteTheme() throws {
-        app.terminate()
-        app.launchEnvironment["CMUX_IOS_UI_TESTING_PALETTE_SESSION"] = "1"
-        app.launch()
-
-        let terminal = try openTerminal(expectedPrompt: "palette-test$")
+        let app = launchApp(paletteSession: true)
+        let terminal = try openTerminal(in: app, expectedPrompt: "palette-test$")
         let image = terminal.screenshot().image
 
         XCTAssertGreaterThan(
@@ -61,8 +52,10 @@ final class CmxGhosttyTypingUITests: XCTestCase {
         )
     }
 
+    @MainActor
     func testSoftwareKeyboardShrinksGhosttySurfaceAndTypingStillRenders() throws {
-        let terminal = try openTerminal()
+        let app = launchApp()
+        let terminal = try openTerminal(in: app)
         let initialHeight = terminal.frame.height
 
         terminal.tap()
@@ -81,11 +74,28 @@ final class CmxGhosttyTypingUITests: XCTestCase {
         XCTAssertTrue(waitForTerminalValue(terminal, containing: "KEYBOARD_RESIZE_OK", timeout: 10))
     }
 
-    private func openTerminal() throws -> XCUIElement {
-        try openTerminal(expectedPrompt: "ui-test$")
+    @MainActor
+    private func launchApp(paletteSession: Bool = false) -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchEnvironment = [
+            "CMUX_IOS_BRIDGE_TICKET": Self.directTicket,
+            "CMUX_IOS_AUTOCONNECT": "1",
+            "CMUX_IOS_UI_TESTING_ECHO_SESSION": "1",
+        ]
+        if paletteSession {
+            app.launchEnvironment["CMUX_IOS_UI_TESTING_PALETTE_SESSION"] = "1"
+        }
+        app.launch()
+        return app
     }
 
-    private func openTerminal(expectedPrompt: String) throws -> XCUIElement {
+    @MainActor
+    private func openTerminal(in app: XCUIApplication) throws -> XCUIElement {
+        try openTerminal(in: app, expectedPrompt: "ui-test$")
+    }
+
+    @MainActor
+    private func openTerminal(in app: XCUIApplication, expectedPrompt: String) throws -> XCUIElement {
         let workspace = app.descendants(matching: .any)["workspace.row.1"]
         XCTAssertTrue(workspace.waitForExistence(timeout: 10))
         workspace.tap()
@@ -103,7 +113,9 @@ final class CmxGhosttyTypingUITests: XCTestCase {
     ) -> Bool {
         let predicate = NSPredicate { element, _ in
             guard let terminal = element as? XCUIElement else { return false }
-            return (terminal.value as? String)?.contains(expected) == true
+            return MainActor.assumeIsolated {
+                (terminal.value as? String)?.contains(expected) == true
+            }
         }
         let expectation = XCTNSPredicateExpectation(predicate: predicate, object: terminal)
         return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
@@ -116,7 +128,9 @@ final class CmxGhosttyTypingUITests: XCTestCase {
     ) -> Bool {
         let predicate = NSPredicate { element, _ in
             guard let terminal = element as? XCUIElement else { return false }
-            return terminal.frame.height < expectedHeight
+            return MainActor.assumeIsolated {
+                terminal.frame.height < expectedHeight
+            }
         }
         let expectation = XCTNSPredicateExpectation(predicate: predicate, object: terminal)
         return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed

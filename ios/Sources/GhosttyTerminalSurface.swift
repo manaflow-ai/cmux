@@ -4,12 +4,12 @@ import SwiftUI
 import UIKit
 
 #if DEBUG
-private let cmxGhosttySurfaceLogger = Logger(
+nonisolated private let cmxGhosttySurfaceLogger = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "dev.cmux.ios",
     category: "ghostty-surface"
 )
 
-private func cmuxDebugLog(_ message: String) {
+nonisolated private func cmuxDebugLog(_ message: String) {
     cmxGhosttySurfaceLogger.debug("\(message, privacy: .public)")
 }
 #endif
@@ -386,7 +386,7 @@ private enum TerminalHardwareKeyResolver {
     }
 }
 
-private func cmuxHarnessReadClipboardCallback(
+nonisolated private func cmuxHarnessReadClipboardCallback(
     _ userdata: UnsafeMutableRawPointer?,
     _ location: ghostty_clipboard_e,
     _ state: UnsafeMutableRawPointer?
@@ -798,23 +798,23 @@ private enum GhosttySurfaceDisposer {
 
 private final class GhosttySurfaceOutputGate: @unchecked Sendable {
     private let lock = NSLock()
-    private var generation: UInt64 = 0
+    nonisolated(unsafe) private var generation: UInt64 = 0
 
-    func current() -> UInt64 {
+    nonisolated func current() -> UInt64 {
         lock.lock()
         defer { lock.unlock() }
         return generation
     }
 
     @discardableResult
-    func advance() -> UInt64 {
+    nonisolated func advance() -> UInt64 {
         lock.lock()
         defer { lock.unlock() }
         generation &+= 1
         return generation
     }
 
-    func isCurrent(_ value: UInt64) -> Bool {
+    nonisolated func isCurrent(_ value: UInt64) -> Bool {
         lock.lock()
         defer { lock.unlock() }
         return generation == value
@@ -862,6 +862,7 @@ public final class GhosttyTerminalSurfaceView: UIView {
     #if DEBUG
     var onOutputProcessedForTesting: (() -> Void)?
     var onFontZoomAppliedForTesting: ((Float32) -> Void)?
+    var onFontZoomQueueDrainedForTesting: (() -> Void)?
     #endif
     // Keep `ghostty_surface_process_output` off the main thread. This is
     // per surface so a slow free or render on one terminal cannot block input
@@ -1240,6 +1241,13 @@ public final class GhosttyTerminalSurfaceView: UIView {
         currentFontSize
     }
 
+    #if DEBUG
+    public var isDisplayLinkActiveForTesting: Bool {
+        displayLink != nil
+    }
+
+    #endif
+
     public func renderedTextForTesting(pointTag: ghostty_point_tag_e = GHOSTTY_POINT_VIEWPORT) -> String? {
         guard let surface else { return nil }
         let selection = ghostty_selection_s(
@@ -1538,7 +1546,7 @@ public final class GhosttyTerminalSurfaceView: UIView {
             let delta = gesture.scale - pinchAccumulatedScale
             guard abs(delta) >= Self.pinchScaleStep else { return }
             let direction: TerminalFontZoomDirection = delta > 0 ? .increase : .decrease
-            let stepCount = max(1, Int(abs(delta) / Self.pinchScaleStep))
+            let stepCount = min(2, max(1, Int(abs(delta) / Self.pinchScaleStep)))
             let baseFontSize = pinchTargetFontSize ?? currentFontSize
             pinchTargetFontSize = (0..<stepCount).reduce(baseFontSize) { fontSize, _ in
                 nextMobileFontSize(from: fontSize, after: direction)
@@ -1546,13 +1554,16 @@ public final class GhosttyTerminalSurfaceView: UIView {
             #if DEBUG
             cmuxDebugLog("ios.ghostty.pinch.changed target=\(pinchTargetFontSize ?? currentFontSize)")
             #endif
-            pinchAccumulatedScale += CGFloat(stepCount) * Self.pinchScaleStep * (delta > 0 ? 1 : -1)
-            startDisplayLink()
-        case .ended, .cancelled:
+            // Treat each UIKit pinch update as one interaction sample. Large
+            // synthesized deltas should not force huge font jumps in one pass.
+            pinchAccumulatedScale = gesture.scale
+            applyPendingPinchFontSizeIfNeeded()
+        case .ended, .cancelled, .failed:
             applyPendingPinchFontSizeIfNeeded()
             #if DEBUG
             cmuxDebugLog("ios.ghostty.pinch.end font=\(currentFontSize)")
             #endif
+            pinchAccumulatedScale = 1
             pinchTargetFontSize = nil
         default:
             break
@@ -1599,64 +1610,77 @@ public final class GhosttyTerminalSurfaceView: UIView {
 
     private func startNextFontSizeApplicationIfNeeded(surface: ghostty_surface_t? = nil) {
         guard !isApplyingFontSize else { return }
+        guard pendingFontSizeApplication != nil else {
+            stopDisplayLinkIfIdle()
+            #if DEBUG
+            onFontZoomQueueDrainedForTesting?()
+            #endif
+            return
+        }
+        isApplyingFontSize = true
+        DispatchQueue.main.async { [weak self] in
+            self?.applyScheduledFontSize(surface: surface)
+        }
+    }
+
+    private func applyScheduledFontSize(surface requestedSurface: ghostty_surface_t?) {
         guard let pending = pendingFontSizeApplication else {
+            isApplyingFontSize = false
             stopDisplayLinkIfIdle()
             return
         }
-        guard let surface = surface ?? self.surface else {
+        guard let surface = requestedSurface ?? self.surface else {
             pendingFontSizeApplication = nil
+            isApplyingFontSize = false
             stopDisplayLinkIfIdle()
             return
         }
         pendingFontSizeApplication = nil
         guard pending.target != appliedFontSize else {
+            isApplyingFontSize = false
             startNextFontSizeApplicationIfNeeded(surface: surface)
             return
         }
 
-        isApplyingFontSize = true
-        startDisplayLink()
         let direction: TerminalFontZoomDirection = pending.target > appliedFontSize ? .increase : .decrease
         let action = direction.bindingAction(delta: abs(pending.target - appliedFontSize))
         let target = pending.target
         let reportResize = pending.reportResize
         let synchronizeGeometry = pending.synchronizeGeometry
-        let surfaceBits = UInt(bitPattern: UnsafeRawPointer(surface))
         let generation = outputGate.current()
-        let gate = outputGate
-        outputQueue.async { [weak self] in
-            guard gate.isCurrent(generation) else { return }
-            guard let surface = UnsafeMutableRawPointer(bitPattern: surfaceBits) else { return }
-            let handled = action.withCString { pointer in
-                ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))
-            }
-            DispatchQueue.main.async {
-                guard let self else { return }
-                self.isApplyingFontSize = false
-                guard self.surface == surface,
-                      self.outputGate.isCurrent(generation) else {
-                    self.stopDisplayLinkIfIdle()
-                    return
-                }
-                if handled {
-                    self.appliedFontSize = target
-                    if synchronizeGeometry {
-                        self.reportCurrentSurfaceGridSize(surface: surface, reportResize: reportResize)
-                        self.needsDraw = true
-                    }
-                    #if DEBUG
-                    cmuxDebugLog("ios.ghostty.fontSize.applied target=\(target) reportResize=\(reportResize ? 1 : 0)")
-                    self.onFontZoomAppliedForTesting?(target)
-                    #endif
-                } else {
-                    self.currentFontSize = self.appliedFontSize
-                    #if DEBUG
-                    cmuxDebugLog("ios.ghostty.fontSize.failed target=\(target)")
-                    #endif
-                }
-                self.startNextFontSizeApplicationIfNeeded(surface: surface)
-            }
+        // Ghostty's Surface.setFontSize path is main-thread only. Keep the
+        // native binding action on MainActor and coalesce pinch targets before
+        // this point so a gesture never floods Ghostty with stale font changes.
+        let handled = Self.performBindingAction(action, on: surface)
+        isApplyingFontSize = false
+        guard self.surface == surface,
+              outputGate.isCurrent(generation) else {
+            stopDisplayLinkIfIdle()
+            return
         }
+        if handled {
+            appliedFontSize = target
+            if synchronizeGeometry {
+                // A font change sends a new font grid to Ghostty's renderer.
+                // Render synchronously before accepting another zoom target so
+                // repeated pinches cannot fill the renderer mailbox and block
+                // the main run loop inside the next setFontSize call.
+                syncSurfaceGeometry(reportResize: reportResize, renderNow: true)
+            } else {
+                renderSurfaceNow(surface)
+            }
+            needsDraw = false
+            #if DEBUG
+            cmuxDebugLog("ios.ghostty.fontSize.applied target=\(target) reportResize=\(reportResize ? 1 : 0)")
+            onFontZoomAppliedForTesting?(target)
+            #endif
+        } else {
+            currentFontSize = appliedFontSize
+            #if DEBUG
+            cmuxDebugLog("ios.ghostty.fontSize.failed target=\(target)")
+            #endif
+        }
+        startNextFontSizeApplicationIfNeeded(surface: surface)
     }
 
     private func stopDisplayLinkIfIdle() {
@@ -2591,7 +2615,7 @@ private final class TerminalArrowNubView: UIView {
     private var lastDirection: Direction?
     private let feedbackGenerator = UIImpactFeedbackGenerator(style: .light)
 
-    private enum Direction {
+    private enum Direction: Sendable {
         case up
         case down
         case left
@@ -2631,7 +2655,7 @@ private final class TerminalArrowNubView: UIView {
         fatalError("init(coder:) is not supported")
     }
 
-    deinit {
+    isolated deinit {
         stopRepeat()
     }
 
@@ -2702,7 +2726,9 @@ private final class TerminalArrowNubView: UIView {
 
     private func startRepeat(_ direction: Direction) {
         repeatTimer = Timer.scheduledTimer(withTimeInterval: Self.repeatInterval, repeats: true) { [weak self] _ in
-            self?.fireArrow(direction)
+            Task { @MainActor in
+                self?.fireArrow(direction)
+            }
         }
     }
 

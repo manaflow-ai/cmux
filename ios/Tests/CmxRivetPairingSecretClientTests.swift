@@ -105,7 +105,12 @@ final class CmxRivetPairingSecretClientTests: XCTestCase {
 }
 
 private final class CmxRivetPairingURLProtocol: URLProtocol {
-    static var handler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
+    private static let handlerStore = CmxRivetPairingURLProtocolHandlerStore()
+
+    static var handler: ((URLRequest) throws -> (HTTPURLResponse, Data))? {
+        get { handlerStore.handler }
+        set { handlerStore.handler = newValue }
+    }
 
     override class func canInit(with request: URLRequest) -> Bool {
         true
@@ -132,6 +137,24 @@ private final class CmxRivetPairingURLProtocol: URLProtocol {
     }
 
     override func stopLoading() {}
+}
+
+private final class CmxRivetPairingURLProtocolHandlerStore: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
+
+    var handler: ((URLRequest) throws -> (HTTPURLResponse, Data))? {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return storedHandler
+        }
+        set {
+            lock.lock()
+            storedHandler = newValue
+            lock.unlock()
+        }
+    }
 }
 
 private enum CmxRivetPairingURLProtocolError: Error {

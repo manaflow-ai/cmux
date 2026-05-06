@@ -6,13 +6,16 @@ import XCTest
 
 @MainActor
 final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
-    private var surfaceViews: [GhosttyTerminalSurfaceView] = []
+    nonisolated(unsafe) private var surfaceViews: [SurfaceViewTeardownHandle] = []
 
     override func tearDown() {
-        for surfaceView in surfaceViews {
-            surfaceView.disposeSurface()
-        }
+        let handles = surfaceViews
         surfaceViews = []
+        MainActor.assumeIsolated {
+            for handle in handles {
+                handle.dispose()
+            }
+        }
         super.tearDown()
     }
 
@@ -280,6 +283,7 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
         XCTAssertNotNil(delegate.lastSize)
         XCTAssertGreaterThan(delegate.resizeCount, 0)
         XCTAssertEqual(surfaceView.fontSizeForTesting, 18)
+        XCTAssertFalse(surfaceView.isDisplayLinkActiveForTesting)
     }
 
     func testGhosttyPinchZoomStaysResponsiveAfterRepeatedRenderedZooms() async throws {
@@ -298,13 +302,11 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
         surfaceView.processOutput(Data("zoom-test$ ".utf8))
         await fulfillment(of: [renderedExpectation], timeout: 5.0)
 
-        let zoomExpectation = expectation(description: "Ghostty applied repeated zooms without blocking input")
-        surfaceView.onFontZoomAppliedForTesting = { fontSize in
-            if fontSize == 16 {
-                zoomExpectation.fulfill()
-            }
+        let zoomExpectation = expectation(description: "Ghostty drained coalesced repeated zooms without blocking input")
+        zoomExpectation.assertForOverFulfill = false
+        surfaceView.onFontZoomQueueDrainedForTesting = {
+            zoomExpectation.fulfill()
         }
-        delegate.resizeCount = 0
         for _ in 0..<32 {
             surfaceView.simulatePinchZoomCycleForTesting([.decrease])
             surfaceView.simulatePinchZoomCycleForTesting([.increase])
@@ -320,8 +322,8 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
         surfaceView.simulateTextInputForTesting("x")
 
         await fulfillment(of: [inputExpectation], timeout: 2.0)
-        XCTAssertGreaterThan(delegate.resizeCount, 0)
         XCTAssertEqual(surfaceView.fontSizeForTesting, 16)
+        XCTAssertFalse(surfaceView.isDisplayLinkActiveForTesting)
     }
 
     func testGhosttySurfaceCanResetAndReplayBufferedOutput() async throws {
@@ -511,7 +513,7 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
             )
         )
         let surfaceView = GhosttyTerminalSurfaceView(runtime: try GhosttyRuntime.shared(), delegate: coordinator)
-        surfaceViews.append(surfaceView)
+        surfaceViews.append(SurfaceViewTeardownHandle(surfaceView))
         surfaceView.frame = CGRect(x: 0, y: 0, width: 390, height: 640)
         surfaceView.layoutIfNeeded()
 
@@ -542,7 +544,7 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
         let delegate = DelegateRecorder()
         let runtime = try GhosttyRuntime.shared()
         let surfaceView = GhosttyTerminalSurfaceView(runtime: runtime, delegate: delegate)
-        surfaceViews.append(surfaceView)
+        surfaceViews.append(SurfaceViewTeardownHandle(surfaceView))
         return (surfaceView, delegate)
     }
 
@@ -577,6 +579,19 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
             focusedPanelID: 31,
             focusedTabID: tabID
         )
+    }
+}
+
+private struct SurfaceViewTeardownHandle: @unchecked Sendable {
+    private let surfaceView: GhosttyTerminalSurfaceView
+
+    init(_ surfaceView: GhosttyTerminalSurfaceView) {
+        self.surfaceView = surfaceView
+    }
+
+    @MainActor
+    func dispose() {
+        surfaceView.disposeSurface()
     }
 }
 

@@ -23,10 +23,8 @@ final class CmxIrohTerminalSession: CmxTerminalSession {
         self.pairingSecret = pairingSecret
     }
 
-    deinit {
-        MainActor.assumeIsolated {
-            stopHeartbeat()
-        }
+    isolated deinit {
+        stopHeartbeat()
         if let handle {
             cmux_iroh_client_disconnect(handle)
         }

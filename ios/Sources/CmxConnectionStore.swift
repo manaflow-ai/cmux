@@ -4,12 +4,12 @@ import OSLog
 import UIKit
 
 #if DEBUG
-private let cmxConnectionLogger = Logger(
+nonisolated private let cmxConnectionLogger = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "dev.cmux.ios",
     category: "connection"
 )
 
-private func cmuxDebugLog(_ message: String) {
+nonisolated private func cmuxDebugLog(_ message: String) {
     cmxConnectionLogger.debug("\(message, privacy: .public)")
 }
 #endif
@@ -118,7 +118,7 @@ final class CmxConnectionStore: ObservableObject {
         }
     }
 
-    deinit {
+    isolated deinit {
         hiveDiscoveryTask?.cancel()
         pathMonitor?.cancel()
         for observer in lifecycleObservers {

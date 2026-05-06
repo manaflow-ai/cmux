@@ -440,8 +440,11 @@
 				PRODUCT_MODULE_NAME = cmux_ios;
 				PRODUCT_NAME = "cmux iOS";
 				SDKROOT = iphoneos;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_OBJC_BRIDGING_HEADER = "Sources/Ghostty-Bridging-Header.h";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
@@ -460,6 +463,9 @@
 				PRODUCT_BUNDLE_IDENTIFIER = dev.cmux.ios.uitests;
 				PRODUCT_NAME = "cmux iOS UITests";
 				SDKROOT = iphoneos;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_TARGET_NAME = "cmux-ios";
 			};
@@ -487,6 +493,9 @@
 				PRODUCT_BUNDLE_IDENTIFIER = dev.cmux.ios.tests;
 				PRODUCT_NAME = "cmux iOS Tests";
 				SDKROOT = iphoneos;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/cmux iOS.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/cmux iOS";
 			};
@@ -633,6 +642,9 @@
 				PRODUCT_BUNDLE_IDENTIFIER = dev.cmux.ios.tests;
 				PRODUCT_NAME = "cmux iOS Tests";
 				SDKROOT = iphoneos;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/cmux iOS.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/cmux iOS";
 			};
@@ -652,6 +664,9 @@
 				PRODUCT_BUNDLE_IDENTIFIER = dev.cmux.ios.uitests;
 				PRODUCT_NAME = "cmux iOS UITests";
 				SDKROOT = iphoneos;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_TARGET_NAME = "cmux-ios";
 			};
@@ -731,8 +746,11 @@
 				PRODUCT_MODULE_NAME = cmux_ios;
 				PRODUCT_NAME = "cmux iOS";
 				SDKROOT = iphoneos;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_OBJC_BRIDGING_HEADER = "Sources/Ghostty-Bridging-Header.h";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
