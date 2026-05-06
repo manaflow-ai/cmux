@@ -1043,6 +1043,11 @@ final class SocketClient {
         }
 
         let initialResponseTimeout = responseTimeout ?? Self.responseTimeoutSeconds
+        var configuredReceiveTimeout = Self.responseTimeoutSeconds
+        if initialResponseTimeout != configuredReceiveTimeout {
+            try configureReceiveTimeout(initialResponseTimeout)
+            configuredReceiveTimeout = initialResponseTimeout
+        }
         var operation = CLISocketOperationTelemetry.State(
             name: CLISocketOperationTelemetry.operationName(for: command),
             timeout: initialResponseTimeout,
@@ -1068,7 +1073,10 @@ final class SocketClient {
             operation.sawNewline = sawNewline
             operation.timeout = currentTimeout
             recordOperation(operation)
-            try configureReceiveTimeout(currentTimeout)
+            if currentTimeout != configuredReceiveTimeout {
+                try configureReceiveTimeout(currentTimeout)
+                configuredReceiveTimeout = currentTimeout
+            }
 
             var buffer = [UInt8](repeating: 0, count: 8192)
             let count = Darwin.read(socketFD, &buffer, buffer.count)
@@ -1147,6 +1155,7 @@ final class SocketClient {
         }
         do {
             try configureSocketWriteSafety(Self.responseTimeoutSeconds)
+            try configureReceiveTimeout(Self.responseTimeoutSeconds)
         } catch {
             close()
             throw error
@@ -1441,7 +1450,9 @@ final class SocketClient {
             )
         }
         guard result == 0 else {
-            throw CLIError(message: "Failed to configure socket receive timeout")
+            let errorCode = errno
+            let reason = String(cString: strerror(errorCode))
+            throw CLIError(message: "Failed to configure socket receive timeout (\(reason), errno \(errorCode))")
         }
     }
 

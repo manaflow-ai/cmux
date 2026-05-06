@@ -55,39 +55,7 @@ commands:
           name: Install zig
           no_output_timeout: 35m
           command: |
-            ZIG_REQUIRED="0.15.2"
-            if command -v zig >/dev/null 2>&1 && zig version 2>/dev/null | grep -q "^${ZIG_REQUIRED}"; then
-              echo "zig ${ZIG_REQUIRED} already installed"
-              exit 0
-            fi
-
-            case "$(uname -m)" in
-              arm64) ZIG_ARCH="aarch64" ;;
-              x86_64) ZIG_ARCH="x86_64" ;;
-              *)
-                echo "Unsupported macOS architecture: $(uname -m)" >&2
-                exit 1
-                ;;
-            esac
-
-            if ! command -v minisign >/dev/null 2>&1; then
-              brew install minisign
-            fi
-
-            ZIG_URL="https://ziglang.org/download/${ZIG_REQUIRED}/zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}.tar.xz"
-            ZIG_MINISIGN_PUBLIC_KEY="RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U"
-
-            echo "Installing verified zig ${ZIG_REQUIRED} from tarball"
-            curl -fSL "$ZIG_URL" -o /tmp/zig.tar.xz
-            curl -fSL "${ZIG_URL}.minisig" -o /tmp/zig.tar.xz.minisig
-            minisign -Vm /tmp/zig.tar.xz -x /tmp/zig.tar.xz.minisig -P "$ZIG_MINISIGN_PUBLIC_KEY"
-            tar xf /tmp/zig.tar.xz -C /tmp
-            sudo mkdir -p /usr/local/bin /usr/local/lib
-            sudo rm -rf /usr/local/lib/zig
-            sudo mkdir -p /usr/local/lib/zig
-            sudo cp -f "/tmp/zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}/zig" /usr/local/bin/zig
-            sudo cp -Rf "/tmp/zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}/lib/." /usr/local/lib/zig/
-            zig version
+            ./scripts/install-zig-ci.sh
 
   print-xcode:
     steps:

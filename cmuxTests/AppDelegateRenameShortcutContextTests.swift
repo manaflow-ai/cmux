@@ -38,6 +38,7 @@ final class AppDelegateRenameShortcutContextTests: XCTestCase {
     private var savedShortcutsByAction: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
     private var actionsWithPersistedShortcut: Set<KeyboardShortcutSettings.Action> = []
     private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore!
+    private var temporarySettingsDirectoryURL: URL?
 
     override func setUp() {
         super.setUp()
@@ -53,6 +54,20 @@ final class AppDelegateRenameShortcutContextTests: XCTestCase {
             }
         )
         originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
+        let settingsDirectoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-rename-shortcut-context-\(UUID().uuidString)", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: settingsDirectoryURL, withIntermediateDirectories: true)
+        } catch {
+            XCTFail("Failed to create isolated settings directory: \(error)")
+        }
+        temporarySettingsDirectoryURL = settingsDirectoryURL
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsDirectoryURL.appendingPathComponent("cmux.json", isDirectory: false).path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
         KeyboardShortcutSettings.resetAll()
     }
 
@@ -66,6 +81,10 @@ final class AppDelegateRenameShortcutContextTests: XCTestCase {
                 KeyboardShortcutSettings.resetShortcut(for: action)
             }
         }
+        if let temporarySettingsDirectoryURL {
+            try? FileManager.default.removeItem(at: temporarySettingsDirectoryURL)
+        }
+        temporarySettingsDirectoryURL = nil
         super.tearDown()
     }
 

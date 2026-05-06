@@ -71,30 +71,7 @@ jobs:
 
       - name: Install zig
         run: |
-          set -euo pipefail
-          ZIG_REQUIRED="0.15.2"
-          if command -v zig >/dev/null 2>&1 && zig version 2>/dev/null | grep -q "^${ZIG_REQUIRED}"; then
-            echo "zig ${ZIG_REQUIRED} already installed"
-          else
-            echo "Installing zig ${ZIG_REQUIRED}"
-            case "$(uname -m)" in
-              arm64) ZIG_ARCH="aarch64" ;;
-              x86_64) ZIG_ARCH="x86_64" ;;
-              *)
-                echo "Unsupported macOS runner architecture: $(uname -m)" >&2
-                exit 1
-                ;;
-            esac
-            ZIG_DIR="/tmp/zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}"
-            curl -fSL "https://ziglang.org/download/${ZIG_REQUIRED}/zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}.tar.xz" -o /tmp/zig.tar.xz
-            tar xf /tmp/zig.tar.xz -C /tmp
-            sudo mkdir -p /usr/local/bin /usr/local/lib
-            sudo cp -f "${ZIG_DIR}/zig" /usr/local/bin/zig
-            sudo rm -rf /usr/local/lib/zig
-            sudo mkdir -p /usr/local/lib/zig
-            sudo cp -R "${ZIG_DIR}/lib/." /usr/local/lib/zig/
-            zig version
-          fi
+          ./scripts/install-zig-ci.sh
 
       - name: Build tagged app
         run: ./scripts/reload.sh --tag "$PERF_TAG"

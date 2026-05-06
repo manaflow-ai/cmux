@@ -50,6 +50,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     private var savedShortcutsByAction: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
     private var actionsWithPersistedShortcut: Set<KeyboardShortcutSettings.Action> = []
     private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore!
+    private var temporarySettingsDirectoryURL: URL?
 
     private func makeKeyEvent(
         modifierFlags: NSEvent.ModifierFlags,
@@ -89,6 +90,20 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             }
         )
         originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
+        let settingsDirectoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-shortcut-routing-\(UUID().uuidString)", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: settingsDirectoryURL, withIntermediateDirectories: true)
+        } catch {
+            XCTFail("Failed to create isolated settings directory: \(error)")
+        }
+        temporarySettingsDirectoryURL = settingsDirectoryURL
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsDirectoryURL.appendingPathComponent("cmux.json", isDirectory: false).path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
         KeyboardShortcutSettings.resetAll()
     }
 
@@ -107,6 +122,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 KeyboardShortcutSettings.resetShortcut(for: action)
             }
         }
+        if let temporarySettingsDirectoryURL {
+            try? FileManager.default.removeItem(at: temporarySettingsDirectoryURL)
+        }
+        temporarySettingsDirectoryURL = nil
         super.tearDown()
     }
 
@@ -2783,11 +2802,13 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
+        withTemporaryShortcut(action: .openSettings, shortcut: .unbound) {
 #if DEBUG
-        XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: event))
+            XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: event))
 #else
-        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
+        }
         XCTAssertEqual(workspace.panels.count, panelCountBefore)
     }
 
@@ -3368,7 +3389,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(observedWorkspaceWindow?.windowNumber, window.windowNumber)
     }
 
-    func testCmdShiftERequestsEditWorkspaceDescriptionInCommandPalette() {
+    func testCmdOptionERequestsEditWorkspaceDescriptionInCommandPalette() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -3399,7 +3420,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
         defer { NotificationCenter.default.removeObserver(descriptionToken) }
 
-        let renameWorkspaceExpectation = expectation(description: "Rename workspace notification should not fire for Cmd+Shift+E")
+        let renameWorkspaceExpectation = expectation(description: "Rename workspace notification should not fire for Cmd+Option+E")
         renameWorkspaceExpectation.isInverted = true
         let renameWorkspaceToken = NotificationCenter.default.addObserver(
             forName: .commandPaletteRenameWorkspaceRequested,
@@ -3412,11 +3433,11 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         guard let event = makeKeyDownEvent(
             key: "e",
-            modifiers: [.command, .shift],
+            modifiers: [.command, .option],
             keyCode: 14, // kVK_ANSI_E
             windowNumber: window.windowNumber
         ) else {
-            XCTFail("Failed to construct Cmd+Shift+E event")
+            XCTFail("Failed to construct Cmd+Option+E event")
             return
         }
 
