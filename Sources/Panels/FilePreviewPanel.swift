@@ -3166,13 +3166,13 @@ private final class FilePreviewImageContainerView: NSView {
             weak self, loadURL = url, loadRevision = revision, shouldPreserveViewport,
             wasFitMode, previousScale, previousRotationDegrees
         ] in
-            let image = FilePreviewDocumentLoader.loadImage(at: loadURL)
+            let imageData = FilePreviewDocumentLoader.loadImageData(at: loadURL)
             await MainActor.run { [weak self] in
                 guard !Task.isCancelled, let self,
                       self.currentURL == loadURL,
                       self.currentRevision == loadRevision else { return }
                 self.applyLoadedImage(
-                    image,
+                    imageData.flatMap(NSImage.init(data:)),
                     preservingViewport: shouldPreserveViewport,
                     previousFitMode: wasFitMode,
                     previousScale: previousScale,

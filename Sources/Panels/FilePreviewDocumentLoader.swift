@@ -6,8 +6,8 @@ nonisolated enum FilePreviewDocumentLoader {
         PDFDocument(url: url)
     }
 
-    static func loadImage(at url: URL) -> NSImage? {
-        NSImage(contentsOf: url)
+    static func loadImageData(at url: URL) -> Data? {
+        try? Data(contentsOf: url, options: [.mappedIfSafe])
     }
 
     static func pageRotations(in document: PDFDocument?) -> [Int: Int] {
