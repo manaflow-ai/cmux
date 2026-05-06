@@ -7681,6 +7681,22 @@ struct ContentView: View {
             )
         }
 
+        for environment in cmuxConfigStore.loadedEnvironments {
+            let envName = sanitizeCmuxConfigPaletteText(environment.name)
+            let subtitleText = environment.description
+                .map { sanitizeCmuxConfigPaletteText($0) }
+                .flatMap { $0.isEmpty ? nil : $0 }
+                ?? cmuxConfigDefaultSubtitle
+            contributions.append(
+                CommandPaletteCommandContribution(
+                    commandId: environment.id,
+                    title: constant(String(localized: "command.cmuxConfig.environmentTitle", defaultValue: "Environment: \(envName)")),
+                    subtitle: constant(subtitleText),
+                    keywords: environment.keywords ?? []
+                )
+            )
+        }
+
         return contributions
     }
 
@@ -8196,6 +8212,24 @@ struct ContentView: View {
             let captured = action
             registry.register(commandId: action.id) {
                 executeConfiguredAction(captured)
+            }
+        }
+
+        for environment in cmuxConfigStore.loadedEnvironments {
+            let captured = environment
+            let allCommands = cmuxConfigStore.loadedCommands
+            let sourcePaths = cmuxConfigStore.commandSourcePaths
+            let globalPath = cmuxConfigStore.globalConfigPath
+            registry.register(commandId: environment.id) {
+                let baseCwd = configuredActionBaseCwd()
+                CmuxConfigExecutor.executeEnvironment(
+                    environment: captured,
+                    commands: allCommands,
+                    tabManager: tabManager,
+                    baseCwd: baseCwd,
+                    configSourcePaths: sourcePaths,
+                    globalConfigPath: globalPath
+                )
             }
         }
     }

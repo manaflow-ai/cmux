@@ -13,6 +13,7 @@ struct CmuxConfigFile: Codable, Sendable {
     var newWorkspaceCommand: String?
     var surfaceTabBarButtons: [CmuxSurfaceTabBarButton]?
     var commands: [CmuxCommandDefinition]
+    var environments: [CmuxEnvironmentDefinition]?
 
     private enum CodingKeys: String, CodingKey {
         case actions
@@ -20,6 +21,7 @@ struct CmuxConfigFile: Codable, Sendable {
         case newWorkspaceCommand
         case surfaceTabBarButtons
         case commands
+        case environments
     }
 
     init(
@@ -27,13 +29,15 @@ struct CmuxConfigFile: Codable, Sendable {
         ui: CmuxConfigUIDefinition? = nil,
         newWorkspaceCommand: String? = nil,
         surfaceTabBarButtons: [CmuxSurfaceTabBarButton]? = nil,
-        commands: [CmuxCommandDefinition] = []
+        commands: [CmuxCommandDefinition] = [],
+        environments: [CmuxEnvironmentDefinition]? = nil
     ) {
         self.actions = actions
         self.ui = ui
         self.newWorkspaceCommand = newWorkspaceCommand
         self.surfaceTabBarButtons = surfaceTabBarButtons
         self.commands = commands
+        self.environments = environments
     }
 
     init(from decoder: Decoder) throws {
@@ -79,6 +83,7 @@ struct CmuxConfigFile: Codable, Sendable {
             surfaceTabBarButtons = nil
         }
         commands = try container.decodeIfPresent([CmuxCommandDefinition].self, forKey: .commands) ?? []
+        environments = try container.decodeIfPresent([CmuxEnvironmentDefinition].self, forKey: .environments)
     }
 
     private static func normalizedActions(
@@ -1423,6 +1428,63 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
     }
 }
 
+struct CmuxEnvironmentDefinition: Codable, Sendable, Identifiable {
+    var name: String
+    var description: String?
+    var keywords: [String]?
+    var workspaces: [String]
+
+    var id: String {
+        "cmux.config.environment." + (name.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? name)
+    }
+
+    init(
+        name: String,
+        description: String? = nil,
+        keywords: [String]? = nil,
+        workspaces: [String]
+    ) {
+        self.name = name
+        self.description = description
+        self.keywords = keywords
+        self.workspaces = workspaces
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decode(String.self, forKey: .name)
+        description = try container.decodeIfPresent(String.self, forKey: .description)
+        keywords = try container.decodeIfPresent([String].self, forKey: .keywords)
+        workspaces = try container.decode([String].self, forKey: .workspaces)
+
+        if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "Environment name must not be blank"
+                )
+            )
+        }
+        if workspaces.isEmpty {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "Environment '\(name)' must have at least one workspace"
+                )
+            )
+        }
+        let unique = Set(workspaces)
+        if unique.count != workspaces.count {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "Environment '\(name)' contains duplicate workspace references"
+                )
+            )
+        }
+    }
+}
+
 struct CmuxCommandDefinition: Codable, Sendable, Identifiable {
     var name: String
     var description: String?
@@ -1698,6 +1760,7 @@ final class CmuxConfigStore: ObservableObject {
     ]
 
     @Published private(set) var loadedCommands: [CmuxCommandDefinition] = []
+    @Published private(set) var loadedEnvironments: [CmuxEnvironmentDefinition] = []
     @Published private(set) var loadedActions: [CmuxResolvedConfigAction] = []
     @Published private(set) var newWorkspaceCommandName: String?
     @Published private(set) var newWorkspaceActionID: String?
@@ -1908,6 +1971,8 @@ final class CmuxConfigStore: ObservableObject {
         var commands: [CmuxCommandDefinition] = []
         var seenNames = Set<String>()
         var sourcePaths: [String: String] = [:]
+        var rawEnvironments: [CmuxEnvironmentDefinition] = []
+        var seenEnvNames = Set<String>()
         var configuredNewWorkspaceCommandName: String?
         var configuredNewWorkspaceCommandSourcePath: String?
         var configuredNewWorkspaceActionID: String?
@@ -1959,6 +2024,12 @@ final class CmuxConfigStore: ObservableObject {
                     }
                 }
             }
+            for env in localConfig.environments ?? [] {
+                if !seenEnvNames.contains(env.name) {
+                    rawEnvironments.append(env)
+                    seenEnvNames.insert(env.name)
+                }
+            }
         }
 
         // Global config fills in the rest
@@ -1991,6 +2062,33 @@ final class CmuxConfigStore: ObservableObject {
                     seenNames.insert(command.name)
                     sourcePaths[command.id] = globalConfigPath
                 }
+            }
+            for env in globalConfig.environments ?? [] {
+                if !seenEnvNames.contains(env.name) {
+                    rawEnvironments.append(env)
+                    seenEnvNames.insert(env.name)
+                }
+            }
+        }
+
+        let commandsByName = Dictionary(commands.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
+        var validEnvironments: [CmuxEnvironmentDefinition] = []
+        for env in rawEnvironments {
+            var valid = true
+            for wsName in env.workspaces {
+                guard let cmd = commandsByName[wsName] else {
+                    NSLog("[CmuxConfig] environment '%@' references unknown command '%@'; dropping", env.name, wsName)
+                    valid = false
+                    break
+                }
+                if cmd.workspace == nil {
+                    NSLog("[CmuxConfig] environment '%@' references '%@', which is a shell command, not a workspace; dropping", env.name, wsName)
+                    valid = false
+                    break
+                }
+            }
+            if valid {
+                validEnvironments.append(env)
             }
         }
 
@@ -2042,6 +2140,7 @@ final class CmuxConfigStore: ObservableObject {
         )
 
         loadedCommands = commands
+        loadedEnvironments = validEnvironments
         loadedActions = resolvedActions
         commandSourcePaths = sourcePaths
         actionLookup = resolvedActionLookup
