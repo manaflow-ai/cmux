@@ -28,6 +28,8 @@ Run this workflow to prepare and publish a cmux release.
 - Do not edit a separate docs changelog file; `web/app/docs/changelog/page.tsx` renders from `CHANGELOG.md`.
 - Use categories `Added`, `Changed`, `Fixed`, `Removed`.
 - **Credit contributors inline** (see Contributor Credits below).
+- **Confirm shipped scope with the user before drafting user-facing entries.** A merged PR is not the same as a shipped feature: features can be behind beta toggles, internal flags, partially landed, reverted later, or otherwise not user-ready. Before writing the `Added`/`Changed` sections, list the candidate user-facing items and ask the user which are actually ready to ship in this version. Drop anything they say is not ready, plus any entries that depend on it. Re-confirm if the version, scope, or shipped surface changes mid-release.
+- Mirror the curated highlights in `web/app/[locale]/docs/changelog/changelog-media.ts` to the same shipped scope. If the user removes a feature here, also remove it from the version's `features` and update its `title`.
 - If no user-facing changes exist, confirm with the user before continuing.
 
 5. Bump app version metadata:
@@ -65,7 +67,7 @@ Run this workflow to prepare and publish a cmux release.
 
 ## Changelog Rules
 
-- Include only user-visible changes.
+- Include only user-visible changes that actually ship in this version. A merged PR alone is not enough: confirm with the user that each candidate feature is shipped (not behind a beta toggle, not partially landed, not deferred). When in doubt, ask before listing it.
 - Exclude internal-only changes (CI, tests, docs-only edits, refactors without behavior changes).
 - Write concise user-facing bullets in present tense.
 
