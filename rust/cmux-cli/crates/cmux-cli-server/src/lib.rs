@@ -5832,6 +5832,7 @@ async fn run_session(
                     }
                     Some(ClientMsg::Detach) | None => {
                         daemon.remove_client_view(&session_id).await;
+                        session.send(&ServerMsg::Bye).await.ok();
                         return Ok(());
                     }
                     Some(
@@ -6262,6 +6263,7 @@ async fn run_native_session(
                     }
                     Some(ClientMsg::Detach) | None => {
                         daemon.remove_client_view(&session_id).await;
+                        session.send(&ServerMsg::Bye).await.ok();
                         return Ok(());
                     }
                     Some(ClientMsg::Mouse { .. }) => {}

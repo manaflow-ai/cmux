@@ -1,4 +1,5 @@
 import QuartzCore
+import SwiftUI
 import UIKit
 import XCTest
 @testable import cmux_ios
@@ -21,6 +22,13 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
         let forwarded = GhosttyTerminalSurfaceView.forwardTerminalOutputBytes(stream)
 
         XCTAssertEqual(forwarded, stream)
+    }
+
+    func testGhosttySurfaceDetectsStateReplacementOutputForActiveAreaScroll() {
+        XCTAssertTrue(GhosttyTerminalSurfaceView.shouldForceScrollToActiveAreaForOutput(Data([0x1B, 0x63])))
+        XCTAssertTrue(GhosttyTerminalSurfaceView.shouldForceScrollToActiveAreaForOutput(Data("\u{1B}[?1049h".utf8)))
+        XCTAssertTrue(GhosttyTerminalSurfaceView.shouldForceScrollToActiveAreaForOutput(Data("\u{1B}[?1049l".utf8)))
+        XCTAssertFalse(GhosttyTerminalSurfaceView.shouldForceScrollToActiveAreaForOutput(Data("ordinary pty output".utf8)))
     }
 
     func testGhosttySurfaceInitializesRealLibghosttyRenderer() throws {
@@ -351,7 +359,24 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
         surfaceView.processOutput(Data("\u{1B}[2J\u{1B}[H".utf8))
 
         await fulfillment(of: [processedExpectation], timeout: 5.0)
-        XCTAssertTrue(surfaceView.requestServerReplayIfBlank())
+        XCTAssertEqual(delegate.surfaceResetRequestCount, 1)
+        XCTAssertEqual(delegate.ptyReplayRequestCount, 1)
+    }
+
+    func testGhosttySurfaceBlankOutputRequestsReplayAfterRender() async throws {
+        let (surfaceView, delegate) = try makeSurfaceView()
+        surfaceView.frame = CGRect(x: 0, y: 0, width: 390, height: 640)
+        surfaceView.layoutIfNeeded()
+
+        let processedExpectation = expectation(description: "Ghostty processed blank alternate-screen output")
+        processedExpectation.assertForOverFulfill = false
+        surfaceView.onOutputProcessedForTesting = {
+            processedExpectation.fulfill()
+        }
+
+        surfaceView.processOutput(Data("\u{1B}[?1049h\u{1B}[2J\u{1B}[H".utf8))
+
+        await fulfillment(of: [processedExpectation], timeout: 5.0)
         XCTAssertEqual(delegate.surfaceResetRequestCount, 1)
         XCTAssertEqual(delegate.ptyReplayRequestCount, 1)
     }
@@ -417,12 +442,112 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
         XCTAssertGreaterThan(maximum.rows, 10)
     }
 
+    func testConnectedSurfaceAttachSkipsCachedBacklogAndRequestsFreshReplay() async throws {
+        let sessionFactory = SurfaceAttachRecordingTerminalSessionFactory()
+        let store = CmxConnectionStore(
+            terminalSessionFactory: sessionFactory,
+            startHiveDiscoveryOnInit: false,
+            launchTicket: nil,
+            launchAutoconnect: false
+        )
+        store.ticketText = """
+        {
+          "version": 1,
+          "alpn": "/cmux/cmx/3",
+          "endpoint": { "id": "endpoint-public-key", "addrs": [] },
+          "auth": { "mode": "direct" }
+        }
+        """
+        store.connect()
+        let session = sessionFactory.session
+        session.delegate?.terminalSession(session, didReceive: .welcome(serverVersion: "3", sessionID: "ios-test"))
+        session.delegate?.terminalSession(session, didReceive: .nativeSnapshot(Self.singleTabSnapshot(tabID: 41)))
+        store.terminalScreenDidAppear()
+        session.clearRequestedPtyReplays()
+        session.delegate?.terminalSession(
+            session,
+            didReceive: .ptyBytes(tabID: 41, data: Data("stale-before-attach\r\n".utf8))
+        )
+
+        var visibleGridSize: TerminalGridSize?
+        var surfaceResetNonce = 0
+        let coordinator = CmxGhosttyTerminalView.Coordinator(
+            visibleGridSize: Binding(
+                get: { visibleGridSize },
+                set: { visibleGridSize = $0 }
+            ),
+            surfaceResetNonce: Binding(
+                get: { surfaceResetNonce },
+                set: { surfaceResetNonce = $0 }
+            )
+        )
+        let surfaceView = GhosttyTerminalSurfaceView(runtime: try GhosttyRuntime.shared(), delegate: coordinator)
+        surfaceViews.append(surfaceView)
+        surfaceView.frame = CGRect(x: 0, y: 0, width: 390, height: 640)
+        surfaceView.layoutIfNeeded()
+
+        coordinator.apply(store: store, terminalID: 41, renderSize: nil, hostPlatform: .macOS, to: surfaceView)
+
+        XCTAssertEqual(session.requestedPtyReplayTerminalIDs.last, 41)
+        XCTAssertFalse(session.requestedPtyReplayTerminalIDs.isEmpty)
+        let freshReplayRendered = expectation(description: "fresh replay rendered")
+        freshReplayRendered.assertForOverFulfill = false
+        surfaceView.onOutputProcessedForTesting = {
+            let rendered = surfaceView.accessibilityRenderedTextForTesting() ?? ""
+            if rendered.contains("fresh-after-attach") {
+                freshReplayRendered.fulfill()
+            }
+        }
+        session.delegate?.terminalSession(
+            session,
+            didReceive: .ptyBytes(tabID: 41, data: Data("fresh-after-attach\r\n".utf8))
+        )
+
+        await fulfillment(of: [freshReplayRendered], timeout: 5.0)
+        let rendered = surfaceView.accessibilityRenderedTextForTesting() ?? ""
+        XCTAssertTrue(rendered.contains("fresh-after-attach"))
+        XCTAssertFalse(rendered.contains("stale-before-attach"))
+    }
+
     private func makeSurfaceView() throws -> (GhosttyTerminalSurfaceView, DelegateRecorder) {
         let delegate = DelegateRecorder()
         let runtime = try GhosttyRuntime.shared()
         let surfaceView = GhosttyTerminalSurfaceView(runtime: runtime, delegate: delegate)
         surfaceViews.append(surfaceView)
         return (surfaceView, delegate)
+    }
+
+    private static func singleTabSnapshot(tabID: UInt64) -> CmxNativeSnapshot {
+        CmxNativeSnapshot(
+            workspaces: [
+                CmxNativeWorkspaceInfo(
+                    id: 11,
+                    title: "main",
+                    spaceCount: 1,
+                    tabCount: 1,
+                    terminalCount: 1,
+                    pinned: false,
+                    color: nil
+                ),
+            ],
+            activeWorkspace: 0,
+            activeWorkspaceID: 11,
+            spaces: [
+                CmxNativeSpaceInfo(id: 21, title: "space-1", paneCount: 1, terminalCount: 1),
+            ],
+            activeSpace: 0,
+            activeSpaceID: 21,
+            panels: .leaf(
+                panelID: 31,
+                tabs: [
+                    CmxNativeTabInfo(id: tabID, title: "shell", hasActivity: false, bellCount: 0),
+                ],
+                active: 0,
+                activeTabID: tabID
+            ),
+            focusedPanelID: 31,
+            focusedTabID: tabID
+        )
     }
 }
 
@@ -449,6 +574,41 @@ private final class DelegateRecorder: GhosttyTerminalSurfaceViewDelegate {
 
     func ghosttyTerminalSurfaceViewDidRequestPtyReplay(_ surfaceView: GhosttyTerminalSurfaceView) {
         ptyReplayRequestCount += 1
+    }
+}
+
+@MainActor
+private final class SurfaceAttachRecordingTerminalSessionFactory: CmxTerminalSessionMaking {
+    let session = SurfaceAttachRecordingTerminalSession()
+
+    func makeSession(
+        rawTicket: String,
+        ticket: CmxBridgeTicket,
+        pairingSecret: String?,
+        stackAuthSession: CmxStackAuthSession?
+    ) throws -> any CmxTerminalSession {
+        session
+    }
+}
+
+@MainActor
+private final class SurfaceAttachRecordingTerminalSession: CmxTerminalSession {
+    weak var delegate: CmxTerminalSessionDelegate?
+    private(set) var requestedPtyReplayTerminalIDs: [UInt64] = []
+
+    func start(viewport: CmxWireViewport) {}
+    func sendInput(_ data: Data, terminalID: UInt64) {}
+    func sendResize(_ viewport: CmxWireViewport, terminalID: UInt64) {}
+    func sendNativeLayout(_ terminals: [CmxWireTerminalViewport]) {}
+    func sendCommand(_ command: CmxClientCommand) {}
+    func disconnect() {}
+
+    func requestPtyReplay(terminalID: UInt64) {
+        requestedPtyReplayTerminalIDs.append(terminalID)
+    }
+
+    func clearRequestedPtyReplays() {
+        requestedPtyReplayTerminalIDs = []
     }
 }
 

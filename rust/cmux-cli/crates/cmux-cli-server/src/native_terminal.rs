@@ -70,15 +70,20 @@ pub(crate) fn active_terminal_theme_set_for_host(
 pub(crate) fn terminal_default_colors_from_theme(
     theme_set: Option<&NativeTerminalThemeSet>,
 ) -> TerminalGridDefaultColors {
+    let fallback = fallback_terminal_default_colors();
     let Some(theme_set) = theme_set else {
-        return TerminalGridDefaultColors::default();
+        return fallback;
     };
     let prefers_dark = host_prefers_dark_theme();
     let theme = active_theme(theme_set, prefers_dark);
     let colors = TerminalGridDefaultColors {
-        foreground: theme.and_then(|theme| theme.foreground.as_deref().and_then(parse_hex_rgb)),
-        background: theme.and_then(|theme| theme.background.as_deref().and_then(parse_hex_rgb)),
-        palette: terminal_palette_from_theme(theme),
+        foreground: theme
+            .and_then(|theme| theme.foreground.as_deref().and_then(parse_hex_rgb))
+            .or(fallback.foreground),
+        background: theme
+            .and_then(|theme| theme.background.as_deref().and_then(parse_hex_rgb))
+            .or(fallback.background),
+        palette: terminal_palette_from_theme(theme).or(fallback.palette),
     };
     if probe::color_enabled() {
         probe::log_event(
@@ -331,6 +336,48 @@ fn terminal_palette_from_theme(theme: Option<&NativeTerminalTheme>) -> Option<[R
     Some(palette)
 }
 
+fn fallback_terminal_default_colors() -> TerminalGridDefaultColors {
+    TerminalGridDefaultColors {
+        foreground: Some(RgbColor {
+            r: 253,
+            g: 255,
+            b: 241,
+        }),
+        background: Some(RgbColor {
+            r: 39,
+            g: 40,
+            b: 34,
+        }),
+        palette: Some(monokai_terminal_color_palette()),
+    }
+}
+
+fn monokai_terminal_color_palette() -> [RgbColor; 256] {
+    let mut palette = default_terminal_color_palette();
+    let ansi = [
+        (0x27, 0x28, 0x22),
+        (0xf9, 0x26, 0x72),
+        (0xa6, 0xe2, 0x2e),
+        (0xe6, 0xdb, 0x74),
+        (0x66, 0xd9, 0xef),
+        (0xae, 0x81, 0xff),
+        (0xa1, 0xef, 0xe4),
+        (0xfd, 0xff, 0xf1),
+        (0x75, 0x71, 0x5e),
+        (0xf9, 0x26, 0x72),
+        (0xa6, 0xe2, 0x2e),
+        (0xe6, 0xdb, 0x74),
+        (0x66, 0xd9, 0xef),
+        (0xae, 0x81, 0xff),
+        (0xa1, 0xef, 0xe4),
+        (0xff, 0xff, 0xff),
+    ];
+    for (index, (r, g, b)) in ansi.into_iter().enumerate() {
+        palette[index] = RgbColor { r, g, b };
+    }
+    palette
+}
+
 fn default_terminal_color_palette() -> [RgbColor; 256] {
     let mut palette = [RgbColor { r: 0, g: 0, b: 0 }; 256];
     let ansi = [
@@ -565,6 +612,53 @@ mod tests {
                 r: 175,
                 g: 95,
                 b: 255,
+            }
+        );
+    }
+
+    #[test]
+    fn terminal_default_colors_fallback_to_readable_monokai_when_theme_is_missing() {
+        let colors = terminal_default_colors_from_theme(None);
+
+        assert_eq!(
+            colors.foreground,
+            Some(RgbColor {
+                r: 253,
+                g: 255,
+                b: 241,
+            })
+        );
+        assert_eq!(
+            colors.background,
+            Some(RgbColor {
+                r: 39,
+                g: 40,
+                b: 34,
+            })
+        );
+        let palette = colors.palette.expect("fallback palette");
+        assert_eq!(
+            palette[1],
+            RgbColor {
+                r: 249,
+                g: 38,
+                b: 114,
+            }
+        );
+        assert_eq!(
+            palette[2],
+            RgbColor {
+                r: 166,
+                g: 226,
+                b: 46,
+            }
+        );
+        assert_eq!(
+            palette[7],
+            RgbColor {
+                r: 253,
+                g: 255,
+                b: 241,
             }
         );
     }

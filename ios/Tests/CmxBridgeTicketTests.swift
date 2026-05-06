@@ -881,6 +881,72 @@ final class CmxBridgeTicketTests: XCTestCase {
     }
 
     @MainActor
+    func testVisibleTerminalResizeRequestsFreshReplayEvenWithCachedOutput() throws {
+        let sessionFactory = RecordingTerminalSessionFactory()
+        let store = CmxConnectionStore(
+            authSessionStore: MemoryStackAuthSessionStore(),
+            pairingSecretClient: RecordingPairingSecretClient(),
+            terminalSessionFactory: sessionFactory
+        )
+        store.ticketText = """
+        {
+          "version": 1,
+          "alpn": "/cmux/cmx/3",
+          "endpoint": { "id": "endpoint-public-key", "addrs": [] },
+          "auth": { "mode": "direct" }
+        }
+        """
+        store.connect()
+        sessionFactory.session.delegate?.terminalSession(
+            sessionFactory.session,
+            didReceive: .nativeSnapshot(CmxNativeSnapshot(
+                workspaces: [
+                    CmxNativeWorkspaceInfo(
+                        id: 11,
+                        title: "main",
+                        spaceCount: 1,
+                        tabCount: 1,
+                        terminalCount: 1,
+                        pinned: false,
+                        color: nil
+                    ),
+                ],
+                activeWorkspace: 0,
+                activeWorkspaceID: 11,
+                spaces: [
+                    CmxNativeSpaceInfo(id: 21, title: "space-1", paneCount: 1, terminalCount: 1),
+                ],
+                activeSpace: 0,
+                activeSpaceID: 21,
+                panels: .leaf(
+                    panelID: 31,
+                    tabs: [
+                        CmxNativeTabInfo(id: 41, title: "shell", hasActivity: false, bellCount: 0),
+                    ],
+                    active: 0,
+                    activeTabID: 41
+                ),
+                focusedPanelID: 31,
+                focusedTabID: 41
+            ))
+        )
+        store.terminalScreenDidAppear()
+        sessionFactory.session.clearRequestedPtyReplays()
+        sessionFactory.session.delegate?.terminalSession(
+            sessionFactory.session,
+            didReceive: .ptyBytes(tabID: 41, data: Data("cached output\r\n".utf8))
+        )
+
+        store.updateTerminalSize(terminalID: 41, size: CmxTerminalSize(cols: 54, rows: 52))
+
+        XCTAssertEqual(
+            sessionFactory.session.sentLayouts.last,
+            [CmxWireTerminalViewport(tabID: 41, cols: 54, rows: 52)]
+        )
+        XCTAssertEqual(sessionFactory.session.requestedPtyReplayTerminalIDs, [41])
+    }
+
+    @MainActor
     func testNativeSnapshotUsesSmallestAttachedClientSizeOnlyForRendering() throws {
         let sessionFactory = RecordingTerminalSessionFactory()
         let store = CmxConnectionStore(

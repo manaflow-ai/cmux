@@ -557,6 +557,7 @@ public final class GhosttyRuntime {
         window-padding-y = 0
         cursor-style = bar
         cursor-style-blink = true
+        scroll-to-bottom = keystroke, output
         """
         defaults.withCString { themePointer in
             "cmux-ios-defaults".withCString { namePointer in
@@ -816,6 +817,7 @@ public final class GhosttyTerminalSurfaceView: UIView {
     private static let mobileFontZoomStep: Float32 = 1
     private static let blankReplayProbeInterval: CFTimeInterval = 1
     private static let maximumAccessibilityTranscriptCharacters = 8_192
+    private nonisolated static let scrollToBottomAction = "scroll_to_bottom"
 
     private struct PendingFontSizeApplication {
         var target: Float32
@@ -976,6 +978,7 @@ public final class GhosttyTerminalSurfaceView: UIView {
         let surfaceBits = UInt(bitPattern: UnsafeRawPointer(surface))
         let gate = outputGate
         let accessibilityText = Self.accessibilityTranscriptText(from: payload)
+        let shouldScrollToActiveArea = Self.shouldForceScrollToActiveAreaForOutput(payload)
         outputQueue.async { [weak self] in
             guard gate.isCurrent(generation) else { return }
             guard let surface = UnsafeMutableRawPointer(bitPattern: surfaceBits) else { return }
@@ -987,6 +990,9 @@ public final class GhosttyTerminalSurfaceView: UIView {
                     UInt(buffer.count)
                 )
             }
+            if shouldScrollToActiveArea {
+                Self.performBindingAction(Self.scrollToBottomAction, on: surface)
+            }
             DispatchQueue.main.async {
                 guard let self else { return }
                 guard self.surface == surface,
@@ -996,11 +1002,25 @@ public final class GhosttyTerminalSurfaceView: UIView {
                 }
                 self.appendAccessibilityTranscript(accessibilityText)
                 self.needsDraw = true
-                ghostty_surface_render_now(surface)
+                self.renderSurfaceNow(surface)
+                _ = self.requestServerReplayIfBlank()
                 #if DEBUG
                 self.onOutputProcessedForTesting?()
                 #endif
             }
+        }
+    }
+
+    nonisolated static func shouldForceScrollToActiveAreaForOutput(_ data: Data) -> Bool {
+        data.range(of: Data([0x1B, 0x63])) != nil
+            || data.range(of: Data("\u{1B}[?1049h".utf8)) != nil
+            || data.range(of: Data("\u{1B}[?1049l".utf8)) != nil
+    }
+
+    @discardableResult
+    private nonisolated static func performBindingAction(_ action: String, on surface: ghostty_surface_t) -> Bool {
+        action.withCString { pointer in
+            ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))
         }
     }
 
@@ -1098,7 +1118,7 @@ public final class GhosttyTerminalSurfaceView: UIView {
         ghostty_surface_set_size(surface, UInt32(cols * cellWidth), UInt32(rows * cellHeight))
         reportCurrentSurfaceGridSize(surface: surface, reportResize: false, forceReport: true)
         reportMaximumViewportGridSizeIfForced()
-        ghostty_surface_render_now(surface)
+        renderSurfaceNow(surface)
     }
 
     public func clearForcedViewSize() {
@@ -1417,18 +1437,40 @@ public final class GhosttyTerminalSurfaceView: UIView {
             forceReport: forceReport
         )
         reportMaximumViewportGridSizeIfForced()
-        for sublayer in layer.sublayers ?? [] where String(describing: type(of: sublayer)) == "IOSurfaceLayer" {
-            sublayer.frame = bounds
-            sublayer.bounds = CGRect(origin: .zero, size: bounds.size)
-            sublayer.contentsScale = scale
-        }
+        syncRenderedSurfaceLayerFrames()
         if hasFedInitialOutput {
             if renderNow {
-                ghostty_surface_render_now(surface)
+                renderSurfaceNow(surface)
             } else {
-                ghostty_surface_refresh(surface)
+                refreshSurface(surface)
             }
         }
+    }
+
+    private func renderSurfaceNow(_ surface: ghostty_surface_t) {
+        syncRenderedSurfaceLayerFrames()
+        ghostty_surface_render_now(surface)
+        syncRenderedSurfaceLayerFrames()
+    }
+
+    private func refreshSurface(_ surface: ghostty_surface_t) {
+        syncRenderedSurfaceLayerFrames()
+        ghostty_surface_refresh(surface)
+        syncRenderedSurfaceLayerFrames()
+    }
+
+    private func syncRenderedSurfaceLayerFrames() {
+        let targetBounds = CGRect(origin: .zero, size: bounds.size)
+        let scale = screenScale
+        for sublayer in layer.sublayers ?? [] where Self.isGhosttyRenderedContentLayer(sublayer) {
+            sublayer.frame = bounds
+            sublayer.bounds = targetBounds
+            sublayer.contentsScale = scale
+        }
+    }
+
+    private static func isGhosttyRenderedContentLayer(_ sublayer: CALayer) -> Bool {
+        String(describing: type(of: sublayer)) == "IOSurfaceLayer"
     }
 
     private func applyConfiguredBackground() {
@@ -1649,7 +1691,7 @@ public final class GhosttyTerminalSurfaceView: UIView {
         }
         if needsDraw {
             needsDraw = false
-            ghostty_surface_render_now(surface)
+            renderSurfaceNow(surface)
         }
         stopDisplayLinkIfIdle()
     }
@@ -1659,7 +1701,7 @@ public final class GhosttyTerminalSurfaceView: UIView {
         registeredSurfaceViews = registeredSurfaceViews.filter { $0.value.value != nil }
         for view in registeredSurfaceViews.values.compactMap(\.value) where view.window != nil {
             if let surface = view.surface {
-                ghostty_surface_refresh(surface)
+                view.refreshSurface(surface)
             }
         }
     }
@@ -2401,8 +2443,9 @@ struct CmxGhosttyTerminalView: UIViewRepresentable {
             self.terminalID = terminalID
             self.surfaceView = surfaceView
             surfaceView.updateHostPlatform(hostPlatform)
+            let needsFreshServerReplay = store.isConnected && (didChangeTerminal || didChangeSurface)
             if didChangeTerminal || didChangeSurface {
-                lastAppliedOutputID = 0
+                lastAppliedOutputID = needsFreshServerReplay ? store.latestOutputChunkID(for: terminalID) : 0
                 lastAppliedRenderSize = nil
                 visibleGridSize.wrappedValue = nil
                 // `resetForTerminalReuse` force-reports the visible grid. Keep
@@ -2426,6 +2469,9 @@ struct CmxGhosttyTerminalView: UIViewRepresentable {
                 guard let self, self.terminalID == terminalID else { return }
                 surfaceView?.processOutput(chunk.data)
                 self.lastAppliedOutputID = max(self.lastAppliedOutputID, chunk.id)
+            }
+            if needsFreshServerReplay {
+                store.requestPtyReplay(terminalID: terminalID)
             }
 
             let outputChunks = store.outputChunks(for: terminalID)

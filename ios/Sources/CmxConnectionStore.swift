@@ -17,6 +17,8 @@ private func cmuxDebugLog(_ message: String) {
 @MainActor
 final class CmxConnectionStore: ObservableObject {
     private static let placeholderTerminalID = UInt64.max
+    private static let maximumCachedTerminalOutputBytes = 512 * 1024
+    private static let maximumCachedTerminalOutputChunks = 256
 
     @Published var ticketText = ""
     @Published private(set) var ticket: CmxBridgeTicket?
@@ -37,6 +39,7 @@ final class CmxConnectionStore: ObservableObject {
     @Published private(set) var terminalOutputRevision = 0
     @Published private var outputChunksByTerminalID: [UInt64: [CmxTerminalOutputChunk]] = [:]
     @Published private var nextOutputChunkID = 1
+    private var cachedOutputByteCountByTerminalID: [UInt64: Int] = [:]
     private let authSessionStore: CmxStackAuthSessionStore
     private let launchTicketStore: CmxLaunchTicketStateStore
     private let pairingSecretClient: CmxRivetPairingSecretFetching
@@ -383,6 +386,10 @@ final class CmxConnectionStore: ObservableObject {
         outputChunksByTerminalID[terminalID] ?? []
     }
 
+    func latestOutputChunkID(for terminalID: UInt64) -> Int {
+        outputChunksByTerminalID[terminalID]?.last?.id ?? 0
+    }
+
     func registerOutputSink(
         terminalID: UInt64,
         receive: @escaping @MainActor (CmxTerminalOutputChunk) -> Void
@@ -412,12 +419,12 @@ final class CmxConnectionStore: ObservableObject {
             if didUpdateStoredTerminal { break }
         }
         if terminalScreenVisible, terminalID == selectedTerminal.id {
-            sendNativeLayout(
+            let didSendLayout = sendNativeLayout(
                 terminalID: terminalID,
                 size: size,
                 force: false
             )
-            if outputChunksByTerminalID[terminalID, default: []].isEmpty {
+            if didSendLayout || outputChunksByTerminalID[terminalID, default: []].isEmpty {
                 requestPtyReplayForVisibleTerminal(force: true)
             }
         }
@@ -492,6 +499,8 @@ final class CmxConnectionStore: ObservableObject {
         let chunk = CmxTerminalOutputChunk(id: nextOutputChunkID, data: data)
         nextOutputChunkID += 1
         outputChunksByTerminalID[terminalID, default: []].append(chunk)
+        cachedOutputByteCountByTerminalID[terminalID, default: 0] += data.count
+        trimCachedOutput(for: terminalID)
         terminalOutputRevision += 1
         if terminalOutputSink?.terminalID == terminalID {
             terminalOutputSink?.receive(chunk)
@@ -499,8 +508,31 @@ final class CmxConnectionStore: ObservableObject {
     }
 
     private func clearTerminal(_ terminalID: UInt64) {
-        outputChunksByTerminalID[terminalID] = []
+        clearCachedOutput(for: terminalID)
         appendOutput(Data("\u{001B}[2J\u{001B}[H".utf8), terminalID: terminalID)
+    }
+
+    private func clearCachedOutput(for terminalID: UInt64) {
+        outputChunksByTerminalID[terminalID] = []
+        cachedOutputByteCountByTerminalID[terminalID] = 0
+    }
+
+    private func trimCachedOutput(for terminalID: UInt64) {
+        guard var chunks = outputChunksByTerminalID[terminalID],
+              chunks.count > Self.maximumCachedTerminalOutputChunks
+                || cachedOutputByteCountByTerminalID[terminalID, default: 0] > Self.maximumCachedTerminalOutputBytes else {
+            return
+        }
+
+        var cachedBytes = cachedOutputByteCountByTerminalID[terminalID]
+            ?? chunks.reduce(0) { $0 + $1.data.count }
+        while chunks.count > 1,
+              chunks.count > Self.maximumCachedTerminalOutputChunks
+                || cachedBytes > Self.maximumCachedTerminalOutputBytes {
+            cachedBytes -= chunks.removeFirst().data.count
+        }
+        outputChunksByTerminalID[terminalID] = chunks
+        cachedOutputByteCountByTerminalID[terminalID] = max(0, cachedBytes)
     }
 
     func applyNativeSnapshot(_ snapshot: CmxNativeSnapshot) {
@@ -549,6 +581,7 @@ final class CmxConnectionStore: ObservableObject {
         }
         if workspaces.isEmpty {
             outputChunksByTerminalID = [:]
+            cachedOutputByteCountByTerminalID = [:]
             nextOutputChunkID = 1
         }
         selectedWorkspaceID = workspaces.first(where: { $0.id == snapshot.activeWorkspaceID })?.id
@@ -586,6 +619,7 @@ final class CmxConnectionStore: ObservableObject {
         workspaces = snapshot.workspaces
         effectiveTerminalSizesByID = [:]
         outputChunksByTerminalID = [:]
+        cachedOutputByteCountByTerminalID = [:]
         nextOutputChunkID = 1
         seedTerminalOutput()
         selectedWorkspaceID = workspaces.first(where: { $0.id == selectedWorkspaceID })?.id
@@ -610,6 +644,7 @@ final class CmxConnectionStore: ObservableObject {
         selectedTerminalID = Self.placeholderTerminalID
         effectiveTerminalSizesByID = [:]
         outputChunksByTerminalID = [:]
+        cachedOutputByteCountByTerminalID = [:]
         nextOutputChunkID = 1
     }
 
@@ -644,10 +679,11 @@ final class CmxConnectionStore: ObservableObject {
         sendNativeLayout(terminalID: terminal.id, size: terminal.size, force: force)
     }
 
-    private func sendNativeLayout(terminalID: UInt64, size: CmxTerminalSize, force: Bool) {
-        guard size.cols > 0, size.rows > 0 else { return }
+    @discardableResult
+    private func sendNativeLayout(terminalID: UInt64, size: CmxTerminalSize, force: Bool) -> Bool {
+        guard size.cols > 0, size.rows > 0 else { return false }
         if !force, lastSentNativeLayoutByTerminalID[terminalID] == size {
-            return
+            return false
         }
         lastSentNativeLayoutByTerminalID[terminalID] = size
         #if DEBUG
@@ -660,6 +696,7 @@ final class CmxConnectionStore: ObservableObject {
                 rows: UInt16(clamping: size.rows)
             ),
         ])
+        return terminalSession != nil
     }
 
     @discardableResult

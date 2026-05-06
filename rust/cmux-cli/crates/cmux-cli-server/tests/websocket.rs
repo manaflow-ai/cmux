@@ -1096,6 +1096,10 @@ async fn websocket_native_smallest_visible_client_size_wins_until_detach() {
     .await;
 
     send_client_msg(&mut narrow, &ClientMsg::Detach).await;
+    assert!(
+        recv_bye_or_close(&mut narrow, Duration::from_secs(2)).await,
+        "detached native client should be removed before the remaining client expands"
+    );
 
     send_client_msg(
         &mut wide,
