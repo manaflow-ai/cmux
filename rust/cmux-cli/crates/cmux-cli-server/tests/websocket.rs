@@ -1441,6 +1441,196 @@ async fn websocket_native_reconnects_cycle_five_workspaces_with_fresh_replay_and
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn websocket_native_stress_reconnects_phone_and_ipad_sized_clients() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("server.sock");
+    let (ws_listener, ws_addr) = bind_ws_listener().await;
+    let opts = ServerOptions {
+        socket_path: socket.clone(),
+        shell: "/bin/sh".into(),
+        cwd: Some(dir.path().to_path_buf()),
+        initial_viewport: (80, 24),
+        snapshot_path: None,
+        settings_path: None,
+        ws_bind: None,
+        auth_token: Some("sekrit".into()),
+    };
+    let server = tokio::spawn(async move {
+        let _ = run_with_websocket_listener(opts, HeartbeatConfig::default(), ws_listener).await;
+    });
+
+    let mut desktop = connect_ws(ws_addr).await;
+    hello_native_libghostty(&mut desktop).await;
+    let mut snapshot = recv_native_snapshot(&mut desktop).await;
+    let mut tab_ids = vec![snapshot.focused_tab_id];
+    let mut command_id = 1_000;
+
+    for index in 1..4 {
+        send_command(
+            &mut desktop,
+            command_id,
+            Command::NewWorkspace {
+                title: Some(format!("stress-{index}")),
+                cwd: None,
+            },
+        )
+        .await;
+        recv_command_ok(&mut desktop, command_id).await;
+        command_id += 1;
+        snapshot = recv_native_snapshot_until(
+            &mut desktop,
+            "stress workspace should become active",
+            |snapshot| snapshot.active_workspace == index,
+        )
+        .await;
+        tab_ids.push(snapshot.focused_tab_id);
+    }
+
+    for (index, tab_id) in tab_ids.iter().copied().enumerate() {
+        send_command(&mut desktop, command_id, Command::SelectWorkspace { index }).await;
+        recv_command_ok(&mut desktop, command_id).await;
+        command_id += 1;
+        recv_native_snapshot_until(
+            &mut desktop,
+            "workspace selected for marker seed",
+            |snapshot| snapshot.active_workspace == index && snapshot.focused_tab_id == tab_id,
+        )
+        .await;
+        send_native_layout(&mut desktop, tab_id, 160, 52).await;
+        let marker = format!("CMUX_STRESS_WS_{index}");
+        send_client_msg(
+            &mut desktop,
+            &ClientMsg::NativeInput {
+                tab_id,
+                data: format!("printf '\\033[2J\\033[H{marker}\\n'\n").into_bytes(),
+            },
+        )
+        .await;
+        recv_pty_output_until_contains(&mut desktop, tab_id, Duration::from_secs(5), &marker).await;
+    }
+
+    for cycle in 0..12 {
+        let index = cycle % tab_ids.len();
+        let tab_id = tab_ids[index];
+        let marker = format!("CMUX_STRESS_WS_{index}");
+        send_command(&mut desktop, command_id, Command::SelectWorkspace { index }).await;
+        recv_command_ok(&mut desktop, command_id).await;
+        command_id += 1;
+        recv_native_snapshot_until(
+            &mut desktop,
+            "stress cycle workspace selected",
+            |snapshot| snapshot.active_workspace == index && snapshot.focused_tab_id == tab_id,
+        )
+        .await;
+
+        let desktop_cols = 150 + (cycle % 3) as u16;
+        let desktop_rows = 48 + (cycle % 2) as u16;
+        send_native_layout(&mut desktop, tab_id, desktop_cols, desktop_rows).await;
+
+        let mut phone = connect_ws(ws_addr).await;
+        hello_native_libghostty(&mut phone).await;
+        recv_native_snapshot_until(
+            &mut phone,
+            "phone reconnect should see selected workspace",
+            |snapshot| snapshot.active_workspace == index && snapshot.focused_tab_id == tab_id,
+        )
+        .await;
+        let phone_cols = 54 + (cycle % 4) as u16;
+        let phone_rows = 28 + (cycle % 3) as u16;
+        send_native_layout(&mut phone, tab_id, phone_cols, phone_rows).await;
+        send_client_msg(&mut phone, &ClientMsg::RequestPtyReplay { tab_id }).await;
+        recv_pty_output_until_contains(&mut phone, tab_id, Duration::from_secs(5), &marker).await;
+        send_client_msg(
+            &mut phone,
+            &ClientMsg::NativeInput {
+                tab_id,
+                data: format!("printf PHONE_{cycle}_SIZE:; stty size\n").into_bytes(),
+            },
+        )
+        .await;
+        recv_pty_output_until_contains(
+            &mut desktop,
+            tab_id,
+            Duration::from_secs(5),
+            &format!("PHONE_{cycle}_SIZE:{phone_rows} {phone_cols}"),
+        )
+        .await;
+
+        send_client_msg(&mut phone, &ClientMsg::NativeLayout { terminals: vec![] }).await;
+        recv_native_snapshot_until(&mut desktop, "phone left visible terminal", |snapshot| {
+            snapshot.attached_clients.len() == 1
+                && snapshot.attached_clients[0]
+                    .terminals
+                    .iter()
+                    .any(|terminal| {
+                        terminal.tab_id == tab_id
+                            && terminal.cols == desktop_cols
+                            && terminal.rows == desktop_rows
+                    })
+        })
+        .await;
+
+        let mut ipad = connect_ws(ws_addr).await;
+        hello_native_libghostty(&mut ipad).await;
+        recv_native_snapshot_until(
+            &mut ipad,
+            "ipad reconnect should see selected workspace",
+            |snapshot| snapshot.active_workspace == index && snapshot.focused_tab_id == tab_id,
+        )
+        .await;
+        let ipad_cols = 96 + (cycle % 5) as u16;
+        let ipad_rows = 36 + (cycle % 4) as u16;
+        send_native_layout(&mut ipad, tab_id, ipad_cols, ipad_rows).await;
+        send_client_msg(&mut ipad, &ClientMsg::RequestPtyReplay { tab_id }).await;
+        recv_pty_output_until_contains(&mut ipad, tab_id, Duration::from_secs(5), &marker).await;
+        send_client_msg(
+            &mut ipad,
+            &ClientMsg::NativeInput {
+                tab_id,
+                data: format!("printf IPAD_{cycle}_SIZE:; stty size\n").into_bytes(),
+            },
+        )
+        .await;
+        recv_pty_output_until_contains(
+            &mut desktop,
+            tab_id,
+            Duration::from_secs(5),
+            &format!("IPAD_{cycle}_SIZE:{ipad_rows} {ipad_cols}"),
+        )
+        .await;
+
+        send_client_msg(&mut ipad, &ClientMsg::Detach).await;
+        assert!(
+            recv_bye_or_close(&mut ipad, Duration::from_secs(2)).await,
+            "ipad detach should complete cleanly on stress cycle {cycle}"
+        );
+        send_client_msg(&mut phone, &ClientMsg::Detach).await;
+        assert!(
+            recv_bye_or_close(&mut phone, Duration::from_secs(2)).await,
+            "phone detach should complete cleanly on stress cycle {cycle}"
+        );
+        recv_native_snapshot_until(
+            &mut desktop,
+            "all mobile clients detached after cycle",
+            |snapshot| {
+                snapshot.attached_clients.len() == 1
+                    && snapshot.attached_clients[0]
+                        .terminals
+                        .iter()
+                        .any(|terminal| {
+                            terminal.tab_id == tab_id
+                                && terminal.cols == desktop_cols
+                                && terminal.rows == desktop_rows
+                        })
+            },
+        )
+        .await;
+    }
+
+    server.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn websocket_native_many_clients_share_one_terminal_and_clean_up() {
     let dir = tempfile::tempdir().unwrap();
     let socket = dir.path().join("server.sock");

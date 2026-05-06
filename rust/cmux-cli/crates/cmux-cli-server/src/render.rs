@@ -1216,70 +1216,13 @@ fn paint_pane_border(frame: &mut Frame, border: &BorderSpec) {
 
 fn effective_pane_border(
     border: &BorderSpec,
-    terminal_rect: Rect,
-    terminal_size: Option<(u16, u16)>,
+    _terminal_rect: Rect,
+    _terminal_size: Option<(u16, u16)>,
 ) -> BorderSpec {
-    let Some((terminal_cols, terminal_rows)) = terminal_size else {
-        return border.clone();
-    };
-
-    let mut effective = border.clone();
-    effective.rect =
-        visible_grid_border_rect(border.rect, terminal_rect, terminal_cols, terminal_rows);
-    effective
-}
-
-fn visible_grid_border_rect(
-    border_rect: Rect,
-    terminal_rect: Rect,
-    terminal_cols: u16,
-    terminal_rows: u16,
-) -> Rect {
-    if border_rect.cols < 2 || border_rect.rows < 2 {
-        return border_rect;
-    }
-
-    let border_right = rect_right(border_rect);
-    let border_bottom = rect_bottom(border_rect);
-    let left = terminal_rect
-        .col
-        .saturating_sub(1)
-        .max(border_rect.col)
-        .min(border_right.saturating_sub(1));
-    let top = terminal_rect
-        .row
-        .saturating_sub(1)
-        .max(border_rect.row)
-        .min(border_bottom.saturating_sub(1));
-    let clamped_cols = terminal_cols.max(1).min(terminal_rect.cols.max(1));
-    let clamped_rows = terminal_rows.max(1).min(terminal_rect.rows.max(1));
-    let right = terminal_rect
-        .col
-        .saturating_add(clamped_cols)
-        .min(border_right)
-        .max(left.saturating_add(1))
-        .min(border_right);
-    let bottom = terminal_rect
-        .row
-        .saturating_add(clamped_rows)
-        .min(border_bottom)
-        .max(top.saturating_add(1))
-        .min(border_bottom);
-
-    Rect {
-        col: left,
-        row: top,
-        cols: right.saturating_sub(left).saturating_add(1),
-        rows: bottom.saturating_sub(top).saturating_add(1),
-    }
-}
-
-fn rect_right(rect: Rect) -> u16 {
-    rect.col.saturating_add(rect.cols.saturating_sub(1))
-}
-
-fn rect_bottom(rect: Rect) -> u16 {
-    rect.row.saturating_add(rect.rows.saturating_sub(1))
+    // The canonical terminal grid can be smaller than this client's pane when
+    // another visible client is smaller. The chrome still belongs to the
+    // current client viewport, so keep the pane border at the client rect.
+    border.clone()
 }
 
 fn tab_bar_for_border(tab_bar: &TabBarSpec, border_rect: Rect) -> TabBarSpec {
@@ -1962,7 +1905,7 @@ mod tests {
     }
 
     #[test]
-    fn visible_grid_border_hugs_canonical_terminal_size() {
+    fn pane_border_keeps_client_viewport_when_canonical_terminal_is_smaller() {
         let border = Rect {
             col: 16,
             row: 1,
@@ -1977,13 +1920,18 @@ mod tests {
         };
 
         assert_eq!(
-            visible_grid_border_rect(border, terminal, 30, 24),
-            Rect {
-                col: 16,
-                row: 1,
-                cols: 32,
-                rows: 26,
-            }
+            effective_pane_border(
+                &BorderSpec {
+                    rect: border,
+                    tabs: Vec::new(),
+                    flashing: false,
+                    focused: true,
+                },
+                terminal,
+                Some((30, 24)),
+            )
+            .rect,
+            border
         );
     }
 

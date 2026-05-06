@@ -28,18 +28,16 @@ struct ContentView: View {
 
 private struct WorkspaceListView: View {
     @EnvironmentObject private var store: CmxConnectionStore
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var searchText = ""
     let navigationStyle: WorkspaceNavigationStyle
 
     private var rows: [WorkspaceListRowSnapshot] {
         let selectedWorkspaceID = store.selectedWorkspaceID
-        let isSidebar = horizontalSizeClass == .regular
         return store.visibleWorkspaces(matching: searchText).map { workspace in
             WorkspaceListRowSnapshot(
                 workspace: workspace,
                 node: store.node(for: workspace),
-                isSelected: isSidebar && workspace.id == selectedWorkspaceID
+                isSelected: navigationStyle == .sidebar && workspace.id == selectedWorkspaceID
             )
         }
     }
@@ -72,6 +70,7 @@ private struct WorkspaceListView: View {
                         prefetchWorkspace: { store.prefetch(workspace: $0) }
                     )
                     .listRowInsets(EdgeInsets(top: 7, leading: 16, bottom: 7, trailing: 12))
+                    .listRowBackground(WorkspaceListSelectionBackground(isSelected: row.isSelected))
                 }
             }
         }
@@ -88,6 +87,22 @@ private struct WorkspaceListRowSnapshot: Identifiable {
 
     var id: UInt64 {
         workspace.id
+    }
+}
+
+private struct WorkspaceListSelectionBackground: View {
+    let isSelected: Bool
+
+    var body: some View {
+        if isSelected {
+            ZStack(alignment: .leading) {
+                Color.accentColor.opacity(0.18)
+                Color.accentColor
+                    .frame(width: 4)
+            }
+        } else {
+            Color.clear
+        }
     }
 }
 
@@ -199,6 +214,12 @@ private struct WorkspaceConversationRow: View {
                 Circle()
                     .fill(avatarGradient)
                     .frame(width: 48, height: 48)
+                    .overlay {
+                        if isSelected {
+                            Circle()
+                                .stroke(Color.accentColor, lineWidth: 3)
+                        }
+                    }
 
                 Image(systemName: node.symbolName)
                     .font(.headline)
@@ -223,7 +244,14 @@ private struct WorkspaceConversationRow: View {
 
                     Text(workspace.title)
                         .font(.headline)
+                        .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
                         .lineLimit(1)
+
+                    if isSelected {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Color.accentColor)
+                    }
 
                     Spacer(minLength: 10)
 
@@ -261,12 +289,26 @@ private struct WorkspaceConversationRow: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 4)
+        .padding(.vertical, isSelected ? 8 : 4)
         .padding(.horizontal, isSelected ? 10 : 0)
         .background {
             if isSelected {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(Color.accentColor.opacity(0.14))
+                    .fill(Color.accentColor.opacity(0.2))
+            }
+        }
+        .overlay(alignment: .leading) {
+            if isSelected {
+                RoundedRectangle(cornerRadius: 2, style: .continuous)
+                    .fill(Color.accentColor)
+                    .frame(width: 4)
+                    .padding(.vertical, 8)
+            }
+        }
+        .overlay {
+            if isSelected {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(Color.accentColor.opacity(0.45), lineWidth: 1)
             }
         }
         .contentShape(Rectangle())
