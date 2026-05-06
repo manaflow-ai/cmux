@@ -1207,15 +1207,7 @@ final class SessionPersistenceTests: XCTestCase {
                     "--yolo",
                 ]
             ),
-            (
-                .hermesAgent,
-                [
-                    "/usr/local/bin/hermes",
-                    "--tui",
-                    "--model",
-                    "anthropic/claude-sonnet-4.6",
-                ]
-            ),
+            (.hermesAgent, ["/usr/local/bin/hermes", "--tui", "--model", "anthropic/claude-sonnet-4.6"]),
             (
                 .copilot,
                 [
