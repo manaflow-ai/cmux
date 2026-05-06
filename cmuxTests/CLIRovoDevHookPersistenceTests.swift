@@ -381,7 +381,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(FileManager.default.fileExists(atPath: sentinelURL.path))
     }
 
-    func testRovoAliasInstallsRovoDevHooksFromSetup() throws {
+    func testRovoAliasCreatesConfigDirAndInstallsRovoDevHooksFromSetup() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-rovo-alias-install-\(UUID().uuidString)", isDirectory: true)
@@ -389,7 +389,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let binDir = root.appendingPathComponent("bin", isDirectory: true)
         let acliURL = binDir.appendingPathComponent("acli", isDirectory: false)
 
-        try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
         try "#!/bin/sh\nexit 0\n".write(to: acliURL, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: acliURL.path)
