@@ -11,6 +11,47 @@ import PDFKit
 
 @MainActor
 final class FilePreviewPDFThumbnailSidebarTests: XCTestCase {
+    func testFocusedPDFCanvasArrowDownScrollsWithoutPageStepping() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 500),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let pdfView = FilePreviewMagnifyingPDFView(frame: window.contentView?.bounds ?? .zero)
+        window.contentView = pdfView
+        pdfView.displayMode = .singlePageContinuous
+        pdfView.displayDirection = .vertical
+        pdfView.autoScales = true
+
+        let document = try makePDFDocument(pageSizes: Array(repeating: NSSize(width: 600, height: 700), count: 4))
+        pdfView.document = document
+        pdfView.layoutDocumentView()
+        pdfView.layoutSubtreeIfNeeded()
+        let firstPage = try XCTUnwrap(document.page(at: 0))
+        pdfView.go(to: firstPage)
+        pdfView.layoutDocumentView()
+        pdfView.layoutSubtreeIfNeeded()
+
+        let scrollView = try XCTUnwrap(findScrollView(in: pdfView))
+        let initialPage = pdfView.currentPage
+        let initialOrigin = scrollView.contentView.bounds.origin
+        let downArrow = try XCTUnwrap(keyEvent(keyCode: UInt16(kVK_DownArrow)))
+
+        XCTAssertTrue(window.makeFirstResponder(pdfView))
+        XCTAssertTrue(pdfView.performKeyEquivalent(with: downArrow))
+
+        let nextOrigin = scrollView.contentView.bounds.origin
+        XCTAssertEqual(pdfView.currentPage, initialPage)
+        let scrollDelta = nextOrigin.y - initialOrigin.y
+        if scrollView.contentView.isFlipped {
+            XCTAssertGreaterThan(scrollDelta, 0)
+        } else {
+            XCTAssertLessThan(scrollDelta, 0)
+        }
+        XCTAssertLessThan(abs(scrollDelta), scrollView.contentView.bounds.height * 0.5)
+    }
+
     func testThumbnailArrowNavigationRequiresThumbnailKeyboardFocus() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
@@ -127,12 +168,16 @@ final class FilePreviewPDFThumbnailSidebarTests: XCTestCase {
     }
 
     private func makePDFDocument(pageCount: Int) throws -> PDFDocument {
+        try makePDFDocument(pageSizes: Array(repeating: NSSize(width: 80, height: 80), count: pageCount))
+    }
+
+    private func makePDFDocument(pageSizes: [NSSize]) throws -> PDFDocument {
         let document = PDFDocument()
-        for pageIndex in 0..<pageCount {
-            let image = NSImage(size: NSSize(width: 80, height: 80))
+        for (pageIndex, pageSize) in pageSizes.enumerated() {
+            let image = NSImage(size: pageSize)
             image.lockFocus()
             NSColor(
-                calibratedHue: CGFloat(pageIndex) / CGFloat(max(pageCount, 1)),
+                calibratedHue: CGFloat(pageIndex) / CGFloat(max(pageSizes.count, 1)),
                 saturation: 0.5,
                 brightness: 0.8,
                 alpha: 1
