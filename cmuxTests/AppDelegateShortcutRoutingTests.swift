@@ -5,7 +5,6 @@ import XCTest
 #elseif canImport(cmux)
 @testable import cmux
 #endif
-
 private let appDelegateLastSurfaceCloseShortcutDefaultsKey = "closeWorkspaceOnLastSurfaceShortcut"
 private final class FakeWKInspectorContainerView: NSView {}
 private final class FocusableTestView: NSView {
@@ -13,7 +12,6 @@ private final class FocusableTestView: NSView {
 }
 private final class MenuActionProbe: NSObject {
     var callCount = 0
-
     @objc func perform(_ sender: Any?) {
         callCount += 1
     }
@@ -88,7 +86,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 (action, KeyboardShortcutSettings.shortcut(for: action))
             }
         )
-        originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
+        originalSettingsFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(prefix: "cmux-shortcut-routing")
         KeyboardShortcutSettings.resetAll()
     }
 
@@ -2783,11 +2781,13 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
+        withTemporaryShortcut(action: .openSettings, shortcut: .unbound) {
 #if DEBUG
-        XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: event))
+            XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: event))
 #else
-        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
+        }
         XCTAssertEqual(workspace.panels.count, panelCountBefore)
     }
 
@@ -3368,7 +3368,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(observedWorkspaceWindow?.windowNumber, window.windowNumber)
     }
 
-    func testCmdShiftERequestsEditWorkspaceDescriptionInCommandPalette() {
+    func testCmdOptionERequestsEditWorkspaceDescriptionInCommandPalette() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -3399,7 +3399,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
         defer { NotificationCenter.default.removeObserver(descriptionToken) }
 
-        let renameWorkspaceExpectation = expectation(description: "Rename workspace notification should not fire for Cmd+Shift+E")
+        let renameWorkspaceExpectation = expectation(description: "Rename workspace notification should not fire for Cmd+Option+E")
         renameWorkspaceExpectation.isInverted = true
         let renameWorkspaceToken = NotificationCenter.default.addObserver(
             forName: .commandPaletteRenameWorkspaceRequested,
@@ -3412,11 +3412,11 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         guard let event = makeKeyDownEvent(
             key: "e",
-            modifiers: [.command, .shift],
+            modifiers: [.command, .option],
             keyCode: 14, // kVK_ANSI_E
             windowNumber: window.windowNumber
         ) else {
-            XCTFail("Failed to construct Cmd+Shift+E event")
+            XCTFail("Failed to construct Cmd+Option+E event")
             return
         }
 
