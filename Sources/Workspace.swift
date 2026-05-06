@@ -394,12 +394,16 @@ extension Workspace {
                !directory.isEmpty {
                 return directory
             }
+            if let restorableDirectory = effectiveRestorableAgent?.workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !restorableDirectory.isEmpty {
+                return restorableDirectory
+            }
             if let terminalPanel = panel as? TerminalPanel,
                let requestedDirectory = terminalPanel.requestedWorkingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
                !requestedDirectory.isEmpty {
                 return requestedDirectory
             }
-            return effectiveRestorableAgent?.workingDirectory
+            return nil
         }()
         let isPinned = pinnedPanelIds.contains(panelId)
         let isManuallyUnread = manualUnreadPanelIds.contains(panelId)
@@ -12463,7 +12467,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
-    private func handleExternalFileDrop(_ request: BonsplitController.ExternalFileDropRequest) -> Bool {
+    func handleExternalFileDrop(_ request: BonsplitController.ExternalFileDropRequest) -> Bool {
         let entries = request.urls
             .filter(\.isFileURL)
             .map {
