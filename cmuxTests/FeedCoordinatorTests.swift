@@ -8,6 +8,17 @@ import CMUXWorkstream
 #endif
 
 final class FeedCoordinatorTests: XCTestCase {
+    func testClaudePermissionActionPolicyKeepsBypassUserOwned() {
+        XCTAssertTrue(FeedPermissionActionPolicy.supportsPersistentPermissionModes(source: .claude))
+        XCTAssertFalse(FeedPermissionActionPolicy.supportsBypassPermissions(source: .claude))
+
+        XCTAssertFalse(FeedPermissionActionPolicy.supportsPersistentPermissionModes(source: .codex))
+        XCTAssertFalse(FeedPermissionActionPolicy.supportsBypassPermissions(source: .codex))
+
+        XCTAssertTrue(FeedPermissionActionPolicy.supportsPersistentPermissionModes(source: .opencode))
+        XCTAssertTrue(FeedPermissionActionPolicy.supportsBypassPermissions(source: .opencode))
+    }
+
     func testBlockingIngestExpiresItemWhenHookTimesOut() async {
         await MainActor.run {
             let store = WorkstreamStore(ringCapacity: 10)
