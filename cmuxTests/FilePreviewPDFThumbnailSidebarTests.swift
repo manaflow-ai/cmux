@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import Carbon.HIToolbox
 import PDFKit
 
 #if canImport(cmux_DEV)
@@ -10,6 +11,34 @@ import PDFKit
 
 @MainActor
 final class FilePreviewPDFThumbnailSidebarTests: XCTestCase {
+    func testThumbnailArrowNavigationRequiresThumbnailKeyboardFocus() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: window.contentView?.bounds ?? .zero)
+        window.contentView = contentView
+
+        let thumbnailCollection = FilePreviewPDFThumbnailCollectionView(frame: contentView.bounds)
+        let pdfFocusOwner = ThumbnailSidebarFocusProbeView(frame: contentView.bounds)
+        contentView.addSubview(thumbnailCollection)
+        contentView.addSubview(pdfFocusOwner)
+
+        var navigationDeltas: [Int] = []
+        thumbnailCollection.onPageNavigation = { navigationDeltas.append($0) }
+        let downArrow = try XCTUnwrap(keyEvent(keyCode: UInt16(kVK_DownArrow)))
+
+        XCTAssertTrue(window.makeFirstResponder(pdfFocusOwner))
+        XCTAssertFalse(thumbnailCollection.performKeyEquivalent(with: downArrow))
+        XCTAssertEqual(navigationDeltas, [])
+
+        XCTAssertTrue(window.makeFirstResponder(thumbnailCollection))
+        XCTAssertTrue(thumbnailCollection.performKeyEquivalent(with: downArrow))
+        XCTAssertEqual(navigationDeltas, [1])
+    }
+
     func testPrimaryClickSelectsItemWithoutScrollingSidebar() throws {
         let sidebar = FilePreviewPDFThumbnailSidebarView(frame: NSRect(x: 0, y: 0, width: 220, height: 420))
         let document = try makePDFDocument(pageCount: 8)
@@ -127,4 +156,25 @@ final class FilePreviewPDFThumbnailSidebarTests: XCTestCase {
         }
         return nil
     }
+
+    private func keyEvent(keyCode: UInt16) -> NSEvent? {
+        let key = String(UnicodeScalar(NSDownArrowFunctionKey)!)
+        return NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: key,
+            charactersIgnoringModifiers: key,
+            isARepeat: false,
+            keyCode: keyCode
+        )
+    }
+}
+
+private final class ThumbnailSidebarFocusProbeView: NSView {
+    override var acceptsFirstResponder: Bool { true }
+    override var canBecomeKeyView: Bool { true }
 }
