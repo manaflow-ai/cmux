@@ -484,11 +484,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         try FileManager.default.setAttributes([.modificationDate: modified], ofItemAtPath: metadataURL.path)
         let sessionContextURL = sessionURL.appendingPathComponent("session_context.json", isDirectory: false)
         try Data(#"{"message_history":[]}"#.utf8).write(to: sessionContextURL, options: .atomic)
-        if let sessionContextModified {
-            try FileManager.default.setAttributes(
-                [.modificationDate: sessionContextModified],
-                ofItemAtPath: sessionContextURL.path
-            )
-        }
+        try FileManager.default.setAttributes(
+            [.modificationDate: sessionContextModified ?? modified],
+            ofItemAtPath: sessionContextURL.path
+        )
     }
 }

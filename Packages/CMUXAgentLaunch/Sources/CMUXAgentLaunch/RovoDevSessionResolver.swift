@@ -67,7 +67,7 @@ public enum RovoDevSessionResolver {
         return rovoDevExpandedPath(persistenceDir, env: env)
     }
 
-    public static func rovoDevWorkspace(_ workspace: String?, matches cwd: String?) -> Bool {
+    private static func rovoDevWorkspace(_ workspace: String?, matches cwd: String?) -> Bool {
         guard let cwd, !cwd.isEmpty else { return false }
         guard let workspace, !workspace.isEmpty else { return false }
         return cwd == workspace
