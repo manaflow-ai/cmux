@@ -237,18 +237,38 @@ enum AgentResumeCommandBuilder {
         ]
         var resolved: [String] = []
         for part in templateParts {
-            var value = part
-            for (key, replacement) in replacements {
-                if value.contains("{{\(key)}}"),
-                   replacement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    return []
-                }
-                value = value.replacingOccurrences(of: "{{\(key)}}", with: replacement)
-            }
+            guard let value = resolveTemplatePart(part, replacements: replacements) else { return [] }
             let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return [] }
             resolved.append(trimmed)
         }
+        return resolved
+    }
+
+    private static func resolveTemplatePart(
+        _ part: String,
+        replacements: [String: String]
+    ) -> String? {
+        var resolved = ""
+        var searchStart = part.startIndex
+        while let opening = part[searchStart...].range(of: "{{") {
+            resolved.append(contentsOf: part[searchStart..<opening.lowerBound])
+            guard let closing = part[opening.upperBound...].range(of: "}}") else {
+                resolved.append(contentsOf: part[opening.lowerBound...])
+                return resolved
+            }
+            let key = String(part[opening.upperBound..<closing.lowerBound])
+            if let replacement = replacements[key] {
+                if replacement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    return nil
+                }
+                resolved += replacement
+            } else {
+                resolved.append(contentsOf: part[opening.lowerBound..<closing.upperBound])
+            }
+            searchStart = closing.upperBound
+        }
+        resolved.append(contentsOf: part[searchStart...])
         return resolved
     }
 
