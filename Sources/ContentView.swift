@@ -3870,6 +3870,8 @@ struct ContentView: View {
 
         var isResolved: Bool { resolvedReason != nil }
 
+        deinit { MainActor.assumeIsolated { drainCleanup()?.resume(returning: "cancelled") } }
+
         func start(continuation: CheckedContinuation<String, Never>) {
             if let resolvedReason {
                 continuation.resume(returning: resolvedReason)
@@ -3882,16 +3884,7 @@ struct ContentView: View {
         func addObserver(_ observer: NSObjectProtocol) { addCleanup { NotificationCenter.default.removeObserver(observer) } }
         func addTimeoutWorkItem(_ workItem: DispatchWorkItem) { addCleanup { workItem.cancel() } }
 
-        func finish(reason: String) {
-            guard resolvedReason == nil else { return }
-            resolvedReason = reason
-            let cleanupActions = cleanupActions
-            self.cleanupActions.removeAll()
-            let continuation = continuation
-            self.continuation = nil
-            cleanupActions.forEach { $0() }
-            continuation?.resume(returning: reason)
-        }
+        func finish(reason: String) { guard resolvedReason == nil else { return }; resolvedReason = reason; drainCleanup()?.resume(returning: reason) }
 
         private func addCleanup(_ action: @escaping () -> Void) {
             guard resolvedReason == nil else {
@@ -3899,6 +3892,14 @@ struct ContentView: View {
                 return
             }
             cleanupActions.append(action)
+        }
+
+        private func drainCleanup() -> CheckedContinuation<String, Never>? {
+            let (cleanupActions, continuation) = (cleanupActions, continuation)
+            self.cleanupActions.removeAll()
+            self.continuation = nil
+            cleanupActions.forEach { $0() }
+            return continuation
         }
     }
 
