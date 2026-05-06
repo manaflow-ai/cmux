@@ -58,6 +58,27 @@ final class FinderFileDropRegressionTests: XCTestCase {
         )
     }
 
+    func testPaneFileDropRoutingDistinguishesAgentTerminalsFromPlainShells() {
+        XCTAssertEqual(
+            PaneDropRouting.externalFileDropRouting(panelType: .terminal, hostsAgent: true),
+            .terminalInput,
+            "Agent terminals should keep Finder file drops on the terminal input path so Claude Code/Codex can attach images to the prompt"
+        )
+        XCTAssertEqual(
+            PaneDropRouting.externalFileDropRouting(panelType: .terminal, hostsAgent: false),
+            .filePreview,
+            "Plain shell terminals should preserve pane file-preview drop routing"
+        )
+        XCTAssertEqual(
+            PaneDropRouting.externalFileDropRouting(panelType: .filePreview, hostsAgent: true),
+            .filePreview
+        )
+        XCTAssertEqual(
+            PaneDropRouting.externalFileDropRouting(panelType: .markdown, hostsAgent: true),
+            .filePreview
+        )
+    }
+
     func testLegacyFinderFilenameDropPlanInsertsEscapedLocalPath() throws {
         let fileURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("finder legacy \(UUID().uuidString)")

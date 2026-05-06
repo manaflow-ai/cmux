@@ -12678,7 +12678,7 @@ class TerminalController {
           clear_notifications [--tab=X]    - Clear notifications (all or per-tab)
           set_app_focus <active|inactive|clear> - Override app focus state
           simulate_app_active             - Trigger app active handler
-          set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] - Set a status entry
+          set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] [--surface=Y] - Set a status entry
           report_meta <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] - Set sidebar metadata entry
           report_meta_block <key> [--priority=N] [--tab=X] -- <markdown> - Set freeform sidebar markdown block
           clear_status <key> [--tab=X] - Remove a status entry
@@ -15900,6 +15900,36 @@ class TerminalController {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    private static let agentSidebarStatusKeys: Set<String> = [
+        "claude_code",
+        "codebuddy",
+        "codex",
+        "copilot",
+        "cursor",
+        "factory",
+        "gemini",
+        "opencode",
+        "qoder",
+        "rovodev",
+    ]
+
+    private static func shouldTrackAgentStatusKey(_ key: String) -> Bool {
+        if agentSidebarStatusKeys.contains(key) {
+            return true
+        }
+        guard let baseKey = key.split(separator: ".", maxSplits: 1).first else {
+            return false
+        }
+        return agentSidebarStatusKeys.contains(String(baseKey))
+    }
+
+    private func agentTrackingPanelId(options: [String: String]) -> UUID? {
+        guard let rawPanelId = normalizedOptionValue(options["panel"] ?? options["surface"]) else {
+            return nil
+        }
+        return UUID(uuidString: rawPanelId)
+    }
+
     private func scheduleSidebarMutation(
         target: SidebarMutationTabTarget,
         mutation: @escaping (TerminalController, Tab) -> Void
@@ -16013,6 +16043,8 @@ class TerminalController {
             }
             return nil
         }()
+        let agentPanelId = agentTrackingPanelId(options: parsed.options)
+        let tracksAgentPanel = Self.shouldTrackAgentStatusKey(key)
 
         scheduleSidebarMutation(target: target) { controller, tab in
             guard Self.shouldReplaceStatusEntry(
@@ -16027,8 +16059,10 @@ class TerminalController {
             ) else {
                 // Still update PID tracking even if the status display hasn't changed.
                 if let pidValue {
-                    tab.agentPIDs[key] = pidValue
+                    tab.setAgentPID(key: key, pid: pidValue, panelId: tracksAgentPanel ? agentPanelId : nil)
                     controller.refreshTrackedAgentPorts(for: tab)
+                } else if tracksAgentPanel, let agentPanelId {
+                    tab.markAgentTerminal(panelId: agentPanelId, key: key)
                 }
                 return
             }
@@ -16043,8 +16077,10 @@ class TerminalController {
                 timestamp: Date()
             )
             if let pidValue {
-                tab.agentPIDs[key] = pidValue
+                tab.setAgentPID(key: key, pid: pidValue, panelId: tracksAgentPanel ? agentPanelId : nil)
                 controller.refreshTrackedAgentPorts(for: tab)
+            } else if tracksAgentPanel, let agentPanelId {
+                tab.markAgentTerminal(panelId: agentPanelId, key: key)
             }
         }
         return "OK"
@@ -16060,10 +16096,15 @@ class TerminalController {
         guard let target = targetResolution.target else {
             return targetResolution.error ?? "ERROR: No tab selected"
         }
+        let agentPanelId = agentTrackingPanelId(options: parsed.options)
+        let tracksAgentPanel = Self.shouldTrackAgentStatusKey(key)
 
         scheduleSidebarMutation(target: target) { controller, tab in
             _ = tab.statusEntries.removeValue(forKey: key)
-            if tab.agentPIDs.removeValue(forKey: key) != nil {
+            if tracksAgentPanel {
+                tab.clearAgentTerminal(key: key, panelId: agentPanelId)
+            }
+            if tab.clearAgentPID(key: key, panelId: tracksAgentPanel ? agentPanelId : nil) != nil {
                 controller.refreshTrackedAgentPorts(for: tab)
             }
         }
@@ -16071,37 +16112,39 @@ class TerminalController {
     }
 
     /// Register an agent PID for stale-session detection without setting a visible status entry.
-    /// Usage: set_agent_pid <key> <pid> [--tab=<id>]
+    /// Usage: set_agent_pid <key> <pid> [--tab=<id>] [--surface=<id>]
     private func setAgentPID(_ args: String) -> String {
         let parsed = parseOptions(args)
         guard parsed.positional.count >= 2,
               let pid = Int32(parsed.positional[1]), pid > 0 else {
-            return "ERROR: Usage: set_agent_pid <key> <pid> [--tab=<id>]"
+            return "ERROR: Usage: set_agent_pid <key> <pid> [--tab=<id>] [--surface=<id>]"
         }
         let key = parsed.positional[0]
         let targetResolution = parseSidebarMutationTabTarget(options: parsed.options)
         guard let target = targetResolution.target else {
             return targetResolution.error ?? "ERROR: No tab selected"
         }
+        let agentPanelId = agentTrackingPanelId(options: parsed.options)
         scheduleSidebarMutation(target: target) { controller, tab in
-            tab.agentPIDs[key] = pid
+            tab.setAgentPID(key: key, pid: pid, panelId: agentPanelId)
             controller.refreshTrackedAgentPorts(for: tab)
         }
         return "OK"
     }
 
-    /// Unregister an agent PID. Usage: clear_agent_pid <key> [--tab=<id>]
+    /// Unregister an agent PID. Usage: clear_agent_pid <key> [--tab=<id>] [--surface=<id>]
     private func clearAgentPID(_ args: String) -> String {
         let parsed = parseOptions(args)
         guard let key = parsed.positional.first else {
-            return "ERROR: Usage: clear_agent_pid <key> [--tab=<id>]"
+            return "ERROR: Usage: clear_agent_pid <key> [--tab=<id>] [--surface=<id>]"
         }
         let targetResolution = parseSidebarMutationTabTarget(options: parsed.options)
         guard let target = targetResolution.target else {
             return targetResolution.error ?? "ERROR: No tab selected"
         }
+        let agentPanelId = agentTrackingPanelId(options: parsed.options)
         scheduleSidebarMutation(target: target) { controller, tab in
-            tab.agentPIDs.removeValue(forKey: key)
+            tab.clearAgentPID(key: key, panelId: agentPanelId)
             controller.refreshTrackedAgentPorts(for: tab)
         }
         return "OK"
@@ -16142,7 +16185,7 @@ class TerminalController {
     private func setStatus(_ args: String) -> String {
         upsertSidebarMetadata(
             args,
-            missingError: "ERROR: Missing status key or value — usage: set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X]"
+            missingError: "ERROR: Missing status key or value — usage: set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] [--surface=Y]"
         )
     }
 

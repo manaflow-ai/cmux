@@ -275,6 +275,7 @@ extension Workspace {
         // restarts because the processes that set them are gone.
         statusEntries.removeAll()
         agentPIDs.removeAll()
+        agentStatusKeysByPanelId.removeAll()
         agentListeningPorts.removeAll()
         logEntries = snapshot.logEntries.map { entry in
             SidebarLogEntry(
@@ -7258,6 +7259,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// PIDs associated with agent status entries (e.g. claude_code), keyed by status key.
     /// Used for stale-session detection: if the PID is dead, the status entry is cleared.
     var agentPIDs: [String: pid_t] = [:]
+    private var agentStatusKeysByPanelId: [UUID: Set<String>] = [:]
     private var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
 #if DEBUG
     private var debugSessionSnapshotScrollbackFallbackPanelIds: Set<UUID> = []
@@ -8574,6 +8576,62 @@ final class Workspace: Identifiable, ObservableObject {
 #endif
     }
 
+    func markAgentTerminal(panelId: UUID, key: String) {
+        guard panels[panelId]?.panelType == .terminal else { return }
+        let trimmedKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedKey.isEmpty else { return }
+        agentStatusKeysByPanelId[panelId, default: []].insert(trimmedKey)
+    }
+
+    func clearAgentTerminal(key: String, panelId: UUID? = nil) {
+        let trimmedKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedKey.isEmpty else { return }
+
+        if let panelId {
+            guard var keys = agentStatusKeysByPanelId[panelId] else { return }
+            keys.remove(trimmedKey)
+            if keys.isEmpty {
+                agentStatusKeysByPanelId.removeValue(forKey: panelId)
+            } else {
+                agentStatusKeysByPanelId[panelId] = keys
+            }
+            return
+        }
+
+        for existingPanelId in Array(agentStatusKeysByPanelId.keys) {
+            clearAgentTerminal(key: trimmedKey, panelId: existingPanelId)
+        }
+    }
+
+    func setAgentPID(key: String, pid: pid_t, panelId: UUID? = nil) {
+        agentPIDs[key] = pid
+        if let panelId {
+            markAgentTerminal(panelId: panelId, key: key)
+        }
+    }
+
+    @discardableResult
+    func clearAgentPID(key: String, panelId: UUID? = nil) -> pid_t? {
+        clearAgentTerminal(key: key, panelId: panelId)
+        return agentPIDs.removeValue(forKey: key)
+    }
+
+    func terminalPanelHostsAgent(panelId: UUID) -> Bool {
+        guard panels[panelId]?.panelType == .terminal else { return false }
+        if restoredAgentSnapshotsByPanelId[panelId] != nil {
+            return true
+        }
+        return agentStatusKeysByPanelId[panelId]?.isEmpty == false
+    }
+
+    func externalFileDropRouting(forPanelId panelId: UUID) -> PaneExternalFileDropRouting {
+        let panelType = panels[panelId]?.panelType ?? .terminal
+        return PaneDropRouting.externalFileDropRouting(
+            panelType: panelType,
+            hostsAgent: terminalPanelHostsAgent(panelId: panelId)
+        )
+    }
+
     func panelNeedsConfirmClose(panelId: UUID, fallbackNeedsConfirmClose: Bool) -> Bool {
         Self.resolveCloseConfirmation(
             shellActivityState: panelShellActivityStates[panelId],
@@ -8685,6 +8743,7 @@ final class Workspace: Identifiable, ObservableObject {
     func resetSidebarContext(reason: String = "unspecified") {
         statusEntries.removeAll()
         agentPIDs.removeAll()
+        agentStatusKeysByPanelId.removeAll()
         agentListeningPorts.removeAll()
         latestSubmittedMessage = nil
         logEntries.removeAll()
@@ -8789,6 +8848,7 @@ final class Workspace: Identifiable, ObservableObject {
         surfaceTTYNames = surfaceTTYNames.filter { validSurfaceIds.contains($0.key) }
         remoteDetectedSurfaceIds = remoteDetectedSurfaceIds.filter { validSurfaceIds.contains($0) }
         panelShellActivityStates = panelShellActivityStates.filter { validSurfaceIds.contains($0.key) }
+        agentStatusKeysByPanelId = agentStatusKeysByPanelId.filter { validSurfaceIds.contains($0.key) }
         panelPullRequests = panelPullRequests.filter { validSurfaceIds.contains($0.key) }
         restoredAgentSnapshotsByPanelId = restoredAgentSnapshotsByPanelId.filter {
             validSurfaceIds.contains($0.key)

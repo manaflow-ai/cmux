@@ -11,6 +11,11 @@ struct PaneDropContext: Equatable {
 
 typealias TerminalPaneDropContext = PaneDropContext
 
+enum PaneExternalFileDropRouting: Equatable {
+    case terminalInput
+    case filePreview
+}
+
 struct PaneDragTransfer: Equatable {
     let tabId: UUID
     let sourcePaneId: UUID
@@ -52,6 +57,16 @@ struct PaneDragTransfer: Equatable {
 typealias TerminalPaneDragTransfer = PaneDragTransfer
 
 enum PaneDropRouting {
+    static func externalFileDropRouting(
+        panelType: PanelType,
+        hostsAgent: Bool
+    ) -> PaneExternalFileDropRouting {
+        guard panelType == .terminal, hostsAgent else {
+            return .filePreview
+        }
+        return .terminalInput
+    }
+
     static func zone(for location: CGPoint, in size: CGSize) -> DropZone {
         let edgeRatio: CGFloat = 0.25
         let horizontalEdge = max(80, size.width * edgeRatio)
@@ -252,6 +267,21 @@ final class PaneDropTargetView: NSView {
             return false
         }
 
+        switch workspace.externalFileDropRouting(forPanelId: dropContext.panelId) {
+        case .terminalInput:
+            let handled = hostedView?.handleDroppedURLs(urls) ?? false
+#if DEBUG
+            cmuxDebugLog(
+                "terminal.paneDrop.perform panel=\(dropContext.panelId.uuidString.prefix(5)) " +
+                "fileURLs=\(urls.count) route=terminalInput " +
+                "pane=\(dropContext.paneId.id.uuidString.prefix(5)) handled=\(handled ? 1 : 0)"
+            )
+#endif
+            return handled
+        case .filePreview:
+            break
+        }
+
         let zone = fileDropZone(for: sender)
         let handled = workspace.handleExternalFileDrop(BonsplitController.ExternalFileDropRequest(
             urls: urls,
@@ -304,6 +334,20 @@ final class PaneDropTargetView: NSView {
         guard !DragOverlayRoutingPolicy.fileURLs(from: sender.draggingPasteboard).isEmpty else {
             clearDragState(phase: "\(phase).reject")
             return []
+        }
+
+        switch workspace.externalFileDropRouting(forPanelId: dropContext.panelId) {
+        case .terminalInput:
+            clearDragState(phase: "\(phase).terminalInput")
+#if DEBUG
+            cmuxDebugLog(
+                "terminal.paneDrop.\(phase) panel=\(dropContext.panelId.uuidString.prefix(5)) " +
+                "fileURL=1 route=terminalInput"
+            )
+#endif
+            return .copy
+        case .filePreview:
+            break
         }
 
         let zone = fileDropZone(for: sender)
