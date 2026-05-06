@@ -3,8 +3,7 @@ import Foundation
 extension CMUXCLI {
     private static let settingsDocsURL = "https://cmux.com/docs/configuration#cmux-json"
     private static let settingsSchemaURL = "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json"
-    private static let primarySettingsDisplayPath = "~/.config/cmux/cmux.json"
-    private static let legacySettingsDisplayPath = "~/.config/cmux/settings.json"
+    private static let primarySettingsDisplayPath = "~/.config/cmux/cmux.json", legacySettingsDisplayPath = "~/.config/cmux/settings.json"
     private static let fallbackSettingsDisplayPath = "~/Library/Application Support/com.cmuxterm.app/settings.json"
 
     private struct DocsResource {

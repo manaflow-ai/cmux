@@ -1123,7 +1123,6 @@ struct FeedItemRow: View, Equatable {
         default: return .secondary
         }
     }
-
     private var sourceChipBackground: Color {
         return sourceChipForeground.opacity(0.18)
     }
