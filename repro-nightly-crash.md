@@ -51,12 +51,11 @@ Top frames:
 
 Relevant current code map:
 
-- `docs/feed.md:46`: agents send hook events through `cmux hooks feed`, which forwards a `feed.push` V2 frame to the app socket and may block on a semaphore until the user replies.
-- `Sources/TerminalController.swift:8023`: `v2FeedPush(params:)` decodes the event and calls `FeedCoordinator.shared.ingestBlocking`.
-- `Sources/Feed/FeedCoordinator.swift:84`: `ingestBlocking(event:waitTimeout:)` blocks the caller when `waitTimeout > 0`.
-- `Sources/Feed/FeedCoordinator.swift:114`: the blocking path uses `DispatchQueue.main.sync` to insert into the `@MainActor` store before waiting on the semaphore.
-- `Sources/TerminalController.swift:1477`: current `socketWorkerV2Methods` includes `feed.push`, `feed.permission.reply`, `feed.question.reply`, and `feed.exit_plan.reply`.
-- `Sources/TerminalController.swift:1516`: current dispatcher routes socket-worker V2 methods before they enter the main-actor path.
+- [`docs/feed.md`](https://github.com/manaflow-ai/cmux/blob/7acb1fb438abb998ff9e9d6d0565c114eac55bf8/docs/feed.md): the `cmux hooks feed` workflow forwards hook events as `feed.push` V2 socket frames and may block on a semaphore until the user replies.
+- [`Sources/TerminalController.swift`](https://github.com/manaflow-ai/cmux/blob/7acb1fb438abb998ff9e9d6d0565c114eac55bf8/Sources/TerminalController.swift): `TerminalController.v2FeedPush(params:)` decodes the event and calls `FeedCoordinator.shared.ingestBlocking`.
+- [`Sources/Feed/FeedCoordinator.swift`](https://github.com/manaflow-ai/cmux/blob/7acb1fb438abb998ff9e9d6d0565c114eac55bf8/Sources/Feed/FeedCoordinator.swift): `FeedCoordinator.ingestBlocking(event:waitTimeout:)` blocks the caller when `waitTimeout > 0`, and its blocking branch uses `DispatchQueue.main.sync` to insert into the `@MainActor` store before waiting on the semaphore.
+- [`Sources/TerminalController.swift`](https://github.com/manaflow-ai/cmux/blob/7acb1fb438abb998ff9e9d6d0565c114eac55bf8/Sources/TerminalController.swift): `socketWorkerV2Methods` includes `feed.push`, `feed.permission.reply`, `feed.question.reply`, and `feed.exit_plan.reply`.
+- [`Sources/TerminalController.swift`](https://github.com/manaflow-ai/cmux/blob/7acb1fb438abb998ff9e9d6d0565c114eac55bf8/Sources/TerminalController.swift): `handleV2Command` checks `socketWorkerV2Methods` before dispatching commands to `processV2Command(_:)` on the main actor.
 
 Affected versions:
 
