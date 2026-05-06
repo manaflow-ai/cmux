@@ -307,17 +307,17 @@ enum FilePreviewKindResolver {
 
     private static func initialResolution(for url: URL) -> Resolution {
         let ext = url.pathExtension.lowercased()
-        if let type = UTType(filenameExtension: ext),
-           let mediaMode = mediaMode(for: type) {
-            return .resolved(mediaMode)
-        }
-
         if ext == "plist" {
             return .needsSniff
         }
 
         if knownTextFile(url: url, includeResourceContentType: false) {
             return .resolved(.text)
+        }
+
+        if let type = UTType(filenameExtension: ext),
+           let mediaMode = mediaMode(for: type) {
+            return .resolved(mediaMode)
         }
 
         return .needsSniff
@@ -329,14 +329,14 @@ enum FilePreviewKindResolver {
             return .resolved(.quickLook)
         }
 
+        if knownTextFile(url: url, includeResourceContentType: true) {
+            return .resolved(.text)
+        }
+
         for type in contentTypes(for: url) {
             if let mediaMode = mediaMode(for: type) {
                 return .resolved(mediaMode)
             }
-        }
-
-        if knownTextFile(url: url, includeResourceContentType: true) {
-            return .resolved(.text)
         }
 
         return .needsSniff
@@ -516,6 +516,8 @@ final class FilePreviewPanel: Panel, ObservableObject {
     private var saveGeneration = 0
     private var activeSaveGeneration: Int?
     private weak var textView: NSTextView?
+    private var textFileWatcher: FilePreviewTextFileWatcher?
+    private var isClosed = false
     private let focusCoordinator: FilePreviewFocusCoordinator
 
     var fileURL: URL {
@@ -548,6 +550,8 @@ final class FilePreviewPanel: Panel, ObservableObject {
     }
 
     func close() {
+        isClosed = true
+        stopTextFileWatcher()
         textView = nil
         focusCoordinator.unregisterAll()
     }
@@ -646,8 +650,10 @@ final class FilePreviewPanel: Panel, ObservableObject {
 
     private func prepareContentForPreviewMode() {
         if previewMode == .text {
+            startTextFileWatcher()
             loadTextContent(replacingDirtyContent: false)
         } else {
+            stopTextFileWatcher()
             isFileUnavailable = !FileManager.default.fileExists(atPath: filePath)
         }
     }
@@ -660,7 +666,9 @@ final class FilePreviewPanel: Panel, ObservableObject {
 
         Task { [weak self, fileURL, initialMode, initialIcon, generation] in
             let resolvedMode = await FilePreviewKindResolver.resolveMode(url: fileURL)
-            guard let self, self.previewModeGeneration == generation else { return }
+            guard let self,
+                  !self.isClosed,
+                  self.previewModeGeneration == generation else { return }
             let resolvedIcon = FilePreviewKindResolver.iconName(for: resolvedMode)
             guard resolvedMode != initialMode || resolvedIcon != initialIcon else { return }
             self.applyResolvedPreviewMode(resolvedMode)
@@ -683,7 +691,9 @@ final class FilePreviewPanel: Panel, ObservableObject {
 
         return Task { [weak self, fileURL, generation, replacingDirtyContent] in
             let result = await FilePreviewTextLoader.load(url: fileURL)
-            guard let self, self.textLoadGeneration == generation else { return }
+            guard let self,
+                  !self.isClosed,
+                  self.textLoadGeneration == generation else { return }
             self.applyTextLoadResult(result, replacingDirtyContent: replacingDirtyContent)
         }
     }
@@ -707,6 +717,7 @@ final class FilePreviewPanel: Panel, ObservableObject {
             if !replacingDirtyContent && isDirty {
                 originalTextContent = content
                 textEncoding = encoding
+                isDirty = textContent != originalTextContent
                 isFileUnavailable = false
                 return
             }
@@ -716,6 +727,26 @@ final class FilePreviewPanel: Panel, ObservableObject {
             isDirty = false
             isFileUnavailable = false
         }
+    }
+
+    private func startTextFileWatcher() {
+        guard !isClosed, textFileWatcher == nil else { return }
+        let watcher = FilePreviewTextFileWatcher(url: fileURL) { [weak self] _ in
+            guard let self else { return }
+            self.handleWatchedTextFileChange()
+        }
+        textFileWatcher = watcher
+        watcher.start()
+    }
+
+    private func stopTextFileWatcher() {
+        textFileWatcher?.cancel()
+        textFileWatcher = nil
+    }
+
+    private func handleWatchedTextFileChange() {
+        guard !isClosed, previewMode == .text else { return }
+        loadTextContent(replacingDirtyContent: false)
     }
 
     @discardableResult
@@ -739,7 +770,9 @@ final class FilePreviewPanel: Panel, ObservableObject {
         let encoding = textEncoding
         return Task { [weak self, currentContent, fileURL, encoding, generation] in
             let result = await FilePreviewTextSaver.save(content: currentContent, to: fileURL, encoding: encoding)
-            guard let self, self.activeSaveGeneration == generation else { return }
+            guard let self,
+                  !self.isClosed,
+                  self.activeSaveGeneration == generation else { return }
             self.activeSaveGeneration = nil
             self.isSaving = false
             switch result {
