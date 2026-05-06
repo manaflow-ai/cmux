@@ -194,13 +194,14 @@ func tmuxFormatContext(rc *rpcContext, workspaceId string, paneId string, surfac
 	}
 
 	ctx := map[string]string{
-		"session_name":  "cmux",
-		"session_id":    "$0",
-		"window_id":     "@" + canonicalWsId,
-		"window_uuid":   canonicalWsId,
-		"window_active": "1",
-		"window_flags":  "*",
-		"pane_active":   "1",
+		"session_name":     "cmux",
+		"session_id":       "$0",
+		"session_attached": "1",
+		"window_id":        "@" + canonicalWsId,
+		"window_uuid":      canonicalWsId,
+		"window_active":    "1",
+		"window_flags":     "*",
+		"pane_active":      "1",
 	}
 
 	// Get workspace list for index/title
@@ -254,6 +255,7 @@ func tmuxFormatContext(rc *rpcContext, workspaceId string, paneId string, surfac
 	if resolvedPaneId != "" {
 		ctx["pane_id"] = "%" + resolvedPaneId
 		ctx["pane_uuid"] = resolvedPaneId
+		ctx["pane_dead"] = "0"
 
 		panePayload, err := rc.call("pane.list", map[string]any{"workspace_id": canonicalWsId})
 		if err == nil {

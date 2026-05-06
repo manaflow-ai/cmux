@@ -86,18 +86,43 @@ func startMockTmuxCompatSocket(t *testing.T) string {
 					}
 				case "pane.list":
 					panes := []map[string]any{{
-						"id":    "33333333-3333-4333-8333-333333333333",
-						"ref":   "pane:1",
-						"index": 1,
+						"id":             "33333333-3333-4333-8333-333333333333",
+						"ref":            "pane:1",
+						"index":          1,
+						"rows":           32,
+						"columns":        120,
+						"cell_height_px": 18,
+						"cell_width_px":  9,
 					}}
 					if splitCreated {
 						panes = append(panes, map[string]any{
-							"id":    "66666666-6666-4666-8666-666666666666",
-							"ref":   "pane:2",
-							"index": 2,
+							"id":             "66666666-6666-4666-8666-666666666666",
+							"ref":            "pane:2",
+							"index":          2,
+							"rows":           12,
+							"columns":        120,
+							"cell_height_px": 18,
+							"cell_width_px":  9,
 						})
 					}
 					resp["result"] = map[string]any{"panes": panes}
+				case "pane.surfaces":
+					switch paneId, _ := params["pane_id"].(string); paneId {
+					case "33333333-3333-4333-8333-333333333333":
+						resp["result"] = map[string]any{
+							"surfaces": []map[string]any{{"id": "44444444-4444-4444-8444-444444444444", "selected": true}},
+						}
+					case "66666666-6666-4666-8666-666666666666":
+						resp["result"] = map[string]any{
+							"surfaces": []map[string]any{{"id": "77777777-7777-4777-8777-777777777777", "selected": true}},
+						}
+					default:
+						resp["ok"] = false
+						resp["error"] = map[string]any{
+							"code":    "not_found",
+							"message": "Pane not found",
+						}
+					}
 				case "surface.split":
 					if got, _ := params["surface_id"].(string); got != "44444444-4444-4444-8444-444444444444" {
 						resp["ok"] = false
@@ -170,6 +195,83 @@ func TestTmuxSplitWindowCanonicalizesCallerSurfaceRefs(t *testing.T) {
 
 	if got := output; got != "%66666666-6666-4666-8666-666666666666\n" {
 		t.Fatalf("stdout = %q", got)
+	}
+}
+
+func TestTmuxQuestionRendererFormatProbes(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	origWorkspace := os.Getenv("CMUX_WORKSPACE_ID")
+	origSurface := os.Getenv("CMUX_SURFACE_ID")
+	origPane := os.Getenv("TMUX_PANE")
+	os.Setenv("HOME", t.TempDir())
+	os.Setenv("CMUX_WORKSPACE_ID", "workspace:1")
+	os.Setenv("CMUX_SURFACE_ID", "surface:1")
+	os.Setenv("TMUX_PANE", "%pane:1")
+	defer func() {
+		os.Setenv("HOME", origHome)
+		if origWorkspace != "" {
+			os.Setenv("CMUX_WORKSPACE_ID", origWorkspace)
+		} else {
+			os.Unsetenv("CMUX_WORKSPACE_ID")
+		}
+		if origSurface != "" {
+			os.Setenv("CMUX_SURFACE_ID", origSurface)
+		} else {
+			os.Unsetenv("CMUX_SURFACE_ID")
+		}
+		if origPane != "" {
+			os.Setenv("TMUX_PANE", origPane)
+		} else {
+			os.Unsetenv("TMUX_PANE")
+		}
+	}()
+
+	sockPath := startMockTmuxCompatSocket(t)
+	rc := &rpcContext{socketPath: sockPath}
+
+	attached := captureStdout(t, func() {
+		if err := dispatchTmuxCommand(rc, "display-message", []string{"-p", "#{session_attached}"}); err != nil {
+			t.Fatalf("display-message session_attached: %v", err)
+		}
+	})
+	if attached != "1\n" {
+		t.Fatalf("session_attached stdout = %q, want 1\\n", attached)
+	}
+
+	targetedAttached := captureStdout(t, func() {
+		if err := dispatchTmuxCommand(rc, "display-message", []string{"-t", "%33333333-3333-4333-8333-333333333333", "-p", "#{session_attached}"}); err != nil {
+			t.Fatalf("targeted display-message session_attached: %v", err)
+		}
+	})
+	if targetedAttached != "1\n" {
+		t.Fatalf("targeted session_attached stdout = %q, want 1\\n", targetedAttached)
+	}
+
+	targetedPaneDead := captureStdout(t, func() {
+		if err := dispatchTmuxCommand(rc, "display-message", []string{"-t", "%33333333-3333-4333-8333-333333333333", "-p", "#{pane_dead}"}); err != nil {
+			t.Fatalf("targeted display-message pane_dead: %v", err)
+		}
+	})
+	if targetedPaneDead != "0\n" {
+		t.Fatalf("targeted pane_dead stdout = %q, want 0\\n", targetedPaneDead)
+	}
+
+	combined := captureStdout(t, func() {
+		if err := dispatchTmuxCommand(rc, "display-message", []string{"-t", "%33333333-3333-4333-8333-333333333333", "-p", "#{session_attached}:#{pane_height}"}); err != nil {
+			t.Fatalf("combined display-message: %v", err)
+		}
+	})
+	if combined != "1:32\n" {
+		t.Fatalf("combined stdout = %q, want 1:32\\n", combined)
+	}
+
+	panes := captureStdout(t, func() {
+		if err := dispatchTmuxCommand(rc, "list-panes", []string{"-t", "%33333333-3333-4333-8333-333333333333", "-F", "#{pane_dead}\t#{pane_id}"}); err != nil {
+			t.Fatalf("list-panes pane_dead: %v", err)
+		}
+	})
+	if panes != "0\t%33333333-3333-4333-8333-333333333333\n" {
+		t.Fatalf("pane_dead stdout = %q, want live leader pane", panes)
 	}
 }
 

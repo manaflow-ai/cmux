@@ -11347,6 +11347,7 @@ struct CMUXCLI {
         let canonicalWorkspaceId = try resolveWorkspaceId(workspaceId, client: client)
         var context: [String: String] = [
             "session_name": "cmux",
+            "session_attached": "1",
             "window_id": "@\(canonicalWorkspaceId)",
             "window_uuid": canonicalWorkspaceId
         ]
@@ -11394,6 +11395,7 @@ struct CMUXCLI {
         if let resolvedPaneId {
             context["pane_id"] = "%\(resolvedPaneId)"
             context["pane_uuid"] = resolvedPaneId
+            context["pane_dead"] = "0"
             let panePayload = try client.sendV2(method: "pane.list", params: ["workspace_id": canonicalWorkspaceId])
             let panes = panePayload["panes"] as? [[String: Any]] ?? []
             if let pane = panes.first(where: { ($0["id"] as? String) == resolvedPaneId }),

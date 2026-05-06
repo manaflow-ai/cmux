@@ -269,6 +269,141 @@ def assert_omx_hud_splits_down_with_compact_size(
         raise AssertionError(f"HUD command should not be typed into a shell: {state.sent_text!r}")
 
 
+def assert_omx_question_renderer_tmux_probes_are_supported(
+    cli_path: str,
+    socket_path: Path,
+    fake_home: Path,
+) -> None:
+    attached_proc = run_cli(
+        cli_path,
+        socket_path,
+        fake_home,
+        ["__tmux-compat", "display-message", "-p", "#{session_attached}"],
+    )
+    if attached_proc.returncode != 0:
+        raise AssertionError(
+            "question renderer attached probe returned non-zero\n"
+            f"stdout={attached_proc.stdout.strip()}\n"
+            f"stderr={attached_proc.stderr.strip()}"
+        )
+    if attached_proc.stdout.strip() != "1":
+        raise AssertionError(
+            f"expected session_attached probe to print 1, got {attached_proc.stdout!r}"
+        )
+
+    targeted_attached_proc = run_cli(
+        cli_path,
+        socket_path,
+        fake_home,
+        [
+            "__tmux-compat",
+            "display-message",
+            "-t",
+            f"%{PANE_ID}",
+            "-p",
+            "#{session_attached}",
+        ],
+    )
+    if targeted_attached_proc.returncode != 0:
+        raise AssertionError(
+            "question renderer targeted attached probe returned non-zero\n"
+            f"stdout={targeted_attached_proc.stdout.strip()}\n"
+            f"stderr={targeted_attached_proc.stderr.strip()}"
+        )
+    if targeted_attached_proc.stdout.strip() != "1":
+        raise AssertionError(
+            "expected targeted session_attached probe to print 1, "
+            f"got {targeted_attached_proc.stdout!r}"
+        )
+
+    targeted_pane_dead_proc = run_cli(
+        cli_path,
+        socket_path,
+        fake_home,
+        [
+            "__tmux-compat",
+            "display-message",
+            "-t",
+            f"%{PANE_ID}",
+            "-p",
+            "#{pane_dead}",
+        ],
+    )
+    if targeted_pane_dead_proc.returncode != 0:
+        raise AssertionError(
+            "question renderer targeted pane-alive display probe returned non-zero\n"
+            f"stdout={targeted_pane_dead_proc.stdout.strip()}\n"
+            f"stderr={targeted_pane_dead_proc.stderr.strip()}"
+        )
+    if targeted_pane_dead_proc.stdout.strip() != "0":
+        raise AssertionError(
+            "expected targeted pane_dead display probe to print 0, "
+            f"got {targeted_pane_dead_proc.stdout!r}"
+        )
+
+    combined_proc = run_cli(
+        cli_path,
+        socket_path,
+        fake_home,
+        [
+            "__tmux-compat",
+            "display-message",
+            "-t",
+            f"%{PANE_ID}",
+            "-p",
+            "#{session_attached}:#{pane_height}",
+        ],
+    )
+    if combined_proc.returncode != 0:
+        raise AssertionError(
+            "question renderer combined attached/height probe returned non-zero\n"
+            f"stdout={combined_proc.stdout.strip()}\n"
+            f"stderr={combined_proc.stderr.strip()}"
+        )
+    combined_fields = combined_proc.stdout.strip().split(":")
+    if len(combined_fields) != 2 or combined_fields[0] != "1":
+        raise AssertionError(
+            "expected combined attached/height probe to start with 1:, "
+            f"got {combined_proc.stdout!r}"
+        )
+    try:
+        height = int(combined_fields[1])
+    except ValueError as exc:
+        raise AssertionError(
+            f"expected combined attached/height probe to include numeric height, got {combined_proc.stdout!r}"
+        ) from exc
+    if height <= 0:
+        raise AssertionError(
+            f"expected combined attached/height probe to include positive height, got {combined_proc.stdout!r}"
+        )
+
+    panes_proc = run_cli(
+        cli_path,
+        socket_path,
+        fake_home,
+        [
+            "__tmux-compat",
+            "list-panes",
+            "-t",
+            f"%{PANE_ID}",
+            "-F",
+            "#{pane_dead}\t#{pane_id}",
+        ],
+    )
+    if panes_proc.returncode != 0:
+        raise AssertionError(
+            "question renderer pane-alive probe returned non-zero\n"
+            f"stdout={panes_proc.stdout.strip()}\n"
+            f"stderr={panes_proc.stderr.strip()}"
+        )
+    lines = [line for line in panes_proc.stdout.splitlines() if line.strip()]
+    expected = f"0\t%{PANE_ID}"
+    if expected not in lines:
+        raise AssertionError(
+            f"expected pane-alive probe to include {expected!r}, got {lines!r}"
+        )
+
+
 def assert_omx_hud_is_visible_to_tmux_pane_formats(
     cli_path: str,
     socket_path: Path,
@@ -514,6 +649,11 @@ def main() -> int:
             try:
                 assert_omx_hud_feature_probe_is_supported(cli_path, socket_path, fake_home)
                 assert_omx_hud_unsupported_feature_probe_fails(cli_path, socket_path, fake_home)
+                assert_omx_question_renderer_tmux_probes_are_supported(
+                    cli_path,
+                    socket_path,
+                    fake_home,
+                )
                 assert_omx_hud_splits_down_with_compact_size(
                     cli_path,
                     socket_path,
