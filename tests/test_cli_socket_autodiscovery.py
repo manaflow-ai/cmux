@@ -151,6 +151,7 @@ def run_ping(
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env["HOME"] = home
+    env["CFFIXED_USER_HOME"] = home
     env.pop("CMUX_SOCKET_PATH", None)
     env.pop("CMUX_SOCKET", None)
     env.pop("CMUX_BUNDLE_ID", None)
