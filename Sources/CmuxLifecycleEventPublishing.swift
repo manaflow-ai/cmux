@@ -11,6 +11,28 @@ private enum CmuxSelectionEventState {
     static func paneKey(workspaceId: UUID, paneId: UUID) -> String {
         "\(workspaceId.uuidString):\(paneId.uuidString)"
     }
+
+    static func clearWorkspace(_ workspaceId: UUID) {
+        selectedSurfaceByWorkspacePane = selectedSurfaceByWorkspacePane.filter {
+            !$0.key.hasPrefix("\(workspaceId.uuidString):")
+        }
+        focusedPaneByWorkspace.removeValue(forKey: workspaceId)
+        focusedSurfaceByWorkspace.removeValue(forKey: workspaceId)
+    }
+
+    static func clearPane(workspaceId: UUID, paneId: UUID) {
+        selectedSurfaceByWorkspacePane.removeValue(forKey: paneKey(workspaceId: workspaceId, paneId: paneId))
+        if focusedPaneByWorkspace[workspaceId] == paneId {
+            focusedPaneByWorkspace.removeValue(forKey: workspaceId)
+        }
+    }
+
+    static func clearSurface(workspaceId: UUID, surfaceId: UUID) {
+        selectedSurfaceByWorkspacePane = selectedSurfaceByWorkspacePane.filter { $0.value != surfaceId }
+        if focusedSurfaceByWorkspace[workspaceId] == surfaceId {
+            focusedSurfaceByWorkspace.removeValue(forKey: workspaceId)
+        }
+    }
 }
 
 extension TabManager {
@@ -45,6 +67,7 @@ extension TabManager {
             currentDirectory: workspace.currentDirectory,
             remainingTabCount: tabs.count
         )
+        CmuxSelectionEventState.clearWorkspace(workspace.id)
     }
 
     func publishCmuxWorkspaceSelected(_ workspace: Workspace) {
@@ -126,6 +149,7 @@ extension Workspace {
             kind: panel.map(Self.cmuxEventSurfaceKind),
             origin: origin
         )
+        CmuxSelectionEventState.clearSurface(workspaceId: id, surfaceId: surfaceId)
     }
 
     func publishCmuxPaneClosed(_ paneId: PaneID, closedPanelIds: [UUID], origin: String) {
@@ -135,6 +159,7 @@ extension Workspace {
             closedSurfaceIds: closedPanelIds,
             origin: origin
         )
+        CmuxSelectionEventState.clearPane(workspaceId: id, paneId: paneId.id)
     }
 
     func publishCmuxFocusedSelection(paneId: PaneID, surfaceId: UUID, origin: String) {
