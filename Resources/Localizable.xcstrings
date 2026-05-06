@@ -101186,6 +101186,40 @@
         }
       }
     },
+    "markdown.content.copy.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy markdown content"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Markdown本文をコピー"
+          }
+        }
+      }
+    },
+    "markdown.path.copy.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy file path"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "new",
+            "value": "ファイルパスをコピー"
+          }
+        }
+      }
+    },
     "settings.section.sidebarAppearance": {
       "extractionState": "manual",
       "localizations": {

@@ -12,6 +12,8 @@ struct MarkdownPanelView: View {
 
     @State private var focusFlashOpacity: Double = 0.0
     @State private var focusFlashAnimationGeneration: Int = 0
+    @State private var pathCopied: Bool = false
+    @State private var contentCopied: Bool = false
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -87,7 +89,64 @@ struct MarkdownPanelView: View {
                 .foregroundColor(.secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
+                .textSelection(.enabled)
+                .help(panel.filePath)
+            copyPathButton
             Spacer()
+            copyContentButton
+        }
+    }
+
+    private var copyPathButton: some View {
+        let tooltip = String(
+            localized: "markdown.path.copy.tooltip",
+            defaultValue: "Copy file path"
+        )
+        return Button(action: copyFilePath) {
+            Image(systemName: pathCopied ? "checkmark" : "doc.on.doc")
+                .font(.system(size: 11))
+                .foregroundColor(pathCopied ? .green : .secondary)
+                .frame(width: 14, height: 14)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .help(tooltip)
+        .accessibilityLabel(tooltip)
+    }
+
+    private var copyContentButton: some View {
+        let tooltip = String(
+            localized: "markdown.content.copy.tooltip",
+            defaultValue: "Copy markdown content"
+        )
+        return Button(action: copyMarkdownContent) {
+            Image(systemName: contentCopied ? "checkmark" : "doc.plaintext")
+                .font(.system(size: 11))
+                .foregroundColor(contentCopied ? .green : .secondary)
+                .frame(width: 14, height: 14)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .disabled(panel.content.isEmpty)
+        .help(tooltip)
+        .accessibilityLabel(tooltip)
+    }
+
+    private func copyFilePath() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(panel.filePath, forType: .string)
+        pathCopied = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            pathCopied = false
+        }
+    }
+
+    private func copyMarkdownContent() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(panel.content, forType: .string)
+        contentCopied = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            contentCopied = false
         }
     }
 
@@ -99,13 +158,17 @@ struct MarkdownPanelView: View {
             Text(String(localized: "markdown.fileUnavailable.title", defaultValue: "File unavailable"))
                 .font(.headline)
                 .foregroundColor(.primary)
-            Text(panel.filePath)
-                .font(.system(size: 12, design: .monospaced))
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 24)
+            HStack(spacing: 8) {
+                Text(panel.filePath)
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .help(panel.filePath)
+                copyPathButton
+            }
+            .padding(.horizontal, 24)
             Text(String(localized: "markdown.fileUnavailable.message", defaultValue: "The file may have been moved or deleted."))
                 .font(.caption)
                 .foregroundColor(.secondary)
