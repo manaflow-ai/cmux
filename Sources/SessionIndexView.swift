@@ -2331,6 +2331,7 @@ private func sessionTabTransferData(for entry: SessionEntry, dragId: UUID) -> Da
 /// bonsplit's external-drop decoder reads from that pasteboard directly
 /// and SwiftUI's NSItemProvider bridge doesn't always surface custom
 /// UTTypes there reliably.
+@MainActor
 private func sessionDragItemProvider(for entry: SessionEntry) -> NSItemProvider {
     let dragId = SessionDragRegistry.shared.register(entry)
     let provider = NSItemProvider()
@@ -2343,12 +2344,10 @@ private func sessionDragItemProvider(for entry: SessionEntry) -> NSItemProvider 
             completion(data, nil)
             return nil
         }
-        DispatchQueue.main.async {
-            let pb = NSPasteboard(name: .drag)
-            let type = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
-            pb.addTypes([type], owner: nil)
-            pb.setData(data, forType: type)
-        }
+        let pb = NSPasteboard(name: .drag)
+        let type = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
+        pb.addTypes([type], owner: nil)
+        pb.setData(data, forType: type)
     }
 
     provider.suggestedName = entry.displayTitle
