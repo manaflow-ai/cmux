@@ -17,6 +17,8 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
     static let allCases: [RestorableAgentKind] = [
         .claude,
         .codex,
+        // Pi is registry-owned so the built-in Vault registration can be
+        // overridden by project config while direct .pi values still encode.
         .cursor,
         .gemini,
         .opencode,
@@ -50,6 +52,7 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         switch self {
         case .claude: return "claude"
         case .codex: return "codex"
+        case .pi: return "pi"
         case .cursor: return "cursor"
         case .gemini: return "gemini"
         case .opencode: return "opencode"
