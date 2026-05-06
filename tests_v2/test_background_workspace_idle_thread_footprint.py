@@ -168,7 +168,7 @@ def main() -> int:
 
             _must(
                 absolute_thread_growth <= thread_budget,
-                "Background workspace priming spawned too many threads while idle: "
+                "Background workspace priming spawned too many threads in total: "
                 f"before={before.thread_count} after={after_idle.thread_count} "
                 f"delta={absolute_thread_growth} budget={thread_budget}",
             )

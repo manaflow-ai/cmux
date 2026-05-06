@@ -204,6 +204,86 @@ def test_codex_stop_reaps_transcript_monitor(cli_path: str, root: Path) -> None:
                 subprocess.run(["/bin/kill", str(pid)], check=False)
 
 
+def test_codex_stop_without_turn_keeps_session_wide_monitor(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-monitor-session-wide.sock"
+    state_dir = root / "hook-state-session-wide"
+    transcript_path = root / "codex-session-wide.jsonl"
+    state_dir.mkdir()
+    transcript_path.write_text("", encoding="utf-8")
+
+    session_id = f"codex-monitor-session-wide-session-{os.getpid()}"
+    env = os.environ.copy()
+    env["CMUX_SOCKET_PATH"] = str(socket_path)
+    env["CMUX_SURFACE_ID"] = "surface-codex-feed-test"
+    env["CMUX_WORKSPACE_ID"] = "workspace-codex-feed-test"
+    env["CMUX_AGENT_HOOK_STATE_DIR"] = str(state_dir)
+
+    with FakeCmuxSocket(socket_path, None):
+        try:
+            prompt = {
+                "session_id": session_id,
+                "cwd": str(root),
+                "transcript_path": str(transcript_path),
+            }
+            result = subprocess.run(
+                [cli_path, "--socket", str(socket_path), "hooks", "codex", "prompt-submit"],
+                input=json.dumps(prompt),
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+                timeout=10,
+            )
+            if result.returncode != 0:
+                raise AssertionError(
+                    f"hooks codex prompt-submit failed exit={result.returncode}\n"
+                    f"stdout={result.stdout}\nstderr={result.stderr}"
+                )
+
+            wait_for_monitor_pids(session_id, present=True, timeout=5)
+            stop = {
+                "session_id": session_id,
+                "cwd": str(root),
+                "transcript_path": str(transcript_path),
+            }
+            result = subprocess.run(
+                [cli_path, "--socket", str(socket_path), "hooks", "codex", "stop"],
+                input=json.dumps(stop),
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+                timeout=10,
+            )
+            if result.returncode != 0:
+                raise AssertionError(
+                    f"hooks codex stop failed exit={result.returncode}\n"
+                    f"stdout={result.stdout}\nstderr={result.stderr}"
+                )
+            time.sleep(0.5)
+            if not monitor_pids_for_session(session_id):
+                raise AssertionError("turn-less Stop reaped a session-wide monitor")
+
+            result = subprocess.run(
+                [cli_path, "--socket", str(socket_path), "hooks", "codex", "session-end"],
+                input=json.dumps(stop),
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+                timeout=10,
+            )
+            if result.returncode != 0:
+                raise AssertionError(
+                    f"hooks codex session-end failed exit={result.returncode}\n"
+                    f"stdout={result.stdout}\nstderr={result.stderr}"
+                )
+            wait_for_monitor_pids(session_id, present=False, timeout=5)
+        finally:
+            for pid in monitor_pids_for_session(session_id):
+                subprocess.run(["/bin/kill", str(pid)], check=False)
+
+
 def test_codex_monitor_exits_when_workspace_has_no_surfaces(cli_path: str, root: Path) -> None:
     socket_path = root / "cmux-monitor-empty-surfaces.sock"
     state_dir = root / "hook-state-empty-surfaces"
@@ -487,6 +567,7 @@ def main() -> int:
         root = Path(td)
         try:
             test_codex_stop_reaps_transcript_monitor(cli_path, root)
+            test_codex_stop_without_turn_keeps_session_wide_monitor(cli_path, root)
             test_codex_monitor_exits_when_workspace_has_no_surfaces(cli_path, root)
             test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path, root)
             test_install_adds_codex_permission_request_hook(cli_path, root)

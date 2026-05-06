@@ -8335,7 +8335,7 @@ final class Workspace: Identifiable, ObservableObject {
             guard let tabId = bonsplitController.selectedTab(inPane: paneId)?.id ?? bonsplitController.tabs(inPane: paneId).first?.id, let panelId = panelIdFromSurfaceId(tabId), seenPanelIds.insert(panelId).inserted else { return nil }
             return panels[panelId] as? TerminalPanel
         }
-        return visibleTargets.isEmpty ? (focusedTerminalPanel.map { [$0] } ?? panels.values.lazy.compactMap { $0 as? TerminalPanel }.prefix(1).map { $0 }) : visibleTargets
+        return visibleTargets
     }
     func requestBackgroundPrimeTerminalSurfaceStartIfNeeded() { backgroundPrimeTerminalPanels.forEach { $0.surface.requestBackgroundSurfaceStartIfNeeded() } }
     func hasLoadedBackgroundPrimeTerminalSurface() -> Bool { backgroundPrimeTerminalPanels.allSatisfy { $0.surface.surface != nil } }

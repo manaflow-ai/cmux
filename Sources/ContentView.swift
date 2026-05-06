@@ -3919,107 +3919,28 @@ struct ContentView: View {
         workspaceId: UUID,
         timeoutSeconds: TimeInterval
     ) async -> String {
-        await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
-            var resolved = false
-            var workspacePanelsCancellable: AnyCancellable?
-            var pendingLoadsCancellable: AnyCancellable?
-            var tabsCancellable: AnyCancellable?
-            var readyObserver: NSObjectProtocol?
-            var hostedViewObserver: NSObjectProtocol?
-            var timeoutWorkItem: DispatchWorkItem?
-
-            @MainActor
-            func finish(_ reason: String) {
-                guard !resolved else { return }
-                resolved = true
-                workspacePanelsCancellable?.cancel()
-                pendingLoadsCancellable?.cancel()
-                tabsCancellable?.cancel()
-                if let readyObserver {
-                    NotificationCenter.default.removeObserver(readyObserver)
-                }
-                if let hostedViewObserver {
-                    NotificationCenter.default.removeObserver(hostedViewObserver)
-                }
-                timeoutWorkItem?.cancel()
-                continuation.resume(returning: reason)
+        let deadline = ProcessInfo.processInfo.systemUptime + timeoutSeconds
+        while ProcessInfo.processInfo.systemUptime < deadline {
+            switch stepBackgroundWorkspacePrime(workspaceId: workspaceId) {
+            case .pending:
+                break
+            case .completed(let reason):
+                return reason
             }
 
-            @MainActor
-            func evaluate() {
-                switch stepBackgroundWorkspacePrime(workspaceId: workspaceId) {
-                case .pending:
-                    break
-                case .completed(let reason):
-                    finish(reason)
-                }
-            }
-
-            if let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) {
-                workspacePanelsCancellable = workspace.$panels
-                    .map { _ in () }
-                    .sink { _ in
-                        Task { @MainActor in
-                            evaluate()
-                        }
-                    }
-            }
-
-            pendingLoadsCancellable = tabManager.$pendingBackgroundWorkspaceLoadIds
-                .map { _ in () }
-                .sink { _ in
-                    Task { @MainActor in
-                        evaluate()
-                    }
-                }
-
-            tabsCancellable = tabManager.$tabs
-                .map { _ in () }
-                .sink { _ in
-                    Task { @MainActor in
-                        evaluate()
-                    }
-                }
-
-            readyObserver = NotificationCenter.default.addObserver(
-                forName: .terminalSurfaceDidBecomeReady,
-                object: nil,
-                queue: .main
-            ) { notification in
-                guard let readyWorkspaceId = notification.userInfo?["workspaceId"] as? UUID,
-                      readyWorkspaceId == workspaceId else { return }
-                Task { @MainActor in
-                    evaluate()
-                }
-            }
-
-            hostedViewObserver = NotificationCenter.default.addObserver(
-                forName: .terminalSurfaceHostedViewDidMoveToWindow,
-                object: nil,
-                queue: .main
-            ) { notification in
-                guard let hostedWorkspaceId = notification.userInfo?["workspaceId"] as? UUID,
-                      hostedWorkspaceId == workspaceId else { return }
-                Task { @MainActor in
-                    evaluate()
-                }
-            }
-
-            let timeoutWork = DispatchWorkItem {
-                Task { @MainActor in
-                    if tabManager.pendingBackgroundWorkspaceLoadIds.contains(workspaceId) {
-                        tabManager.completeBackgroundWorkspaceLoad(for: workspaceId)
-                    }
-                    finish("timeout")
-                }
-            }
-            timeoutWorkItem = timeoutWork
-            DispatchQueue.main.asyncAfter(deadline: .now() + timeoutSeconds, execute: timeoutWork)
-
-            Task { @MainActor in
-                evaluate()
+            let remaining = deadline - ProcessInfo.processInfo.systemUptime
+            guard remaining > 0 else { break }
+            do {
+                try await Task.sleep(nanoseconds: UInt64(min(0.05, remaining) * 1_000_000_000))
+            } catch {
+                return "cancelled"
             }
         }
+
+        if tabManager.pendingBackgroundWorkspaceLoadIds.contains(workspaceId) {
+            tabManager.completeBackgroundWorkspaceLoad(for: workspaceId)
+        }
+        return "timeout"
     }
 
     private var pendingBackgroundWorkspaceLoadTaskKey: [String] {

@@ -16884,7 +16884,10 @@ export default CMUXSessionRestore;
 
         case .stop:
             if def.name == "codex", !sessionId.isEmpty {
-                retireCodexMonitorLeases(sessionId: sessionId, turnId: input.turnId, env: env)
+                let stopTurnId = input.turnId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if !stopTurnId.isEmpty {
+                    retireCodexMonitorLeases(sessionId: sessionId, turnId: stopTurnId, env: env)
+                }
             }
             do {
                 let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
