@@ -300,6 +300,7 @@ def main() -> int:
         "--max-old-space-size=4096 "
         '--require "/Users/example/Library/Application Support/cmux/node-options/restore-node-options.cjs" '
         "--max-old-space-size 4096 "
+        "--max-old-space-size=8192 "
         "--trace-warnings",
     )
     if proc.returncode != 0:
@@ -324,23 +325,23 @@ def main() -> int:
         )
         return 1
 
-    if remaining_flags != "--max-old-space-size=4096 --trace-warnings":
+    if remaining_flags != "--max-old-space-size=4096 --max-old-space-size=8192 --trace-warnings":
         print(
-            "FAIL: expected stale cmux restore preloads and paired heap caps to be stripped before reinjection, "
+            "FAIL: expected stale cmux restore preloads and paired heap caps to be stripped while preserving the user heap cap, "
             f"got {node_options_value!r}"
         )
         return 1
 
-    if runtime_node_options_value != "--trace-warnings":
+    if runtime_node_options_value != "--max-old-space-size=8192 --trace-warnings":
         print(
-            "FAIL: expected Claude runtime NODE_OPTIONS to drop stale cmux restore preloads, "
+            "FAIL: expected Claude runtime NODE_OPTIONS to drop stale cmux restore preloads only, "
             f"got {runtime_node_options_value!r}"
         )
         return 1
 
-    if child_node_options_value != "--trace-warnings":
+    if child_node_options_value != "--max-old-space-size=8192 --trace-warnings":
         print(
-            "FAIL: expected child NODE_OPTIONS to drop stale cmux restore preloads, "
+            "FAIL: expected child NODE_OPTIONS to drop stale cmux restore preloads only, "
             f"got {child_node_options_value!r}"
         )
         return 1
@@ -365,21 +366,21 @@ def main() -> int:
         )
         return 1
 
-    if remaining_flags != "--max-old-space-size=4096 --trace-warnings":
+    if remaining_flags != "--max-old-space-size=4096 --max-old-space-size 2048 --trace-warnings":
         print(
-            "FAIL: expected launcher to replace the existing space-separated NODE_OPTIONS heap cap after the restore preload, "
+            "FAIL: expected launcher to inject the cmux heap cap while preserving the user heap cap after the restore preload, "
             f"got {node_options_value!r}"
         )
         return 1
 
-    if runtime_node_options_value != "--max-old-space-size 2048 --trace-warnings":
+    if runtime_node_options_value != "--max-old-space-size=2048 --trace-warnings":
         print(
             "FAIL: expected Claude runtime NODE_OPTIONS to preserve the original max-old-space-size flag, "
             f"got {runtime_node_options_value!r}"
         )
         return 1
 
-    if child_node_options_value != "--max-old-space-size 2048 --trace-warnings":
+    if child_node_options_value != "--max-old-space-size=2048 --trace-warnings":
         print(
             "FAIL: expected child NODE_OPTIONS to preserve the original max-old-space-size flag, "
             f"got {child_node_options_value!r}"

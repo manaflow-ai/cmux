@@ -441,15 +441,6 @@ func cleanedNodeOptions(existing string) string {
 			continue
 		}
 
-		if token == "--max-old-space-size" {
-			if i+1 < len(tokens) {
-				i++
-			}
-			continue
-		}
-		if strings.HasPrefix(token, "--max-old-space-size=") {
-			continue
-		}
 		filtered = append(filtered, token)
 	}
 	return joinNodeOptionsTokens(filtered)

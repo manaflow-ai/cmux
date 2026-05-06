@@ -403,13 +403,13 @@ func TestMergeNodeOptions(t *testing.T) {
 	}
 
 	existing := "--max-old-space-size=2048 --trace-warnings"
-	if got := mergeNodeOptions(existing, restoreModulePath); got != "--require=/tmp/restore-node-options.cjs --max-old-space-size=4096 --trace-warnings" {
-		t.Fatalf("mergeNodeOptions should replace existing size flag = %q", got)
+	if got := mergeNodeOptions(existing, restoreModulePath); got != "--require=/tmp/restore-node-options.cjs --max-old-space-size=4096 --max-old-space-size=2048 --trace-warnings" {
+		t.Fatalf("mergeNodeOptions should preserve existing size flag = %q", got)
 	}
 
 	spaceSeparated := "--max-old-space-size 2048 --trace-warnings"
-	if got := mergeNodeOptions(spaceSeparated, restoreModulePath); got != "--require=/tmp/restore-node-options.cjs --max-old-space-size=4096 --trace-warnings" {
-		t.Fatalf("mergeNodeOptions should replace space-separated size flag = %q", got)
+	if got := mergeNodeOptions(spaceSeparated, restoreModulePath); got != "--require=/tmp/restore-node-options.cjs --max-old-space-size=4096 --max-old-space-size 2048 --trace-warnings" {
+		t.Fatalf("mergeNodeOptions should preserve space-separated size flag = %q", got)
 	}
 
 	appSupportPath := "/Users/example/Library/Application Support/cmux/node-options/restore-node-options.cjs"
@@ -451,6 +451,13 @@ func TestMergeNodeOptions(t *testing.T) {
 	}
 	if got := originalNodeOptionsForRestore(staleDurableRequire); got != "--trace-warnings" {
 		t.Fatalf("originalNodeOptionsForRestore should strip stale cmux restore require = %q", got)
+	}
+	staleRequireWithUserHeap := "--require=/tmp/cmux-claude-node-options/restore-node-options.cjs --max-old-space-size=4096 --max-old-space-size=8192 --trace-warnings"
+	if got := mergeNodeOptions(staleRequireWithUserHeap, restoreModulePath); got != "--require=/tmp/restore-node-options.cjs --max-old-space-size=4096 --max-old-space-size=8192 --trace-warnings" {
+		t.Fatalf("mergeNodeOptions should strip stale cmux heap cap only = %q", got)
+	}
+	if got := originalNodeOptionsForRestore(staleRequireWithUserHeap); got != "--max-old-space-size=8192 --trace-warnings" {
+		t.Fatalf("originalNodeOptionsForRestore should preserve user heap cap after stale cmux restore require = %q", got)
 	}
 	if got := originalNodeOptionsForRestore("--max-old-space-size 2048 --trace-warnings"); got != "--max-old-space-size=2048 --trace-warnings" {
 		t.Fatalf("originalNodeOptionsForRestore should normalize space-separated heap flags = %q", got)

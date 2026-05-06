@@ -15359,14 +15359,6 @@ struct CMUXCLI {
                 continue
             }
 
-            if token == "--max-old-space-size" {
-                index += min(2, tokens.count - index)
-                continue
-            }
-            if token.hasPrefix("--max-old-space-size=") {
-                index += 1
-                continue
-            }
             filtered.append(token)
             index += 1
         }

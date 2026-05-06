@@ -532,7 +532,7 @@ def test_live_socket_preserves_only_listed_claude_auth_keys(failures: list[str])
     expect("--session-id" not in real_argv, f"listed auth env: expected no injected session id, got {real_argv}", failures)
 
 
-def test_live_socket_enforces_heap_cap_for_space_separated_flag(failures: list[str]) -> None:
+def test_live_socket_preserves_user_heap_cap_for_space_separated_flag(failures: list[str]) -> None:
     existing = "--max-old-space-size 2048 --trace-warnings"
     restored = "--max-old-space-size=2048 --trace-warnings"
     code, _, _, stderr, _, node_options, runtime_node_options, child_node_options, _, _ = run_wrapper(
@@ -548,8 +548,8 @@ def test_live_socket_enforces_heap_cap_for_space_separated_flag(failures: list[s
         failures,
     )
     expect(
-        remaining_flags == "--max-old-space-size=4096 --trace-warnings",
-        "space-separated heap flag: expected wrapper to replace the existing max-old-space-size option after the preload, "
+        remaining_flags == "--max-old-space-size=4096 --max-old-space-size 2048 --trace-warnings",
+        "space-separated heap flag: expected wrapper to inject its heap cap while preserving the user max-old-space-size option, "
         f"got {node_options!r}",
         failures,
     )
@@ -770,6 +770,10 @@ def test_live_socket_strips_stale_cmux_restore_require_from_node_options(failure
             "durable-split",
             '--require "/Users/example/Library/Application Support/cmux/node-options/restore-node-options.cjs" --max-old-space-size 4096 --trace-warnings',
         ),
+        (
+            "stale-preload-with-user-heap",
+            "--require=/tmp/cmux-claude-node-options/restore-node-options.cjs --max-old-space-size=4096 --max-old-space-size=8192 --trace-warnings",
+        ),
     ]
     for label, existing in stale_cases:
         code, _, _, stderr, _, node_options, runtime_node_options, child_node_options, _, _ = run_wrapper(
@@ -785,20 +789,22 @@ def test_live_socket_strips_stale_cmux_restore_require_from_node_options(failure
             f"stale cmux restore require ({label}): expected new restore preload, got {node_options!r}",
             failures,
         )
+        expected_runtime = "--max-old-space-size=8192 --trace-warnings" if label == "stale-preload-with-user-heap" else "--trace-warnings"
+        expected_remaining = ["--max-old-space-size=4096"] + split_node_options(expected_runtime)
         expect(
-            split_node_options(remaining_flags) == ["--max-old-space-size=4096", "--trace-warnings"],
+            split_node_options(remaining_flags) == expected_remaining,
             "stale cmux restore require "
             f"({label}): expected stale preload and injected heap cap to be stripped before reinjection, got {node_options!r}",
             failures,
         )
         expect(
-            runtime_node_options == "--trace-warnings",
-            f"stale cmux restore require ({label}): expected runtime NODE_OPTIONS to drop stale cmux preload, got {runtime_node_options!r}",
+            runtime_node_options == expected_runtime,
+            f"stale cmux restore require ({label}): expected runtime NODE_OPTIONS to drop stale cmux preload only, got {runtime_node_options!r}",
             failures,
         )
         expect(
-            child_node_options == "--trace-warnings",
-            f"stale cmux restore require ({label}): expected child NODE_OPTIONS to drop stale cmux preload, got {child_node_options!r}",
+            child_node_options == expected_runtime,
+            f"stale cmux restore require ({label}): expected child NODE_OPTIONS to drop stale cmux preload only, got {child_node_options!r}",
             failures,
         )
 
@@ -948,7 +954,7 @@ def main() -> int:
     test_live_socket_normalizes_subrouter_claude_config_dir(failures)
     test_live_socket_preserves_claude_auth_for_resume_launch(failures)
     test_live_socket_preserves_only_listed_claude_auth_keys(failures)
-    test_live_socket_enforces_heap_cap_for_space_separated_flag(failures)
+    test_live_socket_preserves_user_heap_cap_for_space_separated_flag(failures)
     test_live_socket_preserves_quoted_existing_require_path(failures)
     test_live_socket_preserves_unquoted_apostrophe_require_path(failures)
     test_live_socket_preserves_unquoted_backslash_require_path(failures)

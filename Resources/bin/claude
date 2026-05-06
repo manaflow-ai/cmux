@@ -430,14 +430,6 @@ merge_node_options() {
             continue
         fi
 
-        if [[ "$token" == "--max-old-space-size" ]]; then
-            index=$((index + 2))
-            continue
-        fi
-        if [[ "$token" == --max-old-space-size=* ]]; then
-            index=$((index + 1))
-            continue
-        fi
         filtered+=("$token")
         index=$((index + 1))
     done
