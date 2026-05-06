@@ -36,9 +36,8 @@ enum WorkspaceFinderDirectoryResolver {
     }
 
     @concurrent static func existingDirectoryURL(for path: String) async -> URL? {
-        await Task.detached(priority: .utility) {
-            existingDirectoryURLUnchecked(for: path)
-        }.value
+        guard !Task.isCancelled else { return nil }
+        return existingDirectoryURLUnchecked(for: path)
     }
 
     private nonisolated static func existingDirectoryURLUnchecked(for path: String) -> URL? {
