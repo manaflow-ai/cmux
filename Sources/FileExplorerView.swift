@@ -587,7 +587,7 @@ final class FileExplorerContainerView: NSView {
     private let loadingIndicator: NSProgressIndicator
     private let searchController: FileSearchController
     private var searchBarHeightConstraint: NSLayoutConstraint!
-    var searchSnapshot = FileSearchSnapshot.empty
+    private(set) var searchSnapshot = FileSearchSnapshot.empty
     private var currentRootPath = ""
     private var currentProviderIsLocal = false
     private var currentContentRevision = 0
