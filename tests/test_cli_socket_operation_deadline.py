@@ -140,7 +140,7 @@ def capabilities_response_handler(conn: socket.socket, stop_event: threading.Eve
         request = json.loads(command.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
         return
-    if request.get("method") != "system.capabilities":
+    if not isinstance(request, dict) or request.get("method") != "system.capabilities":
         return
     conn.sendall(
         b'{"ok":true,"result":{"socket_path":"/tmp/cmux.sock","protocol":"cmux-socket",'
