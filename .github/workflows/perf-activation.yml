@@ -70,13 +70,16 @@ jobs:
         run: ./scripts/download-prebuilt-ghosttykit.sh
 
       - name: Install zig
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
+          HOMEBREW_NO_ENV_HINTS: "1"
         run: |
           set -euo pipefail
           ZIG_REQUIRED="0.15.2"
           if command -v zig >/dev/null 2>&1 && zig version 2>/dev/null | grep -q "^${ZIG_REQUIRED}"; then
             echo "zig ${ZIG_REQUIRED} already installed"
           else
-            echo "Installing zig ${ZIG_REQUIRED}"
             case "$(uname -m)" in
               arm64) ZIG_ARCH="aarch64" ;;
               x86_64) ZIG_ARCH="x86_64" ;;
@@ -87,17 +90,49 @@ jobs:
             esac
             ZIG_DIR="/tmp/zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}"
             ZIG_URL="https://ziglang.org/download/${ZIG_REQUIRED}/zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}.tar.xz"
-            for attempt in 1 2 3 4 5; do
-              if curl -fSL "$ZIG_URL" -o /tmp/zig.tar.xz; then
-                break
+
+            install_zig_from_homebrew() {
+              if ! command -v brew >/dev/null 2>&1; then
+                return 1
               fi
-              if [ "$attempt" -eq 5 ]; then
-                echo "Failed to download $ZIG_URL after $attempt attempts" >&2
-                exit 1
+              echo "Installing zig ${ZIG_REQUIRED} from Homebrew zig@0.15"
+              if ! brew list --versions zig@0.15 >/dev/null 2>&1; then
+                brew install zig@0.15 || return 1
               fi
-              echo "Download failed for $ZIG_URL; retrying in $((attempt * 5))s" >&2
-              sleep $((attempt * 5))
-            done
+              local brew_zig_prefix
+              brew_zig_prefix="$(brew --prefix zig@0.15 2>/dev/null)" || return 1
+              local brew_zig_bin="${brew_zig_prefix}/bin/zig"
+              if [ ! -x "$brew_zig_bin" ]; then
+                return 1
+              fi
+              sudo mkdir -p /usr/local/bin
+              sudo ln -sf "$brew_zig_bin" /usr/local/bin/zig
+              hash -r
+              zig version | grep -q "^${ZIG_REQUIRED}"
+            }
+
+            download_zig_tarball() {
+              echo "Installing zig ${ZIG_REQUIRED} from tarball"
+              for attempt in 1 2 3 4 5; do
+                rm -f /tmp/zig.tar.xz
+                if curl -fL --retry 2 --retry-all-errors --connect-timeout 20 --max-time 180 --speed-limit 100000 --speed-time 30 "$ZIG_URL" -o /tmp/zig.tar.xz; then
+                  return 0
+                fi
+                if [ "$attempt" -eq 5 ]; then
+                  echo "Failed to download $ZIG_URL after $attempt attempts" >&2
+                  return 1
+                fi
+                echo "Download failed for $ZIG_URL; retrying in $((attempt * 5))s" >&2
+                sleep $((attempt * 5))
+              done
+            }
+
+            if install_zig_from_homebrew; then
+              zig version
+              exit 0
+            fi
+            echo "Homebrew zig@0.15 install unavailable; falling back to ziglang.org tarball" >&2
+            download_zig_tarball
             tar xf /tmp/zig.tar.xz -C /tmp
             sudo mkdir -p /usr/local/bin /usr/local/lib
             sudo cp -f "${ZIG_DIR}/zig" /usr/local/bin/zig
