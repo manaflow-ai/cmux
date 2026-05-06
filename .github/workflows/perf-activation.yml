@@ -88,6 +88,12 @@ jobs:
             ZIG_DIR="/tmp/zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}"
             ZIG_TAR="/tmp/zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}.tar.xz"
             ZIG_URL="https://ziglang.org/download/${ZIG_REQUIRED}/zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}.tar.xz"
+            ZIG_SIG="${ZIG_TAR}.minisig"
+            ZIG_SIG_URL="${ZIG_URL}.minisig"
+            ZIG_PUBKEY="RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U"
+            if ! command -v minisign >/dev/null 2>&1; then
+              brew install minisign
+            fi
             curl \
               --fail \
               --location \
@@ -102,6 +108,17 @@ jobs:
               --speed-time 60 \
               "$ZIG_URL" \
               --output "$ZIG_TAR"
+            curl \
+              --fail \
+              --location \
+              --show-error \
+              --retry 8 \
+              --retry-all-errors \
+              --retry-delay 10 \
+              --retry-max-time 300 \
+              "$ZIG_SIG_URL" \
+              --output "$ZIG_SIG"
+            minisign -Vm "$ZIG_TAR" -P "$ZIG_PUBKEY"
             tar xf "$ZIG_TAR" -C /tmp
             sudo mkdir -p /usr/local/bin /usr/local/lib
             sudo cp -f "${ZIG_DIR}/zig" /usr/local/bin/zig
