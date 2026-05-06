@@ -15162,10 +15162,13 @@ struct CMUXCLI {
     ) -> String? {
         let leaseId = UUID().uuidString.lowercased()
         let path = codexMonitorLeasePath(leaseId: leaseId, env: env)
+        let normalizedSessionId = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedTurnId = turnId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedSessionId.isEmpty else { return nil }
         let record = CodexMonitorLeaseRecord(
             leaseId: leaseId,
-            sessionId: sessionId,
-            turnId: turnId,
+            sessionId: normalizedSessionId,
+            turnId: normalizedTurnId?.isEmpty == false ? normalizedTurnId : nil,
             workspaceId: workspaceId,
             surfaceId: surfaceId,
             createdAt: Date().timeIntervalSince1970,
