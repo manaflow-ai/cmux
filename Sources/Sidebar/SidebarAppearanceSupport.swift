@@ -2,6 +2,25 @@ import AppKit
 import Foundation
 import SwiftUI
 
+enum SidebarMatchTerminalBackgroundSettings {
+    static let userDefaultsKey = "sidebarMatchTerminalBackground"
+    static let appliedSettingsFileDefaultKey = "cmux.settingsFile.sidebarMatchTerminalBackground.appliedDefault.v1"
+
+    static func isSettingsFileDefaultKey(_ key: String) -> Bool {
+        key == userDefaultsKey
+    }
+
+    static func shouldApplySettingsFileDefault(_ next: Bool, defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: userDefaultsKey) != nil else { return true }
+        guard let applied = defaults.object(forKey: appliedSettingsFileDefaultKey) as? Bool else { return false }
+        return applied == defaults.bool(forKey: userDefaultsKey)
+    }
+
+    static func recordSettingsFileDefault(_ value: Bool, defaults: UserDefaults = .standard) {
+        defaults.set(value, forKey: appliedSettingsFileDefaultKey)
+    }
+}
+
 extension Color {
     init?(hex: String) {
         let hex = hex.trimmingCharacters(in: .init(charactersIn: "#"))

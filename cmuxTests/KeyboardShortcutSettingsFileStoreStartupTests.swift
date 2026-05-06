@@ -194,14 +194,21 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
 
     func testSidebarMatchTerminalBackgroundUserDefaultSurvivesSettingsFileReapply() throws {
         let defaults = UserDefaults.standard
-        let key = "sidebarMatchTerminalBackground"
+        let key = SidebarMatchTerminalBackgroundSettings.userDefaultsKey
+        let appliedDefaultKey = SidebarMatchTerminalBackgroundSettings.appliedSettingsFileDefaultKey
         let previousValue = defaults.object(forKey: key)
+        let previousAppliedDefault = defaults.object(forKey: appliedDefaultKey)
         let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
         defer {
             if let previousValue {
                 defaults.set(previousValue, forKey: key)
             } else {
                 defaults.removeObject(forKey: key)
+            }
+            if let previousAppliedDefault {
+                defaults.set(previousAppliedDefault, forKey: appliedDefaultKey)
+            } else {
+                defaults.removeObject(forKey: appliedDefaultKey)
             }
 
             if let previousBackups {
@@ -212,6 +219,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         }
 
         defaults.removeObject(forKey: key)
+        defaults.removeObject(forKey: appliedDefaultKey)
         defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
 
         let directoryURL = try makeTemporaryDirectory()
