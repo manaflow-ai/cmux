@@ -571,11 +571,12 @@ private final class ClaudeHookSessionStore {
         _ state: inout ClaudeHookSessionStoreFile,
         removed: ClaudeHookSessionRecord
     ) {
-        guard let active = state.activeSessionsByWorkspace[removed.workspaceId],
+        guard let workspaceId = normalizeOptional(removed.workspaceId),
+              let active = state.activeSessionsByWorkspace[workspaceId],
               active.sessionId == removed.sessionId else {
             return
         }
-        state.activeSessionsByWorkspace.removeValue(forKey: removed.workspaceId)
+        state.activeSessionsByWorkspace.removeValue(forKey: workspaceId)
     }
 
     private func fallbackRecord(
