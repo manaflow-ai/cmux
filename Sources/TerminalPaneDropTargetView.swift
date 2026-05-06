@@ -13,7 +13,6 @@ typealias TerminalPaneDropContext = PaneDropContext
 
 enum PaneExternalFileDropRouting: Equatable {
     case agentPromptPaste
-    case terminalInput
     case filePreview
 }
 
@@ -279,16 +278,6 @@ final class PaneDropTargetView: NSView {
             )
 #endif
             return handled
-        case .terminalInput:
-            let handled = hostedView?.handleDroppedURLs(urls) ?? false
-#if DEBUG
-            cmuxDebugLog(
-                "terminal.paneDrop.perform panel=\(dropContext.panelId.uuidString.prefix(5)) " +
-                "fileURLs=\(urls.count) route=terminalInput " +
-                "pane=\(dropContext.paneId.id.uuidString.prefix(5)) handled=\(handled ? 1 : 0)"
-            )
-#endif
-            return handled
         case .filePreview:
             break
         }
@@ -354,15 +343,6 @@ final class PaneDropTargetView: NSView {
             cmuxDebugLog(
                 "terminal.paneDrop.\(phase) panel=\(dropContext.panelId.uuidString.prefix(5)) " +
                 "fileURL=1 route=agentPromptPaste"
-            )
-#endif
-            return .copy
-        case .terminalInput:
-            clearDragState(phase: "\(phase).terminalInput")
-#if DEBUG
-            cmuxDebugLog(
-                "terminal.paneDrop.\(phase) panel=\(dropContext.panelId.uuidString.prefix(5)) " +
-                "fileURL=1 route=terminalInput"
             )
 #endif
             return .copy

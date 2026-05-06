@@ -5335,11 +5335,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
         writeTextData(data, to: surface)
     }
 
-    func sendBracketedPasteText(_ text: String) {
-        guard !text.isEmpty else { return }
-        sendInput(TerminalAgentPromptPaste.bracketedSequence(for: text))
-    }
-
     @discardableResult
     func sendNamedKey(_ keyName: String) -> Bool {
         guard let event = pendingKeyEvent(for: keyName) else { return false }
@@ -5810,11 +5805,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         case insertText(String)
         case uploadFiles([URL])
         case reject
-    }
-
-    private enum DroppedTextDelivery {
-        case terminalPaste
-        case agentPromptPaste
     }
 
     private static let dropTypes: Set<NSPasteboard.PasteboardType> = PasteboardFileURLReader.fileURLPasteboardTypes.union([
@@ -9164,7 +9154,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private func executeImageTransferPlan(
         _ plan: TerminalImageTransferPlan,
-        textDelivery: DroppedTextDelivery = .terminalPaste,
+        textDelivery: TerminalDroppedTextDelivery = .terminalPaste,
         operation: TerminalImageTransferOperation? = nil,
         onCancel: @escaping () -> Void = {}
     ) -> Bool {
@@ -9222,12 +9212,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     // Use the text/paste path (ghostty_surface_text) instead of the key event
                     // path (ghostty_surface_key) so bracketed paste mode is triggered and the
                     // insertion is instant, matching upstream Ghostty behaviour.
-                    switch textDelivery {
-                    case .terminalPaste:
-                        self?.terminalSurface?.sendText(text)
-                    case .agentPromptPaste:
-                        self?.terminalSurface?.sendBracketedPasteText(text)
-                    }
+                    textDelivery.send(text, to: self?.terminalSurface)
                 }
                 if Thread.isMainThread {
                     send()
@@ -9285,19 +9270,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     @discardableResult
     private func executePreparedImageTransfer(
         _ preparedContent: TerminalImageTransferPreparedContent,
-        textDelivery: DroppedTextDelivery = .terminalPaste,
+        textDelivery: TerminalDroppedTextDelivery = .terminalPaste,
         onCancel: @escaping () -> Void
     ) -> Bool {
         switch preparedContent {
         case .reject:
             return false
         case .insertText(let text):
-            switch textDelivery {
-            case .terminalPaste:
-                terminalSurface?.sendText(text)
-            case .agentPromptPaste:
-                terminalSurface?.sendBracketedPasteText(text)
-            }
+            textDelivery.send(text, to: terminalSurface)
             return true
         case .fileURLs(let fileURLs):
             let plan = TerminalImageTransferPlanner.plan(

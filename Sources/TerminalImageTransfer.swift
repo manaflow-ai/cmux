@@ -41,12 +41,33 @@ enum TerminalAgentPromptPaste {
         scalars.reserveCapacity(text.unicodeScalars.count)
         for scalar in text.unicodeScalars {
             if scalar.value < 0x20 || scalar.value == 0x7F {
-                scalars.append(" ")
+                scalars.append(Unicode.Scalar(0x20)!)
             } else {
                 scalars.append(scalar)
             }
         }
         return String(scalars)
+    }
+}
+
+enum TerminalDroppedTextDelivery {
+    case terminalPaste
+    case agentPromptPaste
+
+    func send(_ text: String, to surface: TerminalSurface?) {
+        switch self {
+        case .terminalPaste:
+            surface?.sendText(text)
+        case .agentPromptPaste:
+            surface?.sendBracketedPasteText(text)
+        }
+    }
+}
+
+extension TerminalSurface {
+    func sendBracketedPasteText(_ text: String) {
+        guard !text.isEmpty else { return }
+        sendInput(TerminalAgentPromptPaste.bracketedSequence(for: text))
     }
 }
 
