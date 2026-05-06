@@ -81,8 +81,8 @@ commands:
               local url="$1"
               local output="$2"
               local attempt
-              for attempt in 1 2 3 4 5; do
-                if curl -fSL --connect-timeout 20 --speed-limit 1024 --speed-time 60 "$url" -o "$output"; then
+              for attempt in 1 2 3 4 5 6 7 8 9 10; do
+                if curl -fSL --continue-at - --connect-timeout 20 --speed-limit 1024 --speed-time 60 "$url" -o "$output"; then
                   return 0
                 fi
                 echo "Download failed on attempt ${attempt}: ${url}" >&2
