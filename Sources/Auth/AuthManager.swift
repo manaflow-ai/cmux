@@ -193,7 +193,7 @@ final class AuthManager: ObservableObject {
 
         let signInURL = AuthEnvironment.signInURL()
         let callbackScheme = AuthEnvironment.callbackScheme
-        authLog("webauth: begin url=\(signInURL.absoluteString) scheme=\(callbackScheme)")
+        authLog("webauth: begin url=\(Self.redactedURLDescription(signInURL)) scheme=\(callbackScheme)")
 
         let session = ASWebAuthenticationSession(
             url: signInURL,
@@ -215,7 +215,7 @@ final class AuthManager: ObservableObject {
                     self.authLog("webauth: callback returned without URL or error")
                     return
                 }
-                self.authLog("webauth: callback url=\(callbackURL.absoluteString)")
+                self.authLog("webauth: callback url=\(Self.redactedURLDescription(callbackURL))")
                 do {
                     try await self.handleCallbackURL(callbackURL)
                     self.authLog("webauth: handleCallbackURL ok")
@@ -664,6 +664,24 @@ final class AuthManager: ObservableObject {
             FileManager.default.createFile(atPath: path, contents: line.data(using: .utf8))
         }
         #endif
+    }
+
+    /// Render a URL as scheme/host/path plus query-key names with value lengths,
+    /// so call sites can write structural info to the world-readable
+    /// /tmp/cmux-auth-debug.log without leaking OAuth tokens, refresh tokens,
+    /// or other secrets that live in the query string.
+    nonisolated static func redactedURLDescription(_ url: URL) -> String {
+        let scheme = url.scheme ?? "nil"
+        let host = url.host ?? ""
+        let portPart = url.port.map { ":\($0)" } ?? ""
+        let path = url.path
+        let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        let keysSummary = queryItems
+            .map { "\($0.name)(\($0.value?.count ?? 0))" }
+            .joined(separator: ",")
+        let queryPart = keysSummary.isEmpty ? "" : "?[\(keysSummary)]"
+        let fragmentPart = (url.fragment?.isEmpty == false) ? " #len=\(url.fragment!.count)" : ""
+        return "\(scheme)://\(host)\(portPart)\(path)\(queryPart)\(fragmentPart)"
     }
 
     // ISO8601DateFormatter is expensive to construct (calendar + locale +
