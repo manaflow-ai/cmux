@@ -13323,9 +13323,7 @@ private struct TabItemView: View, Equatable {
         .contextMenu {
             workspaceContextMenu
                 .onAppear {
-                    let refreshID = workspaceFinderDirectoryRefreshID &+ 1
-                    workspaceFinderDirectoryRefreshID = refreshID
-                    workspaceFinderDirectoryCache = WorkspaceFinderDirectoryCache(key: WorkspaceFinderDirectoryCacheKey(path: WorkspaceFinderDirectoryResolver.path(for: tab), refreshID: refreshID))
+                    workspaceFinderDirectoryRefreshID &+= 1
                     rowInteractionState.contextMenuDidAppear()
                     contextMenuState.hasDeferredWorkspaceObservationInvalidation = false
                     contextMenuState.pendingWorkspaceSnapshot = nil
