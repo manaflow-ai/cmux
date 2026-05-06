@@ -312,7 +312,7 @@ extension CMUXCLI {
                 throw CLIError(message: "Unknown settings subcommand '\(subcommand)'. Run 'cmux settings --help'.")
             }
             guard args.count == 1 else {
-                throw CLIError(message: "Usage: cmux settings [open|path|docs|target]")
+                throw CLIError(message: "Usage: cmux settings [open [target]|path|docs|<target>]")
             }
             try openSettingsTarget(
                 targetRaw,
@@ -332,7 +332,7 @@ extension CMUXCLI {
 
     func settingsUsage() -> String {
         return """
-        Usage: cmux settings [open|path|docs|target]
+        Usage: cmux settings [open [target]|path|docs|<target>]
 
         Open cmux Settings, print cmux.json paths, or show settings documentation.
 
