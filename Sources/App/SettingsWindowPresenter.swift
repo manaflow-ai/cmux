@@ -141,19 +141,31 @@ enum SettingsWindowPresenter {
         removeParentCloseObserver()
         observedParentWindow = parentWindow
         observedSettingsWindow = settingsWindow
+        // Run synchronously for normal AppKit window-close notifications so
+        // Settings detaches before AppKit orders out child windows.
         parentCloseObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification,
             object: parentWindow,
             queue: nil
         ) { [weak parentWindow, weak settingsWindow] _ in
-            MainActor.assumeIsolated {
-                guard let settingsWindow, settingsWindow.parent === parentWindow else {
-                    removeParentCloseObserver()
-                    return
+            guard Thread.isMainThread else {
+                Task { @MainActor in
+                    detachFromClosingParent(parentWindow: parentWindow, settingsWindow: settingsWindow)
                 }
-                detachFromCurrentParent(settingsWindow)
+                return
+            }
+            MainActor.assumeIsolated {
+                detachFromClosingParent(parentWindow: parentWindow, settingsWindow: settingsWindow)
             }
         }
+    }
+
+    private static func detachFromClosingParent(parentWindow: NSWindow?, settingsWindow: NSWindow?) {
+        guard let settingsWindow, settingsWindow.parent === parentWindow else {
+            removeParentCloseObserver()
+            return
+        }
+        detachFromCurrentParent(settingsWindow)
     }
 
     private static func removeParentCloseObserver() {
