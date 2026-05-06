@@ -67,7 +67,7 @@ Affected versions:
 
 Hypothesis:
 
-The older nightly routed `feed.push` through `processV2Command` on the main actor. `v2FeedPush` then called `FeedCoordinator.ingestBlocking`; the blocking branch tried to `DispatchQueue.main.sync` from the main queue and libdispatch trapped. The current code appears to address the class by routing blocking V2 socket methods through the socket worker first, so the main sync happens from a non-main caller. The invariant should be: any V2 command that can block or wait for `@MainActor` work must be impossible to execute from `processV2Command` on the main thread.
+The older nightly routed `feed.push` through `processV2Command` on the main actor. `v2FeedPush` then called `FeedCoordinator.ingestBlocking`; the blocking branch tried to `DispatchQueue.main.sync` from the main queue and libdispatch trapped. The current code appears to address the crash by routing blocking V2 socket methods through the socket worker first, so the main sync happens from a non-main caller. The invariant should be: any V2 command that can block or wait for `@MainActor` work must be impossible to execute from `processV2Command` on the main thread.
 
 ## Reproducible? (Yes / Sometimes / No)
 
@@ -91,10 +91,11 @@ Launch with an isolated socket:
 pkill -f "/Applications/cmux NIGHTLY.app/Contents/MacOS/cmux" 2>/dev/null || true
 rm -f /tmp/cmux-nightly.sock /tmp/cmux-nightly-crash-repro.sock
 # CMUX_ALLOW_SOCKET_OVERRIDE is required for nightly to honor CMUX_SOCKET_PATH.
+# automation mode is sufficient for this same-user CLI repro.
 env -u CMUX_SOCKET -u CMUX_SOCKET_PATH -u CMUX_SOCKET_MODE \
   CMUX_ALLOW_SOCKET_OVERRIDE=1 \
   CMUX_SOCKET_PATH=/tmp/cmux-nightly-crash-repro.sock \
-  CMUX_SOCKET_MODE=allowAll \
+  CMUX_SOCKET_MODE=automation \
   CMUX_SOCKET_ENABLE=1 \
   open -n -g "/Applications/cmux NIGHTLY.app"
 ```
