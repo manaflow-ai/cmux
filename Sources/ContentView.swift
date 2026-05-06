@@ -38,7 +38,7 @@ final class FileDropOverlayView: NSView {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        registerForDraggedTypes([.fileURL])
+        registerForDraggedTypes(Array(PasteboardFileURLReader.fileURLPasteboardTypes))
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
@@ -425,7 +425,7 @@ final class FileDropOverlayView: NSView {
 
         let interestingTypes = types.filter { type in
             let raw = type.rawValue
-            return raw == NSPasteboard.PasteboardType.fileURL.rawValue
+            return PasteboardFileURLReader.fileURLPasteboardTypes.contains(type)
                 || raw == DragOverlayRoutingPolicy.bonsplitTabTransferType.rawValue
                 || raw == DragOverlayRoutingPolicy.sidebarTabReorderType.rawValue
                 || raw.contains("public.text")
@@ -442,7 +442,7 @@ final class FileDropOverlayView: NSView {
 
     private func hasRelevantDragTypes(_ types: [NSPasteboard.PasteboardType]?) -> Bool {
         guard let types else { return false }
-        return types.contains(.fileURL)
+        return DragOverlayRoutingPolicy.hasFileURL(types)
             || types.contains(DragOverlayRoutingPolicy.bonsplitTabTransferType)
             || types.contains(DragOverlayRoutingPolicy.sidebarTabReorderType)
     }
@@ -7852,16 +7852,7 @@ struct ContentView: View {
         }
         for mode in RightSidebarMode.allCases {
             registry.register(commandId: Self.commandPaletteRightSidebarModeCommandID(mode)) {
-                if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
-                    mode: mode,
-                    focusFirstItem: true,
-                    preferredWindow: observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
-                ) != true {
-                    fileExplorerState.setVisible(true)
-                    if fileExplorerState.mode != mode {
-                        fileExplorerState.mode = mode
-                    }
-                }
+                handleCommandPaletteRightSidebarMode(mode, observedWindow: observedWindow)
             }
         }
         registry.register(commandId: "palette.toggleMatchTerminalBackground") {
@@ -9757,10 +9748,6 @@ struct VerticalTabsSidebar: View {
     private var sidebarMatchTerminalBackground = false
 
     private let tabRowSpacing: CGFloat = 2
-    private var workspaceScrollTopVisibilityInset: CGFloat {
-        SidebarWorkspaceListMetrics.scrollTopInset
-    }
-
     private var sidebarTitlebarInteractionHeight: CGFloat {
         MinimalModeChromeMetrics.titlebarHeight
     }
@@ -9957,12 +9944,16 @@ struct VerticalTabsSidebar: View {
     }
 
     private func workspaceScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
-        GeometryReader { geometryProxy in
+        let scrollInsets = SidebarWorkspaceScrollInsets.workspaceList
+        return GeometryReader { geometryProxy in
             ScrollViewReader { scrollProxy in
                 ScrollView {
                     workspaceScrollContent(
                         renderContext: renderContext,
-                        minHeight: geometryProxy.size.height
+                        minHeight: SidebarWorkspaceScrollLayout.contentMinHeight(
+                            viewportHeight: geometryProxy.size.height,
+                            insets: scrollInsets
+                        )
                     )
                 }
                 .background(
@@ -9972,11 +9963,11 @@ struct VerticalTabsSidebar: View {
                     .frame(width: 0, height: 0)
                 )
                 .safeAreaInset(edge: .top, spacing: 0) {
-                    Color.clear.frame(height: workspaceScrollTopVisibilityInset)
+                    Color.clear.frame(height: scrollInsets.top)
                         .allowsHitTesting(false)
                 }
                 .safeAreaInset(edge: .bottom, spacing: 0) {
-                    Color.clear.frame(height: sidebarBottomScrimHeight)
+                    Color.clear.frame(height: scrollInsets.bottom)
                         .allowsHitTesting(false)
                 }
                 .overlay(alignment: .top) {
@@ -9998,7 +9989,7 @@ struct VerticalTabsSidebar: View {
                     if draggedTabId != nil, let firstWorkspaceId = renderContext.workspaceIds.first {
                         Color.clear
                             .contentShape(Rectangle())
-                            .frame(height: workspaceScrollTopVisibilityInset + 8)
+                            .frame(height: scrollInsets.top + 8)
                             .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: SidebarTabDropDelegate(
                                 targetTabId: firstWorkspaceId,
                                 tabManager: tabManager,
@@ -12620,7 +12611,6 @@ struct SidebarWorkspaceSnapshotBuilder {
 }
 
 private final class SidebarTabItemContextMenuState: ObservableObject {
-    var isVisible = false
     var hasDeferredWorkspaceObservationInvalidation = false
     var pendingWorkspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot?
 }
@@ -12686,7 +12676,7 @@ private struct TabItemView: View, Equatable {
     @Binding var frozenPresentation: SidebarTabItemPresentationSnapshot?
     @State private var workspaceSnapshotStorage: SidebarWorkspaceSnapshotBuilder.Snapshot?
     @StateObject private var contextMenuState = SidebarTabItemContextMenuState()
-    @State private var isHovering = false
+    @State private var rowInteractionState = SidebarWorkspaceRowInteractionState()
     @State private var rowHeight: CGFloat = 1
 
     var isMultiSelected: Bool {
@@ -12812,7 +12802,10 @@ private struct TabItemView: View, Equatable {
     }
 
     private var showCloseButton: Bool {
-        isHovering && canCloseWorkspace && !(showsModifierShortcutHints || alwaysShowShortcutHints)
+        rowInteractionState.shouldShowCloseButton(
+            canCloseWorkspace: canCloseWorkspace,
+            shortcutHintModeActive: showsModifierShortcutHints || alwaysShowShortcutHints
+        )
     }
 
     private var workspaceShortcutLabel: String? {
@@ -13211,6 +13204,9 @@ private struct TabItemView: View, Equatable {
         .contentShape(Rectangle())
         .opacity(isBeingDragged ? 0.6 : 1)
         .overlay {
+            SidebarWorkspaceRowHoverTracker(rowInteractionState: $rowInteractionState)
+        }
+        .overlay {
             MiddleClickCapture {
                 #if DEBUG
                 cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=middleClick")
@@ -13297,10 +13293,6 @@ private struct TabItemView: View, Equatable {
         .onTapGesture {
             updateSelection()
         }
-        .onHover { hovering in
-            guard !contextMenuState.isVisible else { return }
-            isHovering = hovering
-        }
         .safeHelp(workspaceSnapshot.title)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text(accessibilityTitle))
@@ -13314,17 +13306,14 @@ private struct TabItemView: View, Equatable {
         .contextMenu {
             workspaceContextMenu
                 .onAppear {
-                    contextMenuState.isVisible = true
+                    rowInteractionState.contextMenuDidAppear()
                     contextMenuState.hasDeferredWorkspaceObservationInvalidation = false
                     contextMenuState.pendingWorkspaceSnapshot = nil
                     frozenPresentation = livePresentation
                 }
                 .onDisappear {
-                    contextMenuState.isVisible = false
+                    rowInteractionState.contextMenuDidDisappear()
                     frozenPresentation = nil
-                    if isHovering {
-                        isHovering = false
-                    }
                     flushDeferredWorkspaceObservationInvalidation()
                 }
         }
@@ -13336,7 +13325,7 @@ private struct TabItemView: View, Equatable {
             current: workspaceSnapshotStorage,
             next: nextSnapshot,
             force: force,
-            contextMenuVisible: contextMenuState.isVisible
+            contextMenuVisible: rowInteractionState.contextMenuVisible
         )
 
         if workspaceSnapshotStorage != decision.workspaceSnapshotStorage {

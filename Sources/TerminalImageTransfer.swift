@@ -28,6 +28,51 @@ enum TerminalImageTransferPreparedContent: Equatable {
     case reject
 }
 
+enum PasteboardFileURLReader {
+    static let legacyFilenamesPboardType = NSPasteboard.PasteboardType(rawValue: "NSFilenamesPboardType")
+    static let fileURLPasteboardTypes: Set<NSPasteboard.PasteboardType> = [
+        .fileURL,
+        legacyFilenamesPboardType
+    ]
+
+    static func hasFileURLType(_ pasteboardTypes: [NSPasteboard.PasteboardType]) -> Bool {
+        return pasteboardTypes.contains { fileURLPasteboardTypes.contains($0) }
+    }
+
+    static func fileURLs(from pasteboard: NSPasteboard) -> [URL] {
+        var fileURLs: [URL] = []
+
+        let objects = pasteboard.readObjects(
+            forClasses: [NSURL.self],
+            options: [.urlReadingFileURLsOnly: true]
+        ) ?? []
+        for object in objects {
+            if let url = object as? URL, url.isFileURL {
+                fileURLs.append(url.standardizedFileURL)
+            }
+        }
+
+        if let paths = pasteboard.propertyList(forType: legacyFilenamesPboardType) as? [String] {
+            fileURLs.append(
+                contentsOf: paths
+                    .filter { !$0.isEmpty }
+                    .map { URL(fileURLWithPath: $0).standardizedFileURL }
+            )
+        }
+
+        if let rawFileURL = pasteboard.string(forType: .fileURL),
+           let url = URL(string: rawFileURL),
+           url.isFileURL {
+            fileURLs.append(url.standardizedFileURL)
+        }
+
+        var seen: Set<String> = []
+        return fileURLs.filter { url in
+            seen.insert(url.path).inserted
+        }
+    }
+}
+
 enum TerminalImageTransferExecutionError: Error {
     case cancelled
 }
@@ -313,10 +358,7 @@ enum TerminalImageTransferPlanner {
     }
 
     private static func fileURLs(from pasteboard: NSPasteboard) -> [URL] {
-        guard let urls = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL] else {
-            return []
-        }
-        return urls.filter(\.isFileURL)
+        PasteboardFileURLReader.fileURLs(from: pasteboard)
     }
 
     private static func finishUpload(

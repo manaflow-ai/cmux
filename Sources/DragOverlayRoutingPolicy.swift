@@ -22,25 +22,11 @@ enum DragOverlayRoutingPolicy {
     }
 
     static func hasFileURL(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
-        guard let pasteboardTypes else { return false }
-        return pasteboardTypes.contains(.fileURL)
+        PasteboardFileURLReader.hasFileURLType(pasteboardTypes ?? [])
     }
 
     static func fileURLs(from pasteboard: NSPasteboard) -> [URL] {
-        let objects = pasteboard.readObjects(
-            forClasses: [NSURL.self],
-            options: [.urlReadingFileURLsOnly: true]
-        ) ?? []
-        return objects.compactMap { object -> URL? in
-            if let url = object as? URL {
-                return url.isFileURL ? url : nil
-            }
-            if let url = object as? NSURL {
-                let bridged = url as URL
-                return bridged.isFileURL ? bridged : nil
-            }
-            return nil
-        }
+        PasteboardFileURLReader.fileURLs(from: pasteboard)
     }
 
     static func shouldCaptureFileDropDestination(

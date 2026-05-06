@@ -204,20 +204,23 @@ final class AppIconAppearanceObserverTests: XCTestCase {
 
     private final class Harness {
         var isFinishedLaunching = false
+        var isDark = false
         var startObservationCallCount = 0
         var currentAppearanceIsDarkCallCount = 0
         var imageRequests: [String] = []
         var appliedIconCount = 0
         var didFinishLaunchingObserverCount = 0
         private(set) var didFinishLaunchingHandler: (() -> Void)?
+        private(set) var appearanceHandler: (() -> Void)?
         let observation = ObservationToken()
 
         lazy var environment = AppIconAppearanceObserver.Environment(
             isApplicationFinishedLaunching: { [unowned self] in
                 self.isFinishedLaunching
             },
-            startEffectiveAppearanceObservation: { [unowned self] _ in
+            startEffectiveAppearanceObservation: { [unowned self] handler in
                 self.startObservationCallCount += 1
+                self.appearanceHandler = handler
                 return self.observation
             },
             addDidFinishLaunchingObserver: { [unowned self] handler in
@@ -228,7 +231,7 @@ final class AppIconAppearanceObserverTests: XCTestCase {
             removeObserver: { _ in },
             currentAppearanceIsDark: { [unowned self] in
                 self.currentAppearanceIsDarkCallCount += 1
-                return false
+                return self.isDark
             },
             imageForName: { [unowned self] imageName in
                 self.imageRequests.append(imageName)
@@ -241,6 +244,10 @@ final class AppIconAppearanceObserverTests: XCTestCase {
 
         func fireDidFinishLaunching() {
             didFinishLaunchingHandler?()
+        }
+
+        func fireAppearanceChanged() {
+            appearanceHandler?()
         }
     }
 
@@ -289,5 +296,31 @@ final class AppIconAppearanceObserverTests: XCTestCase {
 
         XCTAssertEqual(harness.startObservationCallCount, 1)
         XCTAssertEqual(harness.observation.invalidateCallCount, 1)
+    }
+
+    func testUnchangedAutomaticAppearanceDoesNotReapplyIcon() {
+        let harness = Harness()
+        harness.isFinishedLaunching = true
+        let observer = AppIconAppearanceObserver(environment: harness.environment)
+
+        observer.startObserving()
+        harness.fireAppearanceChanged()
+
+        XCTAssertEqual(harness.currentAppearanceIsDarkCallCount, 2)
+        XCTAssertEqual(harness.imageRequests, ["AppIconLight"])
+        XCTAssertEqual(harness.appliedIconCount, 1)
+    }
+
+    func testAutomaticAppearanceChangeAppliesNewIcon() {
+        let harness = Harness()
+        harness.isFinishedLaunching = true
+        let observer = AppIconAppearanceObserver(environment: harness.environment)
+
+        observer.startObserving()
+        harness.isDark = true
+        harness.fireAppearanceChanged()
+
+        XCTAssertEqual(harness.imageRequests, ["AppIconLight", "AppIconDark"])
+        XCTAssertEqual(harness.appliedIconCount, 2)
     }
 }
