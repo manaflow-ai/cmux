@@ -2064,6 +2064,19 @@ struct CMUXCLI {
             return
         }
 
+        // Keep no-socket config subcommands on the early path. Socket-backed
+        // config subcommands fall through to the resolved-socket dispatch below.
+        if command == "config",
+           configCommandDoesNotNeedSocket(commandArgs) {
+            try runConfigCommand(
+                commandArgs: commandArgs,
+                socketPath: nil,
+                explicitPassword: socketPasswordArg,
+                jsonOutput: jsonOutput
+            )
+            return
+        }
+
         let envSocketPath = explicitSocketPath == nil
             ? try CLISocketEnvironment.socketPath(in: processEnv)
             : CLISocketEnvironment.socketPathForTelemetry(in: processEnv)
@@ -2096,6 +2109,16 @@ struct CMUXCLI {
 
         if command == "settings" {
             try runSettings(
+                commandArgs: commandArgs,
+                socketPath: resolvedSocketPath,
+                explicitPassword: socketPasswordArg,
+                jsonOutput: jsonOutput
+            )
+            return
+        }
+
+        if command == "config" {
+            try runConfigCommand(
                 commandArgs: commandArgs,
                 socketPath: resolvedSocketPath,
                 explicitPassword: socketPasswordArg,
@@ -5688,7 +5711,11 @@ struct CMUXCLI {
             "rm -f -- \"$0\" 2>/dev/null || true",
             "CMUX_SSH_SESSION_ENDED=0",
             "cmux_ssh_session_end() { if [ \"${CMUX_SSH_SESSION_ENDED:-0}\" = 1 ]; then return; fi; CMUX_SSH_SESSION_ENDED=1; \(lifecycleCleanup); }",
-            "trap 'cmux_ssh_session_end' EXIT HUP INT TERM",
+            "cmux_ssh_signal_exit() { cmux_ssh_signal_status=\"$1\"; trap - EXIT HUP INT TERM; exit \"$cmux_ssh_signal_status\"; }",
+            "trap 'cmux_ssh_session_end' EXIT",
+            "trap 'cmux_ssh_signal_exit 129' HUP",
+            "trap 'cmux_ssh_signal_exit 130' INT",
+            "trap 'cmux_ssh_signal_exit 143' TERM",
         ]
         if isShellSnippet {
             scriptLines.append(sshCommand)
@@ -8315,6 +8342,8 @@ struct CMUXCLI {
             return docsUsage()
         case "settings":
             return settingsUsage()
+        case "config":
+            return configUsage()
         case "welcome":
             return """
             Usage: cmux welcome
@@ -20050,6 +20079,7 @@ export default CMUXSessionRestore;
           welcome
           docs [settings|shortcuts|api|browser|agents|dock]
           settings [open|path|docs|target]
+          config <doctor|check|validate|path|paths|docs|documentation|reload>
           shortcuts
           disable-browser | enable-browser | browser-status
           restore-session
