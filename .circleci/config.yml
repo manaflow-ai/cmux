@@ -78,7 +78,7 @@ commands:
 
             ZIG_URL="https://ziglang.org/download/${ZIG_REQUIRED}/zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}.tar.xz"
             curl_retry() {
-              curl --fail --show-error --location --retry 5 --retry-delay 5 --retry-all-errors "$@"
+              curl --fail --show-error --location --retry 5 --retry-delay 5 --retry-all-errors --connect-timeout 20 --max-time 300 "$@"
             }
 
             echo "Installing verified zig ${ZIG_REQUIRED} from tarball"
