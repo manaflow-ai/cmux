@@ -285,24 +285,11 @@ enum CLISocketPathResolver {
         bundleIdentifier: String?,
         environment: [String: String]
     ) -> [String] {
-        let variant = SocketPathMarkerFiles.variant(
-            bundleIdentifier: bundleIdentifier,
-            environment: environment
-        )
-        switch variant {
-        case .stable:
-            return dedupe([
-                defaultSocketPath(bundleIdentifier: bundleIdentifier, environment: environment),
-                stableDefaultSocketPath,
-                legacyDefaultSocketPath,
-            ])
-        case .nightly, .staging, .dev:
-            return dedupe([
-                defaultSocketPath(bundleIdentifier: bundleIdentifier, environment: environment),
-                stableDefaultSocketPath,
-                legacyDefaultSocketPath,
-            ])
-        }
+        dedupe([
+            defaultSocketPath(bundleIdentifier: bundleIdentifier, environment: environment),
+            stableDefaultSocketPath,
+            legacyDefaultSocketPath,
+        ])
     }
 
     private static func allKnownDefaultSocketPaths() -> Set<String> {
