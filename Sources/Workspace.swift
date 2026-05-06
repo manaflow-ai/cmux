@@ -7265,7 +7265,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var debugSessionSnapshotScrollbackFallbackPanelIds: Set<UUID> = []
     private var debugSessionSnapshotSyntheticScrollbackByPanelId: [UUID: String] = [:]
 #endif
-    var restoredAgentSnapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] = [:]
+    private(set) var restoredAgentSnapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] = [:]
     private var restoredAgentAutoResumePendingPanelIds: Set<UUID> = []
     private var invalidatedRestoredAgentFingerprintsByPanelId: [UUID: Int] = [:]
     private var pendingTerminalInputObserversByPanelId: [UUID: [WorkspacePendingTerminalInputObserver]] = [:]

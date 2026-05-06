@@ -13961,7 +13961,7 @@ struct CMUXCLI {
                 let workspaceId = consumedSession.workspaceId
                 sendClaudeFeedTelemetry(workspaceId: workspaceId)
                 _ = try? clearClaudeStatus(client: client, workspaceId: workspaceId, surfaceId: consumedSession.surfaceId)
-                _ = try? sendV1Command("clear_agent_pid claude_code --tab=\(workspaceId) --surface=\(consumedSession.surfaceId)", client: client)
+                _ = try? sendV1Command("clear_agent_pid claude_code --tab=\(workspaceId)\(socketSurfaceOption(consumedSession.surfaceId))", client: client)
                 _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
             }
             print("OK")
@@ -16767,8 +16767,8 @@ export default CMUXSessionRestore;
         case .sessionEnd:
             if let mapped = try? store.consume(sessionId: sessionId, workspaceId: nil, surfaceId: nil) {
                 sendAgentFeedTelemetry(workspaceId: mapped.workspaceId)
-                _ = try? sendV1Command("clear_status \(def.statusKey) --tab=\(mapped.workspaceId) --surface=\(mapped.surfaceId)", client: client)
-                _ = try? sendV1Command("clear_agent_pid \(pidKey) --tab=\(mapped.workspaceId) --surface=\(mapped.surfaceId)", client: client)
+                _ = try? sendV1Command("clear_status \(def.statusKey) --tab=\(mapped.workspaceId)\(socketSurfaceOption(mapped.surfaceId))", client: client)
+                _ = try? sendV1Command("clear_agent_pid \(pidKey) --tab=\(mapped.workspaceId)\(socketSurfaceOption(mapped.surfaceId))", client: client)
             }
 
         case .noop:

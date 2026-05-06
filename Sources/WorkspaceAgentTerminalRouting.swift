@@ -50,7 +50,9 @@ extension Workspace {
     }
 
     func externalFileDropRouting(forPanelId panelId: UUID) -> PaneExternalFileDropRouting {
-        let panelType = panels[panelId]?.panelType ?? .terminal
+        guard let panelType = panels[panelId]?.panelType else {
+            return .filePreview
+        }
         return PaneDropRouting.externalFileDropRouting(
             panelType: panelType,
             hostsAgent: terminalPanelHostsAgent(panelId: panelId)
