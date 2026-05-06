@@ -35,15 +35,13 @@ extension CMUXCLI {
     }
 
     func waitBeforeReconnectingEventStream() {
-        let semaphore = DispatchSemaphore(value: 0)
-        let queue = DispatchQueue(label: "com.cmux.cli.events.reconnect-delay.\(UUID().uuidString)")
-        let timer = DispatchSource.makeTimerSource(queue: queue)
-        timer.schedule(deadline: .now() + 1.0)
-        timer.setEventHandler {
-            semaphore.signal()
+        let deadline = Date(timeIntervalSinceNow: 1.0)
+        var didFire = false
+        let timer = Timer(timeInterval: 1.0, repeats: false) { _ in
+            didFire = true
         }
-        timer.resume()
-        semaphore.wait()
-        timer.cancel()
+        RunLoop.current.add(timer, forMode: .default)
+        while !didFire, RunLoop.current.run(mode: .default, before: deadline) {}
+        timer.invalidate()
     }
 }
