@@ -101128,6 +101128,40 @@
         }
       }
     },
+    "markdown.copyConfirm.html": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copied as HTML"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTMLとしてコピーしました"
+          }
+        }
+      }
+    },
+    "markdown.copyConfirm.markdown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copied as Markdown"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdownとしてコピーしました"
+          }
+        }
+      }
+    },
     "markdown.fileUnavailable.message": {
       "extractionState": "manual",
       "localizations": {
@@ -101182,6 +101216,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "파일을 사용할 수 없음"
+          }
+        }
+      }
+    },
+    "markdown.toolbar.copyHTML": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy as HTML"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTMLとしてコピー"
+          }
+        }
+      }
+    },
+    "markdown.toolbar.copyMarkdown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy as Markdown"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdownとしてコピー"
           }
         }
       }
