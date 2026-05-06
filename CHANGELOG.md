@@ -5,6 +5,7 @@ All notable changes to cmux are documented here.
 ## [Unreleased]
 
 ### Fixed
+
 - Surface Settings > Sign In failures in Account settings instead of only logging ASWebAuthenticationSession and callback errors ([#3617](https://github.com/manaflow-ai/cmux/issues/3617))
 
 ## [0.64.3] - 2026-05-05

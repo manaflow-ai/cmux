@@ -208,7 +208,7 @@ final class AuthManager: ObservableObject {
         if !session.start() {
             Self.authLogger.error("auth.webauth session.start returned false")
             webAuthSession = nil
-            lastSignInError = .message("")
+            lastSignInError = .message("auth.webauth session.start returned false")
             isLoading = false
         }
     }
@@ -385,9 +385,9 @@ final class AuthManager: ObservableObject {
             lastSignInError = .authManager(error)
             throw error
         }
-
-        isLoading = true
-        defer { isLoading = false }
+        let shouldManageLoading = webAuthSession == nil
+        if shouldManageLoading { isLoading = true }
+        defer { if shouldManageLoading { isLoading = false } }
 
         do {
             await tokenStore.seed(
