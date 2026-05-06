@@ -15271,12 +15271,21 @@ struct CMUXCLI {
         workspaceId: String,
         surfaceId: String?,
         leasePath: String?,
-        env: [String: String]
+        env: [String: String],
+        telemetry: CLISocketSentryTelemetry
     ) {
         guard !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !workspaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return
         }
+
+        let monitorTelemetry: [String: Any] = [
+            "has_lease": normalizedHookValue(leasePath) != nil,
+            "has_turn_id": normalizedHookValue(turnId) != nil,
+            "has_transcript": normalizedHookValue(transcriptPath) != nil,
+            "has_surface_id": normalizedHookValue(surfaceId) != nil,
+        ]
+        telemetry.breadcrumb("codex-hook.monitor.start", data: monitorTelemetry)
 
         let executablePath = resolvedExecutableURL()?.path ?? args.first ?? "cmux"
         let process = Process()
@@ -15309,7 +15318,12 @@ struct CMUXCLI {
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
-        try? process.run()
+        do {
+            try process.run()
+            telemetry.breadcrumb("codex-hook.monitor.started", data: monitorTelemetry)
+        } catch {
+            telemetry.captureError(stage: "codex-monitor-start", error: error, data: monitorTelemetry)
+        }
     }
 
     private func runCodexTranscriptMonitor(commandArgs: [String], client: SocketClient) throws {
@@ -16889,7 +16903,8 @@ export default CMUXSessionRestore;
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     leasePath: leasePath,
-                    env: env
+                    env: env,
+                    telemetry: telemetry
                 )
             }
 
