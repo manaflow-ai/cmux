@@ -12517,6 +12517,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         let focusContext = shortcutEventFocusContext(event)
         for action in KeyboardShortcutSettings.Action.allCases {
+            guard action != .showHideAllWindows else { continue }
             if (action.shortcutContext.isAlwaysAvailable || action.shortcutContext.isAvailable(focusContext)),
                matchesKeyboardShortcutEvent(event, action: action, shortcut: KeyboardShortcutSettings.shortcut(for: action)) {
                 return true

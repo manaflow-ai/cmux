@@ -453,7 +453,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(manager.tabs.count, initialCount + 1, "Chord prefix should arm instead of firing Settings")
     }
 
-    func testConfiguredChordPrefixBlocksUnrelatedSingleStrokeShortcutOnSecondKey() throws {
+    func testConfiguredChordPrefixBlocksUnrelatedSingleStrokeShortcutOnSecondKey() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -474,42 +474,35 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         let initialWorkspaceCount = manager.tabs.count
         let initialPanelCount = workspace.panels.count
-        let shortcut = StoredShortcut(
-            key: "b",
-            command: false,
-            shift: false,
-            option: false,
-            control: true,
-            chordKey: "d"
-        )
+        let shortcut = StoredShortcut(key: "b", command: false, shift: false, option: false, control: true, chordKey: "d")
+        let showHideShortcut = StoredShortcut(key: "h", command: true, shift: false, option: false, control: false)
+        func requiredEvent(_ key: String, _ modifiers: NSEvent.ModifierFlags, _ keyCode: UInt16, _ description: String) -> NSEvent? {
+            guard let event = makeKeyDownEvent(key: key, modifiers: modifiers, keyCode: keyCode, windowNumber: window.windowNumber) else {
+                XCTFail("Failed to construct \(description) event")
+                return nil
+            }
+            return event
+        }
 
-        try withTemporaryShortcut(action: .splitRight, shortcut: shortcut) {
-            let prefixEvent = try XCTUnwrap(makeKeyDownEvent(
-                key: "b",
-                modifiers: [.control],
-                keyCode: 11,
-                windowNumber: window.windowNumber
-            ))
-            let conflictingSingleStrokeEvent = try XCTUnwrap(makeKeyDownEvent(
-                key: "n",
-                modifiers: [.command],
-                keyCode: 45,
-                windowNumber: window.windowNumber
-            ))
-            let numberedSingleStrokeEvent = try XCTUnwrap(makeKeyDownEvent(
-                key: "2",
-                modifiers: [.command],
-                keyCode: 19,
-                windowNumber: window.windowNumber
-            ))
+        withTemporaryShortcut(action: .splitRight, shortcut: shortcut) {
+            withTemporaryShortcut(action: .showHideAllWindows, shortcut: showHideShortcut) {
+                guard let prefixEvent = requiredEvent("b", [.control], 11, "chord prefix"),
+                      let conflictingSingleStrokeEvent = requiredEvent("n", [.command], 45, "Cmd+N"),
+                      let numberedSingleStrokeEvent = requiredEvent("2", [.command], 19, "Cmd+2"),
+                      let showHideSingleStrokeEvent = requiredEvent("h", [.command], 4, "Cmd+H") else {
+                    return
+                }
 #if DEBUG
-            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: prefixEvent))
-            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: conflictingSingleStrokeEvent))
-            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: prefixEvent))
-            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: numberedSingleStrokeEvent))
+                XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: prefixEvent))
+                XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: conflictingSingleStrokeEvent))
+                XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: prefixEvent))
+                XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: numberedSingleStrokeEvent))
+                XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: prefixEvent))
+                XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: showHideSingleStrokeEvent))
 #else
-            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+                XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
+            }
         }
 
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
