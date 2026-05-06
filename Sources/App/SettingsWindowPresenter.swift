@@ -149,9 +149,7 @@ enum SettingsWindowPresenter {
             queue: nil
         ) { [weak parentWindow, weak settingsWindow] _ in
             guard Thread.isMainThread else {
-                Task { @MainActor in
-                    detachFromClosingParent(parentWindow: parentWindow, settingsWindow: settingsWindow)
-                }
+                assertionFailure("NSWindow.willCloseNotification should be delivered on the main thread")
                 return
             }
             MainActor.assumeIsolated {
