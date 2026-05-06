@@ -24,6 +24,58 @@ enum FileExplorerPanelPresentation: Equatable {
     }
 }
 
+enum FileExplorerTerminalPathInsertion {
+    static func insertedText(forPaths paths: [String]) -> String {
+        TerminalImageTransferPlanner.insertedText(forPathStrings: paths)
+    }
+
+    static func insertedText(forPaths paths: [String], relativeToRootPath rootPath: String) -> String {
+        insertedText(forPaths: paths.map { relativePath(for: $0, rootPath: rootPath) })
+    }
+
+    static func relativePath(for path: String, rootPath: String) -> String {
+        var relativePath = path
+        if relativePath.hasPrefix(rootPath) {
+            relativePath = String(relativePath.dropFirst(rootPath.count))
+            if relativePath.hasPrefix("/") {
+                relativePath = String(relativePath.dropFirst())
+            }
+        }
+        return relativePath
+    }
+
+    @discardableResult
+    static func insert(paths: [String], relativeToRootPath rootPath: String? = nil, intoTerminalFor window: NSWindow?) -> Bool {
+        let text: String
+        if let rootPath {
+            text = insertedText(forPaths: paths, relativeToRootPath: rootPath)
+        } else {
+            text = insertedText(forPaths: paths)
+        }
+        guard !text.isEmpty else { return false }
+
+        return MainActor.assumeIsolated {
+            guard let terminalPanel = targetTerminalPanel(for: window) else { return false }
+            terminalPanel.sendText(text)
+            return true
+        }
+    }
+
+    private static func targetTerminalPanel(for window: NSWindow?) -> TerminalPanel? {
+        guard let appDelegate = AppDelegate.shared else { return nil }
+        if let window,
+           let terminalPanel = appDelegate.contextForMainTerminalWindow(window)?.tabManager.selectedWorkspace?.focusedTerminalPanel {
+            return terminalPanel
+        }
+        if let window,
+           let windowId = appDelegate.mainWindowId(from: window),
+           let terminalPanel = appDelegate.tabManagerFor(windowId: windowId)?.selectedWorkspace?.focusedTerminalPanel {
+            return terminalPanel
+        }
+        return appDelegate.tabManager?.selectedWorkspace?.focusedTerminalPanel
+    }
+}
+
 /// The entire file explorer panel as one AppKit view hierarchy.
 /// Contains the header bar (path + controls) and NSOutlineView, with no SwiftUI intermediaries.
 struct FileExplorerPanelView: NSViewRepresentable {
@@ -455,6 +507,20 @@ struct FileExplorerPanelView: NSViewRepresentable {
             return descendant.hasPrefix(ancestor + "/")
         }
 
+        private func contextMenuNodes(clicked node: FileExplorerNode) -> [FileExplorerNode] {
+            guard let outlineView else { return [node] }
+            let clickedRow = outlineView.clickedRow
+            let selectedRows = outlineView.selectedRowIndexes
+            guard clickedRow >= 0, selectedRows.contains(clickedRow) else {
+                return [node]
+            }
+            let nodes = selectedRows.compactMap { row -> FileExplorerNode? in
+                guard row >= 0, row < outlineView.numberOfRows else { return nil }
+                return outlineView.item(atRow: row) as? FileExplorerNode
+            }
+            return nodes.isEmpty ? [node] : nodes
+        }
+
         // MARK: - Drag-to-Preview
 
         func outlineView(_ outlineView: NSOutlineView, pasteboardWriterForItem item: Any) -> (any NSPasteboardWriting)? {
@@ -525,6 +591,24 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 menu.addItem(.separator())
             }
 
+            let insertPathItem = NSMenuItem(
+                title: String(localized: "fileExplorer.contextMenu.insertPath", defaultValue: "Insert Path"),
+                action: #selector(contextMenuInsertPath(_:)),
+                keyEquivalent: ""
+            )
+            insertPathItem.target = self
+            insertPathItem.representedObject = node
+            menu.addItem(insertPathItem)
+
+            let insertRelativePathItem = NSMenuItem(
+                title: String(localized: "fileExplorer.contextMenu.insertRelativePath", defaultValue: "Insert Relative Path"),
+                action: #selector(contextMenuInsertRelativePath(_:)),
+                keyEquivalent: ""
+            )
+            insertRelativePathItem.target = self
+            insertRelativePathItem.representedObject = node
+            menu.addItem(insertRelativePathItem)
+
             let copyPathItem = NSMenuItem(
                 title: String(localized: "fileExplorer.contextMenu.copyPath", defaultValue: "Copy Path"),
                 action: #selector(contextMenuCopyPath(_:)),
@@ -554,6 +638,23 @@ struct FileExplorerPanelView: NSViewRepresentable {
             NSWorkspace.shared.selectFile(node.path, inFileViewerRootedAtPath: "")
         }
 
+        @objc private func contextMenuInsertPath(_ sender: NSMenuItem) {
+            guard let node = sender.representedObject as? FileExplorerNode else { return }
+            FileExplorerTerminalPathInsertion.insert(
+                paths: contextMenuNodes(clicked: node).map(\.path),
+                intoTerminalFor: outlineView?.window ?? containerView?.window
+            )
+        }
+
+        @objc private func contextMenuInsertRelativePath(_ sender: NSMenuItem) {
+            guard let node = sender.representedObject as? FileExplorerNode else { return }
+            FileExplorerTerminalPathInsertion.insert(
+                paths: contextMenuNodes(clicked: node).map(\.path),
+                relativeToRootPath: store.rootPath,
+                intoTerminalFor: outlineView?.window ?? containerView?.window
+            )
+        }
+
         @objc private func contextMenuCopyPath(_ sender: NSMenuItem) {
             guard let node = sender.representedObject as? FileExplorerNode else { return }
             NSPasteboard.general.clearContents()
@@ -562,14 +663,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
         @objc private func contextMenuCopyRelativePath(_ sender: NSMenuItem) {
             guard let node = sender.representedObject as? FileExplorerNode else { return }
-            let rootPath = store.rootPath
-            var relativePath = node.path
-            if relativePath.hasPrefix(rootPath) {
-                relativePath = String(relativePath.dropFirst(rootPath.count))
-                if relativePath.hasPrefix("/") {
-                    relativePath = String(relativePath.dropFirst())
-                }
-            }
+            let relativePath = FileExplorerTerminalPathInsertion.relativePath(for: node.path, rootPath: store.rootPath)
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(relativePath, forType: .string)
         }
@@ -681,6 +775,7 @@ final class FileExplorerContainerView: NSView {
         outlineView.selectionHighlightStyle = .regular
         outlineView.rowSizeStyle = .default
         outlineView.indentationPerLevel = FileExplorerStyle.current.indentation
+        outlineView.allowsMultipleSelection = true
         outlineView.autoresizesOutlineColumn = true
         outlineView.floatsGroupRows = false
         outlineView.backgroundColor = .clear
@@ -724,6 +819,7 @@ final class FileExplorerContainerView: NSView {
         searchResultsView.selectionHighlightStyle = .regular
         searchResultsView.backgroundColor = .clear
         searchResultsView.rowHeight = 46
+        searchResultsView.allowsMultipleSelection = true
         searchResultsView.intercellSpacing = NSSize(width: 0, height: 0)
         searchResultsView.onCancel = { [weak self] in
             self?.closeSearchAndFocusOutline()
@@ -1093,6 +1189,19 @@ final class FileExplorerContainerView: NSView {
         return searchSnapshot.results[row]
     }
 
+    private func searchResultsForContextMenu(row: Int) -> [FileSearchResult] {
+        guard row >= 0, row < searchSnapshot.results.count else { return [] }
+        let selectedRows = searchResultsView.selectedRowIndexes
+        guard selectedRows.contains(row) else {
+            return [searchSnapshot.results[row]]
+        }
+        let results = selectedRows.compactMap { selectedRow -> FileSearchResult? in
+            guard selectedRow >= 0, selectedRow < searchSnapshot.results.count else { return nil }
+            return searchSnapshot.results[selectedRow]
+        }
+        return results.isEmpty ? [searchSnapshot.results[row]] : results
+    }
+
     fileprivate func openSelectedSearchResult() {
         let row = searchResultsView.selectedRow
         guard row >= 0, row < searchSnapshot.results.count else { return }
@@ -1116,6 +1225,22 @@ final class FileExplorerContainerView: NSView {
     @objc private func contextMenuRevealSearchResultInFinder(_ sender: NSMenuItem) {
         guard let result = searchResult(forMenuItem: sender) else { return }
         NSWorkspace.shared.selectFile(result.path, inFileViewerRootedAtPath: "")
+    }
+
+    @objc private func contextMenuInsertSearchResultPath(_ sender: NSMenuItem) {
+        guard let row = (sender.representedObject as? NSNumber)?.intValue else { return }
+        FileExplorerTerminalPathInsertion.insert(
+            paths: searchResultsForContextMenu(row: row).map(\.path),
+            intoTerminalFor: window
+        )
+    }
+
+    @objc private func contextMenuInsertSearchResultRelativePath(_ sender: NSMenuItem) {
+        guard let row = (sender.representedObject as? NSNumber)?.intValue else { return }
+        FileExplorerTerminalPathInsertion.insert(
+            paths: searchResultsForContextMenu(row: row).map(\.relativePath),
+            intoTerminalFor: window
+        )
     }
 
     @objc private func contextMenuCopySearchResultPath(_ sender: NSMenuItem) {
@@ -1207,7 +1332,7 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         let clickedRow = searchResultsView.clickedRow
         let row = clickedRow >= 0 ? clickedRow : searchResultsView.selectedRow
         guard row >= 0, row < searchSnapshot.results.count else { return }
-        if clickedRow >= 0 {
+        if clickedRow >= 0 && !searchResultsView.selectedRowIndexes.contains(clickedRow) {
             searchResultsView.selectRowIndexes(IndexSet(integer: clickedRow), byExtendingSelection: false)
         }
 
@@ -1239,6 +1364,24 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         menu.addItem(revealItem)
 
         menu.addItem(.separator())
+
+        let insertPathItem = NSMenuItem(
+            title: String(localized: "fileExplorer.contextMenu.insertPath", defaultValue: "Insert Path"),
+            action: #selector(contextMenuInsertSearchResultPath(_:)),
+            keyEquivalent: ""
+        )
+        insertPathItem.target = self
+        insertPathItem.representedObject = NSNumber(value: row)
+        menu.addItem(insertPathItem)
+
+        let insertRelativePathItem = NSMenuItem(
+            title: String(localized: "fileExplorer.contextMenu.insertRelativePath", defaultValue: "Insert Relative Path"),
+            action: #selector(contextMenuInsertSearchResultRelativePath(_:)),
+            keyEquivalent: ""
+        )
+        insertRelativePathItem.target = self
+        insertRelativePathItem.representedObject = NSNumber(value: row)
+        menu.addItem(insertRelativePathItem)
 
         let copyPathItem = NSMenuItem(
             title: String(localized: "fileExplorer.contextMenu.copyPath", defaultValue: "Copy Path"),
