@@ -37,11 +37,13 @@
 		C0DEF0A10000000000000001 /* CmuxConfigUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0A10000000000000002 /* CmuxConfigUI.swift */; };
 		C0DEF0A30000000000000001 /* SidebarPortDisplayText.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0A30000000000000002 /* SidebarPortDisplayText.swift */; };
 		C0DEF0B10000000000000001 /* JSONCParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0B10000000000000002 /* JSONCParser.swift */; };
+		C0DEF0B10000000000000003 /* JSONCParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0B10000000000000002 /* JSONCParser.swift */; };
 		C0DEF0B30000000000000001 /* KeyboardShortcutSettingsFileStoreMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0B30000000000000002 /* KeyboardShortcutSettingsFileStoreMigrationTests.swift */; };
 		E3337001E3337001E3337001 /* KeyboardShortcutSettingsFileStoreStartupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3337002E3337002E3337002 /* KeyboardShortcutSettingsFileStoreStartupTests.swift */; };
 		C34670010000000000000001 /* AppDelegateRenameShortcutContextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34670010000000000000002 /* AppDelegateRenameShortcutContextTests.swift */; };
 		C34670020000000000000001 /* KeyboardShortcutContextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34670020000000000000002 /* KeyboardShortcutContextTests.swift */; };
 		C34670030000000000000001 /* KeyboardShortcutContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34670030000000000000002 /* KeyboardShortcutContext.swift */; };
+		C34670040000000000000001 /* KeyboardShortcutTestSettingsIsolation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34670040000000000000002 /* KeyboardShortcutTestSettingsIsolation.swift */; };
 		E3309A01 /* AppDelegate+EqualizeSplitsShortcut.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3309A02 /* AppDelegate+EqualizeSplitsShortcut.swift */; };
 		E3309A03 /* TabManager+EqualizeSplits.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3309A04 /* TabManager+EqualizeSplits.swift */; };
 		E3309A05 /* Workspace+EqualizeSplitsSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3309A06 /* Workspace+EqualizeSplitsSupport.swift */; };
@@ -60,6 +62,9 @@
 		D0B1000CA1B2C3D4E5F60001 /* CmuxWebViewDragRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B1000DA1B2C3D4E5F60001 /* CmuxWebViewDragRoutingTests.swift */; };
 		D0B1000EA1B2C3D4E5F60001 /* BrowserPaneDropRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B1000FA1B2C3D4E5F60001 /* BrowserPaneDropRoutingTests.swift */; };
 		D0B10010A1B2C3D4E5F60001 /* BonsplitTabBarDebug.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10011A1B2C3D4E5F60001 /* BonsplitTabBarDebug.swift */; };
+		D0B10014A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10015A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift */; };
+		D0B10016A1B2C3D4E5F60001 /* FilePreviewTextEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10017A1B2C3D4E5F60001 /* FilePreviewTextEditor.swift */; };
+		D0B10018A1B2C3D4E5F60001 /* FileDropOverlayViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10019A1B2C3D4E5F60001 /* FileDropOverlayViewTests.swift */; };
 		D7AB34300000000000000001 /* SidebarDropPlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB34300000000000000002 /* SidebarDropPlanner.swift */; };
 		D7AB34300000000000000003 /* SidebarBonsplitTabWorkspaceDropOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB34300000000000000004 /* SidebarBonsplitTabWorkspaceDropOverlay.swift */; };
 		D7AB34300000000000000005 /* SidebarWorkspaceDropPlannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB34300000000000000006 /* SidebarWorkspaceDropPlannerTests.swift */; };
@@ -68,8 +73,7 @@
 		5EDB6027B346C46521A93C74 /* CMUXAuthCore in Frameworks */ = {isa = PBXBuildFile; productRef = 29813FE5A6CBC1019289A251 /* CMUXAuthCore */; };
 		AA11BB22CC33DD44EE550001 /* CMUXWorkstream in Frameworks */ = {isa = PBXBuildFile; productRef = AA11BB22CC33DD44EE550002 /* CMUXWorkstream */; };
 		3069F1D10000000000000005 /* CMUXPasteboardFidelity in Frameworks */ = {isa = PBXBuildFile; productRef = 3069F1D10000000000000006 /* CMUXPasteboardFidelity */; };
-		F53000A0A1B2C3D4E5F60718 /* CMUXRovoDevIndex in Frameworks */ = {isa = PBXBuildFile; productRef = F53000A2A1B2C3D4E5F60718 /* CMUXRovoDevIndex */; };
-		F53200A0A1B2C3D4E5F60718 /* CMUXHermesAgentIndex in Frameworks */ = {isa = PBXBuildFile; productRef = F53200A2A1B2C3D4E5F60718 /* CMUXHermesAgentIndex */; };
+		F53000A0A1B2C3D4E5F60718 /* CMUXAgentVault in Frameworks */ = {isa = PBXBuildFile; productRef = F53000A2A1B2C3D4E5F60718 /* CMUXAgentVault */; };
 		A5B00003A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */ = {isa = PBXBuildFile; productRef = A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */; };
 		A5B00004A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */ = {isa = PBXBuildFile; productRef = A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */; };
 		A5B00005A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */ = {isa = PBXBuildFile; productRef = A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */; };
@@ -283,6 +287,7 @@
 		B9000044A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000045A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatSupport.swift */; };
 		B9000046A1B2C3D4E5F60719 /* CMUXCLI+ExecutableResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000047A1B2C3D4E5F60719 /* CMUXCLI+ExecutableResolution.swift */; };
 		B9000048A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatHUDSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000049A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatHUDSupport.swift */; };
+		B9000050A1B2C3D4E5F60719 /* CMUXCLI+Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000051A1B2C3D4E5F60719 /* CMUXCLI+Config.swift */; };
 		B900000BA1B2C3D4E5F60719 /* cmux in Copy CLI */ = {isa = PBXBuildFile; fileRef = B9000004A1B2C3D4E5F60719 /* cmux */; };
 		B900002EA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift in Sources */ = {isa = PBXBuildFile; fileRef = B900002CA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift */; };
 		B900002FA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B900002DA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift */; };
@@ -451,6 +456,7 @@
 		D0B10009A1B2C3D4E5F60001 /* PortalTabDragRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortalTabDragRoutingTests.swift; sourceTree = "<group>"; };
 		D0B1000DA1B2C3D4E5F60001 /* CmuxWebViewDragRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxWebViewDragRoutingTests.swift; sourceTree = "<group>"; };
 		D0B1000FA1B2C3D4E5F60001 /* BrowserPaneDropRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPaneDropRoutingTests.swift; sourceTree = "<group>"; };
+		D0B10019A1B2C3D4E5F60001 /* FileDropOverlayViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileDropOverlayViewTests.swift; sourceTree = "<group>"; };
 		10D684CFFB8CDEF89CE2D9E1 /* TabManagerSessionSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManagerSessionSnapshotTests.swift; sourceTree = "<group>"; };
 		14A7DC53B9CA33BE2A421711 /* WorkspacePullRequestSidebarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePullRequestSidebarTests.swift; sourceTree = "<group>"; };
 		1A1B2C3D4E5F607180000002 /* WorkspacePromptSubmit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePromptSubmit.swift; sourceTree = "<group>"; };
@@ -493,6 +499,7 @@
 		E3337002E3337002E3337002 /* KeyboardShortcutSettingsFileStoreStartupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSettingsFileStoreStartupTests.swift; sourceTree = "<group>"; };
 		C34670010000000000000002 /* AppDelegateRenameShortcutContextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateRenameShortcutContextTests.swift; sourceTree = "<group>"; };
 		C34670020000000000000002 /* KeyboardShortcutContextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutContextTests.swift; sourceTree = "<group>"; };
+		C34670040000000000000002 /* KeyboardShortcutTestSettingsIsolation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutTestSettingsIsolation.swift; sourceTree = "<group>"; };
 		E3309A0C /* KeyboardShortcutSettingsEqualizeSplitsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSettingsEqualizeSplitsTests.swift; sourceTree = "<group>"; };
 		A17110000000000000000002 /* KeyboardShortcutSpaceKeyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSpaceKeyTests.swift; sourceTree = "<group>"; };
 		7E7E6EF344A568AC7FEE3715 /* cmuxUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = cmuxUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -569,6 +576,8 @@
 		D0B1000BA1B2C3D4E5F60001 /* GhosttyTerminalViewSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalViewSupport.swift; sourceTree = "<group>"; };
 		D0B10013A1B2C3D4E5F60001 /* GhosttyApp+SurfaceConfigurationReload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyApp+SurfaceConfigurationReload.swift"; sourceTree = "<group>"; };
 		D0B10001A1B2C3D4E5F60001 /* TerminalPaneDropTargetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPaneDropTargetView.swift; sourceTree = "<group>"; };
+		D0B10015A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DragOverlayRoutingPolicy.swift; sourceTree = "<group>"; };
+		D0B10017A1B2C3D4E5F60001 /* FilePreviewTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewTextEditor.swift; sourceTree = "<group>"; };
 		A5001016 /* GhosttyKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = GhosttyKit.xcframework; sourceTree = "<group>"; };
 		A5001017 /* ghostty.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ghostty.h; sourceTree = "<group>"; };
 		A5001018 /* cmux-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "cmux-Bridging-Header.h"; sourceTree = "<group>"; };
@@ -712,6 +721,7 @@
 		B9000045A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TmuxCompatSupport.swift"; sourceTree = "<group>"; };
 		B9000047A1B2C3D4E5F60719 /* CMUXCLI+ExecutableResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+ExecutableResolution.swift"; sourceTree = "<group>"; };
 		B9000049A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatHUDSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TmuxCompatHUDSupport.swift"; sourceTree = "<group>"; };
+		B9000051A1B2C3D4E5F60719 /* CMUXCLI+Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Config.swift"; sourceTree = "<group>"; };
 		B9000004A1B2C3D4E5F60719 /* cmux */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = cmux; sourceTree = BUILT_PRODUCTS_DIR; };
 		B900002CA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Themes.swift"; sourceTree = "<group>"; };
 		B900002DA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+ThemeSupport.swift"; sourceTree = "<group>"; };
@@ -820,8 +830,7 @@
 				5EDB6027B346C46521A93C74 /* CMUXAuthCore in Frameworks */,
 				AA11BB22CC33DD44EE550001 /* CMUXWorkstream in Frameworks */,
 				3069F1D10000000000000005 /* CMUXPasteboardFidelity in Frameworks */,
-				F53000A0A1B2C3D4E5F60718 /* CMUXRovoDevIndex in Frameworks */,
-				F53200A0A1B2C3D4E5F60718 /* CMUXHermesAgentIndex in Frameworks */,
+				F53000A0A1B2C3D4E5F60718 /* CMUXAgentVault in Frameworks */,
 				A5B00003A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */,
 				F20F85FC5900550685FA33AD /* StackAuth in Frameworks */,
 			);
@@ -980,6 +989,7 @@
 				B37A00000000000000000008 /* SettingsCardNote.swift */,
 				A5001012 /* ContentView.swift */,
 				C0DE35010000000000000002 /* SidebarScrim.swift */,
+				D0B10015A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift */,
 				C3408A000000000000000002 /* ContentView+RightSidebarCommandPalette.swift */,
 				C3408A000000000000000006 /* ContentView+ViewCommandPalette.swift */,
 				D7AB00000000000000000004 /* ContentView+MoveTabToNewWorkspace.swift */,
@@ -1099,6 +1109,7 @@
 				A5001418 /* MarkdownPanel.swift */,
 				A5001419 /* MarkdownPanelView.swift */,
 				A5001423 /* FilePreviewPanel.swift */,
+				D0B10017A1B2C3D4E5F60001 /* FilePreviewTextEditor.swift */,
 				A5001442A5001442A5001442 /* FilePreviewModeSupport.swift */,
 				A5001444A5001444A5001444 /* FilePreviewWorkspaceOpenSupport.swift */,
 				A5001446A5001446A5001446 /* FilePreviewMagnifyingPDFView.swift */,
@@ -1185,6 +1196,7 @@
 						B9000047A1B2C3D4E5F60719 /* CMUXCLI+ExecutableResolution.swift */,
 						B9000045A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatSupport.swift */,
 						B9000049A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatHUDSupport.swift */,
+						B9000051A1B2C3D4E5F60719 /* CMUXCLI+Config.swift */,
 						B9000031A1B2C3D4E5F60719 /* CMUXCLI+DocsSettings.swift */,
 				B900002DA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift */,
 				B900002CA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift */,
@@ -1220,6 +1232,7 @@
 					C1713005C1713005C1713005 /* CommandPaletteShortcutCustomizationTests.swift */,
 					17FCD4CC61D54A2F8F2F463D /* AppDelegateBareSpaceShortcutRoutingTests.swift */,
 				C34670010000000000000002 /* AppDelegateRenameShortcutContextTests.swift */,
+				C34670040000000000000002 /* KeyboardShortcutTestSettingsIsolation.swift */,
 				E3309A0A /* AppDelegateEqualizeSplitsShortcutTests.swift */,
 				F6001001A1B2C3D4E5F60718 /* ShortcutUnbindingTests.swift */,
 				F6100001A1B2C3D4E5F60718 /* WorkspaceRemoteConnectionTests.swift */,
@@ -1256,6 +1269,7 @@
 				1A1B2C3D4E5F607180000004 /* WorkspacePromptSubmitTests.swift */,
 				C0DE31390000000000000102 /* CMUXOpenCommandTests.swift */,
 				BEE83F8394D90ACACD8E19DD /* WindowAndDragTests.swift */,
+				D0B10019A1B2C3D4E5F60001 /* FileDropOverlayViewTests.swift */,
 				2907A0042907A0042907A004 /* AppDelegateIssue2907RoutingTests.swift */,
 				A5001435A5001435A5001435 /* FilePreviewPDFThumbnailSidebarTests.swift */,
 				C0DE31390000000000000104 /* FilePreviewReviewFeedbackTests.swift */,
@@ -1331,8 +1345,7 @@
 				29813FE5A6CBC1019289A251 /* CMUXAuthCore */,
 				AA11BB22CC33DD44EE550002 /* CMUXWorkstream */,
 				3069F1D10000000000000006 /* CMUXPasteboardFidelity */,
-				F53000A2A1B2C3D4E5F60718 /* CMUXRovoDevIndex */,
-				F53200A2A1B2C3D4E5F60718 /* CMUXHermesAgentIndex */,
+				F53000A2A1B2C3D4E5F60718 /* CMUXAgentVault */,
 				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
 				A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */,
 				A8BD195031FC4B82B4354297 /* StackAuth */,
@@ -1462,8 +1475,7 @@
 				40B63BB4A170F0BD2D1DEFD1 /* XCLocalSwiftPackageReference "CMUXAuthCore" */,
 				AA11BB22CC33DD44EE550003 /* XCLocalSwiftPackageReference "CMUXWorkstream" */,
 				3069F1D10000000000000007 /* XCLocalSwiftPackageReference "CMUXPasteboardFidelity" */,
-				F53000A1A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXRovoDevIndex" */,
-				F53200A1A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXHermesAgentIndex" */,
+				F53000A1A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXAgentVault" */,
 				A5B00001A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXAgentLaunch" */,
 				A500D012A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXDebugLog" */,
 				28B798BB9086C8E6B60C3355 /* XCLocalSwiftPackageReference "stack-auth-swift-sdk-prerelease" */,
@@ -1626,6 +1638,7 @@
 				D0B1000AA1B2C3D4E5F60001 /* GhosttyTerminalViewSupport.swift in Sources */,
 				D0B10012A1B2C3D4E5F60001 /* GhosttyApp+SurfaceConfigurationReload.swift in Sources */,
 				D0B10000A1B2C3D4E5F60001 /* TerminalPaneDropTargetView.swift in Sources */,
+				D0B10014A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift in Sources */,
 				A5001532 /* TerminalWindowPortal.swift in Sources */,
 				D0B10006A1B2C3D4E5F60001 /* TerminalWindowPortalDebug.swift in Sources */,
 				A5001534 /* BrowserWindowPortal.swift in Sources */,
@@ -1678,6 +1691,7 @@
 				A5001420 /* MarkdownPanel.swift in Sources */,
 				A5001421 /* MarkdownPanelView.swift in Sources */,
 				A5001422 /* FilePreviewPanel.swift in Sources */,
+				D0B10016A1B2C3D4E5F60001 /* FilePreviewTextEditor.swift in Sources */,
 				A5001443A5001443A5001443 /* FilePreviewModeSupport.swift in Sources */,
 				A5001445A5001445A5001445 /* FilePreviewWorkspaceOpenSupport.swift in Sources */,
 				A5001447A5001447A5001447 /* FilePreviewMagnifyingPDFView.swift in Sources */,
@@ -1762,10 +1776,12 @@
 					B9000044A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatSupport.swift in Sources */,
 					B9000046A1B2C3D4E5F60719 /* CMUXCLI+ExecutableResolution.swift in Sources */,
 					B9000048A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatHUDSupport.swift in Sources */,
+					B9000050A1B2C3D4E5F60719 /* CMUXCLI+Config.swift in Sources */,
 					B9000035A1B2C3D4E5F60719 /* CMUXCLI+DocsSettings.swift in Sources */,
 				B900002FA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift in Sources */,
 				B900002EA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift in Sources */,
 				B9000033A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift in Sources */,
+				C0DEF0B10000000000000003 /* JSONCParser.swift in Sources */,
 				B9000027A1B2C3D4E5F60719 /* RemoteRelayZshBootstrap.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -1838,6 +1854,7 @@
 					C1713006C1713006C1713006 /* CommandPaletteShortcutCustomizationTests.swift in Sources */,
 					725746692D9647948561044D /* AppDelegateBareSpaceShortcutRoutingTests.swift in Sources */,
 				C34670010000000000000001 /* AppDelegateRenameShortcutContextTests.swift in Sources */,
+				C34670040000000000000001 /* KeyboardShortcutTestSettingsIsolation.swift in Sources */,
 				E3309A09 /* AppDelegateEqualizeSplitsShortcutTests.swift in Sources */,
 				F6001000A1B2C3D4E5F60718 /* ShortcutUnbindingTests.swift in Sources */,
 				F6100000A1B2C3D4E5F60718 /* WorkspaceRemoteConnectionTests.swift in Sources */,
@@ -1873,6 +1890,7 @@
 				1A1B2C3D4E5F607180000003 /* WorkspacePromptSubmitTests.swift in Sources */,
 				C0DE31390000000000000101 /* CMUXOpenCommandTests.swift in Sources */,
 				063BC42CEE257D6213A2E30C /* WindowAndDragTests.swift in Sources */,
+				D0B10018A1B2C3D4E5F60001 /* FileDropOverlayViewTests.swift in Sources */,
 				2907A0032907A0032907A003 /* AppDelegateIssue2907RoutingTests.swift in Sources */,
 				A5001436A5001436A5001436 /* FilePreviewPDFThumbnailSidebarTests.swift in Sources */,
 				C0DE31390000000000000103 /* FilePreviewReviewFeedbackTests.swift in Sources */,
@@ -1947,10 +1965,10 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 82;
+				CURRENT_PROJECT_VERSION = 83;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.64.2;
+				MARKETING_VERSION = 0.64.3;
 				ONLY_ACTIVE_ARCH = NO;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.appuitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -2029,7 +2047,7 @@
 				CODE_SIGN_ENTITLEMENTS = "";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 82;
+				CURRENT_PROJECT_VERSION = 83;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -2038,7 +2056,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.64.2;
+				MARKETING_VERSION = 0.64.3;
 				OTHER_LDFLAGS = (
 					"-lc++",
 					"-framework",
@@ -2069,7 +2087,7 @@
 				CODE_SIGN_ENTITLEMENTS = Resources/cmux.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 82;
+				CURRENT_PROJECT_VERSION = 83;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -2078,7 +2096,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.64.2;
+				MARKETING_VERSION = 0.64.3;
 				ONLY_ACTIVE_ARCH = NO;
 				OTHER_LDFLAGS = (
 					"-lc++",
@@ -2145,10 +2163,10 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 82;
+				CURRENT_PROJECT_VERSION = 83;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.64.2;
+				MARKETING_VERSION = 0.64.3;
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.appuitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -2163,7 +2181,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 82;
+				CURRENT_PROJECT_VERSION = 83;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -2172,7 +2190,7 @@
 				INFOPLIST_KEY_NSPrincipalClass = "";
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Bundles";
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.64.2;
+				MARKETING_VERSION = 0.64.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.app.docktileplugin.debug;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -2188,7 +2206,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 82;
+				CURRENT_PROJECT_VERSION = 83;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -2197,7 +2215,7 @@
 				INFOPLIST_KEY_NSPrincipalClass = "";
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Bundles";
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.64.2;
+				MARKETING_VERSION = 0.64.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.app.docktileplugin;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -2212,10 +2230,10 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 82;
+				CURRENT_PROJECT_VERSION = 83;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.64.2;
+				MARKETING_VERSION = 0.64.3;
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.apptests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -2231,10 +2249,10 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 82;
+				CURRENT_PROJECT_VERSION = 83;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.64.2;
+				MARKETING_VERSION = 0.64.3;
 				ONLY_ACTIVE_ARCH = NO;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.apptests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -2320,13 +2338,9 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CMUXPasteboardFidelity;
 		};
-		F53000A1A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXRovoDevIndex" */ = {
+		F53000A1A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXAgentVault" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CMUXRovoDevIndex;
-		};
-		F53200A1A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXHermesAgentIndex" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CMUXHermesAgentIndex;
+			relativePath = Packages/CMUXAgentVault;
 		};
 		A5B00001A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXAgentLaunch" */ = {
 			isa = XCLocalSwiftPackageReference;
@@ -2393,15 +2407,10 @@
 			package = 3069F1D10000000000000007 /* XCLocalSwiftPackageReference "CMUXPasteboardFidelity" */;
 			productName = CMUXPasteboardFidelity;
 		};
-		F53000A2A1B2C3D4E5F60718 /* CMUXRovoDevIndex */ = {
+		F53000A2A1B2C3D4E5F60718 /* CMUXAgentVault */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = F53000A1A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXRovoDevIndex" */;
-			productName = CMUXRovoDevIndex;
-		};
-		F53200A2A1B2C3D4E5F60718 /* CMUXHermesAgentIndex */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = F53200A1A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXHermesAgentIndex" */;
-			productName = CMUXHermesAgentIndex;
+			package = F53000A1A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXAgentVault" */;
+			productName = CMUXAgentVault;
 		};
 		A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */ = {
 			isa = XCSwiftPackageProductDependency;

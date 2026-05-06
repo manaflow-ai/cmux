@@ -1,6 +1,6 @@
 import AppKit
 import Bonsplit
-import CMUXHermesAgentIndex
+import CMUXAgentVault
 import SQLite3
 import SwiftUI
 import UniformTypeIdentifiers
@@ -1227,8 +1227,8 @@ private enum SessionTranscriptLoader {
     private static func loadHermesAgentSynchronously(sessionId: String) throws -> [SessionTranscriptTurn] {
         do {
             let turns = try HermesAgentIndex.loadTranscript(sessionId: sessionId, limit: maxPreviewTurns)
-            return coalesce(turns.enumerated().compactMap { index, turn in
-                let role = transcriptRole(from: turn.role) ?? (turn.toolName == nil ? .event : .tool)
+            var previewTurns: [SessionTranscriptTurn] = turns.enumerated().compactMap { index, turn -> SessionTranscriptTurn? in
+                let role: SessionTranscriptRole = (turn.toolName?.isEmpty == false) ? .tool : (transcriptRole(from: turn.role) ?? .event)
                 let text: String
                 if role == .tool, let toolName = turn.toolName, !toolName.isEmpty {
                     text = [toolName, turn.content].joined(separator: "\n\n")
@@ -1238,7 +1238,11 @@ private enum SessionTranscriptLoader {
                 let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmed.isEmpty else { return nil }
                 return SessionTranscriptTurn(id: index, role: role, text: truncatedText(trimmed, role: role))
-            })
+            }
+            if turns.count == maxPreviewTurns {
+                appendTurnLimitMarker(to: &previewTurns, id: previewTurns.count)
+            }
+            return coalesce(previewTurns)
         } catch HermesAgentIndexError.missingDatabase {
             throw SessionTranscriptLoadError.missingFile
         } catch let HermesAgentIndexError.sqlite(message) {

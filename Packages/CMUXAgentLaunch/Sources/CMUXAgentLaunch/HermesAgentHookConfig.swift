@@ -33,12 +33,17 @@ public enum HermesAgentHookConfig {
             let childIndent = leadingWhitespace(lines[hooksIndex]) + "  "
             let existingEvents = directEventLineIndexes(in: lines, hooksIndex: hooksIndex)
             var missingEvents: [Event] = []
+            var matchedEvents: [(event: Event, eventIndex: Int)] = []
 
             for event in events {
                 guard let eventIndex = existingEvents[event.name] else {
                     missingEvents.append(event)
                     continue
                 }
+                matchedEvents.append((event, eventIndex))
+            }
+
+            for (event, eventIndex) in matchedEvents.sorted(by: { $0.eventIndex > $1.eventIndex }) {
                 let entryIndent = leadingWhitespace(lines[eventIndex]) + "  "
                 let block = hookListBlock(events: [event], itemIndent: entryIndent)
                 lines.insert(contentsOf: block, at: eventIndex + 1)

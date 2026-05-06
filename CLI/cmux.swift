@@ -14,6 +14,12 @@ import Sentry
 
 struct CLIError: Error, CustomStringConvertible {
     let message: String
+    let exitCode: Int32
+
+    init(message: String, exitCode: Int32 = 1) {
+        self.message = message
+        self.exitCode = exitCode
+    }
 
     var description: String { message }
 }
@@ -929,6 +935,7 @@ final class SocketClient {
 
     private let path: String
     private var socketFD: Int32 = -1
+    private var lastConfiguredReceiveTimeout: TimeInterval?
     private var lastOperationTelemetry: CLISocketOperationTelemetry.State?
     private static let defaultResponseTimeoutSeconds: TimeInterval = 15.0
     private static let multilineResponseIdleTimeoutSeconds: TimeInterval = 0.12
@@ -1022,6 +1029,7 @@ final class SocketClient {
             Darwin.close(socketFD)
             socketFD = -1
         }
+        lastConfiguredReceiveTimeout = nil
     }
 
     func send(command: String, responseTimeout: TimeInterval? = nil) throws -> String {
@@ -1037,6 +1045,9 @@ final class SocketClient {
         }
 
         let initialResponseTimeout = responseTimeout ?? Self.responseTimeoutSeconds
+        if lastConfiguredReceiveTimeout != initialResponseTimeout {
+            try configureReceiveTimeout(initialResponseTimeout)
+        }
         var operation = CLISocketOperationTelemetry.State(
             name: CLISocketOperationTelemetry.operationName(for: command),
             timeout: initialResponseTimeout,
@@ -1062,7 +1073,9 @@ final class SocketClient {
             operation.sawNewline = sawNewline
             operation.timeout = currentTimeout
             recordOperation(operation)
-            try configureReceiveTimeout(currentTimeout)
+            if lastConfiguredReceiveTimeout != currentTimeout {
+                try configureReceiveTimeout(currentTimeout)
+            }
 
             var buffer = [UInt8](repeating: 0, count: 8192)
             let count = Darwin.read(socketFD, &buffer, buffer.count)
@@ -1141,6 +1154,7 @@ final class SocketClient {
         }
         do {
             try configureSocketWriteSafety(Self.responseTimeoutSeconds)
+            try configureReceiveTimeout(Self.responseTimeoutSeconds)
         } catch {
             close()
             throw error
@@ -1435,8 +1449,11 @@ final class SocketClient {
             )
         }
         guard result == 0 else {
-            throw CLIError(message: "Failed to configure socket receive timeout")
+            let errorCode = errno
+            let reason = String(cString: strerror(errorCode))
+            throw CLIError(message: "Failed to configure socket receive timeout (\(reason), errno \(errorCode))")
         }
+        lastConfiguredReceiveTimeout = timeout
     }
 
     static func waitForConnectableSocket(path: String, timeout: TimeInterval) throws -> SocketClient {
@@ -2022,8 +2039,10 @@ struct CMUXCLI {
         }
 
         guard index < args.count else {
-            print(usage())
-            throw CLIError(message: "Missing command")
+            throw CLIError(
+                message: "Missing command. Usage: cmux <path>|<command> [options]. Run 'cmux --help' for the full command list.",
+                exitCode: 2
+            )
         }
 
         let command = args[index]
@@ -2064,6 +2083,19 @@ struct CMUXCLI {
             return
         }
 
+        // Keep no-socket config subcommands on the early path. Socket-backed
+        // config subcommands fall through to the resolved-socket dispatch below.
+        if command == "config",
+           configCommandDoesNotNeedSocket(commandArgs) {
+            try runConfigCommand(
+                commandArgs: commandArgs,
+                socketPath: nil,
+                explicitPassword: socketPasswordArg,
+                jsonOutput: jsonOutput
+            )
+            return
+        }
+
         let envSocketPath = explicitSocketPath == nil
             ? try CLISocketEnvironment.socketPath(in: processEnv)
             : CLISocketEnvironment.socketPathForTelemetry(in: processEnv)
@@ -2096,6 +2128,16 @@ struct CMUXCLI {
 
         if command == "settings" {
             try runSettings(
+                commandArgs: commandArgs,
+                socketPath: resolvedSocketPath,
+                explicitPassword: socketPasswordArg,
+                jsonOutput: jsonOutput
+            )
+            return
+        }
+
+        if command == "config" {
+            try runConfigCommand(
                 commandArgs: commandArgs,
                 socketPath: resolvedSocketPath,
                 explicitPassword: socketPasswordArg,
@@ -8319,6 +8361,8 @@ struct CMUXCLI {
             return docsUsage()
         case "settings":
             return settingsUsage()
+        case "config":
+            return configUsage()
         case "welcome":
             return """
             Usage: cmux welcome
@@ -8391,8 +8435,8 @@ struct CMUXCLI {
             """
         case "hooks":
             return """
-            Usage: cmux hooks setup [--agent <name>] [--yes|-y]
-                   cmux hooks uninstall [--agent <name>] [--yes|-y]
+            Usage: cmux hooks setup [agent] [--agent <name>] [--yes|-y]
+                   cmux hooks uninstall [agent] [--agent <name>] [--yes|-y]
                    cmux hooks <agent> install [--yes|-y] (opencode supports --project)
                    cmux hooks <agent> uninstall [--yes|-y] (opencode supports --project)
                    cmux hooks <agent> <event> [flags]
@@ -8402,7 +8446,7 @@ struct CMUXCLI {
             agent. Claude Code hooks are injected automatically by the cmux Claude wrapper.
 
             Agents:
-              codex, opencode, cursor, gemini, rovodev, hermes-agent, copilot, codebuddy, factory, qoder
+              codex, opencode, cursor, gemini, rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder
 
             Hook targets:
               setup              Install hooks for all supported agents on PATH
@@ -8419,6 +8463,8 @@ struct CMUXCLI {
             Examples:
               cmux hooks setup
               cmux hooks setup --agent codex
+              cmux hooks setup rovo
+              cmux hooks uninstall rovo
               cmux hooks codex install
               cmux hooks opencode install --project
               cmux hooks uninstall
@@ -10804,6 +10850,7 @@ struct CMUXCLI {
 
     func jsonString(_ object: Any) -> String {
         var options: JSONSerialization.WritingOptions = [.prettyPrinted]
+        options.insert(.sortedKeys)
         options.insert(.withoutEscapingSlashes)
         guard JSONSerialization.isValidJSONObject(object),
               let data = try? JSONSerialization.data(withJSONObject: object, options: options),
@@ -15599,6 +15646,7 @@ struct CMUXCLI {
         let binaryName: String
         let format: HookFormat
         let events: [HookEvent]
+        let aliases: Set<String>
         /// Feed-hook events. Each entry installs a second hook for
         /// `agentEvent` that invokes `cmux hooks feed --source <name>`
         /// with a 120s timeout so the socket reply wait doesn't trip the
@@ -15644,6 +15692,7 @@ struct CMUXCLI {
              binaryName: String? = nil,
              sessionStoreSuffix: String, disableEnvVar: String, hookMarker: String,
              format: HookFormat, events: [HookEvent],
+             aliases: Set<String> = [],
              feedHookEvents: [String] = [],
              postInstallAction: PostInstallAction? = nil) {
             self.name = name; self.displayName = displayName; self.statusKey = statusKey
@@ -15652,6 +15701,10 @@ struct CMUXCLI {
             self.binaryName = binaryName ?? name
             self.sessionStoreSuffix = sessionStoreSuffix; self.disableEnvVar = disableEnvVar
             self.hookMarker = hookMarker; self.format = format; self.events = events
+            self.aliases = Set(aliases.compactMap { alias in
+                let normalized = alias.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                return normalized.isEmpty ? nil : normalized
+            })
             self.feedHookEvents = feedHookEvents
             self.postInstallAction = postInstallAction
         }
@@ -15730,7 +15783,8 @@ struct CMUXCLI {
                 .init(agentEvent: "on_complete", cmuxSubcommand: "stop"),
                 .init(agentEvent: "on_error", cmuxSubcommand: "stop"),
                 .init(agentEvent: "on_tool_permission", cmuxSubcommand: "prompt-submit"),
-            ]
+            ],
+            aliases: ["rovo"]
         ),
         AgentHookDef(
             name: "hermes-agent", displayName: "Hermes Agent", statusKey: "hermes-agent",
@@ -15746,7 +15800,7 @@ struct CMUXCLI {
                 .init(agentEvent: "on_session_finalize", cmuxSubcommand: "session-end"),
                 .init(agentEvent: "on_session_reset", cmuxSubcommand: "session-start"),
             ],
-            feedHookEvents: ["pre_tool_call", "post_tool_call", "pre_approval_request"]
+            feedHookEvents: ["pre_tool_call", "post_tool_call", "pre_approval_request", "post_approval_response"]
         ),
         AgentHookDef(
             name: "copilot", displayName: "Copilot", statusKey: "copilot",
@@ -15802,7 +15856,8 @@ struct CMUXCLI {
     ]
 
     private static func agentDef(named name: String) -> AgentHookDef? {
-        agentDefs.first { $0.name == name }
+        let normalized = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return agentDefs.first { $0.name == normalized || $0.aliases.contains(normalized) }
     }
 
     private static func hookMarkers(for def: AgentHookDef) -> [String] {
@@ -16190,9 +16245,11 @@ export default CMUXSessionRestore;
         let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
             || ProcessInfo.processInfo.arguments.contains("-y")
 
-        guard fm.fileExists(atPath: configDir) else {
-            print("~/\(def.configDir)/ does not exist. Install \(def.displayName) first.")
-            return
+        var isDirectory = ObjCBool(false)
+        if !fm.fileExists(atPath: configDir, isDirectory: &isDirectory) {
+            try fm.createDirectory(atPath: configDir, withIntermediateDirectories: true)
+        } else if !isDirectory.boolValue {
+            throw CLIError(message: "\(configDir) exists but is not a directory. Move it aside before installing \(def.displayName) hooks.")
         }
 
         let oldString = try readAgentHookConfig(filePath: filePath, displayName: def.displayName)
@@ -19121,7 +19178,7 @@ export default CMUXSessionRestore;
                 return ("UserPromptSubmit", false)
             case "post_llm_call":
                 return ("Stop", false)
-            case "on_session_start":
+            case "on_session_start", "on_session_reset":
                 return ("SessionStart", false)
             case "on_session_end", "on_session_finalize":
                 return ("SessionEnd", false)
@@ -19432,7 +19489,7 @@ export default CMUXSessionRestore;
                 } else {
                     body = "The user answered: \(selections.joined(separator: ", "))"
                 }
-                return hermesAgentBlock(body)
+                return encode(["context": body])
             }
             if source == "claude" {
                 let updatedInput = claudeAskUserQuestionInput(
@@ -19530,11 +19587,17 @@ export default CMUXSessionRestore;
             return true
 
         case "setup":
-            try runSetupHooks(uninstall: false)
+            try runSetupHooks(
+                uninstall: false,
+                positionalAgentFilter: try Self.hooksSetupPositionalAgentFilter(from: Array(commandArgs.dropFirst()))
+            )
             return true
 
         case "uninstall":
-            try runSetupHooks(uninstall: true)
+            try runSetupHooks(
+                uninstall: true,
+                positionalAgentFilter: try Self.hooksSetupPositionalAgentFilter(from: Array(commandArgs.dropFirst()))
+            )
             return true
 
         default:
@@ -19655,9 +19718,55 @@ export default CMUXSessionRestore;
         }
     }
 
-    private func runSetupHooks(uninstall: Bool = false) throws {
+    private static func hooksSetupPositionalAgentFilter(from args: [String]) throws -> String? {
+        var skipNext = false
+        var positionalAgent: String?
+        for arg in args {
+            if skipNext {
+                skipNext = false
+                continue
+            }
+            switch arg {
+            case "--agent":
+                skipNext = true
+            case "--yes", "-y", "--uninstall":
+                continue
+            default:
+                if !arg.hasPrefix("-") {
+                    if positionalAgent != nil {
+                        throw CLIError(message: "Too many hooks targets: specify at most one positional agent")
+                    }
+                    positionalAgent = arg
+                }
+            }
+        }
+        return positionalAgent
+    }
+
+    private func runSetupHooks(uninstall: Bool = false, positionalAgentFilter: String? = nil) throws {
         let args = ProcessInfo.processInfo.arguments
-        let agentFilter = optionValue(args, name: "--agent")
+        let flagAgentFilter = optionValue(args, name: "--agent")
+        if let flagAgentFilter, let positionalAgentFilter {
+            guard let flagDef = Self.agentDef(named: flagAgentFilter) else {
+                throw CLIError(message: "Unknown hooks target: \(flagAgentFilter)")
+            }
+            guard let positionalDef = Self.agentDef(named: positionalAgentFilter) else {
+                throw CLIError(message: "Unknown hooks target: \(positionalAgentFilter)")
+            }
+            if flagDef.name != positionalDef.name {
+                throw CLIError(message: "Conflicting hooks target: use either --agent or a positional target, not both")
+            }
+        }
+        let agentFilter = flagAgentFilter ?? positionalAgentFilter
+        let agentFilterDef: AgentHookDef?
+        if let agentFilter {
+            guard let def = Self.agentDef(named: agentFilter) else {
+                throw CLIError(message: "Unknown hooks target: \(agentFilter)")
+            }
+            agentFilterDef = def
+        } else {
+            agentFilterDef = nil
+        }
         let isUninstall = uninstall || args.contains("--uninstall")
         let fm = FileManager.default
         let verb = isUninstall ? "uninstalling" : "installing"
@@ -19673,9 +19782,10 @@ export default CMUXSessionRestore;
         var skippedNoBinary: [String] = []
 
         for def in Self.agentDefs {
-            if let filter = agentFilter, filter.lowercased() != def.name { continue }
+            if let agentFilterDef, agentFilterDef.name != def.name { continue }
             let configDir = def.resolvedConfigDir()
-            if def.name != "opencode", !fm.fileExists(atPath: configDir) {
+            let canCreateMissingConfigDir = !isUninstall && def.name == "rovodev"
+            if def.name != "opencode", !canCreateMissingConfigDir, !fm.fileExists(atPath: configDir) {
                 print("  \(def.name): skipped (config dir not found)")
                 skipped += 1
                 continue
@@ -20104,7 +20214,8 @@ export default CMUXSessionRestore;
         Commands:
           welcome
           docs [settings|shortcuts|api|browser|agents|dock]
-          settings [open|path|docs|target]
+          settings [open [target]|path|docs|<target>]
+          config <doctor|check|validate|path|paths|docs|documentation|reload>
           shortcuts
           disable-browser | enable-browser | browser-status
           restore-session
@@ -20278,7 +20389,8 @@ struct CMUXTermMain {
             try cli.run()
         } catch {
             FileHandle.standardError.write(Data("Error: \(error)\n".utf8))
-            exit(1)
+            let exitCode = (error as? CLIError)?.exitCode ?? 1
+            exit(exitCode)
         }
     }
 }

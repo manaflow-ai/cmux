@@ -142,15 +142,7 @@ struct SessionEntry: Identifiable, Hashable {
         case .rovodev:
             return "acli rovodev run --restore \(Self.shellQuote(sessionId))"
         case let .hermesAgent(source, model):
-            var parts = ["hermes"]
-            if source == "tui" {
-                parts.append("--tui")
-            }
-            parts.append("--resume \(Self.shellQuote(sessionId))")
-            if let model, !model.isEmpty {
-                parts.append("--model \(Self.shellQuote(model))")
-            }
-            return parts.joined(separator: " ")
+            return Self.hermesResumeCommand(sessionId: sessionId, source: source, model: model)
         }
     }
 
@@ -191,7 +183,7 @@ struct SessionEntry: Identifiable, Hashable {
     }
 
     /// Single-quote a value for safe shell injection. Escapes embedded single quotes.
-    private static func shellQuote(_ value: String) -> String {
+    static func shellQuote(_ value: String) -> String {
         if value.range(of: "[^A-Za-z0-9_./:=+-]", options: .regularExpression) == nil {
             return value
         }
@@ -1281,11 +1273,15 @@ final class SessionIndexStore: ObservableObject {
                 offset: offset, limit: limit, errorBag: bag
             )
         case .directory(let path):
-            let cwdFilter = (path?.isEmpty == false) ? path : nil
+            let noFolderScope = (path == nil) || ((path ?? "").isEmpty)
+            let cwdFilter = noFolderScope ? nil : path
             // Multi-agent merge: fetch the union of (offset+limit) per agent so the
             // merge-sort can produce a stable global ordering, then slice.
             let target = offset + limit
-            let merged = await Self.mergedAgentEntries(needle: needle, cwdFilter: cwdFilter, limit: target, errorBag: bag)
+            var merged = await Self.mergedAgentEntries(needle: needle, cwdFilter: cwdFilter, limit: target, errorBag: bag)
+            if noFolderScope {
+                merged = merged.filter { ($0.cwd ?? "").isEmpty }
+            }
             let sorted = merged.sorted { $0.modified > $1.modified }
             entries = Array(sorted.dropFirst(offset).prefix(limit))
         }

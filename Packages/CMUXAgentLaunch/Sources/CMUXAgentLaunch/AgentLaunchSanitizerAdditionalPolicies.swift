@@ -431,7 +431,9 @@ extension AgentLaunchSanitizer {
             "-s",
             "--source",
             "--toolsets",
-            "-t"
+            "-t",
+            "--worktree",
+            "-w"
         ],
         optionalValueOptions: [
             "--continue",

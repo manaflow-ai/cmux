@@ -74,4 +74,15 @@ struct AgentLaunchSanitizerTests {
             ]
         )
     }
+
+    @Test("Drops Hermes worktree value before preserving later options")
+    func dropsHermesWorktreeValueBeforePreservingLaterOptions() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["hermes", "--worktree", "/tmp/repo", "--model", "anthropic/claude-sonnet-4.6"],
+                launcher: "hermes-agent",
+                fallbackKind: "hermes-agent"
+            ) == ["hermes", "--model", "anthropic/claude-sonnet-4.6"]
+        )
+    }
 }

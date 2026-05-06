@@ -1,6 +1,7 @@
 import Foundation
 import SQLite3
 
+/// Indexed Hermes sessions do not carry cwd metadata and cannot be filtered by working directory.
 public struct HermesAgentIndexedSession: Equatable, Sendable {
     public let sessionId: String
     public let source: String
@@ -69,6 +70,8 @@ private struct HermesAgentDatabaseSnapshot {
 
 public enum HermesAgentIndex {
     private static let contentJSONPrefix = "\u{0}json:"
+    // Keep this list aligned with source kinds resumeCommand knows how to relaunch.
+    private static let knownSources = ["cli", "tui"]
 
     public static func defaultStateDBPath(env: [String: String] = ProcessInfo.processInfo.environment) -> String {
         if let rawHome = normalized(env["HERMES_HOME"]) {
@@ -79,6 +82,7 @@ public enum HermesAgentIndex {
             .appendingPathComponent("state.db")
     }
 
+    /// Loads Hermes sessions from state.db. Hermes does not store cwd metadata, so any non-nil cwdFilter returns no sessions and no errors.
     public static func loadSessions(
         needle: String,
         cwdFilter: String?,
@@ -165,7 +169,7 @@ public enum HermesAgentIndex {
               ) AS preview
             FROM sessions s
             LEFT JOIN messages m ON m.session_id = s.id
-            WHERE s.source IN ('cli', 'tui')
+            WHERE s.source IN (\(knownSources.map { "'\($0)'" }.joined(separator: ", ")))
             """
         if hasNeedle {
             sql += """

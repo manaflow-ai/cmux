@@ -51,6 +51,9 @@ jobs:
       - name: Validate Swift file length budget guard
         run: ./tests/test_ci_swift_file_length_budget.sh
 
+      - name: Validate CircleCI auto approval
+        run: python3 tests/test_circleci_auto_approve.py
+
       - name: Validate Swift file length budget
         run: python3 scripts/swift_file_length_budget.py --budget .github/swift-file-length-budget.tsv
 
@@ -187,19 +190,7 @@ jobs:
 
       - name: Install zig
         run: |
-          ZIG_REQUIRED="0.15.2"
-          if command -v zig >/dev/null 2>&1 && zig version 2>/dev/null | grep -q "^${ZIG_REQUIRED}"; then
-            echo "zig ${ZIG_REQUIRED} already installed"
-          else
-            echo "Installing zig ${ZIG_REQUIRED} from tarball"
-            curl -fSL "https://ziglang.org/download/${ZIG_REQUIRED}/zig-aarch64-macos-${ZIG_REQUIRED}.tar.xz" -o /tmp/zig.tar.xz
-            tar xf /tmp/zig.tar.xz -C /tmp
-            sudo mkdir -p /usr/local/bin /usr/local/lib
-            sudo cp -f /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/zig /usr/local/bin/zig
-            sudo cp -rf /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/lib /usr/local/lib/zig
-            export PATH="/usr/local/bin:$PATH"
-            zig version
-          fi
+          ./scripts/install-zig-ci.sh
 
       - name: Cache Zig packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -364,19 +355,7 @@ jobs:
 
       - name: Install zig
         run: |
-          ZIG_REQUIRED="0.15.2"
-          if command -v zig >/dev/null 2>&1 && zig version 2>/dev/null | grep -q "^${ZIG_REQUIRED}"; then
-            echo "zig ${ZIG_REQUIRED} already installed"
-          else
-            echo "Installing zig ${ZIG_REQUIRED} from tarball"
-            curl -fSL "https://ziglang.org/download/${ZIG_REQUIRED}/zig-aarch64-macos-${ZIG_REQUIRED}.tar.xz" -o /tmp/zig.tar.xz
-            tar xf /tmp/zig.tar.xz -C /tmp
-            sudo mkdir -p /usr/local/bin /usr/local/lib
-            sudo cp -f /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/zig /usr/local/bin/zig
-            sudo cp -rf /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/lib /usr/local/lib/zig
-            export PATH="/usr/local/bin:$PATH"
-            zig version
-          fi
+          ./scripts/install-zig-ci.sh
 
       - name: Cache Zig packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -432,6 +411,25 @@ jobs:
 
       - name: Validate Swift warning budget
         run: python3 scripts/swift_warning_budget.py --log /tmp/cmux-build-output.txt
+
+      - name: Run CoreAnimation main-thread startup regression
+        run: |
+          set -euo pipefail
+          APP="$(
+            find "$HOME/Library/Developer/Xcode/DerivedData" -path "*/Build/Products/Debug/cmux DEV.app" -exec stat -f '%m %N' {} \; \
+              | sort -nr \
+              | head -1 \
+              | cut -d' ' -f2-
+          )"
+          if [ -z "${APP:-}" ] || [ ! -d "$APP" ]; then
+            echo "cmux DEV.app not found in DerivedData" >&2
+            exit 1
+          fi
+
+          CMUX_ALLOW_UNTAGGED_CA_REGRESSION=1 \
+          CMUX_CA_ASSERT_HOLD_SECONDS=15 \
+          CMUX_TAG="ci-ca-main-thread" \
+          ./scripts/verify-main-thread-ca-transactions.sh "$APP"
 
       - name: Create virtual display
         run: |
@@ -541,19 +539,7 @@ jobs:
 
       - name: Install zig
         run: |
-          ZIG_REQUIRED="0.15.2"
-          if command -v zig >/dev/null 2>&1 && zig version 2>/dev/null | grep -q "^${ZIG_REQUIRED}"; then
-            echo "zig ${ZIG_REQUIRED} already installed"
-          else
-            echo "Installing zig ${ZIG_REQUIRED} from tarball"
-            curl -fSL "https://ziglang.org/download/${ZIG_REQUIRED}/zig-aarch64-macos-${ZIG_REQUIRED}.tar.xz" -o /tmp/zig.tar.xz
-            tar xf /tmp/zig.tar.xz -C /tmp
-            sudo mkdir -p /usr/local/bin /usr/local/lib
-            sudo cp -f /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/zig /usr/local/bin/zig
-            sudo cp -rf /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/lib /usr/local/lib/zig
-            export PATH="/usr/local/bin:$PATH"
-            zig version
-          fi
+          ./scripts/install-zig-ci.sh
 
       - name: Cache Zig packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -624,19 +610,7 @@ jobs:
 
       - name: Install zig
         run: |
-          ZIG_REQUIRED="0.15.2"
-          if command -v zig >/dev/null 2>&1 && zig version 2>/dev/null | grep -q "^${ZIG_REQUIRED}"; then
-            echo "zig ${ZIG_REQUIRED} already installed"
-          else
-            echo "Installing zig ${ZIG_REQUIRED} from tarball"
-            curl -fSL "https://ziglang.org/download/${ZIG_REQUIRED}/zig-aarch64-macos-${ZIG_REQUIRED}.tar.xz" -o /tmp/zig.tar.xz
-            tar xf /tmp/zig.tar.xz -C /tmp
-            sudo mkdir -p /usr/local/bin /usr/local/lib
-            sudo cp -f /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/zig /usr/local/bin/zig
-            sudo cp -rf /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/lib /usr/local/lib/zig
-            export PATH="/usr/local/bin:$PATH"
-            zig version
-          fi
+          ./scripts/install-zig-ci.sh
 
       - name: Cache Zig packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5

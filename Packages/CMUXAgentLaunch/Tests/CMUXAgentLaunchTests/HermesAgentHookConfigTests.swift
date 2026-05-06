@@ -45,6 +45,30 @@ struct HermesAgentHookConfigTests {
         #expect(HermesAgentHookConfig.uninstalling(from: installed) == existing)
     }
 
+    @Test("Installs into multiple existing hook events without shifting later indexes")
+    func installsIntoMultipleExistingEventsWithoutShiftingLaterIndexes() {
+        let existing = """
+        hooks:
+          pre_tool_call:
+            - command: "echo pre"
+          post_tool_call:
+            - command: "echo post"
+
+        """
+        let events = [
+            HermesAgentHookConfig.Event(name: "pre_tool_call", command: "sh -c 'cmux hooks feed --source hermes-agent --event pre_tool_call'"),
+            HermesAgentHookConfig.Event(name: "post_tool_call", command: "sh -c 'cmux hooks feed --source hermes-agent --event post_tool_call'"),
+        ]
+
+        let installed = HermesAgentHookConfig.installing(events: events, in: existing)
+
+        #expect(installed.contains("  pre_tool_call:\n    # cmux hooks hermes-agent begin"))
+        #expect(installed.contains("  post_tool_call:\n    # cmux hooks hermes-agent begin"))
+        #expect(installed.contains("    - command: \"echo pre\""))
+        #expect(installed.contains("    - command: \"echo post\""))
+        #expect(HermesAgentHookConfig.uninstalling(from: installed) == existing)
+    }
+
     @Test("Allowlist install and uninstall only touches cmux commands")
     func allowlistInstallAndUninstallOnlyTouchesCmuxCommands() throws {
         let existing = """

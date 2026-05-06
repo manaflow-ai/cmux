@@ -23,7 +23,7 @@ describe("Cloud VM database schema", () => {
   dbTest("applies migrations and enforces create idempotency by user", async () => {
     if (!sql) throw new Error("test database not initialized");
 
-    await sql`truncate cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
 
     const [vm] = await sql<{ id: string }[]>`
       insert into cloud_vms (

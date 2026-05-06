@@ -60,6 +60,7 @@ Environment:
 | `welcome` | Print the welcome screen. |
 | `docs` | Print canonical docs URLs, raw GitHub resources, and useful commands for a topic. |
 | `settings` | Open Settings, print cmux.json paths, or print settings docs. |
+| `config` | Validate cmux.json syntax, print config references, or reload config. |
 | `shortcuts` | Open Settings to Keyboard Shortcuts. |
 | `disable-browser` | Disable cmux browser creation and link interception until re-enabled. |
 | `enable-browser` | Re-enable cmux browser creation and link interception. |
@@ -261,8 +262,8 @@ Hook subcommands:
 
 | Command | Contract |
 | --- | --- |
-| `hooks setup` | Install hooks for all supported agents whose binaries are on `PATH`. Supports `--agent <name>` and `--yes`. |
-| `hooks uninstall` | Remove hooks for all supported agents. Supports `--agent <name>` and `--yes`. |
+| `hooks setup` | Install hooks for all supported agents whose binaries are on `PATH`. Supports `--agent <name>`, positional agent filters such as `cmux hooks setup rovo`, and `--yes`. |
+| `hooks uninstall` | Remove hooks for all supported agents. Supports `--agent <name>`, positional agent filters such as `cmux hooks uninstall rovo`, and `--yes`. |
 | `hooks <agent> install` | Install hooks for one supported agent. `opencode` also supports `--project` for the project-local Feed plugin. |
 | `hooks <agent> uninstall` | Remove hooks for one supported agent. |
 | `hooks claude <event>` | Handle Claude Code hook events. `claude-hook <event>` remains as the main-compatibility alias. |
@@ -291,6 +292,20 @@ Settings subcommands:
 | `settings docs` | Print the same output as `docs settings` without a socket. |
 | `settings <target>` | Open Settings to a target section. Supported aliases include `shortcuts`, `json`, `cmux-json`, `browser`, and `automation`. |
 
+Config subcommands:
+
+| Command | Contract |
+| --- | --- |
+| `config doctor [--path <file>]`, `config check`, `config validate` | Validate JSONC syntax for config files. When `--path` is absent, default discovery checks the primary config, project-level `.cmux/cmux.json` or `cmux.json`, and legacy config files. `--path <file>` may be repeated to validate multiple explicit files. Exits 0 on success and 1 on any error. Supports `--json`. Works without a socket. |
+| `config path`, `config paths` | Print cmux.json paths, docs URL, schema URL, backup reminder, and reload command without a socket. |
+| `config docs`, `config documentation` | Print the same output as `docs settings` without a socket. |
+| `config reload` | Ask the running cmux app to reload configuration. Requires a socket. |
+
+`config doctor --json` outputs an object with `ok`, `error_count`,
+`findings`, `reload_command`, `docs_url`, and `schema_url`. Each finding includes
+`label`, `display_path`, `path`, `status`, `ok`, `keys`, and, when available,
+`message` and `bytes`.
+
 ## No-Socket Help Probes
 
 The following probes are executable contract checks. They must exit 0 and print
@@ -310,9 +325,12 @@ the expected text without connecting to a cmux socket.
 - `cmux docs` -> `Topics:`
 - `cmux docs settings` -> `Config files:`
 - `cmux docs dock` -> `dock: Custom right-sidebar terminal controls`
-- `cmux settings --help` -> `Usage: cmux settings [open|path|docs|target]`
+- `cmux settings --help` -> `Usage: cmux settings [open [target]|path|docs|<target>]`
 - `cmux settings path` -> `Config files:`
 - `cmux settings docs` -> `Config files:`
+- `cmux config --help` -> `Usage: cmux config <doctor|check|validate|path|paths|docs|documentation|reload>`
+- `cmux config path` -> `Config files:`
+- `cmux config docs` -> `Config files:`
 - `cmux welcome --help` -> `Usage: cmux welcome`
 - `cmux shortcuts --help` -> `Usage: cmux shortcuts`
 - `cmux disable-browser --help` -> `Usage: cmux disable-browser [--json]`
@@ -321,7 +339,7 @@ the expected text without connecting to a cmux socket.
 - `cmux restore-session --help` -> `Usage: cmux restore-session`
 - `cmux feedback --help` -> `Usage: cmux feedback`
 - `cmux feed --help` -> `Usage: cmux feed tui [--opentui|--legacy]`
-- `cmux hooks --help` -> `Usage: cmux hooks setup [--agent <name>] [--yes|-y]`
+- `cmux hooks --help` -> `Usage: cmux hooks setup [agent] [--agent <name>] [--yes|-y]`
 - `cmux codex --help` -> `Usage: cmux codex <install-hooks|uninstall-hooks>`
 - `cmux themes --help` -> `Usage: cmux themes`
 - `cmux omo --help` -> `Usage: cmux omo [opencode-args...]`

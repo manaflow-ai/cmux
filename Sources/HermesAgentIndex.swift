@@ -1,4 +1,4 @@
-import CMUXHermesAgentIndex
+import CMUXAgentVault
 import Foundation
 
 extension SessionIndexStore {
@@ -56,4 +56,18 @@ extension SessionIndexStore {
         return SearchOutcome(entries: entries, errors: bag.snapshot())
     }
     #endif
+}
+
+extension SessionEntry {
+    static func hermesResumeCommand(sessionId: String, source: String?, model: String?) -> String {
+        var parts = ["hermes"]
+        if source == "tui" {
+            parts.append("--tui")
+        }
+        parts.append("--resume \(Self.shellQuote(sessionId))")
+        if let model, !model.isEmpty {
+            parts.append("--model \(Self.shellQuote(model))")
+        }
+        return parts.joined(separator: " ")
+    }
 }

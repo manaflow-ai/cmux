@@ -2,26 +2,26 @@
 import PackageDescription
 
 let package = Package(
-    name: "CMUXHermesAgentIndex",
+    name: "CMUXAgentVault",
     platforms: [
         .macOS(.v13),
     ],
     products: [
         .library(
-            name: "CMUXHermesAgentIndex",
-            targets: ["CMUXHermesAgentIndex"]
+            name: "CMUXAgentVault",
+            targets: ["CMUXAgentVault"]
         ),
     ],
     targets: [
         .target(
-            name: "CMUXHermesAgentIndex",
+            name: "CMUXAgentVault",
             linkerSettings: [
                 .linkedLibrary("sqlite3"),
             ]
         ),
         .testTarget(
-            name: "CMUXHermesAgentIndexTests",
-            dependencies: ["CMUXHermesAgentIndex"],
+            name: "CMUXAgentVaultTests",
+            dependencies: ["CMUXAgentVault"],
             linkerSettings: [
                 .linkedLibrary("sqlite3"),
             ]
