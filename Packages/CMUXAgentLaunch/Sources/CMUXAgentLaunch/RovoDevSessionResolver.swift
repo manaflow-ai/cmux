@@ -2,6 +2,11 @@ import CMUXAgentVault
 import Foundation
 
 public enum RovoDevSessionResolver {
+    private struct RovoDevSessionCandidate {
+        let sessionId: String
+        let modified: Date
+    }
+
     public static func inferredRovoDevSessionId(cwd: String?, env: [String: String]) -> String? {
         let sessionsRoot = rovoDevSessionsRoot(env: env)
         let rootURL = URL(fileURLWithPath: sessionsRoot, isDirectory: true)
@@ -71,11 +76,6 @@ public enum RovoDevSessionResolver {
         guard let cwd, !cwd.isEmpty else { return false }
         guard let workspace, !workspace.isEmpty else { return false }
         return cwd == workspace
-    }
-
-    private struct RovoDevSessionCandidate {
-        let sessionId: String
-        let modified: Date
     }
 
     public static func rovoDevPersistenceDir(fromConfig config: String) -> String? {

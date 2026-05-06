@@ -106,8 +106,9 @@ jobs:
                 "$ZIG_URL" \
                 -o "$ZIG_TARBALL"; then
                 break
+              else
+                status="$?"
               fi
-              status="$?"
               bytes="$(wc -c < "$ZIG_TARBALL" 2>/dev/null || echo 0)"
               echo "zig download attempt ${attempt}/12 failed with ${status} after ${bytes} bytes" >&2
               if [ "$attempt" -eq 12 ]; then
