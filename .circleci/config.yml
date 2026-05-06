@@ -70,10 +70,17 @@ commands:
                 ;;
             esac
 
-            if command -v brew >/dev/null 2>&1 && brew info zig@0.15 >/dev/null 2>&1; then
+            if command -v brew >/dev/null 2>&1; then
               echo "Trying Homebrew zig@0.15 before direct ziglang.org download"
-              if brew install zig@0.15; then
-                ZIG_BREW_PREFIX="$(brew --prefix zig@0.15)"
+              export HOMEBREW_NO_ANALYTICS=1
+              export HOMEBREW_NO_ENV_HINTS=1
+              export HOMEBREW_NO_INSTALL_CLEANUP=1
+              if ! brew update --quiet; then
+                echo "Homebrew update failed; trying existing taps before tarball fallback"
+              fi
+
+              if HOMEBREW_NO_AUTO_UPDATE=1 brew install --force-bottle zig@0.15; then
+                ZIG_BREW_PREFIX="$(HOMEBREW_NO_AUTO_UPDATE=1 brew --prefix zig@0.15)"
                 ZIG_BREW_BIN="${ZIG_BREW_PREFIX}/bin/zig"
                 if [[ -x "$ZIG_BREW_BIN" ]] && "$ZIG_BREW_BIN" version | grep -q "^${ZIG_REQUIRED}$"; then
                   BASH_ENV="${BASH_ENV:-$HOME/.bash_env}"
