@@ -90,6 +90,7 @@ Launch with an isolated socket:
 ```bash
 pkill -f "/Applications/cmux NIGHTLY.app/Contents/MacOS/cmux" 2>/dev/null || true
 rm -f /tmp/cmux-nightly.sock /tmp/cmux-nightly-crash-repro.sock
+# CMUX_ALLOW_SOCKET_OVERRIDE is required for nightly to honor CMUX_SOCKET_PATH.
 env -u CMUX_SOCKET -u CMUX_SOCKET_PATH -u CMUX_SOCKET_MODE \
   CMUX_ALLOW_SOCKET_OVERRIDE=1 \
   CMUX_SOCKET_PATH=/tmp/cmux-nightly-crash-repro.sock \
@@ -111,7 +112,7 @@ Attempt the suspected trigger:
 ```bash
 "/Applications/cmux NIGHTLY.app/Contents/Resources/bin/cmux" \
   --socket /tmp/cmux-nightly-crash-repro.sock \
-  rpc feed.push '{"wait_timeout_seconds":0.5,"event":{"session_id":"nightly-repro-session","hook_event_name":"PermissionRequest","_source":"codex","cwd":"/Users/austinwang/manaflow/term/cmux4","tool_name":"Bash","tool_input":{"command":"true"},"_opencode_request_id":"nightly-repro-1","_ppid":1}}'
+  rpc feed.push '{"wait_timeout_seconds":0.5,"event":{"session_id":"nightly-repro-session","hook_event_name":"PermissionRequest","_source":"codex","cwd":"./project-root","tool_name":"Bash","tool_input":{"command":"true"},"_opencode_request_id":"nightly-repro-1","_ppid":1}}'
 ```
 
 Observed result:
@@ -150,4 +151,4 @@ Concrete follow-ups:
 - Once Sentry is authenticated, query the cmux project for unresolved nightly issues and confirm whether this fingerprint still has events after `0.64.2-nightly.2540862386901`.
 - If Sentry is clean, close #3316 as fixed by the socket-worker routing work.
 - Keep regression coverage around `feed.push` entering through the socket worker rather than `processV2Command` on main. Current history shows related commits `4623196f` (`Reproduce feed push main-queue socket crash`) and `2597d88b` (`Route blocking v2 socket methods off main`).
-- Consider a debug-only assertion at the handler boundary for blocking V2 socket methods so future regressions fail at dispatch policy rather than inside libdispatch.
+- Add a debug-only assertion at the handler boundary or blocking `FeedCoordinator.ingestBlocking` path so future regressions fail at dispatch policy rather than inside libdispatch.
