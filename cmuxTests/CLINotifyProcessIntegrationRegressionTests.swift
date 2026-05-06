@@ -171,8 +171,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(session["workspaceId"] as? String, currentWorkspaceId)
         XCTAssertEqual(session["surfaceId"] as? String, currentSurfaceId)
         XCTAssertTrue(
-            state.commands.contains { $0.contains("set_status codex Running") && $0.contains("--tab=\(currentWorkspaceId)") },
-            "Expected Codex prompt status to target current workspace, saw \(state.commands)"
+            state.commands.contains {
+                $0.contains("set_status codex Running")
+                    && $0.contains("--tab=\(currentWorkspaceId)")
+                    && $0.contains("--surface=\(currentSurfaceId)")
+            },
+            "Expected Codex prompt status to target current workspace surface, saw \(state.commands)"
         )
     }
 
