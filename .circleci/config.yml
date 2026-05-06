@@ -80,7 +80,7 @@ commands:
             download_with_retry() {
               local url="$1"
               local output="$2"
-              curl -fSL --connect-timeout 30 --retry 5 --retry-delay 5 --retry-all-errors --continue-at - -o "$output" "$url"
+              curl -fSL --connect-timeout 30 --retry 5 --retry-delay 5 --retry-all-errors --speed-limit 1024 --speed-time 120 --continue-at - -o "$output" "$url"
             }
 
             echo "Installing verified zig ${ZIG_REQUIRED} from tarball"
