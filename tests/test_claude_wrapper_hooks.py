@@ -803,6 +803,41 @@ def test_live_socket_strips_stale_cmux_restore_require_from_node_options(failure
         )
 
 
+def test_live_socket_preserves_non_cmux_restore_component_suffix(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-existing-node-options-") as td:
+        preload = Path(td) / "notcmux" / "node-options" / "restore-node-options.cjs"
+        preload.parent.mkdir(parents=True, exist_ok=True)
+        preload.write_text("", encoding="utf-8")
+        existing = f"--require={preload} --max-old-space-size=4096 --trace-warnings"
+        code, _, _, stderr, _, node_options, runtime_node_options, child_node_options, _, _ = run_wrapper(
+            socket_state="live",
+            argv=["hello"],
+            node_options=existing,
+        )
+
+        expect(code == 0, f"non-cmux restore component suffix: wrapper exited {code}: {stderr}", failures)
+        _, remaining_flags = restore_require_and_remaining(node_options)
+        remaining_tokens = split_node_options(remaining_flags)
+        expect(
+            f"--require={preload}" in remaining_tokens,
+            "non-cmux restore component suffix: expected launcher NODE_OPTIONS to preserve non-cmux require path, "
+            f"got {node_options!r}",
+            failures,
+        )
+        expect(
+            runtime_node_options == existing,
+            "non-cmux restore component suffix: expected runtime NODE_OPTIONS to preserve non-cmux require path, "
+            f"got {runtime_node_options!r}",
+            failures,
+        )
+        expect(
+            child_node_options == existing,
+            "non-cmux restore component suffix: expected child NODE_OPTIONS to preserve non-cmux require path, "
+            f"got {child_node_options!r}",
+            failures,
+        )
+
+
 def test_live_socket_preserves_explicit_bypass_availability_flag(failures: list[str]) -> None:
     cases = [
         ("allow/plain", ["--allow-dangerously-skip-permissions", "hello"], True, "--allow-dangerously-skip-permissions"),
@@ -920,6 +955,7 @@ def main() -> int:
     test_live_socket_bad_tmpdir_still_uses_durable_node_options_injection(failures)
     test_live_socket_restore_dir_override_keeps_sanitizer_suffix(failures)
     test_live_socket_strips_stale_cmux_restore_require_from_node_options(failures)
+    test_live_socket_preserves_non_cmux_restore_component_suffix(failures)
     test_live_socket_preserves_explicit_bypass_availability_flag(failures)
     test_live_socket_stale_mktemp_literal_does_not_warn(failures)
     test_missing_socket_skips_hook_injection(failures)

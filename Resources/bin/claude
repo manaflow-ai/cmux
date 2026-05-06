@@ -313,6 +313,24 @@ node_options_require_flag() {
     printf '%s' "--require=$quoted"
 }
 
+node_options_path_has_component_suffix() {
+    local path="$1"
+    local suffix="$2"
+    if [[ "$path" == "$suffix" ]]; then
+        return 0
+    fi
+
+    local path_len="${#path}"
+    local suffix_len="${#suffix}"
+    if (( path_len <= suffix_len )); then
+        return 1
+    fi
+
+    local start=$((path_len - suffix_len))
+    local previous="${path:$((start - 1)):1}"
+    [[ "${path:$start:$suffix_len}" == "$suffix" && "$previous" == "/" ]]
+}
+
 node_options_is_cmux_restore_module_path() {
     local path="$1"
     while [[ "$path" == \"* || "$path" == \'* ]]; do
@@ -322,12 +340,8 @@ node_options_is_cmux_restore_module_path() {
         path="${path%?}"
     done
 
-    case "$path" in
-        */cmux/node-options/restore-node-options.cjs|*/cmux-claude-node-options/restore-node-options.cjs)
-            return 0
-            ;;
-    esac
-    return 1
+    node_options_path_has_component_suffix "$path" "cmux/node-options/restore-node-options.cjs" ||
+        node_options_path_has_component_suffix "$path" "cmux-claude-node-options/restore-node-options.cjs"
 }
 
 node_options_is_require_option() {
