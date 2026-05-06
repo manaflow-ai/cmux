@@ -36,12 +36,8 @@ enum AuthSignInError: Equatable {
         switch self {
         case .authManager(let error):
             return error.errorDescription ?? Self.genericLocalizedMessage
-        case .message(let message):
-            let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else {
-                return Self.genericLocalizedMessage
-            }
-            return "\(Self.genericLocalizedMessage) \(trimmed)"
+        case .message:
+            return Self.genericLocalizedMessage
         }
     }
 
@@ -54,12 +50,10 @@ enum AuthSignInError: Equatable {
 }
 
 extension AuthManager {
-    static var authLogger: Logger {
-        Logger(
-            subsystem: Bundle.main.bundleIdentifier ?? AuthKeychainServiceName.stableFallback,
-            category: "auth"
-        )
-    }
+    nonisolated static let authLogger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? AuthKeychainServiceName.stableFallback,
+        category: "auth"
+    )
 
     static func signInError(from error: Error) -> AuthSignInError {
         if let authError = error as? AuthManagerError {
