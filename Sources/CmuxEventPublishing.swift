@@ -57,6 +57,7 @@ extension CmuxEventBus {
         title: String,
         customTitle: String?,
         currentDirectory: String,
+        previousWorkspaceId: UUID?,
         index: Int?,
         tabCount: Int?
     ) {
@@ -71,9 +72,38 @@ extension CmuxEventBus {
                 customTitle: customTitle,
                 currentDirectory: currentDirectory,
                 selected: true,
+                previousWorkspaceId: previousWorkspaceId,
                 index: index,
                 tabCount: tabCount
             )
+        )
+    }
+
+    func publishWindowLifecycle(
+        name: String,
+        windowId: UUID,
+        workspaceId: UUID?,
+        workspaceCount: Int?,
+        selectedWorkspaceIndex: Int?,
+        isKeyWindow: Bool?,
+        isMainWindow: Bool?,
+        origin: String
+    ) {
+        publish(
+            name: name,
+            category: "window",
+            source: "window.lifecycle",
+            workspaceId: workspaceId?.uuidString,
+            windowId: windowId.uuidString,
+            payload: [
+                "window_id": windowId.uuidString,
+                "workspace_id": workspaceId?.uuidString ?? NSNull(),
+                "workspace_count": workspaceCount ?? NSNull(),
+                "selected_workspace_index": selectedWorkspaceIndex ?? NSNull(),
+                "is_key_window": isKeyWindow ?? NSNull(),
+                "is_main_window": isMainWindow ?? NSNull(),
+                "origin": origin
+            ]
         )
     }
 
@@ -127,6 +157,50 @@ extension CmuxEventBus {
         )
     }
 
+    func publishSurfaceSelected(
+        workspaceId: UUID,
+        surfaceId: UUID,
+        paneId: UUID?,
+        kind: String?,
+        previousSurfaceId: UUID?,
+        focused: Bool,
+        origin: String
+    ) {
+        publish(
+            name: "surface.selected",
+            category: "surface",
+            source: "workspace.lifecycle",
+            workspaceId: workspaceId.uuidString,
+            surfaceId: surfaceId.uuidString,
+            paneId: paneId?.uuidString,
+            payload: [
+                "surface_id": surfaceId.uuidString,
+                "pane_id": paneId?.uuidString ?? NSNull(),
+                "kind": kind ?? NSNull(),
+                "previous_surface_id": previousSurfaceId?.uuidString ?? NSNull(),
+                "focused": focused,
+                "origin": origin
+            ]
+        )
+    }
+
+    func publishSurfaceFocused(workspaceId: UUID, surfaceId: UUID, paneId: UUID?, kind: String?, origin: String) {
+        publish(
+            name: "surface.focused",
+            category: "surface",
+            source: "workspace.lifecycle",
+            workspaceId: workspaceId.uuidString,
+            surfaceId: surfaceId.uuidString,
+            paneId: paneId?.uuidString,
+            payload: [
+                "surface_id": surfaceId.uuidString,
+                "pane_id": paneId?.uuidString ?? NSNull(),
+                "kind": kind ?? NSNull(),
+                "origin": origin
+            ]
+        )
+    }
+
     func publishSurfaceClosed(workspaceId: UUID, surfaceId: UUID, paneId: UUID?, kind: String?, origin: String) {
         publish(
             name: "surface.closed",
@@ -154,6 +228,22 @@ extension CmuxEventBus {
             payload: [
                 "pane_id": paneId.uuidString,
                 "closed_surface_ids": closedSurfaceIds.map(\.uuidString),
+                "origin": origin
+            ]
+        )
+    }
+
+    func publishPaneFocused(workspaceId: UUID, paneId: UUID, selectedSurfaceId: UUID?, origin: String) {
+        publish(
+            name: "pane.focused",
+            category: "pane",
+            source: "workspace.lifecycle",
+            workspaceId: workspaceId.uuidString,
+            surfaceId: selectedSurfaceId?.uuidString,
+            paneId: paneId.uuidString,
+            payload: [
+                "pane_id": paneId.uuidString,
+                "selected_surface_id": selectedSurfaceId?.uuidString ?? NSNull(),
                 "origin": origin
             ]
         )
@@ -303,6 +393,7 @@ extension CmuxEventBus {
         customTitle: String?,
         currentDirectory: String,
         selected: Bool,
+        previousWorkspaceId: UUID? = nil,
         index: Int?,
         tabCount: Int?
     ) -> [String: Any] {
@@ -312,6 +403,7 @@ extension CmuxEventBus {
             "custom_title": customTitle ?? NSNull(),
             "cwd": currentDirectory,
             "selected": selected,
+            "previous_workspace_id": previousWorkspaceId?.uuidString ?? NSNull(),
             "index": index ?? NSNull(),
             "tab_count": tabCount ?? NSNull()
         ]

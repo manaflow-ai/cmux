@@ -12,7 +12,7 @@ from the same connection.
 
 ```bash
 cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect
-cmux events --category workspace --category pane --category surface
+cmux events --category window --category workspace --category pane --category surface
 cmux events --category notification
 cmux events --category feed --category agent --no-heartbeat
 ```
@@ -25,9 +25,10 @@ marks stale cursors as a resume gap.
 Use the JSONL log for audit and catch-up tools. Use the socket stream for live
 delivery with bounded replay.
 
-Lifecycle events with `source: "workspace.lifecycle"` are emitted from the cmux
-model, so they cover UI actions, CLI/socket commands, startup workspace
-creation, and restore paths. Socket-sourced events are reserved for command
+Lifecycle events with `source: "window.lifecycle"` or
+`source: "workspace.lifecycle"` are emitted from the cmux model, so they cover
+UI actions, CLI/socket commands, shortcuts, startup creation, restore paths, and
+AppKit focus/key transitions. Socket-sourced events are reserved for command
 effects that do not have an authoritative model lifecycle event.
 
 ## Stream request
@@ -195,16 +196,22 @@ Window:
 
 | Name | Trigger |
 | --- | --- |
-| `window.created` | Window created through the socket API. |
-| `window.focused` | Window focused through the socket API. |
-| `window.closed` | Window closed through the socket API. |
+| `window.created` | A main cmux window is registered in the app model. Covers startup, session restore, shortcuts, menus, and socket commands. |
+| `window.focused` | A cmux window focus request succeeded. This is an app-level focus action, not necessarily a new AppKit key transition. |
+| `window.keyed` | AppKit reported a main cmux window became the key window. Use this to track the window receiving keyboard input. |
+| `window.unkeyed` | AppKit reported a main cmux window resigned key status. |
+| `window.closed` | A main cmux window was unregistered during close. |
+
+Window lifecycle payloads include `window_id`, `workspace_id`,
+`workspace_count`, `selected_workspace_index`, `is_key_window`,
+`is_main_window`, and `origin`.
 
 Workspace:
 
 | Name | Trigger |
 | --- | --- |
 | `workspace.created` | Workspace model created through UI, CLI, socket, startup, or restore. |
-| `workspace.selected` | Workspace selection changed. |
+| `workspace.selected` | Selected workspace changed in a window. Fires for sidebar clicks, shortcuts, command palette actions, tmux-compatible `next-window`/`previous-window`/`last-window`, CLI, and socket commands. |
 | `workspace.closed` | Workspace closed. |
 | `workspace.renamed` | Workspace renamed. |
 | `workspace.reordered` | Workspace order changed. |
@@ -216,7 +223,8 @@ Surface and pane:
 | Name | Trigger |
 | --- | --- |
 | `surface.created` | Terminal, browser, markdown, or file preview surface created in a pane. |
-| `surface.focused` | Surface focused. |
+| `surface.selected` | Selected surface changed inside a pane. Fires for horizontal tab selection and programmatic selection convergence. |
+| `surface.focused` | Focused surface changed for a workspace. This is the surface that should receive keyboard/input commands. |
 | `surface.closed` | Surface closed. |
 | `surface.moved` | Surface moved to another pane, workspace, or window. |
 | `surface.reordered` | Surface order changed inside a pane. |
@@ -225,11 +233,15 @@ Surface and pane:
 | `surface.key_sent` | Key was sent through the socket API. |
 | `pane.created` | Pane created. |
 | `pane.closed` | Pane closed. |
-| `pane.focused` | Pane focused. |
+| `pane.focused` | Focused pane changed for a workspace. Fires for pane clicks, split focus, `focus-pane`, `last-pane`, and selection convergence after close/move. |
 | `pane.resized` | Pane resized. |
 | `pane.swapped` | Two panes swapped. |
 | `pane.broken` | Pane broken into a new workspace. |
 | `pane.joined` | Pane joined into another pane. |
+
+Workspace selection payloads include `previous_workspace_id`, `index`, and
+`tab_count`. Surface selection payloads include `previous_surface_id`, `pane_id`,
+`kind`, and `focused`. Pane focus payloads include `selected_surface_id`.
 
 Sidebar metadata:
 

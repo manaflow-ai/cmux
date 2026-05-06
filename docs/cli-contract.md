@@ -326,8 +326,9 @@ response frame is an `ack` with `resume.after_seq`, `oldest_seq`, `latest_seq`,
 stable `id` for dedupe. Clients should persist `seq` after processing each event
 and reconnect with that value. See [events.md](events.md) for the full protocol
 and event catalog. Every emitted event is also appended to
-`~/.cmuxterm/events.jsonl`, including model lifecycle events for workspace,
-pane, and surface creation or closure.
+`~/.cmuxterm/events.jsonl`, including model lifecycle events for window
+creation, close, focus, key-window state, workspace selection, pane focus, and
+surface selection, focus, creation, or closure.
 
 ## No-Socket Help Probes
 

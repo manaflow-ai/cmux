@@ -37,12 +37,8 @@ enum CmuxSocketEventMapper {
 
     private static func publishDomainEventForV2(method: String, params: [String: Any], result: [String: Any]) {
         switch method {
-        case "window.create":
-            publishResult(name: "window.created", category: "window", method: method, params: params, result: result)
-        case "window.focus":
-            publishResult(name: "window.focused", category: "window", method: method, params: params, result: result)
-        case "window.close":
-            publishResult(name: "window.closed", category: "window", method: method, params: params, result: result)
+        case "window.create", "window.focus", "window.close":
+            break
         case "workspace.create", "workspace.select", "workspace.next", "workspace.previous", "workspace.last", "workspace.close":
             break
         case "workspace.rename":
@@ -58,7 +54,7 @@ enum CmuxSocketEventMapper {
         case "surface.split_off", "surface.drag_to_split":
             publishResult(name: "pane.created", category: "pane", method: method, params: params, result: result)
         case "surface.focus":
-            publishResult(name: "surface.focused", category: "surface", method: method, params: params, result: result)
+            break
         case "surface.close":
             break
         case "surface.move":
@@ -74,7 +70,7 @@ enum CmuxSocketEventMapper {
         case "pane.create":
             break
         case "pane.focus", "pane.last":
-            publishResult(name: "pane.focused", category: "pane", method: method, params: params, result: result)
+            break
         case "pane.resize":
             publishResult(name: "pane.resized", category: "pane", method: method, params: params, result: result)
         case "pane.swap":
@@ -113,16 +109,12 @@ enum CmuxSocketEventMapper {
         let payload: [String: Any] = ["command": name, "args": redactedV1Args(name: name, args: args)]
 
         switch name {
-        case "new_window":
-            CmuxEventBus.shared.publish(name: "window.created", category: "window", source: "socket.v1", payload: payload)
-        case "focus_window":
-            CmuxEventBus.shared.publish(name: "window.focused", category: "window", source: "socket.v1", payload: payload)
-        case "close_window":
-            CmuxEventBus.shared.publish(name: "window.closed", category: "window", source: "socket.v1", payload: payload)
+        case "new_window", "focus_window", "close_window":
+            break
         case "new_workspace", "select_workspace", "close_workspace", "new_split", "new_pane", "new_surface", "open_browser":
             break
         case "focus_surface", "focus_surface_by_panel", "focus_pane":
-            CmuxEventBus.shared.publish(name: "surface.focused", category: "surface", source: "socket.v1", surfaceId: firstUUID(in: args), payload: payload)
+            break
         case "close_surface":
             break
         case "send", "send_surface":

@@ -1,5 +1,17 @@
 import Foundation
+import AppKit
 import Bonsplit
+
+@MainActor
+private enum CmuxSelectionEventState {
+    static var selectedSurfaceByWorkspacePane: [String: UUID] = [:]
+    static var focusedPaneByWorkspace: [UUID: UUID] = [:]
+    static var focusedSurfaceByWorkspace: [UUID: UUID] = [:]
+
+    static func paneKey(workspaceId: UUID, paneId: UUID) -> String {
+        "\(workspaceId.uuidString):\(paneId.uuidString)"
+    }
+}
 
 extension TabManager {
     func publishCmuxWorkspaceCreated(_ workspace: Workspace, selected: Bool) {
@@ -41,6 +53,21 @@ extension TabManager {
             title: workspace.cmuxEventWorkspaceTitle,
             customTitle: workspace.customTitle,
             currentDirectory: workspace.currentDirectory,
+            previousWorkspaceId: nil,
+            index: tabs.firstIndex(where: { $0.id == workspace.id }),
+            tabCount: tabs.count
+        )
+    }
+
+    func publishCmuxWorkspaceSelectedChange(from previousWorkspaceId: UUID?) {
+        guard let selectedTabId,
+              let workspace = tabs.first(where: { $0.id == selectedTabId }) else { return }
+        CmuxEventBus.shared.publishWorkspaceSelected(
+            workspaceId: workspace.id,
+            title: workspace.cmuxEventWorkspaceTitle,
+            customTitle: workspace.customTitle,
+            currentDirectory: workspace.currentDirectory,
+            previousWorkspaceId: previousWorkspaceId,
             index: tabs.firstIndex(where: { $0.id == workspace.id }),
             tabCount: tabs.count
         )
@@ -110,6 +137,46 @@ extension Workspace {
         )
     }
 
+    func publishCmuxFocusedSelection(paneId: PaneID, surfaceId: UUID, origin: String) {
+        let paneKey = CmuxSelectionEventState.paneKey(workspaceId: id, paneId: paneId.id)
+        let previousSelectedSurfaceId = CmuxSelectionEventState.selectedSurfaceByWorkspacePane[paneKey]
+        let kind = panels[surfaceId].map(Self.cmuxEventSurfaceKind)
+
+        if previousSelectedSurfaceId != surfaceId {
+            CmuxSelectionEventState.selectedSurfaceByWorkspacePane[paneKey] = surfaceId
+            CmuxEventBus.shared.publishSurfaceSelected(
+                workspaceId: id,
+                surfaceId: surfaceId,
+                paneId: paneId.id,
+                kind: kind,
+                previousSurfaceId: previousSelectedSurfaceId,
+                focused: true,
+                origin: origin
+            )
+        }
+
+        if CmuxSelectionEventState.focusedPaneByWorkspace[id] != paneId.id {
+            CmuxSelectionEventState.focusedPaneByWorkspace[id] = paneId.id
+            CmuxEventBus.shared.publishPaneFocused(
+                workspaceId: id,
+                paneId: paneId.id,
+                selectedSurfaceId: surfaceId,
+                origin: origin
+            )
+        }
+
+        if CmuxSelectionEventState.focusedSurfaceByWorkspace[id] != surfaceId {
+            CmuxSelectionEventState.focusedSurfaceByWorkspace[id] = surfaceId
+            CmuxEventBus.shared.publishSurfaceFocused(
+                workspaceId: id,
+                surfaceId: surfaceId,
+                paneId: paneId.id,
+                kind: kind,
+                origin: origin
+            )
+        }
+    }
+
     private static func cmuxEventSurfaceKind(_ panel: any Panel) -> String {
         switch panel.panelType {
         case .terminal:
@@ -121,5 +188,46 @@ extension Workspace {
         case .filePreview:
             return "file_preview"
         }
+    }
+}
+
+extension AppDelegate {
+    func handleCmuxWindowBecameKey(_ note: Notification) {
+        guard let window = note.object as? NSWindow else { return }
+        MainActor.assumeIsolated {
+            setActiveMainWindow(window)
+            if let windowId = mainWindowId(from: window) {
+                publishCmuxWindowLifecycle(name: "window.keyed", windowId: windowId, origin: "appkit_key")
+            }
+            _ = contextForMainTerminalWindow(window)?.keyboardFocusCoordinator.restoreTargetAfterWindowBecameKey()
+        }
+    }
+
+    func handleCmuxWindowResignedKey(_ note: Notification) {
+        guard let window = note.object as? NSWindow else { return }
+        MainActor.assumeIsolated {
+            if let windowId = mainWindowId(from: window) {
+                publishCmuxWindowLifecycle(name: "window.unkeyed", windowId: windowId, origin: "appkit_key")
+            }
+        }
+    }
+
+    func publishCmuxWindowLifecycle(name: String, windowId: UUID, origin: String) {
+        let manager = tabManagerFor(windowId: windowId)
+        let workspaceId = manager?.selectedTabId
+        let selectedWorkspaceIndex = workspaceId.flatMap { selectedId in
+            manager?.tabs.firstIndex(where: { $0.id == selectedId })
+        }
+        let window = mainWindow(for: windowId)
+        CmuxEventBus.shared.publishWindowLifecycle(
+            name: name,
+            windowId: windowId,
+            workspaceId: workspaceId,
+            workspaceCount: manager?.tabs.count,
+            selectedWorkspaceIndex: selectedWorkspaceIndex,
+            isKeyWindow: window?.isKeyWindow,
+            isMainWindow: window?.isMainWindow,
+            origin: origin
+        )
     }
 }

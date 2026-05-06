@@ -105,6 +105,33 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertTrue(line.contains("\"truth\":true"))
     }
 
+    func testWindowLifecyclePayloadIncludesFocusState() throws {
+        let bus = CmuxEventBus(retainedEventLimit: 4)
+        let windowId = UUID()
+        let workspaceId = UUID()
+
+        bus.publishWindowLifecycle(
+            name: "window.keyed",
+            windowId: windowId,
+            workspaceId: workspaceId,
+            workspaceCount: 2,
+            selectedWorkspaceIndex: 1,
+            isKeyWindow: true,
+            isMainWindow: true,
+            origin: "unit"
+        )
+
+        let event = try XCTUnwrap(bus.retainedSnapshot().first)
+        XCTAssertEqual(event["name"] as? String, "window.keyed")
+        XCTAssertEqual(event["source"] as? String, "window.lifecycle")
+        XCTAssertEqual(event["window_id"] as? String, windowId.uuidString)
+        let payload = try XCTUnwrap(event["payload"] as? [String: Any])
+        XCTAssertEqual(payload["workspace_id"] as? String, workspaceId.uuidString)
+        XCTAssertEqual((payload["workspace_count"] as? NSNumber)?.intValue, 2)
+        XCTAssertEqual(payload["is_key_window"] as? Bool, true)
+        XCTAssertEqual(payload["is_main_window"] as? Bool, true)
+    }
+
     func testPublishAppendsDurableEventLog() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-event-log-\(UUID().uuidString)", isDirectory: true)

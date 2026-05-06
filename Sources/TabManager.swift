@@ -963,6 +963,7 @@ class TabManager: ObservableObject {
             if !isNavigatingHistory, let selectedTabId {
                 recordTabInHistory(selectedTabId)
             }
+            publishCmuxWorkspaceSelectedChange(from: previousTabId)
 #if DEBUG
             let switchId = debugWorkspaceSwitchId
             let switchDtMs = debugWorkspaceSwitchStartTime > 0
@@ -2142,6 +2143,8 @@ class TabManager: ObservableObject {
                     newWorkspace.focusedTerminalPanel?.surface.requestBackgroundSurfaceStartIfNeeded()
                 }
             }
+            publishCmuxWorkspaceCreated(newWorkspace, selected: select)
+            publishCmuxInitialSurfaceCreated(newWorkspace, selected: select)
             if select {
 #if DEBUG
                 debugPrimeWorkspaceSwitchTrigger("create", to: newWorkspace.id)
@@ -2153,8 +2156,6 @@ class TabManager: ObservableObject {
                     userInfo: [GhosttyNotificationKey.tabId: newWorkspace.id]
                 )
             }
-            publishCmuxWorkspaceCreated(newWorkspace, selected: select)
-            publishCmuxInitialSurfaceCreated(newWorkspace, selected: select)
 #if DEBUG
             UITestRecorder.incrementInt("addTabInvocations")
             UITestRecorder.record([
@@ -4293,7 +4294,6 @@ class TabManager: ObservableObject {
         debugPrimeWorkspaceSwitchTrigger("select", to: workspace.id)
 #endif
         selectedTabId = workspace.id
-        publishCmuxWorkspaceSelected(workspace)
     }
 
     // Keep selectTab as convenience alias
