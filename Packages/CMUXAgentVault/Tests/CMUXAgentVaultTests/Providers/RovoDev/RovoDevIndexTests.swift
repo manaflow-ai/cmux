@@ -65,6 +65,35 @@ struct RovoDevIndexTests {
         #expect(result.sessions.map(\.sessionId) == ["conversation-newer", "metadata-newer"])
     }
 
+    @Test("Matches cwd filter through symlinks")
+    func matchesCwdFilterThroughSymlinks() throws {
+        let fixture = try makeFixture()
+        let workspace = fixture.tempDir.appendingPathComponent("repo-real", isDirectory: true)
+        let workspaceLink = fixture.tempDir.appendingPathComponent("repo-link", isDirectory: true)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: workspaceLink, withDestinationURL: workspace)
+        defer { try? FileManager.default.removeItem(at: fixture.tempDir) }
+
+        try writeSession(
+            in: fixture.sessionsRoot,
+            id: "symlink-session",
+            title: "Symlinked workspace",
+            cwd: workspaceLink.path,
+            modified: Date(timeIntervalSince1970: 200)
+        )
+
+        let result = RovoDevIndex.loadSessions(
+            needle: "",
+            cwdFilter: workspace.path,
+            offset: 0,
+            limit: 10,
+            sessionsRoot: fixture.sessionsRoot.path
+        )
+
+        #expect(result.errors == [])
+        #expect(result.sessions.map(\.sessionId) == ["symlink-session"])
+    }
+
     @Test("Reports malformed metadata")
     func reportsMalformedMetadata() throws {
         let fixture = try makeFixture()

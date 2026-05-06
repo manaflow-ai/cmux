@@ -19536,7 +19536,19 @@ export default CMUXSessionRestore;
 
     private func runSetupHooks(uninstall: Bool = false, positionalAgentFilter: String? = nil) throws {
         let args = ProcessInfo.processInfo.arguments
-        let agentFilter = optionValue(args, name: "--agent") ?? positionalAgentFilter
+        let flagAgentFilter = optionValue(args, name: "--agent")
+        if let flagAgentFilter, let positionalAgentFilter {
+            guard let flagDef = Self.agentDef(named: flagAgentFilter) else {
+                throw CLIError(message: "Unknown hooks target: \(flagAgentFilter)")
+            }
+            guard let positionalDef = Self.agentDef(named: positionalAgentFilter) else {
+                throw CLIError(message: "Unknown hooks target: \(positionalAgentFilter)")
+            }
+            if flagDef.name != positionalDef.name {
+                throw CLIError(message: "Conflicting hooks target: use either --agent or a positional target, not both")
+            }
+        }
+        let agentFilter = flagAgentFilter ?? positionalAgentFilter
         let agentFilterDef: AgentHookDef?
         if let agentFilter {
             guard let def = Self.agentDef(named: agentFilter) else {

@@ -418,6 +418,29 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(config.contains("cmux hooks rovodev prompt-submit"), config)
     }
 
+    func testSetupHooksRejectsConflictingAgentFilters() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hooks-conflicting-agent-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "setup", "--agent", "codex", "rovo", "--yes"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertNotEqual(result.status, 0)
+        XCTAssertTrue(result.stderr.contains("Conflicting hooks target"), result.stderr)
+    }
+
     func writeRovoDevSessionMetadata(
         sessionsRoot: URL,
         sessionId: String,

@@ -68,6 +68,29 @@ struct RovoDevSessionResolverTests {
         #expect(RovoDevSessionResolver.inferredRovoDevSessionId(cwd: workspace.path, env: env) == "newer-session")
     }
 
+    @Test("Matches symlinked workspace paths")
+    func matchesSymlinkedWorkspacePaths() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-rovo-resolver-symlink-\(UUID().uuidString)", isDirectory: true)
+        let workspace = root.appendingPathComponent("repo-real", isDirectory: true)
+        let workspaceLink = root.appendingPathComponent("repo-link", isDirectory: true)
+        let sessionsRoot = root.appendingPathComponent("sessions", isDirectory: true)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: workspaceLink, withDestinationURL: workspace)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try writeSession(
+            sessionsRoot: sessionsRoot,
+            sessionId: "symlink-session",
+            workspacePath: workspaceLink.path,
+            metadataModified: Date(timeIntervalSince1970: 200),
+            sessionContextModified: Date(timeIntervalSince1970: 200)
+        )
+
+        let env = ["CMUX_ROVODEV_SESSIONS_DIR": sessionsRoot.path]
+        #expect(RovoDevSessionResolver.inferredRovoDevSessionId(cwd: workspace.path, env: env) == "symlink-session")
+    }
+
     private func writeSession(
         sessionsRoot: URL,
         sessionId: String,
