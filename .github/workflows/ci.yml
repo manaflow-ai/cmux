@@ -436,6 +436,25 @@ jobs:
       - name: Validate Swift warning budget
         run: python3 scripts/swift_warning_budget.py --log /tmp/cmux-build-output.txt
 
+      - name: Run CoreAnimation main-thread startup regression
+        run: |
+          set -euo pipefail
+          APP="$(
+            find "$HOME/Library/Developer/Xcode/DerivedData" -path "*/Build/Products/Debug/cmux DEV.app" -exec stat -f '%m %N' {} \; \
+              | sort -nr \
+              | head -1 \
+              | cut -d' ' -f2-
+          )"
+          if [ -z "${APP:-}" ] || [ ! -d "$APP" ]; then
+            echo "cmux DEV.app not found in DerivedData" >&2
+            exit 1
+          fi
+
+          CMUX_ALLOW_UNTAGGED_CA_REGRESSION=1 \
+          CMUX_CA_ASSERT_HOLD_SECONDS=15 \
+          CMUX_TAG="ci-ca-main-thread" \
+          ./scripts/verify-main-thread-ca-transactions.sh "$APP"
+
       - name: Create virtual display
         run: |
           set -euo pipefail
