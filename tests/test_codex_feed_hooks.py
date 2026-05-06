@@ -294,6 +294,49 @@ def test_codex_stop_without_turn_keeps_session_wide_monitor(cli_path: str, root:
                 subprocess.run(["/bin/kill", str(pid)], check=False)
 
 
+def test_codex_prompt_submit_starts_monitor_when_lease_write_fails(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-monitor-lease-failure.sock"
+    transcript_path = root / "codex-session-lease-failure.jsonl"
+    bad_state_dir = root / "hook-state-file"
+    bad_state_dir.write_text("not a directory", encoding="utf-8")
+    transcript_path.write_text("", encoding="utf-8")
+
+    session_id = f"codex-monitor-lease-failure-session-{os.getpid()}"
+    turn_id = f"codex-monitor-lease-failure-turn-{os.getpid()}"
+    env = os.environ.copy()
+    env["CMUX_SOCKET_PATH"] = str(socket_path)
+    env["CMUX_SURFACE_ID"] = "surface-codex-feed-test"
+    env["CMUX_WORKSPACE_ID"] = "workspace-codex-feed-test"
+    env["CMUX_AGENT_HOOK_STATE_DIR"] = str(bad_state_dir)
+
+    with FakeCmuxSocket(socket_path, None):
+        try:
+            prompt = {
+                "session_id": session_id,
+                "turn_id": turn_id,
+                "cwd": str(root),
+                "transcript_path": str(transcript_path),
+            }
+            result = subprocess.run(
+                [cli_path, "--socket", str(socket_path), "hooks", "codex", "prompt-submit"],
+                input=json.dumps(prompt),
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+                timeout=10,
+            )
+            if result.returncode != 0:
+                raise AssertionError(
+                    f"hooks codex prompt-submit failed exit={result.returncode}\n"
+                    f"stdout={result.stdout}\nstderr={result.stderr}"
+                )
+            wait_for_monitor_pids(session_id, present=True, timeout=5)
+        finally:
+            for pid in monitor_pids_for_session(session_id):
+                subprocess.run(["/bin/kill", str(pid)], check=False)
+
+
 def test_codex_monitor_exits_when_workspace_has_no_surfaces(cli_path: str, root: Path) -> None:
     socket_path = root / "cmux-monitor-empty-surfaces.sock"
     state_dir = root / "hook-state-empty-surfaces"
@@ -578,6 +621,7 @@ def main() -> int:
         try:
             test_codex_stop_reaps_transcript_monitor(cli_path, root)
             test_codex_stop_without_turn_keeps_session_wide_monitor(cli_path, root)
+            test_codex_prompt_submit_starts_monitor_when_lease_write_fails(cli_path, root)
             test_codex_monitor_exits_when_workspace_has_no_surfaces(cli_path, root)
             test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path, root)
             test_install_adds_codex_permission_request_hook(cli_path, root)
