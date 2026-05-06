@@ -6,6 +6,7 @@ TAG="${CMUX_TAG:-ca-main-thread}"
 SOCKET_PATH="${CMUX_SOCKET_PATH:-/tmp/cmux-debug-${TAG}.sock}"
 LOG_PATH="${CMUX_CA_ASSERT_LOG:-/tmp/cmux-ca-main-thread-${TAG}.log}"
 HOLD_SECONDS="${CMUX_CA_ASSERT_HOLD_SECONDS:-8}"
+APP_PID_FILE="${CMUX_CA_ASSERT_PID_FILE:-/tmp/cmux-ca-main-thread-${TAG}.pid}"
 
 if [ -z "$APP_PATH" ]; then
   echo "usage: CMUX_APP_PATH=/path/to/cmux.app $0" >&2
@@ -36,27 +37,52 @@ fi
 
 APP_PID=""
 
+kill_recorded_app() {
+  if [ ! -f "$APP_PID_FILE" ]; then
+    return
+  fi
+
+  local recorded_pid
+  recorded_pid="$(cat "$APP_PID_FILE" 2>/dev/null || true)"
+  case "$recorded_pid" in
+    ""|*[!0-9]*)
+      rm -f "$APP_PID_FILE"
+      return
+      ;;
+  esac
+
+  local args
+  args="$(ps -p "$recorded_pid" -o args= 2>/dev/null || true)"
+  if [ -n "$args" ] && [[ "$args" == *"$BINARY"* ]]; then
+    kill "$recorded_pid" >/dev/null 2>&1 || true
+  fi
+  rm -f "$APP_PID_FILE"
+}
+
 cleanup() {
   if [ -n "$APP_PID" ]; then
     kill "$APP_PID" >/dev/null 2>&1 || true
+    wait "$APP_PID" >/dev/null 2>&1 || true
   fi
-  pkill -f "$BINARY" >/dev/null 2>&1 || true
-  rm -f "$SOCKET_PATH"
+  rm -f "$SOCKET_PATH" "$APP_PID_FILE"
 }
 trap cleanup EXIT
 
-pkill -f "$BINARY" >/dev/null 2>&1 || true
+kill_recorded_app
 rm -f "$SOCKET_PATH" "$LOG_PATH"
 
 CA_ASSERT_MAIN_THREAD_TRANSACTIONS=1 \
 CA_DEBUG_TRANSACTIONS=1 \
 CMUX_UI_TEST_MODE=1 \
 CMUX_DISABLE_SESSION_RESTORE=1 \
+CMUX_SOCKET_ENABLE=1 \
+CMUX_SOCKET_MODE=automation \
 CMUX_TAG="$TAG" \
 CMUX_SOCKET_PATH="$SOCKET_PATH" \
 CMUX_ALLOW_SOCKET_OVERRIDE=1 \
 "$BINARY" >"$LOG_PATH" 2>&1 &
 APP_PID=$!
+echo "$APP_PID" >"$APP_PID_FILE"
 
 deadline=$((SECONDS + HOLD_SECONDS))
 socket_ready=0
