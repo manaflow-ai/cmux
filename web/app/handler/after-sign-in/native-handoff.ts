@@ -1,3 +1,5 @@
+export const DEFAULT_NATIVE_RETURN_TO = "cmux://auth-callback";
+
 const NATIVE_SCHEMES = ["cmux://", "cmux-dev://"] as const;
 
 export function isNativeReturnScheme(value: string | null | undefined): boolean {
@@ -11,5 +13,5 @@ export type NativeHandoffArgs = {
 };
 
 export function shouldEmitNativeHandoff(args: NativeHandoffArgs): boolean {
-  return Boolean(args.refreshToken && args.accessToken && args.accessToken.length > 0);
+  return Boolean(args.refreshToken && args.accessToken);
 }

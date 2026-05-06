@@ -3,11 +3,9 @@ import { notFound, redirect } from "next/navigation";
 import { stackServerApp } from "../../lib/stack";
 import { env } from "../../env";
 import { OpenNativeClient } from "./OpenNativeClient";
-import { isNativeReturnScheme, shouldEmitNativeHandoff } from "./native-handoff";
+import { DEFAULT_NATIVE_RETURN_TO, isNativeReturnScheme, shouldEmitNativeHandoff } from "./native-handoff";
 
 export const dynamic = "force-dynamic";
-
-const NATIVE_SCHEME = "cmux://";
 
 function findStackCookie(
   cookieStore: { getAll: () => { name: string; value: string }[] },
@@ -57,14 +55,14 @@ function buildNativeHref(
   accessCookie: string | undefined
 ): string | null {
   if (!refreshToken || !accessCookie) return baseHref;
-  const href = baseHref ?? `${NATIVE_SCHEME}auth-callback`;
+  const href = baseHref ?? DEFAULT_NATIVE_RETURN_TO;
   try {
     const url = new URL(href);
     url.searchParams.set("stack_refresh", refreshToken);
     url.searchParams.set("stack_access", accessCookie);
     return url.toString();
   } catch {
-    return `${NATIVE_SCHEME}auth-callback?stack_refresh=${encodeURIComponent(refreshToken)}&stack_access=${encodeURIComponent(accessCookie)}`;
+    return `${DEFAULT_NATIVE_RETURN_TO}?stack_refresh=${encodeURIComponent(refreshToken)}&stack_access=${encodeURIComponent(accessCookie)}`;
   }
 }
 
@@ -131,7 +129,7 @@ export default async function AfterSignInPage({ searchParams: searchParamsPromis
 
   // Fallback: try native app only when we actually have tokens to hand off.
   if (shouldEmitNativeHandoff({ refreshToken, accessToken })) {
-    const fallback = buildNativeHref(null, refreshToken, accessCookie);
+    const fallback = buildNativeHref(DEFAULT_NATIVE_RETURN_TO, refreshToken, accessCookie);
     if (fallback) return <OpenNativeClient href={fallback} />;
   }
 
