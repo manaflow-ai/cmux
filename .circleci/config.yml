@@ -56,11 +56,7 @@ commands:
           no_output_timeout: 35m
           command: |
             ZIG_REQUIRED="0.15.2"
-            if command -v zig >/dev/null 2>&1 && zig version 2>/dev/null | grep -q "^${ZIG_REQUIRED}"; then
-              echo "zig ${ZIG_REQUIRED} already installed"
-              exit 0
-            fi
-
+            BASH_ENV="${BASH_ENV:-$HOME/.bash_env}"
             case "$(uname -m)" in
               arm64) ZIG_ARCH="aarch64" ;;
               x86_64) ZIG_ARCH="x86_64" ;;
@@ -69,6 +65,19 @@ commands:
                 exit 1
                 ;;
             esac
+
+            ZIG_DIR="$PWD/.ci-tools/zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}"
+            export PATH="$ZIG_DIR:$PATH"
+            echo "export PATH=\"$ZIG_DIR:\$PATH\"" >> "$BASH_ENV"
+            if [ -x "$ZIG_DIR/zig" ] && "$ZIG_DIR/zig" version 2>/dev/null | grep -q "^${ZIG_REQUIRED}"; then
+              echo "zig ${ZIG_REQUIRED} already installed at $ZIG_DIR"
+              exit 0
+            fi
+
+            if command -v zig >/dev/null 2>&1 && zig version 2>/dev/null | grep -q "^${ZIG_REQUIRED}"; then
+              echo "zig ${ZIG_REQUIRED} already installed"
+              exit 0
+            fi
 
             if ! command -v minisign >/dev/null 2>&1; then
               export HOMEBREW_NO_AUTO_UPDATE=1
@@ -83,11 +92,11 @@ commands:
               curl --fail --show-error --location \
                 --continue-at - \
                 --connect-timeout 20 \
-                --max-time 1800 \
+                --max-time 3600 \
                 --retry 5 \
                 --retry-delay 5 \
                 --retry-all-errors \
-                --retry-max-time 1800 \
+                --retry-max-time 3600 \
                 --speed-limit 1024 \
                 --speed-time 120 \
                 "$1" \
@@ -95,16 +104,28 @@ commands:
             }
 
             echo "Installing verified zig ${ZIG_REQUIRED} from tarball"
-            curl_zig "$ZIG_URL" /tmp/zig.tar.xz
-            curl_zig "${ZIG_URL}.minisig" /tmp/zig.tar.xz.minisig
-            minisign -Vm /tmp/zig.tar.xz -x /tmp/zig.tar.xz.minisig -P "$ZIG_MINISIGN_PUBLIC_KEY"
-            tar xf /tmp/zig.tar.xz -C /tmp
-            sudo mkdir -p /usr/local/bin /usr/local/lib
-            sudo rm -rf /usr/local/lib/zig
-            sudo mkdir -p /usr/local/lib/zig
-            sudo cp -f "/tmp/zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}/zig" /usr/local/bin/zig
-            sudo cp -Rf "/tmp/zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}/lib/." /usr/local/lib/zig/
+            mkdir -p .ci-tools/downloads
+            ZIG_TAR="$PWD/.ci-tools/downloads/zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}.tar.xz"
+            ZIG_MINISIG="${ZIG_TAR}.minisig"
+            curl_zig "$ZIG_URL" "$ZIG_TAR"
+            curl_zig "${ZIG_URL}.minisig" "$ZIG_MINISIG"
+            minisign -Vm "$ZIG_TAR" -x "$ZIG_MINISIG" -P "$ZIG_MINISIGN_PUBLIC_KEY"
+            rm -rf "$ZIG_DIR"
+            tar xf "$ZIG_TAR" -C .ci-tools
             zig version
+
+  restore-zig-tool-cache:
+    steps:
+      - restore_cache:
+          keys:
+            - v1-zig-tool-0.15.2-macos-
+
+  save-zig-tool-cache:
+    steps:
+      - save_cache:
+          key: v1-zig-tool-0.15.2-macos-{{ epoch }}
+          paths:
+            - .ci-tools
 
   print-xcode:
     steps:
@@ -182,6 +203,18 @@ commands:
             done
 
 jobs:
+  macos-zig-tool:
+    executor: macos-xcode
+    steps:
+      - checkout-source
+      - restore-zig-tool-cache
+      - install-zig
+      - save-zig-tool-cache
+      - persist_to_workspace:
+          root: .
+          paths:
+            - .ci-tools
+
   macos-unit-tests:
     executor: macos-xcode
     steps:
@@ -195,6 +228,8 @@ jobs:
           name: Download pre-built GhosttyKit.xcframework
           no_output_timeout: 35m
           command: ./scripts/download-prebuilt-ghosttykit.sh
+      - attach_workspace:
+          at: .
       - install-zig
       - resolve-swift-packages:
           scheme: cmux-unit
@@ -286,6 +321,8 @@ jobs:
           name: Download pre-built GhosttyKit.xcframework
           no_output_timeout: 35m
           command: ./scripts/download-prebuilt-ghosttykit.sh
+      - attach_workspace:
+          at: .
       - install-zig
       - resolve-swift-packages:
           scheme: cmux
@@ -318,6 +355,8 @@ jobs:
           name: Download pre-built GhosttyKit.xcframework
           no_output_timeout: 35m
           command: ./scripts/download-prebuilt-ghosttykit.sh
+      - attach_workspace:
+          at: .
       - install-zig
       - resolve-swift-packages:
           scheme: cmux
@@ -348,9 +387,16 @@ workflows:
               pattern: "^pull/.*"
               value: << pipeline.git.branch >>
     jobs:
-      - macos-unit-tests
-      - macos-debug-build
-      - macos-release-build
+      - macos-zig-tool
+      - macos-unit-tests:
+          requires:
+            - macos-zig-tool
+      - macos-debug-build:
+          requires:
+            - macos-zig-tool
+      - macos-release-build:
+          requires:
+            - macos-zig-tool
 
   ci-gated:
     when:
@@ -362,9 +408,15 @@ workflows:
     jobs:
       - hold-for-approval:
           type: approval
+      - macos-zig-tool:
+          requires:
+            - hold-for-approval
       - macos-unit-tests:
-          requires: [hold-for-approval]
+          requires:
+            - macos-zig-tool
       - macos-debug-build:
-          requires: [hold-for-approval]
+          requires:
+            - macos-zig-tool
       - macos-release-build:
-          requires: [hold-for-approval]
+          requires:
+            - macos-zig-tool
