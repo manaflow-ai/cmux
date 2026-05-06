@@ -32,6 +32,8 @@ nonisolated struct CmuxUseManifest: Equatable {
 }
 
 nonisolated enum CmuxUseSupport {
+    private static let maxManifestCommandSearchDepth = 10
+
     static func parseGitHubRepository(_ raw: String) throws -> CmuxUseRepository {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
@@ -247,10 +249,18 @@ nonisolated enum CmuxUseSupport {
     }
 
     private static func manifestCommand(in manifest: [String: Any]) -> CmuxUseLaunchCommand? {
-        return manifestCommand(in: manifest, source: "manifest")
+        return manifestCommand(in: manifest, source: "manifest", depth: 0)
     }
 
-    private static func manifestCommand(in object: [String: Any], source: String) -> CmuxUseLaunchCommand? {
+    private static func manifestCommand(
+        in object: [String: Any],
+        source: String,
+        depth: Int
+    ) -> CmuxUseLaunchCommand? {
+        guard depth <= maxManifestCommandSearchDepth else {
+            return nil
+        }
+
         let keys = ["use", "launch", "start", "run", "command"]
         if let command = stringValue(in: object, keys: keys) {
             return CmuxUseLaunchCommand(command: command, source: source)
@@ -258,7 +268,11 @@ nonisolated enum CmuxUseSupport {
 
         for key in ["scripts", "commands", "cmux"] {
             guard let nested = object[key] as? [String: Any],
-                  let command = manifestCommand(in: nested, source: "\(source):\(key)") else {
+                  let command = manifestCommand(
+                    in: nested,
+                    source: "\(source):\(key)",
+                    depth: depth + 1
+                  ) else {
                 continue
             }
             return command
@@ -267,7 +281,11 @@ nonisolated enum CmuxUseSupport {
         let reserved = Set(["scripts", "commands", "cmux", "install", "engines", "permissions"])
         for key in object.keys.sorted() where !reserved.contains(key) {
             guard let nested = object[key] as? [String: Any],
-                  let command = manifestCommand(in: nested, source: "\(source):\(key)") else {
+                  let command = manifestCommand(
+                    in: nested,
+                    source: "\(source):\(key)",
+                    depth: depth + 1
+                  ) else {
                 continue
             }
             return command

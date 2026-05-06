@@ -344,7 +344,8 @@ extension CMUXCLI {
         _ body: (SocketClient, Bool) throws -> T
     ) throws -> T {
         let client = SocketClient(path: socketPath)
-        if (try? client.connect()) != nil {
+        do {
+            try client.connect()
             defer { client.close() }
             try authenticateClientIfNeeded(
                 client,
@@ -353,9 +354,13 @@ extension CMUXCLI {
                 allowV2Fallback: true
             )
             return try body(client, false)
+        } catch {
+            client.close()
+            guard shouldLaunchAppAfterSocketConnectFailure(socketPath: socketPath) else {
+                throw CLIError(message: "Failed to connect to cmux socket at \(socketPath): \(error)")
+            }
         }
 
-        client.close()
         try launchApp()
         let launchedClient = try SocketClient.waitForConnectableSocket(path: socketPath, timeout: 10)
         defer { launchedClient.close() }
@@ -366,5 +371,9 @@ extension CMUXCLI {
             allowV2Fallback: true
         )
         return try body(launchedClient, true)
+    }
+
+    private func shouldLaunchAppAfterSocketConnectFailure(socketPath: String) -> Bool {
+        socketPath.hasPrefix("/") && !FileManager.default.fileExists(atPath: socketPath)
     }
 }
