@@ -1592,8 +1592,10 @@ private enum SessionTranscriptLoader {
         case .codex:
             return containsAny(data, needles: codexResponseItemNeedles)
                 && containsAny(data, needles: codexPreviewNeedles)
-        case .opencode, .rovodev, .registered:
+        case .opencode, .rovodev:
             return containsAny(data, needles: genericRoleNeedles)
+        case .registered:
+            return true
         }
     }
 
