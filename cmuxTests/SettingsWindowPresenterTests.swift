@@ -63,6 +63,29 @@ final class SettingsWindowPresenterTests: XCTestCase {
         XCTAssertTrue(secondParent.childWindows?.contains(where: { $0 === settingsWindow }) == true)
     }
 
+    func testDetachesSettingsBeforePreferredMainWindowCloses() {
+        let parentWindow = makeWindow(identifier: "cmux.main.\(UUID().uuidString)")
+        let settingsWindow = makeWindow(identifier: SettingsWindowPresenter.windowIdentifier)
+        defer {
+            settingsWindow.orderOut(nil)
+            parentWindow.orderOut(nil)
+        }
+
+        SettingsWindowPresenter.configure(
+            openWindow: {},
+            parentWindowProvider: { parentWindow }
+        )
+        SettingsWindowPresenter.configure(window: settingsWindow)
+        settingsWindow.orderFront(nil)
+        XCTAssertTrue(settingsWindow.parent === parentWindow)
+
+        NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: parentWindow)
+
+        XCTAssertNil(settingsWindow.parent)
+        XCTAssertFalse(parentWindow.childWindows?.contains(where: { $0 === settingsWindow }) == true)
+        XCTAssertTrue(settingsWindow.isVisible)
+    }
+
     private func makeWindow(identifier: String) -> NSWindow {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 220),

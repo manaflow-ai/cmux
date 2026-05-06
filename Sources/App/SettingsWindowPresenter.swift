@@ -10,6 +10,9 @@ enum SettingsWindowPresenter {
     private static var openWindow: (@MainActor () -> Void)?
     private static var parentWindowProvider: (@MainActor () -> NSWindow?)?
     private static weak var settingsWindow: NSWindow?
+    private static weak var observedParentWindow: NSWindow?
+    private static weak var observedSettingsWindow: NSWindow?
+    private static var parentCloseObserver: NSObjectProtocol?
     private static var pendingNavigationTarget: SettingsNavigationTarget?
     private static var shouldOpenWhenConfigured = false
 
@@ -46,7 +49,6 @@ enum SettingsWindowPresenter {
 
         if let window = existingWindow() {
             pendingNavigationTarget = nil
-            attachToPreferredParent(window)
             focus(window)
             if let navigationTarget {
                 SettingsNavigationRequest.post(navigationTarget)
@@ -69,7 +71,6 @@ enum SettingsWindowPresenter {
 
     static func refocusIfVisible() {
         guard let window = existingWindow() else { return }
-        attachToPreferredParent(window)
         focus(window)
     }
 
@@ -77,6 +78,8 @@ enum SettingsWindowPresenter {
     static func resetForTests() {
         if let settingsWindow {
             detachFromCurrentParent(settingsWindow)
+        } else {
+            removeParentCloseObserver()
         }
         openWindow = nil
         parentWindowProvider = nil
@@ -120,12 +123,46 @@ enum SettingsWindowPresenter {
             detachFromCurrentParent(window)
             parentWindow.addChildWindow(window, ordered: .above)
         }
+        observeParentWillClose(parentWindow, settingsWindow: window)
         return parentWindow
     }
 
     private static func detachFromCurrentParent(_ window: NSWindow) {
+        removeParentCloseObserver()
         guard let parentWindow = window.parent else { return }
         parentWindow.removeChildWindow(window)
+    }
+
+    private static func observeParentWillClose(_ parentWindow: NSWindow, settingsWindow: NSWindow) {
+        guard observedParentWindow !== parentWindow || observedSettingsWindow !== settingsWindow else {
+            return
+        }
+
+        removeParentCloseObserver()
+        observedParentWindow = parentWindow
+        observedSettingsWindow = settingsWindow
+        parentCloseObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: parentWindow,
+            queue: nil
+        ) { [weak parentWindow, weak settingsWindow] _ in
+            MainActor.assumeIsolated {
+                guard let settingsWindow, settingsWindow.parent === parentWindow else {
+                    removeParentCloseObserver()
+                    return
+                }
+                detachFromCurrentParent(settingsWindow)
+            }
+        }
+    }
+
+    private static func removeParentCloseObserver() {
+        if let parentCloseObserver {
+            NotificationCenter.default.removeObserver(parentCloseObserver)
+        }
+        parentCloseObserver = nil
+        observedParentWindow = nil
+        observedSettingsWindow = nil
     }
 
     private static func orderParentBehindSettings(_ window: NSWindow) {
