@@ -70,59 +70,9 @@ jobs:
         run: ./scripts/download-prebuilt-ghosttykit.sh
 
       - name: Install zig
-        run: |
-          set -euo pipefail
-          ZIG_REQUIRED="0.15.2"
-          if command -v zig >/dev/null 2>&1 && zig version 2>/dev/null | grep -q "^${ZIG_REQUIRED}"; then
-            echo "zig ${ZIG_REQUIRED} already installed"
-          else
-            echo "Installing zig ${ZIG_REQUIRED}"
-            case "$(uname -m)" in
-              arm64) ZIG_ARCH="aarch64" ;;
-              x86_64) ZIG_ARCH="x86_64" ;;
-              *)
-                echo "Unsupported macOS runner architecture: $(uname -m)" >&2
-                exit 1
-                ;;
-            esac
-            ZIG_DIR="/tmp/zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}"
-            ZIG_FILE="zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}.tar.xz"
-            ZIG_TAR="/tmp/${ZIG_FILE}"
-            ZIG_URL="https://pkg.hexops.org/zig/${ZIG_FILE}"
-            ZIG_SIG="${ZIG_TAR}.minisig"
-            ZIG_SIG_URL="https://ziglang.org/download/${ZIG_REQUIRED}/${ZIG_FILE}.minisig"
-            ZIG_PUBKEY="RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U"
-            curl \
-              --fail \
-              --location \
-              --show-error \
-              --continue-at - \
-              --connect-timeout 30 \
-              --retry 8 \
-              --retry-all-errors \
-              --retry-delay 10 \
-              --retry-max-time 900 \
-              --speed-limit 1024 \
-              --speed-time 60 \
-              "$ZIG_URL" \
-              --output "$ZIG_TAR"
-            if command -v minisign >/dev/null 2>&1; then
-              curl --fail --location --show-error --retry 8 --retry-all-errors --retry-delay 10 --retry-max-time 300 "$ZIG_SIG_URL" --output "$ZIG_SIG"
-              minisign -Vm "$ZIG_TAR" -P "$ZIG_PUBKEY"
-            else
-              ZIG_INDEX="/tmp/zig-download-index.json"
-              curl --fail --location --show-error --retry 8 --retry-all-errors --retry-delay 10 --retry-max-time 300 https://ziglang.org/download/index.json --output "$ZIG_INDEX"
-              ZIG_EXPECTED_SHA="$(/usr/bin/ruby -rjson -e 'data = JSON.parse(File.read(ARGV[0])); puts data.fetch(ARGV[1]).fetch(ARGV[2]).fetch("shasum")' "$ZIG_INDEX" "$ZIG_REQUIRED" "${ZIG_ARCH}-macos")"
-              echo "${ZIG_EXPECTED_SHA}  ${ZIG_TAR}" | shasum -a 256 --check -
-            fi
-            tar xf "$ZIG_TAR" -C /tmp
-            sudo mkdir -p /usr/local/bin /usr/local/lib
-            sudo cp -f "${ZIG_DIR}/zig" /usr/local/bin/zig
-            sudo rm -rf /usr/local/lib/zig
-            sudo mkdir -p /usr/local/lib/zig
-            sudo cp -R "${ZIG_DIR}/lib/." /usr/local/lib/zig/
-            zig version
-          fi
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: 0.15.2
 
       - name: Build tagged app
         run: ./scripts/reload.sh --tag "$PERF_TAG"
