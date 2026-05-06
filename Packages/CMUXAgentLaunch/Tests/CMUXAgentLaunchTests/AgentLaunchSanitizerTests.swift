@@ -119,6 +119,39 @@ struct AgentLaunchSanitizerTests {
         )
     }
 
+    @Test("Pi repeated single-value flags survive without slurping the prompt")
+    func piRepeatedSingleValueFlagsDoNotSlurpPrompt() {
+        // Each of pi's 'can be used multiple times' flags (--extension /
+        // -e, --skill, --prompt-template, --append-system-prompt, --theme)
+        // is single-value per occurrence — the user repeats the flag with
+        // one value each. Confirms the audit in piPolicy.variadicOptions:
+        // none of them belong there. If any returns to variadicOptions,
+        // the trailing 'finish the auth flow' prompt would be slurped
+        // into the last flag's value.
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "pi",
+                    "--extension", "/abs/a.ts",
+                    "-e", "/abs/b.ts",
+                    "--skill", "/abs/skill.md",
+                    "--prompt-template", "/abs/template.md",
+                    "--append-system-prompt", "be terse",
+                    "finish", "the", "auth", "flow"
+                ],
+                launcher: "pi",
+                fallbackKind: "pi"
+            ) == [
+                "pi",
+                "--extension", "/abs/a.ts",
+                "-e", "/abs/b.ts",
+                "--skill", "/abs/skill.md",
+                "--prompt-template", "/abs/template.md",
+                "--append-system-prompt", "be terse"
+            ]
+        )
+    }
+
     @Test("Drops pi --api-key value-form from sanitized launch arguments")
     func dropsPiApiKeyValueForm() {
         // Tail position: parser must consume the value, not leak it as a

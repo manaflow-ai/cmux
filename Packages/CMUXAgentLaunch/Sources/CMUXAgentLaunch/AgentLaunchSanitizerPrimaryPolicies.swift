@@ -334,13 +334,16 @@ extension AgentLaunchSanitizer {
             "--theme"
         ],
         optionalValueOptions: [],
-        variadicOptions: [
-            "--append-system-prompt",
-            "--extension",
-            "-e",
-            "--skill",
-            "--prompt-template"
-        ],
+        // Pi has no truly-variadic value options. Flags listed in
+        // pi --help as 'can be used multiple times' (--extension/-e,
+        // --skill, --prompt-template, --append-system-prompt, --theme)
+        // each take exactly one value per occurrence — multiplicity is
+        // achieved by repeating the flag, not by a single flag with
+        // many trailing values. Putting any of them in variadicOptions
+        // makes the sanitizer slurp the user's prompt positionals into
+        // the flag value (see piThemeDoesNotSlurpTrailingPositionalPrompt
+        // for the canonical bug shape). Leave empty.
+        variadicOptions: [],
         nonRestorableCommands: [
             // pi subcommands that don't start a session
             "install",
