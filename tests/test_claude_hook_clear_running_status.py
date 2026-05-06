@@ -275,7 +275,29 @@ def main() -> int:
             print(f"old_stop_commands={old_stop_commands!r}")
             return 1
 
-    print("PASS: Claude /clear SessionStart preserves Running against stale Stop")
+        old_session_end_start = len(server.commands)
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "session-end",
+            {"session_id": old_session_id, "cwd": "/tmp"},
+            env,
+        )
+        old_session_end_commands = server.commands[old_session_end_start:]
+
+        stale_session_end_forbidden_prefixes = [
+            f"clear_status claude_code --tab={workspace_id}",
+            f"clear_agent_pid claude_code --tab={workspace_id}",
+            f"clear_notifications --tab={workspace_id}",
+        ]
+        for forbidden_prefix in stale_session_end_forbidden_prefixes:
+            if has_command(old_session_end_commands, forbidden_prefix):
+                print("FAIL: stale pre-clear SessionEnd must not clear the active clear session")
+                print(f"forbidden_prefix={forbidden_prefix!r}")
+                print(f"old_session_end_commands={old_session_end_commands!r}")
+                return 1
+
+    print("PASS: Claude /clear SessionStart preserves Running against stale Stop and SessionEnd")
     return 0
 
 
