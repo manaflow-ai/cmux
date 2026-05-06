@@ -469,7 +469,8 @@ struct CmuxConfigExecutor {
 
         let resolvedCwd = CmuxConfigStore.resolveCwd(wsDef.cwd, relativeTo: baseCwd)
         if let layout = wsDef.layout,
-           layout.firstMarkdownPathResolutionFailure(relativeTo: resolvedCwd) != nil {
+           let failure = layout.firstMarkdownPathResolutionFailure(relativeTo: resolvedCwd) {
+            logCustomLayoutMarkdownPathFailure(failure, context: "workspace command execution")
             return false
         }
 

@@ -8,6 +8,15 @@ private let workspaceCustomLayoutLogger = Logger(
     category: "WorkspaceCustomLayout"
 )
 
+func logCustomLayoutMarkdownPathFailure(
+    _ failure: CmuxReadableFilePathResolutionFailure,
+    context: String
+) {
+    workspaceCustomLayoutLogger.warning(
+        "Custom layout markdown path invalid during \(context, privacy: .public): \(failure.code, privacy: .public)"
+    )
+}
+
 // MARK: - cmux.json custom layout
 
 extension Workspace {
@@ -15,9 +24,7 @@ extension Workspace {
     @discardableResult
     func applyCustomLayout(_ layout: CmuxLayoutNode, baseCwd: String) -> Bool {
         if let failure = layout.firstMarkdownPathResolutionFailure(relativeTo: baseCwd) {
-            workspaceCustomLayoutLogger.warning(
-                "Custom layout markdown path invalid: \(failure.code, privacy: .public)"
-            )
+            logCustomLayoutMarkdownPathFailure(failure, context: "layout application")
             return false
         }
 
