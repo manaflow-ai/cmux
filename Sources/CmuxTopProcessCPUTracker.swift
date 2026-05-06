@@ -1,49 +1,52 @@
 import Darwin
 import Foundation
+import os
 
-struct CmuxTopProcessCPUSample: Sendable {
+nonisolated struct CmuxTopProcessCPUSample: Sendable {
     let totalTimeTicks: UInt64
     let sampledAtNanoseconds: UInt64
 }
 
-// CmuxTopProcessSnapshot.capture is intentionally synchronous because it backs
-// both async task-manager sampling and sync v2 system.top socket handling. Keep
-// this tiny lock isolated to dictionary reads/writes; proc/sysctl work must
-// happen outside the critical section.
-private final class CmuxTopCPUSampleStore: @unchecked Sendable {
-    private let lock = NSLock()
-    private var samples: [CmuxTopProcessScopeCacheKey: CmuxTopProcessCPUSample] = [:]
+private final class CmuxTopProcessCPUTracker: Sendable {
+    private let samples = OSAllocatedUnfairLock(
+        initialState: [CmuxTopProcessScopeCacheKey: CmuxTopProcessCPUSample]()
+    )
 
-    func previousSamplesForCapture() -> [CmuxTopProcessScopeCacheKey: CmuxTopProcessCPUSample] {
-        lock.lock()
-        defer { lock.unlock() }
-        return samples
-    }
-
-    func recordSamples(
-        _ currentSamples: [CmuxTopProcessScopeCacheKey: CmuxTopProcessCPUSample],
+    // Snapshot capture is synchronous for the v2 socket path, so an actor would
+    // force that caller to block on async state. Keep OS sampling outside this
+    // owner and serialize only the CPU history read/compute/write transaction.
+    func cpuPercentages(
+        for currentSamples: [CmuxTopProcessScopeCacheKey: CmuxTopProcessCPUSample],
         activeKeys: Set<CmuxTopProcessScopeCacheKey>,
         sampledAtNanoseconds: UInt64
-    ) {
-        lock.lock()
-        defer { lock.unlock() }
+    ) -> [CmuxTopProcessScopeCacheKey: Double] {
+        samples.withLock { storedSamples in
+            var percentages: [CmuxTopProcessScopeCacheKey: Double] = [:]
+            percentages.reserveCapacity(currentSamples.count)
 
-        for (key, sample) in currentSamples {
-            guard activeKeys.contains(key) else { continue }
-            if let existing = samples[key],
-               existing.sampledAtNanoseconds > sample.sampledAtNanoseconds {
-                continue
+            for (key, sample) in currentSamples {
+                guard activeKeys.contains(key) else { continue }
+                percentages[key] = CmuxTopProcessSnapshot.cpuPercent(
+                    current: sample,
+                    previous: storedSamples[key]
+                )
+                if let existing = storedSamples[key],
+                   existing.sampledAtNanoseconds > sample.sampledAtNanoseconds {
+                    continue
+                }
+                storedSamples[key] = sample
             }
-            samples[key] = sample
-        }
 
-        samples = samples.filter { entry in
-            activeKeys.contains(entry.key) || entry.value.sampledAtNanoseconds > sampledAtNanoseconds
+            storedSamples = storedSamples.filter { entry in
+                activeKeys.contains(entry.key) || entry.value.sampledAtNanoseconds > sampledAtNanoseconds
+            }
+
+            return percentages
         }
     }
 }
 
-private let cmuxTopCPUSampleStore = CmuxTopCPUSampleStore()
+private let cmuxTopProcessCPUTracker = CmuxTopProcessCPUTracker()
 private let cmuxTopAbsoluteTimeNanosecondsRatio: Double = {
     var info = mach_timebase_info_data_t()
     guard mach_timebase_info(&info) == KERN_SUCCESS, info.denom > 0 else {
@@ -57,17 +60,13 @@ extension CmuxTopProcessSnapshot {
         clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
     }
 
-    static func previousCPUSamplesForCapture() -> [CmuxTopProcessScopeCacheKey: CmuxTopProcessCPUSample] {
-        cmuxTopCPUSampleStore.previousSamplesForCapture()
-    }
-
-    static func recordCPUSamples(
-        _ samples: [CmuxTopProcessScopeCacheKey: CmuxTopProcessCPUSample],
+    static func cpuPercentages(
+        for samples: [CmuxTopProcessScopeCacheKey: CmuxTopProcessCPUSample],
         activeKeys: Set<CmuxTopProcessScopeCacheKey>,
         sampledAtNanoseconds: UInt64
-    ) {
-        cmuxTopCPUSampleStore.recordSamples(
-            samples,
+    ) -> [CmuxTopProcessScopeCacheKey: Double] {
+        cmuxTopProcessCPUTracker.cpuPercentages(
+            for: samples,
             activeKeys: activeKeys,
             sampledAtNanoseconds: sampledAtNanoseconds
         )
