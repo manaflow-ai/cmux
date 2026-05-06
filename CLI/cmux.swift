@@ -16848,25 +16848,24 @@ export default CMUXSessionRestore;
             _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
             _ = try sendV1Command("set_status \(def.statusKey) Running --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)", client: client)
             if def.name == "codex", !sessionId.isEmpty {
-                guard let leasePath = createCodexMonitorLease(
+                if let leasePath = createCodexMonitorLease(
                     sessionId: sessionId,
                     turnId: input.turnId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     env: env
-                ) else {
-                    return
+                ) {
+                    startCodexTranscriptMonitor(
+                        sessionId: sessionId,
+                        turnId: input.turnId,
+                        transcriptPath: normalizedHookValue(input.transcriptPath),
+                        cwd: hookCwd ?? mapped?.cwd,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        leasePath: leasePath,
+                        env: env
+                    )
                 }
-                startCodexTranscriptMonitor(
-                    sessionId: sessionId,
-                    turnId: input.turnId,
-                    transcriptPath: normalizedHookValue(input.transcriptPath),
-                    cwd: hookCwd ?? mapped?.cwd,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    leasePath: leasePath,
-                    env: env
-                )
             }
 
         case .stop:
