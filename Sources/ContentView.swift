@@ -15267,6 +15267,10 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
     }
 
     func updateIcon() {
+        #if DEBUG
+        dispatchPrecondition(condition: .onQueue(.main))
+        #endif
+
         let icon = NSWorkspace.shared.icon(forFile: directory)
         icon.size = NSSize(width: 16, height: 16)
         imageView.image = icon

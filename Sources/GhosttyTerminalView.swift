@@ -4295,6 +4295,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
         additionalEnvironment: [String: String] = [:],
         focusPlacement: TerminalSurfaceFocusPlacement = .workspace
     ) {
+        #if DEBUG
+        dispatchPrecondition(condition: .onQueue(.main))
+        #endif
+
         self.id = UUID()
         self.tabId = tabId
         self.surfaceContext = context
@@ -9678,6 +9682,10 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     init(surfaceView: GhosttyNSView) {
+        #if DEBUG
+        dispatchPrecondition(condition: .onQueue(.main))
+        #endif
+
         self.surfaceView = surfaceView
         backgroundView = NSView(frame: .zero)
         scrollView = GhosttyScrollView()
