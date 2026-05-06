@@ -385,4 +385,55 @@ extension AgentLaunchSanitizer {
             "-o"
         ]
     )
+
+    static let deepSeekTUIPolicy = Policy(
+        valueOptions: [
+            "--config",
+            "--max-subagents",
+            "--profile",
+            "--resume",
+            "-r",
+            "--workspace",
+            "-w"
+        ],
+        nonRestorableCommands: [
+            "apply",
+            "auth",
+            "completions",
+            "doctor",
+            "eval",
+            "exec",
+            "execpolicy",
+            "features",
+            "fork",
+            "help",
+            "init",
+            "login",
+            "logout",
+            "mcp",
+            "models",
+            "pr",
+            "responses-api-proxy",
+            "review",
+            "sandbox",
+            "serve",
+            "sessions",
+            "setup"
+        ],
+        droppedOptions: [
+            "--continue",
+            "-c",
+            "--resume",
+            "-r"
+        ],
+        droppedOptionPrefixes: [
+            "--resume=",
+            "-r="
+        ],
+        rejectOptions: [
+            "--prompt",
+            "-p"
+        ],
+        resumeSubcommand: "resume"
+    )
 }

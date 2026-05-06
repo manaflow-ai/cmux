@@ -7,6 +7,7 @@ enum RestorableAgentKind: String, Codable, CaseIterable, Sendable {
     case gemini
     case opencode
     case rovodev
+    case deepseekTUI = "deepseek-tui"
     case copilot
     case codebuddy
     case factory

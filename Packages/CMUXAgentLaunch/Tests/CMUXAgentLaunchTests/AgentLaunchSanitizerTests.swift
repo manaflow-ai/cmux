@@ -35,4 +35,32 @@ struct AgentLaunchSanitizerTests {
             ) == ["cursor-agent", "--model", "gpt-5.4", "--sandbox", "enabled"]
         )
     }
+
+    @Test("Preserves DeepSeek-TUI global options and drops resume selectors")
+    func preservesDeepSeekTUIGlobalOptionsAndDropsResumeSelectors() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "deepseek",
+                    "--config",
+                    "/tmp/deepseek.toml",
+                    "--workspace",
+                    "/tmp/repo",
+                    "--resume",
+                    "old-session",
+                    "--yolo",
+                    "initial prompt should not persist",
+                ],
+                launcher: "deepseek-tui",
+                fallbackKind: "deepseek-tui"
+            ) == [
+                "deepseek",
+                "--config",
+                "/tmp/deepseek.toml",
+                "--workspace",
+                "/tmp/repo",
+                "--yolo",
+            ]
+        )
+    }
 }

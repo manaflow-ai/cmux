@@ -45,6 +45,9 @@ public enum AgentLaunchSanitizer {
         case "rovodev":
             guard let preserved = preservedArguments(kind: fallbackKind, args: tail) else { return nil }
             return [executable, "rovodev", "run"] + preserved
+        case "deepseek-tui":
+            guard let preserved = preservedArguments(kind: fallbackKind, args: tail) else { return nil }
+            return [executable] + preserved
         default:
             guard let preserved = preservedArguments(kind: fallbackKind, args: tail) else { return nil }
             return [executable] + preserved
@@ -81,6 +84,8 @@ public enum AgentLaunchSanitizer {
                 return nil
             }
             return preserveOptions(tail, policy: rovoDevPolicy)
+        case "deepseek-tui":
+            return preserveOptions(args, policy: deepSeekTUIPolicy)
         case "copilot":
             return preserveOptions(args, policy: copilotPolicy)
         case "codebuddy":

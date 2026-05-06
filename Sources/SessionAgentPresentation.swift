@@ -7,6 +7,7 @@ extension SessionAgent {
         case .codex: return String(localized: "sessionIndex.agent.codex", defaultValue: "Codex")
         case .opencode: return String(localized: "sessionIndex.agent.opencode", defaultValue: "OpenCode")
         case .rovodev: return String(localized: "sessionIndex.agent.rovodev", defaultValue: "Rovo Dev")
+        case .deepseekTUI: return String(localized: "sessionIndex.agent.deepseekTUI", defaultValue: "DeepSeek-TUI")
         }
     }
 
@@ -17,6 +18,7 @@ extension SessionAgent {
         case .codex: return "AgentIcons/Codex"
         case .opencode: return "AgentIcons/OpenCode"
         case .rovodev: return "AgentIcons/RovoDev"
+        case .deepseekTUI: return "AgentIcons/DeepSeekTUI"
         }
     }
 }
