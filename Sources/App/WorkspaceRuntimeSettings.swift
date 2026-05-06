@@ -109,6 +109,24 @@ enum TerminalScrollBarSettings {
     }
 }
 
+enum RightSidebarBetaFeatureSettings {
+    static let feedEnabledKey = "rightSidebar.beta.feed.enabled"
+    static let dockEnabledKey = "rightSidebar.beta.dock.enabled"
+
+    static let defaultFeedEnabled = false
+    static let defaultDockEnabled = false
+
+    nonisolated static func isFeedEnabled(defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: feedEnabledKey) != nil else { return defaultFeedEnabled }
+        return defaults.bool(forKey: feedEnabledKey)
+    }
+
+    nonisolated static func isDockEnabled(defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: dockEnabledKey) != nil else { return defaultDockEnabled }
+        return defaults.bool(forKey: dockEnabledKey)
+    }
+}
+
 enum UITestLaunchManifest {
     static let argumentName = "-cmuxUITestLaunchManifest"
 

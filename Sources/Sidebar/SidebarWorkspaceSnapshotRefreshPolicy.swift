@@ -75,3 +75,60 @@ struct SidebarWorkspaceSnapshotRefreshPolicy {
         )
     }
 }
+
+struct SidebarWorkspaceRowInteractionState: Equatable {
+    private(set) var isPointerHovering = false
+    private(set) var contextMenuVisible = false
+    private var contextMenuTrackingSuppressesCloseButton = false
+    private var deferredPointerHoveringWhileContextMenuTracking: Bool?
+
+    mutating func setPointerHovering(_ hovering: Bool) {
+        if contextMenuTrackingSuppressesCloseButton {
+            deferredPointerHoveringWhileContextMenuTracking = hovering
+            isPointerHovering = false
+            return
+        }
+        deferredPointerHoveringWhileContextMenuTracking = nil
+        isPointerHovering = hovering
+    }
+
+    mutating func contextMenuDidAppear() {
+        contextMenuVisible = true
+        contextMenuTrackingSuppressesCloseButton = true
+        deferredPointerHoveringWhileContextMenuTracking = nil
+        isPointerHovering = false
+    }
+
+    mutating func contextMenuDidDisappear() {
+        contextMenuVisible = false
+        contextMenuTrackingSuppressesCloseButton = false
+        applyDeferredPointerHovering()
+    }
+
+    mutating func contextMenuTrackingDidBegin() {
+        contextMenuTrackingSuppressesCloseButton = true
+        deferredPointerHoveringWhileContextMenuTracking = nil
+        isPointerHovering = false
+    }
+
+    mutating func contextMenuTrackingDidEnd() {
+        contextMenuTrackingSuppressesCloseButton = false
+        applyDeferredPointerHovering()
+    }
+
+    func shouldShowCloseButton(
+        canCloseWorkspace: Bool,
+        shortcutHintModeActive: Bool
+    ) -> Bool {
+        isPointerHovering
+            && !contextMenuTrackingSuppressesCloseButton
+            && canCloseWorkspace
+            && !shortcutHintModeActive
+    }
+
+    private mutating func applyDeferredPointerHovering() {
+        guard let deferredHover = deferredPointerHoveringWhileContextMenuTracking else { return }
+        self.deferredPointerHoveringWhileContextMenuTracking = nil
+        isPointerHovering = deferredHover
+    }
+}

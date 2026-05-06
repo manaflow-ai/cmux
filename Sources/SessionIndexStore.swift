@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CMUXAgentLaunch
 import Combine
 import Foundation
 import SQLite3
@@ -10,25 +11,9 @@ enum SessionAgent: String, CaseIterable, Identifiable, Hashable, Codable, Sendab
     case claude
     case codex
     case opencode
+    case rovodev
 
     var id: String { rawValue }
-
-    var displayName: String {
-        switch self {
-        case .claude: return String(localized: "sessionIndex.agent.claude", defaultValue: "Claude Code")
-        case .codex: return String(localized: "sessionIndex.agent.codex", defaultValue: "Codex")
-        case .opencode: return String(localized: "sessionIndex.agent.opencode", defaultValue: "OpenCode")
-        }
-    }
-
-    /// Asset catalog image name for the agent's brand mark.
-    var assetName: String {
-        switch self {
-        case .claude: return "AgentIcons/Claude"
-        case .codex: return "AgentIcons/Codex"
-        case .opencode: return "AgentIcons/OpenCode"
-        }
-    }
 }
 
 enum OpenCodeDatabaseSnapshot {
@@ -96,6 +81,7 @@ enum AgentSpecifics: Hashable {
     case claude(model: String?, permissionMode: String?)
     case codex(model: String?, approvalPolicy: String?, sandboxMode: String?, effort: String?)
     case opencode(providerModel: String?, agentName: String?)
+    case rovodev
 }
 
 struct SessionEntry: Identifiable, Hashable {
@@ -123,10 +109,10 @@ struct SessionEntry: Identifiable, Hashable {
             if let permissionMode, !permissionMode.isEmpty {
                 parts.append("--permission-mode \(Self.shellQuote(permissionMode))")
             }
-            return Self.withShellEnvironment(
-                claudeConfigDirectoryForResume.map { ["CLAUDE_CONFIG_DIR": $0] } ?? [:],
-                command: parts.joined(separator: " ")
-            )
+            let environment = claudeConfigDirectoryForResume.map {
+                ["CLAUDE_CONFIG_DIR": $0, "CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV": "1", "CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS": "CLAUDE_CONFIG_DIR"]
+            } ?? [:]
+            return Self.withShellEnvironment(environment, command: parts.joined(separator: " "))
         case let .codex(model, approval, sandbox, effort):
             var parts = ["codex resume \(sessionId)"]
             if let model, !model.isEmpty {
@@ -151,6 +137,8 @@ struct SessionEntry: Identifiable, Hashable {
                 parts.append("--agent \(Self.shellQuote(agentName))")
             }
             return parts.joined(separator: " ")
+        case .rovodev:
+            return "acli rovodev run --restore \(Self.shellQuote(sessionId))"
         }
     }
 
@@ -173,7 +161,7 @@ struct SessionEntry: Identifiable, Hashable {
         }
         let configComponents = Array(pathComponents[..<projectsIndex])
         let configDir = NSString.path(withComponents: configComponents)
-        return configDir.isEmpty ? nil : configDir
+        return configDir.isEmpty ? nil : ClaudeConfigDirectoryPath.preferredPath(configDir)
     }
 
     private static func withShellEnvironment(
@@ -209,11 +197,11 @@ struct SessionEntry: Identifiable, Hashable {
                 return String(localized: "sessionIndex.localCommand", defaultValue: "Local command")
             }
             if Self.isClaudeSyntheticEnvelope(trimmed) {
-                return String(localized: "sessionIndex.untitled", defaultValue: "Untitled session")
+                return String(localized: "sessionIndex.untitled", defaultValue: "Untitled chat")
             }
         }
         if trimmed.isEmpty {
-            return String(localized: "sessionIndex.untitled", defaultValue: "Untitled session")
+            return String(localized: "sessionIndex.untitled", defaultValue: "Untitled chat")
         }
         return trimmed
     }
@@ -514,12 +502,14 @@ final class SessionIndexStore: ObservableObject {
         let sections: [IndexSection]
         switch grouping {
         case .agent:
-            sections = agentOrder.map { agent in
-                IndexSection(
+            let buckets = Dictionary(grouping: visible, by: \.agent)
+            sections = agentOrder.compactMap { agent in
+                guard let entries = buckets[agent], !entries.isEmpty else { return nil }
+                return IndexSection(
                     key: .agent(agent),
                     title: agent.displayName,
                     icon: .agent(agent),
-                    entries: visible.filter { $0.agent == agent }
+                    entries: entries
                 )
             }
         case .directory:
@@ -731,7 +721,11 @@ final class SessionIndexStore: ObservableObject {
             needle: "", agent: .opencode, cwdFilter: cwdFilter,
             offset: 0, limit: bigLimit, errorBag: bag
         )
-        var merged = (await c) + (await x) + (await o)
+        async let r = Self.timedAgent(
+            needle: "", agent: .rovodev, cwdFilter: cwdFilter,
+            offset: 0, limit: bigLimit, errorBag: bag
+        )
+        var merged = (await c) + (await x) + (await o) + (await r)
         if Task.isCancelled {
             return DirectorySnapshot(cwd: key, entries: [], errors: [])
         }
@@ -802,7 +796,8 @@ final class SessionIndexStore: ObservableObject {
         async let claude = loadClaudeEntries(needle: "", cwdFilter: nil, offset: 0, limit: perAgentLimit)
         async let codex = loadCodexEntries(needle: "", cwdFilter: nil, offset: 0, limit: perAgentLimit, errorBag: bag)
         async let opencode = loadOpenCodeEntries(needle: "", cwdFilter: nil, offset: 0, limit: perAgentLimit, errorBag: bag)
-        let combined = await claude + codex + opencode
+        async let rovodev = loadRovoDevEntries(needle: "", cwdFilter: nil, offset: 0, limit: perAgentLimit, errorBag: bag)
+        let combined = await claude + codex + opencode + rovodev
         return combined.sorted { $0.modified > $1.modified }
     }
 
@@ -840,7 +835,7 @@ final class SessionIndexStore: ObservableObject {
             let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return }
             let configDir = (trimmed as NSString).expandingTildeInPath
-            let standardized = (configDir as NSString).standardizingPath
+            let standardized = ClaudeConfigDirectoryPath.preferredPath(configDir)
             let projectsRoot = (standardized as NSString).appendingPathComponent("projects")
             var isDirectory: ObjCBool = false
             guard fm.fileExists(atPath: projectsRoot, isDirectory: &isDirectory),
@@ -1310,7 +1305,11 @@ final class SessionIndexStore: ObservableObject {
                 needle: needle, agent: .opencode, cwdFilter: cwdFilter,
                 offset: 0, limit: target, errorBag: bag
             )
-            let merged = (await c) + (await x) + (await o)
+            async let r = Self.timedAgent(
+                needle: needle, agent: .rovodev, cwdFilter: cwdFilter,
+                offset: 0, limit: target, errorBag: bag
+            )
+            let merged = (await c) + (await x) + (await o) + (await r)
             let sorted = merged.sorted { $0.modified > $1.modified }
             entries = Array(sorted.dropFirst(offset).prefix(limit))
         }
@@ -1340,6 +1339,7 @@ final class SessionIndexStore: ObservableObject {
         case .claude: return await loadClaudeEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit)
         case .codex: return await loadCodexEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
         case .opencode: return loadOpenCodeEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
+        case .rovodev: return loadRovoDevEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
         }
     }
 

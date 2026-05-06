@@ -7,120 +7,6 @@ import ObjectiveC
 import UniformTypeIdentifiers
 import WebKit
 
-// MARK: - File Drop Overlay
-
-enum DragOverlayRoutingPolicy {
-    static let bonsplitTabTransferType = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
-    static let filePreviewTransferType = NSPasteboard.PasteboardType("com.cmux.filepreview.transfer")
-    static let sidebarTabReorderType = NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)
-
-    static func hasBonsplitTabTransfer(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
-        guard let pasteboardTypes else { return false }
-        return pasteboardTypes.contains(bonsplitTabTransferType)
-    }
-
-    static func hasFilePreviewTransfer(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
-        guard let pasteboardTypes else { return false }
-        return pasteboardTypes.contains(filePreviewTransferType)
-    }
-
-    static func hasSidebarTabReorder(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
-        guard let pasteboardTypes else { return false }
-        return pasteboardTypes.contains(sidebarTabReorderType)
-    }
-
-    static func hasFileURL(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
-        guard let pasteboardTypes else { return false }
-        return pasteboardTypes.contains(.fileURL)
-    }
-
-    static func shouldCaptureFileDropDestination(
-        pasteboardTypes: [NSPasteboard.PasteboardType]?,
-        hasLocalDraggingSource: Bool
-    ) -> Bool {
-        // File URL drops are routed at the Bonsplit pane layer so center/edge
-        // drop targets stay visible and the host can open previews or splits.
-        _ = hasLocalDraggingSource
-        guard hasFileURL(pasteboardTypes) else { return false }
-        return false
-    }
-
-    static func shouldCaptureFileDropDestination(
-        pasteboardTypes: [NSPasteboard.PasteboardType]?
-    ) -> Bool {
-        shouldCaptureFileDropDestination(
-            pasteboardTypes: pasteboardTypes,
-            hasLocalDraggingSource: false
-        )
-    }
-
-    static func shouldCaptureFileDropOverlay(
-        pasteboardTypes: [NSPasteboard.PasteboardType]?,
-        eventType: NSEvent.EventType?
-    ) -> Bool {
-        guard shouldCaptureFileDropDestination(pasteboardTypes: pasteboardTypes) else { return false }
-        guard isDragMouseEvent(eventType) else { return false }
-        return true
-    }
-
-    static func shouldCaptureSidebarExternalOverlay(
-        hasSidebarDragState: Bool,
-        pasteboardTypes: [NSPasteboard.PasteboardType]?
-    ) -> Bool {
-        guard hasSidebarDragState else { return false }
-        return hasSidebarTabReorder(pasteboardTypes)
-    }
-
-    static func shouldCaptureSidebarExternalOverlay(
-        draggedTabId: UUID?,
-        pasteboardTypes: [NSPasteboard.PasteboardType]?
-    ) -> Bool {
-        shouldCaptureSidebarExternalOverlay(
-            hasSidebarDragState: draggedTabId != nil,
-            pasteboardTypes: pasteboardTypes
-        )
-    }
-
-    static func shouldPassThroughPortalHitTesting(
-        pasteboardTypes: [NSPasteboard.PasteboardType]?,
-        eventType: NSEvent.EventType?
-    ) -> Bool {
-        guard isPortalDragEvent(eventType) else { return false }
-        return hasBonsplitTabTransfer(pasteboardTypes)
-            || hasFilePreviewTransfer(pasteboardTypes)
-            || hasSidebarTabReorder(pasteboardTypes)
-    }
-
-    static func shouldPassThroughTerminalPortalHitTesting(
-        pasteboardTypes: [NSPasteboard.PasteboardType]?,
-        eventType: NSEvent.EventType?
-    ) -> Bool {
-        guard isPortalDragEvent(eventType) else { return false }
-        return shouldPassThroughPortalHitTesting(
-            pasteboardTypes: pasteboardTypes,
-            eventType: eventType
-        ) || hasFileURL(pasteboardTypes)
-    }
-
-    private static func isDragMouseEvent(_ eventType: NSEvent.EventType?) -> Bool {
-        eventType == .leftMouseDragged
-            || eventType == .rightMouseDragged
-            || eventType == .otherMouseDragged
-    }
-
-    private static func isPortalDragEvent(_ eventType: NSEvent.EventType?) -> Bool {
-        // Restrict portal pass-through to explicit drag-motion events so stale
-        // NSPasteboard(name: .drag) types cannot hijack normal pointer input.
-        guard let eventType else { return false }
-        switch eventType {
-        case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
-            return true
-        default:
-            return false
-        }
-    }
-}
-
 /// Transparent NSView installed on the window's theme frame (above the NSHostingView) to
 /// handle file/URL drags from Finder. Nested NSHostingController layers (created by bonsplit's
 /// SinglePaneWrapper) prevent AppKit's NSDraggingDestination routing from reaching deeply
@@ -141,6 +27,10 @@ final class FileDropOverlayView: NSView {
     /// The WKWebView that accepted prepareForDragOperation so conclude can be
     /// delivered to the same browser target after the drop completes.
     private weak var preparedDragWebView: WKWebView?
+    /// Pane drop target currently receiving delegated file drag events.
+    private weak var activePaneDropTarget: PaneDropTargetView?
+    /// Pane drop target that accepted prepareForDragOperation.
+    private weak var preparedPaneDropTarget: PaneDropTargetView?
     private var lastHitTestLogSignature: String?
     private var lastDragRouteLogSignatureByPhase: [String: String] = [:]
 
@@ -148,7 +38,7 @@ final class FileDropOverlayView: NSView {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        registerForDraggedTypes([.fileURL])
+        registerForDraggedTypes(Array(PasteboardFileURLReader.fileURLPasteboardTypes))
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
@@ -208,6 +98,9 @@ final class FileDropOverlayView: NSView {
         )
 #endif
         guard shouldCapture else { return nil }
+        if shouldDeferFileDropOverlayToBonsplitTabBar(at: point) {
+            return nil
+        }
 
         return super.hitTest(point)
     }
@@ -307,9 +200,14 @@ final class FileDropOverlayView: NSView {
 
     override func draggingExited(_ sender: (any NSDraggingInfo)?) {
         preparedDragWebView = nil
+        preparedPaneDropTarget = nil
         if let prev = activeDragWebView {
             prev.draggingExited(sender)
             activeDragWebView = nil
+        }
+        if let prev = activePaneDropTarget {
+            prev.draggingExited(sender)
+            activePaneDropTarget = nil
         }
     }
 
@@ -321,19 +219,23 @@ final class FileDropOverlayView: NSView {
             hasLocalDraggingSource: hasLocalDraggingSource
         )
         let webView = shouldCapture ? (activeDragWebView ?? webViewUnderPoint(sender.draggingLocation)) : nil
-        let terminal = terminalUnderPoint(sender.draggingLocation)
-        let hasTerminalTarget = terminal != nil
+        let paneDropTarget = shouldCapture && webView == nil
+            ? (activePaneDropTarget ?? paneDropTargetUnderPoint(sender.draggingLocation))
+            : nil
+        let hasPaneTarget = paneDropTarget != nil || terminalUnderPoint(sender.draggingLocation) != nil
 #if DEBUG
         logDragRouteDecision(
             phase: "prepare",
             pasteboardTypes: types,
             shouldCapture: shouldCapture,
             hasLocalDraggingSource: hasLocalDraggingSource,
-            hasTerminalTarget: hasTerminalTarget
+            hasPaneTarget: hasPaneTarget
         )
 #endif
         guard shouldCapture else {
             preparedDragWebView = nil
+            preparedPaneDropTarget = nil
+            activePaneDropTarget = nil
             return false
         }
         if let webView {
@@ -341,7 +243,13 @@ final class FileDropOverlayView: NSView {
             return webView.prepareForDragOperation(sender)
         }
         preparedDragWebView = nil
-        return hasTerminalTarget
+        if let paneDropTarget {
+            let accepted = paneDropTarget.prepareForDragOperation(sender)
+            preparedPaneDropTarget = accepted ? paneDropTarget : nil
+            return accepted
+        }
+        preparedPaneDropTarget = nil
+        return hasPaneTarget
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
@@ -354,20 +262,25 @@ final class FileDropOverlayView: NSView {
         let webView = shouldCapture
             ? (preparedDragWebView ?? activeDragWebView ?? webViewUnderPoint(sender.draggingLocation))
             : nil
-        let terminal = terminalUnderPoint(sender.draggingLocation)
-        let hasTerminalTarget = terminal != nil
+        let paneDropTarget = shouldCapture && webView == nil
+            ? (preparedPaneDropTarget ?? activePaneDropTarget ?? paneDropTargetUnderPoint(sender.draggingLocation))
+            : nil
+        let terminal = paneDropTarget == nil ? terminalUnderPoint(sender.draggingLocation) : nil
+        let hasPaneTarget = paneDropTarget != nil || terminal != nil
 #if DEBUG
         logDragRouteDecision(
             phase: "perform",
             pasteboardTypes: types,
             shouldCapture: shouldCapture,
             hasLocalDraggingSource: hasLocalDraggingSource,
-            hasTerminalTarget: hasTerminalTarget
+            hasPaneTarget: hasPaneTarget
         )
 #endif
         guard shouldCapture else {
             preparedDragWebView = nil
             activeDragWebView = nil
+            preparedPaneDropTarget = nil
+            activePaneDropTarget = nil
             return false
         }
         if let webView {
@@ -375,6 +288,15 @@ final class FileDropOverlayView: NSView {
             return webView.performDragOperation(sender)
         }
         preparedDragWebView = nil
+        if let paneDropTarget {
+            let handled = paneDropTarget.performDragOperation(sender)
+            if !handled {
+                preparedPaneDropTarget = nil
+                activePaneDropTarget = nil
+            }
+            return handled
+        }
+        preparedPaneDropTarget = nil
         activeDragWebView = nil
         guard let terminal else { return false }
         return terminal.performDragOperation(sender)
@@ -384,6 +306,8 @@ final class FileDropOverlayView: NSView {
         defer {
             preparedDragWebView = nil
             activeDragWebView = nil
+            preparedPaneDropTarget = nil
+            activePaneDropTarget = nil
         }
         guard let sender else { return }
         guard DragOverlayRoutingPolicy.shouldCaptureFileDropDestination(
@@ -394,6 +318,9 @@ final class FileDropOverlayView: NSView {
         }
         let webView = preparedDragWebView ?? activeDragWebView ?? webViewUnderPoint(sender.draggingLocation)
         webView?.concludeDragOperation(sender)
+        if let paneDropTarget = preparedPaneDropTarget ?? activePaneDropTarget {
+            paneDropTarget.concludeDragOperation(sender)
+        }
     }
 
     private func updateDragTarget(_ sender: any NSDraggingInfo, phase: String) -> NSDragOperation {
@@ -405,10 +332,15 @@ final class FileDropOverlayView: NSView {
             hasLocalDraggingSource: hasLocalDraggingSource
         )
         let webView = shouldCapture ? webViewUnderPoint(loc) : nil
+        let paneDropTarget = shouldCapture && webView == nil ? paneDropTargetUnderPoint(loc) : nil
 
         if let prev = activeDragWebView, prev !== webView {
             prev.draggingExited(sender)
             activeDragWebView = nil
+        }
+        if let prev = activePaneDropTarget, prev !== paneDropTarget {
+            prev.draggingExited(sender)
+            activePaneDropTarget = nil
         }
 
         if let webView {
@@ -419,17 +351,25 @@ final class FileDropOverlayView: NSView {
             return webView.draggingUpdated(sender)
         }
 
-        let hasTerminalTarget = terminalUnderPoint(loc) != nil
+        if let paneDropTarget {
+            if activePaneDropTarget !== paneDropTarget {
+                activePaneDropTarget = paneDropTarget
+                return paneDropTarget.draggingEntered(sender)
+            }
+            return paneDropTarget.draggingUpdated(sender)
+        }
+
+        let hasPaneTarget = terminalUnderPoint(loc) != nil
 #if DEBUG
         logDragRouteDecision(
             phase: phase,
             pasteboardTypes: types,
             shouldCapture: shouldCapture,
             hasLocalDraggingSource: hasLocalDraggingSource,
-            hasTerminalTarget: hasTerminalTarget
+            hasPaneTarget: hasPaneTarget
         )
 #endif
-        guard shouldCapture, hasTerminalTarget else { return [] }
+        guard shouldCapture, hasPaneTarget else { return [] }
         return .copy
     }
 
@@ -493,7 +433,7 @@ final class FileDropOverlayView: NSView {
 
         let interestingTypes = types.filter { type in
             let raw = type.rawValue
-            return raw == NSPasteboard.PasteboardType.fileURL.rawValue
+            return PasteboardFileURLReader.fileURLPasteboardTypes.contains(type)
                 || raw == DragOverlayRoutingPolicy.bonsplitTabTransferType.rawValue
                 || raw == DragOverlayRoutingPolicy.sidebarTabReorderType.rawValue
                 || raw.contains("public.text")
@@ -510,7 +450,7 @@ final class FileDropOverlayView: NSView {
 
     private func hasRelevantDragTypes(_ types: [NSPasteboard.PasteboardType]?) -> Bool {
         guard let types else { return false }
-        return types.contains(.fileURL)
+        return DragOverlayRoutingPolicy.hasFileURL(types)
             || types.contains(DragOverlayRoutingPolicy.bonsplitTabTransferType)
             || types.contains(DragOverlayRoutingPolicy.sidebarTabReorderType)
     }
@@ -568,13 +508,13 @@ final class FileDropOverlayView: NSView {
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
         shouldCapture: Bool,
         hasLocalDraggingSource: Bool,
-        hasTerminalTarget: Bool
+        hasPaneTarget: Bool
     ) {
         guard shouldCapture || hasRelevantDragTypes(pasteboardTypes) else { return }
         let signature = [
             shouldCapture ? "1" : "0",
             hasLocalDraggingSource ? "1" : "0",
-            hasTerminalTarget ? "1" : "0",
+            hasPaneTarget ? "1" : "0",
             debugPasteboardTypes(pasteboardTypes)
         ].joined(separator: "|")
         guard lastDragRouteLogSignatureByPhase[phase] != signature else { return }
@@ -582,7 +522,7 @@ final class FileDropOverlayView: NSView {
         cmuxDebugLog(
             "overlay.fileDrop.\(phase) capture=\(shouldCapture ? 1 : 0) " +
             "localSource=\(hasLocalDraggingSource ? 1 : 0) " +
-            "hasTerminal=\(hasTerminalTarget ? 1 : 0) " +
+            "hasPane=\(hasPaneTarget ? 1 : 0) " +
             "types=\(debugPasteboardTypes(pasteboardTypes))"
         )
     }
@@ -606,6 +546,44 @@ final class FileDropOverlayView: NSView {
             current = view.superview
         }
         return nil
+    }
+
+    private func shouldDeferFileDropOverlayToBonsplitTabBar(at point: NSPoint) -> Bool {
+        guard let window else { return false }
+        let windowPoint = convert(point, to: nil)
+        return BonsplitTabBarHitRegionRegistry.containsWindowPoint(windowPoint, in: window)
+    }
+
+    private func paneDropTargetUnderPoint(_ windowPoint: NSPoint) -> PaneDropTargetView? {
+        if let paneTarget = inlinePaneDropTargetUnderPoint(windowPoint) {
+            return paneTarget
+        }
+        guard let window else { return nil }
+        return TerminalWindowPortalRegistry.terminalPaneDropTargetAtWindowPoint(windowPoint, in: window)
+    }
+
+    private func inlinePaneDropTargetUnderPoint(_ windowPoint: NSPoint) -> PaneDropTargetView? {
+        guard let window, let contentView = window.contentView else { return nil }
+        isHidden = true
+        defer { isHidden = false }
+
+        let point = contentView.convert(windowPoint, from: nil)
+        return paneDropTarget(in: contentView, at: point)
+    }
+
+    private func paneDropTarget(in view: NSView, at point: NSPoint) -> PaneDropTargetView? {
+        for subview in view.subviews.reversed() {
+            guard !subview.isHidden, subview.alphaValue > 0 else { continue }
+            let pointInSubview = subview.convert(point, from: view)
+            guard subview.bounds.contains(pointInSubview) else { continue }
+            if let paneTarget = subview as? PaneDropTargetView {
+                return paneTarget
+            }
+            if let nestedTarget = paneDropTarget(in: subview, at: pointInSubview) {
+                return nestedTarget
+            }
+        }
+        return view as? PaneDropTargetView
     }
 }
 
@@ -4460,22 +4438,18 @@ struct ContentView: View {
         let commandPaletteListMaxHeight: CGFloat = 450
         let commandPaletteRowHeight: CGFloat = 24
         let commandPaletteEmptyStateHeight: CGFloat = 44
-        let commandPaletteListContentHeight = visibleResults.isEmpty
-            ? commandPaletteEmptyStateHeight
-            : CGFloat(visibleResults.count) * commandPaletteRowHeight
+        let commandPaletteListContentHeight = visibleResults.isEmpty ? commandPaletteEmptyStateHeight : CGFloat(visibleResults.count) * commandPaletteRowHeight
         let commandPaletteListHeight = min(commandPaletteListMaxHeight, commandPaletteListContentHeight)
         return VStack(spacing: 0) {
             HStack(spacing: 8) {
                 CommandPaletteSearchFieldRepresentable(
                     placeholder: commandPaletteSearchPlaceholder,
                     text: $commandPaletteQuery,
-                    isFocused: Binding(
-                        get: { isCommandPaletteSearchFocused },
-                        set: { isCommandPaletteSearchFocused = $0 }
-                    ),
+                    isFocused: Binding(get: { isCommandPaletteSearchFocused }, set: { isCommandPaletteSearchFocused = $0 }),
                     onSubmit: runSelectedCommandPaletteResult,
                     onEscape: { dismissCommandPalette() },
-                    onMoveSelection: moveCommandPaletteSelection(by:)
+                    onMoveSelection: moveCommandPaletteSelection(by:),
+                    onUnhandledNavigationKey: forwardCommandPaletteUnhandledNavigationKeyToFocusedTerminal
                 )
                 .frame(maxWidth: .infinity)
             }
@@ -4857,8 +4831,7 @@ struct ContentView: View {
         }
     }
 
-    // Keep navigation on the AppKit field editor so deleting the ">" prefix
-    // cannot drop the palette's arrow-key handlers during the scope switch.
+    // Keep navigation on the AppKit field editor so scope switches preserve arrow-key handlers.
     private struct CommandPaletteSearchFieldRepresentable: NSViewRepresentable {
         let placeholder: String
         @Binding var text: String
@@ -4866,22 +4839,21 @@ struct ContentView: View {
         let onSubmit: () -> Void
         let onEscape: () -> Void
         let onMoveSelection: (Int) -> Void
+        let onUnhandledNavigationKey: (NSEvent) -> Bool
 
-        final class Coordinator: NSObject, NSTextFieldDelegate {
+        @MainActor final class Coordinator: NSObject, NSTextFieldDelegate {
             var parent: CommandPaletteSearchFieldRepresentable
             var isProgrammaticMutation = false
             weak var parentField: CommandPaletteNativeTextField?
             var pendingFocusRequest: Bool?
-            var editorTextDidChangeObserver: NSObjectProtocol?
+            nonisolated(unsafe) var editorTextDidChangeObserver: NSObjectProtocol?
             weak var observedEditor: NSTextView?
 
             init(parent: CommandPaletteSearchFieldRepresentable) {
                 self.parent = parent
             }
 
-            deinit {
-                detachEditorTextDidChangeObserver()
-            }
+            deinit { editorTextDidChangeObserver.map(NotificationCenter.default.removeObserver) }
 
             func controlTextDidChange(_ obj: Notification) {
                 guard !isProgrammaticMutation else { return }
@@ -4906,13 +4878,13 @@ struct ContentView: View {
             }
 
             func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+                if let delta = commandPaletteSelectionDeltaForFieldEditorCommand(commandSelector, event: NSApp.currentEvent) {
+                    parent.onMoveSelection(delta); return true
+                }
+
                 switch commandSelector {
-                case #selector(NSResponder.moveDown(_:)):
-                    parent.onMoveSelection(1)
-                    return true
-                case #selector(NSResponder.moveUp(_:)):
-                    parent.onMoveSelection(-1)
-                    return true
+                case #selector(NSResponder.moveDown(_:)), #selector(NSResponder.moveUp(_:)):
+                    return NSApp.currentEvent.map(parent.onUnhandledNavigationKey) ?? false
                 case #selector(NSResponder.insertNewline(_:)):
                     guard !textView.hasMarkedText() else { return false }
                     parent.onSubmit()
@@ -4932,7 +4904,9 @@ struct ContentView: View {
                 if let delta = commandPaletteSelectionDeltaForKeyboardNavigation(
                     flags: event.modifierFlags,
                     chars: event.characters ?? event.charactersIgnoringModifiers ?? "",
-                    keyCode: event.keyCode
+                    keyCode: event.keyCode,
+                    nextShortcut: KeyboardShortcutSettings.shortcutIfBound(for: .commandPaletteNext),
+                    previousShortcut: KeyboardShortcutSettings.shortcutIfBound(for: .commandPalettePrevious)
                 ) {
                     parent.onMoveSelection(delta)
                     return true
@@ -4969,9 +4943,8 @@ struct ContentView: View {
                     forName: NSText.didChangeNotification,
                     object: editor,
                     queue: .main
-                ) { [weak self] _ in
-                    guard let self, !self.isProgrammaticMutation else { return }
-                    self.parent.text = editor.string
+                ) { [weak self, weak editor] _ in
+                    MainActor.assumeIsolated { if let self, !self.isProgrammaticMutation, let editor { self.parent.text = editor.string } }
                 }
             }
 
@@ -7033,14 +7006,7 @@ struct ContentView: View {
                 when: { $0.bool(CommandPaletteContextKeys.workspaceMinimalModeEnabled) }
             )
         )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.triggerFlash",
-                title: constant(String(localized: "command.triggerFlash.title", defaultValue: "Flash Focused Panel")),
-                subtitle: constant(String(localized: "command.triggerFlash.subtitle", defaultValue: "View")),
-                keywords: ["flash", "highlight", "focus", "panel"]
-            )
-        )
+        contributions.append(contentsOf: Self.commandPaletteViewCommandContributions())
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.showNotifications",
@@ -7894,16 +7860,7 @@ struct ContentView: View {
         }
         for mode in RightSidebarMode.allCases {
             registry.register(commandId: Self.commandPaletteRightSidebarModeCommandID(mode)) {
-                if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
-                    mode: mode,
-                    focusFirstItem: true,
-                    preferredWindow: observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
-                ) != true {
-                    fileExplorerState.setVisible(true)
-                    if fileExplorerState.mode != mode {
-                        fileExplorerState.mode = mode
-                    }
-                }
+                handleCommandPaletteRightSidebarMode(mode, observedWindow: observedWindow)
             }
         }
         registry.register(commandId: "palette.toggleMatchTerminalBackground") {
@@ -7915,9 +7872,7 @@ struct ContentView: View {
         registry.register(commandId: "palette.disableMinimalMode") {
             workspacePresentationMode = WorkspacePresentationModeSettings.Mode.standard.rawValue
         }
-        registry.register(commandId: "palette.triggerFlash") {
-            tabManager.triggerFocusFlash()
-        }
+        registerViewCommandHandlers(&registry)
         registry.register(commandId: "palette.showNotifications") {
             AppDelegate.shared?.toggleNotificationsPopover(animated: false)
         }
@@ -8453,12 +8408,8 @@ struct ContentView: View {
         resultCount: Int
     ) -> UnitPoint? {
         guard resultCount > 0 else { return nil }
-        if selectedIndex <= 0 {
-            return UnitPoint.top
-        }
-        if selectedIndex >= resultCount - 1 {
-            return UnitPoint.bottom
-        }
+        if selectedIndex <= 0 { return UnitPoint.top }
+        if selectedIndex >= resultCount - 1 { return UnitPoint.bottom }
         return nil
     }
 
@@ -8516,6 +8467,14 @@ struct ContentView: View {
             syncCommandPaletteSelectionAnchorFromVisibleResults()
         }
         syncCommandPaletteDebugStateForObservedWindow()
+    }
+
+    private func forwardCommandPaletteUnhandledNavigationKeyToFocusedTerminal(_ event: NSEvent) -> Bool {
+        guard let target = commandPaletteRestoreFocusTarget,
+              target.intent == .terminal(.surface),
+              let workspace = tabManager.tabs.first(where: { $0.id == target.workspaceId }),
+              let terminalPanel = workspace.panels[target.panelId] as? TerminalPanel else { return false }
+        terminalPanel.hostedView.forwardKeyDownToSurface(event); return true
     }
 
     static func commandPaletteShouldPopRenameInputOnDelete(
@@ -9797,10 +9756,6 @@ struct VerticalTabsSidebar: View {
     private var sidebarMatchTerminalBackground = false
 
     private let tabRowSpacing: CGFloat = 2
-    private var workspaceScrollTopVisibilityInset: CGFloat {
-        SidebarWorkspaceListMetrics.scrollTopInset
-    }
-
     private var sidebarTitlebarInteractionHeight: CGFloat {
         MinimalModeChromeMetrics.titlebarHeight
     }
@@ -9997,12 +9952,16 @@ struct VerticalTabsSidebar: View {
     }
 
     private func workspaceScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
-        GeometryReader { geometryProxy in
+        let scrollInsets = SidebarWorkspaceScrollInsets.workspaceList
+        return GeometryReader { geometryProxy in
             ScrollViewReader { scrollProxy in
                 ScrollView {
                     workspaceScrollContent(
                         renderContext: renderContext,
-                        minHeight: geometryProxy.size.height
+                        minHeight: SidebarWorkspaceScrollLayout.contentMinHeight(
+                            viewportHeight: geometryProxy.size.height,
+                            insets: scrollInsets
+                        )
                     )
                 }
                 .background(
@@ -10012,11 +9971,11 @@ struct VerticalTabsSidebar: View {
                     .frame(width: 0, height: 0)
                 )
                 .safeAreaInset(edge: .top, spacing: 0) {
-                    Color.clear.frame(height: workspaceScrollTopVisibilityInset)
+                    Color.clear.frame(height: scrollInsets.top)
                         .allowsHitTesting(false)
                 }
                 .safeAreaInset(edge: .bottom, spacing: 0) {
-                    Color.clear.frame(height: sidebarBottomScrimHeight)
+                    Color.clear.frame(height: scrollInsets.bottom)
                         .allowsHitTesting(false)
                 }
                 .overlay(alignment: .top) {
@@ -10038,7 +9997,7 @@ struct VerticalTabsSidebar: View {
                     if draggedTabId != nil, let firstWorkspaceId = renderContext.workspaceIds.first {
                         Color.clear
                             .contentShape(Rectangle())
-                            .frame(height: workspaceScrollTopVisibilityInset + 8)
+                            .frame(height: scrollInsets.top + 8)
                             .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: SidebarTabDropDelegate(
                                 targetTabId: firstWorkspaceId,
                                 tabManager: tabManager,
@@ -12660,7 +12619,6 @@ struct SidebarWorkspaceSnapshotBuilder {
 }
 
 private final class SidebarTabItemContextMenuState: ObservableObject {
-    var isVisible = false
     var hasDeferredWorkspaceObservationInvalidation = false
     var pendingWorkspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot?
 }
@@ -12726,7 +12684,7 @@ private struct TabItemView: View, Equatable {
     @Binding var frozenPresentation: SidebarTabItemPresentationSnapshot?
     @State private var workspaceSnapshotStorage: SidebarWorkspaceSnapshotBuilder.Snapshot?
     @StateObject private var contextMenuState = SidebarTabItemContextMenuState()
-    @State private var isHovering = false
+    @State private var rowInteractionState = SidebarWorkspaceRowInteractionState()
     @State private var rowHeight: CGFloat = 1
 
     var isMultiSelected: Bool {
@@ -12852,7 +12810,10 @@ private struct TabItemView: View, Equatable {
     }
 
     private var showCloseButton: Bool {
-        isHovering && canCloseWorkspace && !(showsModifierShortcutHints || alwaysShowShortcutHints)
+        rowInteractionState.shouldShowCloseButton(
+            canCloseWorkspace: canCloseWorkspace,
+            shortcutHintModeActive: showsModifierShortcutHints || alwaysShowShortcutHints
+        )
     }
 
     private var workspaceShortcutLabel: String? {
@@ -13251,6 +13212,9 @@ private struct TabItemView: View, Equatable {
         .contentShape(Rectangle())
         .opacity(isBeingDragged ? 0.6 : 1)
         .overlay {
+            SidebarWorkspaceRowHoverTracker(rowInteractionState: $rowInteractionState)
+        }
+        .overlay {
             MiddleClickCapture {
                 #if DEBUG
                 cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=middleClick")
@@ -13337,10 +13301,6 @@ private struct TabItemView: View, Equatable {
         .onTapGesture {
             updateSelection()
         }
-        .onHover { hovering in
-            guard !contextMenuState.isVisible else { return }
-            isHovering = hovering
-        }
         .safeHelp(workspaceSnapshot.title)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text(accessibilityTitle))
@@ -13354,17 +13314,14 @@ private struct TabItemView: View, Equatable {
         .contextMenu {
             workspaceContextMenu
                 .onAppear {
-                    contextMenuState.isVisible = true
+                    rowInteractionState.contextMenuDidAppear()
                     contextMenuState.hasDeferredWorkspaceObservationInvalidation = false
                     contextMenuState.pendingWorkspaceSnapshot = nil
                     frozenPresentation = livePresentation
                 }
                 .onDisappear {
-                    contextMenuState.isVisible = false
+                    rowInteractionState.contextMenuDidDisappear()
                     frozenPresentation = nil
-                    if isHovering {
-                        isHovering = false
-                    }
                     flushDeferredWorkspaceObservationInvalidation()
                 }
         }
@@ -13376,7 +13333,7 @@ private struct TabItemView: View, Equatable {
             current: workspaceSnapshotStorage,
             next: nextSnapshot,
             force: force,
-            contextMenuVisible: contextMenuState.isVisible
+            contextMenuVisible: rowInteractionState.contextMenuVisible
         )
 
         if workspaceSnapshotStorage != decision.workspaceSnapshotStorage {
@@ -14842,7 +14799,7 @@ private final class SidebarDragAutoScrollController: ObservableObject {
     }
 }
 
-private enum SidebarTabDragPayload {
+enum SidebarTabDragPayload {
     static let typeIdentifier = "com.cmux.sidebar-tab-reorder"
     static let dropContentType = UTType(exportedAs: typeIdentifier)
     static let dropContentTypes: [UTType] = [dropContentType]

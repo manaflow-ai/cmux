@@ -559,7 +559,7 @@
         "bindings": {
           "type": "object",
           "default": {},
-          "description": "Shortcut overrides keyed by cmux action id. Use a string for a single shortcut, an array for a chord, or an empty string to unbind.",
+          "description": "Shortcut overrides keyed by cmux action id. Use a string for a single shortcut, an array for a chord, null, an empty string, none, clear, unbound, or disabled to unbind.",
           "propertyNames": {
             "enum": [
               "openSettings",
@@ -575,6 +575,8 @@
               "reopenPreviousSession",
               "goToWorkspace",
               "commandPalette",
+              "commandPaletteNext",
+              "commandPalettePrevious",
               "sendFeedback",
               "showNotifications",
               "jumpToUnread",
@@ -631,7 +633,7 @@
             ]
           },
           "additionalProperties": {
-            "$ref": "#/$defs/shortcutBinding"
+            "$ref": "#/$defs/shortcutBindingNullable"
           }
         }
       }
@@ -657,7 +659,7 @@
       "oneOf": [
         {
           "$ref": "#/$defs/unboundShortcutBinding",
-          "description": "Unbind this shortcut. Accepted values are an empty string, none, clear, or unbound."
+          "description": "Unbind this shortcut. Accepted values are an empty string, none, clear, unbound, or disabled."
         },
         {
           "$ref": "#/$defs/shortcutFirstStroke",
@@ -679,9 +681,20 @@
         }
       ]
     },
+    "shortcutBindingNullable": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/shortcutBinding"
+        },
+        {
+          "type": "null",
+          "description": "Unbind this shortcut."
+        }
+      ]
+    },
     "unboundShortcutBinding": {
       "type": "string",
-      "enum": ["", "none", "clear", "unbound"]
+      "enum": ["", "none", "clear", "unbound", "disabled"]
     },
     "shortcutFirstStroke": {
       "allOf": [
