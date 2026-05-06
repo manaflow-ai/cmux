@@ -5,6 +5,7 @@ All notable changes to cmux are documented here.
 ## [0.64.3] - 2026-05-05
 
 ### Added
+- Added Show in Finder to the workspace sidebar right-click menu.
 - `cmux config` CLI with `cmux config doctor` for validating `cmux.json` without a socket, plus `cmux config path`, `cmux config docs`, and `cmux config reload` aliases ([#3454](https://github.com/manaflow-ai/cmux/pull/3454))
 
 ### Fixed

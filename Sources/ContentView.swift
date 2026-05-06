@@ -13413,6 +13413,7 @@ private struct TabItemView: View, Equatable {
         let renameWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .renameWorkspace)
         let editWorkspaceDescriptionShortcut = KeyboardShortcutSettings.shortcut(for: .editWorkspaceDescription)
         let closeWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .closeWorkspace)
+        let finderDirectoryURL = isMulti ? nil : tab.sidebarFinderDirectoryURL()
         Button(pinLabel) {
             guard let contextMenuPinState else {
                 NSSound.beep()
@@ -13460,6 +13461,11 @@ private struct TabItemView: View, Equatable {
                     tabManager.clearCustomDescription(tabId: tab.id)
                 }
             }
+
+            Button(String(localized: "contextMenu.showWorkspaceInFinder", defaultValue: "Show in Finder")) {
+                showWorkspaceInFinder(finderDirectoryURL)
+            }
+            .disabled(finderDirectoryURL == nil)
         }
 
         if !remoteContextMenuWorkspaceIds.isEmpty {
@@ -13627,6 +13633,14 @@ private struct TabItemView: View, Equatable {
             copyWorkspaceIdsToPasteboard(targetIds)
         }
         .disabled(targetIds.isEmpty)
+    }
+
+    private func showWorkspaceInFinder(_ directoryURL: URL?) {
+        guard let directoryURL else {
+            NSSound.beep()
+            return
+        }
+        NSWorkspace.shared.activateFileViewerSelecting([directoryURL])
     }
 
     private var backgroundColor: Color {
