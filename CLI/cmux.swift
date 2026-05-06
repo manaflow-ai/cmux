@@ -13786,7 +13786,7 @@ struct CMUXCLI {
             // (PreToolUse).
             if let claudePid {
                 _ = try? sendV1Command(
-                    "set_agent_pid claude_code \(claudePid) --tab=\(workspaceId) --surface=\(surfaceId)",
+                    "set_agent_pid claude_code \(claudePid) --tab=\(workspaceId)\(socketSurfaceOption(surfaceId))",
                     client: client
                 )
             }
@@ -16641,7 +16641,7 @@ export default CMUXSessionRestore;
                 )
             }
             if let pid {
-                _ = try? sendV1Command("set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId) --surface=\(surfaceId)", client: client)
+                _ = try? sendV1Command("set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketSurfaceOption(surfaceId))", client: client)
             }
 
         case .promptSubmit:
@@ -16672,10 +16672,10 @@ export default CMUXSessionRestore;
                 )
             }
             if let pid {
-                _ = try? sendV1Command("set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId) --surface=\(surfaceId)", client: client)
+                _ = try? sendV1Command("set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketSurfaceOption(surfaceId))", client: client)
             }
             _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
-            _ = try sendV1Command("set_status \(def.statusKey) Running --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId) --surface=\(surfaceId)", client: client)
+            _ = try sendV1Command("set_status \(def.statusKey) Running --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketSurfaceOption(surfaceId))", client: client)
             if def.name == "codex", !sessionId.isEmpty {
                 startCodexTranscriptMonitor(
                     sessionId: sessionId,
@@ -16745,16 +16745,16 @@ export default CMUXSessionRestore;
                                       lastBody: body)
                 }
                 if let pid {
-                    _ = try? sendV1Command("set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId) --surface=\(surfaceId)", client: client)
+                    _ = try? sendV1Command("set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketSurfaceOption(surfaceId))", client: client)
                 }
 
                 let payload = notificationPayload(title: def.displayName, subtitle: subtitle, body: body)
                 _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
                 if let codexFailure {
-                    _ = try? sendV1Command("set_status \(def.statusKey) \(codexFailure.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId) --surface=\(surfaceId)", client: client)
+                    _ = try? sendV1Command("set_status \(def.statusKey) \(codexFailure.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketSurfaceOption(surfaceId))", client: client)
                 } else {
                     let idleStatus = String(localized: "agent.codex.status.idle", defaultValue: "Idle")
-                    _ = try? sendV1Command("set_status \(def.statusKey) \(idleStatus) --icon=pause.circle.fill --color=#8E8E93 --tab=\(workspaceId) --surface=\(surfaceId)", client: client)
+                    _ = try? sendV1Command("set_status \(def.statusKey) \(idleStatus) --icon=pause.circle.fill --color=#8E8E93 --tab=\(workspaceId)\(socketSurfaceOption(surfaceId))", client: client)
                 }
             } catch {
                 if shouldIgnoreClaudeHookTeardownError(error) {

@@ -29,16 +29,20 @@ extension Workspace {
     }
 
     func setAgentPID(key: String, pid: pid_t, panelId: UUID? = nil) {
-        agentPIDs[key] = pid
+        let trimmedKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedKey.isEmpty else { return }
+        agentPIDs[trimmedKey] = pid
         if let panelId {
-            markAgentTerminal(panelId: panelId, key: key)
+            markAgentTerminal(panelId: panelId, key: trimmedKey)
         }
     }
 
     @discardableResult
     func clearAgentPID(key: String, panelId: UUID? = nil) -> pid_t? {
-        clearAgentTerminal(key: key, panelId: panelId)
-        return agentPIDs.removeValue(forKey: key)
+        let trimmedKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedKey.isEmpty else { return nil }
+        clearAgentTerminal(key: trimmedKey, panelId: panelId)
+        return agentPIDs.removeValue(forKey: trimmedKey)
     }
 
     func terminalPanelHostsAgent(panelId: UUID) -> Bool {

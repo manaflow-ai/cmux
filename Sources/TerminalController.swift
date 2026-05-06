@@ -12681,7 +12681,7 @@ class TerminalController {
           set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] [--surface=Y] - Set a status entry
           report_meta <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] - Set sidebar metadata entry
           report_meta_block <key> [--priority=N] [--tab=X] -- <markdown> - Set freeform sidebar markdown block
-          clear_status <key> [--tab=X] - Remove a status entry
+          clear_status <key> [--tab=X] [--surface=Y] - Remove a status entry
           clear_meta <key> [--tab=X] - Remove sidebar metadata entry
           clear_meta_block <key> [--tab=X] - Remove sidebar markdown block
           list_status [--tab=X]   - List all status entries
