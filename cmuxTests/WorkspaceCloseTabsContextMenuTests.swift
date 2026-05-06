@@ -157,6 +157,40 @@ final class WorkspaceCloseTabsContextMenuTests: XCTestCase {
         XCTAssertEqual(promptCount, 1, "Expected one batched confirmation for the right-side close")
     }
 
+    // MARK: - .closeToLeft
+
+    func testCloseToLeftClosesAllTabsLeftOfAnchorWhenAllNeedConfirmation() throws {
+        let (manager, workspace, paneId, anchorPanelId, otherPanelIds) = try makeWorkspaceWithThreeTerminalsInOnePane()
+        let rightmostPanelId = try XCTUnwrap(otherPanelIds.last)
+
+        for panelId in [anchorPanelId] + otherPanelIds {
+            try markTerminalNeedsConfirmClose(workspace: workspace, panelId: panelId)
+        }
+
+        var promptCount = 0
+        manager.confirmCloseHandler = { _, _, _ in
+            promptCount += 1
+            return true
+        }
+
+        let anchorTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(rightmostPanelId))
+        let anchorTab = try XCTUnwrap(workspace.bonsplitController.tab(anchorTabId))
+
+        workspace.splitTabBar(
+            workspace.bonsplitController,
+            didRequestTabContextAction: .closeToLeft,
+            for: anchorTab,
+            inPane: paneId
+        )
+
+        let remaining = workspace.bonsplitController.tabs(inPane: paneId).map(\.id)
+        XCTAssertEqual(
+            remaining, [anchorTabId],
+            "Expected only the anchor tab (rightmost) to remain after closeToLeft"
+        )
+        XCTAssertEqual(promptCount, 1, "Expected one batched confirmation for the left-side close")
+    }
+
     // MARK: - Helpers
 
     @MainActor

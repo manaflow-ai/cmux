@@ -4202,9 +4202,24 @@ class TabManager: ObservableObject {
 
         let count = plan.panelIds.count
         let titleLines = plan.titles.map { "• \($0)" }.joined(separator: "\n")
-        let message = "This is about to close \(count) tab\(count == 1 ? "" : "s") in this pane:\n\(titleLines)"
+        let title = String(localized: "dialog.closeOtherTabs.title", defaultValue: "Close other tabs?")
+        let messageFormat: String
+        if count == 1 {
+            messageFormat = String(
+                localized: "dialog.closeOtherTabs.message.one",
+                defaultValue: "This will close 1 tab in this pane:\n%@"
+            )
+        } else {
+            messageFormat = String(
+                localized: "dialog.closeOtherTabs.message.other",
+                defaultValue: "This will close %1$lld tabs in this pane:\n%2$@"
+            )
+        }
+        let message: String = (count == 1)
+            ? String(format: messageFormat, locale: .current, titleLines)
+            : String(format: messageFormat, locale: .current, Int64(count), titleLines)
         guard confirmClose(
-            title: "Close other tabs?",
+            title: title,
             message: message,
             acceptCmdD: false
         ) else { return }
