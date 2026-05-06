@@ -1,19 +1,22 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useDevValues } from "./components/spacing-control";
 
 function usePhrases() {
   const t = useTranslations("home");
-  return [
-    t("typingCodingAgents"),
-    t("typingMultitasking"),
-    "Claude Code",
-    "Codex",
-    "OpenCode",
-    "Gemini CLI",
-  ];
+  return useMemo(
+    () => [
+      t("typingCodingAgents"),
+      t("typingMultitasking"),
+      "Claude Code",
+      "Codex",
+      "OpenCode",
+      "Gemini CLI",
+    ],
+    [t],
+  );
 }
 
 export function TypingTagline() {
@@ -26,7 +29,7 @@ export function TypingTagline() {
   useEffect(() => {
     const phrase = phrases[phraseIndex];
 
-    if (!deleting && charIndex === phrase.length) {
+    if (!deleting && charIndex >= phrase.length) {
       const timeout = setTimeout(() => setDeleting(true), 2000);
       return () => clearTimeout(timeout);
     }
@@ -45,7 +48,7 @@ export function TypingTagline() {
     }, speed);
 
     return () => clearTimeout(timeout);
-  }, [charIndex, deleting, phraseIndex]);
+  }, [charIndex, deleting, phraseIndex, phrases]);
 
   const phrase = phrases[phraseIndex];
   const displayed = phrase.slice(0, charIndex);

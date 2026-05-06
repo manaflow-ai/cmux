@@ -49,6 +49,11 @@ function subscribe(cb: () => void) {
   return () => { listeners.delete(cb); };
 }
 
+function initialPanelPosition() {
+  if (typeof window === "undefined") return { x: 0, y: 0 };
+  return { x: window.innerWidth - 340, y: window.innerHeight - 320 };
+}
+
 export function useDevValues() {
   return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 }
@@ -100,21 +105,25 @@ export function DevPanel() {
   const [copied, setCopied] = useState(false);
   const vals = useDevValues();
   const dragOffset = useRef({ x: 0, y: 0 });
+  const visibleRef = useRef(false);
 
-  useEffect(() => {
-    setPos({ x: window.innerWidth - 340, y: window.innerHeight - 320 });
+  const toggleVisible = useCallback(() => {
+    const nextVisible = !visibleRef.current;
+    visibleRef.current = nextVisible;
+    if (nextVisible) setPos(initialPanelPosition());
+    setVisible(nextVisible);
   }, []);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.metaKey && e.key === ".") {
         e.preventDefault();
-        setVisible((v) => !v);
+        toggleVisible();
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, []);
+  }, [toggleVisible]);
 
   const update = useCallback((patch: Partial<DevValues>) => {
     setStore(patch);

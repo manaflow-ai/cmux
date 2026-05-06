@@ -1,4 +1,5 @@
 import { useTranslations, useLocale } from "next-intl";
+import Image from "next/image";
 import { FadeImage } from "./components/fade-image";
 import Balancer from "react-wrap-balancer";
 import landingImage from "./assets/landing-image.png";
@@ -29,7 +30,7 @@ function HomeContent() {
       <main className="w-full max-w-2xl mx-auto px-6 py-16 sm:py-24">
         {/* Header */}
         <div className="flex items-center gap-4 mb-10" data-dev="header">
-          <img
+          <Image
             src="/logo.png"
             alt="cmux icon"
             width={48}
@@ -111,12 +112,12 @@ function HomeContent() {
                 <span className="text-muted">
                   {t.rich("feature.keyboardShortcutsDesc", {
                     link: (chunks) => (
-                      <a
+                      <Link
                         href="/docs/keyboard-shortcuts"
                         className={linkClass}
                       >
                         {chunks}
-                      </a>
+                      </Link>
                     ),
                   })}
                 </span>
@@ -176,14 +177,14 @@ function HomeContent() {
               <p className="text-muted">
                 {t.rich("faqNotificationsA", {
                   cliLink: (chunks) => (
-                    <a href="/docs/notifications" className={linkClass}>
+                    <Link href="/docs/notifications#cli" className={linkClass}>
                       {chunks}
-                    </a>
+                    </Link>
                   ),
                   hooksLink: (chunks) => (
-                    <a href="/docs/notifications" className={linkClass}>
+                    <Link href="/docs/notifications#claude-code-hooks" className={linkClass}>
                       {chunks}
-                    </a>
+                    </Link>
                   ),
                 })}
               </p>
@@ -198,9 +199,9 @@ function HomeContent() {
                     </code>
                   ),
                   link: (chunks) => (
-                    <a href="/docs/keyboard-shortcuts" className={linkClass}>
+                    <Link href="/docs/keyboard-shortcuts" className={linkClass}>
                       {chunks}
-                    </a>
+                    </Link>
                   ),
                 })}
               </p>
@@ -271,7 +272,7 @@ function HomeContent() {
                   >
                     —
                     {item.avatar && (
-                      <img
+                      <Image
                         src={item.avatar}
                         alt={item.name}
                         width={16}

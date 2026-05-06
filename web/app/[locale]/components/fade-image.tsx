@@ -9,6 +9,7 @@ export function FadeImage(props: ImageProps) {
   return (
     <Image
       {...props}
+      alt={props.alt}
       placeholder={undefined}
       className={`${props.className ?? ""} transition-opacity duration-700 ${loaded ? "opacity-100" : "opacity-0"}`}
       onLoad={() => setLoaded(true)}

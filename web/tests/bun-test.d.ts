@@ -1,10 +1,49 @@
 declare module "bun:test" {
-  export const afterAll: any;
-  export const afterEach: any;
-  export const beforeAll: any;
-  export const beforeEach: any;
-  export const describe: any;
-  export const expect: any;
-  export const mock: any;
-  export const test: any;
+  type TestCallback = () => void | Promise<void>;
+  type Lifecycle = (fn: TestCallback, timeout?: number) => void;
+  type NamedTest = {
+    (name: string, fn: TestCallback, timeout?: number): void;
+    readonly only: NamedTest;
+    readonly skip: NamedTest;
+  };
+
+  type Matchers = {
+    readonly not: Matchers;
+    readonly resolves: Matchers;
+    readonly rejects: Matchers;
+    toBe(expected: unknown): void;
+    toBeInstanceOf(expected: unknown): void;
+    toBeNull(): void;
+    toContain(expected: unknown): void;
+    toEqual(expected: unknown): void;
+    toHaveBeenCalled(): void;
+    toHaveBeenCalledWith(...expected: unknown[]): void;
+    toHaveLength(expected: number): void;
+    toHaveProperty(key: string): void;
+    toMatchObject(expected: unknown): void;
+    toStartWith(expected: string): void;
+    toThrow(expected?: unknown): void;
+  };
+
+  type MockControls = {
+    mockClear(): MockControls;
+    mockResolvedValue(value: unknown): MockControls;
+  };
+
+  type MockModule = {
+    <T extends (...args: never[]) => unknown>(fn: T): T & MockControls;
+    module(moduleName: string, factory: () => unknown | Promise<unknown>): void | Promise<void>;
+  };
+
+  export const afterAll: Lifecycle;
+  export const afterEach: Lifecycle;
+  export const beforeAll: Lifecycle;
+  export const beforeEach: Lifecycle;
+  export const describe: NamedTest;
+  export const expect: {
+    (actual: unknown): Matchers;
+    objectContaining(expected: unknown): unknown;
+  };
+  export const mock: MockModule;
+  export const test: NamedTest;
 }

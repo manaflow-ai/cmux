@@ -474,42 +474,35 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         let initialWorkspaceCount = manager.tabs.count
         let initialPanelCount = workspace.panels.count
-        let shortcut = StoredShortcut(
-            key: "b",
-            command: false,
-            shift: false,
-            option: false,
-            control: true,
-            chordKey: "d"
-        )
+        let shortcut = StoredShortcut(key: "b", command: false, shift: false, option: false, control: true, chordKey: "d")
+        let showHideShortcut = StoredShortcut(key: "h", command: true, shift: false, option: false, control: false)
+        func requiredEvent(_ key: String, _ modifiers: NSEvent.ModifierFlags, _ keyCode: UInt16, _ description: String) -> NSEvent? {
+            guard let event = makeKeyDownEvent(key: key, modifiers: modifiers, keyCode: keyCode, windowNumber: window.windowNumber) else {
+                XCTFail("Failed to construct \(description) event")
+                return nil
+            }
+            return event
+        }
 
         withTemporaryShortcut(action: .splitRight, shortcut: shortcut) {
-            guard let prefixEvent = makeKeyDownEvent(
-                key: "b",
-                modifiers: [.control],
-                keyCode: 11,
-                windowNumber: window.windowNumber
-            ) else {
-                XCTFail("Failed to construct Ctrl+B prefix event")
-                return
-            }
-
-            guard let conflictingSingleStrokeEvent = makeKeyDownEvent(
-                key: "n",
-                modifiers: [.command],
-                keyCode: 45,
-                windowNumber: window.windowNumber
-            ) else {
-                XCTFail("Failed to construct Cmd+N event")
-                return
-            }
-
+            withTemporaryShortcut(action: .showHideAllWindows, shortcut: showHideShortcut) {
+                guard let prefixEvent = requiredEvent("b", [.control], 11, "chord prefix"),
+                      let conflictingSingleStrokeEvent = requiredEvent("n", [.command], 45, "Cmd+N"),
+                      let numberedSingleStrokeEvent = requiredEvent("2", [.command], 19, "Cmd+2"),
+                      let showHideSingleStrokeEvent = requiredEvent("h", [.command], 4, "Cmd+H") else {
+                    return
+                }
 #if DEBUG
-            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: prefixEvent))
-            XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: conflictingSingleStrokeEvent))
+                XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: prefixEvent))
+                XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: conflictingSingleStrokeEvent))
+                XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: prefixEvent))
+                XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: numberedSingleStrokeEvent))
+                XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: prefixEvent))
+                XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: showHideSingleStrokeEvent))
 #else
-            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+                XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
+            }
         }
 
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
@@ -5407,8 +5400,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     private func withTemporaryShortcut(
         action: KeyboardShortcutSettings.Action,
         shortcut: StoredShortcut? = nil,
-        _ body: () -> Void
-    ) {
+        _ body: () throws -> Void
+    ) rethrows {
         let hadPersistedShortcut = UserDefaults.standard.object(forKey: action.defaultsKey) != nil
         let originalShortcut = KeyboardShortcutSettings.shortcut(for: action)
         defer {
@@ -5419,7 +5412,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             }
         }
         KeyboardShortcutSettings.setShortcut(shortcut ?? action.defaultShortcut, for: action)
-        body()
+        try body()
     }
 
     private func assertEscapeKeyUpIsConsumedAfterCommandPaletteOpenRequest(

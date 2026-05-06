@@ -1,6 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
+import Image from "next/image";
 import { Link } from "../../../i18n/navigation";
 import { NavLinks } from "./nav-links";
 import { DownloadButton } from "./download-button";
@@ -32,7 +33,7 @@ export function SiteHeader({
             {!hideLogo && (
               <>
                 <Link href="/" className="flex items-center gap-2.5">
-                  <img
+                  <Image
                     src="/logo.png"
                     alt="cmux"
                     width={24}

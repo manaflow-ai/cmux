@@ -699,7 +699,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var pendingConfiguredShortcutChord: PendingConfiguredShortcutChord?
     var activeConfiguredShortcutChordPrefixForCurrentEvent: ShortcutStroke?
     var shortcutEventFocusContextCache: ShortcutEventFocusContextCache?
-    private var configuredShortcutChordActions: [KeyboardShortcutSettings.Action] = []
     private var ghosttyConfigObserver: NSObjectProtocol?
     private var ghosttyGotoSplitLeftShortcut: StoredShortcut?
     private var ghosttyGotoSplitRightShortcut: StoredShortcut?
@@ -10316,28 +10315,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func installShortcutDefaultsObserver() {
         guard shortcutDefaultsObserver == nil else { return }
-        refreshConfiguredShortcutChordActions()
         shortcutDefaultsObserver = NotificationCenter.default.addObserver(
             forName: KeyboardShortcutSettings.didChangeNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.refreshConfiguredShortcutChordActions()
             self?.clearConfiguredShortcutChordState()
             self?.scheduleSplitButtonTooltipRefreshAcrossWorkspaces()
-        }
-    }
-
-    private func refreshConfiguredShortcutChordActions() {
-        configuredShortcutChordActions = KeyboardShortcutSettings.Action.allCases.filter { action in
-            // showHideAllWindows is dispatched via Carbon RegisterEventHotKey
-            // (SystemWideHotkeyController) and never routed through AppKit's
-            // local key handler. If a managed cmux.json entry happened to
-            // store it as a chord, arming the prefix here would swallow the
-            // first stroke and leave the second one orphaned, breaking that
-            // keystroke for the focused terminal/browser input.
-            guard action != .showHideAllWindows else { return false }
-            return KeyboardShortcutSettings.shortcut(for: action).hasChord
         }
     }
 
@@ -11051,11 +11035,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if handleConfiguredCmuxShortcut(
-            event: event,
-            actions: configuredCmuxShortcutActions,
-            context: configuredCmuxShortcutContext
-        ) {
+        if handleConfiguredCmuxShortcut(event: event, actions: configuredCmuxShortcutActions, context: configuredCmuxShortcutContext) {
+            return true
+        }
+
+        if activeConfiguredShortcutChordPrefixForCurrentEvent != nil,
+           shouldConsumeSingleStrokeShortcutAfterConfiguredChordMismatch(event: event, cmuxActions: configuredCmuxShortcutActions) {
             return true
         }
 
@@ -12502,9 +12487,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         shortcuts: [StoredShortcut] = []
     ) -> Bool {
         var seen = Set<StoredShortcut>()
-        let configuredShortcuts = (actions ?? configuredShortcutChordActions).map {
-            KeyboardShortcutSettings.shortcut(for: $0)
-        } + shortcuts
+        let configuredShortcuts = (actions?.map { KeyboardShortcutSettings.shortcut(for: $0) }
+            ?? KeyboardShortcutSettings.Action.allCases.compactMap { action in
+                guard action != .showHideAllWindows else { return nil }
+                let shortcut = KeyboardShortcutSettings.shortcut(for: action)
+                return shortcut.hasChord ? shortcut : nil
+            }) + shortcuts
         for shortcut in configuredShortcuts {
             guard seen.insert(shortcut).inserted else { continue }
             guard shortcut.hasChord else { continue }
@@ -12517,6 +12505,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
         return false
+    }
+
+    private func shouldConsumeSingleStrokeShortcutAfterConfiguredChordMismatch(
+        event: NSEvent,
+        cmuxActions: [CmuxResolvedConfigAction]
+    ) -> Bool {
+        func matches(_ shortcut: StoredShortcut?) -> Bool {
+            guard let shortcut, !shortcut.isUnbound, !shortcut.hasChord else { return false }
+            return matchShortcutStroke(event: event, stroke: shortcut.firstStroke)
+        }
+        let focusContext = shortcutEventFocusContext(event)
+        for action in KeyboardShortcutSettings.Action.allCases {
+            guard action != .showHideAllWindows else { continue }
+            if (action.shortcutContext.isAlwaysAvailable || action.shortcutContext.isAvailable(focusContext)),
+               matchesKeyboardShortcutEvent(event, action: action, shortcut: KeyboardShortcutSettings.shortcut(for: action)) {
+                return true
+            }
+        }
+        return cmuxActions.contains { matches($0.shortcut) }
     }
 
     func configuredCmuxShortcutActions(

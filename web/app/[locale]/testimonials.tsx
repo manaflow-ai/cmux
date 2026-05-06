@@ -1,3 +1,5 @@
+import Image from "next/image";
+
 export const testimonials = [
   {
     key: "mitchellh",
@@ -282,7 +284,7 @@ export function TestimonialCard({
     >
       <div className="flex items-center gap-3 mb-3">
         {testimonial.avatar ? (
-          <img
+          <Image
             src={testimonial.avatar}
             alt={testimonial.name}
             width={40}
