@@ -77,19 +77,23 @@ commands:
             esac
 
             ZIG_URL="https://ziglang.org/download/${ZIG_REQUIRED}/zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}.tar.xz"
+            ZIG_TOOLCHAIN_ROOT="$PWD/.ci-zig-toolchain"
+            ZIG_EXTRACTED_DIR="${ZIG_TOOLCHAIN_ROOT}/zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}"
 
             download_zig_asset() {
               local url="$1"
               local output="$2"
               local attempt
 
-              for attempt in 1 2 3 4 5; do
-                if curl -fSL --connect-timeout 30 --max-time 600 --speed-limit 1024 --speed-time 60 "$url" -o "$output"; then
+              for attempt in 1 2 3; do
+                echo "Downloading $url (attempt $attempt)"
+                if curl -fL --show-error --progress-bar --connect-timeout 20 --max-time 1800 \
+                  --speed-limit 32768 --speed-time 120 "$url" -o "$output"; then
                   return 0
                 fi
 
                 rm -f "$output"
-                if [ "$attempt" -eq 5 ]; then
+                if [ "$attempt" -eq 3 ]; then
                   echo "Failed to download $url after $attempt attempts" >&2
                   return 1
                 fi
@@ -99,15 +103,22 @@ commands:
               done
             }
 
-            echo "Installing verified zig ${ZIG_REQUIRED} from tarball"
-            download_zig_asset "$ZIG_URL" /tmp/zig.tar.xz
-            echo "${ZIG_SHA256}  /tmp/zig.tar.xz" | shasum -a 256 -c -
-            tar xf /tmp/zig.tar.xz -C /tmp
+            if [ ! -x "${ZIG_EXTRACTED_DIR}/zig" ]; then
+              echo "Installing verified zig ${ZIG_REQUIRED} from tarball"
+              mkdir -p "$ZIG_TOOLCHAIN_ROOT"
+              download_zig_asset "$ZIG_URL" /tmp/zig.tar.xz
+              echo "${ZIG_SHA256}  /tmp/zig.tar.xz" | shasum -a 256 -c -
+              rm -rf "$ZIG_EXTRACTED_DIR"
+              tar xf /tmp/zig.tar.xz -C "$ZIG_TOOLCHAIN_ROOT"
+            else
+              echo "Using cached zig ${ZIG_REQUIRED} from ${ZIG_EXTRACTED_DIR}"
+            fi
+
             sudo mkdir -p /usr/local/bin /usr/local/lib
             sudo rm -rf /usr/local/lib/zig
             sudo mkdir -p /usr/local/lib/zig
-            sudo cp -f "/tmp/zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}/zig" /usr/local/bin/zig
-            sudo cp -Rf "/tmp/zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}/lib/." /usr/local/lib/zig/
+            sudo cp -f "${ZIG_EXTRACTED_DIR}/zig" /usr/local/bin/zig
+            sudo cp -Rf "${ZIG_EXTRACTED_DIR}/lib/." /usr/local/lib/zig/
             zig version
 
   print-xcode:
@@ -186,11 +197,30 @@ commands:
             done
 
 jobs:
+  prepare-zig-toolchain:
+    executor: macos-xcode
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            - v1-zig-toolchain-0.15.2-
+      - install-zig
+      - save_cache:
+          key: v1-zig-toolchain-0.15.2-
+          paths:
+            - .ci-zig-toolchain
+      - persist_to_workspace:
+          root: .
+          paths:
+            - .ci-zig-toolchain
+
   macos-unit-tests:
     executor: macos-xcode
     steps:
       - checkout-source:
           submodules: true
+      - attach_workspace:
+          at: .
       - print-xcode
       - restore-swift-package-cache:
           prefix: unit
@@ -282,6 +312,8 @@ jobs:
     steps:
       - checkout-source:
           submodules: true
+      - attach_workspace:
+          at: .
       - print-xcode
       - restore-swift-package-cache:
           prefix: debug-build
@@ -314,6 +346,8 @@ jobs:
     steps:
       - checkout-source:
           submodules: true
+      - attach_workspace:
+          at: .
       - print-xcode
       - restore-swift-package-cache:
           prefix: release
@@ -352,9 +386,13 @@ workflows:
               pattern: "^pull/.*"
               value: << pipeline.git.branch >>
     jobs:
-      - macos-unit-tests
-      - macos-debug-build
-      - macos-release-build
+      - prepare-zig-toolchain
+      - macos-unit-tests:
+          requires: [prepare-zig-toolchain]
+      - macos-debug-build:
+          requires: [prepare-zig-toolchain]
+      - macos-release-build:
+          requires: [prepare-zig-toolchain]
 
   ci-gated:
     when:
@@ -366,9 +404,11 @@ workflows:
     jobs:
       - hold-for-approval:
           type: approval
+      - prepare-zig-toolchain:
+          requires: [hold-for-approval]
       - macos-unit-tests:
-          requires: [hold-for-approval]
+          requires: [prepare-zig-toolchain]
       - macos-debug-build:
-          requires: [hold-for-approval]
+          requires: [prepare-zig-toolchain]
       - macos-release-build:
-          requires: [hold-for-approval]
+          requires: [prepare-zig-toolchain]
