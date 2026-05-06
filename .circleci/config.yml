@@ -81,11 +81,15 @@ commands:
             ZIG_MINISIGN_PUBLIC_KEY="RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U"
             curl_zig() {
               curl --fail --show-error --location \
+                --continue-at - \
                 --connect-timeout 20 \
-                --max-time 300 \
+                --max-time 1800 \
                 --retry 5 \
                 --retry-delay 5 \
                 --retry-all-errors \
+                --retry-max-time 1800 \
+                --speed-limit 1024 \
+                --speed-time 120 \
                 "$1" \
                 --output "$2"
             }
