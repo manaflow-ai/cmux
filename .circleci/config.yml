@@ -54,7 +54,8 @@ commands:
       - run:
           name: Install zig
           no_output_timeout: 35m
-          command: ./scripts/install-zig.sh
+          command: |
+            ./scripts/install-zig-ci.sh
 
   print-xcode:
     steps:

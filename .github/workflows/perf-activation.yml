@@ -70,7 +70,8 @@ jobs:
         run: ./scripts/download-prebuilt-ghosttykit.sh
 
       - name: Install zig
-        run: ./scripts/install-zig.sh
+        run: |
+          ./scripts/install-zig-ci.sh
 
       - name: Build tagged app
         run: ./scripts/reload.sh --tag "$PERF_TAG"
