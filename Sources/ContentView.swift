@@ -7,125 +7,6 @@ import ObjectiveC
 import UniformTypeIdentifiers
 import WebKit
 
-// MARK: - File Drop Overlay
-
-enum DragOverlayRoutingPolicy {
-    static let bonsplitTabTransferType = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
-    static let filePreviewTransferType = NSPasteboard.PasteboardType("com.cmux.filepreview.transfer")
-    static let sidebarTabReorderType = NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)
-
-    static func hasBonsplitTabTransfer(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
-        guard let pasteboardTypes else { return false }
-        return pasteboardTypes.contains(bonsplitTabTransferType)
-    }
-
-    static func hasFilePreviewTransfer(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
-        guard let pasteboardTypes else { return false }
-        return pasteboardTypes.contains(filePreviewTransferType)
-    }
-
-    static func hasSidebarTabReorder(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
-        guard let pasteboardTypes else { return false }
-        return pasteboardTypes.contains(sidebarTabReorderType)
-    }
-
-    static func hasFileURL(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
-        PasteboardFileURLReader.hasFileURLType(pasteboardTypes ?? [])
-    }
-
-    static func shouldCaptureFileDropDestination(
-        pasteboardTypes: [NSPasteboard.PasteboardType]?,
-        hasLocalDraggingSource: Bool
-    ) -> Bool {
-        // External Finder file drops need the stable root AppKit destination so
-        // terminal/browser panes receive their shared file insertion/upload path.
-        // Internal cmux drag payloads keep their dedicated pane routing.
-        guard hasFileURL(pasteboardTypes) else { return false }
-        guard !hasFilePreviewTransfer(pasteboardTypes),
-              !hasBonsplitTabTransfer(pasteboardTypes),
-              !hasSidebarTabReorder(pasteboardTypes) else {
-            return false
-        }
-        guard !hasLocalDraggingSource else { return false }
-        return true
-    }
-
-    static func shouldCaptureFileDropDestination(
-        pasteboardTypes: [NSPasteboard.PasteboardType]?
-    ) -> Bool {
-        shouldCaptureFileDropDestination(
-            pasteboardTypes: pasteboardTypes,
-            hasLocalDraggingSource: false
-        )
-    }
-
-    static func shouldCaptureFileDropOverlay(
-        pasteboardTypes: [NSPasteboard.PasteboardType]?,
-        eventType: NSEvent.EventType?
-    ) -> Bool {
-        guard shouldCaptureFileDropDestination(pasteboardTypes: pasteboardTypes) else { return false }
-        guard isDragMouseEvent(eventType) else { return false }
-        return true
-    }
-
-    static func shouldCaptureSidebarExternalOverlay(
-        hasSidebarDragState: Bool,
-        pasteboardTypes: [NSPasteboard.PasteboardType]?
-    ) -> Bool {
-        guard hasSidebarDragState else { return false }
-        return hasSidebarTabReorder(pasteboardTypes)
-    }
-
-    static func shouldCaptureSidebarExternalOverlay(
-        draggedTabId: UUID?,
-        pasteboardTypes: [NSPasteboard.PasteboardType]?
-    ) -> Bool {
-        shouldCaptureSidebarExternalOverlay(
-            hasSidebarDragState: draggedTabId != nil,
-            pasteboardTypes: pasteboardTypes
-        )
-    }
-
-    static func shouldPassThroughPortalHitTesting(
-        pasteboardTypes: [NSPasteboard.PasteboardType]?,
-        eventType: NSEvent.EventType?
-    ) -> Bool {
-        guard isPortalDragEvent(eventType) else { return false }
-        return hasBonsplitTabTransfer(pasteboardTypes)
-            || hasFilePreviewTransfer(pasteboardTypes)
-            || hasSidebarTabReorder(pasteboardTypes)
-    }
-
-    static func shouldPassThroughTerminalPortalHitTesting(
-        pasteboardTypes: [NSPasteboard.PasteboardType]?,
-        eventType: NSEvent.EventType?
-    ) -> Bool {
-        guard isPortalDragEvent(eventType) else { return false }
-        return shouldPassThroughPortalHitTesting(
-            pasteboardTypes: pasteboardTypes,
-            eventType: eventType
-        ) || hasFileURL(pasteboardTypes)
-    }
-
-    private static func isDragMouseEvent(_ eventType: NSEvent.EventType?) -> Bool {
-        eventType == .leftMouseDragged
-            || eventType == .rightMouseDragged
-            || eventType == .otherMouseDragged
-    }
-
-    private static func isPortalDragEvent(_ eventType: NSEvent.EventType?) -> Bool {
-        // Restrict portal pass-through to explicit drag-motion events so stale
-        // NSPasteboard(name: .drag) types cannot hijack normal pointer input.
-        guard let eventType else { return false }
-        switch eventType {
-        case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
-            return true
-        default:
-            return false
-        }
-    }
-}
-
 /// Transparent NSView installed on the window's theme frame (above the NSHostingView) to
 /// handle file/URL drags from Finder. Nested NSHostingController layers (created by bonsplit's
 /// SinglePaneWrapper) prevent AppKit's NSDraggingDestination routing from reaching deeply
@@ -146,6 +27,10 @@ final class FileDropOverlayView: NSView {
     /// The WKWebView that accepted prepareForDragOperation so conclude can be
     /// delivered to the same browser target after the drop completes.
     private weak var preparedDragWebView: WKWebView?
+    /// Pane drop target currently receiving delegated file drag events.
+    private weak var activePaneDropTarget: PaneDropTargetView?
+    /// Pane drop target that accepted prepareForDragOperation.
+    private weak var preparedPaneDropTarget: PaneDropTargetView?
     private var lastHitTestLogSignature: String?
     private var lastDragRouteLogSignatureByPhase: [String: String] = [:]
 
@@ -213,6 +98,9 @@ final class FileDropOverlayView: NSView {
         )
 #endif
         guard shouldCapture else { return nil }
+        if shouldDeferFileDropOverlayToBonsplitTabBar(at: point) {
+            return nil
+        }
 
         return super.hitTest(point)
     }
@@ -312,9 +200,14 @@ final class FileDropOverlayView: NSView {
 
     override func draggingExited(_ sender: (any NSDraggingInfo)?) {
         preparedDragWebView = nil
+        preparedPaneDropTarget = nil
         if let prev = activeDragWebView {
             prev.draggingExited(sender)
             activeDragWebView = nil
+        }
+        if let prev = activePaneDropTarget {
+            prev.draggingExited(sender)
+            activePaneDropTarget = nil
         }
     }
 
@@ -326,19 +219,23 @@ final class FileDropOverlayView: NSView {
             hasLocalDraggingSource: hasLocalDraggingSource
         )
         let webView = shouldCapture ? (activeDragWebView ?? webViewUnderPoint(sender.draggingLocation)) : nil
-        let terminal = terminalUnderPoint(sender.draggingLocation)
-        let hasTerminalTarget = terminal != nil
+        let paneDropTarget = shouldCapture && webView == nil
+            ? (activePaneDropTarget ?? paneDropTargetUnderPoint(sender.draggingLocation))
+            : nil
+        let hasPaneTarget = paneDropTarget != nil || terminalUnderPoint(sender.draggingLocation) != nil
 #if DEBUG
         logDragRouteDecision(
             phase: "prepare",
             pasteboardTypes: types,
             shouldCapture: shouldCapture,
             hasLocalDraggingSource: hasLocalDraggingSource,
-            hasTerminalTarget: hasTerminalTarget
+            hasPaneTarget: hasPaneTarget
         )
 #endif
         guard shouldCapture else {
             preparedDragWebView = nil
+            preparedPaneDropTarget = nil
+            activePaneDropTarget = nil
             return false
         }
         if let webView {
@@ -346,7 +243,13 @@ final class FileDropOverlayView: NSView {
             return webView.prepareForDragOperation(sender)
         }
         preparedDragWebView = nil
-        return hasTerminalTarget
+        if let paneDropTarget {
+            let accepted = paneDropTarget.prepareForDragOperation(sender)
+            preparedPaneDropTarget = accepted ? paneDropTarget : nil
+            return accepted
+        }
+        preparedPaneDropTarget = nil
+        return hasPaneTarget
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
@@ -359,20 +262,25 @@ final class FileDropOverlayView: NSView {
         let webView = shouldCapture
             ? (preparedDragWebView ?? activeDragWebView ?? webViewUnderPoint(sender.draggingLocation))
             : nil
-        let terminal = terminalUnderPoint(sender.draggingLocation)
-        let hasTerminalTarget = terminal != nil
+        let paneDropTarget = shouldCapture && webView == nil
+            ? (preparedPaneDropTarget ?? activePaneDropTarget ?? paneDropTargetUnderPoint(sender.draggingLocation))
+            : nil
+        let terminal = paneDropTarget == nil ? terminalUnderPoint(sender.draggingLocation) : nil
+        let hasPaneTarget = paneDropTarget != nil || terminal != nil
 #if DEBUG
         logDragRouteDecision(
             phase: "perform",
             pasteboardTypes: types,
             shouldCapture: shouldCapture,
             hasLocalDraggingSource: hasLocalDraggingSource,
-            hasTerminalTarget: hasTerminalTarget
+            hasPaneTarget: hasPaneTarget
         )
 #endif
         guard shouldCapture else {
             preparedDragWebView = nil
             activeDragWebView = nil
+            preparedPaneDropTarget = nil
+            activePaneDropTarget = nil
             return false
         }
         if let webView {
@@ -380,6 +288,15 @@ final class FileDropOverlayView: NSView {
             return webView.performDragOperation(sender)
         }
         preparedDragWebView = nil
+        if let paneDropTarget {
+            let handled = paneDropTarget.performDragOperation(sender)
+            if !handled {
+                preparedPaneDropTarget = nil
+                activePaneDropTarget = nil
+            }
+            return handled
+        }
+        preparedPaneDropTarget = nil
         activeDragWebView = nil
         guard let terminal else { return false }
         return terminal.performDragOperation(sender)
@@ -389,6 +306,8 @@ final class FileDropOverlayView: NSView {
         defer {
             preparedDragWebView = nil
             activeDragWebView = nil
+            preparedPaneDropTarget = nil
+            activePaneDropTarget = nil
         }
         guard let sender else { return }
         guard DragOverlayRoutingPolicy.shouldCaptureFileDropDestination(
@@ -399,6 +318,9 @@ final class FileDropOverlayView: NSView {
         }
         let webView = preparedDragWebView ?? activeDragWebView ?? webViewUnderPoint(sender.draggingLocation)
         webView?.concludeDragOperation(sender)
+        if let paneDropTarget = preparedPaneDropTarget ?? activePaneDropTarget {
+            paneDropTarget.concludeDragOperation(sender)
+        }
     }
 
     private func updateDragTarget(_ sender: any NSDraggingInfo, phase: String) -> NSDragOperation {
@@ -410,10 +332,15 @@ final class FileDropOverlayView: NSView {
             hasLocalDraggingSource: hasLocalDraggingSource
         )
         let webView = shouldCapture ? webViewUnderPoint(loc) : nil
+        let paneDropTarget = shouldCapture && webView == nil ? paneDropTargetUnderPoint(loc) : nil
 
         if let prev = activeDragWebView, prev !== webView {
             prev.draggingExited(sender)
             activeDragWebView = nil
+        }
+        if let prev = activePaneDropTarget, prev !== paneDropTarget {
+            prev.draggingExited(sender)
+            activePaneDropTarget = nil
         }
 
         if let webView {
@@ -424,17 +351,25 @@ final class FileDropOverlayView: NSView {
             return webView.draggingUpdated(sender)
         }
 
-        let hasTerminalTarget = terminalUnderPoint(loc) != nil
+        if let paneDropTarget {
+            if activePaneDropTarget !== paneDropTarget {
+                activePaneDropTarget = paneDropTarget
+                return paneDropTarget.draggingEntered(sender)
+            }
+            return paneDropTarget.draggingUpdated(sender)
+        }
+
+        let hasPaneTarget = terminalUnderPoint(loc) != nil
 #if DEBUG
         logDragRouteDecision(
             phase: phase,
             pasteboardTypes: types,
             shouldCapture: shouldCapture,
             hasLocalDraggingSource: hasLocalDraggingSource,
-            hasTerminalTarget: hasTerminalTarget
+            hasPaneTarget: hasPaneTarget
         )
 #endif
-        guard shouldCapture, hasTerminalTarget else { return [] }
+        guard shouldCapture, hasPaneTarget else { return [] }
         return .copy
     }
 
@@ -573,13 +508,13 @@ final class FileDropOverlayView: NSView {
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
         shouldCapture: Bool,
         hasLocalDraggingSource: Bool,
-        hasTerminalTarget: Bool
+        hasPaneTarget: Bool
     ) {
         guard shouldCapture || hasRelevantDragTypes(pasteboardTypes) else { return }
         let signature = [
             shouldCapture ? "1" : "0",
             hasLocalDraggingSource ? "1" : "0",
-            hasTerminalTarget ? "1" : "0",
+            hasPaneTarget ? "1" : "0",
             debugPasteboardTypes(pasteboardTypes)
         ].joined(separator: "|")
         guard lastDragRouteLogSignatureByPhase[phase] != signature else { return }
@@ -587,7 +522,7 @@ final class FileDropOverlayView: NSView {
         cmuxDebugLog(
             "overlay.fileDrop.\(phase) capture=\(shouldCapture ? 1 : 0) " +
             "localSource=\(hasLocalDraggingSource ? 1 : 0) " +
-            "hasTerminal=\(hasTerminalTarget ? 1 : 0) " +
+            "hasPane=\(hasPaneTarget ? 1 : 0) " +
             "types=\(debugPasteboardTypes(pasteboardTypes))"
         )
     }
@@ -611,6 +546,44 @@ final class FileDropOverlayView: NSView {
             current = view.superview
         }
         return nil
+    }
+
+    private func shouldDeferFileDropOverlayToBonsplitTabBar(at point: NSPoint) -> Bool {
+        guard let window else { return false }
+        let windowPoint = convert(point, to: nil)
+        return BonsplitTabBarHitRegionRegistry.containsWindowPoint(windowPoint, in: window)
+    }
+
+    private func paneDropTargetUnderPoint(_ windowPoint: NSPoint) -> PaneDropTargetView? {
+        if let paneTarget = inlinePaneDropTargetUnderPoint(windowPoint) {
+            return paneTarget
+        }
+        guard let window else { return nil }
+        return TerminalWindowPortalRegistry.terminalPaneDropTargetAtWindowPoint(windowPoint, in: window)
+    }
+
+    private func inlinePaneDropTargetUnderPoint(_ windowPoint: NSPoint) -> PaneDropTargetView? {
+        guard let window, let contentView = window.contentView else { return nil }
+        isHidden = true
+        defer { isHidden = false }
+
+        let point = contentView.convert(windowPoint, from: nil)
+        return paneDropTarget(in: contentView, at: point)
+    }
+
+    private func paneDropTarget(in view: NSView, at point: NSPoint) -> PaneDropTargetView? {
+        for subview in view.subviews.reversed() {
+            guard !subview.isHidden, subview.alphaValue > 0 else { continue }
+            let pointInSubview = subview.convert(point, from: view)
+            guard subview.bounds.contains(pointInSubview) else { continue }
+            if let paneTarget = subview as? PaneDropTargetView {
+                return paneTarget
+            }
+            if let nestedTarget = paneDropTarget(in: subview, at: pointInSubview) {
+                return nestedTarget
+            }
+        }
+        return view as? PaneDropTargetView
     }
 }
 
@@ -14826,7 +14799,7 @@ private final class SidebarDragAutoScrollController: ObservableObject {
     }
 }
 
-private enum SidebarTabDragPayload {
+enum SidebarTabDragPayload {
     static let typeIdentifier = "com.cmux.sidebar-tab-reorder"
     static let dropContentType = UTType(exportedAs: typeIdentifier)
     static let dropContentTypes: [UTType] = [dropContentType]
