@@ -480,12 +480,15 @@ struct CmuxConfigExecutor {
             newWorkspace.setCustomColor(color)
         }
 
-        if let existingWorkspaceToClose, existingWorkspaceToClose.id != newWorkspace.id {
-            tabManager.closeWorkspace(existingWorkspaceToClose)
+        if let layout = wsDef.layout {
+            guard newWorkspace.applyCustomLayout(layout, baseCwd: resolvedCwd) else {
+                tabManager.closeWorkspace(newWorkspace)
+                return false
+            }
         }
 
-        if let layout = wsDef.layout {
-            newWorkspace.applyCustomLayout(layout, baseCwd: resolvedCwd)
+        if let existingWorkspaceToClose, existingWorkspaceToClose.id != newWorkspace.id {
+            tabManager.closeWorkspace(existingWorkspaceToClose)
         }
         return true
     }

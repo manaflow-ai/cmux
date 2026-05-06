@@ -46,7 +46,6 @@ func customLayoutBaseCwdForNewWorkspace(
 
 extension Workspace {
 
-    @discardableResult
     func applyCustomLayout(_ layout: CmuxLayoutNode, baseCwd: String) -> Bool {
         if let failure = layout.firstMarkdownPathResolutionFailure(relativeTo: baseCwd) {
             logCustomLayoutMarkdownPathFailure(failure, context: "layout application")

@@ -4209,9 +4209,18 @@ class TerminalController {
             )
         }
 
-        var newId: UUID?
         let shouldFocus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
-        v2MainSync {
+        let creationResult: (
+            workspaceId: UUID?,
+            failure: CmuxReadableFilePathResolutionFailure?,
+            internalErrorMessage: String?
+        ) = v2MainSync {
+            if let layoutNode,
+               let layoutBaseCwd,
+               let failure = layoutNode.firstMarkdownPathResolutionFailure(relativeTo: layoutBaseCwd) {
+                return (nil, failure, nil)
+            }
+
             let ws = tabManager.addWorkspace(
                 title: title,
                 workingDirectory: layoutBaseCwd ?? cwd,
@@ -4223,12 +4232,27 @@ class TerminalController {
             ws.setCustomDescription(description)
             if let layoutNode,
                let layoutBaseCwd {
-                ws.applyCustomLayout(layoutNode, baseCwd: layoutBaseCwd)
+                guard ws.applyCustomLayout(layoutNode, baseCwd: layoutBaseCwd) else {
+                    let failure = layoutNode.firstMarkdownPathResolutionFailure(relativeTo: layoutBaseCwd)
+                    tabManager.closeWorkspace(ws)
+                    return (nil, failure, "Failed to apply custom layout")
+                }
             }
-            newId = ws.id
+            return (ws.id, nil, nil)
         }
 
-        guard let newId else {
+        if let failure = creationResult.failure {
+            return .err(
+                code: failure.code,
+                message: "Invalid layout: \(failure.message)",
+                data: ["path": failure.path]
+            )
+        }
+        if let internalErrorMessage = creationResult.internalErrorMessage {
+            return .err(code: "internal_error", message: internalErrorMessage, data: nil)
+        }
+
+        guard let newId = creationResult.workspaceId else {
             return .err(code: "internal_error", message: "Failed to create workspace", data: nil)
         }
         let windowId = v2ResolveWindowId(tabManager: tabManager)

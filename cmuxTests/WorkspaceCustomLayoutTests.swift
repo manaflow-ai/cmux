@@ -75,7 +75,7 @@ final class WorkspaceCustomLayoutTests: XCTestCase {
         let layout = try JSONDecoder().decode(CmuxLayoutNode.self, from: layoutData)
 
         let workspace = Workspace()
-        workspace.applyCustomLayout(layout, baseCwd: root.path)
+        XCTAssertTrue(workspace.applyCustomLayout(layout, baseCwd: root.path))
 
         let markdownPanels = workspace.panels.values.compactMap { $0 as? MarkdownPanel }
         XCTAssertEqual(markdownPanels.count, 2)
