@@ -2682,7 +2682,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             if let data = line.data(using: .utf8),
                let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
                let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["surfaces": [["id": surfaceId, "ref": surfaceId]]]
+                )
             }
             return "OK"
         }
@@ -2762,7 +2766,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             if let data = line.data(using: .utf8),
                let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
                let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["surfaces": [["id": surfaceId, "ref": surfaceId]]]
+                )
             }
             return "OK"
         }
@@ -2845,7 +2853,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             if let data = line.data(using: .utf8),
                let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
                let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["surfaces": [["id": surfaceId, "ref": surfaceId]]]
+                )
             }
             return "OK"
         }
@@ -2925,7 +2937,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             if let data = line.data(using: .utf8),
                let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
                let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["surfaces": [["id": surfaceId, "ref": surfaceId]]]
+                )
             }
             return "OK"
         }

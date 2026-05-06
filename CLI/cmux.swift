@@ -15102,6 +15102,8 @@ struct CMUXCLI {
 
     private static let codexMonitorLeaseDirectoryName = "codex-monitor-leases"
     private static let codexMonitorLeaseMaxAgeSeconds: TimeInterval = 4 * 60 * 60
+    private static let codexMonitorOwnerCheckIntervalSeconds: TimeInterval = 60
+    private static let codexMonitorOwnerCheckTimeoutSeconds: TimeInterval = 1
 
     private func codexMonitorLeaseDirectory(env: [String: String]) -> URL {
         let statePath = NSString(
@@ -15183,7 +15185,7 @@ struct CMUXCLI {
         for path in targetPaths {
             guard var record = readCodexMonitorLease(path: path),
                   record.sessionId == normalizedSessionId,
-                  !shouldMatchTurn || record.turnId == normalizedTurnId || record.turnId == nil,
+                  !shouldMatchTurn || record.turnId == normalizedTurnId,
                   record.retiredAt == nil else {
                 continue
             }
@@ -15230,25 +15232,15 @@ struct CMUXCLI {
         guard let payload = try? client.sendV2(
             method: "surface.list",
             params: ["workspace_id": workspaceId],
-            responseTimeout: 5
+            responseTimeout: Self.codexMonitorOwnerCheckTimeoutSeconds
         ) else {
             return false
         }
-        guard let surfaceId, !surfaceId.isEmpty else { return true }
         let surfaces = payload["surfaces"] as? [[String: Any]] ?? []
+        guard let surfaceId, !surfaceId.isEmpty else { return !surfaces.isEmpty }
         return surfaces.contains { surface in
             (surface["id"] as? String) == surfaceId || (surface["ref"] as? String) == surfaceId
         }
-    }
-
-    private func shouldStopCodexTranscriptMonitor(
-        leasePath: String?,
-        workspaceId: String,
-        surfaceId: String?,
-        client: SocketClient
-    ) -> Bool {
-        if isCodexMonitorLeaseRetired(path: leasePath) { return true }
-        return !codexMonitorOwnerIsAlive(workspaceId: workspaceId, surfaceId: surfaceId, client: client)
     }
 
     private func startCodexTranscriptMonitor(
@@ -15320,14 +15312,17 @@ struct CMUXCLI {
 
         defer { removeCodexMonitorLease(path: leasePath) }
         let deadline = Date().addingTimeInterval(4 * 60 * 60)
+        var nextOwnerCheck = Date.distantPast
         while Date() < deadline {
-            if shouldStopCodexTranscriptMonitor(
-                leasePath: leasePath,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                client: client
-            ) {
+            if isCodexMonitorLeaseRetired(path: leasePath) {
                 return
+            }
+            let now = Date()
+            if now >= nextOwnerCheck {
+                nextOwnerCheck = now.addingTimeInterval(Self.codexMonitorOwnerCheckIntervalSeconds)
+                if !codexMonitorOwnerIsAlive(workspaceId: workspaceId, surfaceId: surfaceId, client: client) {
+                    return
+                }
             }
 
             if transcriptPath == nil {
@@ -16853,13 +16848,15 @@ export default CMUXSessionRestore;
             _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
             _ = try sendV1Command("set_status \(def.statusKey) Running --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)", client: client)
             if def.name == "codex", !sessionId.isEmpty {
-                let leasePath = createCodexMonitorLease(
+                guard let leasePath = createCodexMonitorLease(
                     sessionId: sessionId,
                     turnId: input.turnId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     env: env
-                )
+                ) else {
+                    return
+                }
                 startCodexTranscriptMonitor(
                     sessionId: sessionId,
                     turnId: input.turnId,

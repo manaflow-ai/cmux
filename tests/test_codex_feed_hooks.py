@@ -172,25 +172,72 @@ def test_codex_stop_reaps_transcript_monitor(cli_path: str, root: Path) -> None:
             "cwd": str(root),
             "transcript_path": str(transcript_path),
         }
-        result = subprocess.run(
-            [cli_path, "--socket", str(socket_path), "hooks", "codex", "stop"],
-            input=json.dumps(stop),
-            capture_output=True,
-            text=True,
-            check=False,
-            env=env,
-            timeout=10,
-        )
-        if result.returncode != 0:
-            raise AssertionError(
-                f"hooks codex stop failed exit={result.returncode}\n"
-                f"stdout={result.stdout}\nstderr={result.stderr}"
-            )
         try:
+            result = subprocess.run(
+                [cli_path, "--socket", str(socket_path), "hooks", "codex", "stop"],
+                input=json.dumps(stop),
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+                timeout=10,
+            )
+            if result.returncode != 0:
+                raise AssertionError(
+                    f"hooks codex stop failed exit={result.returncode}\n"
+                    f"stdout={result.stdout}\nstderr={result.stderr}"
+                )
             wait_for_monitor_pids(session_id, present=False, timeout=5)
         finally:
             for pid in monitor_pids_for_session(session_id):
-                subprocess.run(["kill", str(pid)], check=False)
+                subprocess.run(["/bin/kill", str(pid)], check=False)
+
+
+def test_codex_monitor_exits_when_workspace_has_no_surfaces(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-monitor-empty-surfaces.sock"
+    state_dir = root / "hook-state-empty-surfaces"
+    transcript_path = root / "codex-session-empty-surfaces.jsonl"
+    state_dir.mkdir()
+    transcript_path.write_text("", encoding="utf-8")
+
+    session_id = f"codex-monitor-empty-surfaces-session-{os.getpid()}"
+    env = os.environ.copy()
+    env["CMUX_SOCKET_PATH"] = str(socket_path)
+    env["CMUX_WORKSPACE_ID"] = "workspace-codex-feed-test"
+    env["CMUX_AGENT_HOOK_STATE_DIR"] = str(state_dir)
+
+    with FakeCmuxSocket(socket_path, None, surfaces=[]) as fake:
+        try:
+            result = subprocess.run(
+                [
+                    cli_path,
+                    "--socket",
+                    str(socket_path),
+                    "hooks",
+                    "codex",
+                    "monitor",
+                    "--workspace",
+                    "workspace-codex-feed-test",
+                    "--session",
+                    session_id,
+                    "--transcript",
+                    str(transcript_path),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+                timeout=3,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise AssertionError("monitor stayed alive after surface.list returned no owners") from exc
+        if result.returncode != 0:
+            raise AssertionError(
+                f"hooks codex monitor failed exit={result.returncode}\n"
+                f"stdout={result.stdout}\nstderr={result.stderr}"
+            )
+        if not any(frame.get("method") == "surface.list" for frame in fake.frames):
+            raise AssertionError(f"monitor did not query owner surfaces: {fake.frames!r}")
 
 
 def run_feed_hook(cli_path: str, socket_path: Path, payload: dict, decision: dict | None) -> tuple[dict, dict]:
@@ -374,6 +421,7 @@ def main() -> int:
         root = Path(td)
         try:
             test_codex_stop_reaps_transcript_monitor(cli_path, root)
+            test_codex_monitor_exits_when_workspace_has_no_surfaces(cli_path, root)
             test_install_adds_codex_permission_request_hook(cli_path, root)
             test_permission_reply_uses_codex_permission_request_schema(cli_path, root)
             test_codex_persistent_permission_modes_degrade_to_once(cli_path, root)
