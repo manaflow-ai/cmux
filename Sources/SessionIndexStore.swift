@@ -83,7 +83,7 @@ enum AgentSpecifics: Hashable {
     case codex(model: String?, approvalPolicy: String?, sandboxMode: String?, effort: String?)
     case opencode(providerModel: String?, agentName: String?)
     case rovodev
-    case hermesAgent(source: String?, model: String?)
+    case hermesAgent(source: String?, model: String?, hermesHome: String?)
 }
 
 struct SessionEntry: Identifiable, Hashable {
@@ -141,8 +141,13 @@ struct SessionEntry: Identifiable, Hashable {
             return parts.joined(separator: " ")
         case .rovodev:
             return "acli rovodev run --restore \(Self.shellQuote(sessionId))"
-        case let .hermesAgent(source, model):
-            return Self.hermesResumeCommand(sessionId: sessionId, source: source, model: model)
+        case let .hermesAgent(source, model, hermesHome):
+            return Self.hermesResumeCommand(
+                sessionId: sessionId,
+                source: source,
+                model: model,
+                hermesHome: hermesHome
+            )
         }
     }
 

@@ -44,6 +44,9 @@ public enum HermesAgentHookConfig {
             }
 
             for (event, eventIndex) in matchedEvents.sorted(by: { $0.eventIndex > $1.eventIndex }) {
+                if inlineEmptyEventLine(lines[eventIndex]) {
+                    lines[eventIndex] = emptyEventHeaderLine(lines[eventIndex])
+                }
                 let entryIndent = leadingWhitespace(lines[eventIndex]) + "  "
                 let block = hookListBlock(events: [event], itemIndent: entryIndent)
                 lines.insert(contentsOf: block, at: eventIndex + 1)
@@ -147,12 +150,29 @@ public enum HermesAgentHookConfig {
     private static func hooksLineIndex(in lines: [String]) -> Int? {
         lines.firstIndex { line in
             leadingWhitespace(line).isEmpty
-                && line.range(of: #"^hooks:\s*(\{\}\s*)?(#.*)?$"#, options: .regularExpression) != nil
+                && line.range(of: #"^hooks:\s*((\{\}|\[\])\s*)?(#.*)?$"#, options: .regularExpression) != nil
         }
     }
 
     private static func inlineEmptyHooksLine(_ line: String) -> Bool {
-        line.range(of: #"^hooks:\s*\{\}\s*(#.*)?$"#, options: .regularExpression) != nil
+        line.range(of: #"^hooks:\s*(\{\}|\[\])\s*(#.*)?$"#, options: .regularExpression) != nil
+    }
+
+    private static func inlineEmptyEventLine(_ line: String) -> Bool {
+        guard let colon = line.firstIndex(of: ":") else { return false }
+        let suffix = line[line.index(after: colon)...]
+        return suffixIsInlineEmptyMapOrList(suffix)
+    }
+
+    private static func emptyEventHeaderLine(_ line: String) -> String {
+        guard let colon = line.firstIndex(of: ":") else { return line }
+        return String(line[...colon])
+    }
+
+    private static func suffixIsInlineEmptyMapOrList(_ suffix: Substring) -> Bool {
+        let uncommented = suffix.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false).first ?? ""
+        let trimmed = uncommented.trimmingCharacters(in: .whitespaces)
+        return trimmed.isEmpty || trimmed == "{}" || trimmed == "[]"
     }
 
     private static func directEventLineIndexes(in lines: [String], hooksIndex: Int) -> [String: Int] {
@@ -178,8 +198,7 @@ public enum HermesAgentHookConfig {
             }
             let name = String(trimmed[..<colon])
             let suffix = trimmed[trimmed.index(after: colon)...]
-                .trimmingCharacters(in: .whitespaces)
-            if suffix.isEmpty || suffix.hasPrefix("#") {
+            if suffixIsInlineEmptyMapOrList(suffix) {
                 indexes[name] = index
             }
             index += 1
@@ -200,6 +219,10 @@ public enum HermesAgentHookConfig {
 }
 
 public enum HermesAgentHookAllowlist {
+    enum Error: Swift.Error, Equatable {
+        case invalidRoot
+    }
+
     public static func installing(events: [HermesAgentHookConfig.Event], in existing: Data?, approvedAt: Date = Date()) throws -> Data {
         var object = try decode(existing)
         let approvals = object["approvals"] as? [[String: Any]] ?? []
@@ -249,7 +272,7 @@ public enum HermesAgentHookAllowlist {
             return ["approvals": []]
         }
         guard let object = try JSONSerialization.jsonObject(with: existing) as? [String: Any] else {
-            return ["approvals": []]
+            throw Error.invalidRoot
         }
         return object
     }

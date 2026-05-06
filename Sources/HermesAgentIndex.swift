@@ -31,9 +31,23 @@ extension SessionIndexStore {
                 pullRequest: nil,
                 modified: session.modified,
                 fileURL: nil,
-                specifics: .hermesAgent(source: session.source, model: session.model)
+                specifics: .hermesAgent(
+                    source: session.source,
+                    model: session.model,
+                    hermesHome: hermesHomeForResume(stateDBPath: stateDBPath)
+                )
             )
         }
+    }
+
+    private nonisolated static func hermesHomeForResume(stateDBPath: String) -> String? {
+        let stateDBURL = URL(fileURLWithPath: stateDBPath).standardizedFileURL
+        let homeURL = stateDBURL.deletingLastPathComponent()
+        let defaultStateDBURL = URL(
+            fileURLWithPath: HermesAgentIndex.defaultStateDBPath(env: ["HOME": NSHomeDirectory()])
+        ).standardizedFileURL
+        let defaultHomeURL = defaultStateDBURL.deletingLastPathComponent()
+        return homeURL == defaultHomeURL ? nil : homeURL.path
     }
 
     #if DEBUG
@@ -59,7 +73,7 @@ extension SessionIndexStore {
 }
 
 extension SessionEntry {
-    static func hermesResumeCommand(sessionId: String, source: String?, model: String?) -> String {
+    static func hermesResumeCommand(sessionId: String, source: String?, model: String?, hermesHome: String?) -> String {
         var parts = ["hermes"]
         if source == "tui" {
             parts.append("--tui")
@@ -68,6 +82,10 @@ extension SessionEntry {
         if let model, !model.isEmpty {
             parts.append("--model \(Self.shellQuote(model))")
         }
-        return parts.joined(separator: " ")
+        let command = parts.joined(separator: " ")
+        guard let hermesHome, !hermesHome.isEmpty else {
+            return command
+        }
+        return "env HERMES_HOME=\(Self.shellQuote(hermesHome)) \(command)"
     }
 }

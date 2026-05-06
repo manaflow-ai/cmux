@@ -69,6 +69,27 @@ struct HermesAgentHookConfigTests {
         #expect(HermesAgentHookConfig.uninstalling(from: installed) == existing)
     }
 
+    @Test("Installs into inline-empty hook events")
+    func installsIntoInlineEmptyHookEvents() {
+        let existing = """
+        hooks:
+          pre_tool_call: []
+          post_tool_call: {} # intentionally empty
+
+        """
+        let events = [
+            HermesAgentHookConfig.Event(name: "pre_tool_call", command: "sh -c 'cmux hooks feed --source hermes-agent --event pre_tool_call'"),
+            HermesAgentHookConfig.Event(name: "post_tool_call", command: "sh -c 'cmux hooks feed --source hermes-agent --event post_tool_call'"),
+        ]
+
+        let installed = HermesAgentHookConfig.installing(events: events, in: existing)
+
+        #expect(installed.contains("  pre_tool_call:\n    # cmux hooks hermes-agent begin"))
+        #expect(installed.contains("  post_tool_call:\n    # cmux hooks hermes-agent begin"))
+        #expect(!installed.contains("pre_tool_call: []\n    # cmux hooks hermes-agent begin"))
+        #expect(!installed.contains("post_tool_call: {} # intentionally empty\n    # cmux hooks hermes-agent begin"))
+    }
+
     @Test("Allowlist install and uninstall only touches cmux commands")
     func allowlistInstallAndUninstallOnlyTouchesCmuxCommands() throws {
         let existing = """
@@ -125,5 +146,18 @@ struct HermesAgentHookConfigTests {
         #expect(approvals.count == 2)
         #expect(approvals.contains { $0["scope"] as? String == "third-party" })
         #expect(approvals.contains { $0["command"] as? String == events[0].command })
+    }
+
+    @Test("Allowlist install rejects non-object JSON roots")
+    func allowlistInstallRejectsNonObjectJSONRoots() throws {
+        let existing = #"[]"#.data(using: .utf8)
+        let events = [
+            HermesAgentHookConfig.Event(name: "pre_tool_call", command: "sh -c 'cmux hooks feed --source hermes-agent --event pre_tool_call'"),
+        ]
+
+        do {
+            _ = try HermesAgentHookAllowlist.installing(events: events, in: existing)
+            Issue.record("expected non-object allowlist JSON to throw")
+        } catch {}
     }
 }

@@ -16352,7 +16352,7 @@ export default CMUXSessionRestore;
             || ProcessInfo.processInfo.arguments.contains("-y")
 
         guard fm.fileExists(atPath: configDir) else {
-            print("~/\(def.configDir)/ does not exist. Install \(def.displayName) first.")
+            print("\(configDir) does not exist. Install \(def.displayName) first.")
             return
         }
 
