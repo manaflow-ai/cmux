@@ -123,7 +123,23 @@ extension AppDelegate {
             return shortcutBrowserPanel(webView: webView)
         }
 
+        if let panel = shortcutFocusedBrowserPanel(in: shortcutWindow) {
+            return panel
+        }
+
         return nil
+    }
+
+    private func shortcutFocusedBrowserPanel(in window: NSWindow?) -> BrowserPanel? {
+        if let window {
+            guard let context = mainWindowContexts[ObjectIdentifier(window)] ??
+                mainWindowContexts.values.first(where: { $0.window === window }) else {
+                return nil
+            }
+            return context.tabManager.focusedBrowserPanel
+        }
+
+        return tabManager?.focusedBrowserPanel
     }
 
     private func shortcutWebInspectorFocusedBrowserPanel(in window: NSWindow?) -> BrowserPanel? {
@@ -133,10 +149,10 @@ extension AppDelegate {
         if let window,
            let context = mainWindowContexts[ObjectIdentifier(window)] ??
                mainWindowContexts.values.first(where: { $0.window === window }) {
-            return context.tabManager.focusedBrowserPanel
+            return shortcutFocusedBrowserPanel(in: context.window ?? window)
         }
 
-        return tabManager?.focusedBrowserPanel
+        return shortcutFocusedBrowserPanel(in: window)
     }
 
     private func shortcutResolvedEventWindow(_ event: NSEvent) -> NSWindow? {
