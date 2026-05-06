@@ -376,7 +376,8 @@ final class PaneDropTargetView: NSView {
         let targetFrame = PaneDropRouting.overlayFrame(for: activeZone, in: bounds)
         let needsFrameUpdate = !Self.rectApproximatelyEqual(dropZoneOverlayView.frame, targetFrame)
         let zoneChanged = previousZone != nil && previousZone != activeZone
-        guard dropZoneOverlayView.isHidden || needsFrameUpdate || zoneChanged else { return }
+        let needsAlphaRestore = dropZoneOverlayView.alphaValue < 0.999
+        guard dropZoneOverlayView.isHidden || needsFrameUpdate || zoneChanged || needsAlphaRestore else { return }
 
         standaloneOverlayAnimationGeneration &+= 1
         dropZoneOverlayView.layer?.removeAllAnimations()

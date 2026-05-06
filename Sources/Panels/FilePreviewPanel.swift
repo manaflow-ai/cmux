@@ -1964,7 +1964,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         }
         let sameURLReload = currentURL == url
         let viewportSnapshot = sameURLReload ? capturePDFViewportSnapshot(anchor: .top) : nil
-        let pageRotations = sameURLReload ? capturePDFPageRotations() : [:]
+        let pageRotations = sameURLReload ? FilePreviewDocumentLoader.pageRotations(in: pdfView.document) : [:]
         currentURL = url
         currentRevision = revision
         titleLabel.stringValue = url.lastPathComponent
@@ -2019,7 +2019,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
             return
         }
         if let document {
-            applyPDFPageRotations(pageRotations, to: document)
+            FilePreviewDocumentLoader.applyPageRotations(pageRotations, to: document)
         }
         pdfView.document = document
         thumbnailView.setDocument(document)
@@ -2035,23 +2035,6 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         refreshPDFSmartFitWithoutViewportRestore()
         if let viewportSnapshot {
             viewportSnapshot.restore(in: pdfView, scrollView: pdfScrollView())
-        }
-    }
-
-    private func capturePDFPageRotations() -> [Int: Int] {
-        guard let document = pdfView.document else { return [:] }
-        var rotations: [Int: Int] = [:]
-        for pageIndex in 0..<document.pageCount {
-            guard let page = document.page(at: pageIndex) else { continue }
-            rotations[pageIndex] = page.rotation
-        }
-        return rotations
-    }
-
-    private func applyPDFPageRotations(_ rotations: [Int: Int], to document: PDFDocument) {
-        guard !rotations.isEmpty else { return }
-        for (pageIndex, rotation) in rotations where pageIndex >= 0 && pageIndex < document.pageCount {
-            document.page(at: pageIndex)?.rotation = rotation
         }
     }
 

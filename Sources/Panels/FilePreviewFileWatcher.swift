@@ -13,8 +13,13 @@ final class FilePreviewFileWatcher {
     private let queue: DispatchQueue
     private let onEvent: @MainActor (Event) -> Void
 
+    private nonisolated let eventHopLock = NSLock()
+    // DispatchSource callbacks run on `queue`, and Swift 6 deinit is nonisolated.
+    // The source handles are cancelled from MainActor lifecycle methods or deinit,
+    // while event-hop replacement is bounded by `eventHopLock`.
     private nonisolated(unsafe) var fileSource: DispatchSourceFileSystemObject?
     private nonisolated(unsafe) var directorySource: DispatchSourceFileSystemObject?
+    private nonisolated(unsafe) var eventHopTask: Task<Void, Never>?
     private var pendingEvent: Event?
     private var eventFlushTask: Task<Void, Never>?
     private var isClosed = false
@@ -26,6 +31,7 @@ final class FilePreviewFileWatcher {
     }
 
     deinit {
+        cancelEventHopTask()
         fileSource?.cancel()
         directorySource?.cancel()
     }
@@ -43,6 +49,7 @@ final class FilePreviewFileWatcher {
 
     func cancel() {
         isClosed = true
+        cancelEventHopTask()
         eventFlushTask?.cancel()
         eventFlushTask = nil
         pendingEvent = nil
@@ -92,9 +99,7 @@ final class FilePreviewFileWatcher {
 
         source.setEventHandler { [weak self, weak source] in
             guard let flags = source?.data else { return }
-            Task { @MainActor [weak self, flags] in
-                self?.handleFileEvent(flags)
-            }
+            self?.scheduleFileEventHop(flags)
         }
         source.setCancelHandler { Darwin.close(fd) }
         source.resume()
@@ -135,9 +140,7 @@ final class FilePreviewFileWatcher {
         )
 
         source.setEventHandler { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.handleDirectoryEvent()
-            }
+            self?.scheduleDirectoryEventHop()
         }
         source.setCancelHandler { Darwin.close(fd) }
         directorySource = source
@@ -159,5 +162,39 @@ final class FilePreviewFileWatcher {
         stopDirectoryWatcher()
         enqueueEvent(.reappeared)
         startFileWatcher()
+    }
+
+    private nonisolated func scheduleFileEventHop(_ flags: DispatchSource.FileSystemEvent) {
+        replaceEventHopTask(
+            Task { @MainActor [weak self, flags] in
+                guard !Task.isCancelled, let self, !self.isClosed else { return }
+                self.handleFileEvent(flags)
+            }
+        )
+    }
+
+    private nonisolated func scheduleDirectoryEventHop() {
+        replaceEventHopTask(
+            Task { @MainActor [weak self] in
+                guard !Task.isCancelled, let self, !self.isClosed else { return }
+                self.handleDirectoryEvent()
+            }
+        )
+    }
+
+    private nonisolated func replaceEventHopTask(_ task: Task<Void, Never>) {
+        eventHopLock.lock()
+        let previousTask = eventHopTask
+        eventHopTask = task
+        eventHopLock.unlock()
+        previousTask?.cancel()
+    }
+
+    private nonisolated func cancelEventHopTask() {
+        eventHopLock.lock()
+        let task = eventHopTask
+        eventHopTask = nil
+        eventHopLock.unlock()
+        task?.cancel()
     }
 }
