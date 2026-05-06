@@ -277,6 +277,24 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "ワークスペースなし" } }
       }
     },
+    "home.workspaces.empty.body" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No connected cmux workspace is available." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "接続済みの cmux ワークスペースはありません。" } }
+      }
+    },
+    "home.workspaces.loading.body" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Waiting for cmux to send the workspace list." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "cmux からワークスペース一覧が届くのを待っています。" } }
+      }
+    },
+    "home.workspaces.loading.title" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Loading Workspaces" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ワークスペースを読み込み中" } }
+      }
+    },
     "home.search.prompt" : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Search workspaces" } },

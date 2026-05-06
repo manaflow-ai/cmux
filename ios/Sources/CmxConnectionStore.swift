@@ -153,6 +153,13 @@ final class CmxConnectionStore: ObservableObject {
         node(for: selectedWorkspace).platform
     }
 
+    var isAwaitingInitialWorkspaceSnapshot: Bool {
+        workspaces.isEmpty
+            && nativeSnapshot == nil
+            && errorText == nil
+            && (ticket != nil || isConnecting || isConnected)
+    }
+
     var canRenderSelectedTerminal: Bool {
         selectedTerminalID != Self.placeholderTerminalID && terminal(matching: selectedTerminalID) != nil
     }
@@ -562,6 +569,15 @@ final class CmxConnectionStore: ObservableObject {
     }
 
     func applyNativeSnapshot(_ snapshot: CmxNativeSnapshot) {
+        guard !snapshot.workspaces.isEmpty else {
+            // The Rust daemon keeps at least one workspace alive. Empty native
+            // snapshots are startup/stale frames, so wait for the next real
+            // snapshot instead of replacing the home screen with false empty state.
+            #if DEBUG
+            cmuxDebugLog("ios.connection.nativeSnapshot.ignored_empty")
+            #endif
+            return
+        }
         let previousSelectedTerminalID = selectedTerminalID
         let previousSelectedRenderSize = renderSize(for: selectedTerminalID)
         let previousActiveWorkspaceID = nativeSnapshot?.activeWorkspaceID
@@ -675,6 +691,7 @@ final class CmxConnectionStore: ObservableObject {
     private func clearWorkspaceState() {
         nodes = []
         workspaces = []
+        nativeSnapshot = nil
         selectedWorkspaceID = 0
         selectedSpaceID = 0
         selectedTerminalID = Self.placeholderTerminalID

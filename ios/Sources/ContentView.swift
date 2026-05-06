@@ -46,12 +46,17 @@ private struct WorkspaceListView: View {
 
     var body: some View {
         List {
-            WorkspaceSearchField(text: $searchText)
-                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 14, trailing: 16))
-                .listRowSeparator(.hidden)
+            if !store.workspaces.isEmpty || !searchText.isEmpty {
+                WorkspaceSearchField(text: $searchText)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 14, trailing: 16))
+                    .listRowSeparator(.hidden)
+            }
 
             if rows.isEmpty {
-                EmptyWorkspaceSearch()
+                EmptyWorkspaceSearch(
+                    isSearching: !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                    isLoading: store.isAwaitingInitialWorkspaceSnapshot
+                )
                     .listRowSeparator(.hidden)
                     .listRowInsets(EdgeInsets(top: 18, leading: 16, bottom: 18, trailing: 16))
             } else {
@@ -294,20 +299,42 @@ private struct WorkspaceConversationRow: View {
 }
 
 private struct EmptyWorkspaceSearch: View {
+    let isSearching: Bool
+    let isLoading: Bool
+
     var body: some View {
         VStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .font(.title2)
-                .foregroundStyle(.secondary)
-            Text(String(localized: "home.search.empty.title", defaultValue: "No Workspaces"))
+            if isLoading {
+                ProgressView()
+                    .controlSize(.small)
+                    .padding(.bottom, 2)
+            }
+            Text(title)
                 .font(.headline)
-            Text(String(localized: "home.search.empty.body", defaultValue: "No matching workspace is available on your signed-in nodes."))
+            Text(bodyText)
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 28)
+    }
+
+    private var title: String {
+        if isLoading {
+            return String(localized: "home.workspaces.loading.title", defaultValue: "Loading Workspaces")
+        }
+        return String(localized: "home.search.empty.title", defaultValue: "No Workspaces")
+    }
+
+    private var bodyText: String {
+        if isLoading {
+            return String(localized: "home.workspaces.loading.body", defaultValue: "Waiting for cmux to send the workspace list.")
+        }
+        if isSearching {
+            return String(localized: "home.search.empty.body", defaultValue: "No matching workspace is available on your signed-in nodes.")
+        }
+        return String(localized: "home.workspaces.empty.body", defaultValue: "No connected cmux workspace is available.")
     }
 }
 

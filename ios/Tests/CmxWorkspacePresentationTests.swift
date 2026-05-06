@@ -146,6 +146,98 @@ final class CmxWorkspacePresentationTests: XCTestCase {
         XCTAssertEqual(store.terminalSize(for: store.selectedTerminal.id), .phoneDefault)
     }
 
+    func testEmptyNativeSnapshotDoesNotReplaceExistingWorkspaceList() {
+        let store = CmxConnectionStore()
+        store.applyNativeSnapshot(Self.nativeSnapshot(title: "main"))
+
+        store.applyNativeSnapshot(Self.emptyNativeSnapshot())
+
+        XCTAssertEqual(store.workspaces.map(\.title), ["main"])
+        XCTAssertEqual(store.selectedWorkspaceID, 11)
+        XCTAssertFalse(store.isAwaitingInitialWorkspaceSnapshot)
+    }
+
+    func testConnectedStoreAwaitsNonEmptyInitialWorkspaceSnapshot() {
+        let sessionFactory = WorkspacePresentationTerminalSessionFactory()
+        let store = CmxConnectionStore(
+            terminalSessionFactory: sessionFactory,
+            launchTicket: nil,
+            launchAutoconnect: false
+        )
+        store.ticketText = """
+        {
+          "version": 1,
+          "alpn": "/cmux/cmx/3",
+          "endpoint": { "id": "endpoint-public-key", "addrs": [] },
+          "auth": { "mode": "direct" }
+        }
+        """
+
+        store.connect()
+        XCTAssertTrue(store.isAwaitingInitialWorkspaceSnapshot)
+
+        sessionFactory.session.delegate?.terminalSession(
+            sessionFactory.session,
+            didReceive: .nativeSnapshot(Self.emptyNativeSnapshot())
+        )
+        XCTAssertTrue(store.workspaces.isEmpty)
+        XCTAssertTrue(store.isAwaitingInitialWorkspaceSnapshot)
+
+        sessionFactory.session.delegate?.terminalSession(
+            sessionFactory.session,
+            didReceive: .nativeSnapshot(Self.nativeSnapshot(title: "main"))
+        )
+        XCTAssertEqual(store.workspaces.map(\.title), ["main"])
+        XCTAssertFalse(store.isAwaitingInitialWorkspaceSnapshot)
+    }
+
+    private static func nativeSnapshot(title: String) -> CmxNativeSnapshot {
+        CmxNativeSnapshot(
+            workspaces: [
+                CmxNativeWorkspaceInfo(
+                    id: 11,
+                    title: title,
+                    spaceCount: 1,
+                    tabCount: 1,
+                    terminalCount: 1,
+                    pinned: false,
+                    color: nil
+                ),
+            ],
+            activeWorkspace: 0,
+            activeWorkspaceID: 11,
+            spaces: [
+                CmxNativeSpaceInfo(id: 21, title: "space-1", paneCount: 1, terminalCount: 1),
+            ],
+            activeSpace: 0,
+            activeSpaceID: 21,
+            panels: .leaf(
+                panelID: 31,
+                tabs: [
+                    CmxNativeTabInfo(id: 41, title: "shell", hasActivity: false, bellCount: 0),
+                ],
+                active: 0,
+                activeTabID: 41
+            ),
+            focusedPanelID: 31,
+            focusedTabID: 41
+        )
+    }
+
+    private static func emptyNativeSnapshot() -> CmxNativeSnapshot {
+        CmxNativeSnapshot(
+            workspaces: [],
+            activeWorkspace: 0,
+            activeWorkspaceID: 0,
+            spaces: [],
+            activeSpace: 0,
+            activeSpaceID: 0,
+            panels: .leaf(panelID: 0, tabs: [], active: 0, activeTabID: 0),
+            focusedPanelID: 0,
+            focusedTabID: 0
+        )
+    }
+
     private static func presentationSnapshot() -> CmxHiveDiscoverySnapshot {
         let referenceDate = Date(timeIntervalSince1970: 1_777_680_000)
         return CmxHiveDiscoverySnapshot(
@@ -207,4 +299,37 @@ final class CmxWorkspacePresentationTests: XCTestCase {
             ]
         )
     }
+}
+
+@MainActor
+private final class WorkspacePresentationTerminalSessionFactory: CmxTerminalSessionMaking {
+    let session = WorkspacePresentationTerminalSession()
+
+    func makeSession(
+        rawTicket _: String,
+        ticket _: CmxBridgeTicket,
+        pairingSecret _: String?,
+        stackAuthSession _: CmxStackAuthSession?
+    ) throws -> any CmxTerminalSession {
+        session
+    }
+}
+
+@MainActor
+private final class WorkspacePresentationTerminalSession: CmxTerminalSession {
+    weak var delegate: CmxTerminalSessionDelegate?
+
+    func start(viewport _: CmxWireViewport) {}
+
+    func sendInput(_: Data, terminalID _: UInt64) {}
+
+    func sendResize(_: CmxWireViewport, terminalID _: UInt64) {}
+
+    func sendNativeLayout(_: [CmxWireTerminalViewport]) {}
+
+    func requestPtyReplay(terminalID _: UInt64) {}
+
+    func sendCommand(_: CmxClientCommand) {}
+
+    func disconnect() {}
 }
