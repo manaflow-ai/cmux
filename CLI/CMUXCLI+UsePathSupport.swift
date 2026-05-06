@@ -3,8 +3,28 @@ import Foundation
 extension CmuxUseSupport {
     static func stripControlCharacters(_ raw: String) -> String {
         String(raw.unicodeScalars.filter { scalar in
-            scalar.value == 0x09 || (scalar.value >= 0x20 && scalar.value < 0x7F) || scalar.value >= 0xA0
+            !isUnsafeManifestScalar(scalar)
         })
+    }
+
+    private static func isUnsafeManifestScalar(_ scalar: Unicode.Scalar) -> Bool {
+        let value = scalar.value
+        if value == 0x09 {
+            return false
+        }
+        if value < 0x20 || (value >= 0x7F && value <= 0x9F) {
+            return true
+        }
+
+        switch value {
+        case 0x061C,
+             0x200E...0x200F,
+             0x202A...0x202E,
+             0x2066...0x206F:
+            return true
+        default:
+            return false
+        }
     }
 
     static func validatedManifestPathComponent(_ raw: String, fieldName: String) throws -> String {

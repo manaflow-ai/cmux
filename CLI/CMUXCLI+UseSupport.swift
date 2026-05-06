@@ -313,7 +313,7 @@ nonisolated enum CmuxUseSupport {
         guard let values = object[key] as? [Any] else { return [] }
         return values.compactMap { value in
             guard let string = value as? String else { return nil }
-            let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+            let trimmed = stripControlCharacters(string).trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? nil : trimmed
         }
     }

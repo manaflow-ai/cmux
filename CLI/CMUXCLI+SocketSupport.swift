@@ -31,24 +31,37 @@ extension CMUXCLI {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
         process.arguments = ["-a", "cmux"]
-        let stderrURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-open-stderr-\(UUID().uuidString).log", isDirectory: false)
-        _ = FileManager.default.createFile(atPath: stderrURL.path, contents: nil, attributes: nil)
-        let stderrHandle = try FileHandle(forWritingTo: stderrURL)
-        defer {
-            try? stderrHandle.close()
-            try? FileManager.default.removeItem(at: stderrURL)
+
+        let stderrURL: URL?
+        let stderrHandle: FileHandle?
+        if strictOpenExit {
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-open-stderr-\(UUID().uuidString).log", isDirectory: false)
+            _ = FileManager.default.createFile(atPath: url.path, contents: nil, attributes: nil)
+            let handle = try FileHandle(forWritingTo: url)
+            process.standardError = handle
+            stderrURL = url
+            stderrHandle = handle
+        } else {
+            stderrURL = nil
+            stderrHandle = nil
         }
-        process.standardError = stderrHandle
+        defer {
+            try? stderrHandle?.close()
+            if let stderrURL {
+                try? FileManager.default.removeItem(at: stderrURL)
+            }
+        }
+
         try process.run()
         process.waitUntilExit()
-        try? stderrHandle.close()
-        let stderrData = (try? Data(contentsOf: stderrURL)) ?? Data()
-        let stderr = String(data: stderrData, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        try? stderrHandle?.close()
         guard strictOpenExit, process.terminationStatus != 0 else {
             return
         }
+        let stderrData = stderrURL.flatMap { try? Data(contentsOf: $0) } ?? Data()
+        let stderr = String(data: stderrData, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let detail = stderr.isEmpty ? "" : ": \(stderr)"
         throw CLIError(message: "open -a cmux failed with exit \(process.terminationStatus)\(detail)")
     }
