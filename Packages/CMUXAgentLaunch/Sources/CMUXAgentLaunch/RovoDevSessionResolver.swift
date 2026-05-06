@@ -43,7 +43,8 @@ public enum RovoDevSessionResolver {
         }
         candidates.sort {
             if $0.modified == $1.modified {
-                // Keep equal-mtime results stable instead of depending on filesystem enumeration order.
+                // Rovo session IDs are time-ordered, so descending sessionId
+                // keeps equal modified times stable while preferring newer sessions.
                 return $0.sessionId > $1.sessionId
             }
             return $0.modified > $1.modified
