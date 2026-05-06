@@ -261,7 +261,6 @@ struct CmuxVaultAgentRegistry: Sendable {
             }
         }
         self.registrations = ordered
-        CmuxVaultAgentDisplayNameCache.store(registrations: ordered)
     }
 
     func registration(id: String) -> CmuxVaultAgentRegistration? {

@@ -72,7 +72,7 @@ extension SessionIndexStore {
             if let cwdFilter, metadata.cwd != cwdFilter { continue }
             matches.append(SessionEntry(
                 id: "\(registration.id):\(candidate.url.path)",
-                agent: .registered(registration.id),
+                agent: .registered(RegisteredSessionAgent(registration: registration)),
                 sessionId: candidate.url.path,
                 title: metadata.title,
                 cwd: metadata.cwd,
@@ -155,7 +155,7 @@ extension SessionIndexStore {
                         : nil
                 }.first ?? ""
             }
-            return !metadata.title.isEmpty && metadata.cwd != nil
+            return !metadata.title.isEmpty && metadata.cwd != nil && metadata.branch != nil
         }
         if case .piSessionFile = registration.sessionIdSource, metadata.cwd == nil {
             metadata.cwd = piCWDInferred(from: url)

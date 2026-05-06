@@ -450,9 +450,42 @@ struct RestorableAgentSessionIndex: Sendable {
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default
     ) -> RestorableAgentSessionIndex {
+        let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
+        return load(
+            homeDirectory: homeDirectory,
+            fileManager: fileManager,
+            registry: registry,
+            detectedSnapshots: [:]
+        )
+    }
+
+    static func loadIncludingProcessDetectedSnapshots(
+        homeDirectory: String = NSHomeDirectory(),
+        fileManager: FileManager = .default
+    ) async -> RestorableAgentSessionIndex {
+        await Task.detached(priority: .utility) {
+            let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
+            let detectedSnapshots = processDetectedSnapshots(
+                registry: registry,
+                fileManager: fileManager
+            )
+            return load(
+                homeDirectory: homeDirectory,
+                fileManager: fileManager,
+                registry: registry,
+                detectedSnapshots: detectedSnapshots
+            )
+        }.value
+    }
+
+    private static func load(
+        homeDirectory: String,
+        fileManager: FileManager,
+        registry: CmuxVaultAgentRegistry,
+        detectedSnapshots: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)]
+    ) -> RestorableAgentSessionIndex {
         let decoder = JSONDecoder()
         var resolved: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] = [:]
-        let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
         let builtInKindIDs = Set(RestorableAgentKind.allCases.map(\.rawValue))
         let hookKinds = RestorableAgentKind.allCases + registry.registrations.compactMap {
             builtInKindIDs.contains($0.id) ? nil : .custom($0.id)
@@ -488,10 +521,7 @@ struct RestorableAgentSessionIndex: Sendable {
             }
         }
 
-        for (key, detected) in processDetectedSnapshots(
-            registry: registry,
-            fileManager: fileManager
-        ) {
+        for (key, detected) in detectedSnapshots {
             if let existing = resolved[key], existing.updatedAt > detected.updatedAt {
                 continue
             }

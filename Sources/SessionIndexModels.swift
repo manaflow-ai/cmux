@@ -3,12 +3,37 @@ import Foundation
 
 // MARK: - Agents
 
-enum SessionAgent: Identifiable, Hashable, Codable, Sendable {
+struct RegisteredSessionAgent: Hashable, Sendable {
+    let id: String
+    let name: String?
+
+    init(id: String, name: String? = nil) {
+        self.id = id
+        let trimmedName = name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.name = trimmedName?.isEmpty == false ? trimmedName : nil
+    }
+
+    init(registration: CmuxVaultAgentRegistration) {
+        self.init(id: registration.id, name: registration.name)
+    }
+
+    var displayName: String {
+        if let name {
+            return name
+        }
+        if id == "pi" {
+            return String(localized: "sessionIndex.agent.pi", defaultValue: "Pi")
+        }
+        return id
+    }
+}
+
+enum SessionAgent: Identifiable, Codable, Sendable, Hashable {
     case claude
     case codex
     case opencode
     case rovodev
-    case registered(String)
+    case registered(RegisteredSessionAgent)
 
     var id: String { rawValue }
 
@@ -23,7 +48,7 @@ enum SessionAgent: Identifiable, Hashable, Codable, Sendable {
         case "rovodev": self = .rovodev
         default:
             guard CmuxVaultAgentRegistration.isValidID(value) else { return nil }
-            self = .registered(value)
+            self = .registered(RegisteredSessionAgent(id: value))
         }
     }
 
@@ -33,8 +58,16 @@ enum SessionAgent: Identifiable, Hashable, Codable, Sendable {
         case .codex: return "codex"
         case .opencode: return "opencode"
         case .rovodev: return "rovodev"
-        case .registered(let id): return id
+        case .registered(let agent): return agent.id
         }
+    }
+
+    static func == (lhs: SessionAgent, rhs: SessionAgent) -> Bool {
+        lhs.rawValue == rhs.rawValue
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(rawValue)
     }
 
     init(from decoder: Decoder) throws {

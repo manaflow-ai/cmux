@@ -7,13 +7,8 @@ extension SessionAgent {
         case .codex: return String(localized: "sessionIndex.agent.codex", defaultValue: "Codex")
         case .opencode: return String(localized: "sessionIndex.agent.opencode", defaultValue: "OpenCode")
         case .rovodev: return String(localized: "sessionIndex.agent.rovodev", defaultValue: "Rovo Dev")
-        case .registered(let id):
-            if let name = CmuxVaultAgentDisplayNameCache.name(for: id) {
-                return name
-            } else if id == "pi" {
-                return String(localized: "sessionIndex.agent.pi", defaultValue: "Pi")
-            }
-            return id
+        case .registered(let agent):
+            return agent.displayName
         }
     }
 
@@ -27,37 +22,5 @@ extension SessionAgent {
         case .registered:
             return "AgentIcons/OpenCode"
         }
-    }
-}
-
-final class CmuxVaultAgentDisplayNameCache: @unchecked Sendable {
-    static let shared = CmuxVaultAgentDisplayNameCache()
-
-    private let lock = NSLock()
-    private var namesByID: [String: String] = [:]
-
-    static func store(registrations: [CmuxVaultAgentRegistration]) {
-        shared.store(registrations: registrations)
-    }
-
-    static func name(for id: String) -> String? {
-        shared.name(for: id)
-    }
-
-    private func store(registrations: [CmuxVaultAgentRegistration]) {
-        lock.lock()
-        for registration in registrations {
-            if registration.id == "pi", registration.name == "Pi" {
-                continue
-            }
-            namesByID[registration.id] = registration.name
-        }
-        lock.unlock()
-    }
-
-    private func name(for id: String) -> String? {
-        lock.lock()
-        defer { lock.unlock() }
-        return namesByID[id]
     }
 }

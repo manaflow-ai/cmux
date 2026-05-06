@@ -288,7 +288,24 @@ final class SessionIndexStore: ObservableObject {
     }
 
     private func backfillAgentOrderFromEntries() {
-        var seen = Set(agentOrder)
+        let registeredAgentsByID = Dictionary(
+            entries.compactMap { entry -> (String, RegisteredSessionAgent)? in
+                guard case .registered(let agent) = entry.agent else { return nil }
+                return (agent.id, agent)
+            },
+            uniquingKeysWith: { existing, replacement in
+                existing.name == nil ? replacement : existing
+            }
+        )
+        var nextOrder = agentOrder.map { agent -> SessionAgent in
+            guard case .registered(let registered) = agent,
+                  let refreshed = registeredAgentsByID[registered.id],
+                  refreshed != registered else {
+                return agent
+            }
+            return .registered(refreshed)
+        }
+        var seen = Set(nextOrder)
         var additions: [(agent: SessionAgent, latest: Date)] = []
         for entry in entries {
             if seen.insert(entry.agent).inserted {
@@ -298,9 +315,13 @@ final class SessionIndexStore: ObservableObject {
                 additions[idx].latest = entry.modified
             }
         }
-        guard !additions.isEmpty else { return }
+        if additions.isEmpty {
+            if nextOrder != agentOrder { agentOrder = nextOrder }
+            return
+        }
         additions.sort { $0.latest > $1.latest }
-        agentOrder.append(contentsOf: additions.map(\.agent))
+        nextOrder.append(contentsOf: additions.map(\.agent))
+        if nextOrder != agentOrder { agentOrder = nextOrder }
     }
 
     private func invalidateSectionsCache() {
@@ -378,17 +399,30 @@ final class SessionIndexStore: ObservableObject {
         return ordered
     }
 
-    nonisolated private static func defaultAgentOrder(workingDirectory: String?) async -> [SessionAgent] {
+    private struct LoadedAgentOrder: Sendable {
+        let agents: [SessionAgent]
+        let registry: CmuxVaultAgentRegistry
+    }
+
+    nonisolated private static func defaultAgentOrder(workingDirectory: String?) async -> LoadedAgentOrder {
         await Task.detached(priority: .utility) {
             defaultAgentOrderSync(workingDirectory: workingDirectory)
         }.value
     }
 
-    nonisolated private static func defaultAgentOrderSync(workingDirectory: String?) -> [SessionAgent] {
+    nonisolated private static func defaultAgentOrderSync(workingDirectory: String?) -> LoadedAgentOrder {
         let builtInIDs = Set(SessionAgent.builtInCases.map(\.rawValue))
-        return SessionAgent.builtInCases + CmuxVaultAgentRegistry.load(workingDirectory: workingDirectory).registrations.compactMap {
-            builtInIDs.contains($0.id) ? nil : .registered($0.id)
+        let registry = CmuxVaultAgentRegistry.load(workingDirectory: workingDirectory)
+        let agents = SessionAgent.builtInCases + registry.registrations.compactMap {
+            builtInIDs.contains($0.id) ? nil : .registered(RegisteredSessionAgent(registration: $0))
         }
+        return LoadedAgentOrder(agents: agents, registry: registry)
+    }
+
+    nonisolated private static func vaultAgentRegistry(workingDirectory: String?) async -> CmuxVaultAgentRegistry {
+        await Task.detached(priority: .utility) {
+            CmuxVaultAgentRegistry.load(workingDirectory: workingDirectory)
+        }.value
     }
 
     private static func loadDirectoryOrder() -> [String] {
@@ -459,9 +493,10 @@ final class SessionIndexStore: ObservableObject {
         // Claude's `searchMaxFiles` cap still applies (currently 1500); if
         // anyone has more Claude sessions in a single cwd we'll bump it.
         let bigLimit = 10_000
-        let agents = await Self.defaultAgentOrder(workingDirectory: cwdFilter)
+        let order = await Self.defaultAgentOrder(workingDirectory: cwdFilter)
         var merged = await Self.loadAgents(
-            agents,
+            order.agents,
+            registry: order.registry,
             needle: "",
             cwdFilter: cwdFilter,
             offset: 0,
@@ -535,8 +570,10 @@ final class SessionIndexStore: ObservableObject {
         // entries we did get. Errors get surfaced when the user actively
         // searches via the popover.
         let bag = ErrorBag()
+        let order = await defaultAgentOrder(workingDirectory: nil)
         let combined = await loadAgents(
-            await defaultAgentOrder(workingDirectory: nil),
+            order.agents,
+            registry: order.registry,
             needle: "",
             cwdFilter: nil,
             offset: 0,
@@ -1029,17 +1066,25 @@ final class SessionIndexStore: ObservableObject {
         let entries: [SessionEntry]
         switch scope {
         case .agent(let a):
+            let registry: CmuxVaultAgentRegistry
+            if case .registered = a {
+                registry = await Self.vaultAgentRegistry(workingDirectory: nil)
+            } else {
+                registry = CmuxVaultAgentRegistry(registrations: [])
+            }
             entries = await Self.searchAgent(
                 needle: needle, agent: a, cwdFilter: nil,
-                offset: offset, limit: limit, errorBag: bag
+                offset: offset, limit: limit, errorBag: bag, registry: registry
             )
         case .directory(let path):
             let cwdFilter = (path?.isEmpty == false) ? path : nil
             // Multi-agent merge: fetch the union of (offset+limit) per agent so the
             // merge-sort can produce a stable global ordering, then slice.
             let target = offset + limit
+            let order = await Self.defaultAgentOrder(workingDirectory: cwdFilter)
             let merged = await Self.loadAgents(
-                await Self.defaultAgentOrder(workingDirectory: cwdFilter),
+                order.agents,
+                registry: order.registry,
                 needle: needle,
                 cwdFilter: cwdFilter,
                 offset: 0,
@@ -1054,6 +1099,7 @@ final class SessionIndexStore: ObservableObject {
 
     nonisolated private static func loadAgents(
         _ agents: [SessionAgent],
+        registry: CmuxVaultAgentRegistry,
         needle: String,
         cwdFilter: String?,
         offset: Int,
@@ -1069,7 +1115,8 @@ final class SessionIndexStore: ObservableObject {
                         cwdFilter: cwdFilter,
                         offset: offset,
                         limit: limit,
-                        errorBag: errorBag
+                        errorBag: errorBag,
+                        registry: registry
                     )
                 }
             }
@@ -1083,32 +1130,48 @@ final class SessionIndexStore: ObservableObject {
 
     nonisolated private static func timedAgent(
         needle: String, agent: SessionAgent, cwdFilter: String?,
-        offset: Int, limit: Int, errorBag: ErrorBag
+        offset: Int, limit: Int, errorBag: ErrorBag,
+        registry: CmuxVaultAgentRegistry
     ) async -> [SessionEntry] {
         #if DEBUG
         let start = ProcessInfo.processInfo.systemUptime
-        let result = await searchAgent(needle: needle, agent: agent, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
+        let result = await searchAgent(
+            needle: needle,
+            agent: agent,
+            cwdFilter: cwdFilter,
+            offset: offset,
+            limit: limit,
+            errorBag: errorBag,
+            registry: registry
+        )
         let ms = (ProcessInfo.processInfo.systemUptime - start) * 1000
         cmuxDebugLog("session.search.agent agent=\(agent.rawValue) ms=\(String(format: "%.0f", ms)) results=\(result.count) cwd=\(cwdFilter?.suffix(40) ?? "nil")")
         return result
         #else
-        return await searchAgent(needle: needle, agent: agent, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
+        return await searchAgent(
+            needle: needle,
+            agent: agent,
+            cwdFilter: cwdFilter,
+            offset: offset,
+            limit: limit,
+            errorBag: errorBag,
+            registry: registry
+        )
         #endif
     }
 
     nonisolated private static func searchAgent(
         needle: String, agent: SessionAgent, cwdFilter: String?,
-        offset: Int, limit: Int, errorBag: ErrorBag
+        offset: Int, limit: Int, errorBag: ErrorBag,
+        registry: CmuxVaultAgentRegistry
     ) async -> [SessionEntry] {
         switch agent {
         case .claude: return await loadClaudeEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit)
         case .codex: return await loadCodexEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
         case .opencode: return loadOpenCodeEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
         case .rovodev: return loadRovoDevEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
-        case .registered(let id):
-            guard let registration = CmuxVaultAgentRegistry.load(
-                workingDirectory: cwdFilter
-            ).registration(id: id) else {
+        case .registered(let agent):
+            guard let registration = registry.registration(id: agent.id) else {
                 return []
             }
             return await loadRegisteredAgentEntries(
