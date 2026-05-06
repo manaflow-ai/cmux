@@ -181,11 +181,13 @@ successfully processed.
 
 The durable event log is bounded too. cmux writes current events to
 `~/.cmuxterm/events.jsonl`, rotates the previous file to
-`~/.cmuxterm/events.jsonl.1`, and caps each file at 16 MiB. Clients can read
-those files for recent auditing, but should treat the socket `ack.resume.gap`
-contract plus snapshot commands as the source of truth for catch-up after long
-outages. Feed still writes its specialized long-term audit log to
-`~/.cmuxterm/workstream.jsonl`.
+`~/.cmuxterm/events.jsonl.1`, and caps each file at 16 MiB. Disk writes are
+batched behind a bounded 1,024-line queue. Under sustained disk backpressure,
+cmux drops the oldest pending disk-only lines and keeps the live socket stream
+and in-memory replay buffer moving. Clients can read those files for recent
+auditing, but should treat the socket `ack.resume.gap` contract plus snapshot
+commands as the source of truth for catch-up after long outages. Feed still
+writes its specialized long-term audit log to `~/.cmuxterm/workstream.jsonl`.
 
 ## CLI
 

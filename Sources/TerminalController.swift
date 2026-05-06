@@ -1921,7 +1921,9 @@ class TerminalController {
 
                 let result = processSocketLine(trimmed, authenticated: authenticated)
                 authenticated = result.authenticated
-                guard writeSocketResponse(result.response, to: socket) else {
+                let didWriteResponse = writeSocketResponse(result.response, to: socket)
+                publishSocketEvents(command: trimmed, response: result.response)
+                guard didWriteResponse else {
                     return
                 }
             }
@@ -1938,7 +1940,6 @@ class TerminalController {
         }
 
         let response = processCommandUsingSocketExecutionPolicy(command)
-        publishSocketEvents(command: command, response: response)
         return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
     }
 

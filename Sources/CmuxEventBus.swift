@@ -1,6 +1,4 @@
 import Foundation
-import os
-nonisolated private let cmuxEventLogLogger = Logger(subsystem: "com.cmuxterm.app", category: "event-log")
 
 struct CmuxEventSubscriptionSnapshot {
     let subscription: CmuxEventSubscription
@@ -109,7 +107,7 @@ final class CmuxEventSubscription: @unchecked Sendable {
     }
 }
 
-// Sendable safety: event state is protected by `lock`; disk appends run on `eventLogQueue`.
+// Sendable safety: event state is protected by `lock`; disk appends are delegated to `CmuxEventLogWriter`.
 final class CmuxEventBus: @unchecked Sendable {
     static let shared = CmuxEventBus(eventLogURL: defaultEventLogURL())
     static let protocolName = "cmux-events"
@@ -118,32 +116,43 @@ final class CmuxEventBus: @unchecked Sendable {
     static let defaultRetainedEventLimit = 4_096
     static let defaultMaxEventLineBytes = 16 * 1024
     static let defaultMaxEventLogBytes: UInt64 = 16 * 1024 * 1024
+    static let defaultMaxPendingEventLogLines = CmuxEventLogWriter.defaultMaxPendingLines
     static let defaultMaxPendingEventsPerSubscription = 1_024
     static let maxSanitizedStringBytes = 8 * 1024
     static let maxSanitizedArrayItems = 256
     static let maxSanitizedObjectEntries = 256
     static let maxSanitizedDepth = 12
-    private static let eventLogQueue = DispatchQueue(label: "com.cmuxterm.event-log", qos: .utility)
     private static let isoFormatter: ISO8601DateFormatter = { let formatter = ISO8601DateFormatter(); formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]; return formatter }()
     private static let isoFormatterLock = NSLock()
 
     private let lock = NSLock()
     private let retainedEventLimit: Int
-    private let eventLogURL: URL?
-    private let maxEventLogBytes: UInt64
     private let maxEventLineBytes: Int
     private let maxPendingEventsPerSubscription: Int
+    private let eventLogWriter: CmuxEventLogWriter?
     private let bootId = UUID().uuidString
     private var nextSequence: Int64 = 1
     private var retained: [[String: Any]] = []
     private var subscriptions: [UUID: CmuxEventSubscription] = [:]
 
-    init(retainedEventLimit: Int = CmuxEventBus.defaultRetainedEventLimit, eventLogURL: URL? = nil, maxEventLogBytes: UInt64 = CmuxEventBus.defaultMaxEventLogBytes, maxEventLineBytes: Int = CmuxEventBus.defaultMaxEventLineBytes, maxPendingEventsPerSubscription: Int = CmuxEventBus.defaultMaxPendingEventsPerSubscription) {
+    init(
+        retainedEventLimit: Int = CmuxEventBus.defaultRetainedEventLimit,
+        eventLogURL: URL? = nil,
+        maxEventLogBytes: UInt64 = CmuxEventBus.defaultMaxEventLogBytes,
+        maxEventLineBytes: Int = CmuxEventBus.defaultMaxEventLineBytes,
+        maxPendingEventLogLines: Int = CmuxEventBus.defaultMaxPendingEventLogLines,
+        maxPendingEventsPerSubscription: Int = CmuxEventBus.defaultMaxPendingEventsPerSubscription
+    ) {
         self.retainedEventLimit = max(1, retainedEventLimit)
-        self.eventLogURL = eventLogURL
-        self.maxEventLogBytes = max(1, maxEventLogBytes)
         self.maxEventLineBytes = max(1, maxEventLineBytes)
         self.maxPendingEventsPerSubscription = max(1, maxPendingEventsPerSubscription)
+        self.eventLogWriter = eventLogURL.map {
+            CmuxEventLogWriter(
+                eventLogURL: $0,
+                maxEventLogBytes: maxEventLogBytes,
+                maxPendingLines: maxPendingEventLogLines
+            )
+        }
     }
 
     var latestSequence: Int64 {
@@ -196,7 +205,7 @@ final class CmuxEventBus: @unchecked Sendable {
         let liveSubscriptions = Array(subscriptions.values)
         lock.unlock()
 
-        if let encodedLine { Self.eventLogQueue.async { [self] in appendEventLogLine(encodedLine) } }
+        if let encodedLine { eventLogWriter?.enqueue(encodedLine) }
 
         for subscription in liveSubscriptions where subscription.accepts(event) {
             if !subscription.enqueue(event) {
@@ -310,59 +319,21 @@ final class CmuxEventBus: @unchecked Sendable {
         subscriptions.removeAll()
         lock.unlock()
         active.forEach { $0.close() }
+        eventLogWriter?.resetForTesting()
     }
 
-    func flushEventLogForTesting() { Self.eventLogQueue.sync {} }
+    func flushEventLogForTesting() {
+        eventLogWriter?.flushForTesting()
+    }
+
+    func setEventLogFlushSuspendedForTesting(_ suspended: Bool) {
+        eventLogWriter?.setFlushSuspendedForTesting(suspended)
+    }
+
+    func eventLogBacklogSnapshotForTesting() -> (pending: Int, dropped: Int) {
+        eventLogWriter?.backlogSnapshotForTesting() ?? (0, 0)
+    }
     #endif
-    private func appendEventLogLine(_ line: String) {
-        guard let eventLogURL else { return }
-        do {
-            try FileManager.default.createDirectory(
-                at: eventLogURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            let fileManager = FileManager.default
-            if !fileManager.fileExists(atPath: eventLogURL.path) {
-                _ = fileManager.createFile(atPath: eventLogURL.path, contents: nil)
-            }
-            try rotateEventLogIfNeeded(eventLogURL: eventLogURL, incomingByteCount: UInt64(line.utf8.count + 1), fileManager: fileManager)
-            let handle = try FileHandle(forWritingTo: eventLogURL)
-            defer { try? handle.close() }
-            try handle.seekToEnd()
-            try handle.write(contentsOf: Data((line + "\n").utf8))
-        } catch {
-            cmuxEventLogLogger.error("Failed to append cmux event log: \(String(describing: error), privacy: .private)")
-        }
-    }
-
-    private func rotateEventLogIfNeeded(eventLogURL: URL, incomingByteCount: UInt64, fileManager: FileManager) throws {
-        let currentSize = Self.fileSize(at: eventLogURL, fileManager: fileManager)
-        let rotatedURL = eventLogURL.appendingPathExtension("1")
-        if Self.fileSize(at: rotatedURL, fileManager: fileManager) > maxEventLogBytes {
-            try fileManager.removeItem(at: rotatedURL)
-        }
-        if currentSize > maxEventLogBytes {
-            try fileManager.removeItem(at: eventLogURL)
-            _ = fileManager.createFile(atPath: eventLogURL.path, contents: nil)
-            return
-        }
-        guard currentSize + incomingByteCount > maxEventLogBytes else { return }
-
-        if fileManager.fileExists(atPath: rotatedURL.path) {
-            try fileManager.removeItem(at: rotatedURL)
-        }
-        if fileManager.fileExists(atPath: eventLogURL.path) {
-            try fileManager.moveItem(at: eventLogURL, to: rotatedURL)
-        }
-        _ = fileManager.createFile(atPath: eventLogURL.path, contents: nil)
-    }
-
-    private static func fileSize(at url: URL, fileManager: FileManager) -> UInt64 {
-        guard let size = try? fileManager.attributesOfItem(atPath: url.path)[.size] as? NSNumber else {
-            return 0
-        }
-        return size.uint64Value
-    }
 
     static func defaultEventLogURL() -> URL {
         FileManager.default.homeDirectoryForCurrentUser

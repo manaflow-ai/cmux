@@ -363,6 +363,50 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertEqual(second["name"] as? String, "surface.created")
     }
 
+    func testDurableEventLogDropsOldestPendingLinesUnderBackpressure() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-event-log-backpressure-\(UUID().uuidString)", isDirectory: true)
+        let logURL = directory.appendingPathComponent("events.jsonl")
+        let bus = CmuxEventBus(
+            retainedEventLimit: 8,
+            eventLogURL: logURL,
+            maxPendingEventLogLines: 2
+        )
+
+        bus.setEventLogFlushSuspendedForTesting(true)
+        defer {
+            bus.setEventLogFlushSuspendedForTesting(false)
+            bus.flushEventLogForTesting()
+        }
+
+        for index in 0..<5 {
+            bus.publish(
+                name: "agent.log",
+                category: "agent",
+                source: "test",
+                payload: ["index": index]
+            )
+        }
+
+        let backlog = bus.eventLogBacklogSnapshotForTesting()
+        XCTAssertEqual(backlog.pending, 2)
+        XCTAssertEqual(backlog.dropped, 3)
+
+        bus.setEventLogFlushSuspendedForTesting(false)
+        bus.flushEventLogForTesting()
+
+        let lines = try String(contentsOf: logURL, encoding: .utf8)
+            .split(separator: "\n")
+            .map(String.init)
+        let indexes = try lines.map { line in
+            let data = try XCTUnwrap(line.data(using: .utf8))
+            let event = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            let payload = try XCTUnwrap(event["payload"] as? [String: Any])
+            return try XCTUnwrap(payload["index"] as? Int)
+        }
+        XCTAssertEqual(indexes, [3, 4])
+    }
+
     func testDurableEventLogRotatesAtByteLimit() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-event-log-rotation-\(UUID().uuidString)", isDirectory: true)
