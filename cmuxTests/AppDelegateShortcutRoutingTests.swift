@@ -5,7 +5,6 @@ import XCTest
 #elseif canImport(cmux)
 @testable import cmux
 #endif
-
 private let appDelegateLastSurfaceCloseShortcutDefaultsKey = "closeWorkspaceOnLastSurfaceShortcut"
 private final class FakeWKInspectorContainerView: NSView {}
 private final class FocusableTestView: NSView {
@@ -13,7 +12,6 @@ private final class FocusableTestView: NSView {
 }
 private final class MenuActionProbe: NSObject {
     var callCount = 0
-
     @objc func perform(_ sender: Any?) {
         callCount += 1
     }
@@ -50,7 +48,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     private var savedShortcutsByAction: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
     private var actionsWithPersistedShortcut: Set<KeyboardShortcutSettings.Action> = []
     private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore!
-    private var temporarySettingsDirectoryURL: URL?
 
     private func makeKeyEvent(
         modifierFlags: NSEvent.ModifierFlags,
@@ -89,21 +86,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 (action, KeyboardShortcutSettings.shortcut(for: action))
             }
         )
-        originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
-        let settingsDirectoryURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-shortcut-routing-\(UUID().uuidString)", isDirectory: true)
-        do {
-            try FileManager.default.createDirectory(at: settingsDirectoryURL, withIntermediateDirectories: true)
-        } catch {
-            XCTFail("Failed to create isolated settings directory: \(error)")
-        }
-        temporarySettingsDirectoryURL = settingsDirectoryURL
-        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
-            primaryPath: settingsDirectoryURL.appendingPathComponent("cmux.json", isDirectory: false).path,
-            fallbackPath: nil,
-            additionalFallbackPaths: [],
-            startWatching: false
-        )
+        originalSettingsFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(prefix: "cmux-shortcut-routing")
         KeyboardShortcutSettings.resetAll()
     }
 
@@ -122,10 +105,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 KeyboardShortcutSettings.resetShortcut(for: action)
             }
         }
-        if let temporarySettingsDirectoryURL {
-            try? FileManager.default.removeItem(at: temporarySettingsDirectoryURL)
-        }
-        temporarySettingsDirectoryURL = nil
         super.tearDown()
     }
 
