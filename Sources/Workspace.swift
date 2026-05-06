@@ -12371,13 +12371,72 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func closeTabs(_ tabIds: [TabID], skipPinned: Bool = true) {
-        for tabId in tabIds {
+        let confirmManager = owningTabManager
+            ?? AppDelegate.shared?.tabManagerFor(tabId: id)
+            ?? AppDelegate.shared?.tabManager
+
+        if let confirmManager, confirmManager.isCloseConfirmationInFlight {
+            return
+        }
+
+        let candidates: [TabID] = tabIds.compactMap { tabId in
             if skipPinned,
                let panelId = panelIdFromSurfaceId(tabId),
                pinnedPanelIds.contains(panelId) {
-                continue
+                return nil
             }
-            _ = bonsplitController.closeTab(tabId)
+            return tabId
+        }
+        guard !candidates.isEmpty else { return }
+
+        let needsConfirm = candidates.contains { tabId in
+            guard let panelId = panelIdFromSurfaceId(tabId) else { return false }
+            return panelNeedsConfirmClose(panelId: panelId)
+        }
+
+        if needsConfirm {
+            guard let confirmManager else { return }
+            let titles = candidates.map { tabId -> String in
+                guard let panelId = panelIdFromSurfaceId(tabId) else {
+                    return String(localized: "tab.untitled", defaultValue: "Untitled Tab")
+                }
+                let raw = panelTitle(panelId: panelId)?
+                    .replacingOccurrences(of: "\n", with: " ")
+                    .replacingOccurrences(of: "\r", with: " ")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if let raw, !raw.isEmpty {
+                    return raw
+                }
+                return String(localized: "tab.untitled", defaultValue: "Untitled Tab")
+            }
+            let count = candidates.count
+            let titleLines = titles.map { "• \($0)" }.joined(separator: "\n")
+            let title = String(localized: "dialog.closeOtherTabs.title", defaultValue: "Close other tabs?")
+            let messageFormat: String
+            if count == 1 {
+                messageFormat = String(
+                    localized: "dialog.closeOtherTabs.message.one",
+                    defaultValue: "This will close 1 tab in this pane:\n%@"
+                )
+            } else {
+                messageFormat = String(
+                    localized: "dialog.closeOtherTabs.message.other",
+                    defaultValue: "This will close %1$lld tabs in this pane:\n%2$@"
+                )
+            }
+            let message: String = (count == 1)
+                ? String(format: messageFormat, locale: .current, titleLines)
+                : String(format: messageFormat, locale: .current, Int64(count), titleLines)
+            guard confirmManager.confirmClose(title: title, message: message, acceptCmdD: false) else {
+                return
+            }
+        }
+
+        for tabId in candidates {
+            forceCloseTabIds.insert(tabId)
+            if !bonsplitController.closeTab(tabId) {
+                forceCloseTabIds.remove(tabId)
+            }
         }
     }
 
