@@ -275,6 +275,43 @@ final class RestorableAgentNonInteractiveTests: XCTestCase {
         )
     }
 
+    /// Short-flag parity with testPiPrintLaunchIsRestoredAsInteractiveSession.
+    /// `pi -p "<prompt>"` is the alias for `--print`; both are in
+    /// piPolicy.droppedOptions and must produce the same restored interactive
+    /// resume command.
+    /// https://github.com/manaflow-ai/cmux/pull/3562#discussion_r3192272306
+    func testPiShortPrintLaunchIsRestoredAsInteractiveSession() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .pi,
+            sessionId: "pi-session-short-123",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "pi",
+                executablePath: "pi",
+                arguments: ["pi", "-p", "summarize this"],
+                workingDirectory: nil,
+                environment: nil,
+                capturedAt: nil,
+                source: nil
+            )
+        )
+        let command = snapshot.resumeCommand
+        XCTAssertNotNil(command)
+        let display = command ?? "<nil>"
+        XCTAssertTrue(
+            display.contains("'pi' '--session' 'pi-session-short-123'"),
+            "resume should re-inject --session <id>; got: \(display)"
+        )
+        XCTAssertFalse(
+            display.contains("'-p'"),
+            "resume must strip -p; got: \(display)"
+        )
+        XCTAssertFalse(
+            display.contains("summarize this"),
+            "resume must strip the prompt positional; got: \(display)"
+        )
+    }
+
     func testPiInteractiveLaunchProducesResumeCommand() {
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .pi,
