@@ -72,21 +72,24 @@ Plus pure-parser tests that don't touch git, so the parser stays testable in iso
 - `cmux worktree gc --dry-run` / `cmux worktree gc` for explicit cleanup.
 - Compose with [#3323](https://github.com/manaflow-ai/cmux/issues/3323) (file-lock broker) once that lands.
 
-### Process-helper timeout (cross-cutting, deferred from Phase 1)
+### Process-helper rework: async + timeout (cross-cutting, deferred from Phase 1)
 
-`WorktreeManager.runGit` and `Sources/PortScanner.swift`'s `captureStandardOutput` both call `process.waitUntilExit()` with no timeout. git can hang on credential / SSH passphrase prompts, locked indexes, or unresponsive remotes; once Phase 2/4 wires `snapshot()` / `add()` into the pane lifecycle on a worker thread, a single hung invocation stalls that thread permanently.
+`WorktreeManager.runGit` and `Sources/PortScanner.swift`'s `captureStandardOutput` are both synchronous: they spawn a `Process`, drain pipes via `DispatchGroup.wait()` / `readDataToEndOfFile()`, and call `process.waitUntilExit()` with no timeout. Two related problems surface once Phase 2/4 wires `snapshot()` / `add()` / `remove()` into a pane-lifecycle actor or `Task`:
 
-Phase 1 ships without timeout because the operations driven from tests are local-only and credential-free (`init`, `config`, `commit`, `worktree add` without remote, `branch`, `rev-parse`, `show-ref`, `stash create`). Phase 2 must add timeout consistently to **both** helpers so the repo carries one pattern.
+1. **Timeout.** git can hang on credential / SSH passphrase prompts, locked indexes, or unresponsive remotes; without a timeout a single hung invocation stalls its caller forever.
+2. **Cooperative thread-pool blocking.** `DispatchGroup.wait()` and `process.waitUntilExit()` park the calling thread. Inside an actor or `Task`, that thread is part of Swift's fixed cooperative pool — blocking it starves every other actor message and async continuation on that worker.
 
-Required steps (the naive `group.wait(timeout:) → throw` pattern races the `defer` block against in-flight `readDataToEndOfFile` calls and leaks `group.leave()`s):
+Phase 1 ships without either fix because the operations driven from tests are local-only and credential-free (`init`, `config`, `commit`, `worktree add` without remote, `branch`, `rev-parse`, `show-ref`, `stash create`) and tests run on the XCTest thread, not the cooperative pool. Phase 2 must rework **both** helpers together so the repo carries one pattern.
 
-1. `process.terminate()` (SIGTERM).
-2. `process.waitUntilExit()` so the child closes its write-ends and `readDataToEndOfFile()` drains return naturally.
-3. `group.wait(timeout: short-grace)` to confirm the drain closures have completed before we close the read handles.
-4. SIGKILL fallback if the grace period elapses (hooks can ignore SIGTERM).
-5. Throw a typed timeout error.
+Target shape:
 
-A configurable `gitCommandTimeoutSeconds` (or a unified `Process.captureWithTimeout` helper covering both `WorktreeManager` and `PortScanner`) is the natural surface. Tracked in PR [#3415](https://github.com/manaflow-ai/cmux/pull/3415) review thread (CodeRabbit).
+- Convert `runGit` (and `PortScanner.captureStandardOutput`) to `async throws` returning `String` / `Data`.
+- Replace the `DispatchQueue` + `DispatchGroup` drain with awaited reads (`for try await chunk in fileHandle.bytes`, or a `withCheckedThrowingContinuation` wrapper over `readabilityHandler`). This removes `DispatchGroup.wait()` from the hot path.
+- Replace `process.waitUntilExit()` with a `terminationHandler` that resumes a continuation; couple it with `withThrowingTaskGroup` cancellation (or `Task.timeout`) for the timeout path. This removes `waitUntilExit()` from the hot path.
+- On timeout: `process.terminate()` (SIGTERM), short grace period, then SIGKILL fallback (hooks can ignore SIGTERM); only resume the read continuations once the child has actually exited so the read FDs aren't closed mid-`read()`. The naive `group.wait(timeout:) → throw` pattern races the `defer` block against in-flight `readDataToEndOfFile` calls and leaks `group.leave()`s, so the rework must keep the drain → exit → close ordering explicit.
+- Throw a typed timeout error.
+
+A unified async `Process.capture(...)` helper covering both `WorktreeManager.runGit` and `PortScanner.captureStandardOutput` is the natural surface. Tracked in PR [#3415](https://github.com/manaflow-ai/cmux/pull/3415) review threads (CodeRabbit on timeout, Greptile on cooperative-pool blocking).
 
 ## Design notes / decisions
 
