@@ -12687,6 +12687,7 @@ private struct TabItemView: View, Equatable {
     @State private var rowInteractionState = SidebarWorkspaceRowInteractionState()
     @State private var rowHeight: CGFloat = 1
     @State private var workspaceFinderDirectoryCache = WorkspaceFinderDirectoryCache()
+    @State private var workspaceFinderDirectoryRefreshID: UInt64 = 0
 
     var isMultiSelected: Bool {
         selectedTabIds.contains(tab.id)
@@ -12928,6 +12929,7 @@ private struct TabItemView: View, Equatable {
         let moveUpActionText = String(localized: "sidebar.workspace.moveUpAction", defaultValue: "Move Up")
         let moveDownActionText = String(localized: "sidebar.workspace.moveDownAction", defaultValue: "Move Down")
         let finderDirectoryPath = WorkspaceFinderDirectoryResolver.path(for: tab)
+        let finderDirectoryCacheKey = WorkspaceFinderDirectoryCacheKey(path: finderDirectoryPath, refreshID: workspaceFinderDirectoryRefreshID)
         let latestNotificationSubtitle = latestNotificationText
         let submittedMessageSubtitle = settings.iMessageModeEnabled
             ? workspaceSnapshot.latestSubmittedMessage?
@@ -13236,8 +13238,10 @@ private struct TabItemView: View, Equatable {
         .onAppear {
             refreshWorkspaceSnapshot(force: true)
         }
-        .task(id: finderDirectoryPath) {
-            workspaceFinderDirectoryCache = await WorkspaceFinderDirectoryResolver.cache(for: finderDirectoryPath)
+        .task(id: finderDirectoryCacheKey) {
+            let cache = await WorkspaceFinderDirectoryResolver.cache(for: finderDirectoryCacheKey)
+            guard !Task.isCancelled else { return }
+            workspaceFinderDirectoryCache = cache
         }
         .onReceive(
             tab.sidebarImmediateObservationPublisher
@@ -13319,6 +13323,9 @@ private struct TabItemView: View, Equatable {
         .contextMenu {
             workspaceContextMenu
                 .onAppear {
+                    let refreshID = workspaceFinderDirectoryRefreshID &+ 1
+                    workspaceFinderDirectoryRefreshID = refreshID
+                    workspaceFinderDirectoryCache = WorkspaceFinderDirectoryCache(key: WorkspaceFinderDirectoryCacheKey(path: WorkspaceFinderDirectoryResolver.path(for: tab), refreshID: refreshID))
                     rowInteractionState.contextMenuDidAppear()
                     contextMenuState.hasDeferredWorkspaceObservationInvalidation = false
                     contextMenuState.pendingWorkspaceSnapshot = nil
@@ -13418,8 +13425,11 @@ private struct TabItemView: View, Equatable {
         let renameWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .renameWorkspace)
         let editWorkspaceDescriptionShortcut = KeyboardShortcutSettings.shortcut(for: .editWorkspaceDescription)
         let closeWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .closeWorkspace)
-        let finderDirectoryPath = isMulti ? nil : WorkspaceFinderDirectoryResolver.path(for: tab)
-        let finderDirectoryURL = workspaceFinderDirectoryCache.url(for: finderDirectoryPath)
+        let finderDirectoryCacheKey = WorkspaceFinderDirectoryCacheKey(
+            path: isMulti ? nil : WorkspaceFinderDirectoryResolver.path(for: tab),
+            refreshID: workspaceFinderDirectoryRefreshID
+        )
+        let finderDirectoryURL = workspaceFinderDirectoryCache.url(for: finderDirectoryCacheKey)
         Button(pinLabel) {
             guard let contextMenuPinState else {
                 NSSound.beep()
@@ -13469,7 +13479,7 @@ private struct TabItemView: View, Equatable {
             }
 
             Button(String(localized: "contextMenu.showWorkspaceInFinder", defaultValue: "Show in Finder")) {
-                showWorkspaceInFinder(finderDirectoryURL)
+                showWorkspaceInFinder(workspaceFinderDirectoryCache.url(for: finderDirectoryCacheKey))
             }
             .disabled(finderDirectoryURL == nil)
         }
