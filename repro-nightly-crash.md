@@ -148,7 +148,7 @@ Keep the current worker-dispatch boundary as the source of truth for blocking so
 
 Concrete follow-ups:
 
-- Once Sentry is authenticated, query the cmux project for unresolved nightly issues and confirm whether this fingerprint still has events after `0.64.2-nightly.2540862386901`.
+- Once Sentry is authenticated, query the cmux project for unresolved nightly issues and confirm whether this signature still has events after `0.64.2-nightly.2540862386901`. Sentry CLI was not authenticated during this investigation, so the exact Sentry fingerprint could not be pulled. Use this signature-derived fingerprint candidate as the search anchor until the real issue fingerprint is available: `__DISPATCH_WAIT_FOR_QUEUE__|_dispatch_sync_f_slow|FeedCoordinator.ingestBlocking(event:waitTimeout:)|TerminalController.v2FeedPush(params:)|TerminalController.processV2Command(_:)`. Example query: `is:unresolved release:<0.64.2-nightly.2540862386901 stack.function:FeedCoordinator.ingestBlocking stack.function:TerminalController.v2FeedPush stack.function:TerminalController.processV2Command "dispatch_sync called on queue already owned"`.
 - If Sentry is clean, close #3316 as fixed by the socket-worker routing work.
 - Keep regression coverage around `feed.push` entering through the socket worker rather than `processV2Command` on main. Current history shows related commits `4623196f` (`Reproduce feed push main-queue socket crash`) and `2597d88b` (`Route blocking v2 socket methods off main`).
 - Add a debug-only assertion at the handler boundary or blocking `FeedCoordinator.ingestBlocking` path so future regressions fail at dispatch policy rather than inside libdispatch.
