@@ -2,6 +2,20 @@
 
 All notable changes to cmux are documented here.
 
+## [0.64.3] - 2026-05-05
+
+### Added
+- `cmux config` CLI with `cmux config doctor` for validating `cmux.json` without a socket, plus `cmux config path`, `cmux config docs`, and `cmux config reload` aliases ([#3454](https://github.com/manaflow-ai/cmux/pull/3454))
+
+### Fixed
+- Fix launch crash from off-main-thread CoreAnimation transactions when reapplying managed settings ([#3598](https://github.com/manaflow-ai/cmux/pull/3598))
+- Fix file preview drag-and-drop so Finder and sidebar drops route into the hovered pane and tab bar drops insert as preview tabs ([#3539](https://github.com/manaflow-ai/cmux/pull/3539))
+
+### Thanks to 2 contributors!
+
+- [@austinywang](https://github.com/austinywang)
+- [@lawrencecchen](https://github.com/lawrencecchen)
+
 ## [0.64.2] - 2026-05-05
 
 ### Fixed

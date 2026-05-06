@@ -13,10 +13,12 @@ When we change the fork, update this document and the parent submodule SHA.
 ## Current fork changes
 
 The fork was refreshed from upstream `main` again on May 1, 2026.
-Current cmux pinned fork head: `22fa801f8`, based on `495316732`, with the
-manual embedded IO patch in https://github.com/manaflow-ai/ghostty/pull/53.
-This head keeps the cmux theme picker hooks and exposes the manual surface IO
-needed by libghostty iOS clients.
+Current cmux pinned fork head: `ee397e28d`, based on `495316732`, with the
+manual embedded IO patch in https://github.com/manaflow-ai/ghostty/pull/53 and
+the stationary link-click fix in https://github.com/manaflow-ai/ghostty/pull/54.
+This head keeps the cmux theme picker hooks, exposes the manual surface IO needed
+by libghostty iOS clients, and refreshes embedded mouse modifiers for stationary
+OSC 8 hyperlink clicks.
 
 ### 1) macOS display link restart on display changes
 
