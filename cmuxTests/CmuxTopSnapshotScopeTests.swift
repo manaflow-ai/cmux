@@ -225,6 +225,7 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
     private struct SpawnedProcessTree {
         let process: Process
         let childPIDs: [Int]
+        let directory: URL
 
         var parentPID: Int {
             Int(process.processIdentifier)
@@ -244,8 +245,16 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
             process.arguments = [scriptURL.path, pidURL.path]
             try process.run()
 
-            let childPIDs = try waitForChildPIDs(at: pidURL)
-            return SpawnedProcessTree(process: process, childPIDs: childPIDs)
+            do {
+                let childPIDs = try waitForChildPIDs(at: pidURL)
+                return SpawnedProcessTree(process: process, childPIDs: childPIDs, directory: directory)
+            } catch {
+                if process.isRunning {
+                    process.terminate()
+                }
+                try? FileManager.default.removeItem(at: directory)
+                throw error
+            }
         }
 
         func terminate() {
@@ -255,6 +264,7 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
             if process.isRunning {
                 process.terminate()
             }
+            try? FileManager.default.removeItem(at: directory)
         }
 
         private static let processTreeScript = #"""
