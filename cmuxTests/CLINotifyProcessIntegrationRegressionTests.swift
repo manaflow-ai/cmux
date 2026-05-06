@@ -69,6 +69,69 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testClaudeSessionEndChecksConsumedWorkspaceBeforeClearingVisibleState() throws {
+        let context = try makeClaudeHookContext(name: "claude-stale-session-end-workspace")
+        defer { context.cleanup() }
+
+        let staleWorkspaceId = "33333333-3333-3333-3333-333333333333"
+        let activeSurfaceId = "44444444-4444-4444-4444-444444444444"
+        let staleSessionId = "stale-session"
+        let activeSessionId = "active-session"
+        let now = Date().timeIntervalSince1970
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                staleSessionId: [
+                    "sessionId": staleSessionId,
+                    "workspaceId": staleWorkspaceId,
+                    "surfaceId": context.surfaceId,
+                    "cwd": context.root.path,
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+                activeSessionId: [
+                    "sessionId": activeSessionId,
+                    "workspaceId": staleWorkspaceId,
+                    "surfaceId": activeSurfaceId,
+                    "cwd": context.root.path,
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+            "activeSessionsByWorkspace": [
+                staleWorkspaceId: [
+                    "sessionId": activeSessionId,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        let stateURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+
+        let result = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-end"],
+            standardInput: #"{"session_id":"unknown-late-session","cwd":"\#(context.root.path)","hook_event_name":"SessionEnd"}"#
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK\n")
+        XCTAssertFalse(
+            context.state.commands.contains { $0 == "clear_status claude_code --tab=\(staleWorkspaceId)" },
+            "Expected stale SessionEnd not to clear the consumed workspace, saw \(context.state.commands)"
+        )
+        XCTAssertFalse(
+            context.state.commands.contains { $0 == "clear_agent_pid claude_code --tab=\(staleWorkspaceId)" },
+            "Expected stale SessionEnd not to clear the consumed workspace PID, saw \(context.state.commands)"
+        )
+        XCTAssertFalse(
+            context.state.commands.contains { $0 == "clear_notifications --tab=\(staleWorkspaceId)" },
+            "Expected stale SessionEnd not to clear the consumed workspace notifications, saw \(context.state.commands)"
+        )
+    }
+
     @MainActor
     func testNotifyWithUUIDSurfaceKeepsCallerWorkspaceFallback() throws {
         let cliPath = try bundledCLIPath()
