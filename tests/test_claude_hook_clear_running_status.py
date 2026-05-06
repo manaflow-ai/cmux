@@ -200,13 +200,40 @@ def main() -> int:
             cli_path,
             server.socket_path,
             "prompt-submit",
-            {"session_id": old_session_id, "cwd": "/tmp"},
+            {"session_id": old_session_id, "turn_id": "turn-1", "cwd": "/tmp"},
             env,
         )
 
         if not has_command(server.commands, f"set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab={workspace_id}"):
             print("FAIL: expected prompt-submit to set Claude Running")
             print(f"commands={server.commands!r}")
+            return 1
+
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "stop",
+            {
+                "session_id": old_session_id,
+                "turn_id": "turn-1",
+                "cwd": "/tmp",
+                "last_assistant_message": "first turn completed",
+            },
+            env,
+        )
+        second_turn_start = len(server.commands)
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "prompt-submit",
+            {"session_id": old_session_id, "turn_id": "turn-2", "cwd": "/tmp"},
+            env,
+        )
+        second_turn_commands = server.commands[second_turn_start:]
+
+        if not has_command(second_turn_commands, f"set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab={workspace_id}"):
+            print("FAIL: expected second turn prompt-submit to set Claude Running")
+            print(f"second_turn_commands={second_turn_commands!r}")
             return 1
 
         clear_start = len(server.commands)
@@ -235,6 +262,7 @@ def main() -> int:
             "stop",
             {
                 "session_id": old_session_id,
+                "turn_id": "turn-2",
                 "cwd": "/tmp",
                 "last_assistant_message": "old turn completed late",
             },

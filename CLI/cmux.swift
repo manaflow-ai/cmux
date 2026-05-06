@@ -13913,14 +13913,15 @@ struct CMUXCLI {
                     parsedInput: parsedInput,
                     sessionRecord: mappedSession
                 )
-                if let sessionId = parsedInput.sessionId, let completion {
+                if let sessionId = parsedInput.sessionId {
                     try? sessionStore.upsert(
                         sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
                         cwd: parsedInput.cwd,
-                        lastSubtitle: completion.subtitle,
-                        lastBody: completion.body
+                        lastSubtitle: completion?.subtitle,
+                        lastBody: completion?.body,
+                        markActive: true
                     )
                 }
 
