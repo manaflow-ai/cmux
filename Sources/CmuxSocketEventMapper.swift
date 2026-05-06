@@ -121,7 +121,18 @@ enum CmuxSocketEventMapper {
             CmuxEventBus.shared.publish(name: "surface.input_sent", category: "surface", source: "socket.v1", payload: payload)
         case "send_key", "send_key_surface":
             CmuxEventBus.shared.publish(name: "surface.key_sent", category: "surface", source: "socket.v1", payload: payload)
-        case "notify", "notify_surface", "notify_target", "notify_target_async":
+        case "notify_surface":
+            var payloadWithSurface = payload
+            let surfaceId = firstUUID(in: args)
+            payloadWithSurface["surface_id"] = surfaceId ?? NSNull()
+            CmuxEventBus.shared.publish(
+                name: "notification.requested",
+                category: "notification",
+                source: "socket.v1",
+                surfaceId: surfaceId,
+                payload: payloadWithSurface
+            )
+        case "notify", "notify_target", "notify_target_async":
             CmuxEventBus.shared.publish(name: "notification.requested", category: "notification", source: "socket.v1", workspaceId: firstUUID(in: args), payload: payload)
         case "clear_notifications":
             CmuxEventBus.shared.publish(name: "notification.clear_requested", category: "notification", source: "socket.v1", workspaceId: firstUUID(in: args), payload: payload)

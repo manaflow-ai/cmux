@@ -495,5 +495,5 @@ final class CmuxEventBus: @unchecked Sendable {
         return result + suffix
     }
 
-    private static func isoTimestamp(_ date: Date) -> String { isoFormatterLock.lock(); defer { isoFormatterLock.unlock() }; return isoFormatter.string(from: date) }
+    static func isoTimestamp(_ date: Date) -> String { isoFormatterLock.lock(); defer { isoFormatterLock.unlock() }; return isoFormatter.string(from: date) }
 }

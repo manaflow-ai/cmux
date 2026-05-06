@@ -378,13 +378,7 @@ extension CmuxEventBus {
     }
 
     static func workstreamPayload(_ event: WorkstreamEvent) -> [String: Any] {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        if let data = try? encoder.encode(event),
-           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            return object
-        }
-        return [
+        var payload: [String: Any] = [
             "session_id": event.sessionId,
             "hook_event_name": event.hookEventName.rawValue,
             "_source": event.source,
@@ -392,8 +386,37 @@ extension CmuxEventBus {
             "cwd": event.cwd ?? NSNull(),
             "tool_name": event.toolName ?? NSNull(),
             "_opencode_request_id": event.requestId ?? NSNull(),
-            "_ppid": event.ppid ?? NSNull()
+            "_ppid": event.ppid ?? NSNull(),
+            "_received_at": Self.isoTimestamp(event.receivedAt)
         ]
+        var redactedFields: [String] = []
+        if let toolInputJSON = event.toolInputJSON {
+            payload["tool_input"] = NSNull()
+            payload["tool_input_length"] = toolInputJSON.count
+            redactedFields.append("tool_input")
+        }
+        if let context = event.context, !context.isEmpty {
+            payload["context"] = NSNull()
+            if let contextLength = encodedByteCount(context) {
+                payload["context_length"] = contextLength
+            }
+            redactedFields.append("context")
+        }
+        if let extraFieldsJSON = event.extraFieldsJSON {
+            payload["extra_fields"] = NSNull()
+            payload["extra_fields_length"] = extraFieldsJSON.count
+            redactedFields.append("extra_fields")
+        }
+        if !redactedFields.isEmpty {
+            payload["redacted_fields"] = redactedFields
+        }
+        return payload
+    }
+
+    private static func encodedByteCount<T: Encodable>(_ value: T) -> Int? {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        return try? encoder.encode(value).count
     }
 
     private func workspacePayload(

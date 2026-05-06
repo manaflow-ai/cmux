@@ -1,4 +1,5 @@
 import XCTest
+import CMUXWorkstream
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -227,6 +228,57 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertEqual(redacted["body_length"] as? Int, 14)
         XCTAssertEqual(redacted["redacted_fields"] as? [String], ["existing", "title", "subtitle", "body"])
         XCTAssertEqual(redacted["workspace_id"] as? String, "workspace")
+    }
+
+    func testV1NotifySurfacePublishesSurfaceIdWithoutWorkspaceId() throws {
+        let surfaceId = UUID()
+        CmuxEventBus.shared.resetForTesting()
+        defer { CmuxEventBus.shared.resetForTesting() }
+
+        CmuxSocketEventMapper.publish(command: "notify_surface \(surfaceId.uuidString) done", response: "OK")
+
+        let event = try XCTUnwrap(CmuxEventBus.shared.retainedSnapshot().last)
+        XCTAssertEqual(event["name"] as? String, "notification.requested")
+        XCTAssertTrue(event["workspace_id"] is NSNull)
+        XCTAssertEqual(event["surface_id"] as? String, surfaceId.uuidString)
+        let payload = try XCTUnwrap(event["payload"] as? [String: Any])
+        XCTAssertEqual(payload["surface_id"] as? String, surfaceId.uuidString)
+    }
+
+    func testWorkstreamPayloadRedactsSensitiveFields() throws {
+        let event = WorkstreamEvent(
+            sessionId: "session",
+            hookEventName: .preToolUse,
+            source: "claude",
+            workspaceId: "workspace",
+            cwd: "/tmp/workspace",
+            toolName: "Bash",
+            toolInputJSON: #"{"command":"echo secret"}"#,
+            context: WorkstreamContext(
+                lastUserMessage: "secret prompt",
+                assistantPreamble: "secret answer"
+            ),
+            requestId: "request",
+            ppid: 42,
+            receivedAt: Date(timeIntervalSince1970: 0),
+            extraFieldsJSON: #"{"message":"secret extra","result":"secret output"}"#
+        )
+
+        let payload = CmuxEventBus.workstreamPayload(event)
+
+        XCTAssertEqual(payload["session_id"] as? String, "session")
+        XCTAssertEqual(payload["hook_event_name"] as? String, "PreToolUse")
+        XCTAssertEqual(payload["tool_name"] as? String, "Bash")
+        XCTAssertTrue(payload["tool_input"] is NSNull)
+        XCTAssertTrue(payload["context"] is NSNull)
+        XCTAssertTrue(payload["extra_fields"] is NSNull)
+        XCTAssertEqual(payload["tool_input_length"] as? Int, 25)
+        XCTAssertNotNil(payload["context_length"] as? Int)
+        XCTAssertEqual(payload["extra_fields_length"] as? Int, 51)
+        XCTAssertEqual(payload["redacted_fields"] as? [String], ["tool_input", "context", "extra_fields"])
+
+        let line = try XCTUnwrap(CmuxEventBus.encodeLine(["payload": payload]))
+        XCTAssertFalse(line.contains("secret"))
     }
 
     func testPublishAppendsDurableEventLog() throws {
