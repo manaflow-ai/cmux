@@ -186,7 +186,6 @@ final class CmuxEventBus: @unchecked Sendable {
             "payload": cleanPayload
         ]
 
-        event = Self.sanitizedJSONValue(event) as? [String: Any] ?? event
         event = Self.eventByApplyingEncodedByteLimit(event, maxBytes: maxEventLineBytes)
         retained.append(event)
         if retained.count > retainedEventLimit {
@@ -381,12 +380,12 @@ final class CmuxEventBus: @unchecked Sendable {
     }
 
     static func int64(_ value: Any?) -> Int64? {
-        if let number = value as? NSNumber { return number.int64Value }
-        if let int = value as? Int { return Int64(int) }
-        if let int64 = value as? Int64 { return int64 }
-        if let double = value as? Double { return Int64(double) }
         if let string = value as? String { return Int64(string) }
-        return nil
+        guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
+        let type = String(cString: number.objCType)
+        guard ["c", "C", "s", "S", "i", "I", "l", "L", "q", "Q"].contains(type) else { return nil }
+        let int64 = number.int64Value
+        return number.compare(NSNumber(value: int64)) == .orderedSame ? int64 : nil
     }
 
     static func sanitizedJSONValue(_ value: Any) -> Any {

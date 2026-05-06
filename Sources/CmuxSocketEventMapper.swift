@@ -104,7 +104,7 @@ enum CmuxSocketEventMapper {
         let parts = command.split(separator: " ", maxSplits: 1).map(String.init)
         guard let rawName = parts.first else { return }
         let name = rawName.lowercased()
-        guard response == "OK" || response.hasPrefix("OK") || !response.hasPrefix("ERROR:") else { return }
+        guard response == "OK" || response.hasPrefix("OK ") || response.hasPrefix("OK\n") || response.hasPrefix("OK:") else { return }
         let args = parts.count > 1 ? parts[1] : ""
         let payload: [String: Any] = ["command": name, "args": redactedV1Args(name: name, args: args)]
 

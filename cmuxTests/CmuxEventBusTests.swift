@@ -120,6 +120,13 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertTrue(line.contains("\"truth\":true"))
     }
 
+    func testStrictSequenceParsingRejectsBooleanAndFloatFrames() throws {
+        XCTAssertEqual(CmuxEventBus.int64(NSNumber(value: Int64(42))), 42)
+        XCTAssertEqual(CmuxEventBus.int64("42"), 42)
+        XCTAssertNil(CmuxEventBus.int64(true))
+        XCTAssertNil(CmuxEventBus.int64(NSNumber(value: 1.5)))
+    }
+
     func testOversizedEventPayloadIsTruncatedBeforeRetention() throws {
         let bus = CmuxEventBus(retainedEventLimit: 4, maxEventLineBytes: 1_024)
 
@@ -243,6 +250,17 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertEqual(event["surface_id"] as? String, surfaceId.uuidString)
         let payload = try XCTUnwrap(event["payload"] as? [String: Any])
         XCTAssertEqual(payload["surface_id"] as? String, surfaceId.uuidString)
+    }
+
+    func testV1MapperIgnoresNonSuccessResponses() throws {
+        CmuxEventBus.shared.resetForTesting()
+        defer { CmuxEventBus.shared.resetForTesting() }
+
+        CmuxSocketEventMapper.publish(command: "notify title", response: "OKAY")
+        CmuxSocketEventMapper.publish(command: "notify title", response: "queued")
+        CmuxSocketEventMapper.publish(command: "notify title", response: "ERROR: failed")
+
+        XCTAssertTrue(CmuxEventBus.shared.retainedSnapshot().isEmpty)
     }
 
     func testWorkstreamPayloadRedactsSensitiveFields() throws {

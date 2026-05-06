@@ -1,5 +1,6 @@
 import Foundation
 import CMUXAgentLaunch
+import CoreFoundation
 import CryptoKit
 import Darwin
 #if canImport(LocalAuthentication)
@@ -1648,8 +1649,8 @@ final class SocketClient {
 
     private func readStreamLine(maxBytes: Int = 4 * 1024 * 1024) throws -> String {
         var data = Data()
+        try configureReceiveTimeout(45)
         while data.count < maxBytes {
-            try configureReceiveTimeout(45)
             var byte: UInt8 = 0
             let count = Darwin.read(socketFD, &byte, 1)
             if count < 0 {
@@ -4076,9 +4077,14 @@ struct CMUXCLI {
     }
 
     private func int64Value(_ value: Any?) -> Int64? {
-        if let number = value as? NSNumber { return number.int64Value }
-        if let int = value as? Int { return Int64(int) }
-        if let int64 = value as? Int64 { return int64 }
+        if let number = value as? NSNumber {
+            guard CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
+            let type = String(cString: number.objCType)
+            guard ["c", "C", "s", "S", "i", "I", "l", "L", "q", "Q"].contains(type) else { return nil }
+            let int64 = number.int64Value
+            guard number.compare(NSNumber(value: int64)) == .orderedSame else { return nil }
+            return int64
+        }
         if let string = value as? String { return Int64(string) }
         return nil
     }
@@ -20302,7 +20308,7 @@ export default CMUXSessionRestore;
           ping
           version
           capabilities
-          events [--after <seq>] [--cursor-file <path>] [--name <event>] [--category <category>] [--reconnect]
+          events [--after <seq>] [--cursor-file <path>] [--name <event>] [--category <category>] [--reconnect] [--limit <n>] [--no-ack] [--no-heartbeat]
           auth <status|login|logout>
           vm <new|ls|rm|exec|shell|ssh> [args...]    (alias: cloud)
           rpc <method> [json-params]

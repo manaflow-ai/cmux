@@ -92,6 +92,7 @@ jobs:
                 break
               fi
               if [ "$attempt" -eq 5 ]; then
+                echo "zig download failed after 5 attempts: $ZIG_URL" >&2
                 exit 1
               fi
               rm -f /tmp/zig.tar.xz

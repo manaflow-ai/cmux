@@ -27,7 +27,7 @@ extension TerminalController {
         let afterSequence = CmuxEventBus.int64(params["after_seq"] ?? params["after"])
         let names = Self.stringSet(params["names"] ?? params["name"])
         let categories = Self.stringSet(params["categories"] ?? params["category"])
-        let includeHeartbeats = (params["include_heartbeats"] as? Bool) ?? true
+        let includeHeartbeats = Self.boolParam(params["include_heartbeats"] ?? params["include_heartbeat"]) ?? true
 
         let snapshot = CmuxEventBus.shared.subscribe(
             afterSequence: afterSequence,
@@ -87,6 +87,21 @@ extension TerminalController {
             return Set(values.compactMap { ($0 as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty })
         }
         return []
+    }
+
+    private nonisolated static func boolParam(_ value: Any?) -> Bool? {
+        if let number = value as? NSNumber {
+            if CFGetTypeID(number) == CFBooleanGetTypeID() { return number.boolValue }
+            if number.compare(NSNumber(value: 0)) == .orderedSame { return false }
+            if number.compare(NSNumber(value: 1)) == .orderedSame { return true }
+            return nil
+        }
+        guard let string = value as? String else { return nil }
+        switch string.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "true", "1": return true
+        case "false", "0": return false
+        default: return nil
+        }
     }
 
     private nonisolated static func socketPeerClosed(_ socket: Int32) -> Bool {
