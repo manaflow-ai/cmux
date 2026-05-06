@@ -155,26 +155,31 @@ jobs:
           command: |
             SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
             run_unit_tests() {
-              (
-                while true; do
-                  sleep 60
-                  echo "Unit tests still running..."
-                done
-              ) &
-              HEARTBEAT_PID=$!
-              trap 'kill "$HEARTBEAT_PID" 2>/dev/null || true' RETURN
-
-              /usr/bin/perl -e 'alarm shift; exec @ARGV' 2700 \
-                xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux-unit -configuration Debug \
+              xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux-unit -configuration Debug \
                 -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
                 -disableAutomaticPackageResolution \
                 -destination "platform=macOS" \
                 -skip-testing:cmuxTests/AppDelegateShortcutRoutingTests/testCmdWClosesWindowWhenClosingLastSurfaceInLastWorkspace \
-                test 2>&1
-              EXIT_CODE=$?
-              kill "$HEARTBEAT_PID" 2>/dev/null || true
-              trap - RETURN
-              return "$EXIT_CODE"
+                test 2>&1 &
+              TEST_PID=$!
+              ELAPSED_SECONDS=0
+              TIMEOUT_SECONDS=2700
+              while kill -0 "$TEST_PID" 2>/dev/null; do
+                sleep 60
+                ELAPSED_SECONDS=$((ELAPSED_SECONDS + 60))
+                if [ "$ELAPSED_SECONDS" -ge "$TIMEOUT_SECONDS" ]; then
+                  echo "Unit tests exceeded ${TIMEOUT_SECONDS}s, terminating xcodebuild."
+                  pkill -TERM -P "$TEST_PID" 2>/dev/null || true
+                  kill -TERM "$TEST_PID" 2>/dev/null || true
+                  sleep 5
+                  pkill -KILL -P "$TEST_PID" 2>/dev/null || true
+                  kill -KILL "$TEST_PID" 2>/dev/null || true
+                  wait "$TEST_PID" 2>/dev/null || true
+                  return 124
+                fi
+                echo "Unit tests still running after ${ELAPSED_SECONDS}s..."
+              done
+              wait "$TEST_PID"
             }
 
             set +e
