@@ -8874,7 +8874,7 @@ final class Workspace: Identifiable, ObservableObject {
         return resolved
     }
 
-    func sidebarDirectoriesInDisplayOrder(orderedPanelIds: [UUID]) -> [String] {
+    func sidebarDirectoriesInDisplayOrder(orderedPanelIds: [UUID], includeFallback: Bool = true) -> [String] {
         let resolvedDirectories = sidebarResolvedPanelDirectories(orderedPanelIds: orderedPanelIds)
         let homeDirectoryForCanonicalization = sidebarHomeDirectoryForCanonicalization(
             resolvedPanelDirectories: resolvedDirectories
@@ -8893,7 +8893,7 @@ final class Workspace: Identifiable, ObservableObject {
             }
         }
 
-        if ordered.isEmpty, let fallbackDirectory = normalizedSidebarDirectory(currentDirectory) {
+        if includeFallback, ordered.isEmpty, let fallbackDirectory = normalizedSidebarDirectory(currentDirectory) {
             return [fallbackDirectory]
         }
 
@@ -8902,6 +8902,24 @@ final class Workspace: Identifiable, ObservableObject {
 
     func sidebarDirectoriesInDisplayOrder() -> [String] {
         sidebarDirectoriesInDisplayOrder(orderedPanelIds: sidebarOrderedPanelIds())
+    }
+
+    private func isRemoteSidebarDirectoryPanel(_ panelId: UUID) -> Bool {
+        remoteDetectedSurfaceIds.contains(panelId) || isRemoteTerminalSurface(panelId)
+    }
+
+    func sidebarFinderDirectory() -> String? {
+        guard !isRemoteWorkspace else { return nil }
+        let orderedPanelIds = sidebarOrderedPanelIds()
+        let localPanelIds = orderedPanelIds.filter { !isRemoteSidebarDirectoryPanel($0) }
+        // currentDirectory can belong to a filtered remote terminal, so only use
+        // the fallback when no remote panel was removed from the candidate list.
+        let includeFallback = orderedPanelIds.isEmpty || localPanelIds.count == orderedPanelIds.count
+        let directories = sidebarDirectoriesInDisplayOrder(
+            orderedPanelIds: localPanelIds,
+            includeFallback: includeFallback
+        )
+        return directories.first
     }
 
     func sidebarGitBranchesInDisplayOrder(orderedPanelIds: [UUID]) -> [SidebarGitBranchState] {

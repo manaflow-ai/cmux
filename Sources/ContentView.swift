@@ -13479,7 +13479,7 @@ private struct TabItemView: View, Equatable {
             }
 
             Button(String(localized: "contextMenu.showWorkspaceInFinder", defaultValue: "Show in Finder")) {
-                showWorkspaceInFinder(workspaceFinderDirectoryCache.url(for: finderDirectoryCacheKey))
+                WorkspaceFinderDirectoryOpener.openInFinder(finderDirectoryURL)
             }
             .disabled(finderDirectoryURL == nil)
         }
@@ -13649,14 +13649,6 @@ private struct TabItemView: View, Equatable {
             copyWorkspaceIdsToPasteboard(targetIds)
         }
         .disabled(targetIds.isEmpty)
-    }
-
-    private func showWorkspaceInFinder(_ directoryURL: URL?) {
-        guard let directoryURL else {
-            NSSound.beep()
-            return
-        }
-        NSWorkspace.shared.activateFileViewerSelecting([directoryURL])
     }
 
     private var backgroundColor: Color {
