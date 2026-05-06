@@ -51,6 +51,9 @@ jobs:
       - name: Validate Swift file length budget guard
         run: ./tests/test_ci_swift_file_length_budget.sh
 
+      - name: Validate CircleCI auto approval
+        run: python3 tests/test_circleci_auto_approve.py
+
       - name: Validate Swift file length budget
         run: python3 scripts/swift_file_length_budget.py --budget .github/swift-file-length-budget.tsv
 
@@ -432,6 +435,25 @@ jobs:
 
       - name: Validate Swift warning budget
         run: python3 scripts/swift_warning_budget.py --log /tmp/cmux-build-output.txt
+
+      - name: Run CoreAnimation main-thread startup regression
+        run: |
+          set -euo pipefail
+          APP="$(
+            find "$HOME/Library/Developer/Xcode/DerivedData" -path "*/Build/Products/Debug/cmux DEV.app" -exec stat -f '%m %N' {} \; \
+              | sort -nr \
+              | head -1 \
+              | cut -d' ' -f2-
+          )"
+          if [ -z "${APP:-}" ] || [ ! -d "$APP" ]; then
+            echo "cmux DEV.app not found in DerivedData" >&2
+            exit 1
+          fi
+
+          CMUX_ALLOW_UNTAGGED_CA_REGRESSION=1 \
+          CMUX_CA_ASSERT_HOLD_SECONDS=15 \
+          CMUX_TAG="ci-ca-main-thread" \
+          ./scripts/verify-main-thread-ca-transactions.sh "$APP"
 
       - name: Create virtual display
         run: |
