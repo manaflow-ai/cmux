@@ -62,20 +62,21 @@ commands:
             fi
 
             case "$(uname -m)" in
-              arm64) ZIG_ARCH="aarch64" ;;
-              x86_64) ZIG_ARCH="x86_64" ;;
+              arm64)
+                ZIG_ARCH="aarch64"
+                ZIG_SHA256="3cc2bab367e185cdfb27501c4b30b1b0653c28d9f73df8dc91488e66ece5fa6b"
+                ;;
+              x86_64)
+                ZIG_ARCH="x86_64"
+                ZIG_SHA256="375b6909fc1495d16fc2c7db9538f707456bfc3373b14ee83fdd3e22b3d43f7f"
+                ;;
               *)
                 echo "Unsupported macOS architecture: $(uname -m)" >&2
                 exit 1
                 ;;
             esac
 
-            if ! command -v minisign >/dev/null 2>&1; then
-              HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install minisign
-            fi
-
             ZIG_URL="https://ziglang.org/download/${ZIG_REQUIRED}/zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}.tar.xz"
-            ZIG_MINISIGN_PUBLIC_KEY="RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U"
 
             download_zig_asset() {
               local url="$1"
@@ -100,8 +101,7 @@ commands:
 
             echo "Installing verified zig ${ZIG_REQUIRED} from tarball"
             download_zig_asset "$ZIG_URL" /tmp/zig.tar.xz
-            download_zig_asset "${ZIG_URL}.minisig" /tmp/zig.tar.xz.minisig
-            minisign -Vm /tmp/zig.tar.xz -x /tmp/zig.tar.xz.minisig -P "$ZIG_MINISIGN_PUBLIC_KEY"
+            echo "${ZIG_SHA256}  /tmp/zig.tar.xz" | shasum -a 256 -c -
             tar xf /tmp/zig.tar.xz -C /tmp
             sudo mkdir -p /usr/local/bin /usr/local/lib
             sudo rm -rf /usr/local/lib/zig
