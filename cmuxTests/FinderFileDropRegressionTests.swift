@@ -60,6 +60,11 @@ final class FinderFileDropRegressionTests: XCTestCase {
 
     func testPaneFileDropRoutingDistinguishesAgentTerminalsFromPlainShells() {
         XCTAssertEqual(
+            String(describing: PaneDropRouting.externalFileDropRouting(panelType: .terminal, hostsAgent: true)),
+            "agentPromptPaste",
+            "Agent terminals need an agent-prompt paste route so image drops become prompt attachments instead of literal path text"
+        )
+        XCTAssertEqual(
             PaneDropRouting.externalFileDropRouting(panelType: .terminal, hostsAgent: true),
             .terminalInput,
             "Agent terminals should keep Finder file drops on the terminal input path so Claude Code/Codex can attach images to the prompt"
