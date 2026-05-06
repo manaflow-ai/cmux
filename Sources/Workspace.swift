@@ -8903,23 +8903,11 @@ final class Workspace: Identifiable, ObservableObject {
     func sidebarDirectoriesInDisplayOrder() -> [String] {
         sidebarDirectoriesInDisplayOrder(orderedPanelIds: sidebarOrderedPanelIds())
     }
-
-    private func isRemoteSidebarDirectoryPanel(_ panelId: UUID) -> Bool {
-        remoteDetectedSurfaceIds.contains(panelId) || isRemoteTerminalSurface(panelId)
-    }
-
     func sidebarFinderDirectory() -> String? {
         guard !isRemoteWorkspace else { return nil }
-        let orderedPanelIds = sidebarOrderedPanelIds()
-        let localPanelIds = orderedPanelIds.filter { !isRemoteSidebarDirectoryPanel($0) }
-        // currentDirectory can belong to a filtered remote terminal, so only use
-        // the fallback when no remote panel was removed from the candidate list.
-        let includeFallback = orderedPanelIds.isEmpty || localPanelIds.count == orderedPanelIds.count
-        let directories = sidebarDirectoriesInDisplayOrder(
-            orderedPanelIds: localPanelIds,
-            includeFallback: includeFallback
-        )
-        return directories.first
+        let panelIds = sidebarOrderedPanelIds()
+        let localPanelIds = panelIds.filter { !remoteDetectedSurfaceIds.contains($0) && !isRemoteTerminalSurface($0) }
+        return sidebarDirectoriesInDisplayOrder(orderedPanelIds: localPanelIds, includeFallback: panelIds.isEmpty || localPanelIds.count == panelIds.count).first
     }
 
     func sidebarGitBranchesInDisplayOrder(orderedPanelIds: [UUID]) -> [SidebarGitBranchState] {
