@@ -322,6 +322,13 @@ the expected text without connecting to a cmux socket.
 - `cmux feedback --help` -> `Usage: cmux feedback`
 - `cmux feed --help` -> `Usage: cmux feed tui [--opentui|--legacy]`
 - `cmux hooks --help` -> `Usage: cmux hooks setup [--agent <name>] [--yes|-y]`
+- `cmux hooks setup --help` -> `cmux hooks setup [--agent <name>] [--yes|-y]`
+- `cmux hooks pi --help` -> `(opencode/pi support --project)`
+- `cmux hooks pi install --help` -> `(opencode/pi support --project)`
+- `cmux hooks pi uninstall --help` -> `(opencode/pi support --project)`
+- `cmux hooks claude --help` -> `cmux hooks <agent> <event>`
+- `cmux hooks codex --help` -> `cmux hooks <agent> <event>`
+- `cmux hooks feed --help` -> `cmux hooks feed --source <agent>`
 - `cmux codex --help` -> `Usage: cmux codex <install-hooks|uninstall-hooks>`
 - `cmux themes --help` -> `Usage: cmux themes`
 - `cmux omo --help` -> `Usage: cmux omo [opencode-args...]`
