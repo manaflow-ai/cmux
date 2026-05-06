@@ -136,7 +136,11 @@ def close_after_command_handler(conn: socket.socket, stop_event: threading.Event
 
 def capabilities_response_handler(conn: socket.socket, stop_event: threading.Event) -> None:
     command = read_one_command(conn, stop_event)
-    if b'"method":"system.capabilities"' not in command:
+    try:
+        request = json.loads(command.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return
+    if request.get("method") != "system.capabilities":
         return
     conn.sendall(
         b'{"ok":true,"result":{"socket_path":"/tmp/cmux.sock","protocol":"cmux-socket",'
