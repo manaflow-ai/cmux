@@ -10000,6 +10000,7 @@ final class Workspace: Identifiable, ObservableObject {
             panelId: newPanel.id,
             reason: "splitCreate"
         )
+        publishCmuxSplitCreated(newPaneId, sourcePaneId: paneId, orientation: orientation, surfaceId: newPanel.id, kind: "terminal", origin: "terminal_split", focused: focus)
 
         return newPanel
     }
@@ -10097,6 +10098,7 @@ final class Workspace: Identifiable, ObservableObject {
             panelId: newPanel.id,
             reason: "surfaceCreate"
         )
+        publishCmuxSurfaceCreated(newPanel.id, paneId: paneId, kind: "terminal", origin: "terminal_tab", focused: shouldFocusNewTab)
         return newPanel
     }
 
@@ -10206,6 +10208,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         installBrowserPanelSubscription(browserPanel)
         browserPanel.setRemoteWorkspaceStatus(browserRemoteWorkspaceStatusSnapshot())
+        publishCmuxSplitCreated(newPaneId, sourcePaneId: paneId, orientation: orientation, surfaceId: browserPanel.id, kind: "browser", origin: "browser_split", focused: focus)
 
         return browserPanel
     }
@@ -10294,6 +10297,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         installBrowserPanelSubscription(browserPanel)
         browserPanel.setRemoteWorkspaceStatus(browserRemoteWorkspaceStatusSnapshot())
+        publishCmuxSurfaceCreated(browserPanel.id, paneId: paneId, kind: "browser", origin: "browser_tab", focused: shouldFocusNewTab)
 
         return browserPanel
     }
@@ -10362,7 +10366,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         isProgrammaticSplit = true
         defer { isProgrammaticSplit = false }
-        guard bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) != nil else {
+        guard let newPaneId = bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) else {
             surfaceIdToPanelId.removeValue(forKey: newTab.id)
             panels.removeValue(forKey: markdownPanel.id)
             panelTitles.removeValue(forKey: markdownPanel.id)
@@ -10385,6 +10389,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         installMarkdownPanelSubscription(markdownPanel)
+        publishCmuxSplitCreated(newPaneId, sourcePaneId: paneId, orientation: orientation, surfaceId: markdownPanel.id, kind: "markdown", origin: "markdown_split", focused: focus)
         return markdownPanel
     }
 
@@ -10430,6 +10435,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         installMarkdownPanelSubscription(markdownPanel)
+        publishCmuxSurfaceCreated(markdownPanel.id, paneId: paneId, kind: "markdown", origin: "markdown_tab", focused: shouldFocusNewTab)
         return markdownPanel
     }
 
@@ -10500,6 +10506,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         installFilePreviewPanelSubscription(filePreviewPanel)
+        publishCmuxSurfaceCreated(filePreviewPanel.id, paneId: paneId, kind: "file_preview", origin: "file_preview_tab", focused: shouldFocusNewTab)
         return filePreviewPanel
     }
 
@@ -10526,12 +10533,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         isProgrammaticSplit = true
         defer { isProgrammaticSplit = false }
-        guard bonsplitController.splitPane(
-            paneId,
-            orientation: orientation,
-            withTab: newTab,
-            insertFirst: insertFirst
-        ) != nil else {
+        guard let newPaneId = bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) else {
             panels.removeValue(forKey: filePreviewPanel.id)
             panelTitles.removeValue(forKey: filePreviewPanel.id)
             surfaceIdToPanelId.removeValue(forKey: newTab.id)
@@ -10541,6 +10543,7 @@ final class Workspace: Identifiable, ObservableObject {
         bonsplitController.selectTab(newTab.id)
         filePreviewPanel.focus()
         installFilePreviewPanelSubscription(filePreviewPanel)
+        publishCmuxSplitCreated(newPaneId, sourcePaneId: paneId, orientation: orientation, surfaceId: filePreviewPanel.id, kind: "file_preview", origin: "file_preview_split", focused: true)
         return filePreviewPanel
     }
 
@@ -10557,6 +10560,7 @@ final class Workspace: Identifiable, ObservableObject {
         hideAllBrowserPortalViews()
         let panelEntries = Array(panels)
         for (panelId, panel) in panelEntries {
+            publishCmuxSurfaceClosed(panelId, paneId: paneId(forPanelId: panelId), panel: panel, origin: "workspace_teardown")
             removePendingTerminalInputObservers(forPanelId: panelId)
             removeBrowserOpenTabSuggestionIfNeeded(panel: panel, panelId: panelId)
             panelSubscriptions.removeValue(forKey: panelId)
@@ -12652,12 +12656,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         isProgrammaticSplit = true
         defer { isProgrammaticSplit = false }
-        guard bonsplitController.splitPane(
-            paneId,
-            orientation: orientation,
-            withTab: newTab,
-            insertFirst: insertFirst
-        ) != nil else {
+        guard let newPaneId = bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) else {
             panels.removeValue(forKey: newPanel.id)
             panelTitles.removeValue(forKey: newPanel.id)
             surfaceIdToPanelId.removeValue(forKey: newTab.id)
@@ -12667,6 +12666,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         bonsplitController.selectTab(newTab.id)
         newPanel.focus()
+        publishCmuxSplitCreated(newPaneId, sourcePaneId: paneId, orientation: orientation, surfaceId: newPanel.id, kind: "terminal", origin: "terminal_split", focused: true)
         return newPanel
     }
 
@@ -13314,6 +13314,9 @@ extension Workspace: BonsplitDelegate {
         #endif
 
         let panel = panels[panelId]
+        if !isDetaching {
+            publishCmuxSurfaceClosed(panelId, paneId: pane, panel: panel, origin: "tab_close")
+        }
         removePendingTerminalInputObservers(forPanelId: panelId)
         let transferredRemoteCleanupConfiguration = transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: panelId)
 
@@ -13520,10 +13523,12 @@ extension Workspace: BonsplitDelegate {
         let closedPanelIds = pendingPaneClosePanelIds.removeValue(forKey: paneId.id) ?? []
         let shouldScheduleFocusReconcile = !isDetachingCloseTransaction
 
+        publishCmuxPaneClosed(paneId, closedPanelIds: closedPanelIds, origin: "pane_close")
         if !closedPanelIds.isEmpty {
             for panelId in closedPanelIds {
                 removePendingTerminalInputObservers(forPanelId: panelId)
                 let panel = panels[panelId]
+                publishCmuxSurfaceClosed(panelId, paneId: paneId, panel: panel, origin: "pane_close")
                 removeBrowserOpenTabSuggestionIfNeeded(panel: panel, panelId: panelId)
                 panel?.close()
                 panels.removeValue(forKey: panelId)
@@ -13759,6 +13764,7 @@ extension Workspace: BonsplitDelegate {
 
         surfaceIdToPanelId[newTabId] = newPanel.id
         normalizePinnedTabs(in: newPane)
+        publishCmuxSplitCreated(newPane, sourcePaneId: originalPane, orientation: orientation, surfaceId: newPanel.id, kind: "terminal", origin: "ui_split", focused: true)
 #if DEBUG
         cmuxDebugLog(
             "split.didSplit.autoCreate.done pane=\(newPane.id.uuidString.prefix(5)) " +

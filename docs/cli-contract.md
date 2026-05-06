@@ -77,6 +77,7 @@ Environment:
 | `codex` | Compatibility alias for installing or uninstalling Codex hooks. |
 | `ping` | Check socket connectivity. |
 | `capabilities` | Print server capabilities as JSON. |
+| `events` | Stream reconnectable cmux events as newline-delimited JSON. |
 | `auth` | Manage auth status, login, and logout through the app. |
 | `vm`, `cloud` | Manage cloud VMs. `cloud` is an alias for `vm`. |
 | `rpc` | Call a raw v2 socket method with optional JSON params. |
@@ -306,6 +307,28 @@ Config subcommands:
 `label`, `display_path`, `path`, `status`, `ok`, `keys`, and, when available,
 `message` and `bytes`.
 
+Events command:
+
+| Option | Contract |
+| --- | --- |
+| `--after <seq>`, `--after-seq <seq>` | Subscribe to retained events after a sequence number. |
+| `--cursor-file <path>` | Read the starting sequence from a file and update it after every event. |
+| `--name <event>` | Filter by event name. Repeatable. |
+| `--category <name>` | Filter by category. Repeatable. |
+| `--reconnect` | Reconnect and resume from the last received sequence until interrupted. |
+| `--limit <n>` | Exit after printing `n` event frames. |
+| `--no-ack` | Suppress the initial ack frame in stdout. |
+| `--no-heartbeat`, `--no-heartbeats` | Suppress heartbeat frames in stdout. |
+
+`events.stream` is a v2 socket method advertised by `capabilities`. The first
+response frame is an `ack` with `resume.after_seq`, `oldest_seq`, `latest_seq`,
+`next_seq`, and `gap`. Event frames carry a process-local monotonic `seq` and a
+stable `id` for dedupe. Clients should persist `seq` after processing each event
+and reconnect with that value. See [events.md](events.md) for the full protocol
+and event catalog. Every emitted event is also appended to
+`~/.cmuxterm/events.jsonl`, including model lifecycle events for workspace,
+pane, and surface creation or closure.
+
 ## No-Socket Help Probes
 
 The following probes are executable contract checks. They must exit 0 and print
@@ -316,6 +339,7 @@ the expected text without connecting to a cmux socket.
 - `cmux help` -> `cmux - control cmux via Unix socket`
 - `cmux ping --help` -> `Usage: cmux ping`
 - `cmux capabilities --help` -> `Usage: cmux capabilities`
+- `cmux events --help` -> `Usage: cmux events [options]`
 - `cmux auth --help` -> `Usage: cmux auth <status|login|logout>`
 - `cmux vm --help` -> `Usage: cmux vm <new|ls|rm|exec|shell|attach|ssh> [args...]`
 - `cmux cloud --help` -> `Usage: cmux cloud <new|ls|rm|exec|shell|attach|ssh> [args...]`

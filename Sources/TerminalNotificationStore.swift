@@ -695,10 +695,9 @@ final class TerminalNotificationStore: ObservableObject {
         didSet {
             indexes = Self.buildIndexes(for: notifications)
             let nextMenuSnapshot = NotificationMenuSnapshotBuilder.make(notifications: notifications)
-            if notificationMenuSnapshot != nextMenuSnapshot {
-                notificationMenuSnapshot = nextMenuSnapshot
-            }
+            if notificationMenuSnapshot != nextMenuSnapshot { notificationMenuSnapshot = nextMenuSnapshot }
             refreshDockBadge()
+            CmuxEventBus.shared.publishNotificationChanges(oldValue: oldValue, newValue: notifications)
         }
     }
     @Published private(set) var notificationMenuSnapshot = NotificationMenuSnapshotBuilder.make(notifications: [])
@@ -1076,18 +1075,18 @@ final class TerminalNotificationStore: ObservableObject {
         notifications = updated
         if let removed {
             clearFocusedReadIndicator(forTabId: removed.tabId, surfaceId: removed.surfaceId)
+            CmuxEventBus.shared.publishNotificationRemoved(removed)
         }
         center.removeDeliveredNotificationsOffMain(withIdentifiers: [id.uuidString])
     }
 
     func clearAll(discardQueuedNotifications: Bool = true) {
-        if discardQueuedNotifications {
-            TerminalMutationBus.shared.discardPendingNotifications()
-        }
+        if discardQueuedNotifications { TerminalMutationBus.shared.discardPendingNotifications() }
         guard !notifications.isEmpty || !focusedReadIndicatorByTabId.isEmpty else { return }
         let ids = notifications.map { $0.id.uuidString }
         notifications.removeAll()
         focusedReadIndicatorByTabId.removeAll()
+        CmuxEventBus.shared.publishNotificationCleared(ids: ids, workspaceId: nil, surfaceId: nil)
         center.removeDeliveredNotificationsOffMain(withIdentifiers: ids)
         center.removePendingNotificationRequestsOffMain(withIdentifiers: ids)
     }
@@ -1097,9 +1096,7 @@ final class TerminalNotificationStore: ObservableObject {
         surfaceId: UUID?,
         discardQueuedNotifications: Bool = true
     ) {
-        if discardQueuedNotifications {
-            TerminalMutationBus.shared.discardPendingNotifications(forTabId: tabId, surfaceId: surfaceId)
-        }
+        if discardQueuedNotifications { TerminalMutationBus.shared.discardPendingNotifications(forTabId: tabId, surfaceId: surfaceId) }
         var updated: [TerminalNotification] = []
         updated.reserveCapacity(notifications.count)
         var idsToClear: [String] = []
@@ -1113,14 +1110,13 @@ final class TerminalNotificationStore: ObservableObject {
         guard !idsToClear.isEmpty else { return }
         notifications = updated
         clearFocusedReadIndicator(forTabId: tabId, surfaceId: surfaceId)
+        CmuxEventBus.shared.publishNotificationCleared(ids: idsToClear, workspaceId: tabId, surfaceId: surfaceId)
         center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
         center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
     }
 
     func clearNotifications(forTabId tabId: UUID, discardQueuedNotifications: Bool = true) {
-        if discardQueuedNotifications {
-            TerminalMutationBus.shared.discardPendingNotifications(forTabId: tabId)
-        }
+        if discardQueuedNotifications { TerminalMutationBus.shared.discardPendingNotifications(forTabId: tabId) }
         var updated: [TerminalNotification] = []
         updated.reserveCapacity(notifications.count)
         var idsToClear: [String] = []
@@ -1134,6 +1130,7 @@ final class TerminalNotificationStore: ObservableObject {
         guard !idsToClear.isEmpty else { return }
         notifications = updated
         clearFocusedReadIndicator(forTabId: tabId)
+        CmuxEventBus.shared.publishNotificationCleared(ids: idsToClear, workspaceId: tabId, surfaceId: nil)
         center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
         center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
     }

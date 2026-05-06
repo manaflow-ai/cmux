@@ -18,6 +18,8 @@ struct CLIError: Error, CustomStringConvertible {
     var description: String { message }
 }
 
+private struct EventStreamLimitReached: Error {}
+
 private enum CLISocketEnvironment {
     static func socketPath(in environment: [String: String]) throws -> String? {
         let socketPath = normalized(environment["CMUX_SOCKET_PATH"])
@@ -1608,6 +1610,64 @@ final class SocketClient {
 
         throw CLIError(message: "v2 request failed")
     }
+
+    func streamV2(
+        method: String,
+        params: [String: Any] = [:],
+        onLine: (String) throws -> Void
+    ) throws {
+        guard socketFD >= 0 else { throw CLIError(message: "Not connected") }
+        let request: [String: Any] = [
+            "id": UUID().uuidString,
+            "method": method,
+            "params": params
+        ]
+        guard JSONSerialization.isValidJSONObject(request),
+              let requestData = try? JSONSerialization.data(withJSONObject: request, options: []),
+              let requestLine = String(data: requestData, encoding: .utf8) else {
+            throw CLIError(message: "Failed to encode v2 stream request")
+        }
+
+        try writeAll(
+            Data((requestLine + "\n").utf8),
+            timeoutMessage: "Stream request timed out",
+            failureMessage: "Failed to write stream request"
+        )
+
+        while true {
+            let line = try readStreamLine()
+            try onLine(line)
+        }
+    }
+
+    private func readStreamLine(maxBytes: Int = 4 * 1024 * 1024) throws -> String {
+        var data = Data()
+        while data.count < maxBytes {
+            try configureReceiveTimeout(45)
+            var byte: UInt8 = 0
+            let count = Darwin.read(socketFD, &byte, 1)
+            if count < 0 {
+                if errno == EINTR {
+                    continue
+                }
+                if errno == EAGAIN || errno == EWOULDBLOCK {
+                    throw CLIError(message: "Timed out waiting for event stream frame")
+                }
+                throw CLIError(message: "Event stream socket read error")
+            }
+            if count == 0 {
+                throw CLIError(message: "Event stream closed")
+            }
+            if byte == 0x0A {
+                guard let line = String(data: data, encoding: .utf8) else {
+                    throw CLIError(message: "Invalid UTF-8 event stream frame")
+                }
+                return line.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            data.append(byte)
+        }
+        throw CLIError(message: "Event stream frame exceeded \(maxBytes) bytes")
+    }
 }
 
 struct CLIProcessResult {
@@ -2249,6 +2309,15 @@ struct CMUXCLI {
             default:
                 throw CLIError(message: "Unknown feed subcommand: \(sub)")
             }
+        }
+
+        if command == "events" {
+            try runEventsCommand(
+                commandArgs: commandArgs,
+                socketPath: resolvedSocketPath,
+                explicitPassword: socketPasswordArg
+            )
+            return
         }
 
         let browserAvailabilityArgs = commandArgs.filter { $0 != "--json" }
@@ -3813,6 +3882,180 @@ struct CMUXCLI {
                 throw CLIError(message: authResponse)
             }
         }
+    }
+
+    private struct EventsCommandOptions {
+        var afterSeq: Int64?
+        var cursorFile: String?
+        var names: [String] = []
+        var categories: [String] = []
+        var reconnect = false
+        var limit: Int?
+        var printAck = true
+        var printHeartbeats = true
+    }
+
+    private func runEventsCommand(
+        commandArgs: [String],
+        socketPath: String,
+        explicitPassword: String?
+    ) throws {
+        var options = try parseEventsOptions(commandArgs)
+        if options.afterSeq == nil, let cursorFile = options.cursorFile {
+            options.afterSeq = readEventCursor(from: cursorFile)
+        }
+
+        var lastSeq = options.afterSeq
+        var emittedEvents = 0
+
+        while true {
+            let client = SocketClient(path: socketPath)
+            do {
+                try client.connect()
+                try authenticateClientIfNeeded(
+                    client,
+                    explicitPassword: explicitPassword,
+                    socketPath: socketPath
+                )
+
+                var params: [String: Any] = [
+                    "include_heartbeats": true
+                ]
+                if let lastSeq {
+                    params["after_seq"] = NSNumber(value: lastSeq)
+                }
+                if !options.names.isEmpty {
+                    params["names"] = options.names
+                }
+                if !options.categories.isEmpty {
+                    params["categories"] = options.categories
+                }
+
+                try client.streamV2(method: "events.stream", params: params) { line in
+                    guard !line.isEmpty else { return }
+                    let frame = try parseEventStreamFrame(line)
+                    let type = frame["type"] as? String ?? ""
+
+                    if type == "event", let seq = int64Value(frame["seq"]) {
+                        lastSeq = seq
+                        if let cursorFile = options.cursorFile {
+                            try writeEventCursor(seq, to: cursorFile)
+                        }
+                    }
+
+                    if type == "ack", !options.printAck {
+                        return
+                    }
+                    if type == "heartbeat", !options.printHeartbeats {
+                        return
+                    }
+
+                    print(line)
+                    fflush(stdout)
+
+                    if type == "event" {
+                        emittedEvents += 1
+                        if let limit = options.limit, emittedEvents >= limit {
+                            throw EventStreamLimitReached()
+                        }
+                    }
+                }
+            } catch is EventStreamLimitReached {
+                client.close()
+                return
+            } catch {
+                client.close()
+                guard options.reconnect else {
+                    throw error
+                }
+                Thread.sleep(forTimeInterval: 1.0)
+                continue
+            }
+        }
+    }
+
+    private func parseEventsOptions(_ args: [String]) throws -> EventsCommandOptions {
+        var options = EventsCommandOptions()
+        var index = 0
+        while index < args.count {
+            let arg = args[index]
+            func requireValue() throws -> String {
+                guard index + 1 < args.count else {
+                    throw CLIError(message: "\(arg) requires a value")
+                }
+                index += 1
+                return args[index]
+            }
+
+            switch arg {
+            case "--after", "--after-seq":
+                let raw = try requireValue()
+                guard let seq = Int64(raw), seq >= 0 else {
+                    throw CLIError(message: "\(arg) must be a non-negative integer")
+                }
+                options.afterSeq = seq
+            case "--cursor-file":
+                options.cursorFile = try requireValue()
+            case "--name":
+                options.names.append(try requireValue())
+            case "--category":
+                options.categories.append(try requireValue())
+            case "--reconnect":
+                options.reconnect = true
+            case "--limit":
+                let raw = try requireValue()
+                guard let limit = Int(raw), limit > 0 else {
+                    throw CLIError(message: "--limit must be greater than 0")
+                }
+                options.limit = limit
+            case "--no-ack":
+                options.printAck = false
+            case "--no-heartbeat", "--no-heartbeats":
+                options.printHeartbeats = false
+            default:
+                throw CLIError(message: "Unknown events option: \(arg)")
+            }
+            index += 1
+        }
+        return options
+    }
+
+    private func parseEventStreamFrame(_ line: String) throws -> [String: Any] {
+        guard let data = line.data(using: .utf8),
+              let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw CLIError(message: "Invalid event stream frame: \(line)")
+        }
+        if let ok = object["ok"] as? Bool, ok == false {
+            let error = object["error"] as? [String: Any]
+            let message = error?["message"] as? String ?? "event stream error"
+            throw CLIError(message: message)
+        }
+        return object
+    }
+
+    private func readEventCursor(from path: String) -> Int64? {
+        let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else {
+            return nil
+        }
+        return Int64(text.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    private func writeEventCursor(_ seq: Int64, to path: String) throws {
+        let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try "\(seq)\n".write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    private func int64Value(_ value: Any?) -> Int64? {
+        if let number = value as? NSNumber { return number.int64Value }
+        if let int = value as? Int { return Int64(int) }
+        if let int64 = value as? Int64 { return int64 }
+        if let string = value as? String { return Int64(string) }
+        return nil
     }
 
     private func launchApp() throws {
@@ -8285,6 +8528,27 @@ struct CMUXCLI {
             Usage: cmux capabilities
 
             Print server capabilities as JSON.
+            """
+        case "events":
+            return """
+            Usage: cmux events [options]
+
+            Stream cmux events as newline-delimited JSON.
+
+            Options:
+              --after <seq>          Replay retained events after this sequence
+              --cursor-file <path>   Read the starting sequence from a file and update it after each event
+              --name <event>         Filter by event name, repeatable
+              --category <name>      Filter by category, repeatable
+              --reconnect            Reconnect forever and resume from the last received sequence
+              --limit <n>            Exit after printing n event frames
+              --no-ack               Do not print the subscription ack frame
+              --no-heartbeat         Do not print heartbeat frames
+
+            Examples:
+              cmux events --category notification
+              cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect
+              cmux events --after 42 --name feed.item.received
             """
         case "auth":
             return """
@@ -19968,6 +20232,7 @@ export default CMUXSessionRestore;
           ping
           version
           capabilities
+          events [--after <seq>] [--cursor-file <path>] [--name <event>] [--category <category>] [--reconnect]
           auth <status|login|logout>
           vm <new|ls|rm|exec|shell|ssh> [args...]    (alias: cloud)
           rpc <method> [json-params]

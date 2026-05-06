@@ -2153,6 +2153,8 @@ class TabManager: ObservableObject {
                     userInfo: [GhosttyNotificationKey.tabId: newWorkspace.id]
                 )
             }
+            publishCmuxWorkspaceCreated(newWorkspace, selected: select)
+            publishCmuxInitialSurfaceCreated(newWorkspace, selected: select)
 #if DEBUG
             UITestRecorder.incrementInt("addTabInvocations")
             UITestRecorder.record([
@@ -4127,6 +4129,7 @@ class TabManager: ObservableObject {
                 selectedTabId = tabs[newIndex].id
             }
         }
+        publishCmuxWorkspaceClosed(workspace)
     }
 
     /// Detach a workspace from this window without closing its panels.
@@ -4290,6 +4293,7 @@ class TabManager: ObservableObject {
         debugPrimeWorkspaceSwitchTrigger("select", to: workspace.id)
 #endif
         selectedTabId = workspace.id
+        publishCmuxWorkspaceSelected(workspace)
     }
 
     // Keep selectTab as convenience alias
