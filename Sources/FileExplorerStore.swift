@@ -403,11 +403,61 @@ final class SSHFileExplorerProvider: FileExplorerProvider {
             return FileExplorerEntry(name: cleanName, path: fullPath, isDirectory: isDir)
         }
     }
+
+    func downloadToLocal(remotePath: String, isDirectory: Bool, localDestination: String, completion: @escaping (Result<Void, Error>) -> Void) {
+        let dest = destination
+        let p = port
+        let identity = identityFile
+        let opts = sshOptions
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                var args: [String] = ["-q", "-o", "ConnectTimeout=6", "-o", "BatchMode=yes"]
+                if isDirectory { args.append("-r") }
+                if let p { args += ["-P", String(p)] }
+                if let identity { args += ["-i", identity] }
+                for opt in opts { args += ["-o", opt] }
+                let scpSource = Self.scpPrefixedDestination(dest, path: remotePath)
+                args += [scpSource, localDestination]
+
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/scp")
+                process.arguments = args
+                let errPipe = Pipe()
+                process.standardError = errPipe
+                try process.run()
+                let stderrData = errPipe.fileHandleForReading.readDataToEndOfFile()
+                process.waitUntilExit()
+
+                guard process.terminationStatus == 0 else {
+                    let detail = String(data: stderrData, encoding: .utf8) ?? "scp exited \(process.terminationStatus)"
+                    throw FileExplorerError.downloadFailed(detail)
+                }
+                DispatchQueue.main.async { completion(.success(())) }
+            } catch {
+                DispatchQueue.main.async { completion(.failure(error)) }
+            }
+        }
+    }
+
+    private static func scpPrefixedDestination(_ destination: String, path: String) -> String {
+        let trimmed = destination.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = trimmed.split(separator: "@", maxSplits: 1, omittingEmptySubsequences: false)
+        if parts.count == 2 {
+            let user = String(parts[0])
+            let host = String(parts[1])
+            let bracketed = host.contains(":") && !host.hasPrefix("[") ? "[\(host)]" : host
+            return "\(user)@\(bracketed):\(path)"
+        }
+        let host = trimmed
+        let bracketed = host.contains(":") && !host.hasPrefix("[") ? "[\(host)]" : host
+        return "\(bracketed):\(path)"
+    }
 }
 
 enum FileExplorerError: LocalizedError {
     case providerUnavailable
     case sshCommandFailed(String)
+    case downloadFailed(String)
 
     var errorDescription: String? {
         switch self {
@@ -415,6 +465,8 @@ enum FileExplorerError: LocalizedError {
             return String(localized: "fileExplorer.error.unavailable", defaultValue: "File explorer is not available")
         case .sshCommandFailed(let detail):
             return String(localized: "fileExplorer.error.sshFailed", defaultValue: "SSH command failed: \(detail)")
+        case .downloadFailed(let detail):
+            return String(localized: "fileExplorer.error.downloadFailed", defaultValue: "Download failed: \(detail)")
         }
     }
 }

@@ -525,6 +525,19 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 menu.addItem(.separator())
             }
 
+            if !isLocal {
+                let downloadItem = NSMenuItem(
+                    title: String(localized: "fileExplorer.contextMenu.downloadToLocal", defaultValue: "Download to Local..."),
+                    action: #selector(contextMenuDownloadToLocal(_:)),
+                    keyEquivalent: ""
+                )
+                downloadItem.target = self
+                downloadItem.representedObject = node
+                menu.addItem(downloadItem)
+
+                menu.addItem(.separator())
+            }
+
             let copyPathItem = NSMenuItem(
                 title: String(localized: "fileExplorer.contextMenu.copyPath", defaultValue: "Copy Path"),
                 action: #selector(contextMenuCopyPath(_:)),
@@ -572,6 +585,38 @@ struct FileExplorerPanelView: NSViewRepresentable {
             }
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(relativePath, forType: .string)
+        }
+
+        @objc private func contextMenuDownloadToLocal(_ sender: NSMenuItem) {
+            guard let node = sender.representedObject as? FileExplorerNode,
+                  let sshProvider = store.provider as? SSHFileExplorerProvider else { return }
+
+            let panel = NSSavePanel()
+            panel.title = String(localized: "fileExplorer.download.title", defaultValue: "Download from Remote")
+            panel.nameFieldStringValue = node.name
+            panel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+            panel.canCreateDirectories = true
+            if node.isDirectory {
+                panel.canSelectHiddenExtension = true
+            }
+            panel.begin { response in
+                guard response == .OK, let url = panel.url else { return }
+                sshProvider.downloadToLocal(
+                    remotePath: node.path,
+                    isDirectory: node.isDirectory,
+                    localDestination: url.path
+                ) { result in
+                    switch result {
+                    case .success:
+                        break
+                    case .failure(let error):
+                        let alert = NSAlert()
+                        alert.messageText = String(localized: "fileExplorer.download.failed", defaultValue: "Download Failed")
+                        alert.informativeText = error.localizedDescription
+                        alert.runModal()
+                    }
+                }
+            }
         }
     }
 }
