@@ -314,27 +314,10 @@ private struct EmptyWorkspaceSearch: View {
 private struct TerminalDetailView: View {
     @EnvironmentObject private var store: CmxConnectionStore
     @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.dismiss) private var dismiss
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var keyboardOverlap: CGFloat = 0
 
     var body: some View {
         VStack(spacing: 0) {
-            TerminalHeaderBar(
-                workspaces: store.workspaces,
-                selectedWorkspace: store.selectedWorkspace,
-                selectedWorkspaceID: store.selectedWorkspaceID,
-                selectedSpaceID: store.selectedSpaceID,
-                selectedTerminalID: store.selectedTerminalID,
-                latencyText: store.latencyText,
-                revision: store.terminalAppearanceRevision,
-                showsBackButton: horizontalSizeClass == .compact,
-                back: { dismiss() },
-                selectWorkspace: { store.select(workspace: $0) },
-                selectSpace: { store.select(space: $0) },
-                selectTerminal: { space, terminal in store.select(space: space); store.select(terminal: terminal) }
-            )
-
             GeometryReader { proxy in
                 let visibleHeight = CmxTerminalVisibleBounds.height(
                     totalHeight: proxy.size.height,
@@ -366,9 +349,27 @@ private struct TerminalDetailView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(TerminalThemeChrome.background(revision: store.terminalAppearanceRevision).ignoresSafeArea())
         .ignoresSafeArea(edges: .bottom)
-        .toolbar(.hidden, for: .navigationBar)
-        .navigationBarBackButtonHidden(true)
-        .navigationTitle("")
+        .navigationTitle(store.selectedWorkspace.title)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(TerminalThemeChrome.background(revision: store.terminalAppearanceRevision), for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+        .toolbarColorScheme(TerminalThemeChrome.toolbarColorScheme(revision: store.terminalAppearanceRevision), for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                TerminalPickerMenu(
+                    workspaces: store.workspaces,
+                    selectedWorkspace: store.selectedWorkspace,
+                    selectedWorkspaceID: store.selectedWorkspaceID,
+                    selectedSpaceID: store.selectedSpaceID,
+                    selectedTerminalID: store.selectedTerminalID,
+                    latencyText: store.latencyText,
+                    revision: store.terminalAppearanceRevision,
+                    selectWorkspace: { store.select(workspace: $0) },
+                    selectSpace: { store.select(space: $0) },
+                    selectTerminal: { space, terminal in store.select(space: space); store.select(terminal: terminal) }
+                )
+            }
+        }
         .onAppear {
             store.refreshTerminalAppearance(colorPreference: CmxTerminalColorPreference(colorScheme: colorScheme))
             store.terminalScreenDidAppear()
@@ -379,63 +380,6 @@ private struct TerminalDetailView: View {
         .onChange(of: colorScheme) { _, newValue in
             store.refreshTerminalAppearance(colorPreference: CmxTerminalColorPreference(colorScheme: newValue))
         }
-    }
-}
-
-private struct TerminalHeaderBar: View {
-    let workspaces: [CmxWorkspace]
-    let selectedWorkspace: CmxWorkspace
-    let selectedWorkspaceID: UInt64
-    let selectedSpaceID: UInt64
-    let selectedTerminalID: UInt64
-    let latencyText: String?
-    let revision: Int
-    let showsBackButton: Bool
-    let back: () -> Void
-    let selectWorkspace: (CmxWorkspace) -> Void
-    let selectSpace: (CmxSpace) -> Void
-    let selectTerminal: (CmxSpace, CmxTerminal) -> Void
-
-    var body: some View {
-        HStack(spacing: 8) {
-            if showsBackButton {
-                Button(action: back) {
-                    Image(systemName: "chevron.left")
-                        .font(.headline.weight(.semibold))
-                        .frame(width: 34, height: 34)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(TerminalThemeChrome.foreground(revision: revision))
-                .accessibilityLabel(String(localized: "nav.workspaces", defaultValue: "Workspaces"))
-            } else {
-                Color.clear
-                    .frame(width: 34, height: 34)
-            }
-
-            Spacer(minLength: 0)
-
-            TerminalPickerMenu(
-                workspaces: workspaces,
-                selectedWorkspace: selectedWorkspace,
-                selectedWorkspaceID: selectedWorkspaceID,
-                selectedSpaceID: selectedSpaceID,
-                selectedTerminalID: selectedTerminalID,
-                latencyText: latencyText,
-                revision: revision,
-                selectWorkspace: selectWorkspace,
-                selectSpace: selectSpace,
-                selectTerminal: selectTerminal
-            )
-
-            Spacer(minLength: 0)
-
-            Color.clear
-                .frame(width: 34, height: 34)
-        }
-        .frame(height: 38)
-        .padding(.horizontal, 8)
-        .background(TerminalThemeChrome.background(revision: revision))
     }
 }
 
