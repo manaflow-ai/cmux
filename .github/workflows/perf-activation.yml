@@ -91,9 +91,6 @@ jobs:
             ZIG_SIG="${ZIG_TAR}.minisig"
             ZIG_SIG_URL="${ZIG_URL}.minisig"
             ZIG_PUBKEY="RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U"
-            if ! command -v minisign >/dev/null 2>&1; then
-              HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install minisign
-            fi
             curl \
               --fail \
               --location \
@@ -108,17 +105,15 @@ jobs:
               --speed-time 60 \
               "$ZIG_URL" \
               --output "$ZIG_TAR"
-            curl \
-              --fail \
-              --location \
-              --show-error \
-              --retry 8 \
-              --retry-all-errors \
-              --retry-delay 10 \
-              --retry-max-time 300 \
-              "$ZIG_SIG_URL" \
-              --output "$ZIG_SIG"
-            minisign -Vm "$ZIG_TAR" -P "$ZIG_PUBKEY"
+            if command -v minisign >/dev/null 2>&1; then
+              curl --fail --location --show-error --retry 8 --retry-all-errors --retry-delay 10 --retry-max-time 300 "$ZIG_SIG_URL" --output "$ZIG_SIG"
+              minisign -Vm "$ZIG_TAR" -P "$ZIG_PUBKEY"
+            else
+              ZIG_INDEX="/tmp/zig-download-index.json"
+              curl --fail --location --show-error --retry 8 --retry-all-errors --retry-delay 10 --retry-max-time 300 https://ziglang.org/download/index.json --output "$ZIG_INDEX"
+              ZIG_EXPECTED_SHA="$(/usr/bin/ruby -rjson -e 'data = JSON.parse(File.read(ARGV[0])); puts data.fetch(ARGV[1]).fetch(ARGV[2]).fetch("shasum")' "$ZIG_INDEX" "$ZIG_REQUIRED" "${ZIG_ARCH}-macos")"
+              echo "${ZIG_EXPECTED_SHA}  ${ZIG_TAR}" | shasum -a 256 --check -
+            fi
             tar xf "$ZIG_TAR" -C /tmp
             sudo mkdir -p /usr/local/bin /usr/local/lib
             sudo cp -f "${ZIG_DIR}/zig" /usr/local/bin/zig
