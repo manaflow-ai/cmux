@@ -15960,18 +15960,24 @@ struct CMUXCLI {
      */
     function normalizedPiLaunchArgv() {
       const raw = Array.isArray(process.argv) ? process.argv.map((value) => String(value)) : [];
-      if (raw.length === 0) return [resolveExecutable("pi")];
+      // Always use the literal token "pi" rather than resolveExecutable("pi")
+      // so the recorded launch is portable across machines. Vault re-runs the
+      // launch command on resume; baking in /opt/.../pi or a homebrew prefix
+      // would make the same launch fail when restored on a peer device.
+      const piExecutable = "pi";
+      if (raw.length === 0) return [piExecutable];
 
-      const piExecutable = resolveExecutable("pi");
       const firstBase = path.basename(raw[0]).toLowerCase();
 
-      // Already invoked via a `pi` shim that survives directly.
+      // Already invoked via a `pi` shim that survives directly. Collapse the
+      // first token to the literal "pi" too — raw[0] would otherwise be the
+      // absolute shim path (~/.nvm/versions/.../bin/pi etc.).
       if (looksLikePiScript(firstBase) || looksLikePiScript(raw[0])) {
-        return [raw[0], ...raw.slice(1).filter((arg) => !isPiInternalDistArg(arg))];
+        return [piExecutable, ...raw.slice(1).filter((arg) => !isPiInternalDistArg(arg))];
       }
 
       // Common case: argv is [node, /.../dist/cli.js, ...rest]. Strip the first two and
-      // prepend the resolved `pi` shim.
+      // prepend the literal `pi` token.
       let tail = raw.slice(1);
       if (tail.length > 0 && (looksLikePiScript(tail[0]) || isPiInternalDistArg(tail[0]))) {
         tail = tail.slice(1);
@@ -15994,7 +16000,12 @@ struct CMUXCLI {
       if (!env.CMUX_AGENT_LAUNCH_ARGV_B64) {
         const argv = normalizedPiLaunchArgv();
         env.CMUX_AGENT_LAUNCH_KIND = "pi";
-        env.CMUX_AGENT_LAUNCH_EXECUTABLE = argv[0] || resolveExecutable("pi");
+        // argv[0] is the canonical literal "pi" produced by
+        // normalizedPiLaunchArgv. The `|| "pi"` arm is just a defensive
+        // fallback for the empty-argv case (which already returns ["pi"]).
+        // Never substitute resolveExecutable("pi") here — baking an
+        // absolute path into Vault breaks cross-machine restore.
+        env.CMUX_AGENT_LAUNCH_EXECUTABLE = argv[0] || "pi";
         env.CMUX_AGENT_LAUNCH_ARGV_B64 = base64NulSeparated(argv);
         env.CMUX_AGENT_LAUNCH_CWD = cwd || process.cwd();
       }

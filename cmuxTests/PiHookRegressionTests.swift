@@ -286,7 +286,168 @@ final class PiHookRegressionTests: XCTestCase {
         XCTAssertTrue(installed.contains(Self.markerString))
     }
 
+    /// Behavioral regression for the bridge's argv normalization. The bridge
+    /// records the launch executable + argv into env vars (`CMUX_AGENT_LAUNCH_*`)
+    /// for Vault to replay on resume. If the bridge bakes in `resolveExecutable("pi")`
+    /// (an absolute path like `/opt/homebrew/bin/pi`), Vault loses cross-machine
+    /// portability — the same launch can't be restored on a peer device with a
+    /// different prefix. The bridge must persist the literal token "pi".
+    ///
+    /// Strategy: install the bridge to a sandbox HOME via `cmux hooks pi install`,
+    /// then exec a Node harness that:
+    ///   1. spoofs `process.argv = ["/abs/node", "/abs/pi-coding-agent/dist/cli.js", "--model", "..."]`
+    ///   2. imports the bridge (renamed `.ts` -> `.mjs` since the bridge is plain ESM
+    ///      with no TS-only syntax — confirmed by Swift's literal embedding)
+    ///   3. mocks `pi.on(...)` to capture the `session_start` listener
+    ///   4. routes `CMUX_PI_CMUX_BIN` at a shell shim that records its env
+    ///   5. fires the listener with a fake ctx, then prints the captured env vars
+    ///
+    /// Skips with XCTSkip if `node` isn't on PATH (CI runners always have it).
+    func testBridgePersistsLiteralPiInsteadOfAbsolutePath() throws {
+        guard let nodePath = locateNode() else {
+            throw XCTSkip("node not found on PATH; bridge harness needs node to run")
+        }
+        let cliPath = try bundledCLIPath()
+        let root = uniqueTempDirectory(prefix: "cmux-pi-bridge-argv-")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let homeDir = root.appendingPathComponent("home", isDirectory: true)
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: homeDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+        try writeFakeBinary(name: "pi", in: binDir)
+
+        // Install bridge.
+        let installEnv = sandboxedEnvironment(homeDir: homeDir, binDir: binDir)
+        let installResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "pi", "install", "--yes"],
+            environment: installEnv,
+            timeout: 5
+        )
+        XCTAssertEqual(installResult.status, 0, installResult.stderr)
+
+        // Copy the bridge to .mjs so node can import it directly.
+        let bridgeURL = homeDir.appendingPathComponent(Self.extensionRelativePath)
+        let bridgeMJS = root.appendingPathComponent("bridge.mjs")
+        let bridgeText = try String(contentsOf: bridgeURL, encoding: .utf8)
+        try bridgeText.write(to: bridgeMJS, atomically: true, encoding: .utf8)
+
+        // Shim cmux: writes its env to a known file then exits 0.
+        let capturedEnvFile = root.appendingPathComponent("captured.env")
+        let cmuxShim = root.appendingPathComponent("cmux-shim.sh")
+        let shimScript = """
+        #!/bin/sh
+        env | grep -E '^CMUX_AGENT_LAUNCH_' > \"\(capturedEnvFile.path)\"
+        exit 0
+        """
+        try shimScript.write(to: cmuxShim, atomically: true, encoding: .utf8)
+        chmod(cmuxShim.path, 0o755)
+
+        // Harness: spoof argv, import the bridge, fire session_start.
+        let harness = root.appendingPathComponent("harness.mjs")
+        let bridgeAbsolutePath = bridgeMJS.path
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "'", with: "\\'")
+        let harnessSource = """
+        // Spoof a `node /abs/.../pi-coding-agent/dist/cli.js --model claude` invocation.
+        process.argv = [
+          '/usr/local/bin/node',
+          '/Users/test/.nvm/versions/node/v22/lib/node_modules/@mariozechner/pi-coding-agent/dist/cli.js',
+          '--model', 'claude-sonnet-4-5',
+        ];
+        const { default: register } = await import('file://\(bridgeAbsolutePath)');
+        const listeners = {};
+        const pi = { on(event, cb) { listeners[event] = cb; } };
+        await register(pi);
+        const fakeCtx = {
+          sessionManager: {
+            getSessionId: () => 'test-session-uuid',
+            getSessionFile: () => '/tmp/fake.jsonl',
+            getCwd: () => '/tmp/fake-cwd',
+          },
+          cwd: '/tmp/fake-cwd',
+        };
+        await listeners.session_start({ reason: 'test' }, fakeCtx);
+        """
+        try harnessSource.write(to: harness, atomically: true, encoding: .utf8)
+
+        // Run the harness with shim wired in.
+        var harnessEnv = ProcessInfo.processInfo.environment
+        harnessEnv["CMUX_PI_CMUX_BIN"] = cmuxShim.path
+        harnessEnv["CMUX_SURFACE_ID"] = "test-surface"
+        harnessEnv["CMUX_PI_HOOKS_DISABLED"] = ""
+        let harnessResult = runProcess(
+            executablePath: nodePath,
+            arguments: [harness.path],
+            environment: harnessEnv,
+            timeout: 10
+        )
+        XCTAssertFalse(harnessResult.timedOut, "node harness timed out: \(harnessResult.stderr)")
+        XCTAssertEqual(
+            harnessResult.status, 0,
+            "node harness failed: stdout=\(harnessResult.stdout) stderr=\(harnessResult.stderr)"
+        )
+
+        // Read what the shim captured. The bridge persists CMUX_AGENT_LAUNCH_*
+        // env vars; the executable must be the literal string "pi".
+        let captured = (try? String(contentsOf: capturedEnvFile, encoding: .utf8)) ?? ""
+        XCTAssertTrue(
+            captured.contains("CMUX_AGENT_LAUNCH_KIND=pi\n"),
+            "Expected CMUX_AGENT_LAUNCH_KIND=pi in captured env, got: \(captured)"
+        )
+        XCTAssertTrue(
+            captured.contains("CMUX_AGENT_LAUNCH_EXECUTABLE=pi\n"),
+            "Bridge must record executable as the literal token 'pi', not an absolute path. Captured: \(captured)"
+        )
+        // Decode the b64-NUL argv and confirm it leads with "pi".
+        let argvLine = captured
+            .split(separator: "\n")
+            .first(where: { $0.hasPrefix("CMUX_AGENT_LAUNCH_ARGV_B64=") })
+            .map(String.init) ?? ""
+        let b64 = argvLine.dropFirst("CMUX_AGENT_LAUNCH_ARGV_B64=".count)
+        guard let decoded = Data(base64Encoded: String(b64)) else {
+            return XCTFail("could not base64-decode argv from: \(argvLine)")
+        }
+        // The bridge encodes argv as <utf8>\0<utf8>\0...; split on NUL.
+        let parts = decoded
+            .split(separator: 0, omittingEmptySubsequences: false)
+            .map { String(data: Data($0), encoding: .utf8) ?? "" }
+            .filter { !$0.isEmpty }
+        XCTAssertEqual(
+            parts.first, "pi",
+            "argv[0] in recorded launch must be the literal 'pi'; got parts=\(parts)"
+        )
+        XCTAssertTrue(
+            parts.contains("--model"),
+            "argv tail must preserve user-set flags; got parts=\(parts)"
+        )
+        // No baked-in absolute path leaked through.
+        XCTAssertFalse(
+            parts.contains(where: { $0.hasPrefix("/") && $0.contains("pi") }),
+            "recorded argv must not contain absolute paths to pi; got parts=\(parts)"
+        )
+    }
+
     // MARK: - Helpers
+
+    private func locateNode() -> String? {
+        let candidates = [
+            ProcessInfo.processInfo.environment["NODE_BIN"],
+            "/opt/homebrew/bin/node",
+            "/usr/local/bin/node",
+            "/usr/bin/node",
+        ].compactMap { $0 }
+        let fm = FileManager.default
+        for path in candidates where fm.isExecutableFile(atPath: path) { return path }
+        // Fall back to PATH search.
+        if let pathEnv = ProcessInfo.processInfo.environment["PATH"] {
+            for dir in pathEnv.split(separator: ":") {
+                let candidate = String(dir) + "/node"
+                if fm.isExecutableFile(atPath: candidate) { return candidate }
+            }
+        }
+        return nil
+    }
 
     private func sandboxedEnvironment(homeDir: URL, binDir: URL) -> [String: String] {
         var env = ProcessInfo.processInfo.environment
