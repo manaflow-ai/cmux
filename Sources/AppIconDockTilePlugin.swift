@@ -99,13 +99,6 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
     }
 
     private func updateDockTile(_ dockTile: NSDockTile) {
-        Self.performOnMain { [weak self] in
-            guard let self else { return }
-            self.updateDockTileOnMain(dockTile)
-        }
-    }
-
-    private func updateDockTileOnMain(_ dockTile: NSDockTile) {
         Self.assertMainQueue()
 
         let mode = DockTileAppIconMode(defaultsValue: appDefaults?.string(forKey: cmuxAppIconModeKey))
