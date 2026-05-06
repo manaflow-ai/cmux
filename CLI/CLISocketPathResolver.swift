@@ -156,10 +156,31 @@ enum CLISocketPathResolver {
         }
         candidates.append(requestedPath)
         candidates.append(contentsOf: knownImplicitDefaultPaths(bundleIdentifier: bundleIdentifier, environment: environment))
-        if variant == .dev(slug: nil) {
+        if shouldDiscoverTaggedSockets(
+            variant: variant,
+            bundleIdentifier: bundleIdentifier,
+            environment: environment
+        ) {
             candidates.append(contentsOf: discoverTaggedSockets(limit: 12))
         }
         return candidates
+    }
+
+    private static func shouldDiscoverTaggedSockets(
+        variant: SocketPathVariant,
+        bundleIdentifier: String?,
+        environment: [String: String]
+    ) -> Bool {
+        switch variant {
+        case .dev(slug: nil):
+            return true
+        case .dev(slug: .some):
+            let bundleId = bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return bundleId == SocketPathMarkerFiles.defaultBaseDebugBundleIdentifier
+                && normalized(environment["CMUX_TAG"]) != nil
+        case .stable, .nightly, .staging:
+            return false
+        }
     }
 
     private static func readLastSocketPath(
