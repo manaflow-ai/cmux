@@ -1901,10 +1901,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
     private var activePDFRegion: FilePreviewPanelFocusIntent?
     private weak var observedPDFClipView: NSClipView?
     private var rotationAccumulator: CGFloat = 0
-    private static let documentLoadQueue = DispatchQueue(
-        label: "com.cmux.file-preview.pdf-document-load",
-        qos: .userInitiated
-    )
+    private var documentLoadTask: Task<Void, Never>?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -1916,6 +1913,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
     }
 
     deinit {
+        documentLoadTask?.cancel()
         removePDFScrollObserver()
         NotificationCenter.default.removeObserver(self)
     }
@@ -1977,16 +1975,16 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         updatePageControls()
         refreshPDFSmartFitWithoutViewportRestore()
 
-        let loadURL = url
-        let loadRevision = revision
-        Self.documentLoadQueue.async { [weak self] in
-            let document = PDFDocument(url: loadURL)
-            DispatchQueue.main.async { [weak self] in
-                guard let self,
-                      self.currentURL == loadURL,
-                      self.currentRevision == loadRevision else { return }
-                self.applyLoadedPDFDocument(document, for: loadURL, restoring: viewportSnapshot)
-            }
+        documentLoadTask?.cancel()
+        documentLoadTask = Task { [weak self, loadURL = url, loadRevision = revision, viewportSnapshot] in
+            let document = await Task.detached(priority: .userInitiated) {
+                PDFDocument(url: loadURL)
+            }.value
+            guard !Task.isCancelled,
+                  let self,
+                  self.currentURL == loadURL,
+                  self.currentRevision == loadRevision else { return }
+            self.applyLoadedPDFDocument(document, for: loadURL, restoring: viewportSnapshot)
         }
     }
 
@@ -3072,10 +3070,11 @@ private final class FilePreviewImageContainerView: NSView {
     private var isFitMode = true
     private var rotationDegrees = 0
     private var rotationAccumulator: CGFloat = 0
-    private static let imageLoadQueue = DispatchQueue(
-        label: "com.cmux.file-preview.image-load",
-        qos: .userInitiated
-    )
+    private var imageLoadTask: Task<Void, Never>?
+
+    deinit {
+        imageLoadTask?.cancel()
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -3138,22 +3137,22 @@ private final class FilePreviewImageContainerView: NSView {
         }
         rotationAccumulator = 0
 
-        let loadURL = url
-        let loadRevision = revision
-        Self.imageLoadQueue.async { [weak self] in
-            let image = NSImage(contentsOf: loadURL)
-            DispatchQueue.main.async { [weak self] in
-                guard let self,
-                      self.currentURL == loadURL,
-                      self.currentRevision == loadRevision else { return }
-                self.applyLoadedImage(
-                    image,
-                    preservingViewport: shouldPreserveViewport,
-                    previousFitMode: wasFitMode,
-                    previousScale: previousScale,
-                    previousRotationDegrees: previousRotationDegrees
-                )
-            }
+        imageLoadTask?.cancel()
+        imageLoadTask = Task { [weak self, loadURL = url, loadRevision = revision] in
+            let image = await Task.detached(priority: .userInitiated) {
+                NSImage(contentsOf: loadURL)
+            }.value
+            guard !Task.isCancelled,
+                  let self,
+                  self.currentURL == loadURL,
+                  self.currentRevision == loadRevision else { return }
+            self.applyLoadedImage(
+                image,
+                preservingViewport: shouldPreserveViewport,
+                previousFitMode: wasFitMode,
+                previousScale: previousScale,
+                previousRotationDegrees: previousRotationDegrees
+            )
         }
     }
 
