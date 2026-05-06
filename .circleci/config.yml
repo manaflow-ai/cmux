@@ -55,77 +55,7 @@ commands:
           name: Install zig
           no_output_timeout: 35m
           command: |
-            ZIG_REQUIRED="0.15.2"
-            BASH_ENV="${BASH_ENV:-$HOME/.bash_env}"
-            case "$(uname -m)" in
-              arm64) ZIG_ARCH="aarch64" ;;
-              x86_64) ZIG_ARCH="x86_64" ;;
-              *)
-                echo "Unsupported macOS architecture: $(uname -m)" >&2
-                exit 1
-                ;;
-            esac
-
-            ZIG_DIR="$PWD/.ci-tools/zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}"
-            export PATH="$ZIG_DIR:$PATH"
-            echo "export PATH=\"$ZIG_DIR:\$PATH\"" >> "$BASH_ENV"
-            if [ -x "$ZIG_DIR/zig" ] && "$ZIG_DIR/zig" version 2>/dev/null | grep -q "^${ZIG_REQUIRED}"; then
-              echo "zig ${ZIG_REQUIRED} already installed at $ZIG_DIR"
-              exit 0
-            fi
-
-            if command -v zig >/dev/null 2>&1 && zig version 2>/dev/null | grep -q "^${ZIG_REQUIRED}"; then
-              echo "zig ${ZIG_REQUIRED} already installed"
-              exit 0
-            fi
-
-            if ! command -v minisign >/dev/null 2>&1; then
-              export HOMEBREW_NO_AUTO_UPDATE=1
-              export HOMEBREW_NO_INSTALL_CLEANUP=1
-              export HOMEBREW_NO_ENV_HINTS=1
-              brew install minisign
-            fi
-
-            ZIG_URL="https://ziglang.org/download/${ZIG_REQUIRED}/zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}.tar.xz"
-            ZIG_MINISIGN_PUBLIC_KEY="RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U"
-            curl_zig() {
-              curl --fail --show-error --location \
-                --continue-at - \
-                --connect-timeout 20 \
-                --max-time 3600 \
-                --retry 5 \
-                --retry-delay 5 \
-                --retry-all-errors \
-                --retry-max-time 3600 \
-                --speed-limit 1024 \
-                --speed-time 120 \
-                "$1" \
-                --output "$2"
-            }
-
-            echo "Installing verified zig ${ZIG_REQUIRED} from tarball"
-            mkdir -p .ci-tools/downloads
-            ZIG_TAR="$PWD/.ci-tools/downloads/zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}.tar.xz"
-            ZIG_MINISIG="${ZIG_TAR}.minisig"
-            curl_zig "$ZIG_URL" "$ZIG_TAR"
-            curl_zig "${ZIG_URL}.minisig" "$ZIG_MINISIG"
-            minisign -Vm "$ZIG_TAR" -x "$ZIG_MINISIG" -P "$ZIG_MINISIGN_PUBLIC_KEY"
-            rm -rf "$ZIG_DIR"
-            tar xf "$ZIG_TAR" -C .ci-tools
-            zig version
-
-  restore-zig-tool-cache:
-    steps:
-      - restore_cache:
-          keys:
-            - v1-zig-tool-0.15.2-macos-
-
-  save-zig-tool-cache:
-    steps:
-      - save_cache:
-          key: v1-zig-tool-0.15.2-macos-{{ epoch }}
-          paths:
-            - .ci-tools
+            ./scripts/install-zig-ci.sh
 
   print-xcode:
     steps:
@@ -203,18 +133,6 @@ commands:
             done
 
 jobs:
-  macos-zig-tool:
-    executor: macos-xcode
-    steps:
-      - checkout-source
-      - restore-zig-tool-cache
-      - install-zig
-      - save-zig-tool-cache
-      - persist_to_workspace:
-          root: .
-          paths:
-            - .ci-tools
-
   macos-unit-tests:
     executor: macos-xcode
     steps:
@@ -228,21 +146,20 @@ jobs:
           name: Download pre-built GhosttyKit.xcframework
           no_output_timeout: 35m
           command: ./scripts/download-prebuilt-ghosttykit.sh
-      - attach_workspace:
-          at: .
-      - install-zig
       - resolve-swift-packages:
           scheme: cmux-unit
       - run:
           name: Run unit tests
           no_output_timeout: 35m
           command: |
+            export CMUX_SKIP_ZIG_BUILD=1
             SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
             run_unit_tests() {
               xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux-unit -configuration Debug \
                 -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
                 -disableAutomaticPackageResolution \
                 -destination "platform=macOS" \
+                CMUX_SKIP_ZIG_BUILD=1 \
                 -skip-testing:cmuxTests/AppDelegateShortcutRoutingTests/testCmdWClosesWindowWhenClosingLastSurfaceInLastWorkspace \
                 test 2>&1
             }
@@ -262,7 +179,8 @@ jobs:
               mkdir -p "$SOURCE_PACKAGES_DIR"
               xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux-unit -configuration Debug \
                 -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-                -resolvePackageDependencies
+                -resolvePackageDependencies \
+                CMUX_SKIP_ZIG_BUILD=1
               set +e
               run_unit_tests | tee /tmp/test-output.txt
               EXIT_CODE=${PIPESTATUS[0]}
@@ -283,7 +201,8 @@ jobs:
           name: Run bundled Ghostty theme picker helper regression
           no_output_timeout: 35m
           command: |
-            CMUX_SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+              CMUX_SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages" \
               ./tests/test_bundled_ghostty_theme_picker_helper.sh
       - run:
           name: Run CLI no-socket regressions
@@ -321,20 +240,20 @@ jobs:
           name: Download pre-built GhosttyKit.xcframework
           no_output_timeout: 35m
           command: ./scripts/download-prebuilt-ghosttykit.sh
-      - attach_workspace:
-          at: .
-      - install-zig
       - resolve-swift-packages:
           scheme: cmux
       - run:
           name: Build app and capture warnings
           no_output_timeout: 35m
           command: |
+            export CMUX_SKIP_ZIG_BUILD=1
             SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
             xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
-              -destination "platform=macOS" build 2>&1 | tee /tmp/cmux-build-output.txt
+              -destination "platform=macOS" \
+              CMUX_SKIP_ZIG_BUILD=1 \
+              build 2>&1 | tee /tmp/cmux-build-output.txt
       - run:
           name: Validate Swift warning budget
           command: python3 scripts/swift_warning_budget.py --log /tmp/cmux-build-output.txt
@@ -355,9 +274,6 @@ jobs:
           name: Download pre-built GhosttyKit.xcframework
           no_output_timeout: 35m
           command: ./scripts/download-prebuilt-ghosttykit.sh
-      - attach_workspace:
-          at: .
-      - install-zig
       - resolve-swift-packages:
           scheme: cmux
           source-packages-dir: .spm-cache
@@ -365,12 +281,14 @@ jobs:
           name: Build universal app (Release)
           no_output_timeout: 35m
           command: |
+            export CMUX_SKIP_ZIG_BUILD=1
             xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Release -derivedDataPath build-universal \
               -destination "generic/platform=macOS" \
               -clonedSourcePackagesDirPath .spm-cache \
               -disableAutomaticPackageResolution \
               ARCHS="arm64 x86_64" \
               ONLY_ACTIVE_ARCH=NO \
+              CMUX_SKIP_ZIG_BUILD=1 \
               CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly build
       - save-swift-package-cache:
           prefix: release
@@ -387,16 +305,9 @@ workflows:
               pattern: "^pull/.*"
               value: << pipeline.git.branch >>
     jobs:
-      - macos-zig-tool
-      - macos-unit-tests:
-          requires:
-            - macos-zig-tool
-      - macos-debug-build:
-          requires:
-            - macos-zig-tool
-      - macos-release-build:
-          requires:
-            - macos-zig-tool
+      - macos-unit-tests
+      - macos-debug-build
+      - macos-release-build
 
   ci-gated:
     when:
@@ -408,15 +319,9 @@ workflows:
     jobs:
       - hold-for-approval:
           type: approval
-      - macos-zig-tool:
-          requires:
-            - hold-for-approval
       - macos-unit-tests:
-          requires:
-            - macos-zig-tool
+          requires: [hold-for-approval]
       - macos-debug-build:
-          requires:
-            - macos-zig-tool
+          requires: [hold-for-approval]
       - macos-release-build:
-          requires:
-            - macos-zig-tool
+          requires: [hold-for-approval]

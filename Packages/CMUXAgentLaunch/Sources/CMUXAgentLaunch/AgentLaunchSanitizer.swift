@@ -57,6 +57,8 @@ public enum AgentLaunchSanitizer {
             return preserveOptions(args, policy: claudePolicy)
         case "codex":
             return preserveOptions(args, policy: codexPolicy)
+        case "pi":
+            return preserveOptions(args, policy: piPolicy)
         case "cursor":
             var tail = args
             if tail.first == "agent" {
