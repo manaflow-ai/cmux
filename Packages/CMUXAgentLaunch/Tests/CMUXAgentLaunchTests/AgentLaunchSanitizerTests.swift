@@ -67,6 +67,38 @@ struct AgentLaunchSanitizerTests {
         )
     }
 
+    @Test("Drops pi --resume / -r and preserves later options")
+    func dropsPiResumeBeforePreservingLaterOptions() {
+        // Pi's `--resume`/`-r` is a boolean flag (consumes no value): it
+        // opens the session-picker. Different from gemini/cursor where
+        // `--resume` takes a value. Pi keeps it in droppedOptions ONLY
+        // (not in valueOptions) so optionWidth returns 1 and the
+        // following options must survive.
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["pi", "--resume", "--model", "claude-sonnet-4-5"],
+                launcher: "pi",
+                fallbackKind: "pi"
+            ) == ["pi", "--model", "claude-sonnet-4-5"]
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["pi", "-r", "--provider", "anthropic", "--thinking", "medium"],
+                launcher: "pi",
+                fallbackKind: "pi"
+            ) == ["pi", "--provider", "anthropic", "--thinking", "medium"]
+        )
+        // Mixed with other session selectors that ARE in droppedOptions
+        // -- everything session-related vanishes, model/provider stay.
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["pi", "--continue", "-r", "--no-session", "--model", "sonnet"],
+                launcher: "pi",
+                fallbackKind: "pi"
+            ) == ["pi", "--model", "sonnet"]
+        )
+    }
+
     @Test("Drops pi positional prompt and stops parsing")
     func dropsPiPositionalPromptAndStopsParsing() {
         #expect(
