@@ -72,6 +72,22 @@ Plus pure-parser tests that don't touch git, so the parser stays testable in iso
 - `cmux worktree gc --dry-run` / `cmux worktree gc` for explicit cleanup.
 - Compose with [#3323](https://github.com/manaflow-ai/cmux/issues/3323) (file-lock broker) once that lands.
 
+### Process-helper timeout (cross-cutting, deferred from Phase 1)
+
+`WorktreeManager.runGit` and `Sources/PortScanner.swift`'s `captureStandardOutput` both call `process.waitUntilExit()` with no timeout. git can hang on credential / SSH passphrase prompts, locked indexes, or unresponsive remotes; once Phase 2/4 wires `snapshot()` / `add()` into the pane lifecycle on a worker thread, a single hung invocation stalls that thread permanently.
+
+Phase 1 ships without timeout because the operations driven from tests are local-only and credential-free (`init`, `config`, `commit`, `worktree add` without remote, `branch`, `rev-parse`, `show-ref`, `stash create`). Phase 2 must add timeout consistently to **both** helpers so the repo carries one pattern.
+
+Required steps (the naive `group.wait(timeout:) → throw` pattern races the `defer` block against in-flight `readDataToEndOfFile` calls and leaks `group.leave()`s):
+
+1. `process.terminate()` (SIGTERM).
+2. `process.waitUntilExit()` so the child closes its write-ends and `readDataToEndOfFile()` drains return naturally.
+3. `group.wait(timeout: short-grace)` to confirm the drain closures have completed before we close the read handles.
+4. SIGKILL fallback if the grace period elapses (hooks can ignore SIGTERM).
+5. Throw a typed timeout error.
+
+A configurable `gitCommandTimeoutSeconds` (or a unified `Process.captureWithTimeout` helper covering both `WorktreeManager` and `PortScanner`) is the natural surface. Tracked in PR [#3415](https://github.com/manaflow-ai/cmux/pull/3415) review thread (CodeRabbit).
+
 ## Design notes / decisions
 
 ### Why a parser separate from the Process call
