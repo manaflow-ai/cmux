@@ -5932,11 +5932,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func repairMainWindowOrderingAfterAppActivation() {
         guard NSApp.modalWindow == nil else { return }
-        if let keyWindow = NSApp.keyWindow,
-           keyWindow.isVisible,
-           !isMainTerminalWindow(keyWindow) {
-            return
+
+        let topmostVisible = NSApp.orderedWindows.first { window in
+            window.isVisible && !window.isMiniaturized
         }
+        if let topmostVisible {
+            if !isMainTerminalWindow(topmostVisible) {
+                return
+            }
+            if topmostVisible.isKeyWindow {
+                return
+            }
+        }
+
         _ = foregroundPreferredMainWindowForAppActivation()
     }
 
@@ -5947,8 +5955,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if let mainWindow = NSApp.mainWindow,
-           isMainTerminalWindow(mainWindow) {
+           isMainTerminalWindow(mainWindow),
+           mainWindow.isVisible,
+           !mainWindow.isMiniaturized {
             return mainWindow
+        }
+
+        if let frontmost = NSApp.orderedWindows.first(where: { window in
+            window.isVisible
+                && !window.isMiniaturized
+                && isMainTerminalWindow(window)
+        }) {
+            return frontmost
         }
 
         return sortedMainWindowContextsForSessionSnapshot().compactMap { context in
@@ -13532,6 +13550,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
 #if DEBUG
+        cmuxDebugLog("mainWindow.bringToFront window={\(debugWindowToken(window))}")
         debugBringToFrontObserver?(window)
 #endif
         setActiveMainWindow(window)
