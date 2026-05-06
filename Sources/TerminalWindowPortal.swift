@@ -1726,61 +1726,34 @@ final class WindowTerminalPortal: NSObject {
     }
 #endif
 
-    func viewAtWindowPoint(_ windowPoint: NSPoint) -> NSView? {
+    private func hostedScrollViewAtWindowPoint(_ windowPoint: NSPoint) -> (view: GhosttySurfaceScrollView, point: NSPoint)? {
         guard ensureInstalled() else { return nil }
         let point = hostView.convert(windowPoint, from: nil)
 
-        // Restrict hit-testing to currently mapped entries so stale detached views
-        // can't steal file-drop/mouse routing.
         for subview in hostView.subviews.reversed() {
-            guard let hostedView = subview as? GhosttySurfaceScrollView else { continue }
-            let hostedId = ObjectIdentifier(hostedView)
-            guard entriesByHostedId[hostedId] != nil else { continue }
-            guard !hostedView.isHidden else { continue }
-            guard hostedView.frame.contains(point) else { continue }
-            let localPoint = hostedView.convert(point, from: hostView)
-            return hostedView.hitTest(localPoint) ?? hostedView
+            guard let hostedView = subview as? GhosttySurfaceScrollView,
+                  entriesByHostedId[ObjectIdentifier(hostedView)] != nil,
+                  !hostedView.isHidden,
+                  hostedView.frame.contains(point) else { continue }
+            return (hostedView, hostedView.convert(point, from: hostView))
         }
 
         return nil
+    }
+
+    func viewAtWindowPoint(_ windowPoint: NSPoint) -> NSView? {
+        guard let hit = hostedScrollViewAtWindowPoint(windowPoint) else { return nil }
+        return hit.view.hitTest(hit.point) ?? hit.view
     }
 
     func terminalViewAtWindowPoint(_ windowPoint: NSPoint) -> GhosttyNSView? {
-        guard ensureInstalled() else { return nil }
-        let point = hostView.convert(windowPoint, from: nil)
-
-        for subview in hostView.subviews.reversed() {
-            guard let hostedView = subview as? GhosttySurfaceScrollView else { continue }
-            let hostedId = ObjectIdentifier(hostedView)
-            guard entriesByHostedId[hostedId] != nil else { continue }
-            guard !hostedView.isHidden else { continue }
-            guard hostedView.frame.contains(point) else { continue }
-            let localPoint = hostedView.convert(point, from: hostView)
-            if let terminal = hostedView.terminalViewForDrop(at: localPoint) {
-                return terminal
-            }
-        }
-
-        return nil
+        guard let hit = hostedScrollViewAtWindowPoint(windowPoint) else { return nil }
+        return hit.view.terminalViewForDrop(at: hit.point)
     }
 
     func terminalPaneDropTargetAtWindowPoint(_ windowPoint: NSPoint) -> TerminalPaneDropTargetView? {
-        guard ensureInstalled() else { return nil }
-        let point = hostView.convert(windowPoint, from: nil)
-
-        for subview in hostView.subviews.reversed() {
-            guard let hostedView = subview as? GhosttySurfaceScrollView else { continue }
-            let hostedId = ObjectIdentifier(hostedView)
-            guard entriesByHostedId[hostedId] != nil else { continue }
-            guard !hostedView.isHidden else { continue }
-            guard hostedView.frame.contains(point) else { continue }
-            let localPoint = hostedView.convert(point, from: hostView)
-            if let target = hostedView.paneDropTargetForDrop(at: localPoint) {
-                return target
-            }
-        }
-
-        return nil
+        guard let hit = hostedScrollViewAtWindowPoint(windowPoint) else { return nil }
+        return hit.view.paneDropTargetForDrop(at: hit.point)
     }
 }
 
