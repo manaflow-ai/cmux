@@ -697,12 +697,13 @@ final class TerminalNotificationStore: ObservableObject {
             let nextMenuSnapshot = NotificationMenuSnapshotBuilder.make(notifications: notifications)
             if notificationMenuSnapshot != nextMenuSnapshot { notificationMenuSnapshot = nextMenuSnapshot }
             refreshDockBadge()
-            CmuxEventBus.shared.publishNotificationChanges(oldValue: oldValue, newValue: notifications)
+            if !suppressNotificationDiffPublishing { CmuxEventBus.shared.publishNotificationChanges(oldValue: oldValue, newValue: notifications) }
         }
     }
     @Published private(set) var notificationMenuSnapshot = NotificationMenuSnapshotBuilder.make(notifications: [])
     @Published private(set) var focusedReadIndicatorByTabId: [UUID: UUID] = [:]
     @Published private(set) var authorizationState: NotificationAuthorizationState = .unknown
+    private var suppressNotificationDiffPublishing = false
 
     private let center = UNUserNotificationCenter.current()
     private var hasRequestedAutomaticAuthorization = false
@@ -1079,11 +1080,13 @@ final class TerminalNotificationStore: ObservableObject {
         center.removeDeliveredNotificationsOffMain(withIdentifiers: [id.uuidString])
     }
 
+    private func replaceNotificationsForClear(_ next: [TerminalNotification]) { suppressNotificationDiffPublishing = true; notifications = next; suppressNotificationDiffPublishing = false }
+
     func clearAll(discardQueuedNotifications: Bool = true) {
         if discardQueuedNotifications { TerminalMutationBus.shared.discardPendingNotifications() }
         guard !notifications.isEmpty || !focusedReadIndicatorByTabId.isEmpty else { return }
         let ids = notifications.map { $0.id.uuidString }
-        notifications.removeAll()
+        replaceNotificationsForClear([])
         focusedReadIndicatorByTabId.removeAll()
         CmuxEventBus.shared.publishNotificationCleared(ids: ids, workspaceId: nil, surfaceId: nil)
         center.removeDeliveredNotificationsOffMain(withIdentifiers: ids)
@@ -1107,7 +1110,7 @@ final class TerminalNotificationStore: ObservableObject {
             }
         }
         guard !idsToClear.isEmpty else { return }
-        notifications = updated
+        replaceNotificationsForClear(updated)
         clearFocusedReadIndicator(forTabId: tabId, surfaceId: surfaceId)
         CmuxEventBus.shared.publishNotificationCleared(ids: idsToClear, workspaceId: tabId, surfaceId: surfaceId)
         center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
@@ -1127,7 +1130,7 @@ final class TerminalNotificationStore: ObservableObject {
             }
         }
         guard !idsToClear.isEmpty else { return }
-        notifications = updated
+        replaceNotificationsForClear(updated)
         clearFocusedReadIndicator(forTabId: tabId)
         CmuxEventBus.shared.publishNotificationCleared(ids: idsToClear, workspaceId: tabId, surfaceId: nil)
         center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)

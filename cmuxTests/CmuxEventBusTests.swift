@@ -218,6 +218,49 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertEqual(replacedIds, [oldNotification.id.uuidString])
     }
 
+    @MainActor
+    func testBulkNotificationClearPublishesClearedWithoutRemovedDuplicates() throws {
+        let store = TerminalNotificationStore.shared
+        let workspaceId = UUID()
+        let notifications = [
+            TerminalNotification(
+                id: UUID(),
+                tabId: workspaceId,
+                surfaceId: nil,
+                title: "First",
+                subtitle: "",
+                body: "",
+                createdAt: Date(),
+                isRead: false
+            ),
+            TerminalNotification(
+                id: UUID(),
+                tabId: workspaceId,
+                surfaceId: nil,
+                title: "Second",
+                subtitle: "",
+                body: "",
+                createdAt: Date(),
+                isRead: false
+            )
+        ]
+        defer {
+            store.replaceNotificationsForTesting([])
+            CmuxEventBus.shared.resetForTesting()
+        }
+
+        store.replaceNotificationsForTesting(notifications)
+        CmuxEventBus.shared.resetForTesting()
+
+        store.clearNotifications(forTabId: workspaceId, discardQueuedNotifications: false)
+
+        let events = CmuxEventBus.shared.retainedSnapshot()
+        XCTAssertEqual(events.compactMap { $0["name"] as? String }, ["notification.cleared"])
+        let payload = try XCTUnwrap(events.first?["payload"] as? [String: Any])
+        XCTAssertEqual(Set(payload["notification_ids"] as? [String] ?? []), Set(notifications.map { $0.id.uuidString }))
+        XCTAssertEqual(payload["count"] as? Int, 2)
+    }
+
     func testNotificationSocketParamsRedactTextFields() throws {
         let redacted = CmuxSocketEventMapper.redactedNotificationParams([
             "title": "Secret title",
