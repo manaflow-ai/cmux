@@ -86,7 +86,20 @@ jobs:
                 ;;
             esac
             ZIG_DIR="/tmp/zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}"
-            curl -fSL "https://ziglang.org/download/${ZIG_REQUIRED}/zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}.tar.xz" -o /tmp/zig.tar.xz
+            download_with_retries() {
+              local url="$1"
+              local output="$2"
+              local attempt
+              for attempt in 1 2 3 4 5; do
+                if curl -fSL --connect-timeout 20 --max-time 180 "$url" -o "$output"; then
+                  return 0
+                fi
+                echo "Download failed on attempt ${attempt}: ${url}" >&2
+                sleep $((attempt * 5))
+              done
+              return 1
+            }
+            download_with_retries "https://ziglang.org/download/${ZIG_REQUIRED}/zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}.tar.xz" /tmp/zig.tar.xz
             tar xf /tmp/zig.tar.xz -C /tmp
             sudo mkdir -p /usr/local/bin /usr/local/lib
             sudo cp -f "${ZIG_DIR}/zig" /usr/local/bin/zig
