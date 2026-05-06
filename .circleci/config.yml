@@ -49,13 +49,6 @@ commands:
             export PATH="$NPM_GLOBAL/bin:$PATH"
             test "$(bun --version)" = "$BUN_VERSION"
 
-  install-zig:
-    steps:
-      - run:
-          name: Install zig
-          no_output_timeout: 35m
-          command: ./scripts/ci/install-zig.sh
-
   print-xcode:
     steps:
       - run:
@@ -145,13 +138,13 @@ jobs:
           name: Download pre-built GhosttyKit.xcframework
           no_output_timeout: 35m
           command: ./scripts/download-prebuilt-ghosttykit.sh
-      - install-zig
       - resolve-swift-packages:
           scheme: cmux-unit
       - run:
           name: Run unit tests
           no_output_timeout: 35m
           command: |
+            export CMUX_SKIP_ZIG_BUILD=1
             SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
             run_unit_tests() {
               xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux-unit -configuration Debug \
@@ -236,13 +229,13 @@ jobs:
           name: Download pre-built GhosttyKit.xcframework
           no_output_timeout: 35m
           command: ./scripts/download-prebuilt-ghosttykit.sh
-      - install-zig
       - resolve-swift-packages:
           scheme: cmux
       - run:
           name: Build app and capture warnings
           no_output_timeout: 35m
           command: |
+            export CMUX_SKIP_ZIG_BUILD=1
             SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
             xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
@@ -268,7 +261,6 @@ jobs:
           name: Download pre-built GhosttyKit.xcframework
           no_output_timeout: 35m
           command: ./scripts/download-prebuilt-ghosttykit.sh
-      - install-zig
       - resolve-swift-packages:
           scheme: cmux
           source-packages-dir: .spm-cache
@@ -276,6 +268,7 @@ jobs:
           name: Build universal app (Release)
           no_output_timeout: 35m
           command: |
+            export CMUX_SKIP_ZIG_BUILD=1
             xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Release -derivedDataPath build-universal \
               -destination "generic/platform=macOS" \
               -clonedSourcePackagesDirPath .spm-cache \
