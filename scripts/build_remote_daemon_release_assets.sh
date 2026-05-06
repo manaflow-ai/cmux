@@ -79,13 +79,8 @@ mkdir -p "$OUTPUT_DIR"
 OUTPUT_DIR="$(cd "$OUTPUT_DIR" && pwd)"
 rm -f "$OUTPUT_DIR"/cmuxd-remote-* "$OUTPUT_DIR"/cmuxd-remote-checksums.txt "$OUTPUT_DIR"/cmuxd-remote-manifest.json
 
-DAEMON_GO_LDFLAGS="-s -w -X main.version=${VERSION}"
-DAEMON_GO_BUILD_ARGS=(
-  build
-  -trimpath
-  -buildvcs=false
-  -ldflags "$DAEMON_GO_LDFLAGS"
-)
+DAEMON_GO_LDFLAGS_BASE="-s -w -X main.version=${VERSION}"
+GOHOSTOS="$(go env GOHOSTOS)"
 
 SUFFIX_TAG=""
 if [[ -n "$ASSET_SUFFIX" ]]; then
@@ -113,6 +108,22 @@ for target in "${TARGETS[@]}"; do
   ASSET_NAME="cmuxd-remote-${GOOS}-${GOARCH}${SUFFIX_TAG}"
   OUTPUT_PATH="${OUTPUT_DIR}/${ASSET_NAME}"
 
+  CGO_ENABLED_VALUE="0"
+  DAEMON_GO_LDFLAGS="$DAEMON_GO_LDFLAGS_BASE"
+  if [[ "$GOOS" == "darwin" && "$GOHOSTOS" == "darwin" ]]; then
+    # Darwin 25 rejects Go's internal-linker Mach-O output because it lacks
+    # LC_UUID. Let Apple's linker produce macOS assets when building on macOS.
+    CGO_ENABLED_VALUE="1"
+    DAEMON_GO_LDFLAGS="-s -w -linkmode=external -X main.version=${VERSION}"
+  fi
+
+  DAEMON_GO_BUILD_ARGS=(
+    build
+    -trimpath
+    -buildvcs=false
+    -ldflags "$DAEMON_GO_LDFLAGS"
+  )
+
   # Build into a temp path first, then rename (the binary content is the same
   # regardless of suffix, so we build once and move).
   BUILD_PATH="${OUTPUT_DIR}/cmuxd-remote-${GOOS}-${GOARCH}.build"
@@ -120,11 +131,19 @@ for target in "${TARGETS[@]}"; do
     cd "$DAEMON_ROOT"
     GOOS="$GOOS" \
     GOARCH="$GOARCH" \
-    CGO_ENABLED=0 \
+    CGO_ENABLED="$CGO_ENABLED_VALUE" \
     go "${DAEMON_GO_BUILD_ARGS[@]}" \
       -o "$BUILD_PATH" \
       ./cmd/cmuxd-remote
   )
+
+  if [[ "$GOOS" == "darwin" && "$GOHOSTOS" == "darwin" ]]; then
+    if ! otool -l "$BUILD_PATH" | grep -q "cmd LC_UUID"; then
+      echo "error: built Darwin asset is missing LC_UUID: $BUILD_PATH" >&2
+      exit 1
+    fi
+  fi
+
   mv "$BUILD_PATH" "$OUTPUT_PATH"
   chmod 755 "$OUTPUT_PATH"
 

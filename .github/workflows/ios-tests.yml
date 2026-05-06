@@ -1,0 +1,89 @@
+name: iOS Tests
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/ios-tests.yml"
+      - "ghostty/**"
+      - "ios/**"
+      - "rust/cmux-cli/**"
+      - "scripts/download-prebuilt-ghosttykit.sh"
+      - "scripts/ensure-ghosttykit.sh"
+      - "scripts/ghosttykit-checksums.txt"
+      - "scripts/validate-xcframework-archive.py"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  ios-tests:
+    runs-on: warp-macos-26-arm64-6x
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          submodules: recursive
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
+            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
+          else
+            XCODE_APP="$(ls -d /Applications/Xcode*.app 2>/dev/null | sort | tail -n 1 || true)"
+            if [ -n "$XCODE_APP" ]; then
+              XCODE_DIR="$XCODE_APP/Contents/Developer"
+            else
+              echo "No Xcode.app found under /Applications" >&2
+              exit 1
+            fi
+          fi
+          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
+          export DEVELOPER_DIR="$XCODE_DIR"
+          xcodebuild -version
+          xcrun --sdk iphonesimulator --show-sdk-path
+
+      - name: Download pre-built GhosttyKit.xcframework
+        run: ./scripts/download-prebuilt-ghosttykit.sh
+
+      - name: Install Rust iOS simulator target
+        run: rustup target add aarch64-apple-ios-sim
+
+      - name: Pick iOS simulator
+        id: simulator
+        run: |
+          set -euo pipefail
+          SIMULATOR_CHOICE="$(
+            xcrun simctl list devices available |
+              sed -nE 's/^[[:space:]]+(iPhone[^()]*) \(([A-F0-9-]+)\) \((Booted|Shutdown)\).*$/\1	\2/p' |
+              head -1
+          )"
+          if [ -z "$SIMULATOR_CHOICE" ]; then
+            echo "No available iPhone simulator found" >&2
+            xcrun simctl list devices available >&2
+            exit 1
+          fi
+          SIMULATOR_NAME="$(printf '%s' "$SIMULATOR_CHOICE" | cut -f1 | sed -E 's/[[:space:]]+$//')"
+          SIMULATOR_ID="$(printf '%s' "$SIMULATOR_CHOICE" | cut -f2)"
+          if [ -z "$SIMULATOR_NAME" ] || [ -z "$SIMULATOR_ID" ]; then
+            echo "Failed to parse simulator choice: $SIMULATOR_CHOICE" >&2
+            exit 1
+          fi
+          echo "name=$SIMULATOR_NAME" >> "$GITHUB_OUTPUT"
+          echo "id=$SIMULATOR_ID" >> "$GITHUB_OUTPUT"
+          echo "Using simulator: $SIMULATOR_NAME ($SIMULATOR_ID)"
+
+      - name: Run iOS unit and UI tests
+        run: |
+          set -euo pipefail
+          defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool false
+          xcodebuild \
+            -project ios/cmux-ios.xcodeproj \
+            -scheme cmux-ios \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=${{ steps.simulator.outputs.id }}" \
+            -derivedDataPath build/ios-tests \
+            test

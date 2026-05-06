@@ -1,17 +1,46 @@
 # TODO
 
+## iOS cmx Sync
+- [x] Render iOS terminal with actual libghostty/GhosttyKit instead of `libghostty-vt`
+- [x] Feed PTY bytes into Ghostty and route iOS input back through terminal-scoped state
+- [x] Dogfood simulator rendering, colors, and typing with tagged app `gsty`
+- [x] Add Swift `cmx` MessagePack codec coverage for `Hello`, `PtyBytes`, `Input`, framing, ticket routes, token redaction, and launch dogfood hooks
+- [x] Add iOS Stack/Rivet pairing proof code that matches the Rust iroh bridge HMAC test vector
+- [x] Add Rust native `libghostty` renderer mode: iOS requests raw PTY replay/live PTY bytes instead of server `TerminalGridSnapshot`
+- [x] Decode Rust `NativeSnapshot` on iOS and replace demo workspace/space/tab state with Rust-owned state after connect
+- [x] Replace connected-mode local echo with a real `cmx` WebSocket dev stream for `Hello`/`PtyBytes`/`Input` dogfood
+- [x] Switch iOS dev attach to `HelloNative` + `NativeInput` + `NativeLayout` so visible terminal input and resize target the Rust tab id
+- [x] Dogfood simulator against a real Rust `cmx server --ws-bind 0.0.0.0:8787 --auth-token dev`; typed text renders back through Ghostty, proving the two-way stream
+- [x] Add behavior coverage for the real libghostty renderer: unchanged PTY bytes, surface creation, ANSI output rendering, and outbound input
+- [x] Add iMessage-style node/workspace inbox shell with full-width conversation rows and node pins
+- [x] Copy the rail/resize bounds helper from the previous iOS branch and add a tmux dogfood test that verifies it tracks maximum pane size after resize
+- [x] Carry non-secret node metadata in iroh bridge tickets and use it for connected iOS node rows
+- [x] Handle Stack Auth native callbacks on iOS, persist tokens in Keychain, and require a stored Stack session before using `rivet_stack` tickets
+- [x] Fetch and validate Stack-authenticated Rivet pairing secrets before a production ticket opens transport
+- [x] Keep the iPad terminal inside the split-view detail column and resize the Ghostty surface above the software keyboard/accessory bar
+- [x] Visually dogfood one shared shell across iPhone simulator, iPad simulator, and `cmx attach`, including the `lawrence in ~/fun/cmux-cli on main λ` prompt and iPhone-typed output appearing in cmux-tmux
+- [x] Verify Rust daemon integration coverage for `Hello`/`PtyBytes`/`Input`, native `libghostty` PTY byte streaming, native layout resize, attached native client layouts, and the rail/bounds resize helper
+- [x] Add a reusable Rust iroh client connector that decodes bridge tickets, proves Rivet pairing-secret possession, and opens an authenticated cmx stream for the future iOS binding
+- [x] Expand the iOS terminal keyboard action scroller with terminal actions, one-shot/sticky Ctrl/Alt/Shift modifiers, and Mac-only Cmd affordances inferred from connected node metadata
+- [x] Add the real iroh transport for production tickets without a WebSocket route, while keeping explicit WebSocket routes as a dev fallback
+- [x] Surface measured ping/pong latency in the iOS title bar and the cmux TUI status bar
+- [x] Let `cmux-iroh-bridge` users press `c` to copy the current bridge ticket via OSC 52
+- [x] Add committed iOS UI automation coverage that types into Ghostty and verifies the rendered terminal output in CI
+- [x] Add Stack-authenticated iOS hive discovery so a configured Rivet endpoint replaces the demo node/workspace inbox before terminal attach
+- [x] Implement the production Rivet actor/API for signed-in hive discovery records
+
 ## Issue 151: Remote SSH (Living Execution)
 - [x] `cmux ssh` creates remote workspace metadata and does not require `--name`
 - [x] Remote daemon bootstrap/upload/start path with `cmuxd-remote serve --stdio`
 - [x] Reconnect/disconnect controls (CLI/API/context menu) + improved error surfacing
 - [x] Retry count/time surfaced in remote daemon/probe error details
-- [ ] Remove automatic remote service port mirroring (`ssh -L` from detected remote listening ports)
-- [ ] Add transport-scoped proxy broker (SOCKS5 + HTTP CONNECT) for remote traffic
-- [ ] Extend `cmuxd-remote` RPC beyond `hello/ping` with proxy stream methods (`proxy.open|close`)
-- [ ] Auto-wire WKWebView in remote workspaces to proxy via `WKWebsiteDataStore.proxyConfigurations`
-- [ ] Add browser proxy e2e tests (remote egress IP, websocket, reconnect continuity)
-- [ ] Implement PTY resize coordinator with tmux semantics (`smallest screen wins`)
-- [ ] Add resize tests for multi-attachment sessions (attach/detach/reconnect transitions)
+- [x] Remove automatic remote service port mirroring (`ssh -L` from detected remote listening ports)
+- [x] Add transport-scoped proxy broker (SOCKS5 + HTTP CONNECT) for remote traffic
+- [x] Extend `cmuxd-remote` RPC beyond `hello/ping` with proxy stream methods (`proxy.open|close`)
+- [x] Auto-wire WKWebView in remote workspaces to proxy via `WKWebsiteDataStore.proxyConfigurations`
+- [x] Add browser proxy e2e tests (remote egress IP, websocket, reconnect continuity)
+- [x] Implement PTY resize coordinator with tmux semantics (`smallest screen wins`)
+- [x] Add resize tests for multi-attachment sessions (attach/detach/reconnect transitions)
 
 ## Socket API / Agent
 - [x] Add window handles + `window.list/current/focus/create/close` for multi-window socket control (v2) + v1 equivalents (`list_windows`, etc) + CLI support.
