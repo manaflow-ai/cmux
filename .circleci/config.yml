@@ -71,7 +71,7 @@ commands:
             esac
 
             if ! command -v minisign >/dev/null 2>&1; then
-              brew install minisign
+              HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install minisign
             fi
 
             ZIG_URL="https://ziglang.org/download/${ZIG_REQUIRED}/zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}.tar.xz"
@@ -83,7 +83,7 @@ commands:
               local attempt
 
               for attempt in 1 2 3 4 5; do
-                if curl -fSL --connect-timeout 30 --max-time 600 "$url" -o "$output"; then
+                if curl -fSL --connect-timeout 30 --max-time 600 --speed-limit 1024 --speed-time 60 "$url" -o "$output"; then
                   return 0
                 fi
 
