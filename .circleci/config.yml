@@ -83,16 +83,16 @@ commands:
               output="$2"
               tmp_output="${output}.part"
               attempt=1
+              rm -f "$tmp_output"
               while [ "$attempt" -le 5 ]; do
-                rm -f "$tmp_output"
-                if curl -fSL --connect-timeout 10 --max-time 1800 --retry 3 --retry-delay 2 --retry-all-errors -o "$tmp_output" "$url"; then
+                if curl -fSL --continue-at - --connect-timeout 10 --max-time 1800 --retry 3 --retry-delay 2 --retry-all-errors -o "$tmp_output" "$url"; then
                   mv "$tmp_output" "$output"
                   return 0
                 fi
-                rm -f "$tmp_output"
                 sleep "$((attempt * 5))"
                 attempt="$((attempt + 1))"
               done
+              rm -f "$tmp_output"
               return 1
             }
             download_with_retries "$ZIG_URL" /tmp/zig.tar.xz
