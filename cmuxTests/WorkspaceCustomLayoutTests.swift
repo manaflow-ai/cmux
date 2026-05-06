@@ -75,7 +75,7 @@ final class WorkspaceCustomLayoutTests: XCTestCase {
         let layout = try JSONDecoder().decode(CmuxLayoutNode.self, from: layoutData)
 
         let workspace = Workspace()
-        XCTAssertTrue(workspace.applyCustomLayout(layout, baseCwd: root.path))
+        XCTAssertTrue(workspace.applyCustomLayout(layout, baseCwd: root.path).isSuccess)
 
         let markdownPanels = workspace.panels.values.compactMap { $0 as? MarkdownPanel }
         XCTAssertEqual(markdownPanels.count, 2)
@@ -152,7 +152,9 @@ final class WorkspaceCustomLayoutTests: XCTestCase {
         let workspace = Workspace()
         let initialPanelIds = Set(workspace.panels.keys)
 
-        XCTAssertFalse(workspace.applyCustomLayout(layout, baseCwd: root.path))
+        let applyResult = workspace.applyCustomLayout(layout, baseCwd: root.path)
+        XCTAssertFalse(applyResult.isSuccess)
+        XCTAssertEqual(applyResult.markdownPathFailure?.code, "not_found")
         XCTAssertEqual(Set(workspace.panels.keys), initialPanelIds)
         XCTAssertTrue(workspace.panels.values.allSatisfy { $0 is TerminalPanel })
     }

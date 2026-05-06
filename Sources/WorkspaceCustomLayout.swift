@@ -28,6 +28,29 @@ func absoluteCustomLayoutDirectory(_ directory: String) -> String {
     ).standardizingPath
 }
 
+enum WorkspaceCustomLayoutApplyResult {
+    case success
+    case failure(markdownPath: CmuxReadableFilePathResolutionFailure?)
+
+    var isSuccess: Bool {
+        switch self {
+        case .success:
+            return true
+        case .failure:
+            return false
+        }
+    }
+
+    var markdownPathFailure: CmuxReadableFilePathResolutionFailure? {
+        switch self {
+        case .success:
+            return nil
+        case .failure(let markdownPath):
+            return markdownPath
+        }
+    }
+}
+
 @MainActor
 func customLayoutBaseCwdForNewWorkspace(
     tabManager: TabManager,
@@ -47,15 +70,22 @@ func customLayoutBaseCwdForNewWorkspace(
 
 extension Workspace {
 
-    func applyCustomLayout(_ layout: CmuxLayoutNode, baseCwd: String) -> Bool {
+    func applyCustomLayout(_ layout: CmuxLayoutNode, baseCwd: String) -> WorkspaceCustomLayoutApplyResult {
         let resolvedLayout = layout.resolvingMarkdownPaths(relativeTo: baseCwd)
         if let failure = resolvedLayout.failure {
             logCustomLayoutMarkdownPathFailure(failure, context: "layout application")
-            return false
+            return .failure(markdownPath: failure)
         }
-        guard let layout = resolvedLayout.layout else { return false }
+        guard let layout = resolvedLayout.layout else { return .failure(markdownPath: nil) }
 
-        guard let rootPaneId = bonsplitController.allPaneIds.first else { return false }
+        return applyResolvedCustomLayout(layout, baseCwd: baseCwd)
+    }
+
+    func applyResolvedCustomLayout(
+        _ layout: CmuxLayoutNode,
+        baseCwd: String
+    ) -> WorkspaceCustomLayoutApplyResult {
+        guard let rootPaneId = bonsplitController.allPaneIds.first else { return .failure(markdownPath: nil) }
 
         var leaves: [(paneId: PaneID, surfaces: [CmuxSurfaceDefinition])] = []
         buildCustomLayoutTree(layout, inPane: rootPaneId, leaves: &leaves)
@@ -71,7 +101,7 @@ extension Workspace {
                 baseCwd: baseCwd,
                 focusPanelId: &focusPanelId
             ) else {
-                return false
+                return .failure(markdownPath: nil)
             }
         }
 
@@ -81,7 +111,7 @@ extension Workspace {
         if let focusPanelId {
             focusPanel(focusPanelId)
         }
-        return true
+        return .success
     }
 
     private func buildCustomLayoutTree(

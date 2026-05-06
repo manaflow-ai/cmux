@@ -4200,13 +4200,23 @@ class TerminalController {
         let layoutBaseCwd = layoutNode == nil
             ? nil
             : v2MainSync { customLayoutBaseCwdForNewWorkspace(tabManager: tabManager, requestedCwd: cwd) }
-        if let layoutBaseCwd,
-           let failure = layoutNode?.firstMarkdownPathResolutionFailure(relativeTo: layoutBaseCwd) {
-            return .err(
-                code: failure.code,
-                message: "Invalid layout: \(failure.message)",
-                data: ["path": failure.path]
-            )
+        let resolvedLayoutNode: CmuxLayoutNode?
+        if let layoutNode,
+           let layoutBaseCwd {
+            let resolution = layoutNode.resolvingMarkdownPaths(relativeTo: layoutBaseCwd)
+            if let failure = resolution.failure {
+                return .err(
+                    code: failure.code,
+                    message: "Invalid layout: \(failure.message)",
+                    data: ["path": failure.path]
+                )
+            }
+            guard let layout = resolution.layout else {
+                return .err(code: "internal_error", message: "Failed to resolve custom layout", data: nil)
+            }
+            resolvedLayoutNode = layout
+        } else {
+            resolvedLayoutNode = nil
         }
 
         let shouldFocus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
@@ -4215,12 +4225,6 @@ class TerminalController {
             failure: CmuxReadableFilePathResolutionFailure?,
             internalErrorMessage: String?
         ) = v2MainSync {
-            if let layoutNode,
-               let layoutBaseCwd,
-               let failure = layoutNode.firstMarkdownPathResolutionFailure(relativeTo: layoutBaseCwd) {
-                return (nil, failure, nil)
-            }
-
             let ws = tabManager.addWorkspace(
                 title: title,
                 workingDirectory: layoutBaseCwd ?? cwd,
@@ -4230,12 +4234,16 @@ class TerminalController {
                 eagerLoadTerminal: !shouldFocus
             )
             ws.setCustomDescription(description)
-            if let layoutNode,
+            if let resolvedLayoutNode,
                let layoutBaseCwd {
-                guard ws.applyCustomLayout(layoutNode, baseCwd: layoutBaseCwd) else {
-                    let failure = layoutNode.firstMarkdownPathResolutionFailure(relativeTo: layoutBaseCwd)
+                let applyResult = ws.applyResolvedCustomLayout(resolvedLayoutNode, baseCwd: layoutBaseCwd)
+                guard applyResult.isSuccess else {
                     tabManager.closeWorkspace(ws)
-                    return (nil, failure, "Failed to apply custom layout")
+                    return (
+                        nil,
+                        applyResult.markdownPathFailure,
+                        "Failed to apply custom layout"
+                    )
                 }
             }
             return (ws.id, nil, nil)

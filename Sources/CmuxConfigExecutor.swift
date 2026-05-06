@@ -471,11 +471,12 @@ struct CmuxConfigExecutor {
         let resolvedCwd = absoluteCustomLayoutDirectory(
             CmuxConfigStore.resolveCwd(wsDef.cwd, relativeTo: absoluteBaseCwd)
         )
-        if let layout = wsDef.layout,
-           let failure = layout.firstMarkdownPathResolutionFailure(relativeTo: resolvedCwd) {
+        let resolvedLayout = wsDef.layout?.resolvingMarkdownPaths(relativeTo: resolvedCwd)
+        if let failure = resolvedLayout?.failure {
             logCustomLayoutMarkdownPathFailure(failure, context: "workspace command execution")
             return false
         }
+        guard wsDef.layout == nil || resolvedLayout?.layout != nil else { return false }
 
         let newWorkspace = tabManager.addWorkspace(workingDirectory: resolvedCwd)
         newWorkspace.setCustomTitle(workspaceName)
@@ -483,8 +484,8 @@ struct CmuxConfigExecutor {
             newWorkspace.setCustomColor(color)
         }
 
-        if let layout = wsDef.layout {
-            guard newWorkspace.applyCustomLayout(layout, baseCwd: resolvedCwd) else {
+        if let layout = resolvedLayout?.layout {
+            guard newWorkspace.applyResolvedCustomLayout(layout, baseCwd: resolvedCwd).isSuccess else {
                 tabManager.closeWorkspace(newWorkspace)
                 return false
             }
