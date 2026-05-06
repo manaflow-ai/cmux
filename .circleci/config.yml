@@ -71,7 +71,7 @@ commands:
             esac
 
             if ! command -v minisign >/dev/null 2>&1; then
-              brew install minisign
+              HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install minisign
             fi
 
             ZIG_URL="https://ziglang.org/download/${ZIG_REQUIRED}/zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}.tar.xz"
