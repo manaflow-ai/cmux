@@ -331,7 +331,7 @@ extension CmuxEventBus {
         notification: TerminalNotification,
         payload extraPayload: [String: Any] = [:]
     ) {
-        var payload: [String: Any] = [
+        var payload = CmuxSocketEventMapper.redactedNotificationParams([
             "notification_id": notification.id.uuidString,
             "workspace_id": notification.tabId.uuidString,
             "surface_id": notification.surfaceId?.uuidString ?? NSNull(),
@@ -340,7 +340,7 @@ extension CmuxEventBus {
             "body": notification.body,
             "created_at": notification.createdAt,
             "is_read": notification.isRead
-        ]
+        ])
         extraPayload.forEach { payload[$0.key] = $0.value }
         publish(
             name: name,

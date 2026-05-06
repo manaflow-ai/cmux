@@ -301,6 +301,7 @@ final class CmuxEventBus: @unchecked Sendable {
         return retained
     }
 
+    #if DEBUG
     func resetForTesting() {
         lock.lock()
         nextSequence = 1
@@ -312,7 +313,7 @@ final class CmuxEventBus: @unchecked Sendable {
     }
 
     func flushEventLogForTesting() { Self.eventLogQueue.sync {} }
-
+    #endif
     private func appendEventLogLine(_ line: String) {
         guard let eventLogURL else { return }
         do {
