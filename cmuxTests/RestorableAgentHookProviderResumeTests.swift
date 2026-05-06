@@ -211,6 +211,14 @@ extension SocketListenerAcceptPolicyTests {
                 source: "process"
             )
         )
+        let pi = SessionRestorableAgentSnapshot(
+            kind: .pi, sessionId: "pi-session-123", workingDirectory: "/tmp/pi repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "pi", executablePath: "/Users/example/.bun/bin/pi",
+                arguments: ["/Users/example/.bun/bin/pi", "--model", "anthropic/claude-sonnet-4-5", "--session", "old-session", "--thinking", "high", "initial prompt should not replay"],
+                workingDirectory: "/tmp/pi repo", environment: ["PI_CODING_AGENT_DIR": "/tmp/pi home", "OPENAI_API_KEY": "secret"], capturedAt: 123, source: "process"
+            )
+        )
 
         XCTAssertEqual(
             cursor.resumeCommand,
@@ -232,6 +240,7 @@ extension SocketListenerAcceptPolicyTests {
             qoder.resumeCommand,
             "cd '/tmp/qoder repo' && 'env' 'QODER_CONFIG_DIR=/tmp/qoder config' '/Users/example/.npm/bin/qodercli' '--resume' 'qoder-session-123' '--model' 'gemini-2.5-pro' '--permission-mode' 'plan' '--workspace' '/tmp/qoder repo'"
         )
+        XCTAssertEqual(pi.resumeCommand, "cd '/tmp/pi repo' && 'env' 'PI_CODING_AGENT_DIR=/tmp/pi home' '/Users/example/.bun/bin/pi' '--session' 'pi-session-123' '--model' 'anthropic/claude-sonnet-4-5' '--thinking' 'high'")
     }
 
     func testAgentLaunchSanitizerMatchesGeminiAndRovoResumePolicies() {

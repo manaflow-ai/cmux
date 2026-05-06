@@ -287,6 +287,9 @@ jobs:
           CMUX_SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages" \
             ./tests/test_bundled_ghostty_theme_picker_helper.sh
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
       - name: Run CLI no-socket regressions
         run: |
           set -euo pipefail
@@ -308,6 +311,7 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_operation_deadline.py
           python3 tests/test_claude_wrapper_hooks.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_stop_last_assistant.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_pi_extension_install.py
 
   tests-build-and-lag:
     # Build the full cmux scheme and run the lag regression on WarpBuild.

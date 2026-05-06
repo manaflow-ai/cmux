@@ -36,7 +36,7 @@ concurrency:
 jobs:
   activation-session:
     runs-on: ${{ inputs.runner || 'warp-macos-15-arm64-6x' }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       PERF_TAG: perfci
     steps:
