@@ -24,13 +24,13 @@ enum WorkspaceFinderDirectoryResolver {
         return path.isEmpty ? nil : path
     }
 
-    static func cache(for key: WorkspaceFinderDirectoryCacheKey) async -> WorkspaceFinderDirectoryCache {
+    @concurrent static func cache(for key: WorkspaceFinderDirectoryCacheKey) async -> WorkspaceFinderDirectoryCache {
         guard let path = key.path else { return WorkspaceFinderDirectoryCache(key: key) }
         let directoryURL = await existingDirectoryURL(for: path)
         return WorkspaceFinderDirectoryCache(key: key, directoryURL: directoryURL)
     }
 
-    static func existingDirectoryURL(for path: String) async -> URL? {
+    @concurrent static func existingDirectoryURL(for path: String) async -> URL? {
         await Task.detached(priority: .utility) {
             existingDirectoryURLUnchecked(for: path)
         }.value
