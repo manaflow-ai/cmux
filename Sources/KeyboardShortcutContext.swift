@@ -131,9 +131,11 @@ extension AppDelegate {
     }
 
     private func shortcutFocusedBrowserPanel(in window: NSWindow?) -> BrowserPanel? {
-        if let window,
-           let context = mainWindowContexts[ObjectIdentifier(window)] ??
-               mainWindowContexts.values.first(where: { $0.window === window }) {
+        if let window {
+            guard let context = mainWindowContexts[ObjectIdentifier(window)] ??
+                mainWindowContexts.values.first(where: { $0.window === window }) else {
+                return nil
+            }
             return context.tabManager.focusedBrowserPanel
         }
 

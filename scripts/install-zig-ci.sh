@@ -4,9 +4,12 @@ set -euo pipefail
 ZIG_REQUIRED="${ZIG_REQUIRED:-0.15.2}"
 ZIG_MINISIGN_PUBLIC_KEY="${ZIG_MINISIGN_PUBLIC_KEY:-RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U}"
 
-if command -v zig >/dev/null 2>&1 && zig version 2>/dev/null | grep -q "^${ZIG_REQUIRED}"; then
-  echo "zig ${ZIG_REQUIRED} already installed"
-  exit 0
+if command -v zig >/dev/null 2>&1; then
+  INSTALLED_ZIG_VERSION="$(zig version 2>/dev/null || true)"
+  if [ "$INSTALLED_ZIG_VERSION" = "$ZIG_REQUIRED" ]; then
+    echo "zig ${ZIG_REQUIRED} already installed"
+    exit 0
+  fi
 fi
 
 case "$(uname -m)" in
@@ -57,7 +60,10 @@ if ! download_file "$ZIG_MIRROR_URL" "$ZIG_TAR"; then
   echo "Mirror download failed; retrying from ${ZIG_OFFICIAL_URL}" >&2
   download_file "$ZIG_OFFICIAL_URL" "$ZIG_TAR"
 fi
-download_file "${ZIG_OFFICIAL_URL}.minisig" "$ZIG_SIG"
+if ! download_file "${ZIG_MIRROR_URL}.minisig" "$ZIG_SIG"; then
+  echo "Mirror signature download failed; retrying from ${ZIG_OFFICIAL_URL}.minisig" >&2
+  download_file "${ZIG_OFFICIAL_URL}.minisig" "$ZIG_SIG"
+fi
 minisign -Vm "$ZIG_TAR" -x "$ZIG_SIG" -P "$ZIG_MINISIGN_PUBLIC_KEY"
 
 rm -rf "$ZIG_DIR"
