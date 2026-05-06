@@ -15339,20 +15339,20 @@ struct CMUXCLI {
         while index < tokens.count {
             let token = tokens[index]
 
-            if shouldDropInjectedHeapCap, isInjectedNodeHeapCap(tokens, index: index) {
-                index += nodeHeapCapWidth(tokens, index: index)
+            if shouldDropInjectedHeapCap, NodeOptionsSupport.isInjectedNodeHeapCap(tokens, index: index) {
+                index += NodeOptionsSupport.nodeHeapCapWidth(tokens, index: index)
                 shouldDropInjectedHeapCap = false
                 continue
             }
             shouldDropInjectedHeapCap = false
 
-            if isRequireOption(token), index + 1 < tokens.count,
+            if NodeOptionsSupport.isRequireOption(token), index + 1 < tokens.count,
                NodeOptionsSupport.isCmuxRestoreModulePath(tokens[index + 1]) {
                 index += 2
                 shouldDropInjectedHeapCap = true
                 continue
             }
-            if let path = inlineRequireOptionPath(token),
+            if let path = NodeOptionsSupport.inlineRequireOptionPath(token),
                NodeOptionsSupport.isCmuxRestoreModulePath(path) {
                 index += 1
                 shouldDropInjectedHeapCap = true
@@ -15383,20 +15383,20 @@ struct CMUXCLI {
         while index < tokens.count {
             let token = tokens[index]
 
-            if shouldDropInjectedHeapCap, isInjectedNodeHeapCap(tokens, index: index) {
-                index += nodeHeapCapWidth(tokens, index: index)
+            if shouldDropInjectedHeapCap, NodeOptionsSupport.isInjectedNodeHeapCap(tokens, index: index) {
+                index += NodeOptionsSupport.nodeHeapCapWidth(tokens, index: index)
                 shouldDropInjectedHeapCap = false
                 continue
             }
             shouldDropInjectedHeapCap = false
 
-            if isRequireOption(token), index + 1 < tokens.count,
+            if NodeOptionsSupport.isRequireOption(token), index + 1 < tokens.count,
                NodeOptionsSupport.isCmuxRestoreModulePath(tokens[index + 1]) {
                 index += 2
                 shouldDropInjectedHeapCap = true
                 continue
             }
-            if let path = inlineRequireOptionPath(token),
+            if let path = NodeOptionsSupport.inlineRequireOptionPath(token),
                NodeOptionsSupport.isCmuxRestoreModulePath(path) {
                 index += 1
                 shouldDropInjectedHeapCap = true
@@ -15412,40 +15412,6 @@ struct CMUXCLI {
             index += 1
         }
         return NodeOptionsSupport.joinedTokens(normalized)
-    }
-
-    private func isRequireOption(_ token: String) -> Bool {
-        token == "--require" || token == "-r"
-    }
-
-    private func inlineRequireOptionPath(_ token: String) -> String? {
-        if token.hasPrefix("--require=") {
-            return String(token.dropFirst("--require=".count))
-        }
-        if token.hasPrefix("-r=") {
-            return String(token.dropFirst("-r=".count))
-        }
-        return nil
-    }
-
-    private func isInjectedNodeHeapCap(_ tokens: [String], index: Int) -> Bool {
-        guard index < tokens.count else { return false }
-        let token = tokens[index]
-        if token == "--max-old-space-size=4096" {
-            return true
-        }
-        return token == "--max-old-space-size"
-            && index + 1 < tokens.count
-            && tokens[index + 1] == "4096"
-    }
-
-    private func nodeHeapCapWidth(_ tokens: [String], index: Int) -> Int {
-        guard index < tokens.count,
-              tokens[index] == "--max-old-space-size",
-              index + 1 < tokens.count else {
-            return 1
-        }
-        return 2
     }
 
     // MARK: - Codex hooks

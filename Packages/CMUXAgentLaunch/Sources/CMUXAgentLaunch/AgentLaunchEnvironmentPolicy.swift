@@ -102,20 +102,20 @@ public enum AgentLaunchEnvironmentPolicy {
         while index < tokens.count {
             let token = tokens[index]
 
-            if shouldDropInjectedHeapCap, isInjectedNodeHeapCap(tokens, index: index) {
-                index += nodeHeapCapWidth(tokens, index: index)
+            if shouldDropInjectedHeapCap, NodeOptionsSupport.isInjectedNodeHeapCap(tokens, index: index) {
+                index += NodeOptionsSupport.nodeHeapCapWidth(tokens, index: index)
                 shouldDropInjectedHeapCap = false
                 continue
             }
             shouldDropInjectedHeapCap = false
 
-            if isRequireOption(token), index + 1 < tokens.count,
+            if NodeOptionsSupport.isRequireOption(token), index + 1 < tokens.count,
                NodeOptionsSupport.isCmuxRestoreModulePath(tokens[index + 1]) {
                 index += 2
                 shouldDropInjectedHeapCap = true
                 continue
             }
-            if let path = inlineRequireOptionPath(token),
+            if let path = NodeOptionsSupport.inlineRequireOptionPath(token),
                NodeOptionsSupport.isCmuxRestoreModulePath(path) {
                 index += 1
                 shouldDropInjectedHeapCap = true
@@ -137,30 +137,5 @@ public enum AgentLaunchEnvironmentPolicy {
             return nil
         }
         return trimmed
-    }
-
-    private static func isRequireOption(_ token: String) -> Bool {
-        token == "--require" || token == "-r"
-    }
-
-    private static func inlineRequireOptionPath(_ token: String) -> String? {
-        for prefix in ["--require=", "-r="] where token.hasPrefix(prefix) {
-            return String(token.dropFirst(prefix.count))
-        }
-        return nil
-    }
-
-    private static func isInjectedNodeHeapCap(_ tokens: [String], index: Int) -> Bool {
-        guard index < tokens.count else { return false }
-        let token = tokens[index]
-        if token == "--max-old-space-size" {
-            return index + 1 < tokens.count && tokens[index + 1] == "4096"
-        }
-        return token == "--max-old-space-size=4096"
-    }
-
-    private static func nodeHeapCapWidth(_ tokens: [String], index: Int) -> Int {
-        guard index < tokens.count else { return 1 }
-        return tokens[index] == "--max-old-space-size" ? min(2, tokens.count - index) : 1
     }
 }

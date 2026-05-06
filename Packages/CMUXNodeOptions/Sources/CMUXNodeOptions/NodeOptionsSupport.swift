@@ -92,6 +92,37 @@ public enum NodeOptionsSupport {
             || components.suffix(2) == ["cmux-claude-node-options", restoreModuleFilename]
     }
 
+    public static func isRequireOption(_ token: String) -> Bool {
+        token == "--require" || token == "-r"
+    }
+
+    public static func inlineRequireOptionPath(_ token: String) -> String? {
+        for prefix in ["--require=", "-r="] where token.hasPrefix(prefix) {
+            return String(token.dropFirst(prefix.count))
+        }
+        return nil
+    }
+
+    public static func isInjectedNodeHeapCap(_ tokens: [String], index: Int) -> Bool {
+        guard index < tokens.count else { return false }
+        let token = tokens[index]
+        if token == "--max-old-space-size=4096" {
+            return true
+        }
+        return token == "--max-old-space-size"
+            && index + 1 < tokens.count
+            && tokens[index + 1] == "4096"
+    }
+
+    public static func nodeHeapCapWidth(_ tokens: [String], index: Int) -> Int {
+        guard index < tokens.count,
+              tokens[index] == "--max-old-space-size",
+              index + 1 < tokens.count else {
+            return 1
+        }
+        return 2
+    }
+
     private static func quoteTokenIfNeeded(_ value: String) -> String {
         let charactersRequiringQuotes = CharacterSet.whitespacesAndNewlines
             .union(CharacterSet(charactersIn: "\\\""))
