@@ -482,6 +482,11 @@ func originalNodeOptionsForRestore(existing string) string {
 			continue
 		}
 
+		if token == "--max-old-space-size" && i+1 < len(tokens) {
+			restored = append(restored, "--max-old-space-size="+tokens[i+1])
+			i++
+			continue
+		}
 		restored = append(restored, token)
 	}
 	return joinNodeOptionsTokens(restored)

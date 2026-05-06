@@ -452,6 +452,9 @@ func TestMergeNodeOptions(t *testing.T) {
 	if got := originalNodeOptionsForRestore(staleDurableRequire); got != "--trace-warnings" {
 		t.Fatalf("originalNodeOptionsForRestore should strip stale cmux restore require = %q", got)
 	}
+	if got := originalNodeOptionsForRestore("--max-old-space-size 2048 --trace-warnings"); got != "--max-old-space-size=2048 --trace-warnings" {
+		t.Fatalf("originalNodeOptionsForRestore should normalize space-separated heap flags = %q", got)
+	}
 }
 
 func TestTmuxWaitForSignalRoundTrip(t *testing.T) {
