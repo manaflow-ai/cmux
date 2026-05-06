@@ -677,8 +677,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private nonisolated static let legacyPersistedWindowGeometryDefaultsKeys = [
         "cmux.session.lastWindowGeometry.v1"
     ]
-    private nonisolated static let defaultMainWindowContentWidth: CGFloat = 1_000
-    private nonisolated static let defaultMainWindowContentHeight: CGFloat = 700
 
     weak var tabManager: TabManager?
     weak var notificationStore: TerminalNotificationStore?
@@ -2513,7 +2511,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         startupSessionSnapshot = SessionPersistenceStore.load()
     }
 
-    private func persistedWindowGeometry(
+    func persistedWindowGeometry(
         defaults: UserDefaults = .standard
     ) -> PersistedWindowGeometry? {
         Self.removeLegacyPersistedWindowGeometry(defaults: defaults)
@@ -2574,7 +2572,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    private func currentDisplayGeometries() -> (
+    func currentDisplayGeometries() -> (
         available: [SessionDisplayGeometry],
         fallback: SessionDisplayGeometry?
     ) {
@@ -2776,38 +2774,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             availableDisplays: displays.available,
             fallbackDisplay: displays.fallback
         )
-    }
-
-    private func resolvedPersistedWindowGeometryFrame() -> NSRect? {
-        let displays = currentDisplayGeometries()
-        let fallbackGeometry = persistedWindowGeometry()
-        return Self.resolvedWindowFrame(
-            from: fallbackGeometry?.frame,
-            display: fallbackGeometry?.display,
-            availableDisplays: displays.available,
-            fallbackDisplay: displays.fallback
-        )
-    }
-
-    private func defaultMainWindowContentRect(styleMask: NSWindow.StyleMask) -> NSRect {
-        let defaultContentRect = NSRect(
-            x: 0,
-            y: 0,
-            width: Self.defaultMainWindowContentWidth,
-            height: Self.defaultMainWindowContentHeight
-        )
-        guard let visibleFrame = currentDisplayGeometries().fallback?.visibleFrame else {
-            return defaultContentRect
-        }
-
-        let defaultFrame = NSWindow.frameRect(forContentRect: defaultContentRect, styleMask: styleMask)
-        let clampedFrame = Self.clampFrame(
-            defaultFrame,
-            within: visibleFrame,
-            minWidth: Self.defaultMainWindowContentWidth,
-            minHeight: Self.defaultMainWindowContentHeight
-        )
-        return NSWindow.contentRect(forFrameRect: clampedFrame, styleMask: styleMask)
     }
 
     nonisolated static func resolvedStartupPrimaryWindowFrame(
@@ -6911,21 +6877,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let shouldTemporarilyDisallowFullScreenTiling =
             sessionWindowSnapshot == nil && sourceWindowIsNativeFullScreen
         let restoredFrame = resolvedWindowFrame(from: sessionWindowSnapshot)
-        let persistedGeometryFrame: NSRect? =
-            sessionWindowSnapshot == nil && sourceWindow == nil
-                ? resolvedPersistedWindowGeometryFrame()
-                : nil
+        let persistedGeometryFrame = (sessionWindowSnapshot == nil && sourceWindow == nil)
+            ? resolvedPersistedWindowGeometryFrame()
+            : nil
         let initialRect: NSRect
         if sessionWindowSnapshot == nil, let existingFrame {
             // Convert frame rect to content rect so the new window matches the
             // source window's actual size (frame includes titlebar insets).
             initialRect = NSWindow.contentRect(forFrameRect: existingFrame, styleMask: styleMask)
-        } else if let restoredFrame {
-            initialRect = NSWindow.contentRect(forFrameRect: restoredFrame, styleMask: styleMask)
-        } else if let persistedGeometryFrame {
-            initialRect = NSWindow.contentRect(forFrameRect: persistedGeometryFrame, styleMask: styleMask)
+        } else if let explicitInitialFrame = restoredFrame ?? persistedGeometryFrame {
+            initialRect = NSWindow.contentRect(forFrameRect: explicitInitialFrame, styleMask: styleMask)
         } else {
-            initialRect = defaultMainWindowContentRect(styleMask: styleMask)
+            initialRect = CmuxMainWindow.defaultContentRect(styleMask: styleMask)
         }
 
         let window = CmuxMainWindow(
@@ -7012,9 +6975,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if let explicitInitialFrame {
             window.setFrame(explicitInitialFrame, display: true)
 #if DEBUG
-            let frameSource = restoredFrame == nil ? "persistedGeometry" : "sessionSnapshot"
             cmuxDebugLog(
-                "mainWindow.initialFrameApplied source=\(frameSource) window=\(windowId.uuidString.prefix(8)) " +
+                "mainWindow.initialFrameApplied source=\(restoredFrame == nil ? "persistedGeometry" : "sessionSnapshot") window=\(windowId.uuidString.prefix(8)) " +
                     "applied={\(debugNSRectDescription(window.frame))}"
             )
 #endif
