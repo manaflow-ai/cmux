@@ -264,7 +264,7 @@ nonisolated enum CmuxUseSupport {
             return command
         }
 
-        let reserved = Set(["install", "engines", "permissions"])
+        let reserved = Set(["scripts", "commands", "cmux", "install", "engines", "permissions"])
         for key in object.keys.sorted() where !reserved.contains(key) {
             guard let nested = object[key] as? [String: Any],
                   let command = manifestCommand(in: nested, source: "\(source):\(key)") else {
