@@ -70,7 +70,9 @@ struct cmuxApp: App {
         let message = "error: refusing to launch untagged cmux DEV; start with ./scripts/reload.sh --tag <name> (or set CMUX_TAG for test harnesses)"
         fputs("\(message)\n", stderr)
         fflush(stderr)
+#if DEBUG
         NSLog("%@", message)
+#endif
         Darwin.exit(64)
     }
 
@@ -5179,6 +5181,8 @@ struct SettingsView: View {
     @State private var searchHighlightToken = 0
     @State private var searchHighlightStartedAt: Date?
     @State private var settingsNavigationGeneration = 0
+    @State private var pendingVisibleSectionUpdate: SettingsNavigationTarget?
+    var onVisibleSectionChanged: ((SettingsNavigationTarget) -> Void)? = nil
 
     @AppStorage(LanguageSettings.languageKey) private var appLanguage = LanguageSettings.defaultLanguage.rawValue
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
@@ -5776,7 +5780,6 @@ struct SettingsView: View {
 #if DEBUG
         cmuxDebugLog("notification.ui enableTapped state=\(state)")
 #endif
-        NSLog("notification.ui enableTapped state=%@", state)
         switch notificationStore.authorizationState {
         case .unknown, .notDetermined:
             notificationStore.requestAuthorizationFromSettings()
@@ -5822,14 +5825,14 @@ struct SettingsView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    SettingsSectionHeader(title: String(localized: "settings.section.account", defaultValue: "Account"))
+                    SettingsSectionHeader(title: String(localized: "settings.section.account", defaultValue: "Account"), section: .account)
                         .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .account))
                     SettingsCard {
                         AuthSettingsRow(authManager: authManager)
                     }
                     .settingsSearchAnchor(SettingsSearchIndex.settingID(for: .account, idSuffix: "account"))
 
-                    SettingsSectionHeader(title: String(localized: "settings.section.app", defaultValue: "App"))
+                    SettingsSectionHeader(title: String(localized: "settings.section.app", defaultValue: "App"), section: .app)
                         .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .app))
                     SettingsCard {
                         SettingsCardRow(
@@ -6266,7 +6269,7 @@ struct SettingsView: View {
 
                     }
 
-                    SettingsSectionHeader(title: String(localized: "settings.section.terminal", defaultValue: "Terminal"))
+                    SettingsSectionHeader(title: String(localized: "settings.section.terminal", defaultValue: "Terminal"), section: .terminal)
                         .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .terminal))
                     SettingsCard {
                         SettingsCardRow(
@@ -6286,7 +6289,7 @@ struct SettingsView: View {
                         }
                     }
 
-                    SettingsSectionHeader(title: String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar"))
+                    SettingsSectionHeader(title: String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar"), section: .sidebarAppearance)
                         .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .sidebarAppearance))
                     SettingsCard {
                         SettingsCardRow(
@@ -6462,7 +6465,7 @@ struct SettingsView: View {
                         dockEnabled: $rightSidebarDockEnabled
                     )
 
-                    SettingsSectionHeader(title: String(localized: "settings.section.automation", defaultValue: "Automation"))
+                    SettingsSectionHeader(title: String(localized: "settings.section.automation", defaultValue: "Automation"), section: .automation)
                         .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .automation))
                     SettingsCard {
                         SettingsPickerRow(
@@ -6620,7 +6623,7 @@ struct SettingsView: View {
                         SettingsCardNote(String(localized: "settings.automation.port.note", defaultValue: "Each workspace gets CMUX_PORT and CMUX_PORT_END env vars with a dedicated port range. New terminals inherit these values."))
                     }
 
-                    SettingsSectionHeader(title: String(localized: "settings.section.browser", defaultValue: "Browser"))
+                    SettingsSectionHeader(title: String(localized: "settings.section.browser", defaultValue: "Browser"), section: .browser)
                         .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .browser))
                         .accessibilityIdentifier("SettingsBrowserSection")
                     SettingsCard {
@@ -6911,7 +6914,7 @@ struct SettingsView: View {
 
                     GlobalHotkeySection()
 
-                    SettingsSectionHeader(title: String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"))
+                    SettingsSectionHeader(title: String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"), section: .keyboardShortcuts)
                         .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .keyboardShortcuts))
                         .accessibilityIdentifier("SettingsKeyboardShortcutsSection")
                     SettingsCard {
@@ -7002,7 +7005,7 @@ struct SettingsView: View {
                         .padding(.leading, 2)
                         .accessibilityIdentifier("ShortcutRecordingHint")
 
-                    SettingsSectionHeader(title: String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors"))
+                    SettingsSectionHeader(title: String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors"), section: .workspaceColors)
                         .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .workspaceColors))
                     SettingsCard {
                         SettingsPickerRow(
@@ -7154,7 +7157,7 @@ struct SettingsView: View {
                         }
                     }
 
-                    SettingsSectionHeader(title: String(localized: "settings.section.settingsJSON", defaultValue: "cmux.json"))
+                    SettingsSectionHeader(title: String(localized: "settings.section.settingsJSON", defaultValue: "cmux.json"), section: .settingsJSON)
                         .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .settingsJSON))
                         .accessibilityIdentifier("SettingsJSONSection")
                     SettingsCard {
@@ -7197,7 +7200,7 @@ struct SettingsView: View {
                         }
                     }
 
-                    SettingsSectionHeader(title: String(localized: "settings.section.reset", defaultValue: "Reset"))
+                    SettingsSectionHeader(title: String(localized: "settings.section.reset", defaultValue: "Reset"), section: .reset)
                         .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .reset))
                     SettingsCard {
                         HStack {
@@ -7222,6 +7225,14 @@ struct SettingsView: View {
                     SettingsSearchHighlightState(anchorID: highlightedSearchAnchorID, token: searchHighlightToken, startedAt: searchHighlightStartedAt)
                 )
             }
+        .coordinateSpace(name: SettingsSectionTracker.scrollCoordinateSpaceName)
+        .onPreferenceChange(SettingsSectionTrackerKey.self) { entries in
+            computeVisibleSection(entries)
+        }
+        .onChange(of: pendingVisibleSectionUpdate) { _, newValue in
+            guard let target = newValue else { return }
+            onVisibleSectionChanged?(target)
+        }
         .toggleStyle(.switch)
         .onAppear {
             BrowserHistoryStore.shared.loadIfNeeded()
@@ -7499,17 +7510,41 @@ struct SettingsView: View {
     private func refreshDetectedImportBrowsers() {
         detectedImportBrowsers = InstalledBrowserDetector.detectInstalledBrowsers()
     }
+
+    private func computeVisibleSection(_ entries: [SettingsSectionTrackerEntry]) {
+        let headerThreshold: CGFloat = 32
+        let candidates = entries.filter { $0.minY <= headerThreshold }
+        let target: SettingsNavigationTarget?
+        if let chosen = candidates.max(by: { $0.minY < $1.minY }) {
+            target = chosen.target
+        } else {
+            target = entries.min(by: { $0.minY < $1.minY })?.target
+        }
+        guard let target, pendingVisibleSectionUpdate != target else { return }
+        pendingVisibleSectionUpdate = target
+    }
 }
 
 struct SettingsSectionHeader: View {
     let title: String
+    let section: SettingsNavigationTarget?
+
+    init(title: String, section: SettingsNavigationTarget? = nil) {
+        self.title = title
+        self.section = section
+    }
 
     var body: some View {
-        Text(title)
+        let base = Text(title)
             .font(.system(size: 13, weight: .semibold))
             .foregroundColor(.secondary)
             .padding(.leading, 2)
             .padding(.bottom, -2)
+        if let section {
+            base.trackSettingsSectionPosition(section)
+        } else {
+            base
+        }
     }
 }
 
@@ -8102,7 +8137,7 @@ private struct GlobalHotkeySection: View {
     }
 
     var body: some View {
-        SettingsSectionHeader(title: String(localized: "settings.section.globalHotkey", defaultValue: "Global Hotkey"))
+        SettingsSectionHeader(title: String(localized: "settings.section.globalHotkey", defaultValue: "Global Hotkey"), section: .globalHotkey)
             .accessibilityIdentifier("SettingsGlobalHotkeySection")
             .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .globalHotkey))
 
@@ -8165,6 +8200,7 @@ private struct SettingsRootView: View {
     @SceneStorage("selectedSettingsSidebarEntry") private var selectedSidebarEntryID = SettingsSearchIndex.defaultSelectionID
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var searchText = ""
+    @State private var pendingNavigationTarget: SettingsNavigationTarget?
 
     private var selectedSection: SettingsNavigationTarget {
         SettingsNavigationTarget(rawValue: selectedSectionRaw) ?? .account
@@ -8207,7 +8243,7 @@ private struct SettingsRootView: View {
             )
             .navigationSplitViewColumnWidth(210)
         } detail: {
-            SettingsView()
+            SettingsView(onVisibleSectionChanged: handleVisibleSectionChanged(_:))
         }
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: SettingsWindowPresenter.minimumSize.width, minHeight: SettingsWindowPresenter.minimumSize.height)
@@ -8225,10 +8261,33 @@ private struct SettingsRootView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: SettingsNavigationRequest.notificationName)) { notification in
             guard let target = SettingsNavigationRequest.target(from: notification) else { return }
+            beginProgrammaticScroll(to: target)
             let selectedEntry = SettingsSearchIndex.entry(withID: selectedSidebarEntryID)
             let shouldPreserveSearchSelection = isSearching && selectedEntry?.target == target
             navigate(to: target, preferSectionSelection: !shouldPreserveSearchSelection, postRequest: false)
         }
+    }
+
+    private func handleVisibleSectionChanged(_ target: SettingsNavigationTarget) {
+        if let pending = pendingNavigationTarget {
+            // Exact match or we've scrolled past the pending section (the
+            // reported section precedes it in layout order, meaning the
+            // pending header is already above the viewport).
+            let allCases = SettingsNavigationTarget.allCases
+            if target == pending || allCases.firstIndex(of: target).map({ $0 >= allCases.firstIndex(of: pending)! }) == true {
+                pendingNavigationTarget = nil
+            }
+            return
+        }
+        guard target.rawValue != selectedSectionRaw else { return }
+        navigate(to: target, postRequest: false)
+    }
+
+    private func beginProgrammaticScroll(to target: SettingsNavigationTarget) {
+        // .browserImport has no tracking header; map to .browser so the
+        // pending target clears when the browser section scrolls into view.
+        let trackedTarget: SettingsNavigationTarget = target == .browserImport ? .browser : target
+        pendingNavigationTarget = trackedTarget
     }
 
     private func selectSidebarEntry(_ entryID: String) {

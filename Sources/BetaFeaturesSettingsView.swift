@@ -31,7 +31,7 @@ struct BetaFeaturesSettingsView: View {
     }
 
     var body: some View {
-        SettingsSectionHeader(title: String(localized: "settings.section.betaFeatures", defaultValue: "Beta Features"))
+        SettingsSectionHeader(title: String(localized: "settings.section.betaFeatures", defaultValue: "Beta Features"), section: .betaFeatures)
             .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .betaFeatures))
         SettingsCard {
             BetaFeaturesWarningNote(

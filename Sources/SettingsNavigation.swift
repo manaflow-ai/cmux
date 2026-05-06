@@ -111,6 +111,41 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     }
 }
 
+enum SettingsSectionTracker {
+    static let scrollCoordinateSpaceName = "cmux.settings.detail.scroll"
+}
+
+struct SettingsSectionTrackerEntry: Equatable {
+    let target: SettingsNavigationTarget
+    let minY: CGFloat
+}
+
+struct SettingsSectionTrackerKey: PreferenceKey {
+    static let defaultValue: [SettingsSectionTrackerEntry] = []
+
+    static func reduce(value: inout [SettingsSectionTrackerEntry], nextValue: () -> [SettingsSectionTrackerEntry]) {
+        value.append(contentsOf: nextValue())
+    }
+}
+
+extension View {
+    func trackSettingsSectionPosition(_ target: SettingsNavigationTarget) -> some View {
+        background(
+            GeometryReader { geo in
+                Color.clear.preference(
+                    key: SettingsSectionTrackerKey.self,
+                    value: [
+                        SettingsSectionTrackerEntry(
+                            target: target,
+                            minY: geo.frame(in: .named(SettingsSectionTracker.scrollCoordinateSpaceName)).minY
+                        )
+                    ]
+                )
+            }
+        )
+    }
+}
+
 enum SettingsNavigationRequest {
     static let notificationName = Notification.Name("cmux.settings.navigate")
     private static let targetKey = "target"
