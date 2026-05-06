@@ -54,22 +54,28 @@ struct RepoLaunchDetectionTests {
 
     @Test("Makefile launch detection skips bare make and checks alternate filename")
     func makefileLaunchSkipsBareMake() throws {
-        let directory = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
+        let bareMakefileDirectory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: bareMakefileDirectory) }
 
         try """
         all:
         \tcc main.c
-        """.write(to: directory.appendingPathComponent("Makefile"), atomically: true, encoding: .utf8)
+        """.write(to: bareMakefileDirectory.appendingPathComponent("Makefile"), atomically: true, encoding: .utf8)
+
+        #expect(CMUXRepoDetection.makefileLaunchCommand(in: bareMakefileDirectory) == nil)
+
+        let lowercaseMakefileDirectory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: lowercaseMakefileDirectory) }
+
         try """
         clean:
         \trm -rf build
 
         run:
         \t./extension
-        """.write(to: directory.appendingPathComponent("makefile"), atomically: true, encoding: .utf8)
+        """.write(to: lowercaseMakefileDirectory.appendingPathComponent("makefile"), atomically: true, encoding: .utf8)
 
-        #expect(CMUXRepoDetection.makefileLaunchCommand(in: directory) == CMUXDetectedLaunchCommand(
+        #expect(CMUXRepoDetection.makefileLaunchCommand(in: lowercaseMakefileDirectory) == CMUXDetectedLaunchCommand(
             command: "make run",
             source: "makefile:run"
         ))
