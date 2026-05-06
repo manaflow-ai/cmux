@@ -98,9 +98,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         AppDelegate.shared?.debugCloseMainWindowConfirmationHandler = nil
         AppDelegate.shared?.debugCreateMainWindowSourceIsNativeFullScreenOverride = nil
         AppDelegate.shared?.dismissNotificationsPopoverIfShown()
-#if DEBUG
-        SettingsWindowPresenter.resetForTests()
-#endif
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         for action in KeyboardShortcutSettings.Action.allCases {
             if actionsWithPersistedShortcut.contains(action),
@@ -4414,60 +4411,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(activateApplicationCallCount, 1)
     }
 
-#if DEBUG
-    func testSettingsWindowPresenterParentsSettingsAbovePreferredMainWindow() {
-        let parentWindow = makeSettingsPresentationWindow(identifier: "cmux.main.\(UUID().uuidString)")
-        let settingsWindow = makeSettingsPresentationWindow(identifier: SettingsWindowPresenter.windowIdentifier)
-        defer {
-            SettingsWindowPresenter.resetForTests()
-            settingsWindow.orderOut(nil)
-            parentWindow.orderOut(nil)
-        }
-
-        SettingsWindowPresenter.resetForTests()
-        SettingsWindowPresenter.configure(
-            openWindow: {},
-            parentWindowProvider: { parentWindow }
-        )
-        SettingsWindowPresenter.configure(window: settingsWindow)
-
-        XCTAssertTrue(settingsWindow.parent === parentWindow)
-        XCTAssertTrue(parentWindow.childWindows?.contains(where: { $0 === settingsWindow }) == true)
-    }
-
-    func testSettingsWindowPresenterReparentsSettingsWhenPreferredMainWindowChanges() {
-        let firstParent = makeSettingsPresentationWindow(identifier: "cmux.main.\(UUID().uuidString)")
-        let secondParent = makeSettingsPresentationWindow(identifier: "cmux.main.\(UUID().uuidString)")
-        let settingsWindow = makeSettingsPresentationWindow(identifier: SettingsWindowPresenter.windowIdentifier)
-        var preferredParent = firstParent
-        defer {
-            SettingsWindowPresenter.resetForTests()
-            settingsWindow.orderOut(nil)
-            firstParent.orderOut(nil)
-            secondParent.orderOut(nil)
-        }
-
-        SettingsWindowPresenter.resetForTests()
-        SettingsWindowPresenter.configure(
-            openWindow: {},
-            parentWindowProvider: { preferredParent }
-        )
-        SettingsWindowPresenter.configure(window: settingsWindow)
-        XCTAssertTrue(settingsWindow.parent === firstParent)
-
-        preferredParent = secondParent
-        SettingsWindowPresenter.refocusIfVisible()
-        XCTAssertTrue(settingsWindow.parent === firstParent)
-
-        settingsWindow.orderFront(nil)
-        SettingsWindowPresenter.refocusIfVisible()
-
-        XCTAssertTrue(settingsWindow.parent === secondParent)
-        XCTAssertFalse(firstParent.childWindows?.contains(where: { $0 === settingsWindow }) == true)
-        XCTAssertTrue(secondParent.childWindows?.contains(where: { $0 === settingsWindow }) == true)
-    }
-#endif
-
     // MARK: - Non-Latin keyboard layout shortcut tests
 
     func testBrowserFirstFindShortcutRoutingRecognizesBrowserLocalFindCommandFamily() {
@@ -5542,18 +5485,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     private func window(withId windowId: UUID) -> NSWindow? {
         let identifier = "cmux.main.\(windowId.uuidString)"
         return NSApp.windows.first(where: { $0.identifier?.rawValue == identifier })
-    }
-
-    private func makeSettingsPresentationWindow(identifier: String) -> NSWindow {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 220),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-        window.isReleasedWhenClosed = false
-        window.identifier = NSUserInterfaceItemIdentifier(identifier)
-        return window
     }
 
     private func surfaceView(in hostedView: GhosttySurfaceScrollView) -> GhosttyNSView? {
