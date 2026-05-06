@@ -3862,44 +3862,39 @@ struct ContentView: View {
         static let timeoutSeconds: TimeInterval = 2.0
     }
 
-    @MainActor
     private final class BackgroundWorkspacePrimeWaiter: @unchecked Sendable {
+        private let lock = NSLock()
         private var continuation: CheckedContinuation<String, Never>?
         private var cleanupActions: [() -> Void] = []
         private var resolvedReason: String?
 
-        var isResolved: Bool { resolvedReason != nil }
+        var isResolved: Bool { lock.lock(); defer { lock.unlock() }; return resolvedReason != nil }
 
-        isolated deinit { drainCleanup()?.resume(returning: "cancelled") }
+        deinit { finish(reason: "cancelled") }
 
         func start(continuation: CheckedContinuation<String, Never>) {
-            if let resolvedReason {
-                continuation.resume(returning: resolvedReason)
-                return
-            }
-            self.continuation = continuation
+            let reason: String?
+            lock.lock(); reason = resolvedReason; if reason == nil { self.continuation = continuation }; lock.unlock()
+            if let reason { continuation.resume(returning: reason) }
         }
 
         func addCancellable(_ cancellable: AnyCancellable) { addCleanup { cancellable.cancel() } }
         func addObserver(_ observer: NSObjectProtocol) { addCleanup { NotificationCenter.default.removeObserver(observer) } }
         func addTimeoutWorkItem(_ workItem: DispatchWorkItem) { addCleanup { workItem.cancel() } }
 
-        func finish(reason: String) { guard resolvedReason == nil else { return }; resolvedReason = reason; drainCleanup()?.resume(returning: reason) }
-
-        private func addCleanup(_ action: @escaping () -> Void) {
-            guard resolvedReason == nil else {
-                action()
-                return
-            }
-            cleanupActions.append(action)
+        func finish(reason: String) {
+            let drained: (CheckedContinuation<String, Never>?, [() -> Void])?
+            lock.lock()
+            if resolvedReason == nil { resolvedReason = reason; drained = (continuation, cleanupActions); continuation = nil; cleanupActions.removeAll() } else { drained = nil }
+            lock.unlock()
+            guard let (continuation, cleanupActions) = drained else { return }
+            cleanupActions.forEach { $0() }; continuation?.resume(returning: reason)
         }
 
-        private func drainCleanup() -> CheckedContinuation<String, Never>? {
-            let (cleanupActions, continuation) = (cleanupActions, continuation)
-            self.cleanupActions.removeAll()
-            self.continuation = nil
-            cleanupActions.forEach { $0() }
-            return continuation
+        private func addCleanup(_ action: @escaping () -> Void) {
+            lock.lock()
+            guard resolvedReason == nil else { lock.unlock(); action(); return }
+            cleanupActions.append(action); lock.unlock()
         }
     }
 
