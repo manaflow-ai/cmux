@@ -100,22 +100,30 @@ function applyToDOM(v: DevValues) {
 
 export function DevPanel() {
   const [visible, setVisible] = useState(false);
-  const [pos, setPos] = useState(initialPanelPosition);
+  const [pos, setPos] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
   const [copied, setCopied] = useState(false);
   const vals = useDevValues();
   const dragOffset = useRef({ x: 0, y: 0 });
+  const visibleRef = useRef(false);
+
+  const toggleVisible = useCallback(() => {
+    const nextVisible = !visibleRef.current;
+    visibleRef.current = nextVisible;
+    if (nextVisible) setPos(initialPanelPosition());
+    setVisible(nextVisible);
+  }, []);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.metaKey && e.key === ".") {
         e.preventDefault();
-        setVisible((v) => !v);
+        toggleVisible();
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, []);
+  }, [toggleVisible]);
 
   const update = useCallback((patch: Partial<DevValues>) => {
     setStore(patch);

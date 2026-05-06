@@ -82,7 +82,7 @@ echo "$CMUX_NOTIFICATION_TITLE: $CMUX_NOTIFICATION_BODY" >> ~/notifications.log`
 
       <h2>{t("sending")}</h2>
 
-      <h3>{t("cli")}</h3>
+      <h3 id="cli">{t("cli")}</h3>
       <CodeBlock lang="bash">{`cmux notify --title "Task Complete" --body "Your build finished"
 cmux notify --title "Claude Code" --subtitle "Waiting" --body "Agent needs input"`}</CodeBlock>
 
@@ -145,7 +145,7 @@ printf '\\e]99;i=1;e=1;d=1;p=body:All tests passed\\e\\\\'`}</CodeBlock>
         {t("comparisonCallout")}
       </Callout>
 
-      <h2>{t("claudeCodeHooks")}</h2>
+      <h2 id="claude-code-hooks">{t("claudeCodeHooks")}</h2>
       <p>
         {t.rich("claudeCodeHooksDesc", {
           link: (chunks) => (

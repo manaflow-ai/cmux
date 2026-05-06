@@ -1,5 +1,5 @@
 declare module "bun:test" {
-  type TestCallback = () => unknown | Promise<unknown>;
+  type TestCallback = () => void | Promise<void>;
   type Lifecycle = (fn: TestCallback, timeout?: number) => void;
   type NamedTest = {
     (name: string, fn: TestCallback, timeout?: number): void;
@@ -26,13 +26,13 @@ declare module "bun:test" {
   };
 
   type MockControls = {
-    mockClear(): void;
-    mockResolvedValue(value: unknown): void;
+    mockClear(): MockControls;
+    mockResolvedValue(value: unknown): MockControls;
   };
 
   type MockModule = {
     <T extends (...args: never[]) => unknown>(fn: T): T & MockControls;
-    module(moduleName: string, factory: () => unknown): void;
+    module(moduleName: string, factory: () => unknown | Promise<unknown>): void | Promise<void>;
   };
 
   export const afterAll: Lifecycle;

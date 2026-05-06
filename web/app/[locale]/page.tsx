@@ -177,12 +177,12 @@ function HomeContent() {
               <p className="text-muted">
                 {t.rich("faqNotificationsA", {
                   cliLink: (chunks) => (
-                    <Link href="/docs/notifications" className={linkClass}>
+                    <Link href="/docs/notifications#cli" className={linkClass}>
                       {chunks}
                     </Link>
                   ),
                   hooksLink: (chunks) => (
-                    <Link href="/docs/notifications" className={linkClass}>
+                    <Link href="/docs/notifications#claude-code-hooks" className={linkClass}>
                       {chunks}
                     </Link>
                   ),

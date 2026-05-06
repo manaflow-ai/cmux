@@ -29,7 +29,7 @@ export function TypingTagline() {
   useEffect(() => {
     const phrase = phrases[phraseIndex];
 
-    if (!deleting && charIndex === phrase.length) {
+    if (!deleting && charIndex >= phrase.length) {
       const timeout = setTimeout(() => setDeleting(true), 2000);
       return () => clearTimeout(timeout);
     }
