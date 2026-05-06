@@ -152,7 +152,7 @@ public enum WorktreeManager {
         args.append(worktreePath)
         do {
             _ = try runGit(args: args, cwd: repoPath)
-        } catch let Failure.gitFailed(_, stderr, _) where stderr.contains("is not a working tree") {
+        } catch let Failure.gitFailed(_, stderr, _) where stderr.lowercased().contains("is not a working tree") {
             throw Failure.worktreeNotFound(path: worktreePath)
         }
     }
