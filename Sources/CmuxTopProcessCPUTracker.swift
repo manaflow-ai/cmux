@@ -7,10 +7,13 @@ nonisolated struct CmuxTopProcessCPUSample: Sendable {
     let sampledAtNanoseconds: UInt64
 }
 
+private struct CmuxTopProcessCPUTrackerState: Sendable {
+    var samples: [CmuxTopProcessScopeCacheKey: CmuxTopProcessCPUSample] = [:]
+    var latestPrunedAtNanoseconds: UInt64 = 0
+}
+
 private final class CmuxTopProcessCPUTracker: Sendable {
-    private let samples = OSAllocatedUnfairLock(
-        initialState: [CmuxTopProcessScopeCacheKey: CmuxTopProcessCPUSample]()
-    )
+    private let state = OSAllocatedUnfairLock(initialState: CmuxTopProcessCPUTrackerState())
 
     // Snapshot capture is synchronous for the v2 socket path, so an actor would
     // force that caller to block on async state. Keep OS sampling outside this
@@ -20,25 +23,29 @@ private final class CmuxTopProcessCPUTracker: Sendable {
         activeKeys: Set<CmuxTopProcessScopeCacheKey>,
         sampledAtNanoseconds: UInt64
     ) -> [CmuxTopProcessScopeCacheKey: Double] {
-        samples.withLock { storedSamples in
+        state.withLock { state in
             var percentages: [CmuxTopProcessScopeCacheKey: Double] = [:]
             percentages.reserveCapacity(currentSamples.count)
 
             for (key, sample) in currentSamples {
-                guard activeKeys.contains(key) else { continue }
                 percentages[key] = CmuxTopProcessSnapshot.cpuPercent(
                     current: sample,
-                    previous: storedSamples[key]
+                    previous: state.samples[key]
                 )
-                if let existing = storedSamples[key],
+                if let existing = state.samples[key],
                    existing.sampledAtNanoseconds > sample.sampledAtNanoseconds {
                     continue
                 }
-                storedSamples[key] = sample
+                state.samples[key] = sample
             }
 
-            storedSamples = storedSamples.filter { entry in
-                activeKeys.contains(entry.key) || entry.value.sampledAtNanoseconds > sampledAtNanoseconds
+            // Overlapping captures can finish out of sample-time order; only
+            // the newest completed capture is allowed to evict inactive keys.
+            if sampledAtNanoseconds >= state.latestPrunedAtNanoseconds {
+                state.latestPrunedAtNanoseconds = sampledAtNanoseconds
+                state.samples = state.samples.filter { entry in
+                    activeKeys.contains(entry.key)
+                }
             }
 
             return percentages
