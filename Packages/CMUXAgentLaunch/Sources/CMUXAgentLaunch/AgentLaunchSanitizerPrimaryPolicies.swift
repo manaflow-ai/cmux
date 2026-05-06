@@ -156,6 +156,67 @@ extension AgentLaunchSanitizer {
         resumeSubcommand: "resume"
     )
 
+    static let piPolicy = Policy(
+        valueOptions: [
+            "--append-system-prompt",
+            "--api-key",
+            "--extension",
+            "--fork",
+            "--model",
+            "--models",
+            "--prompt-template",
+            "--provider",
+            "--resume",
+            "--session",
+            "--session-dir",
+            "--skill",
+            "--system-prompt",
+            "--theme",
+            "--thinking",
+            "--tools",
+            "-e",
+            "-t"
+        ],
+        nonRestorableCommands: [
+            "config",
+            "help",
+            "install",
+            "list",
+            "login",
+            "logout",
+            "remove",
+            "uninstall",
+            "update"
+        ],
+        droppedOptions: [
+            "--api-key",
+            "--continue",
+            "--fork",
+            "--resume",
+            "--session",
+            "-c",
+            "-r"
+        ],
+        droppedOptionPrefixes: [
+            "--api-key=",
+            "--fork=",
+            "--resume=",
+            "--session="
+        ],
+        rejectOptions: [
+            "--export",
+            "--list-models",
+            "--mode",
+            "--no-session",
+            "--print",
+            "--prompt",
+            "--version",
+            "-h",
+            "-p",
+            "-v"
+        ]
+    )
+
     static let geminiPolicy = Policy(
         valueOptions: [
             "--model",

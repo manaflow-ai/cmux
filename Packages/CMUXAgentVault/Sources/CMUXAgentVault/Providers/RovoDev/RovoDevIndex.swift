@@ -32,21 +32,52 @@ public struct RovoDevIndexResult: Equatable, Sendable {
     }
 }
 
-private struct RovoDevMetadata: Decodable {
-    let title: String?
-    let workspacePath: String?
+public enum RovoDevMetadataFields {
+    public static let titleKeys: [String] = [
+        "title",
+        "name",
+        "summary",
+    ]
 
-    private enum CodingKeys: String, CodingKey {
-        case title
-        case workspacePath = "workspace_path"
-        case workspacePathCamel = "workspacePath"
+    public static let workspacePathKeys: [String] = [
+        "workspace_path",
+        "workspacePath",
+        "workspace",
+        "cwd",
+        "working_directory",
+        "workingDirectory",
+        "project_path",
+        "projectPath",
+    ]
+
+    public static func title(from metadata: [String: Any]) -> String? {
+        firstString(from: metadata, keys: titleKeys)
     }
 
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        title = try container.decodeIfPresent(String.self, forKey: .title)
-        workspacePath = try container.decodeIfPresent(String.self, forKey: .workspacePath)
-            ?? container.decodeIfPresent(String.self, forKey: .workspacePathCamel)
+    public static func workspacePath(from metadata: [String: Any]) -> String? {
+        firstString(from: metadata, keys: workspacePathKeys)
+    }
+
+    public static func firstString(from metadata: [String: Any], keys: [String]) -> String? {
+        for key in keys {
+            guard let value = metadata[key] as? String else { continue }
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+        return nil
+    }
+}
+
+private enum RovoDevMetadataError: LocalizedError {
+    case notObject
+
+    var errorDescription: String? {
+        switch self {
+        case .notObject:
+            return "metadata is not a JSON object"
+        }
     }
 }
 
@@ -127,11 +158,12 @@ public enum RovoDevIndex {
                 continue
             }
 
+            let sessionContextURL = sessionURL.appendingPathComponent("session_context.json", isDirectory: false)
             candidates.append(RovoDevSessionCandidate(
                 sessionId: sessionURL.lastPathComponent,
                 metadataURL: metadataURL,
-                sessionContextURL: sessionURL.appendingPathComponent("session_context.json", isDirectory: false),
-                mtime: mtime
+                sessionContextURL: sessionContextURL,
+                mtime: max(mtime, Self.contentModificationDate(ofRegularFile: sessionContextURL) ?? mtime)
             ))
         }
         candidates.sort { $0.mtime > $1.mtime }
@@ -139,24 +171,26 @@ public enum RovoDevIndex {
         var matchedCount = 0
         var sessions: [RovoDevIndexedSession] = []
         sessions.reserveCapacity(limit)
-        let decoder = JSONDecoder()
 
         for candidate in candidates {
             if Task.isCancelled { break }
             if matchedCount >= target { break }
 
-            let metadata: RovoDevMetadata
+            let metadata: [String: Any]
             do {
                 let data = try Data(contentsOf: candidate.metadataURL)
-                metadata = try decoder.decode(RovoDevMetadata.self, from: data)
+                guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                    throw RovoDevMetadataError.notObject
+                }
+                metadata = object
             } catch {
                 errors.append("Rovo Dev: cannot read metadata \(candidate.metadataURL.path) (\(error.localizedDescription))")
                 continue
             }
 
-            let title = metadata.title ?? ""
-            let cwd = metadata.workspacePath
-            if let cwdFilter, cwd != cwdFilter {
+            let title = RovoDevMetadataFields.title(from: metadata) ?? ""
+            let cwd = RovoDevMetadataFields.workspacePath(from: metadata)
+            if !workspacePath(cwd, matchesFilter: cwdFilter) {
                 continue
             }
             if !normalizedNeedle.isEmpty {
@@ -187,5 +221,35 @@ public enum RovoDevIndex {
             return nil
         }
         return url
+    }
+
+    public static func contentModificationDate(ofRegularFile url: URL) -> Date? {
+        guard let values = try? url.resourceValues(
+            forKeys: [.contentModificationDateKey, .isRegularFileKey]
+        ),
+              values.isRegularFile == true else {
+            return nil
+        }
+        return values.contentModificationDate
+    }
+
+    private static func workspacePath(_ workspacePath: String?, matchesFilter filter: String?) -> Bool {
+        guard let filter else { return true }
+        guard let workspace = Self.normalizedPath(workspacePath),
+              let target = Self.normalizedPath(filter) else {
+            return false
+        }
+        return workspace == target
+    }
+
+    public static func normalizedPath(_ path: String?) -> String? {
+        guard let trimmed = path?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return URL(fileURLWithPath: NSString(string: trimmed).expandingTildeInPath)
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+            .path
     }
 }
