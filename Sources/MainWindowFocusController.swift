@@ -1,5 +1,16 @@
 import AppKit
 
+enum RightSidebarFocusShortcutAction: Equatable {
+    case hide
+    case focus
+    case showAndFocus
+
+    static func resolve(isVisible: Bool, isFocused: Bool) -> RightSidebarFocusShortcutAction {
+        guard isVisible else { return .showAndFocus }
+        return .focus
+    }
+}
+
 @MainActor
 final class MainWindowFocusController {
     private enum EffectiveFocusOwner {

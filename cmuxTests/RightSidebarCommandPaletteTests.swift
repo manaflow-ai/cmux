@@ -79,3 +79,26 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         }
     }
 }
+
+final class RightSidebarFocusShortcutActionTests: XCTestCase {
+    func testVisibleFocusedSidebarHides() {
+        XCTAssertEqual(
+            RightSidebarFocusShortcutAction.resolve(isVisible: true, isFocused: true),
+            .hide
+        )
+    }
+
+    func testVisibleUnfocusedSidebarFocuses() {
+        XCTAssertEqual(
+            RightSidebarFocusShortcutAction.resolve(isVisible: true, isFocused: false),
+            .focus
+        )
+    }
+
+    func testHiddenSidebarShowsAndFocuses() {
+        XCTAssertEqual(
+            RightSidebarFocusShortcutAction.resolve(isVisible: false, isFocused: false),
+            .showAndFocus
+        )
+    }
+}
