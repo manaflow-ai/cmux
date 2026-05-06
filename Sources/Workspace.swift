@@ -8329,60 +8329,16 @@ final class Workspace: Identifiable, ObservableObject {
         guard let panel = panels[panelId] else { return nil }
         return surfaceKind(for: panel)
     }
-
-    private func backgroundPrimeTerminalPanels() -> [TerminalPanel] {
-        var orderedTargets: [TerminalPanel] = []
-        var seenPanelIds: Set<UUID> = []
-
-        // Background priming only needs the tabs that would be visible if this
-        // workspace were selected. Starting every keepAllAlive terminal tab here
-        // recreates hidden renderer/io thread triples while the app is idle.
-        for paneId in bonsplitController.allPaneIds {
-            guard let selectedTabId =
-                    bonsplitController.selectedTab(inPane: paneId)?.id
-                    ?? bonsplitController.tabs(inPane: paneId).first?.id,
-                  let panelId = panelIdFromSurfaceId(selectedTabId),
-                  let terminalPanel = panels[panelId] as? TerminalPanel,
-                  seenPanelIds.insert(panelId).inserted else {
-                continue
-            }
-            orderedTargets.append(terminalPanel)
+    private var backgroundPrimeTerminalPanels: [TerminalPanel] {
+        var seenPanelIds = Set<UUID>()
+        let visibleTargets = bonsplitController.allPaneIds.compactMap { paneId -> TerminalPanel? in
+            guard let tabId = bonsplitController.selectedTab(inPane: paneId)?.id ?? bonsplitController.tabs(inPane: paneId).first?.id, let panelId = panelIdFromSurfaceId(tabId), seenPanelIds.insert(panelId).inserted else { return nil }
+            return panels[panelId] as? TerminalPanel
         }
-
-        if !orderedTargets.isEmpty {
-            return orderedTargets
-        }
-
-        if let focusedPanelId,
-           let focusedTerminal = panels[focusedPanelId] as? TerminalPanel {
-            return [focusedTerminal]
-        }
-
-        if let fallback = panels.values.compactMap({ $0 as? TerminalPanel }).first {
-            return [fallback]
-        }
-
-        return []
+        return visibleTargets.isEmpty ? (focusedTerminalPanel.map { [$0] } ?? panels.values.lazy.compactMap { $0 as? TerminalPanel }.prefix(1).map { $0 }) : visibleTargets
     }
-
-    func requestBackgroundTerminalSurfaceStartIfNeeded() {
-        for terminalPanel in panels.values.compactMap({ $0 as? TerminalPanel }) {
-            terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
-        }
-    }
-
-    func requestBackgroundPrimeTerminalSurfaceStartIfNeeded() {
-        for terminalPanel in backgroundPrimeTerminalPanels() {
-            terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
-        }
-    }
-
-    func hasLoadedBackgroundPrimeTerminalSurface() -> Bool {
-        let targets = backgroundPrimeTerminalPanels()
-        guard !targets.isEmpty else { return true }
-        return targets.allSatisfy { $0.surface.surface != nil }
-    }
-
+    func requestBackgroundPrimeTerminalSurfaceStartIfNeeded() { backgroundPrimeTerminalPanels.forEach { $0.surface.requestBackgroundSurfaceStartIfNeeded() } }
+    func hasLoadedBackgroundPrimeTerminalSurface() -> Bool { backgroundPrimeTerminalPanels.allSatisfy { $0.surface.surface != nil } }
     @discardableResult
     func preloadTerminalPanelForDebugStress(
         tabId: TabID,
@@ -13431,9 +13387,7 @@ extension Workspace: BonsplitDelegate {
             Self.requestSSHControlMasterCleanupIfNeeded(configuration: transferredRemoteCleanupConfiguration)
         }
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, surfaceId: panelId)
-        if !isDetaching {
-            TerminalController.shared.cleanupSurfaceState(surfaceId: panelId)
-        }
+        if !isDetaching { TerminalController.shared.cleanupSurfaceState(surfaceId: panelId) }
 
         // Keep the workspace invariant for normal close paths.
         // Detach/move flows intentionally allow a temporary empty workspace so AppDelegate can
@@ -13573,9 +13527,7 @@ extension Workspace: BonsplitDelegate {
 
         if !closedPanelIds.isEmpty {
             for panelId in closedPanelIds {
-                if !isDetachingCloseTransaction {
-                    TerminalController.shared.cleanupSurfaceState(surfaceId: panelId)
-                }
+                if !isDetachingCloseTransaction { TerminalController.shared.cleanupSurfaceState(surfaceId: panelId) }
                 removePendingTerminalInputObservers(forPanelId: panelId)
                 let panel = panels[panelId]
                 removeBrowserOpenTabSuggestionIfNeeded(panel: panel, panelId: panelId)
