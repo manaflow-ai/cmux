@@ -377,9 +377,11 @@ while allocations:
         process.arguments = arguments
         process.standardOutput = pipe
         try process.run()
-        process.waitUntilExit()
-
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            throw XCTSkip("ps failed with status \(process.terminationStatus)")
+        }
         return String(data: data, encoding: .utf8) ?? ""
     }
 
