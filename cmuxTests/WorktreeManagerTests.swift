@@ -240,6 +240,51 @@ final class WorktreeManagerTests: XCTestCase {
         XCTAssertEqual(parent, headSha)
     }
 
+    /// Regression for PR #3415 review (P1, Greptile): pre-fix code swallowed
+    /// `git stash create` failures via `try?` and fell back to HEAD, masking
+    /// real errors (locked index, corrupted store, broken worktree). After the
+    /// fix the failure must propagate and the snapshot branch must not be
+    /// created.
+    func testSnapshotPropagatesStashFailureWhenWorktreeIsBroken() throws {
+        guard gitAvailable() else { throw XCTSkip("git not available on this runner") }
+        let repo = try makeTempRepo()
+        let wt = repo.deletingLastPathComponent().appendingPathComponent("wt-broken")
+        _ = try WorktreeManager.add(
+            repoPath: repo.path,
+            worktreePath: wt.path,
+            branch: "feat/broken"
+        )
+        // Replace the worktree's `.git` pointer file with garbage so any git
+        // command run with cwd=worktreePath fails with "not a git repository".
+        let gitFile = wt.appendingPathComponent(".git")
+        try? FileManager.default.removeItem(at: gitFile)
+        try "garbage\n".write(to: gitFile, atomically: true, encoding: .utf8)
+
+        XCTAssertThrowsError(
+            try WorktreeManager.snapshot(
+                worktreePath: wt.path,
+                mainRepoPath: repo.path,
+                snapshotBranch: "cmux/abandoned/broken"
+            )
+        ) { error in
+            switch error {
+            case WorktreeManager.Failure.gitFailed,
+                 WorktreeManager.Failure.notARepository:
+                return
+            default:
+                XCTFail("expected gitFailed/notARepository, got \(error)")
+            }
+        }
+
+        // The snapshot branch must NOT exist after a propagated failure.
+        XCTAssertThrowsError(
+            try WorktreeManager.runGit(
+                args: ["rev-parse", "--verify", "refs/heads/cmux/abandoned/broken"],
+                cwd: repo.path
+            )
+        )
+    }
+
     func testRepoToplevelResolves() throws {
         guard gitAvailable() else { throw XCTSkip("git not available on this runner") }
         let repo = try makeTempRepo()
