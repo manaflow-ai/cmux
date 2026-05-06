@@ -12686,8 +12686,7 @@ private struct TabItemView: View, Equatable {
     @StateObject private var contextMenuState = SidebarTabItemContextMenuState()
     @State private var rowInteractionState = SidebarWorkspaceRowInteractionState()
     @State private var rowHeight: CGFloat = 1
-    @State private var workspaceFinderDirectoryCachePath: String?
-    @State private var workspaceFinderDirectoryCacheURL: URL?
+    @State private var workspaceFinderDirectoryCache = WorkspaceFinderDirectoryCache()
 
     var isMultiSelected: Bool {
         selectedTabIds.contains(tab.id)
@@ -12928,7 +12927,7 @@ private struct TabItemView: View, Equatable {
         let accessibilityHintText = String(localized: "sidebar.workspace.accessibilityHint", defaultValue: "Activate to focus this workspace. Drag to reorder, or use Move Up and Move Down actions.")
         let moveUpActionText = String(localized: "sidebar.workspace.moveUpAction", defaultValue: "Move Up")
         let moveDownActionText = String(localized: "sidebar.workspace.moveDownAction", defaultValue: "Move Down")
-        let finderDirectoryPath = workspaceFinderDirectoryPath()
+        let finderDirectoryPath = WorkspaceFinderDirectoryResolver.path(for: tab)
         let latestNotificationSubtitle = latestNotificationText
         let submittedMessageSubtitle = settings.iMessageModeEnabled
             ? workspaceSnapshot.latestSubmittedMessage?
@@ -13238,7 +13237,7 @@ private struct TabItemView: View, Equatable {
             refreshWorkspaceSnapshot(force: true)
         }
         .task(id: finderDirectoryPath) {
-            await refreshWorkspaceFinderDirectoryCache(for: finderDirectoryPath)
+            workspaceFinderDirectoryCache = await WorkspaceFinderDirectoryResolver.cache(for: finderDirectoryPath)
         }
         .onReceive(
             tab.sidebarImmediateObservationPublisher
@@ -13419,8 +13418,8 @@ private struct TabItemView: View, Equatable {
         let renameWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .renameWorkspace)
         let editWorkspaceDescriptionShortcut = KeyboardShortcutSettings.shortcut(for: .editWorkspaceDescription)
         let closeWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .closeWorkspace)
-        let finderDirectoryPath = isMulti ? nil : workspaceFinderDirectoryPath()
-        let finderDirectoryURL = cachedWorkspaceFinderDirectoryURL(for: finderDirectoryPath)
+        let finderDirectoryPath = isMulti ? nil : WorkspaceFinderDirectoryResolver.path(for: tab)
+        let finderDirectoryURL = workspaceFinderDirectoryCache.url(for: finderDirectoryPath)
         Button(pinLabel) {
             guard let contextMenuPinState else {
                 NSSound.beep()
@@ -13648,45 +13647,6 @@ private struct TabItemView: View, Equatable {
             return
         }
         NSWorkspace.shared.activateFileViewerSelecting([directoryURL])
-    }
-
-    @MainActor
-    private func refreshWorkspaceFinderDirectoryCache(for path: String?) async {
-        guard let path else {
-            workspaceFinderDirectoryCachePath = nil
-            workspaceFinderDirectoryCacheURL = nil
-            return
-        }
-
-        let directoryURL = await Task.detached(priority: .utility) {
-            Self.existingWorkspaceFinderDirectoryURL(for: path)
-        }.value
-        guard !Task.isCancelled else { return }
-        workspaceFinderDirectoryCachePath = path
-        workspaceFinderDirectoryCacheURL = directoryURL
-    }
-
-    private func cachedWorkspaceFinderDirectoryURL(for path: String?) -> URL? {
-        guard let path, workspaceFinderDirectoryCachePath == path else { return nil }
-        return workspaceFinderDirectoryCacheURL
-    }
-
-    private func workspaceFinderDirectoryPath() -> String? {
-        guard !tab.isRemoteWorkspace,
-              let directory = tab.sidebarDirectoriesInDisplayOrder().first else {
-            return nil
-        }
-        let path = NSString(string: directory).expandingTildeInPath
-        return path.isEmpty ? nil : path
-    }
-
-    private nonisolated static func existingWorkspaceFinderDirectoryURL(for path: String) -> URL? {
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory),
-              isDirectory.boolValue else {
-            return nil
-        }
-        return URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL
     }
 
     private var backgroundColor: Color {
