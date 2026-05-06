@@ -456,6 +456,14 @@ func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? 
     }
 
     if NSString(string: trimmed).isAbsolutePath {
+        // Strip :line[:col] suffix if the literal path doesn't exist but the base does
+        let parsed = parseFilePathLineColumn(trimmed)
+        if parsed.line != nil && !FileManager.default.fileExists(atPath: trimmed) && FileManager.default.fileExists(atPath: parsed.path) {
+            #if DEBUG
+            dlog("link.resolve result=external(absolutePath+line) url=\(parsed.path) line=\(parsed.line ?? 0) col=\(parsed.column ?? 0)")
+            #endif
+            return .external(URL(fileURLWithPath: parsed.path))
+        }
         #if DEBUG
         dlog("link.resolve result=external(absolutePath) url=\(trimmed)")
         #endif
@@ -507,24 +515,114 @@ func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? 
     return .external(fallback)
 }
 
+/// Parses a trailing `:line[:col]` suffix from a file path string.
+/// Returns the base path and optional line/column numbers.
+func parseFilePathLineColumn(_ raw: String) -> (path: String, line: Int?, column: Int?) {
+    // Match patterns like /path/to/file.ts:350 or /path/to/file.ts:350:12
+    // Only match if the part before the colon looks like a file (not a URL scheme)
+    guard let lastColon = raw.lastIndex(of: ":") else {
+        return (raw, nil, nil)
+    }
+
+    let afterLastColon = String(raw[raw.index(after: lastColon)...])
+
+    // Check if everything after the last colon is a number (line or col)
+    if let num = Int(afterLastColon), num > 0 {
+        let beforeLastColon = String(raw[..<lastColon])
+
+        // Check for a second colon (line:col pattern)
+        if let secondColon = beforeLastColon.lastIndex(of: ":") {
+            let afterSecondColon = String(beforeLastColon[beforeLastColon.index(after: secondColon)...])
+            if let lineNum = Int(afterSecondColon), lineNum > 0 {
+                let basePath = String(beforeLastColon[..<secondColon])
+                // Avoid stripping colons from drive letters or URL schemes
+                if !basePath.isEmpty && !basePath.hasSuffix("/") {
+                    return (basePath, lineNum, num)
+                }
+            }
+        }
+
+        // Single :line pattern
+        if !beforeLastColon.isEmpty {
+            return (beforeLastColon, num, nil)
+        }
+    }
+
+    return (raw, nil, nil)
+}
+
 /// Opens a URL using the preferred external editor if configured and the URL is a file,
 /// otherwise falls back to the system default handler.
 @discardableResult
-func openURLWithPreferredEditor(_ url: URL) -> Bool {
+func openURLWithPreferredEditor(_ url: URL, line: Int? = nil, column: Int? = nil) -> Bool {
     let editorPath = BrowserLinkOpenSettings.externalFileEditorPath()
 
     // Only use custom editor for file URLs and when editor path is set
     if url.isFileURL, !editorPath.isEmpty {
-        let editorURL = URL(fileURLWithPath: editorPath)
         guard FileManager.default.fileExists(atPath: editorPath) else {
             #if DEBUG
             dlog("link.openWithEditor editorPath not found, falling back to system default path=\(editorPath)")
             #endif
             return NSWorkspace.shared.open(url)
         }
+
+        // When line number is specified, use emacsclient/CLI for .app bundles
+        if let lineNum = line, editorPath.hasSuffix(".app") {
+            #if DEBUG
+            dlog("link.openWithEditor opening .app with line editor=\(editorPath) file=\(url.path) line=\(lineNum) col=\(column ?? 0)")
+            #endif
+            // For Emacs.app, use emacsclient which supports +line:col
+            let editorName = (editorPath as NSString).lastPathComponent.replacingOccurrences(of: ".app", with: "").lowercased()
+            if editorName == "emacs" {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+                let lineArg = column != nil ? "+\(lineNum):\(column!)" : "+\(lineNum)"
+                process.arguments = ["emacsclient", "-n", lineArg, url.path]
+                do {
+                    try process.run()
+                    return true
+                } catch {
+                    #if DEBUG
+                    dlog("link.openWithEditor emacsclient failed error=\(error), trying open -a")
+                    #endif
+                }
+            }
+            // Generic fallback for .app editors: use `open -a` with --args +line
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+            let lineArg = column != nil ? "+\(lineNum):\(column!)" : "+\(lineNum)"
+            process.arguments = ["-a", editorPath, url.path, "--args", lineArg]
+            do {
+                try process.run()
+                return true
+            } catch {
+                #if DEBUG
+                dlog("link.openWithEditor open -a failed error=\(error), falling back to NSWorkspace")
+                #endif
+            }
+        } else if let lineNum = line {
+            // Direct executable (e.g., /usr/local/bin/emacsclient)
+            #if DEBUG
+            dlog("link.openWithEditor opening with editor=\(editorPath) file=\(url.path) line=\(lineNum) col=\(column ?? 0)")
+            #endif
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: editorPath)
+            let lineArg = column != nil ? "+\(lineNum):\(column!)" : "+\(lineNum)"
+            process.arguments = [lineArg, url.path]
+            do {
+                try process.run()
+                return true
+            } catch {
+                #if DEBUG
+                dlog("link.openWithEditor process launch failed error=\(error), falling back to NSWorkspace")
+                #endif
+            }
+        }
+
         #if DEBUG
         dlog("link.openWithEditor opening with custom editor=\(editorPath) file=\(url.path)")
         #endif
+        let editorURL = URL(fileURLWithPath: editorPath)
         let configuration = NSWorkspace.OpenConfiguration()
         NSWorkspace.shared.open([url], withApplicationAt: editorURL, configuration: configuration) { _, error in
             #if DEBUG
@@ -2338,6 +2436,11 @@ class GhosttyApp {
             let sourceTabId = callbackTabId ?? surfaceView.tabId
             let sourcePanelId = callbackSurfaceId ?? surfaceView.terminalSurface?.id
 
+            // Parse :line[:col] suffix for file paths
+            let parsedLink = parseFilePathLineColumn(urlString.trimmingCharacters(in: .whitespacesAndNewlines))
+            let linkLine = parsedLink.line
+            let linkColumn = parsedLink.column
+
             guard let target = resolveTerminalOpenURLTarget(urlString) else {
                 #if DEBUG
                 dlog("link.openURL resolve failed, returning false")
@@ -2349,7 +2452,7 @@ class GhosttyApp {
                 dlog("link.openURL cmuxBrowser=disabled, opening externally url=\(target.url)")
                 #endif
                 return performOnMain {
-                    openURLWithPreferredEditor(target.url)
+                    openURLWithPreferredEditor(target.url, line: linkLine, column: linkColumn)
                 }
             }
             switch target {
@@ -2358,7 +2461,7 @@ class GhosttyApp {
                 dlog("link.openURL target=external, opening externally url=\(url)")
                 #endif
                 return performOnMain {
-                    openURLWithPreferredEditor(url)
+                    openURLWithPreferredEditor(url, line: linkLine, column: linkColumn)
                 }
             case let .embeddedBrowser(url):
                 // Check if this might be a relative file path that got misinterpreted as a URL
@@ -2378,12 +2481,15 @@ class GhosttyApp {
                                 return NSWorkspace.shared.open(url)
                             }
                             let workingDirectory = resolved.workspace.panelDirectories[panelId] ?? resolved.workspace.currentDirectory
-                            let fullPath = (workingDirectory as NSString).appendingPathComponent(trimmed)
+
+                            // Parse :line[:col] suffix
+                            let parsed = parseFilePathLineColumn(trimmed)
+                            let fullPath = (workingDirectory as NSString).appendingPathComponent(parsed.path)
                             if FileManager.default.fileExists(atPath: fullPath) {
                                 #if DEBUG
-                                dlog("link.openURL opening as relative file path=\(fullPath)")
+                                dlog("link.openURL opening as relative file path=\(fullPath) line=\(parsed.line ?? 0) col=\(parsed.column ?? 0)")
                                 #endif
-                                return openURLWithPreferredEditor(URL(fileURLWithPath: fullPath))
+                                return openURLWithPreferredEditor(URL(fileURLWithPath: fullPath), line: parsed.line, column: parsed.column)
                             }
                             #if DEBUG
                             dlog("link.openURL relativeFile not found at path=\(fullPath), falling back to browser")
@@ -5488,14 +5594,21 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                            let panelId = terminalSurface?.id,
                            let resolved = app.workspaceContainingPanel(panelId: panelId, preferredWorkspaceId: tabId) {
                             let workingDirectory = resolved.workspace.panelDirectories[panelId] ?? resolved.workspace.currentDirectory
-                            let fullPath = (workingDirectory as NSString).appendingPathComponent(trimmedWord)
 
-                            // Check if the word is an existing file
+                            // Parse :line[:col] suffix from the path
+                            let parsed = parseFilePathLineColumn(trimmedWord)
+                            let fullPath: String
+                            if parsed.path.hasPrefix("/") {
+                                fullPath = parsed.path
+                            } else {
+                                fullPath = (workingDirectory as NSString).appendingPathComponent(parsed.path)
+                            }
+
                             if FileManager.default.fileExists(atPath: fullPath) {
                                 #if DEBUG
-                                dlog("terminal.mouseDown semanticHistory opening file=\(fullPath)")
+                                dlog("terminal.mouseDown semanticHistory opening file=\(fullPath) line=\(parsed.line ?? 0) col=\(parsed.column ?? 0)")
                                 #endif
-                                _ = openURLWithPreferredEditor(URL(fileURLWithPath: fullPath))
+                                _ = openURLWithPreferredEditor(URL(fileURLWithPath: fullPath), line: parsed.line, column: parsed.column)
                                 return // Don't pass click to Ghostty
                             }
                         }

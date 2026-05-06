@@ -80,9 +80,19 @@ if [[ ! -f "$GHOSTTY_DIR/build.zig" ]]; then
   exit 1
 fi
 
+PREBUILT_HELPER="$GHOSTTY_DIR/zig-out/bin/ghostty"
+
 build_helper() {
   local prefix="$1"
   local target="${2:-}"
+
+  # Use pre-built binary if available — avoids Zig dependency fetches
+  if [[ -x "$PREBUILT_HELPER" ]]; then
+    mkdir -p "$prefix/bin"
+    cp "$PREBUILT_HELPER" "$prefix/bin/ghostty"
+    return 0
+  fi
+
   local args=(
     zig build
     cli-helper
@@ -98,10 +108,12 @@ build_helper() {
     args+=("-Dtarget=$target")
   fi
 
-  (
-    cd "$GHOSTTY_DIR"
-    "${args[@]}"
-  )
+  if (cd "$GHOSTTY_DIR" && "${args[@]}"); then
+    return 0
+  fi
+
+  echo "error: zig build failed and no pre-built helper found at $PREBUILT_HELPER" >&2
+  return 1
 }
 
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cmux-ghostty-helper.XXXXXX")"
