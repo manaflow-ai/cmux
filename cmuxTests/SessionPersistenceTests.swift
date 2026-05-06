@@ -1167,6 +1167,14 @@ final class SessionPersistenceTests: XCTestCase {
                 ]
             ),
             (
+                .pi,
+                [
+                    "/usr/local/bin/pi",
+                    "--model",
+                    "anthropic/claude-sonnet-4-5",
+                ]
+            ),
+            (
                 .cursor,
                 [
                     "/usr/local/bin/cursor-agent",
@@ -1347,6 +1355,8 @@ final class SessionPersistenceTests: XCTestCase {
                 resolvedEnvironment = ["CLAUDE_CONFIG_DIR": "/tmp/claude"]
             case .codex:
                 resolvedEnvironment = ["CODEX_HOME": "/tmp/codex"]
+            case .pi:
+                resolvedEnvironment = ["PI_CODING_AGENT_DIR": "/tmp/pi"]
             case .cursor:
                 resolvedEnvironment = [:]
             case .gemini:
@@ -1893,6 +1903,8 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                 arguments: ["claude"],
                 workingDirectory: nil,
                 environment: [
+                    "ANTHROPIC_AUTH_TOKEN": "third-party-auth-token",
+                    "ANTHROPIC_BASE_URL": "https://api.example.test",
                     "ANTHROPIC_MODEL": "",
                     "PATH": " /tmp/bin ",
                     "UNSAFE_TOKEN": "secret"
@@ -1904,8 +1916,9 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "'env' 'ANTHROPIC_MODEL=' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=ANTHROPIC_MODEL' 'claude' '--resume' 'claude-session-env'"
+            "'env' 'ANTHROPIC_BASE_URL=https://api.example.test' 'ANTHROPIC_MODEL=' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=ANTHROPIC_BASE_URL,ANTHROPIC_MODEL' 'claude' '--resume' 'claude-session-env'"
         )
+        XCTAssertFalse(snapshot.resumeCommand?.contains("ANTHROPIC_AUTH_TOKEN") ?? true)
     }
 
     func testClaudeResumeCommandStripsStaleCmuxNodeOptionsRestoreModule() {

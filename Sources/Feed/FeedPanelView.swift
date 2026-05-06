@@ -2,7 +2,6 @@ import AppKit
 import Bonsplit
 import CMUXWorkstream
 import SwiftUI
-
 #if DEBUG
 private func feedDebugResponderSummary(_ responder: NSResponder?) -> String {
     guard let responder else { return "nil" }
@@ -43,7 +42,6 @@ private extension WorkstreamExitPlanMode {
         }
     }
 }
-
 /// Right-sidebar Feed view. Matches the Sessions page visual language:
 /// compact rows with SF Symbol + 13pt title + secondary metadata,
 /// full-width hover backgrounds, and control-bar pill buttons styled
@@ -1387,10 +1385,12 @@ private struct PermissionActionArea: View {
                     FeedButton(label: String(localized: "feed.permission.once", defaultValue: "Allow Once"),
                                kind: .light, size: .medium, fullWidth: true) { onApprove(.once) }
                         .accessibilityIdentifier("FeedPermissionAllowOnceButton")
-                    if source != .codex {
+                    if FeedPermissionActionPolicy.supportsPersistentPermissionModes(source: source) {
                         FeedButton(label: String(localized: "feed.permission.always", defaultValue: "Always Allow"),
                                    kind: .primary, size: .medium, fullWidth: true) { onApprove(.always) }
                             .accessibilityIdentifier("FeedPermissionAlwaysAllowButton")
+                    }
+                    if FeedPermissionActionPolicy.supportsBypassPermissions(source: source) {
                         FeedButton(label: String(localized: "feed.permission.bypass", defaultValue: "Bypass"),
                                    kind: .destructive, size: .medium, fullWidth: true) { onApprove(.bypass) }
                             .accessibilityIdentifier("FeedPermissionBypassButton")
