@@ -93,6 +93,26 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         }
     }
 
+    func testNonTextPreviewPublishesFileRevisionOnExternalUpdates() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("png")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        try writeTestPNG(color: .red, to: url)
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
+
+        XCTAssertEqual(panel.previewMode, .image)
+        let initialRevision = panel.fileContentRevision
+
+        try writeTestPNG(color: .blue, to: url)
+
+        await waitUntil("image preview external revision") {
+            panel.fileContentRevision > initialRevision && !panel.isFileUnavailable
+        }
+    }
+
     func testDirtyTextPreviewRebasesWhenExternalFileMatchesLocalEdit() async throws {
         let url = try temporaryTextFile(contents: "first", encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }
@@ -201,6 +221,18 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
             .appendingPathExtension(pathExtension)
         try contents.write(to: url, atomically: true, encoding: encoding)
         return url
+    }
+
+    private func writeTestPNG(color: NSColor, to url: URL) throws {
+        let image = NSImage(size: NSSize(width: 8, height: 8))
+        image.lockFocus()
+        color.setFill()
+        NSRect(x: 0, y: 0, width: 8, height: 8).fill()
+        image.unlockFocus()
+        let data = try XCTUnwrap(image.tiffRepresentation)
+        let bitmap = try XCTUnwrap(NSBitmapImageRep(data: data))
+        let pngData = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+        try pngData.write(to: url, options: [.atomic])
     }
 
     private func keyEvent(key: String, keyCode: UInt16) -> NSEvent? {
