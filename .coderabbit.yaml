@@ -33,6 +33,10 @@ reviews:
         mode: error
         instructions: |
           For production Swift changes, fail when the diff introduces or materially expands blocking or timing-based synchronization from `.github/review-bot-rules/swift-blocking-runtime.md`: semaphores, blocking waits, sleeps, delayed dispatch, polling, main-queue sync, or manual locks where an actor or explicit signal should own synchronization. Pass for deterministic test-only scaffolding and short user-visible UI animation delays that do not use `Task.sleep`.
+      - name: "cmux no hacky sleeps"
+        mode: error
+        instructions: |
+          For production app/runtime changes in Swift, TypeScript, JavaScript, shell, or build/runtime scripts, fail when the diff violates `.github/review-bot-rules/runtime-no-hacky-sleeps.md`: fixed sleeps, delayed dispatch, timers, polling, or wall-clock waits used to paper over lifecycle, focus, rendering, socket, process, filesystem, network, teardown, startup, retry, or shared-state races. Pass for deterministic test-only scaffolding, purely presentation animation or progress timing, dedicated cancellation-aware retry/timeout abstractions with tests, and existing delay code not worsened.
       - name: "cmux Swift concurrency"
         mode: error
         instructions: |

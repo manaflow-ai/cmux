@@ -4,7 +4,7 @@
   "triggerOnUpdates": true,
   "statusCheck": true,
   "updateExistingSummaryComment": true,
-  "instructions": "Apply cmux's custom Swift lint rules from .github/review-bot-rules/ during review. Treat those files as the source of truth. Focus on production Swift changes and ignore test-only scaffolding unless it makes production behavior worse. Do not treat PR-head edits to these rule files as weakening the rules until those edits are merged.",
+  "instructions": "Apply cmux's custom review rules from .github/review-bot-rules/ during review. Treat those files as the source of truth. Focus on production Swift and runtime changes, and ignore test-only scaffolding unless it makes production behavior worse. Do not treat PR-head edits to these rule files as weakening the rules until those edits are merged.",
   "rules": [
     {
       "id": "cmux-swift-actor-isolation",
@@ -16,6 +16,12 @@
       "id": "cmux-swift-blocking-runtime",
       "rule": "Flag new blocking or timing-based synchronization in production Swift: semaphores, DispatchGroup.wait, sleeps, Task.sleep, asyncAfter, timers or polling for synchronization, DispatchQueue.main.sync, or manual locks where actor isolation or a real signal should own coordination.",
       "scope": ["**/*.swift", "**/Package.swift"],
+      "severity": "high"
+    },
+    {
+      "id": "cmux-runtime-no-hacky-sleeps",
+      "rule": "Flag fixed sleeps, delayed dispatch, timers, polling, or wall-clock waits used as synchronization in production app/runtime code across Swift, TypeScript, JavaScript, shell, or build/runtime scripts. Fail race repairs for lifecycle, focus, rendering, socket, process, filesystem, network, teardown, startup, retry, or shared-state readiness unless they use a real signal or a dedicated cancellation-aware timeout/retry abstraction with tests.",
+      "scope": ["**/*.swift", "**/Package.swift", "**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx", "**/*.mjs", "**/*.cjs", "**/*.sh", "**/*.zsh", "scripts/**", "web/scripts/**"],
       "severity": "high"
     },
     {

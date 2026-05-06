@@ -16,6 +16,11 @@
       "scope": ["**/*.swift", "**/Package.swift"]
     },
     {
+      "path": ".github/review-bot-rules/runtime-no-hacky-sleeps.md",
+      "description": "Source-of-truth cmux review rule for fixed sleeps, delays, and polling used as runtime synchronization.",
+      "scope": ["**/*.swift", "**/Package.swift", "**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx", "**/*.mjs", "**/*.cjs", "**/*.sh", "**/*.zsh", "scripts/**", "web/scripts/**"]
+    },
+    {
       "path": ".github/review-bot-rules/swift-concurrency-modernization.md",
       "description": "Source-of-truth cmux lint rule for Swift concurrency modernization review.",
       "scope": ["**/*.swift", "**/Package.swift"]
