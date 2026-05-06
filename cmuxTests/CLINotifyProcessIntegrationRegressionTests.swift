@@ -2,6 +2,73 @@ import XCTest
 import Darwin
 
 final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
+    func testClaudeClearSessionStartMarksWorkspaceRunning() throws {
+        let context = try makeClaudeHookContext(name: "claude-clear-running")
+        defer { context.cleanup() }
+
+        let result = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"clear-session","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK\n")
+        XCTAssertTrue(
+            context.state.commands.contains { $0 == "clear_notifications --tab=\(context.workspaceId)" },
+            "Expected clear SessionStart to clear stale notifications, saw \(context.state.commands)"
+        )
+        XCTAssertTrue(
+            context.state.commands.contains {
+                $0 == "set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab=\(context.workspaceId)"
+            },
+            "Expected clear SessionStart to mark Claude running, saw \(context.state.commands)"
+        )
+    }
+
+    func testClaudeStopFromPreviousSessionDoesNotClobberClearRunningStatus() throws {
+        let context = try makeClaudeHookContext(name: "claude-clear-stale-stop")
+        defer { context.cleanup() }
+
+        let oldStart = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"old-session","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        )
+        XCTAssertFalse(oldStart.timedOut, oldStart.stderr)
+        XCTAssertEqual(oldStart.status, 0, oldStart.stderr)
+
+        let clearStart = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"clear-session","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        )
+        XCTAssertFalse(clearStart.timedOut, clearStart.stderr)
+        XCTAssertEqual(clearStart.status, 0, clearStart.stderr)
+
+        let staleStop = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "stop"],
+            standardInput: #"{"session_id":"old-session","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"old turn finished late"}"#
+        )
+        XCTAssertFalse(staleStop.timedOut, staleStop.stderr)
+        XCTAssertEqual(staleStop.status, 0, staleStop.stderr)
+
+        XCTAssertTrue(
+            context.state.commands.contains {
+                $0 == "set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab=\(context.workspaceId)"
+            },
+            "Expected clear SessionStart to mark Claude running, saw \(context.state.commands)"
+        )
+        XCTAssertFalse(
+            context.state.commands.contains {
+                $0 == "set_status claude_code Idle --icon=pause.circle.fill --color=#8E8E93 --tab=\(context.workspaceId)"
+            },
+            "Expected stale Stop from old session not to clobber the clear session, saw \(context.state.commands)"
+        )
+    }
+
     @MainActor
     func testNotifyWithUUIDSurfaceKeepsCallerWorkspaceFallback() throws {
         let cliPath = try bundledCLIPath()
@@ -174,6 +241,80 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             state.commands.contains { $0.contains("set_status codex Running") && $0.contains("--tab=\(currentWorkspaceId)") },
             "Expected Codex prompt status to target current workspace, saw \(state.commands)"
         )
+    }
+
+    private struct ClaudeHookContext {
+        let cliPath: String
+        let socketPath: String
+        let listenerFD: Int32
+        let state: MockSocketServerState
+        let root: URL
+        let workspaceId: String
+        let surfaceId: String
+
+        func cleanup() {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+    }
+
+    private func makeClaudeHookContext(name: String) throws -> ClaudeHookContext {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-\(name)-\(UUID().uuidString)", isDirectory: true)
+        let socketPath = makeSocketPath(String(name.prefix(6)))
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        return ClaudeHookContext(
+            cliPath: try bundledCLIPath(),
+            socketPath: socketPath,
+            listenerFD: try bindUnixSocket(at: socketPath),
+            state: MockSocketServerState(),
+            root: root,
+            workspaceId: "11111111-1111-1111-1111-111111111111",
+            surfaceId: "22222222-2222-2222-2222-222222222222"
+        )
+    }
+
+    private func runClaudeHook(
+        context: ClaudeHookContext,
+        arguments: [String],
+        standardInput: String
+    ) -> ProcessRunResult {
+        let serverHandled = startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
+            guard let payload = self.jsonObject(line) else {
+                return "OK"
+            }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                return self.surfaceListResponse(id: id, surfaceId: context.surfaceId)
+            case "feed.push":
+                return self.v2Response(id: id, ok: true, result: [:])
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        let result = runProcess(
+            executablePath: context.cliPath,
+            arguments: arguments,
+            environment: [
+                "HOME": context.root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": context.socketPath,
+                "CMUX_WORKSPACE_ID": context.workspaceId,
+                "CMUX_SURFACE_ID": context.surfaceId,
+                "CMUX_CLAUDE_HOOK_STATE_PATH": context.root.appendingPathComponent("claude-hook-sessions.json").path,
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+                "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
+            ],
+            standardInput: standardInput,
+            timeout: 5
+        )
+        wait(for: [serverHandled], timeout: 5)
+        return result
     }
 
 }
