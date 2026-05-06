@@ -28,14 +28,16 @@ private final class CmuxTopProcessCPUTracker: Sendable {
             percentages.reserveCapacity(currentSamples.count)
 
             for (key, sample) in currentSamples {
-                percentages[key] = CmuxTopProcessSnapshot.cpuPercent(
-                    current: sample,
-                    previous: state.samples[key]
-                )
-                if let existing = state.samples[key],
+                let existing = state.samples[key]
+                if let existing,
                    existing.sampledAtNanoseconds > sample.sampledAtNanoseconds {
                     continue
                 }
+
+                percentages[key] = CmuxTopProcessSnapshot.cpuPercent(
+                    current: sample,
+                    previous: existing
+                )
                 state.samples[key] = sample
             }
 

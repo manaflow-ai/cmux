@@ -31,9 +31,9 @@ extension CmuxTopProcessSnapshot {
 
     static func fixedString<T>(_ value: T) -> String {
         withUnsafeBytes(of: value) { rawBuffer in
-            let chars = rawBuffer.bindMemory(to: CChar.self)
-            guard let baseAddress = chars.baseAddress else { return "" }
-            return String(cString: baseAddress).trimmingCharacters(in: .whitespacesAndNewlines)
+            let endIndex = rawBuffer.firstIndex(of: 0) ?? rawBuffer.endIndex
+            return String(decoding: rawBuffer[..<endIndex], as: UTF8.self)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
         }
     }
 
