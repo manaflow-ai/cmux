@@ -5,6 +5,7 @@ import Bonsplit
 /// View that renders the appropriate panel view based on panel type
 struct PanelContentView: View {
     let panel: any Panel
+    let workspaceId: UUID
     let paneId: PaneID
     let isFocused: Bool
     let isSelectedInPane: Bool
@@ -18,6 +19,14 @@ struct PanelContentView: View {
     let onTriggerFlash: () -> Void
 
     var body: some View {
+        renderedPanel
+            .overlay {
+                paneDropTargetOverlay
+            }
+    }
+
+    @ViewBuilder
+    private var renderedPanel: some View {
         switch panel.panelType {
         case .terminal:
             if let terminalPanel = panel as? TerminalPanel {
@@ -62,9 +71,31 @@ struct PanelContentView: View {
                     isFocused: isFocused,
                     isVisibleInUI: isVisibleInUI,
                     portalPriority: portalPriority,
+                    appearance: appearance,
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }
+        }
+    }
+
+    @ViewBuilder
+    private var paneDropTargetOverlay: some View {
+        if shouldInstallPaneDropTarget {
+            PaneDropTargetRepresentable(dropContext: PaneDropContext(
+                workspaceId: workspaceId,
+                panelId: panel.id,
+                paneId: paneId
+            ))
+        }
+    }
+
+    private var shouldInstallPaneDropTarget: Bool {
+        guard isVisibleInUI else { return false }
+        switch panel.panelType {
+        case .markdown, .filePreview:
+            return true
+        case .terminal, .browser:
+            return false
         }
     }
 }

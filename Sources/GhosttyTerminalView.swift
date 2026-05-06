@@ -10926,6 +10926,14 @@ final class GhosttySurfaceScrollView: NSView {
         }
     }
 
+    func paneDropTargetForDrop(at localPoint: NSPoint) -> TerminalPaneDropTargetView? {
+        guard bounds.contains(localPoint) else { return nil }
+        let pointInTarget = paneDropTargetView.convert(localPoint, from: self)
+        guard paneDropTargetView.bounds.contains(pointInTarget) else { return nil }
+        guard !paneDropTargetView.shouldDeferToPaneTabBar(at: pointInTarget) else { return nil }
+        return paneDropTargetView
+    }
+
 #if DEBUG
     private func logDropZoneOverlay(event: String, zone: DropZone?, frame: CGRect?) {
         let surface = surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil"
