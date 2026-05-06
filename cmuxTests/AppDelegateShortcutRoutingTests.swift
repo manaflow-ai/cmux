@@ -453,7 +453,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(manager.tabs.count, initialCount + 1, "Chord prefix should arm instead of firing Settings")
     }
 
-    func testConfiguredChordPrefixBlocksUnrelatedSingleStrokeShortcutOnSecondKey() {
+    func testConfiguredChordPrefixBlocksUnrelatedSingleStrokeShortcutOnSecondKey() throws {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -483,30 +483,30 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             chordKey: "d"
         )
 
-        withTemporaryShortcut(action: .splitRight, shortcut: shortcut) {
-            guard let prefixEvent = makeKeyDownEvent(
+        try withTemporaryShortcut(action: .splitRight, shortcut: shortcut) {
+            let prefixEvent = try XCTUnwrap(makeKeyDownEvent(
                 key: "b",
                 modifiers: [.control],
                 keyCode: 11,
                 windowNumber: window.windowNumber
-            ) else {
-                XCTFail("Failed to construct Ctrl+B prefix event")
-                return
-            }
-
-            guard let conflictingSingleStrokeEvent = makeKeyDownEvent(
+            ))
+            let conflictingSingleStrokeEvent = try XCTUnwrap(makeKeyDownEvent(
                 key: "n",
                 modifiers: [.command],
                 keyCode: 45,
                 windowNumber: window.windowNumber
-            ) else {
-                XCTFail("Failed to construct Cmd+N event")
-                return
-            }
-
+            ))
+            let numberedSingleStrokeEvent = try XCTUnwrap(makeKeyDownEvent(
+                key: "2",
+                modifiers: [.command],
+                keyCode: 19,
+                windowNumber: window.windowNumber
+            ))
 #if DEBUG
             XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: prefixEvent))
             XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: conflictingSingleStrokeEvent))
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: prefixEvent))
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: numberedSingleStrokeEvent))
 #else
             XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
@@ -5407,8 +5407,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     private func withTemporaryShortcut(
         action: KeyboardShortcutSettings.Action,
         shortcut: StoredShortcut? = nil,
-        _ body: () -> Void
-    ) {
+        _ body: () throws -> Void
+    ) rethrows {
         let hadPersistedShortcut = UserDefaults.standard.object(forKey: action.defaultsKey) != nil
         let originalShortcut = KeyboardShortcutSettings.shortcut(for: action)
         defer {
@@ -5419,7 +5419,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             }
         }
         KeyboardShortcutSettings.setShortcut(shortcut ?? action.defaultShortcut, for: action)
-        body()
+        try body()
     }
 
     private func assertEscapeKeyUpIsConsumedAfterCommandPaletteOpenRequest(

@@ -12518,7 +12518,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let focusContext = shortcutEventFocusContext(event)
         for action in KeyboardShortcutSettings.Action.allCases {
             if (action.shortcutContext.isAlwaysAvailable || action.shortcutContext.isAvailable(focusContext)),
-               matches(KeyboardShortcutSettings.shortcut(for: action)) {
+               matchesKeyboardShortcutEvent(event, action: action, shortcut: KeyboardShortcutSettings.shortcut(for: action)) {
                 return true
             }
         }
