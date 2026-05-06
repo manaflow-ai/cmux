@@ -56,6 +56,7 @@ cmux hooks setup
 cmux hooks setup --agent codex
 cmux hooks setup rovo
 cmux hooks uninstall
+cmux hooks uninstall rovo
 ```
 
 Installs Feed-relevant hooks for every supported CLI whose binary is on `PATH`:
@@ -81,7 +82,7 @@ cmux hooks opencode install --project     # .opencode/plugins/cmux-feed.js in cw
 cmux hooks <agent> uninstall
 ```
 
-Agents without a binary on `PATH` are skipped at install time, and `cmux hooks setup` prints a summary line naming the ones it skipped. Use `cmux hooks setup --agent <name>` to install one integration, or `cmux hooks uninstall --agent <name>` to remove one. Rovo Dev accepts either `rovodev` or `rovo`.
+Agents without a binary on `PATH` are skipped at install time, and `cmux hooks setup` prints a summary line naming the ones it skipped. Use `cmux hooks setup --agent <name>` or `cmux hooks setup <name>` to install one integration, and `cmux hooks uninstall --agent <name>` or `cmux hooks uninstall <name>` to remove one. Rovo Dev accepts either `rovodev` or `rovo`.
 
 ## Decision semantics
 
