@@ -57,6 +57,7 @@ enum WorkspaceFinderDirectoryResolver {
 enum WorkspaceFinderDirectoryOpener {
     @MainActor
     static func openInFinder(_ directoryURL: URL?) async {
+        guard !Task.isCancelled else { return }
         guard let directoryURL else {
             NSSound.beep()
             return
@@ -65,6 +66,7 @@ enum WorkspaceFinderDirectoryOpener {
             guard !Task.isCancelled else { return }
             NSWorkspace.shared.activateFileViewerSelecting([refreshedURL])
         } else {
+            guard !Task.isCancelled else { return }
             NSSound.beep()
         }
     }
