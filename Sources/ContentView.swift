@@ -4055,15 +4055,13 @@ struct ContentView: View {
     }
 
     private func primePendingBackgroundWorkspaces() async {
-        let workspaceIds = await MainActor.run {
-            tabManager.pendingBackgroundWorkspaceLoadIds.sorted { lhs, rhs in
-                lhs.uuidString < rhs.uuidString
+        while !Task.isCancelled {
+            let workspaceIds = await MainActor.run { tabManager.pendingBackgroundWorkspaceLoadIds.sorted { $0.uuidString < $1.uuidString } }
+            guard !workspaceIds.isEmpty else { return }
+            for workspaceId in workspaceIds {
+                guard !Task.isCancelled else { return }
+                await primeBackgroundWorkspaceIfNeeded(workspaceId: workspaceId)
             }
-        }
-
-        for workspaceId in workspaceIds {
-            guard !Task.isCancelled else { return }
-            await primeBackgroundWorkspaceIfNeeded(workspaceId: workspaceId)
         }
     }
 
