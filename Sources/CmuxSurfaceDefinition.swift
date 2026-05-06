@@ -31,6 +31,13 @@ struct CmuxSurfaceDefinition: Codable, Sendable {
         path: String? = nil,
         focus: Bool? = nil
     ) {
+        if type == .markdown {
+            precondition(
+                path?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+                "Markdown surface requires a non-empty path"
+            )
+        }
+
         self.type = type
         self.name = name
         self.command = command

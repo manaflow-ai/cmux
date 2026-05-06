@@ -93,6 +93,39 @@ final class WorkspaceCustomLayoutTests: XCTestCase {
         XCTAssertEqual(focusedMarkdownPanel.filePath, planURL.path)
     }
 
+    func testCustomLayoutMarkdownResolutionProducesAbsolutePathSnapshot() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-layout-markdown-snapshot-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let readmeURL = root.appendingPathComponent("README.md")
+        try "# Readme\n".write(to: readmeURL, atomically: true, encoding: .utf8)
+
+        let layoutJSON = """
+        {
+          "pane": {
+            "surfaces": [
+              { "type": "terminal", "name": "shell" },
+              { "type": "markdown", "path": "README.md" }
+            ]
+          }
+        }
+        """
+        let layoutData = try XCTUnwrap(layoutJSON.data(using: .utf8))
+        let layout = try JSONDecoder().decode(CmuxLayoutNode.self, from: layoutData)
+
+        let resolved = layout.resolvingMarkdownPaths(relativeTo: root.path)
+        XCTAssertNil(resolved.failure)
+
+        let resolvedLayout = try XCTUnwrap(resolved.layout)
+        guard case .pane(let pane) = resolvedLayout else {
+            return XCTFail("Expected pane layout")
+        }
+        XCTAssertEqual(pane.surfaces[0].path, nil)
+        XCTAssertEqual(pane.surfaces[1].path, readmeURL.path)
+    }
+
     @MainActor
     func testCustomLayoutInvalidMarkdownPathFailsBeforeMutatingWorkspace() throws {
         let root = FileManager.default.temporaryDirectory

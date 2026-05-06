@@ -48,10 +48,12 @@ func customLayoutBaseCwdForNewWorkspace(
 extension Workspace {
 
     func applyCustomLayout(_ layout: CmuxLayoutNode, baseCwd: String) -> Bool {
-        if let failure = layout.firstMarkdownPathResolutionFailure(relativeTo: baseCwd) {
+        let resolvedLayout = layout.resolvingMarkdownPaths(relativeTo: baseCwd)
+        if let failure = resolvedLayout.failure {
             logCustomLayoutMarkdownPathFailure(failure, context: "layout application")
             return false
         }
+        guard let layout = resolvedLayout.layout else { return false }
 
         guard let rootPaneId = bonsplitController.allPaneIds.first else { return false }
 
@@ -63,7 +65,14 @@ extension Workspace {
         // a placeholder terminal.
         var focusPanelId: UUID?
         for leaf in leaves {
-            populateCustomPane(leaf.paneId, surfaces: leaf.surfaces, baseCwd: baseCwd, focusPanelId: &focusPanelId)
+            guard populateCustomPane(
+                leaf.paneId,
+                surfaces: leaf.surfaces,
+                baseCwd: baseCwd,
+                focusPanelId: &focusPanelId
+            ) else {
+                return false
+            }
         }
 
         let liveRoot = bonsplitController.treeSnapshot()
@@ -124,32 +133,39 @@ extension Workspace {
         surfaces: [CmuxSurfaceDefinition],
         baseCwd: String,
         focusPanelId: inout UUID?
-    ) {
+    ) -> Bool {
         let existingPanelIds = bonsplitController
             .tabs(inPane: paneId)
             .compactMap { panelIdFromSurfaceId($0.id) }
 
-        guard !surfaces.isEmpty else { return }
+        guard !surfaces.isEmpty else { return true }
 
-        let firstSurface = surfaces[0]
+        var nextSurfaceIndex = 0
         if let placeholderPanelId = existingPanelIds.first {
-            configureExistingSurface(
+            guard configureExistingSurface(
                 panelId: placeholderPanelId,
                 inPane: paneId,
-                surface: firstSurface,
+                surface: surfaces[0],
                 baseCwd: baseCwd,
                 focusPanelId: &focusPanelId
-            )
+            ) else {
+                return false
+            }
+            nextSurfaceIndex = 1
         }
 
-        for surfaceIndex in 1..<surfaces.count {
-            createNewSurface(
+        for surfaceIndex in nextSurfaceIndex..<surfaces.count {
+            guard createNewSurface(
                 inPane: paneId,
                 surface: surfaces[surfaceIndex],
                 baseCwd: baseCwd,
                 focusPanelId: &focusPanelId
-            )
+            ) else {
+                return false
+            }
         }
+
+        return true
     }
 
     private func configureExistingSurface(
@@ -158,22 +174,22 @@ extension Workspace {
         surface: CmuxSurfaceDefinition,
         baseCwd: String,
         focusPanelId: inout UUID?
-    ) {
+    ) -> Bool {
         switch surface.type {
         case .terminal where surface.cwd != nil || surface.env != nil:
             // Placeholder can't change cwd/env; replace it.
             let resolvedCwd = CmuxConfigStore.resolveCwd(surface.cwd, relativeTo: baseCwd)
-            if let panel = newTerminalSurface(
+            guard let panel = newTerminalSurface(
                 inPane: paneId,
                 focus: false,
                 workingDirectory: resolvedCwd,
                 startupEnvironment: surface.env ?? [:]
-            ) {
-                _ = closePanel(panelId, force: true)
-                if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
-                if surface.focus == true { focusPanelId = panel.id }
-                if let command = surface.command { sendInputWhenReady(command + "\n", to: panel) }
-            }
+            ) else { return false }
+            _ = closePanel(panelId, force: true)
+            if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
+            if surface.focus == true { focusPanelId = panel.id }
+            if let command = surface.command { sendInputWhenReady(command + "\n", to: panel) }
+            return true
 
         case .terminal:
             if let name = surface.name { setPanelCustomTitle(panelId: panelId, title: name) }
@@ -181,31 +197,32 @@ extension Workspace {
             if let command = surface.command, let terminal = terminalPanel(for: panelId) {
                 sendInputWhenReady(command + "\n", to: terminal)
             }
+            return true
 
         case .browser:
             let url = surface.url.flatMap { URL(string: $0) }
-            if let panel = newBrowserSurface(
+            guard let panel = newBrowserSurface(
                 inPane: paneId,
                 url: url,
                 focus: false,
                 creationPolicy: .restoration
-            ) {
-                _ = closePanel(panelId, force: true)
-                if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
-                if surface.focus == true { focusPanelId = panel.id }
-            }
+            ) else { return false }
+            _ = closePanel(panelId, force: true)
+            if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
+            if surface.focus == true { focusPanelId = panel.id }
+            return true
 
         case .markdown:
-            guard let filePath = resolvedMarkdownPath(for: surface, baseCwd: baseCwd) else { return }
-            if let panel = newMarkdownSurface(
+            guard let filePath = validatedMarkdownPath(for: surface),
+                  let panel = newMarkdownSurface(
                 inPane: paneId,
                 filePath: filePath,
                 focus: false
-            ) {
-                _ = closePanel(panelId, force: true)
-                if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
-                if surface.focus == true { focusPanelId = panel.id }
-            }
+            ) else { return false }
+            _ = closePanel(panelId, force: true)
+            if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
+            if surface.focus == true { focusPanelId = panel.id }
+            return true
         }
     }
 
@@ -214,58 +231,55 @@ extension Workspace {
         surface: CmuxSurfaceDefinition,
         baseCwd: String,
         focusPanelId: inout UUID?
-    ) {
+    ) -> Bool {
         switch surface.type {
         case .terminal:
             let resolvedCwd = CmuxConfigStore.resolveCwd(surface.cwd, relativeTo: baseCwd)
-            if let panel = newTerminalSurface(
+            guard let panel = newTerminalSurface(
                 inPane: paneId,
                 focus: false,
                 workingDirectory: resolvedCwd,
                 startupEnvironment: surface.env ?? [:]
-            ) {
-                if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
-                if surface.focus == true { focusPanelId = panel.id }
-                if let command = surface.command { sendInputWhenReady(command + "\n", to: panel) }
-            }
+            ) else { return false }
+            if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
+            if surface.focus == true { focusPanelId = panel.id }
+            if let command = surface.command { sendInputWhenReady(command + "\n", to: panel) }
+            return true
 
         case .browser:
             let url = surface.url.flatMap { URL(string: $0) }
-            if let panel = newBrowserSurface(
+            guard let panel = newBrowserSurface(
                 inPane: paneId,
                 url: url,
                 focus: false,
                 creationPolicy: .restoration
-            ) {
-                if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
-                if surface.focus == true { focusPanelId = panel.id }
-            }
+            ) else { return false }
+            if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
+            if surface.focus == true { focusPanelId = panel.id }
+            return true
 
         case .markdown:
-            guard let filePath = resolvedMarkdownPath(for: surface, baseCwd: baseCwd) else { return }
-            if let panel = newMarkdownSurface(
+            guard let filePath = validatedMarkdownPath(for: surface),
+                  let panel = newMarkdownSurface(
                 inPane: paneId,
                 filePath: filePath,
                 focus: false
-            ) {
-                if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
-                if surface.focus == true { focusPanelId = panel.id }
-            }
+            ) else { return false }
+            if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
+            if surface.focus == true { focusPanelId = panel.id }
+            return true
         }
     }
 
-    private func resolvedMarkdownPath(
-        for surface: CmuxSurfaceDefinition,
-        baseCwd: String
-    ) -> String? {
-        let resolvedPath = surface.resolvedMarkdownPath(relativeTo: baseCwd)
-        if let failure = resolvedPath.failure {
+    private func validatedMarkdownPath(for surface: CmuxSurfaceDefinition) -> String? {
+        guard let filePath = surface.path,
+              !filePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             workspaceCustomLayoutLogger.warning(
-                "Markdown surface path invalid: \(failure.code, privacy: .public)"
+                "Markdown surface missing validated path during layout application"
             )
             return nil
         }
-        return resolvedPath.path
+        return filePath
     }
 
     private func applyCustomDividerPositions(
@@ -292,26 +306,63 @@ extension Workspace {
 }
 
 extension CmuxLayoutNode {
+    func resolvingMarkdownPaths(
+        relativeTo baseCwd: String
+    ) -> (layout: CmuxLayoutNode?, failure: CmuxReadableFilePathResolutionFailure?) {
+        switch self {
+        case .pane(let pane):
+            var surfaces: [CmuxSurfaceDefinition] = []
+            surfaces.reserveCapacity(pane.surfaces.count)
+            for surface in pane.surfaces {
+                let resolved = surface.resolvingMarkdownPath(relativeTo: baseCwd)
+                if let failure = resolved.failure {
+                    return (nil, failure)
+                }
+                guard let resolvedSurface = resolved.surface else { return (nil, nil) }
+                surfaces.append(resolvedSurface)
+            }
+            return (.pane(CmuxPaneDefinition(surfaces: surfaces)), nil)
+
+        case .split(let split):
+            var children: [CmuxLayoutNode] = []
+            children.reserveCapacity(split.children.count)
+            for child in split.children {
+                let resolved = child.resolvingMarkdownPaths(relativeTo: baseCwd)
+                if let failure = resolved.failure {
+                    return (nil, failure)
+                }
+                guard let resolvedChild = resolved.layout else { return (nil, nil) }
+                children.append(resolvedChild)
+            }
+            return (
+                .split(CmuxSplitDefinition(direction: split.direction, split: split.split, children: children)),
+                nil
+            )
+        }
+    }
+
     func firstMarkdownPathResolutionFailure(
         relativeTo baseCwd: String
     ) -> CmuxReadableFilePathResolutionFailure? {
-        switch self {
-        case .pane(let pane):
-            return pane.surfaces.lazy
-                .compactMap { $0.resolvedMarkdownPath(relativeTo: baseCwd).failure }
-                .first
-        case .split(let split):
-            for child in split.children {
-                if let failure = child.firstMarkdownPathResolutionFailure(relativeTo: baseCwd) {
-                    return failure
-                }
-            }
-            return nil
-        }
+        resolvingMarkdownPaths(relativeTo: baseCwd).failure
     }
 }
 
 extension CmuxSurfaceDefinition {
+    func resolvingMarkdownPath(
+        relativeTo baseCwd: String
+    ) -> (surface: CmuxSurfaceDefinition?, failure: CmuxReadableFilePathResolutionFailure?) {
+        guard type == .markdown else { return (self, nil) }
+        let resolved = resolvedMarkdownPath(relativeTo: baseCwd)
+        if let failure = resolved.failure {
+            return (nil, failure)
+        }
+        guard let path = resolved.path else { return (nil, nil) }
+        var surface = self
+        surface.path = path
+        return (surface, nil)
+    }
+
     func resolvedMarkdownPath(
         relativeTo baseCwd: String
     ) -> (path: String?, failure: CmuxReadableFilePathResolutionFailure?) {
