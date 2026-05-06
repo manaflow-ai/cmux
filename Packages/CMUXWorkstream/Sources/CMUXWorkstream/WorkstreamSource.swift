@@ -7,6 +7,7 @@ import Foundation
 public enum WorkstreamSource: String, Codable, Sendable, CaseIterable, Equatable {
     case claude
     case codex
+    case pi
     case cursor
     case opencode
     case gemini
