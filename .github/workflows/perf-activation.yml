@@ -86,10 +86,11 @@ jobs:
                 ;;
             esac
             ZIG_DIR="/tmp/zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}"
-            ZIG_TAR="/tmp/zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}.tar.xz"
-            ZIG_URL="https://ziglang.org/download/${ZIG_REQUIRED}/zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}.tar.xz"
+            ZIG_FILE="zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}.tar.xz"
+            ZIG_TAR="/tmp/${ZIG_FILE}"
+            ZIG_URL="https://pkg.hexops.org/zig/${ZIG_FILE}"
             ZIG_SIG="${ZIG_TAR}.minisig"
-            ZIG_SIG_URL="${ZIG_URL}.minisig"
+            ZIG_SIG_URL="https://ziglang.org/download/${ZIG_REQUIRED}/${ZIG_FILE}.minisig"
             ZIG_PUBKEY="RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U"
             curl \
               --fail \
