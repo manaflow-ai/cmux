@@ -14076,13 +14076,6 @@ struct CMUXCLI {
                     client: client
                 )
             }()
-            let shouldClearVisibleState = fallbackWorkspaceId.map {
-                shouldApplyClaudeHookVisibleMutation(
-                    sessionStore: sessionStore,
-                    parsedInput: parsedInput,
-                    workspaceId: $0
-                )
-            } ?? true
             let consumedSession = try? sessionStore.consume(
                 sessionId: parsedInput.sessionId,
                 workspaceId: fallbackWorkspaceId,
@@ -14091,6 +14084,11 @@ struct CMUXCLI {
             if let consumedSession {
                 let workspaceId = consumedSession.workspaceId
                 sendClaudeFeedTelemetry(workspaceId: workspaceId)
+                let shouldClearVisibleState = shouldApplyClaudeHookVisibleMutation(
+                    sessionStore: sessionStore,
+                    parsedInput: parsedInput,
+                    workspaceId: workspaceId
+                )
                 if shouldClearVisibleState {
                     _ = try? clearClaudeStatus(client: client, workspaceId: workspaceId)
                     _ = try? sendV1Command("clear_agent_pid claude_code --tab=\(workspaceId)", client: client)
