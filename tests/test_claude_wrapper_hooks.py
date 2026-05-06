@@ -638,17 +638,17 @@ def test_live_socket_bad_tmpdir_still_uses_cache_restore_module(failures: list[s
             home=str(tmp / "home"),
             xdg_cache_home=str(tmp / "xdg-cache"),
         )
-    expect(code == 0, f"bad TMPDIR: wrapper exited {code}: {stderr}", failures)
-    expect("--settings" in real_argv, f"bad TMPDIR: missing --settings in args: {real_argv}", failures)
-    expect("--session-id" in real_argv, f"bad TMPDIR: missing --session-id in args: {real_argv}", failures)
-    expect(any(" ping" in line for line in cmux_log), f"bad TMPDIR: expected cmux ping, got {cmux_log}", failures)
-    expect(claudecode == "__UNSET__", f"bad TMPDIR: expected CLAUDECODE unset, got {claudecode!r}", failures)
-    require_path = require_path_from_node_options(node_options)
-    expect(require_path != "", f"bad TMPDIR: expected NODE_OPTIONS restore preload, got {node_options!r}", failures)
-    expect(str(bad_tmpdir) not in require_path, f"bad TMPDIR: restore module should not use TMPDIR, got {require_path!r}", failures)
-    expect_restore_module_hardened(require_path, "bad TMPDIR", failures)
-    expect(runtime_node_options == "__UNSET__", f"bad TMPDIR: expected runtime NODE_OPTIONS restored, got {runtime_node_options!r}", failures)
-    expect(child_node_options == "__UNSET__", f"bad TMPDIR: expected child NODE_OPTIONS restored, got {child_node_options!r}", failures)
+        expect(code == 0, f"bad TMPDIR: wrapper exited {code}: {stderr}", failures)
+        expect("--settings" in real_argv, f"bad TMPDIR: missing --settings in args: {real_argv}", failures)
+        expect("--session-id" in real_argv, f"bad TMPDIR: missing --session-id in args: {real_argv}", failures)
+        expect(any(" ping" in line for line in cmux_log), f"bad TMPDIR: expected cmux ping, got {cmux_log}", failures)
+        expect(claudecode == "__UNSET__", f"bad TMPDIR: expected CLAUDECODE unset, got {claudecode!r}", failures)
+        require_path = require_path_from_node_options(node_options)
+        expect(require_path != "", f"bad TMPDIR: expected NODE_OPTIONS restore preload, got {node_options!r}", failures)
+        expect(str(bad_tmpdir) not in require_path, f"bad TMPDIR: restore module should not use TMPDIR, got {require_path!r}", failures)
+        expect_restore_module_hardened(require_path, "bad TMPDIR", failures)
+        expect(runtime_node_options == "__UNSET__", f"bad TMPDIR: expected runtime NODE_OPTIONS restored, got {runtime_node_options!r}", failures)
+        expect(child_node_options == "__UNSET__", f"bad TMPDIR: expected child NODE_OPTIONS restored, got {child_node_options!r}", failures)
 
 
 def test_live_socket_whitespace_home_uses_safe_cache_fallback(failures: list[str]) -> None:
@@ -843,6 +843,42 @@ def test_live_socket_relative_xdg_cache_home_falls_back(failures: list[str]) -> 
     )
 
 
+def test_live_socket_rehardens_cached_restore_module(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-cache-hit-") as td:
+        tmp = Path(td)
+        home = tmp / "home"
+        xdg_cache_home = tmp / "xdg-cache"
+        code, _, _, stderr, _, node_options, _, _, _, _ = run_wrapper(
+            socket_state="live",
+            argv=["hello"],
+            home=str(home),
+            xdg_cache_home=str(xdg_cache_home),
+        )
+        expect(code == 0, f"cached restore hardening setup: wrapper exited {code}: {stderr}", failures)
+        require_path = require_path_from_node_options(node_options)
+        expect(require_path != "", f"cached restore hardening setup: expected restore preload, got {node_options!r}", failures)
+        restore = Path(require_path)
+        if not restore.exists():
+            expect(False, f"cached restore hardening setup: restore module missing at {require_path!r}", failures)
+            return
+        restore.chmod(0o644)
+
+        code, _, _, stderr, _, node_options, _, _, _, _ = run_wrapper(
+            socket_state="live",
+            argv=["hello"],
+            home=str(home),
+            xdg_cache_home=str(xdg_cache_home),
+        )
+        expect(code == 0, f"cached restore hardening: wrapper exited {code}: {stderr}", failures)
+        cached_require_path = require_path_from_node_options(node_options)
+        expect(
+            cached_require_path == require_path,
+            f"cached restore hardening: expected same restore path {require_path!r}, got {cached_require_path!r}",
+            failures,
+        )
+        expect_restore_module_hardened(cached_require_path, "cached restore hardening", failures)
+
+
 def test_live_socket_preserves_explicit_bypass_availability_flag(failures: list[str]) -> None:
     cases = [
         ("allow/plain", ["--allow-dangerously-skip-permissions", "hello"], True, "--allow-dangerously-skip-permissions"),
@@ -967,6 +1003,7 @@ def main() -> int:
     test_live_socket_whitespace_xdg_cache_home_falls_back(failures)
     test_live_socket_quoted_linux_xdg_cache_home_falls_back(failures)
     test_live_socket_relative_xdg_cache_home_falls_back(failures)
+    test_live_socket_rehardens_cached_restore_module(failures)
     test_live_socket_preserves_explicit_bypass_availability_flag(failures)
     test_live_socket_stale_mktemp_literal_does_not_warn(failures)
     test_missing_socket_skips_hook_injection(failures)
