@@ -109,7 +109,6 @@
     "subtitle": "Follow these steps to get cmux running on your Mac.",
     "downloadStarted": "Your download should begin automatically. Didn't work?",
     "tryAgain": "Try downloading again.",
-    "otherDownloads": "Other downloads",
     "step1": "Open cmux-macos.dmg from your Downloads folder.",
     "step1Alt": "cmux-macos.dmg disk image",
     "step2": "Drag cmux into your Applications folder.",

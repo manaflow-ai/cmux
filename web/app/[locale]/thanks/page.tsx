@@ -7,7 +7,6 @@ import { AutoDownload } from "./auto-download";
 
 const DMG_URL =
   "https://github.com/manaflow-ai/cmux/releases/latest/download/cmux-macos.dmg";
-const RELEASES_URL = "https://github.com/manaflow-ai/cmux/releases/latest";
 const DISCORD_URL = "https://discord.gg/xsgFEVrWCZ";
 const GITHUB_URL = "https://github.com/manaflow-ai/cmux";
 const TWITTER_URL = "https://twitter.com/manaflowai";
@@ -30,31 +29,348 @@ export async function generateMetadata({
 function Step({
   n,
   title,
-  imageSrc,
-  imageAlt,
+  children,
 }: {
   n: number;
   title: string;
-  imageSrc: string;
-  imageAlt: string;
+  children: React.ReactNode;
 }) {
   return (
     <div className="rounded-2xl border border-border bg-code-bg/40 p-5 flex flex-col items-center text-center">
       <div className="size-7 rounded-full bg-foreground text-background text-xs font-semibold flex items-center justify-center mb-4">
         {n}
       </div>
-      <div className="w-full aspect-[11/7] flex items-center justify-center mb-4">
-        <Image
-          src={imageSrc}
-          alt={imageAlt}
-          width={880}
-          height={560}
-          className="w-full h-full object-contain"
-          priority={n === 1}
-        />
+      <div className="w-full aspect-[11/7] flex items-center justify-center mb-4 overflow-hidden">
+        {children}
       </div>
       <p className="text-[15px] leading-snug">{title}</p>
     </div>
+  );
+}
+
+function DragToApplicationsSvg({ title }: { title: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 880 560"
+      className="w-full h-full"
+      role="img"
+      aria-label={title}
+    >
+      <defs>
+        <linearGradient id="cmuxBlue1" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#4a8cff" />
+          <stop offset="100%" stopColor="#1f6cff" />
+        </linearGradient>
+        <linearGradient id="folderBlue" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#5aa6ff" />
+          <stop offset="100%" stopColor="#1f6cff" />
+        </linearGradient>
+        <linearGradient id="folderTab" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#7ab9ff" />
+          <stop offset="100%" stopColor="#3d83e6" />
+        </linearGradient>
+        <linearGradient id="iconShine1" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#ffffff" />
+          <stop offset="100%" stopColor="#f1f3f7" />
+        </linearGradient>
+        <filter
+          id="softShadow1"
+          x="-20%"
+          y="-20%"
+          width="140%"
+          height="140%"
+        >
+          <feGaussianBlur in="SourceAlpha" stdDeviation="6" />
+          <feOffset dx="0" dy="6" />
+          <feComponentTransfer>
+            <feFuncA type="linear" slope="0.28" />
+          </feComponentTransfer>
+          <feMerge>
+            <feMergeNode />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+        <filter
+          id="softShadow2"
+          x="-20%"
+          y="-20%"
+          width="140%"
+          height="140%"
+        >
+          <feGaussianBlur in="SourceAlpha" stdDeviation="8" />
+          <feOffset dx="0" dy="8" />
+          <feComponentTransfer>
+            <feFuncA type="linear" slope="0.32" />
+          </feComponentTransfer>
+          <feMerge>
+            <feMergeNode />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+        <marker
+          id="arrowHead"
+          viewBox="0 0 12 12"
+          refX="6"
+          refY="6"
+          markerWidth="10"
+          markerHeight="10"
+          orient="auto-start-reverse"
+        >
+          <path d="M0,0 L12,6 L0,12 L3,6 Z" fill="#7a8597" />
+        </marker>
+      </defs>
+
+      <g transform="translate(180 280) rotate(-8)" filter="url(#softShadow1)">
+        <rect
+          x="-110"
+          y="-110"
+          width="220"
+          height="220"
+          rx="50"
+          ry="50"
+          fill="url(#iconShine1)"
+          stroke="#e3e6ec"
+          strokeWidth="1"
+        />
+        <rect
+          x="-110"
+          y="-110"
+          width="220"
+          height="36"
+          rx="50"
+          ry="50"
+          fill="#ffffff"
+          opacity="0.6"
+        />
+        <path
+          d="M -38 -52 L 40 0 L -38 52"
+          fill="none"
+          stroke="url(#cmuxBlue1)"
+          strokeWidth="22"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </g>
+
+      <g
+        transform="translate(252 348)"
+        fill="#ffffff"
+        stroke="#1a1a1a"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      >
+        <path d="M0 0 L0 30 L8 22 L13 33 L18 31 L13 20 L24 20 Z" />
+      </g>
+
+      <g
+        fill="none"
+        stroke="#7a8597"
+        strokeWidth="3.5"
+        strokeLinecap="round"
+        strokeDasharray="2 12"
+        opacity="0.7"
+      >
+        <path
+          d="M 320 200 Q 440 100 560 200"
+          markerEnd="url(#arrowHead)"
+        />
+      </g>
+
+      <g transform="translate(700 280)" filter="url(#softShadow2)">
+        <path
+          d="M -150 -90 L -60 -90 L -40 -70 L 150 -70 L 150 -50 L -150 -50 Z"
+          fill="url(#folderTab)"
+        />
+        <rect
+          x="-150"
+          y="-72"
+          width="300"
+          height="180"
+          rx="20"
+          ry="20"
+          fill="url(#folderBlue)"
+        />
+        <path
+          d="M -150 -52 Q 0 -40 150 -52 L 150 -40 Q 0 -28 -150 -40 Z"
+          fill="#ffffff"
+          opacity="0.18"
+        />
+        <g fill="#ffffff">
+          <path d="M -44 60 L 0 -42 L 44 60 L 24 60 L 14 36 L -14 36 L -24 60 Z M -7 18 L 7 18 L 0 1 Z" />
+        </g>
+      </g>
+    </svg>
+  );
+}
+
+function DockSvg({ title }: { title: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 880 560"
+      className="w-full h-full"
+      role="img"
+      aria-label={title}
+    >
+      <defs>
+        <linearGradient id="cmuxBlue2" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#4a8cff" />
+          <stop offset="100%" stopColor="#1f6cff" />
+        </linearGradient>
+        <linearGradient id="finderBlue" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#7fb3ff" />
+          <stop offset="100%" stopColor="#2e6ff0" />
+        </linearGradient>
+        <linearGradient id="messagesGreen" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#5be37b" />
+          <stop offset="100%" stopColor="#1aab46" />
+        </linearGradient>
+        <linearGradient id="dockGlass" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#3a3f4a" stopOpacity="0.55" />
+          <stop offset="100%" stopColor="#1a1d24" stopOpacity="0.65" />
+        </linearGradient>
+        <linearGradient id="dockHighlight" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#ffffff" stopOpacity="0.45" />
+          <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
+        </linearGradient>
+        <linearGradient id="iconShine2" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#ffffff" />
+          <stop offset="100%" stopColor="#eef0f5" />
+        </linearGradient>
+        <filter
+          id="dockShadow"
+          x="-10%"
+          y="-30%"
+          width="120%"
+          height="180%"
+        >
+          <feGaussianBlur in="SourceAlpha" stdDeviation="14" />
+          <feOffset dx="0" dy="18" />
+          <feComponentTransfer>
+            <feFuncA type="linear" slope="0.35" />
+          </feComponentTransfer>
+          <feMerge>
+            <feMergeNode />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+        <filter
+          id="iconShadow"
+          x="-30%"
+          y="-30%"
+          width="160%"
+          height="160%"
+        >
+          <feGaussianBlur in="SourceAlpha" stdDeviation="3" />
+          <feOffset dx="0" dy="3" />
+          <feComponentTransfer>
+            <feFuncA type="linear" slope="0.35" />
+          </feComponentTransfer>
+          <feMerge>
+            <feMergeNode />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+      </defs>
+
+      <g transform="translate(440 320)" filter="url(#dockShadow)">
+        <rect
+          x="-300"
+          y="-90"
+          width="600"
+          height="180"
+          rx="56"
+          ry="56"
+          fill="url(#dockGlass)"
+          stroke="#ffffff"
+          strokeOpacity="0.18"
+          strokeWidth="1.5"
+        />
+        <rect
+          x="-292"
+          y="-86"
+          width="584"
+          height="60"
+          rx="44"
+          ry="44"
+          fill="url(#dockHighlight)"
+          opacity="0.7"
+        />
+      </g>
+
+      <g transform="translate(280 320)" filter="url(#iconShadow)">
+        <rect
+          x="-66"
+          y="-66"
+          width="132"
+          height="132"
+          rx="30"
+          ry="30"
+          fill="url(#finderBlue)"
+        />
+        <path d="M 0 -52 A 52 52 0 0 1 0 52 Z" fill="#ffffff" />
+        <rect x="-22" y="-26" width="8" height="22" rx="3" fill="#1a3a78" />
+        <rect x="14" y="-26" width="8" height="22" rx="3" fill="#1a3a78" />
+        <path
+          d="M -22 18 Q 0 34 22 18"
+          fill="none"
+          stroke="#1a3a78"
+          strokeWidth="5"
+          strokeLinecap="round"
+        />
+      </g>
+
+      <g transform="translate(440 320)" filter="url(#iconShadow)">
+        <rect
+          x="-66"
+          y="-66"
+          width="132"
+          height="132"
+          rx="30"
+          ry="30"
+          fill="url(#iconShine2)"
+          stroke="#dfe3ea"
+          strokeWidth="1"
+        />
+        <rect
+          x="-66"
+          y="-66"
+          width="132"
+          height="22"
+          rx="30"
+          ry="30"
+          fill="#ffffff"
+          opacity="0.7"
+        />
+        <path
+          d="M -22 -32 L 24 0 L -22 32"
+          fill="none"
+          stroke="url(#cmuxBlue2)"
+          strokeWidth="14"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </g>
+
+      <g transform="translate(600 320)" filter="url(#iconShadow)">
+        <rect
+          x="-66"
+          y="-66"
+          width="132"
+          height="132"
+          rx="30"
+          ry="30"
+          fill="url(#messagesGreen)"
+        />
+        <path
+          d="M -38 -22 Q -38 -42 -18 -42 L 30 -42 Q 50 -42 50 -22 L 50 6 Q 50 26 30 26 L 4 26 L -14 42 L -10 26 L -18 26 Q -38 26 -38 6 Z"
+          fill="#ffffff"
+        />
+      </g>
+
+      <circle cx="440" cy="412" r="4" fill="#ffffff" opacity="0.85" />
+    </svg>
   );
 }
 
@@ -142,9 +458,9 @@ export default function ThanksPage() {
       <AutoDownload url={DMG_URL} />
 
       <main className="w-full max-w-5xl mx-auto px-6 py-12 sm:py-16">
-        <div className="rounded-xl border border-border bg-code-bg/60 px-4 py-3 text-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-12">
-          <p className="text-muted">
-            {t("downloadStarted")}{" "}
+        <div className="flex justify-center mb-12">
+          <p className="inline-flex items-center rounded-full border border-border bg-code-bg/60 px-4 py-2 text-sm text-muted">
+            {t("downloadStarted")}&nbsp;
             <a
               href={DMG_URL}
               className="underline underline-offset-2 decoration-border hover:decoration-foreground transition-colors text-foreground"
@@ -152,14 +468,6 @@ export default function ThanksPage() {
               {t("tryAgain")}
             </a>
           </p>
-          <a
-            href={RELEASES_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-foreground/70 hover:text-foreground text-xs underline underline-offset-2 decoration-border hover:decoration-foreground transition-colors"
-          >
-            {t("otherDownloads")}
-          </a>
         </div>
 
         <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight text-center mb-3">
@@ -170,24 +478,22 @@ export default function ThanksPage() {
         </p>
 
         <div className="grid gap-4 sm:grid-cols-3 mb-16">
-          <Step
-            n={1}
-            title={t("step1")}
-            imageSrc="/install/step1.png"
-            imageAlt={t("step1Alt")}
-          />
-          <Step
-            n={2}
-            title={t("step2")}
-            imageSrc="/install/step2.png"
-            imageAlt={t("step2Alt")}
-          />
-          <Step
-            n={3}
-            title={t("step3")}
-            imageSrc="/install/step3.png"
-            imageAlt={t("step3Alt")}
-          />
+          <Step n={1} title={t("step1")}>
+            <Image
+              src="/install/step1.png"
+              alt={t("step1Alt")}
+              width={880}
+              height={560}
+              className="w-full h-full object-contain"
+              priority
+            />
+          </Step>
+          <Step n={2} title={t("step2")}>
+            <DragToApplicationsSvg title={t("step2Alt")} />
+          </Step>
+          <Step n={3} title={t("step3")}>
+            <DockSvg title={t("step3Alt")} />
+          </Step>
         </div>
 
         <section className="rounded-2xl border border-border p-6 sm:p-8 mb-12">
