@@ -16,7 +16,8 @@ final class FilePreviewFileWatcher {
     private nonisolated let eventHopLock = NSLock()
     // SAFETY: these DispatchSource handles are `nonisolated(unsafe)` only because
     // Swift 6 deinit is nonisolated. Real source mutation stays on MainActor
-    // lifecycle methods; deinit only cancels the last remaining handles.
+    // lifecycle methods; deinit only cancels the last remaining handles. Any
+    // future non-MainActor owner must re-isolate these fields before use.
     private nonisolated(unsafe) var fileSource: DispatchSourceFileSystemObject?
     private nonisolated(unsafe) var directorySource: DispatchSourceFileSystemObject?
     // SAFETY: event handlers replace this task from the watcher queue, while
