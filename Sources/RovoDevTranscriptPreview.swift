@@ -257,12 +257,15 @@ enum RovoDevTranscriptPreview {
 
     private static func toolCallFragments(from object: [String: Any]) -> [String] {
         var parts: [String] = []
+        if let toolName = object["tool_name"] as? String,
+           toolName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "unknown" {
+            return []
+        }
         if let name = object["name"] as? String, !name.isEmpty {
             parts.append(name)
         }
         if let toolName = object["tool_name"] as? String,
            !toolName.isEmpty,
-           toolName != "unknown",
            parts.isEmpty {
             parts.append(toolName)
         }
