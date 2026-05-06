@@ -49,6 +49,11 @@ function subscribe(cb: () => void) {
   return () => { listeners.delete(cb); };
 }
 
+function initialPanelPosition() {
+  if (typeof window === "undefined") return { x: 0, y: 0 };
+  return { x: window.innerWidth - 340, y: window.innerHeight - 320 };
+}
+
 export function useDevValues() {
   return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 }
@@ -95,15 +100,11 @@ function applyToDOM(v: DevValues) {
 
 export function DevPanel() {
   const [visible, setVisible] = useState(false);
-  const [pos, setPos] = useState({ x: 0, y: 0 });
+  const [pos, setPos] = useState(initialPanelPosition);
   const [dragging, setDragging] = useState(false);
   const [copied, setCopied] = useState(false);
   const vals = useDevValues();
   const dragOffset = useRef({ x: 0, y: 0 });
-
-  useEffect(() => {
-    setPos({ x: window.innerWidth - 340, y: window.innerHeight - 320 });
-  }, []);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {

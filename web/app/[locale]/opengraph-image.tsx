@@ -56,7 +56,11 @@ export default async function Image() {
               position: "relative",
             }}
           >
-            <img src={screenshotSrc} width={size.width * S} />
+            <img
+              src={screenshotSrc}
+              alt="cmux terminal app screenshot"
+              width={size.width * S}
+            />
             <div
               style={{
                 position: "absolute",
@@ -88,6 +92,7 @@ export default async function Image() {
             >
               <img
                 src={logoSrc}
+                alt="cmux icon"
                 width={112 * S}
                 height={112 * S}
                 style={{ borderRadius: 20 * S }}
