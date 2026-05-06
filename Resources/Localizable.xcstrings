@@ -19,7 +19,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Command Palette: Next"
+            "value": "命令面板：下一个"
           }
         },
         "zh-Hant": {
@@ -137,7 +137,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Command Palette: Previous"
+            "value": "命令面板：上一个"
           }
         },
         "zh-Hant": {
