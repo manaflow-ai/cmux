@@ -114,6 +114,25 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         }
     }
 
+    func testFileWatcherCoalescingKeepsLatestAvailabilityTransition() {
+        XCTAssertEqual(
+            FilePreviewFileWatcher.mergedEvent(.movedOrDeleted, .reappeared),
+            .reappeared
+        )
+        XCTAssertEqual(
+            FilePreviewFileWatcher.mergedEvent(.reappeared, .movedOrDeleted),
+            .movedOrDeleted
+        )
+        XCTAssertEqual(
+            FilePreviewFileWatcher.mergedEvent(.movedOrDeleted, .changed),
+            .movedOrDeleted
+        )
+        XCTAssertEqual(
+            FilePreviewFileWatcher.mergedEvent(.reappeared, .changed),
+            .reappeared
+        )
+    }
+
     func testPDFPreviewKeepsExistingDocumentVisibleDuringSameFileReload() async throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)

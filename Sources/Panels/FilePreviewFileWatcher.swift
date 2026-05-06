@@ -74,7 +74,7 @@ final class FilePreviewFileWatcher {
         }
     }
 
-    private static func mergedEvent(_ current: Event?, _ next: Event) -> Event {
+    static func mergedEvent(_ current: Event?, _ next: Event) -> Event {
         guard let current else { return next }
         switch next {
         case .reappeared, .movedOrDeleted:
