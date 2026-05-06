@@ -10,16 +10,16 @@ enum FileExplorerTerminalPathInsertion {
     }
 
     static func relativePath(for path: String, rootPath: String) -> String {
-        var relativePath = path
-        if relativePath.hasPrefix(rootPath) {
-            relativePath = String(relativePath.dropFirst(rootPath.count))
-            if relativePath.hasPrefix("/") {
-                relativePath = String(relativePath.dropFirst())
-            }
+        guard !rootPath.isEmpty else { return path }
+        if path == rootPath { return "" }
+        let normalizedRoot = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
+        if path.hasPrefix(normalizedRoot) {
+            return String(path.dropFirst(normalizedRoot.count))
         }
-        return relativePath
+        return path
     }
 
+    @MainActor
     @discardableResult
     static func insert(paths: [String], relativeToRootPath rootPath: String? = nil, intoTerminalFor window: NSWindow?) -> Bool {
         let text: String
@@ -30,13 +30,12 @@ enum FileExplorerTerminalPathInsertion {
         }
         guard !text.isEmpty else { return false }
 
-        return MainActor.assumeIsolated {
-            guard let terminalPanel = targetTerminalPanel(for: window) else { return false }
-            terminalPanel.sendText(text)
-            return true
-        }
+        guard let terminalPanel = targetTerminalPanel(for: window) else { return false }
+        terminalPanel.sendText(text)
+        return true
     }
 
+    @MainActor
     private static func targetTerminalPanel(for window: NSWindow?) -> TerminalPanel? {
         guard let appDelegate = AppDelegate.shared else { return nil }
         if let window,
@@ -80,6 +79,7 @@ extension NSMenu {
 }
 
 extension FileExplorerPanelView.Coordinator {
+    @MainActor
     private func contextMenuNodes(clicked node: FileExplorerNode) -> [FileExplorerNode] {
         guard let outlineView else { return [node] }
         let clickedRow = outlineView.clickedRow
@@ -94,6 +94,7 @@ extension FileExplorerPanelView.Coordinator {
         return nodes.isEmpty ? [node] : nodes
     }
 
+    @MainActor
     @objc func contextMenuInsertPath(_ sender: NSMenuItem) {
         guard let node = sender.representedObject as? FileExplorerNode else { return }
         FileExplorerTerminalPathInsertion.insert(
@@ -102,6 +103,7 @@ extension FileExplorerPanelView.Coordinator {
         )
     }
 
+    @MainActor
     @objc func contextMenuInsertRelativePath(_ sender: NSMenuItem) {
         guard let node = sender.representedObject as? FileExplorerNode else { return }
         FileExplorerTerminalPathInsertion.insert(
@@ -113,6 +115,7 @@ extension FileExplorerPanelView.Coordinator {
 }
 
 extension FileExplorerContainerView {
+    @MainActor
     private func searchResultsForContextMenu(row: Int) -> [FileSearchResult] {
         guard row >= 0, row < searchSnapshot.results.count else { return [] }
         let selectedRows = searchResultsView.selectedRowIndexes
@@ -126,6 +129,7 @@ extension FileExplorerContainerView {
         return results.isEmpty ? [searchSnapshot.results[row]] : results
     }
 
+    @MainActor
     @objc func contextMenuInsertSearchResultPath(_ sender: NSMenuItem) {
         guard let row = (sender.representedObject as? NSNumber)?.intValue else { return }
         FileExplorerTerminalPathInsertion.insert(
@@ -134,6 +138,7 @@ extension FileExplorerContainerView {
         )
     }
 
+    @MainActor
     @objc func contextMenuInsertSearchResultRelativePath(_ sender: NSMenuItem) {
         guard let row = (sender.representedObject as? NSNumber)?.intValue else { return }
         FileExplorerTerminalPathInsertion.insert(
