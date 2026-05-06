@@ -85,4 +85,40 @@ struct AgentLaunchSanitizerTests {
             ) == ["hermes", "--model", "anthropic/claude-sonnet-4.6"]
         )
     }
+
+    @Test("Allows only Hermes chat or default session launch")
+    func allowsOnlyHermesChatOrDefaultSessionLaunch() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["hermes", "chat", "--tui", "--model", "anthropic/claude-sonnet-4.6", "initial prompt"],
+                launcher: "hermes-agent",
+                fallbackKind: "hermes-agent"
+            ) == ["hermes", "--tui", "--model", "anthropic/claude-sonnet-4.6"]
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["hermes", "fallback", "list"],
+                launcher: "hermes-agent",
+                fallbackKind: "hermes-agent"
+            ) == nil
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["hermes", "slack", "send"],
+                launcher: "hermes-agent",
+                fallbackKind: "hermes-agent"
+            ) == nil
+        )
+    }
+
+    @Test("Treats Hermes skills as single value options")
+    func treatsHermesSkillsAsSingleValueOptions() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["hermes", "--skills", "skill1", "skill2", "--model", "anthropic/claude-sonnet-4.6"],
+                launcher: "hermes-agent",
+                fallbackKind: "hermes-agent"
+            ) == ["hermes", "--skills", "skill1"]
+        )
+    }
 }

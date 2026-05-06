@@ -86,8 +86,7 @@ public enum AgentLaunchSanitizer {
             if tail.first == "chat" {
                 tail.removeFirst()
             } else if let command = tail.first,
-                      !command.hasPrefix("-"),
-                      hermesAgentNonRestorableCommands.contains(command) {
+                      !command.hasPrefix("-") {
                 return nil
             }
             return preserveOptions(tail, policy: hermesAgentPolicy)

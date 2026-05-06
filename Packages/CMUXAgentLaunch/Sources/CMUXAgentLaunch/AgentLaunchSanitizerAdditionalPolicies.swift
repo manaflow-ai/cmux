@@ -386,34 +386,6 @@ extension AgentLaunchSanitizer {
         ]
     )
 
-    static let hermesAgentNonRestorableCommands: Set<String> = [
-        "acp",
-        "auth",
-        "backup",
-        "config",
-        "cron",
-        "curator",
-        "debug",
-        "doctor",
-        "gateway",
-        "help",
-        "hooks",
-        "import",
-        "kanban",
-        "logs",
-        "mcp",
-        "model",
-        "plugins",
-        "setup",
-        "sessions",
-        "skills",
-        "status",
-        "tools",
-        "uninstall",
-        "update",
-        "version"
-    ]
-
     static let hermesAgentPolicy = Policy(
         // Boolean flags such as --tui pass through by default unless they are
         // explicitly rejected or dropped below.
@@ -441,11 +413,7 @@ extension AgentLaunchSanitizer {
             "--continue",
             "-c"
         ],
-        variadicOptions: [
-            "--skills",
-            "-s"
-        ],
-        nonRestorableCommands: hermesAgentNonRestorableCommands,
+        nonRestorableCommands: [],
         droppedOptions: [
             "--api-key",
             "--continue",
