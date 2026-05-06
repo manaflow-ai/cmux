@@ -29,6 +29,37 @@ struct RepoLaunchDetectionTests {
         ))
     }
 
+    @Test("Generated manifest hints sanitize package-derived fields")
+    func generatedManifestHintsSanitizePackageFields() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        try """
+        {
+          "name": "@scope/cmux\\u0007market",
+          "version": "1.2.\\u001b3",
+          "scripts": {
+            "start": "vite",
+            "postinstall": "node setup.js"
+          }
+        }
+        """.write(to: directory.appendingPathComponent("package.json"), atomically: true, encoding: .utf8)
+
+        let hints = CMUXRepoDetection.generatedManifestHints(in: directory)
+        let disallowed = CharacterSet.controlCharacters.union(.illegalCharacters)
+
+        #expect(hints.displayName == "cmuxmarket")
+        #expect(hints.version == "1.2.3")
+        #expect(hints.displayName?.unicodeScalars.allSatisfy { !disallowed.contains($0) } == true)
+        #expect(hints.version?.unicodeScalars.allSatisfy { !disallowed.contains($0) } == true)
+        #expect(hints.installCommand == "npm run postinstall")
+        #expect(hints.launchCommand == CMUXDetectedLaunchCommand(
+            command: "npm run start",
+            source: "package.json:scripts.start"
+        ))
+        #expect(hints.permissions.contains("shell:npm"))
+    }
+
     @Test("Chooses package manager from lockfiles")
     func choosesPackageManager() throws {
         let directory = try temporaryDirectory()

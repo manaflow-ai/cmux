@@ -188,37 +188,22 @@ nonisolated enum CmuxUseSupport {
     }
 
     static func generateManifest(in checkoutURL: URL, repository: CmuxUseRepository) -> CmuxUseManifest {
-        let package = CMUXRepoDetection.packageJSON(in: checkoutURL)
-        let packageName = (package?["name"] as? String)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let displayName = packageName.flatMap(packageDisplayName) ?? repository.name
-        let version = (package?["version"] as? String)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let generatedVersion: String
-        if let version, !version.isEmpty {
-            generatedVersion = version
-        } else {
-            generatedVersion = "0.0.0-generated"
-        }
-        let installPath = inferredInstallPath(in: checkoutURL)
-        let installCommand = inferredInstallCommand(in: checkoutURL, package: package)
-        let launchCommand = try? detectLaunchCommand(in: checkoutURL)
-        let command = launchCommand?.command
-        let commandSource = launchCommand.map { "generated:\($0.source)" }
-        let permissionsCommand = command ?? installCommand
+        let hints = CMUXRepoDetection.generatedManifestHints(in: checkoutURL)
+        let generatedVersion = hints.version ?? "0.0.0-generated"
+        let commandSource = hints.launchCommand.map { "generated:\($0.source)" }
 
         return CmuxUseManifest(
             id: inferredExtensionID(for: repository),
-            name: displayName,
+            name: hints.displayName ?? repository.name,
             publisher: repository.owner,
             version: generatedVersion,
             generated: true,
             main: nil,
             engineRequirement: nil,
-            permissions: inferredPermissions(installPath: installPath, command: permissionsCommand),
-            installPath: installPath,
-            installCommand: installCommand,
-            command: command,
+            permissions: hints.permissions,
+            installPath: hints.installPath,
+            installCommand: hints.installCommand,
+            command: hints.launchCommand?.command,
             commandSource: commandSource,
             sourceFile: "generated"
         )
@@ -232,25 +217,9 @@ nonisolated enum CmuxUseSupport {
             return trimmed.isEmpty ? nil : CmuxUseLaunchCommand(command: trimmed, source: source)
         }
 
-        for scriptName in ["launch.sh", "use.sh", "start.sh", "run.sh"] {
-            let scriptURL = checkoutURL.appendingPathComponent(scriptName, isDirectory: false)
-            if FileManager.default.fileExists(atPath: scriptURL.path) {
-                return CmuxUseLaunchCommand(
-                    command: shellScriptCommand(for: scriptURL, relativeName: scriptName),
-                    source: scriptName
-                )
-            }
+        return CMUXRepoDetection.launchCommand(in: checkoutURL).map {
+            CmuxUseLaunchCommand(command: $0.command, source: $0.source)
         }
-
-        if let packageCommand = CMUXRepoDetection.packageJSONLaunchCommand(in: checkoutURL) {
-            return CmuxUseLaunchCommand(command: packageCommand.command, source: packageCommand.source)
-        }
-
-        if let makeCommand = CMUXRepoDetection.makefileLaunchCommand(in: checkoutURL) {
-            return CmuxUseLaunchCommand(command: makeCommand.command, source: makeCommand.source)
-        }
-
-        return nil
     }
 
     private static func parseGitHubPath(_ rawPath: String) throws -> CmuxUseRepository {
@@ -324,85 +293,6 @@ nonisolated enum CmuxUseSupport {
         return nil
     }
 
-    private static func packageDisplayName(_ raw: String) -> String? {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        return trimmed.split(separator: "/").last.map(String.init)
-    }
-
-    private static func inferredInstallPath(in checkoutURL: URL) -> String? {
-        for filename in ["setup.sh", "install.sh"] {
-            let url = checkoutURL.appendingPathComponent(filename, isDirectory: false)
-            guard let contents = try? String(contentsOf: url, encoding: .utf8) else { continue }
-            if let value = firstRegexCapture(
-                pattern: #"(?m)(?:EXPECTED_DIR|INSTALL_DIR|TARGET_DIR|CONFIG_DIR)\s*=\s*["']((?:\$HOME|~)/[^"']+)["']"#,
-                in: contents
-            ) {
-                return normalizedManifestPath(value)
-            }
-        }
-
-        let readmeURL = checkoutURL.appendingPathComponent("README.md", isDirectory: false)
-        guard let readme = try? String(contentsOf: readmeURL, encoding: .utf8) else { return nil }
-        for pattern in [
-            #"(?m)git\s+clone\s+\S+\s+((?:\$HOME|~)/[^\s`"']+)"#,
-            #"(?i)(?:clone|install).{0,120}\s+to\s+[`"']?((?:\$HOME|~)/[^`"'\s]+)"#,
-        ] {
-            if let value = firstRegexCapture(pattern: pattern, in: readme) {
-                return normalizedManifestPath(value)
-            }
-        }
-        return nil
-    }
-
-    private static func inferredInstallCommand(in checkoutURL: URL, package: [String: Any]?) -> String? {
-        for scriptName in ["setup.sh", "install.sh"] {
-            let scriptURL = checkoutURL.appendingPathComponent(scriptName, isDirectory: false)
-            if FileManager.default.fileExists(atPath: scriptURL.path) {
-                return shellScriptCommand(for: scriptURL, relativeName: scriptName)
-            }
-        }
-
-        guard let scripts = package?["scripts"] as? [String: Any] else { return nil }
-        for script in ["setup", "install", "postinstall"] where scripts[script] is String {
-            return "\(CMUXRepoDetection.packageManagerCommand(in: checkoutURL)) run \(script)"
-        }
-        return nil
-    }
-
-    private static func inferredPermissions(installPath: String?, command: String?) -> [String] {
-        var permissions: [String] = []
-        if let installPath {
-            permissions.append("filesystem:\(installPath)")
-        }
-        if let command,
-           let executable = command.split(separator: " ").first {
-            permissions.append("shell:\(executable)")
-        }
-        permissions.append("network:github")
-        return permissions
-    }
-
-    private static func normalizedManifestPath(_ raw: String) -> String {
-        var value = stripControlCharacters(raw).trimmingCharacters(in: .whitespacesAndNewlines)
-        while value.count > 1, value.hasSuffix("/") {
-            value.removeLast()
-        }
-        return value
-    }
-
-    private static func firstRegexCapture(pattern: String, in contents: String) -> String? {
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
-        let range = NSRange(contents.startIndex..<contents.endIndex, in: contents)
-        guard let match = regex.firstMatch(in: contents, range: range),
-              match.numberOfRanges > 1,
-              let captureRange = Range(match.range(at: 1), in: contents) else {
-            return nil
-        }
-        let value = String(contents[captureRange]).trimmingCharacters(in: .whitespacesAndNewlines)
-        return value.isEmpty ? nil : value
-    }
-
     private static func stringArray(in object: [String: Any], key: String) -> [String] {
         guard let values = object[key] as? [Any] else { return [] }
         return values.compactMap { value in
@@ -441,26 +331,6 @@ nonisolated enum CmuxUseSupport {
             }
         }
         return nil
-    }
-
-    private static func shellScriptCommand(for scriptURL: URL, relativeName: String) -> String {
-        let relativePath = "./\(relativeName)"
-        if FileManager.default.isExecutableFile(atPath: scriptURL.path) {
-            return relativePath
-        }
-
-        let firstLine = (try? String(contentsOf: scriptURL, encoding: .utf8))?
-            .split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
-            .first
-            .map(String.init)
-        let prefix = firstLine?.lowercased() ?? ""
-        if prefix.contains("bash") {
-            return "bash \(relativePath)"
-        }
-        if prefix.contains("zsh") {
-            return "zsh \(relativePath)"
-        }
-        return "sh \(relativePath)"
     }
 
 }
