@@ -760,6 +760,49 @@ def test_live_socket_restore_dir_override_keeps_sanitizer_suffix(failures: list[
         )
 
 
+def test_live_socket_strips_stale_cmux_restore_require_from_node_options(failures: list[str]) -> None:
+    stale_cases = [
+        (
+            "legacy-inline",
+            "--require=/tmp/cmux-claude-node-options/restore-node-options.cjs --max-old-space-size=4096 --trace-warnings",
+        ),
+        (
+            "durable-split",
+            '--require "/Users/example/Library/Application Support/cmux/node-options/restore-node-options.cjs" --max-old-space-size 4096 --trace-warnings',
+        ),
+    ]
+    for label, existing in stale_cases:
+        code, _, _, stderr, _, node_options, runtime_node_options, child_node_options, _, _ = run_wrapper(
+            socket_state="live",
+            argv=["hello"],
+            node_options=existing,
+        )
+
+        expect(code == 0, f"stale cmux restore require ({label}): wrapper exited {code}: {stderr}", failures)
+        require_flag, remaining_flags = restore_require_and_remaining(node_options)
+        expect(
+            require_flag.startswith("--require="),
+            f"stale cmux restore require ({label}): expected new restore preload, got {node_options!r}",
+            failures,
+        )
+        expect(
+            split_node_options(remaining_flags) == ["--max-old-space-size=4096", "--trace-warnings"],
+            "stale cmux restore require "
+            f"({label}): expected stale preload and injected heap cap to be stripped before reinjection, got {node_options!r}",
+            failures,
+        )
+        expect(
+            runtime_node_options == "--trace-warnings",
+            f"stale cmux restore require ({label}): expected runtime NODE_OPTIONS to drop stale cmux preload, got {runtime_node_options!r}",
+            failures,
+        )
+        expect(
+            child_node_options == "--trace-warnings",
+            f"stale cmux restore require ({label}): expected child NODE_OPTIONS to drop stale cmux preload, got {child_node_options!r}",
+            failures,
+        )
+
+
 def test_live_socket_preserves_explicit_bypass_availability_flag(failures: list[str]) -> None:
     cases = [
         ("allow/plain", ["--allow-dangerously-skip-permissions", "hello"], True, "--allow-dangerously-skip-permissions"),
@@ -876,6 +919,7 @@ def main() -> int:
     test_live_socket_preserves_unquoted_backslash_require_path(failures)
     test_live_socket_bad_tmpdir_still_uses_durable_node_options_injection(failures)
     test_live_socket_restore_dir_override_keeps_sanitizer_suffix(failures)
+    test_live_socket_strips_stale_cmux_restore_require_from_node_options(failures)
     test_live_socket_preserves_explicit_bypass_availability_flag(failures)
     test_live_socket_stale_mktemp_literal_does_not_warn(failures)
     test_missing_socket_skips_hook_injection(failures)

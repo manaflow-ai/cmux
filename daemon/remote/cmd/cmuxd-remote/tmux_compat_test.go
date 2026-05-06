@@ -439,6 +439,19 @@ func TestMergeNodeOptions(t *testing.T) {
 	if got := mergeNodeOptions(existingQuotedRequire, restoreModulePath); got != expectedQuotedRequire {
 		t.Fatalf("mergeNodeOptions should preserve quoted existing require paths = %q", got)
 	}
+
+	staleLegacyRequire := "--require=/tmp/cmux-claude-node-options/restore-node-options.cjs --max-old-space-size=4096 --trace-warnings"
+	if got := mergeNodeOptions(staleLegacyRequire, restoreModulePath); got != "--require=/tmp/restore-node-options.cjs --max-old-space-size=4096 --trace-warnings" {
+		t.Fatalf("mergeNodeOptions should strip stale legacy cmux restore require = %q", got)
+	}
+
+	staleDurableRequire := "--require \"/Users/example/Library/Application Support/cmux/node-options/restore-node-options.cjs\" --max-old-space-size 4096 --trace-warnings"
+	if got := mergeNodeOptions(staleDurableRequire, restoreModulePath); got != "--require=/tmp/restore-node-options.cjs --max-old-space-size=4096 --trace-warnings" {
+		t.Fatalf("mergeNodeOptions should strip stale durable cmux restore require = %q", got)
+	}
+	if got := originalNodeOptionsForRestore(staleDurableRequire); got != "--trace-warnings" {
+		t.Fatalf("originalNodeOptionsForRestore should strip stale cmux restore require = %q", got)
+	}
 }
 
 func TestTmuxWaitForSignalRoundTrip(t *testing.T) {

@@ -22,6 +22,8 @@ delete process.env.CMUX_ORIGINAL_NODE_OPTIONS;
 delete process.env.CMUX_ORIGINAL_NODE_OPTIONS_PRESENT;
 `
 
+const nodeOptionsRestoreModuleFilename = "restore-node-options.cjs"
+
 // runClaudeTeamsRelay implements `cmux claude-teams` on the remote side.
 // It creates tmux shim scripts, sets up environment variables, gets the
 // focused context via system.identify, and exec's into `claude`.
@@ -322,7 +324,7 @@ func ensureClaudeNodeOptionsRestoreModule() (string, error) {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", err
 	}
-	restoreModulePath := filepath.Join(dir, "restore-node-options.cjs")
+	restoreModulePath := filepath.Join(dir, nodeOptionsRestoreModuleFilename)
 	if err := writeShimIfChanged(restoreModulePath, claudeNodeOptionsRestoreModuleScript); err != nil {
 		return "", err
 	}
@@ -390,7 +392,7 @@ func configureClaudeNodeOptions(restoreModulePath string) {
 	existing, hadExisting := os.LookupEnv("NODE_OPTIONS")
 	if hadExisting {
 		os.Setenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT", "1")
-		os.Setenv("CMUX_ORIGINAL_NODE_OPTIONS", existing)
+		os.Setenv("CMUX_ORIGINAL_NODE_OPTIONS", originalNodeOptionsForRestore(existing))
 	} else {
 		os.Setenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT", "0")
 		os.Unsetenv("CMUX_ORIGINAL_NODE_OPTIONS")
@@ -419,8 +421,26 @@ func cleanedNodeOptions(existing string) string {
 	}
 
 	filtered := make([]string, 0, len(tokens))
+	dropInjectedHeapCap := false
 	for i := 0; i < len(tokens); i++ {
 		token := tokens[i]
+		if dropInjectedHeapCap && isInjectedNodeHeapCap(tokens, i) {
+			i += nodeHeapCapWidth(tokens, i) - 1
+			dropInjectedHeapCap = false
+			continue
+		}
+		dropInjectedHeapCap = false
+
+		if isRequireOption(token) && i+1 < len(tokens) && isCmuxRestoreModulePath(tokens[i+1]) {
+			i++
+			dropInjectedHeapCap = true
+			continue
+		}
+		if path, ok := inlineRequireOptionPath(token); ok && isCmuxRestoreModulePath(path) {
+			dropInjectedHeapCap = true
+			continue
+		}
+
 		if token == "--max-old-space-size" {
 			if i+1 < len(tokens) {
 				i++
@@ -433,6 +453,93 @@ func cleanedNodeOptions(existing string) string {
 		filtered = append(filtered, token)
 	}
 	return joinNodeOptionsTokens(filtered)
+}
+
+func originalNodeOptionsForRestore(existing string) string {
+	tokens := nodeOptionsTokens(existing)
+	if len(tokens) == 0 {
+		return ""
+	}
+
+	restored := make([]string, 0, len(tokens))
+	dropInjectedHeapCap := false
+	for i := 0; i < len(tokens); i++ {
+		token := tokens[i]
+		if dropInjectedHeapCap && isInjectedNodeHeapCap(tokens, i) {
+			i += nodeHeapCapWidth(tokens, i) - 1
+			dropInjectedHeapCap = false
+			continue
+		}
+		dropInjectedHeapCap = false
+
+		if isRequireOption(token) && i+1 < len(tokens) && isCmuxRestoreModulePath(tokens[i+1]) {
+			i++
+			dropInjectedHeapCap = true
+			continue
+		}
+		if path, ok := inlineRequireOptionPath(token); ok && isCmuxRestoreModulePath(path) {
+			dropInjectedHeapCap = true
+			continue
+		}
+
+		restored = append(restored, token)
+	}
+	return joinNodeOptionsTokens(restored)
+}
+
+func isRequireOption(token string) bool {
+	return token == "--require" || token == "-r"
+}
+
+func inlineRequireOptionPath(token string) (string, bool) {
+	for _, prefix := range []string{"--require=", "-r="} {
+		if strings.HasPrefix(token, prefix) {
+			return strings.TrimPrefix(token, prefix), true
+		}
+	}
+	return "", false
+}
+
+func isCmuxRestoreModulePath(value string) bool {
+	trimmed := strings.Trim(value, "'\"")
+	cleaned := filepath.ToSlash(filepath.Clean(trimmed))
+	components := strings.Split(cleaned, "/")
+	if len(components) == 0 || components[len(components)-1] != nodeOptionsRestoreModuleFilename {
+		return false
+	}
+	return hasPathComponentSuffix(components, []string{"cmux", "node-options", nodeOptionsRestoreModuleFilename}) ||
+		hasPathComponentSuffix(components, []string{"cmux-claude-node-options", nodeOptionsRestoreModuleFilename})
+}
+
+func hasPathComponentSuffix(components []string, suffix []string) bool {
+	if len(components) < len(suffix) {
+		return false
+	}
+	start := len(components) - len(suffix)
+	for i, want := range suffix {
+		if components[start+i] != want {
+			return false
+		}
+	}
+	return true
+}
+
+func isInjectedNodeHeapCap(tokens []string, index int) bool {
+	if index >= len(tokens) {
+		return false
+	}
+	token := tokens[index]
+	if token == "--max-old-space-size=4096" {
+		return true
+	}
+	return token == "--max-old-space-size" && index+1 < len(tokens) && tokens[index+1] == "4096"
+}
+
+func nodeHeapCapWidth(tokens []string, index int) int {
+	if index < len(tokens) && tokens[index] == "--max-old-space-size" && index+1 < len(tokens) {
+		return 2
+	}
+	return 1
 }
 
 func nodeOptionsTokens(raw string) []string {

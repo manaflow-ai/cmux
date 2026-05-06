@@ -313,6 +313,69 @@ node_options_require_flag() {
     printf '%s' "--require=$quoted"
 }
 
+node_options_is_cmux_restore_module_path() {
+    local path="$1"
+    while [[ "$path" == \"* || "$path" == \'* ]]; do
+        path="${path:1}"
+    done
+    while [[ "$path" == *\" || "$path" == *\' ]]; do
+        path="${path%?}"
+    done
+
+    case "$path" in
+        */cmux/node-options/restore-node-options.cjs|*/cmux-claude-node-options/restore-node-options.cjs)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+node_options_is_require_option() {
+    [[ "$1" == "--require" || "$1" == "-r" ]]
+}
+
+node_options_inline_require_path() {
+    case "$1" in
+        --require=*)
+            printf '%s' "${1#--require=}"
+            return 0
+            ;;
+        -r=*)
+            printf '%s' "${1#-r=}"
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+node_options_is_injected_heap_cap_at() {
+    local index="$1"
+    local token_count="$2"
+    [[ "$index" -lt "$token_count" ]] || return 1
+
+    local token="${node_options_split_tokens[$index]}"
+    if [[ "$token" == "--max-old-space-size=4096" ]]; then
+        return 0
+    fi
+    if [[ "$token" == "--max-old-space-size" ]] && (( index + 1 < token_count )) && [[ "${node_options_split_tokens[$((index + 1))]}" == "4096" ]]; then
+        return 0
+    fi
+    return 1
+}
+
+node_options_heap_cap_width_at() {
+    local index="$1"
+    local token_count="$2"
+    if [[ "$index" -lt "$token_count" ]]; then
+        local token="${node_options_split_tokens[$index]}"
+        if [[ "$token" == "--max-old-space-size" ]] && (( index + 1 < token_count )); then
+            printf '%s' 2
+            return 0
+        fi
+    fi
+    printf '%s' 1
+}
+
 merge_node_options() {
     local guard_path="$1"
     local require_flag
@@ -321,8 +384,10 @@ merge_node_options() {
     local existing="${NODE_OPTIONS:-}"
     local -a filtered=()
     local token
-    local skip_next=0
     local token_count=0
+    local index=0
+    local drop_injected_heap_cap=0
+    local inline_require_path
 
     if [[ -z "$guard_path" ]]; then
         printf '%s' "$existing"
@@ -331,22 +396,37 @@ merge_node_options() {
 
     node_options_split "$existing"
     token_count=${#node_options_split_tokens[@]}
-    if (( token_count > 0 )); then
-        for token in "${node_options_split_tokens[@]}"; do
-            if (( skip_next )); then
-                skip_next=0
-                continue
-            fi
-            if [[ "$token" == "--max-old-space-size" ]]; then
-                skip_next=1
-                continue
-            fi
-            if [[ "$token" == --max-old-space-size=* ]]; then
-                continue
-            fi
-            filtered+=("$token")
-        done
-    fi
+    while (( index < token_count )); do
+        token="${node_options_split_tokens[$index]}"
+        if (( drop_injected_heap_cap )) && node_options_is_injected_heap_cap_at "$index" "$token_count"; then
+            index=$((index + $(node_options_heap_cap_width_at "$index" "$token_count")))
+            drop_injected_heap_cap=0
+            continue
+        fi
+        drop_injected_heap_cap=0
+
+        if node_options_is_require_option "$token" && (( index + 1 < token_count )) && node_options_is_cmux_restore_module_path "${node_options_split_tokens[$((index + 1))]}"; then
+            index=$((index + 2))
+            drop_injected_heap_cap=1
+            continue
+        fi
+        if inline_require_path="$(node_options_inline_require_path "$token")" && node_options_is_cmux_restore_module_path "$inline_require_path"; then
+            index=$((index + 1))
+            drop_injected_heap_cap=1
+            continue
+        fi
+
+        if [[ "$token" == "--max-old-space-size" ]]; then
+            index=$((index + 2))
+            continue
+        fi
+        if [[ "$token" == --max-old-space-size=* ]]; then
+            index=$((index + 1))
+            continue
+        fi
+        filtered+=("$token")
+        index=$((index + 1))
+    done
 
     if (( ${#filtered[@]} == 0 )); then
         printf '%s %s' "$require_flag" "$memory_flag"
@@ -366,12 +446,32 @@ normalize_node_options_for_restore() {
     local token
     local index=0
     local token_count=0
+    local drop_injected_heap_cap=0
+    local inline_require_path
 
     node_options_split "$existing"
     token_count=${#node_options_split_tokens[@]}
     while (( index < token_count )); do
         token="${node_options_split_tokens[$index]}"
-        if [[ "$token" == "--max-old-space-size" && $((index + 1)) -lt token_count ]]; then
+        if (( drop_injected_heap_cap )) && node_options_is_injected_heap_cap_at "$index" "$token_count"; then
+            index=$((index + $(node_options_heap_cap_width_at "$index" "$token_count")))
+            drop_injected_heap_cap=0
+            continue
+        fi
+        drop_injected_heap_cap=0
+
+        if node_options_is_require_option "$token" && (( index + 1 < token_count )) && node_options_is_cmux_restore_module_path "${node_options_split_tokens[$((index + 1))]}"; then
+            index=$((index + 2))
+            drop_injected_heap_cap=1
+            continue
+        fi
+        if inline_require_path="$(node_options_inline_require_path "$token")" && node_options_is_cmux_restore_module_path "$inline_require_path"; then
+            index=$((index + 1))
+            drop_injected_heap_cap=1
+            continue
+        fi
+
+        if [[ "$token" == "--max-old-space-size" ]] && (( index + 1 < token_count )); then
             normalized+=("--max-old-space-size=${node_options_split_tokens[$((index + 1))]}")
             index=$((index + 2))
             continue
