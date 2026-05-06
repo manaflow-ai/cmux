@@ -310,7 +310,7 @@ the expected text without connecting to a cmux socket.
 - `cmux docs` -> `Topics:`
 - `cmux docs settings` -> `Config files:`
 - `cmux docs dock` -> `dock: Custom right-sidebar terminal controls`
-- `cmux settings --help` -> `Usage: cmux settings [open|path|docs|target]`
+- `cmux settings --help` -> `Usage: cmux settings [open [target]|path|docs|<target>]`
 - `cmux settings path` -> `Config files:`
 - `cmux settings docs` -> `Config files:`
 - `cmux welcome --help` -> `Usage: cmux welcome`
