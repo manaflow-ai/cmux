@@ -66,6 +66,52 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
     }
 
+    func testTypeScriptExtensionResolvesAsEditableText() throws {
+        let url = try temporaryTextFile(contents: "export const value: number = 1\n", encoding: .utf8, pathExtension: "ts")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .text)
+        XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
+        XCTAssertEqual(FilePreviewKindResolver.initialTabIconName(for: url), "doc.text")
+    }
+
+    func testTextPreviewReloadsExternalFileUpdates() async throws {
+        let url = try temporaryTextFile(contents: "first", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
+        await panel.loadTextContent().value
+
+        XCTAssertEqual(panel.textContent, "first")
+        XCTAssertFalse(panel.isDirty)
+
+        try "second".write(to: url, atomically: true, encoding: .utf8)
+
+        await waitUntil("text preview external reload") {
+            panel.textContent == "second" && !panel.isDirty
+        }
+    }
+
+    func testDirtyTextPreviewRebasesWhenExternalFileMatchesLocalEdit() async throws {
+        let url = try temporaryTextFile(contents: "first", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
+        await panel.loadTextContent().value
+
+        panel.updateTextContent("local edit")
+        XCTAssertEqual(panel.textContent, "local edit")
+        XCTAssertTrue(panel.isDirty)
+
+        try "local edit".write(to: url, atomically: true, encoding: .utf8)
+
+        await waitUntil("dirty text preview rebase") {
+            panel.textContent == "local edit" && !panel.isDirty
+        }
+    }
+
     func testTextLoaderRejectsOversizedTextFiles() throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
@@ -145,10 +191,14 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         XCTAssertEqual(workspace.bonsplitController.tabs(inPane: targetPane).count, startingTargetTabs + 1)
     }
 
-    private func temporaryTextFile(contents: String, encoding: String.Encoding) throws -> URL {
+    private func temporaryTextFile(
+        contents: String,
+        encoding: String.Encoding,
+        pathExtension: String = "txt"
+    ) throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("txt")
+            .appendingPathExtension(pathExtension)
         try contents.write(to: url, atomically: true, encoding: encoding)
         return url
     }
@@ -179,6 +229,22 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         }
         if panel.isSaving {
             XCTFail("Timed out waiting for panel save", file: file, line: line)
+        }
+    }
+
+    private func waitUntil(
+        _ description: String,
+        timeout: TimeInterval = 2,
+        predicate: @MainActor @escaping () -> Bool,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !predicate(), Date() < deadline {
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+        if !predicate() {
+            XCTFail("Timed out waiting for \(description)", file: file, line: line)
         }
     }
 }
