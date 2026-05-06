@@ -274,6 +274,16 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
         XCTAssertTrue(surfaceView.accessoryActionIdentifiersForTesting.contains("terminal.inputAccessory.command"))
     }
 
+    func testGhosttyAccessoryChromeTracksTerminalColumnInsideWideKeyboard() {
+        let frame = TerminalAccessoryChromeLayout.frame(
+            sourceFrame: CGRect(x: 432, y: 92, width: 936, height: 1200),
+            accessoryFrame: CGRect(x: 0, y: 1320, width: 1368, height: 44),
+            accessoryBounds: CGRect(x: 0, y: 0, width: 1368, height: 44)
+        )
+
+        XCTAssertEqual(frame, CGRect(x: 432, y: 0, width: 936, height: 44))
+    }
+
     func testGhosttyFontZoomClampsRepeatedGesturesToMobileBounds() async throws {
         let (surfaceView, _) = try makeSurfaceView()
         let appliedExpectation = expectation(description: "Ghostty applied final clamped font size")

@@ -937,6 +937,7 @@ public final class GhosttyTerminalSurfaceView: UIView {
     public override func layoutSubviews() {
         super.layoutSubviews()
         inputProxy.frame = CGRect(x: 0, y: 0, width: bounds.width, height: 1)
+        inputProxy.setAccessoryLayoutNeedsUpdate()
         syncSurfaceGeometry()
     }
 
@@ -1847,6 +1848,86 @@ private extension GhosttyTerminalSurfaceView {
     }
 }
 
+struct TerminalAccessoryChromeLayout: Sendable {
+    static let height: CGFloat = 44
+
+    static func frame(
+        sourceFrame: CGRect,
+        accessoryFrame: CGRect,
+        accessoryBounds: CGRect
+    ) -> CGRect {
+        guard accessoryBounds.width > 0 else {
+            return CGRect(x: 0, y: 0, width: 0, height: accessoryBounds.height)
+        }
+
+        let requestedLeading = sourceFrame.minX - accessoryFrame.minX
+        let leading = min(max(0, requestedLeading), accessoryBounds.width)
+        let availableWidth = max(0, accessoryBounds.width - leading)
+        let width = min(max(0, sourceFrame.width), availableWidth)
+        return CGRect(x: leading, y: 0, width: width, height: accessoryBounds.height)
+    }
+}
+
+private final class TerminalInputAccessoryToolbarView: UIView {
+    private weak var inputSource: UIView?
+    let chromeView = UIView()
+    private var chromeLeadingConstraint: NSLayoutConstraint?
+    private var chromeWidthConstraint: NSLayoutConstraint?
+
+    init(inputSource: UIView) {
+        self.inputSource = inputSource
+        super.init(frame: CGRect(x: 0, y: 0, width: 0, height: TerminalAccessoryChromeLayout.height))
+        backgroundColor = .clear
+        isOpaque = false
+
+        chromeView.translatesAutoresizingMaskIntoConstraints = false
+        chromeView.clipsToBounds = true
+        chromeView.isOpaque = true
+        addSubview(chromeView)
+
+        let leading = chromeView.leadingAnchor.constraint(equalTo: leadingAnchor)
+        let width = chromeView.widthAnchor.constraint(equalToConstant: 0)
+        chromeLeadingConstraint = leading
+        chromeWidthConstraint = width
+        NSLayoutConstraint.activate([
+            leading,
+            width,
+            chromeView.topAnchor.constraint(equalTo: topAnchor),
+            chromeView.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    override var intrinsicContentSize: CGSize {
+        CGSize(width: UIView.noIntrinsicMetric, height: TerminalAccessoryChromeLayout.height)
+    }
+
+    override func layoutSubviews() {
+        updateChromeFrame()
+        super.layoutSubviews()
+    }
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard chromeView.frame.contains(point) else { return nil }
+        return super.hitTest(point, with: event)
+    }
+
+    private func updateChromeFrame() {
+        let accessoryFrame = convert(bounds, to: nil)
+        let sourceFrame = inputSource?.convert(inputSource?.bounds ?? .zero, to: nil) ?? accessoryFrame
+        let frame = TerminalAccessoryChromeLayout.frame(
+            sourceFrame: sourceFrame,
+            accessoryFrame: accessoryFrame,
+            accessoryBounds: bounds
+        )
+        chromeLeadingConstraint?.constant = frame.minX
+        chromeWidthConstraint?.constant = frame.width
+    }
+}
+
 private final class GhosttyInputTextView: UITextView {
     var onText: ((String) -> Void)?
     var onBackspace: (() -> Void)?
@@ -1886,9 +1967,9 @@ private final class GhosttyInputTextView: UITextView {
     private static let stickyDoubleTapInterval: TimeInterval = 0.4
     private var accessoryForeground = UIColor.white
 
-    private lazy var terminalAccessoryToolbar: UIView = {
-        let container = UIView(frame: CGRect(x: 0, y: 0, width: 0, height: 44))
-        container.backgroundColor = Self.accessoryBackground
+    private lazy var terminalAccessoryToolbar: TerminalInputAccessoryToolbarView = {
+        let container = TerminalInputAccessoryToolbarView(inputSource: self)
+        container.chromeView.backgroundColor = Self.accessoryBackground
 
         let scrollView = UIScrollView()
         scrollView.translatesAutoresizingMaskIntoConstraints = false
@@ -1918,19 +1999,19 @@ private final class GhosttyInputTextView: UITextView {
         }
 
         scrollView.addSubview(stack)
-        container.addSubview(nub)
-        container.addSubview(scrollView)
+        container.chromeView.addSubview(nub)
+        container.chromeView.addSubview(scrollView)
 
         NSLayoutConstraint.activate([
-            nub.leadingAnchor.constraint(equalTo: container.safeAreaLayoutGuide.leadingAnchor, constant: 12),
-            nub.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            nub.leadingAnchor.constraint(equalTo: container.chromeView.leadingAnchor, constant: 12),
+            nub.centerYAnchor.constraint(equalTo: container.chromeView.centerYAnchor),
             nub.widthAnchor.constraint(equalToConstant: TerminalArrowNubView.size),
             nub.heightAnchor.constraint(equalToConstant: TerminalArrowNubView.size),
 
             scrollView.leadingAnchor.constraint(equalTo: nub.trailingAnchor, constant: 8),
-            scrollView.trailingAnchor.constraint(equalTo: container.safeAreaLayoutGuide.trailingAnchor, constant: -12),
-            scrollView.topAnchor.constraint(equalTo: container.topAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: container.chromeView.trailingAnchor, constant: -12),
+            scrollView.topAnchor.constraint(equalTo: container.chromeView.topAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: container.chromeView.bottomAnchor),
 
             stack.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor, constant: -8),
@@ -2027,7 +2108,7 @@ private final class GhosttyInputTextView: UITextView {
 
     func updateThemeColors(background: UIColor, foreground: UIColor) {
         accessoryForeground = foreground
-        terminalAccessoryToolbar.backgroundColor = background
+        terminalAccessoryToolbar.chromeView.backgroundColor = background
         accessoryNubView?.updateThemeColors(background: background, foreground: foreground)
         guard let stack = accessoryStackView else { return }
         for case let button as UIButton in stack.arrangedSubviews {
@@ -2041,6 +2122,10 @@ private final class GhosttyInputTextView: UITextView {
             commandAccessoryButton.setTitleColor(foreground, for: .normal)
             commandAccessoryButton.tintColor = foreground
         }
+    }
+
+    func setAccessoryLayoutNeedsUpdate() {
+        terminalAccessoryToolbar.setNeedsLayout()
     }
 
     func simulateHardwareKeyForTesting(input: String, modifierFlags: UIKeyModifierFlags) -> Bool {
