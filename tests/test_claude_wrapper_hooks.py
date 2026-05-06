@@ -532,29 +532,42 @@ def test_live_socket_preserves_only_listed_claude_auth_keys(failures: list[str])
     expect("--session-id" not in real_argv, f"listed auth env: expected no injected session id, got {real_argv}", failures)
 
 
-def test_live_socket_preserves_user_heap_cap_for_space_separated_flag(failures: list[str]) -> None:
-    existing = "--max-old-space-size 2048 --trace-warnings"
-    restored = "--max-old-space-size=2048 --trace-warnings"
-    code, _, _, stderr, _, node_options, runtime_node_options, child_node_options, _, _ = run_wrapper(
-        socket_state="live",
-        argv=["hello"],
-        node_options=existing,
-    )
-    expect(code == 0, f"space-separated heap flag: wrapper exited {code}: {stderr}", failures)
-    require_flag, remaining_flags = restore_require_and_remaining(node_options)
-    expect(
-        require_flag.startswith("--require="),
-        f"space-separated heap flag: expected restore preload, got {node_options!r}",
-        failures,
-    )
-    expect(
-        remaining_flags == "--max-old-space-size=4096 --max-old-space-size 2048 --trace-warnings",
-        "space-separated heap flag: expected wrapper to inject its heap cap while preserving the user max-old-space-size option, "
-        f"got {node_options!r}",
-        failures,
-    )
-    expect(runtime_node_options == restored, f"space-separated heap flag: expected runtime NODE_OPTIONS restored, got {runtime_node_options!r}", failures)
-    expect(child_node_options == restored, f"space-separated heap flag: expected child NODE_OPTIONS restored, got {child_node_options!r}", failures)
+def test_live_socket_preserves_user_heap_cap(failures: list[str]) -> None:
+    cases = [
+        (
+            "space-separated",
+            "--max-old-space-size 2048 --trace-warnings",
+            "--max-old-space-size=2048 --trace-warnings",
+            "--max-old-space-size=4096 --max-old-space-size 2048 --trace-warnings",
+        ),
+        (
+            "inline",
+            "--max-old-space-size=8192 --trace-warnings",
+            "--max-old-space-size=8192 --trace-warnings",
+            "--max-old-space-size=4096 --max-old-space-size=8192 --trace-warnings",
+        ),
+    ]
+    for label, existing, restored, expected_remaining in cases:
+        code, _, _, stderr, _, node_options, runtime_node_options, child_node_options, _, _ = run_wrapper(
+            socket_state="live",
+            argv=["hello"],
+            node_options=existing,
+        )
+        expect(code == 0, f"{label} heap flag: wrapper exited {code}: {stderr}", failures)
+        require_flag, remaining_flags = restore_require_and_remaining(node_options)
+        expect(
+            require_flag.startswith("--require="),
+            f"{label} heap flag: expected restore preload, got {node_options!r}",
+            failures,
+        )
+        expect(
+            remaining_flags == expected_remaining,
+            f"{label} heap flag: expected wrapper to inject its heap cap while preserving the user max-old-space-size option, "
+            f"got {node_options!r}",
+            failures,
+        )
+        expect(runtime_node_options == restored, f"{label} heap flag: expected runtime NODE_OPTIONS restored, got {runtime_node_options!r}", failures)
+        expect(child_node_options == restored, f"{label} heap flag: expected child NODE_OPTIONS restored, got {child_node_options!r}", failures)
 
 
 def test_live_socket_preserves_quoted_existing_require_path(failures: list[str]) -> None:
@@ -954,7 +967,7 @@ def main() -> int:
     test_live_socket_normalizes_subrouter_claude_config_dir(failures)
     test_live_socket_preserves_claude_auth_for_resume_launch(failures)
     test_live_socket_preserves_only_listed_claude_auth_keys(failures)
-    test_live_socket_preserves_user_heap_cap_for_space_separated_flag(failures)
+    test_live_socket_preserves_user_heap_cap(failures)
     test_live_socket_preserves_quoted_existing_require_path(failures)
     test_live_socket_preserves_unquoted_apostrophe_require_path(failures)
     test_live_socket_preserves_unquoted_backslash_require_path(failures)
