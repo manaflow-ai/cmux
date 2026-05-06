@@ -7272,6 +7272,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .first
     }
 
+    func preferredMainWindowForSettingsPresentation() -> NSWindow? {
+        preferredMainWindowForVisibilityActivation()
+    }
+
     @discardableResult func showMainWindowFromMenuBar() -> NSWindow? {
         if let window = mainWindowVisibilityController.showApplicationWindows(
             windows: mainWindowsForVisibilityController(),

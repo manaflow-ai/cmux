@@ -189,9 +189,14 @@ struct cmuxApp: App {
             MainWindowBootstrapView()
                 .cmuxAppearanceColorScheme(appearanceMode)
                 .onAppear {
-                    SettingsWindowPresenter.configure {
-                        openWindow(id: SettingsWindowPresenter.windowID)
-                    }
+                    SettingsWindowPresenter.configure(
+                        openWindow: {
+                            openWindow(id: SettingsWindowPresenter.windowID)
+                        },
+                        parentWindowProvider: {
+                            AppDelegate.shared?.preferredMainWindowForSettingsPresentation()
+                        }
+                    )
 #if DEBUG
                     if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1" {
                         UpdateLogStore.shared.append("ui test: cmuxApp onAppear")
@@ -2492,12 +2497,20 @@ enum SettingsWindowPresenter {
     private static let visibleAreaInset: CGFloat = 18
 
     private static var openWindow: (@MainActor () -> Void)?
+    private static var parentWindowProvider: (@MainActor () -> NSWindow?)?
     private static weak var settingsWindow: NSWindow?
     private static var pendingNavigationTarget: SettingsNavigationTarget?
     private static var shouldOpenWhenConfigured = false
 
-    static func configure(openWindow: @escaping @MainActor () -> Void) {
+    static func configure(
+        openWindow: @escaping @MainActor () -> Void,
+        parentWindowProvider: @escaping @MainActor () -> NSWindow? = { nil }
+    ) {
         self.openWindow = openWindow
+        self.parentWindowProvider = parentWindowProvider
+        if let settingsWindow {
+            attachToPreferredParent(settingsWindow)
+        }
         if shouldOpenWhenConfigured {
             shouldOpenWhenConfigured = false
             openWindow()
@@ -2511,6 +2524,7 @@ enum SettingsWindowPresenter {
         window.minSize = minimumSize
         window.contentMinSize = minimumSize
         clampToVisibleAreaIfNeeded(window)
+        attachToPreferredParent(window)
     }
 
     static func show(navigationTarget: SettingsNavigationTarget? = nil) {
@@ -2525,6 +2539,7 @@ enum SettingsWindowPresenter {
 
         if let window = existingWindow() {
             pendingNavigationTarget = nil
+            attachToPreferredParent(window)
             focus(window)
             if let navigationTarget {
                 SettingsNavigationRequest.post(navigationTarget)
@@ -2547,8 +2562,22 @@ enum SettingsWindowPresenter {
 
     static func refocusIfVisible() {
         guard let window = existingWindow() else { return }
+        attachToPreferredParent(window)
         focus(window)
     }
+
+#if DEBUG
+    static func resetForTests() {
+        if let settingsWindow {
+            detachFromCurrentParent(settingsWindow)
+        }
+        openWindow = nil
+        parentWindowProvider = nil
+        settingsWindow = nil
+        pendingNavigationTarget = nil
+        shouldOpenWhenConfigured = false
+    }
+#endif
 
     private static func existingWindow() -> NSWindow? {
         if let settingsWindow, settingsWindow.isVisible || settingsWindow.isMiniaturized {
@@ -2564,9 +2593,40 @@ enum SettingsWindowPresenter {
             window.deminiaturize(nil)
         }
         clampToVisibleAreaIfNeeded(window)
+        let parentWindow = attachToPreferredParent(window)
+        if let parentWindow {
+            orderParentBehindSettings(parentWindow)
+        }
         NSRunningApplication.current.activate(options: [.activateAllWindows])
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
+    }
+
+    @discardableResult
+    private static func attachToPreferredParent(_ window: NSWindow) -> NSWindow? {
+        guard let parentWindow = parentWindowProvider?(),
+              parentWindow !== window else {
+            detachFromCurrentParent(window)
+            return nil
+        }
+
+        if window.parent !== parentWindow {
+            detachFromCurrentParent(window)
+            parentWindow.addChildWindow(window, ordered: .above)
+        }
+        return parentWindow
+    }
+
+    private static func detachFromCurrentParent(_ window: NSWindow) {
+        guard let parentWindow = window.parent else { return }
+        parentWindow.removeChildWindow(window)
+    }
+
+    private static func orderParentBehindSettings(_ window: NSWindow) {
+        if window.isMiniaturized {
+            window.deminiaturize(nil)
+        }
+        window.orderFront(nil)
     }
 
     private static func clampToVisibleAreaIfNeeded(_ window: NSWindow) {
