@@ -83,4 +83,35 @@ final class FinderFileDropRegressionTests: XCTestCase {
 
         XCTAssertEqual(text, TerminalImageTransferPlanner.escapeForShell(fileURL.path))
     }
+
+    func testFileExplorerPathInsertionEscapesMultiplePathsLikeTerminalDrop() {
+        let paths = [
+            "/tmp/cmux path/one file.txt",
+            "/tmp/cmux path/quote's file.txt"
+        ]
+
+        let text = FileExplorerTerminalPathInsertion.insertedText(forPaths: paths)
+
+        XCTAssertEqual(
+            text,
+            paths
+                .map(TerminalImageTransferPlanner.escapeForShell)
+                .joined(separator: " ")
+        )
+    }
+
+    func testFileExplorerRelativePathInsertionUsesWorkspaceRelativePaths() {
+        let rootPath = "/Users/example/project"
+        let paths = [
+            "/Users/example/project/README.md",
+            "/Users/example/project/Folder With Spaces/file.txt"
+        ]
+
+        let text = FileExplorerTerminalPathInsertion.insertedText(
+            forPaths: paths,
+            relativeToRootPath: rootPath
+        )
+
+        XCTAssertEqual(text, "README.md Folder\\ With\\ Spaces/file.txt")
+    }
 }
