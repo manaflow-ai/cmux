@@ -76,14 +76,65 @@ function GitHubIcon() {
 
 function TwitterIcon() {
   return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
       <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
     </svg>
   );
 }
 
+function YouTubeIcon() {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z" />
+    </svg>
+  );
+}
+
+function LinkedInIcon() {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z" />
+    </svg>
+  );
+}
+
+function CommunityCard({
+  href,
+  icon,
+  name,
+  action,
+  description,
+}: {
+  href: string;
+  icon: React.ReactNode;
+  name: string;
+  action: string;
+  description: string;
+}) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="group flex items-start gap-4 rounded-xl border border-border p-5 hover:bg-code-bg transition-colors"
+    >
+      <div className="shrink-0 mt-0.5 text-muted group-hover:text-foreground transition-colors">
+        {icon}
+      </div>
+      <div className="min-w-0">
+        <div className="font-medium text-[15px]">{name}</div>
+        <div className="text-sm text-muted mt-0.5">{description}</div>
+        <div className="text-xs font-medium text-muted mt-2 group-hover:text-foreground transition-colors">
+          {action} &rarr;
+        </div>
+      </div>
+    </a>
+  );
+}
+
 export default function ThanksPage() {
   const t = useTranslations("thanks");
+  const tc = useTranslations("community");
 
   return (
     <div className="min-h-screen">
@@ -122,19 +173,19 @@ export default function ThanksPage() {
           <Step
             n={1}
             title={t("step1")}
-            imageSrc="/thanks/step1.png"
+            imageSrc="/install/step1.png"
             imageAlt={t("step1Alt")}
           />
           <Step
             n={2}
             title={t("step2")}
-            imageSrc="/thanks/step2.png"
+            imageSrc="/install/step2.png"
             imageAlt={t("step2Alt")}
           />
           <Step
             n={3}
             title={t("step3")}
-            imageSrc="/thanks/step3.png"
+            imageSrc="/install/step3.png"
             imageAlt={t("step3Alt")}
           />
         </div>
@@ -173,43 +224,46 @@ export default function ThanksPage() {
         </section>
 
         <section>
-          <h2 className="text-xs font-medium text-muted tracking-tight mb-3 uppercase">
-            {t("communityHeading")}
+          <h2 className="text-xl font-semibold tracking-tight mb-2">
+            {tc("title")}
           </h2>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <a
+          <p className="text-muted text-[15px] mb-6">{tc("description")}</p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <CommunityCard
               href={DISCORD_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="group flex items-center gap-3 rounded-xl border border-border px-4 py-3 hover:bg-code-bg transition-colors"
-            >
-              <span className="text-muted group-hover:text-foreground transition-colors">
-                <DiscordIcon />
-              </span>
-              <span className="text-[14px] font-medium">{t("discord")}</span>
-            </a>
-            <a
+              icon={<DiscordIcon />}
+              name={tc("discord")}
+              action={tc("discordAction")}
+              description={tc("discordDesc")}
+            />
+            <CommunityCard
               href={GITHUB_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="group flex items-center gap-3 rounded-xl border border-border px-4 py-3 hover:bg-code-bg transition-colors"
-            >
-              <span className="text-muted group-hover:text-foreground transition-colors">
-                <GitHubIcon />
-              </span>
-              <span className="text-[14px] font-medium">{t("github")}</span>
-            </a>
-            <a
+              icon={<GitHubIcon />}
+              name="GitHub"
+              action={tc("githubAction")}
+              description={tc("githubDesc")}
+            />
+            <CommunityCard
               href={TWITTER_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="group flex items-center gap-3 rounded-xl border border-border px-4 py-3 hover:bg-code-bg transition-colors"
-            >
-              <span className="text-muted group-hover:text-foreground transition-colors">
-                <TwitterIcon />
-              </span>
-              <span className="text-[14px] font-medium">{t("twitter")}</span>
-            </a>
+              icon={<TwitterIcon />}
+              name={tc("twitter")}
+              action={tc("twitterAction")}
+              description={tc("twitterDesc")}
+            />
+            <CommunityCard
+              href="https://www.youtube.com/channel/UCAa89_j-TWkrXfk9A3CbASw"
+              icon={<YouTubeIcon />}
+              name={tc("youtube")}
+              action={tc("youtubeAction")}
+              description={tc("youtubeDesc")}
+            />
+            <CommunityCard
+              href="https://www.linkedin.com/company/manaflow-ai/"
+              icon={<LinkedInIcon />}
+              name={tc("linkedin")}
+              action={tc("linkedinAction")}
+              description={tc("linkedinDesc")}
+            />
           </div>
         </section>
       </main>

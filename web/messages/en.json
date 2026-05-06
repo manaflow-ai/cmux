@@ -117,13 +117,9 @@
     "step3": "Launch cmux from Applications or your dock.",
     "step3Alt": "macOS dock with Finder, cmux, and Messages",
     "helpTitle": "Need a hand?",
-    "helpDescription": "If macOS blocks the app, the download stalls, or anything else trips you up, the fastest way to get unstuck is asking in Discord. The team and other users hang out there.",
+    "helpDescription": "If macOS blocks the app, the download stalls, or anything else trips you up, please ask for help in Discord! The team and other users hang out there.",
     "joinDiscord": "Join our Discord",
-    "reportIssue": "Report an issue",
-    "communityHeading": "Stay in the loop",
-    "discord": "Discord",
-    "github": "GitHub",
-    "twitter": "X / Twitter"
+    "reportIssue": "Report an issue"
   },
   "blog": {
     "title": "Blog",
