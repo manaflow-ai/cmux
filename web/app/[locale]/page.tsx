@@ -185,6 +185,11 @@ function HomeContent() {
                       {chunks}
                     </a>
                   ),
+                  cursorHooksLink: (chunks) => (
+                    <a href="/docs/notifications" className={linkClass}>
+                      {chunks}
+                    </a>
+                  ),
                 })}
               </p>
             </div>

@@ -251,6 +251,60 @@ esac`}</CodeBlock>
   }
 }`}</CodeBlock>
 
+      <h2>{t("cursorHooks")}</h2>
+      <p>
+        {t.rich("cursorHooksDesc", {
+          link: (chunks) => (
+            <a href="https://cursor.com/docs/hooks">{chunks}</a>
+          ),
+        })}
+      </p>
+
+      <h3>{t("createCursorScript")}</h3>
+      <CodeBlock title="~/.cursor/hooks/cmux-notify.sh" lang="bash">{`#!/bin/bash
+command -v cmux &>/dev/null || exit 0
+
+EVENT=$(cat)
+STATUS=$(echo "$EVENT" | jq -r '.status // ""')
+MODEL=$(echo "$EVENT" | jq -r '.model // ""')
+SUBAGENT_TYPE=$(echo "$EVENT" | jq -r '.subagent_type // ""')
+
+if [ -n "$SUBAGENT_TYPE" ]; then
+    DESC=$(echo "$EVENT" | jq -r '.description // .task // ""' | head -c 80)
+    case "$STATUS" in
+        completed) cmux notify --title "Cursor" --subtitle "SubAgent" --body "Complete: $DESC" ;;
+        error)     cmux notify --title "Cursor" --subtitle "SubAgent" --body "Error: $DESC" ;;
+    esac
+else
+    case "$STATUS" in
+        completed) cmux notify --title "Cursor" --body "Agent complete ($MODEL)" ;;
+        error)     cmux notify --title "Cursor" --body "Agent error ($MODEL)" ;;
+        aborted)   cmux notify --title "Cursor" --body "Agent aborted ($MODEL)" ;;
+    esac
+fi
+exit 0`}</CodeBlock>
+      <CodeBlock lang="bash">{`chmod +x ~/.cursor/hooks/cmux-notify.sh`}</CodeBlock>
+
+      <h3>{t("configureCursor")}</h3>
+      <CodeBlock title="~/.cursor/hooks.json" lang="json">{`{
+  "version": 1,
+  "hooks": {
+    "stop": [
+      {
+        "command": "./hooks/cmux-notify.sh",
+        "timeout": 5
+      }
+    ],
+    "subagentStop": [
+      {
+        "command": "./hooks/cmux-notify.sh",
+        "timeout": 5
+      }
+    ]
+  }
+}`}</CodeBlock>
+      <p>{t("cursorReloadNote")}</p>
+
       <h2>{t("integrationExamples")}</h2>
 
       <h3>{t("notifyAfterLong")}</h3>
