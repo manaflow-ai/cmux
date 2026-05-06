@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 
 @MainActor
 final class BackgroundWorkspacePrimeCoordinator {
@@ -47,6 +48,10 @@ final class BackgroundWorkspacePrimeCoordinator {
             addCleanup { NotificationCenter.default.removeObserver(observer) }
         }
 
+        func addCancellable(_ cancellable: AnyCancellable) {
+            addCleanup { cancellable.cancel() }
+        }
+
         func addTask(_ task: Task<Void, Never>) {
             addCleanup { task.cancel() }
         }
@@ -82,6 +87,11 @@ final class BackgroundWorkspacePrimeCoordinator {
     }
 
     private var timeoutCounts: [UUID: Int] = [:]
+
+    deinit {
+        // Explicit for the required_deinit lint; per-prime resources live on Waiter.
+        timeoutCounts.removeAll()
+    }
 
     func taskKey(for tabManager: TabManager) -> [String] {
         tabManager.pendingBackgroundWorkspaceLoadIds
@@ -243,6 +253,32 @@ final class BackgroundWorkspacePrimeCoordinator {
             }
         }
         waiter.addObserver(hostedViewObserver)
+
+        let pendingObserver = tabManager.$pendingBackgroundWorkspaceLoadIds
+            .dropFirst()
+            .sink { [weak self, weak waiter, weak tabManager] pendingIds in
+                guard !pendingIds.contains(workspaceId),
+                      let self,
+                      let waiter,
+                      let tabManager else { return }
+                Task { @MainActor in
+                    self.evaluate(waiter: waiter, workspaceId: workspaceId, tabManager: tabManager)
+                }
+            }
+        waiter.addCancellable(pendingObserver)
+
+        let tabsObserver = tabManager.$tabs
+            .dropFirst()
+            .sink { [weak self, weak waiter, weak tabManager] tabs in
+                guard !tabs.contains(where: { $0.id == workspaceId }),
+                      let self,
+                      let waiter,
+                      let tabManager else { return }
+                Task { @MainActor in
+                    self.evaluate(waiter: waiter, workspaceId: workspaceId, tabManager: tabManager)
+                }
+            }
+        waiter.addCancellable(tabsObserver)
     }
 
     private func evaluate(waiter: Waiter, workspaceId: UUID, tabManager: TabManager) {

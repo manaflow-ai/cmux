@@ -15227,7 +15227,6 @@ struct CMUXCLI {
         )
         for url in urls {
             guard let record = readCodexMonitorLease(path: url.path) else {
-                try? fileManager.removeItem(at: url)
                 continue
             }
             if record.createdAt < cutoff || (record.retiredAt ?? .infinity) < cutoff {
@@ -15238,7 +15237,7 @@ struct CMUXCLI {
 
     private func isCodexMonitorLeaseRetired(path: String?) -> Bool {
         guard let path, !path.isEmpty else { return false }
-        guard let record = readCodexMonitorLease(path: path) else { return true }
+        guard let record = readCodexMonitorLease(path: path) else { return false }
         return record.retiredAt != nil
     }
 

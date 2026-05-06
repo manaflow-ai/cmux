@@ -39,12 +39,24 @@ def _must(cond: bool, msg: str) -> None:
 
 
 def _run(cmd: list[str]) -> str:
-    proc = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout or ""
+        stderr = exc.stderr or ""
+        if isinstance(stdout, bytes):
+            stdout = stdout.decode(errors="replace")
+        if isinstance(stderr, bytes):
+            stderr = stderr.decode(errors="replace")
+        merged = f"{stdout}\n{stderr}".strip()
+        detail = f": {merged}" if merged else ""
+        raise cmuxError(f"Command timed out after 10s ({' '.join(cmd)}){detail}") from exc
     if proc.returncode != 0:
         merged = f"{proc.stdout}\n{proc.stderr}".strip()
         raise cmuxError(f"Command failed ({' '.join(cmd)}): {merged}")
