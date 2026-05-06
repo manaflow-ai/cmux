@@ -1901,7 +1901,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
     private var activePDFRegion: FilePreviewPanelFocusIntent?
     private weak var observedPDFClipView: NSClipView?
     private var rotationAccumulator: CGFloat = 0
-    private var documentLoadTask: Task<Void, Never>?
+    private let documentLoadTask = FilePreviewTaskSlot()
 
 #if DEBUG
     var debugPDFDocumentForTesting: PDFDocument? { pdfView.document }
@@ -1918,7 +1918,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
     }
 
     deinit {
-        documentLoadTask?.cancel()
+        documentLoadTask.cancel()
         removePDFScrollObserver()
         NotificationCenter.default.removeObserver(self)
     }
@@ -1984,8 +1984,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
             refreshPDFSmartFitWithoutViewportRestore()
         }
 
-        documentLoadTask?.cancel()
-        documentLoadTask = Task.detached(priority: .userInitiated) { [
+        documentLoadTask.replace(with: Task.detached(priority: .userInitiated) { [
             weak self, loadURL = url, loadRevision = revision, viewportSnapshot,
             pageRotations, preserveExistingDocument = sameURLReload
         ] in
@@ -2002,7 +2001,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
                     preserveExistingDocumentOnFailure: preserveExistingDocument
                 )
             }
-        }
+        })
     }
 
     private func applyLoadedPDFDocument(
@@ -3094,10 +3093,10 @@ private final class FilePreviewImageContainerView: NSView {
     private var isFitMode = true
     private var rotationDegrees = 0
     private var rotationAccumulator: CGFloat = 0
-    private var imageLoadTask: Task<Void, Never>?
+    private let imageLoadTask = FilePreviewTaskSlot()
 
     deinit {
-        imageLoadTask?.cancel()
+        imageLoadTask.cancel()
     }
 
     override init(frame frameRect: NSRect) {
@@ -3161,8 +3160,7 @@ private final class FilePreviewImageContainerView: NSView {
         }
         rotationAccumulator = 0
 
-        imageLoadTask?.cancel()
-        imageLoadTask = Task.detached(priority: .userInitiated) { [
+        imageLoadTask.replace(with: Task.detached(priority: .userInitiated) { [
             weak self, loadURL = url, loadRevision = revision, shouldPreserveViewport,
             wasFitMode, previousScale, previousRotationDegrees
         ] in
@@ -3179,7 +3177,7 @@ private final class FilePreviewImageContainerView: NSView {
                     previousRotationDegrees: previousRotationDegrees
                 )
             }
-        }
+        })
     }
 
     private func applyLoadedImage(

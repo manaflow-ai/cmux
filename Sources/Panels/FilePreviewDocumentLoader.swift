@@ -1,6 +1,31 @@
 import AppKit
 import PDFKit
 
+nonisolated final class FilePreviewTaskSlot {
+    private let lock = NSLock()
+    private var task: Task<Void, Never>?
+
+    deinit {
+        cancel()
+    }
+
+    func replace(with nextTask: Task<Void, Never>) {
+        lock.lock()
+        let previousTask = task
+        task = nextTask
+        lock.unlock()
+        previousTask?.cancel()
+    }
+
+    func cancel() {
+        lock.lock()
+        let previousTask = task
+        task = nil
+        lock.unlock()
+        previousTask?.cancel()
+    }
+}
+
 nonisolated enum FilePreviewDocumentLoader {
     static func loadPDFDocument(at url: URL) -> PDFDocument? {
         PDFDocument(url: url)
