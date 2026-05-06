@@ -60,6 +60,70 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
         XCTAssertLessThanOrEqual(abs(rolledRSS - expectedRSS), 8 * 1024 * 1024)
     }
 
+    @MainActor
+    func testApplicationProcessDoesNotExpandIntoOtherWindowResources() throws {
+        let fixture = try SpawnedProcessTree.start()
+        defer { fixture.terminate() }
+
+        let snapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: false)
+        var windows: [[String: Any]] = [
+            [
+                "kind": "window",
+                "id": UUID().uuidString,
+                "index": 0,
+                "key": true,
+                "visible": true,
+                "app_process_pids": [fixture.parentPID],
+                "workspaces": []
+            ],
+            [
+                "kind": "window",
+                "id": UUID().uuidString,
+                "index": 1,
+                "key": false,
+                "visible": true,
+                "app_process_pids": [],
+                "workspaces": [[
+                    "kind": "workspace",
+                    "id": UUID().uuidString,
+                    "index": 0,
+                    "title": "other window",
+                    "selected": true,
+                    "pinned": false,
+                    "panes": [],
+                    "tags": fixture.childPIDs.enumerated().map { index, pid in
+                        [
+                            "kind": "tag",
+                            "id": "fixture:\(index)",
+                            "index": index,
+                            "key": "fixture-\(index)",
+                            "value": "",
+                            "visible": true,
+                            "pid": pid
+                        ] as [String: Any]
+                    }
+                ] as [String: Any]]
+            ]
+        ]
+
+        let totalPIDs = TerminalController.shared.v2AnnotateTopWindows(
+            &windows,
+            processSnapshot: snapshot,
+            browserPIDOccurrences: [:],
+            includeProcesses: false
+        )
+        let keyResources = try XCTUnwrap(windows[0]["resources"] as? [String: Any])
+        let otherResources = try XCTUnwrap(windows[1]["resources"] as? [String: Any])
+        let keyProcessIDs = Set(intArray(keyResources["pids"]))
+        let otherProcessIDs = Set(intArray(otherResources["pids"]))
+
+        XCTAssertTrue(keyProcessIDs.contains(fixture.parentPID))
+        XCTAssertTrue(keyProcessIDs.isDisjoint(with: fixture.childPIDs))
+        XCTAssertFalse(otherProcessIDs.contains(fixture.parentPID))
+        XCTAssertTrue(fixture.childPIDs.allSatisfy { otherProcessIDs.contains($0) })
+        XCTAssertTrue(([fixture.parentPID] + fixture.childPIDs).allSatisfy { totalPIDs.contains($0) })
+    }
+
     func testApplicationProcessAttachesToKeyWindow() {
         var windows: [[String: Any]] = [
             ["kind": "window", "id": "first", "key": false],

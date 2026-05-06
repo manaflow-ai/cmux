@@ -46,8 +46,8 @@ extension TerminalController {
         var allPIDs: Set<Int> = []
         for index in windows.indices {
             var workspaces = windows[index]["workspaces"] as? [[String: Any]] ?? []
-            let appProcessRootPIDs = Set(v2TopIntArray(windows[index]["app_process_pids"]))
-            var windowPIDs = processSnapshot.expandedPIDs(rootPIDs: appProcessRootPIDs)
+            let appProcessPIDs = Set(v2TopIntArray(windows[index]["app_process_pids"]))
+            var windowPIDs = appProcessPIDs
             var windowTopLevelPIDs: Set<Int> = []
             var windowForegroundProcessGroupIDs: Set<Int> = []
             for workspaceIndex in workspaces.indices {
@@ -63,11 +63,11 @@ extension TerminalController {
                 windowForegroundProcessGroupIDs.formUnion(v2TopIntArray(workspaces[workspaceIndex]["foreground_pgids"]))
             }
             windows[index]["workspaces"] = workspaces
-            windows[index]["app_process_pids"] = appProcessRootPIDs.sorted()
-            windowTopLevelPIDs.formUnion(processSnapshot.topLevelPIDs(for: windowPIDs))
+            windows[index]["app_process_pids"] = appProcessPIDs.sorted()
+            windowTopLevelPIDs.formUnion(processSnapshot.topLevelPIDs(for: appProcessPIDs))
             windows[index]["top_level_pids"] = windowTopLevelPIDs.sorted()
             windows[index]["foreground_pgids"] = windowForegroundProcessGroupIDs.sorted()
-            windows[index]["resources"] = processSnapshot.summaryPayload(for: windowPIDs, rootPIDs: appProcessRootPIDs)
+            windows[index]["resources"] = processSnapshot.summaryPayload(for: windowPIDs, rootPIDs: appProcessPIDs)
             allPIDs.formUnion(windowPIDs)
         }
         return allPIDs
