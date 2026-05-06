@@ -14,11 +14,13 @@ final class FilePreviewFileWatcher {
     private let onEvent: @MainActor (Event) -> Void
 
     private nonisolated let eventHopLock = NSLock()
-    // DispatchSource callbacks run on `queue`, and Swift 6 deinit is nonisolated.
-    // The source handles are cancelled from MainActor lifecycle methods or deinit,
-    // while event-hop replacement is bounded by `eventHopLock`.
+    // SAFETY: these DispatchSource handles are `nonisolated(unsafe)` only because
+    // Swift 6 deinit is nonisolated. Real source mutation stays on MainActor
+    // lifecycle methods; deinit only cancels the last remaining handles.
     private nonisolated(unsafe) var fileSource: DispatchSourceFileSystemObject?
     private nonisolated(unsafe) var directorySource: DispatchSourceFileSystemObject?
+    // SAFETY: event handlers replace this task from the watcher queue, while
+    // MainActor cancellation/deinit also clear it. `eventHopLock` serializes both.
     private nonisolated(unsafe) var eventHopTask: Task<Void, Never>?
     private var pendingEvent: Event?
     private var eventFlushTask: Task<Void, Never>?
@@ -74,13 +76,12 @@ final class FilePreviewFileWatcher {
 
     private static func mergedEvent(_ current: Event?, _ next: Event) -> Event {
         guard let current else { return next }
-        if next == .reappeared || current == .reappeared {
-            return .reappeared
+        switch next {
+        case .reappeared, .movedOrDeleted:
+            return next
+        case .changed:
+            return current == .changed ? .changed : current
         }
-        if next == .movedOrDeleted || current == .movedOrDeleted {
-            return .movedOrDeleted
-        }
-        return .changed
     }
 
     private func startFileWatcher() {
