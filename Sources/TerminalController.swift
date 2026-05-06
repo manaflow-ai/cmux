@@ -4197,8 +4197,11 @@ class TerminalController {
                 return .err(code: "invalid_params", message: "Invalid layout: \(error.localizedDescription)", data: nil)
             }
         }
-        let layoutBaseCwd = cwd ?? FileManager.default.homeDirectoryForCurrentUser.path
-        if let failure = layoutNode?.firstMarkdownPathResolutionFailure(relativeTo: layoutBaseCwd) {
+        let layoutBaseCwd = layoutNode == nil
+            ? nil
+            : v2MainSync { customLayoutBaseCwdForNewWorkspace(tabManager: tabManager, requestedCwd: cwd) }
+        if let layoutBaseCwd,
+           let failure = layoutNode?.firstMarkdownPathResolutionFailure(relativeTo: layoutBaseCwd) {
             return .err(
                 code: failure.code,
                 message: "Invalid layout: \(failure.message)",
@@ -4211,14 +4214,15 @@ class TerminalController {
         v2MainSync {
             let ws = tabManager.addWorkspace(
                 title: title,
-                workingDirectory: cwd,
+                workingDirectory: layoutBaseCwd ?? cwd,
                 initialTerminalCommand: layoutNode == nil ? initialCommand : nil,
                 initialTerminalEnvironment: layoutNode == nil ? initialEnv : [:],
                 select: shouldFocus,
                 eagerLoadTerminal: !shouldFocus
             )
             ws.setCustomDescription(description)
-            if let layoutNode {
+            if let layoutNode,
+               let layoutBaseCwd {
                 ws.applyCustomLayout(layoutNode, baseCwd: layoutBaseCwd)
             }
             newId = ws.id

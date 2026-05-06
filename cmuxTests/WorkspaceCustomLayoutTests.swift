@@ -123,4 +123,38 @@ final class WorkspaceCustomLayoutTests: XCTestCase {
         XCTAssertEqual(Set(workspace.panels.keys), initialPanelIds)
         XCTAssertTrue(workspace.panels.values.allSatisfy { $0 is TerminalPanel })
     }
+
+    @MainActor
+    func testNewWorkspaceLayoutBaseCwdInheritsSelectedWorkspaceDirectoryWhenCwdOmitted() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-layout-markdown-inherited-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let readmeURL = root.appendingPathComponent("README.md")
+        try "# Readme\n".write(to: readmeURL, atomically: true, encoding: .utf8)
+
+        let layoutJSON = """
+        {
+          "pane": {
+            "surfaces": [
+              { "type": "markdown", "path": "README.md" }
+            ]
+          }
+        }
+        """
+        let layoutData = try XCTUnwrap(layoutJSON.data(using: .utf8))
+        let layout = try JSONDecoder().decode(CmuxLayoutNode.self, from: layoutData)
+
+        let tabManager = TabManager()
+        let sourceWorkspace = try XCTUnwrap(tabManager.selectedWorkspace)
+        sourceWorkspace.currentDirectory = root.path
+
+        let layoutBaseCwd = customLayoutBaseCwdForNewWorkspace(tabManager: tabManager, requestedCwd: nil)
+        XCTAssertEqual(layoutBaseCwd, root.path)
+        XCTAssertNil(layout.firstMarkdownPathResolutionFailure(relativeTo: layoutBaseCwd))
+
+        let createdWorkspace = tabManager.addWorkspace(workingDirectory: layoutBaseCwd, select: false)
+        XCTAssertEqual(createdWorkspace.currentDirectory, root.path)
+    }
 }

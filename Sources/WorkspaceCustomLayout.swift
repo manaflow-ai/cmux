@@ -17,6 +17,15 @@ func logCustomLayoutMarkdownPathFailure(
     )
 }
 
+func customLayoutBaseCwdForNewWorkspace(
+    tabManager: TabManager,
+    requestedCwd: String?
+) -> String {
+    tabManager.normalizedWorkingDirectory(requestedCwd)
+        ?? tabManager.preferredWorkingDirectoryForNewTab(workspace: tabManager.selectedWorkspace)
+        ?? FileManager.default.homeDirectoryForCurrentUser.path
+}
+
 // MARK: - cmux.json custom layout
 
 extension Workspace {
