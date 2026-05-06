@@ -3,7 +3,7 @@ import Foundation
 
 @MainActor
 final class FilePreviewFileWatcher {
-    enum Event {
+    enum Event: Equatable {
         case changed
         case movedOrDeleted
         case reappeared
@@ -15,6 +15,8 @@ final class FilePreviewFileWatcher {
 
     private nonisolated(unsafe) var fileSource: DispatchSourceFileSystemObject?
     private nonisolated(unsafe) var directorySource: DispatchSourceFileSystemObject?
+    private var pendingEvent: Event?
+    private var eventFlushTask: Task<Void, Never>?
     private var isClosed = false
 
     init(url: URL, onEvent: @escaping @MainActor (Event) -> Void) {
@@ -41,8 +43,37 @@ final class FilePreviewFileWatcher {
 
     func cancel() {
         isClosed = true
+        eventFlushTask?.cancel()
+        eventFlushTask = nil
+        pendingEvent = nil
         stopFileWatcher()
         stopDirectoryWatcher()
+    }
+
+    private func enqueueEvent(_ event: Event) {
+        guard !isClosed else { return }
+        pendingEvent = Self.mergedEvent(pendingEvent, event)
+        guard eventFlushTask == nil else { return }
+        eventFlushTask = Task { [weak self] in
+            await Task.yield()
+            guard let self, !self.isClosed else { return }
+            let event = self.pendingEvent
+            self.pendingEvent = nil
+            self.eventFlushTask = nil
+            guard let event else { return }
+            self.onEvent(event)
+        }
+    }
+
+    private static func mergedEvent(_ current: Event?, _ next: Event) -> Event {
+        guard let current else { return next }
+        if current == .movedOrDeleted || next == .movedOrDeleted {
+            return .movedOrDeleted
+        }
+        if current == .reappeared || next == .reappeared {
+            return .reappeared
+        }
+        return .changed
     }
 
     private func startFileWatcher() {
@@ -55,7 +86,7 @@ final class FilePreviewFileWatcher {
 
         let source = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: fd,
-            eventMask: [.write, .delete, .rename, .extend, .attrib],
+            eventMask: [.write, .delete, .rename, .extend],
             queue: queue
         )
 
@@ -80,14 +111,14 @@ final class FilePreviewFileWatcher {
         if flags.contains(.delete) || flags.contains(.rename) {
             stopFileWatcher()
             if FileManager.default.fileExists(atPath: url.path) {
-                onEvent(.reappeared)
+                enqueueEvent(.reappeared)
                 startFileWatcher()
             } else {
-                onEvent(.movedOrDeleted)
+                enqueueEvent(.movedOrDeleted)
                 startDirectoryWatcher()
             }
         } else {
-            onEvent(.changed)
+            enqueueEvent(.changed)
         }
     }
 
@@ -99,7 +130,7 @@ final class FilePreviewFileWatcher {
 
         let source = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: fd,
-            eventMask: [.write, .delete, .rename, .extend, .attrib],
+            eventMask: [.write, .delete, .rename, .extend],
             queue: queue
         )
 
@@ -122,7 +153,7 @@ final class FilePreviewFileWatcher {
         guard !isClosed,
               FileManager.default.fileExists(atPath: url.path) else { return }
         stopDirectoryWatcher()
-        onEvent(.reappeared)
+        enqueueEvent(.reappeared)
         startFileWatcher()
     }
 }

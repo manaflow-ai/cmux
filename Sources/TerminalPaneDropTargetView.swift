@@ -114,6 +114,7 @@ final class PaneDropTargetView: NSView {
     var dropContext: PaneDropContext?
     private var activeZone: DropZone?
     private let dropZoneOverlayView = NSView(frame: .zero)
+    private var standaloneOverlayAnimationGeneration: UInt64 = 0
 #if DEBUG
     private var lastHitTestSignature: String?
 #endif
@@ -357,22 +358,82 @@ final class PaneDropTargetView: NSView {
     }
 
     private func setActiveDropZone(_ zone: DropZone?) {
+        let previousZone = activeZone
         activeZone = zone
         if let hostedView {
             hostedView.setDropZoneOverlay(zone: zone)
-            dropZoneOverlayView.isHidden = true
+            hideStandaloneDropZoneOverlay(animated: false)
         } else {
-            updateStandaloneDropZoneOverlay()
+            updateStandaloneDropZoneOverlay(previousZone: previousZone)
         }
     }
 
-    private func updateStandaloneDropZoneOverlay() {
+    private func updateStandaloneDropZoneOverlay(previousZone: DropZone? = nil) {
         guard hostedView == nil, let activeZone else {
-            dropZoneOverlayView.isHidden = true
+            hideStandaloneDropZoneOverlay(animated: true)
             return
         }
-        dropZoneOverlayView.frame = PaneDropRouting.overlayFrame(for: activeZone, in: bounds)
-        dropZoneOverlayView.isHidden = false
+        let targetFrame = PaneDropRouting.overlayFrame(for: activeZone, in: bounds)
+        let needsFrameUpdate = !Self.rectApproximatelyEqual(dropZoneOverlayView.frame, targetFrame)
+        let zoneChanged = previousZone != nil && previousZone != activeZone
+        guard dropZoneOverlayView.isHidden || needsFrameUpdate || zoneChanged else { return }
+
+        standaloneOverlayAnimationGeneration &+= 1
+        dropZoneOverlayView.layer?.removeAllAnimations()
+
+        if dropZoneOverlayView.isHidden {
+            dropZoneOverlayView.frame = targetFrame
+            dropZoneOverlayView.alphaValue = 0
+            dropZoneOverlayView.isHidden = false
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.18
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                dropZoneOverlayView.animator().alphaValue = 1
+            }
+            return
+        }
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.18
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            if needsFrameUpdate {
+                dropZoneOverlayView.animator().frame = targetFrame
+            }
+            if dropZoneOverlayView.alphaValue < 1 {
+                dropZoneOverlayView.animator().alphaValue = 1
+            }
+        }
+    }
+
+    private func hideStandaloneDropZoneOverlay(animated: Bool) {
+        guard !dropZoneOverlayView.isHidden else { return }
+        standaloneOverlayAnimationGeneration &+= 1
+        let animationGeneration = standaloneOverlayAnimationGeneration
+        dropZoneOverlayView.layer?.removeAllAnimations()
+        if !animated {
+            dropZoneOverlayView.isHidden = true
+            dropZoneOverlayView.alphaValue = 1
+            return
+        }
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.14
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            dropZoneOverlayView.animator().alphaValue = 0
+        } completionHandler: { [weak self] in
+            guard let self else { return }
+            guard self.standaloneOverlayAnimationGeneration == animationGeneration else { return }
+            guard self.activeZone == nil || self.hostedView != nil else { return }
+            self.dropZoneOverlayView.isHidden = true
+            self.dropZoneOverlayView.alphaValue = 1
+        }
+    }
+
+    private static func rectApproximatelyEqual(_ lhs: CGRect, _ rhs: CGRect) -> Bool {
+        abs(lhs.origin.x - rhs.origin.x) < 0.5 &&
+            abs(lhs.origin.y - rhs.origin.y) < 0.5 &&
+            abs(lhs.size.width - rhs.size.width) < 0.5 &&
+            abs(lhs.size.height - rhs.size.height) < 0.5
     }
 
     private func clearDragState(phase: String) {

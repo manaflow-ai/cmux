@@ -1962,26 +1962,35 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
             refreshPDFSmartFitPreservingVisibleTop()
             return
         }
-        let viewportSnapshot = currentURL == url ? capturePDFViewportSnapshot(anchor: .top) : nil
+        let sameURLReload = currentURL == url
+        let viewportSnapshot = sameURLReload ? capturePDFViewportSnapshot(anchor: .top) : nil
         currentURL = url
         currentRevision = revision
-        pdfView.document = nil
-        thumbnailView.setDocument(nil)
-        outlineRoot = nil
         titleLabel.stringValue = url.lastPathComponent
-        rotationAccumulator = 0
-        didUserResizeSidebar = false
-        lastSidebarWidth = preferredSidebarWidthForCurrentMode()
-        pdfView.autoScales = true
-        applyDisplayMode()
-        outlineView.reloadData()
-        updateSidebarContent()
-        applyPreferredSidebarWidthIfNeeded()
-        updatePageControls()
-        refreshPDFSmartFitWithoutViewportRestore()
+        if !sameURLReload {
+            pdfView.document = nil
+            thumbnailView.setDocument(nil)
+            outlineRoot = nil
+            rotationAccumulator = 0
+            didUserResizeSidebar = false
+            lastSidebarWidth = preferredSidebarWidthForCurrentMode()
+            pdfView.autoScales = true
+            applyDisplayMode()
+            outlineView.reloadData()
+            updateSidebarContent()
+            applyPreferredSidebarWidthIfNeeded()
+            updatePageControls()
+            refreshPDFSmartFitWithoutViewportRestore()
+        }
 
         documentLoadTask?.cancel()
-        documentLoadTask = Task { [weak self, loadURL = url, loadRevision = revision, viewportSnapshot] in
+        documentLoadTask = Task { [
+            weak self,
+            loadURL = url,
+            loadRevision = revision,
+            viewportSnapshot,
+            preserveExistingDocument = sameURLReload
+        ] in
             let document = await Task.detached(priority: .userInitiated) {
                 PDFDocument(url: loadURL)
             }.value
@@ -1989,15 +1998,25 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
                   let self,
                   self.currentURL == loadURL,
                   self.currentRevision == loadRevision else { return }
-            self.applyLoadedPDFDocument(document, for: loadURL, restoring: viewportSnapshot)
+            self.applyLoadedPDFDocument(
+                document,
+                for: loadURL,
+                restoring: viewportSnapshot,
+                preserveExistingDocumentOnFailure: preserveExistingDocument
+            )
         }
     }
 
     private func applyLoadedPDFDocument(
         _ document: PDFDocument?,
         for url: URL,
-        restoring viewportSnapshot: FilePreviewPDFViewportSnapshot?
+        restoring viewportSnapshot: FilePreviewPDFViewportSnapshot?,
+        preserveExistingDocumentOnFailure: Bool
     ) {
+        guard document != nil || !preserveExistingDocumentOnFailure || pdfView.document == nil else {
+            updatePageControls(scrollThumbnailToVisible: false)
+            return
+        }
         pdfView.document = document
         thumbnailView.setDocument(document)
         outlineRoot = document?.outlineRoot
