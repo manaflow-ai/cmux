@@ -53,6 +53,8 @@ For a generic agent that exposes the current session as an argv option:
 Supported `resumeCommand` placeholders are `{{sessionId}}`, `{{sessionPath}}`,
 `{{executable}}`, `{{cwd}}`, and `{{sessionDir}}`. Pi uses `pi --session <id-or-path>`
 instead of `pi --continue` so Vault reopens the exact saved session.
+`resumeCommand` must include either `{{sessionId}}` or `{{sessionPath}}`, for
+example `pi --session {{sessionId}}`.
 
 `iconAssetName` is optional. When omitted, Vault uses a neutral system icon for
 registered agents instead of reusing another agent's brand mark.

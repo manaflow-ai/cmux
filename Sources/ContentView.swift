@@ -2961,7 +2961,7 @@ struct ContentView: View {
     private func resumeSession(entry: SessionEntry) {
         guard let resumeCommand = entry.resumeCommandWithCwd else { return }
         let inputWithReturn = resumeCommand + "\n"
-        let targetCwd = entry.cwd
+        let targetCwd = entry.resumeWorkingDirectory
 
         // Smart placement: if the focused workspace's tracked cwd matches, open a
         // new tab inside that workspace. Otherwise create a new workspace.

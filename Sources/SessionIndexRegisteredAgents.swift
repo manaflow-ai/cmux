@@ -59,10 +59,7 @@ extension SessionIndexStore {
             scanned += 1
 
             if !needle.isEmpty && !candidate.prefilteredByRipgrep {
-                let combined = readFileHead(url: candidate.url, byteCap: headByteCap)
-                    + "\n"
-                    + readFileTail(url: candidate.url, byteCap: tailByteCap)
-                guard combined.range(of: needle, options: [.caseInsensitive, .literal]) != nil else { continue }
+                guard fileContains(candidate.url, needle: needle) else { continue }
             }
 
             let metadata = extractRegisteredJSONLMetadata(
@@ -130,7 +127,6 @@ extension SessionIndexStore {
         fallbackCWD: String?
     ) -> RegisteredAgentJSONLMetadata {
         var metadata = RegisteredAgentJSONLMetadata()
-        metadata.cwd = fallbackCWD
         let needsNativeSessionID: Bool
         switch registration.sessionIdSource {
         case .argvOption:
@@ -173,9 +169,34 @@ extension SessionIndexStore {
                 && (!needsNativeSessionID || metadata.sessionId != nil)
         }
         if case .piSessionFile = registration.sessionIdSource, metadata.cwd == nil {
-            metadata.cwd = piCWDInferred(from: url)
+            metadata.cwd = fallbackCWD ?? piCWDInferred(from: url)
         }
         return metadata
+    }
+
+    nonisolated private static func fileContains(_ url: URL, needle: String) -> Bool {
+        guard !needle.isEmpty,
+              let handle = try? FileHandle(forReadingFrom: url) else {
+            return false
+        }
+        defer { try? handle.close() }
+
+        let chunkSize = 64 * 1024
+        let overlapLimit = max(needle.utf8.count * 4, 4 * 1024)
+        var carry = Data()
+        while !Task.isCancelled {
+            let chunk = (try? handle.read(upToCount: chunkSize)) ?? Data()
+            if chunk.isEmpty { break }
+
+            var buffer = carry
+            buffer.append(chunk)
+            let text = String(decoding: buffer, as: UTF8.self)
+            if text.range(of: needle, options: [.caseInsensitive, .literal]) != nil {
+                return true
+            }
+            carry = buffer.count > overlapLimit ? Data(buffer.suffix(overlapLimit)) : buffer
+        }
+        return false
     }
 
     nonisolated private static func firstString(in object: [String: Any], keys: [String]) -> String? {

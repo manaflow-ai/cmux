@@ -133,6 +133,10 @@
               },
               "resumeCommand": {
                 "type": "string",
+                "anyOf": [
+                  { "pattern": "\\{\\{sessionId\\}\\}" },
+                  { "pattern": "\\{\\{sessionPath\\}\\}" }
+                ],
                 "description": "Shell-like argv template used to resume a session. Supported placeholders: {{sessionId}}, {{sessionPath}}, {{executable}}, {{cwd}}, {{sessionDir}}. Must include {{sessionId}} or {{sessionPath}}."
               },
               "cwd": {

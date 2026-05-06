@@ -68,14 +68,6 @@ enum SessionAgent: Identifiable, Codable, Sendable, Hashable {
         }
     }
 
-    static func == (lhs: SessionAgent, rhs: SessionAgent) -> Bool {
-        lhs.rawValue == rhs.rawValue
-    }
-
-    func hash(into hasher: inout Hasher) {
-        hasher.combine(rawValue)
-    }
-
     private enum CodingKeys: String, CodingKey {
         case id, name, iconAssetName
     }
@@ -214,6 +206,15 @@ struct SessionEntry: Identifiable, Hashable {
     let fileURL: URL?
     let specifics: AgentSpecifics
 
+    var resumeWorkingDirectory: String? {
+        guard let cwd, !cwd.isEmpty else { return nil }
+        if case .registered(let registration) = specifics,
+           registration.cwd == .ignore {
+            return nil
+        }
+        return cwd
+    }
+
     /// Shell command that resumes this session in a new terminal, with the agent's
     /// known per-session settings injected as CLI flags.
     var resumeCommand: String? {
@@ -264,12 +265,12 @@ struct SessionEntry: Identifiable, Hashable {
                     launcher: registration.id,
                     executablePath: nil,
                     arguments: [registration.defaultExecutable],
-                    workingDirectory: cwd,
+                    workingDirectory: resumeWorkingDirectory,
                     environment: nil,
                     capturedAt: nil,
                     source: "vault"
                 ),
-                workingDirectory: nil,
+                workingDirectory: resumeWorkingDirectory,
                 registrationOverride: registration,
                 includeWorkingDirectoryPrefix: false
             ) {
@@ -281,7 +282,7 @@ struct SessionEntry: Identifiable, Hashable {
 
     var resumeCommandWithCwd: String? {
         guard let resumeCommand else { return nil }
-        guard let cwd, !cwd.isEmpty else {
+        guard let cwd = resumeWorkingDirectory else {
             return resumeCommand
         }
         return "cd \(Self.shellQuote(cwd)) && \(resumeCommand)"

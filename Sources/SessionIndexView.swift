@@ -1380,7 +1380,12 @@ private enum SessionTranscriptLoader {
         agent: SessionAgent,
         id: Int
     ) -> SessionTranscriptTurn? {
-        guard let role = transcriptRole(from: object["role"] as? String) else {
+        let role: SessionTranscriptRole
+        if let explicitRole = transcriptRole(from: object["role"] as? String) {
+            role = explicitRole
+        } else if case .registered = agent {
+            role = .event
+        } else {
             return nil
         }
         let content = object["content"] ?? object["text"] ?? object["message"]

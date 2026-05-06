@@ -12535,7 +12535,7 @@ final class Workspace: Identifiable, ObservableObject {
             let panel = newTerminalSurface(
                 inPane: paneId,
                 focus: true,
-                workingDirectory: entry.cwd,
+                workingDirectory: entry.resumeWorkingDirectory,
                 initialInput: inputWithReturn
             )
             return panel != nil
@@ -12544,7 +12544,7 @@ final class Workspace: Identifiable, ObservableObject {
                 targetPane: paneId,
                 orientation: orientation,
                 insertFirst: insertFirst,
-                workingDirectory: entry.cwd,
+                workingDirectory: entry.resumeWorkingDirectory,
                 initialInput: inputWithReturn
             )
             return panel != nil

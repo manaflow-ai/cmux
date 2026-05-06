@@ -39,6 +39,7 @@ enum AgentResumeCommandBuilder {
                   kind: kind,
                   sessionId: sessionId,
                   launchCommand: launchCommand,
+                  workingDirectory: workingDirectory,
                   customRegistration: customRegistration
               ),
               !argv.isEmpty else {
@@ -95,6 +96,7 @@ enum AgentResumeCommandBuilder {
         kind: RestorableAgentKind,
         sessionId: String,
         launchCommand: AgentLaunchCommandSnapshot?,
+        workingDirectory: String?,
         customRegistration: CmuxVaultAgentRegistration?
     ) -> [String]? {
         switch launchCommand?.launcher {
@@ -131,7 +133,8 @@ enum AgentResumeCommandBuilder {
             let arguments = customResumeArguments(
                 registration: customRegistration,
                 sessionId: sessionId,
-                launchCommand: launchCommand
+                launchCommand: launchCommand,
+                workingDirectory: workingDirectory
             )
             return arguments.isEmpty ? nil : arguments
         }
@@ -213,7 +216,8 @@ enum AgentResumeCommandBuilder {
     private static func customResumeArguments(
         registration: CmuxVaultAgentRegistration,
         sessionId: String,
-        launchCommand: AgentLaunchCommandSnapshot?
+        launchCommand: AgentLaunchCommandSnapshot?,
+        workingDirectory: String?
     ) -> [String] {
         let templateParts = splitShellWords(registration.resumeCommand)
         guard !templateParts.isEmpty else { return [] }
@@ -228,7 +232,7 @@ enum AgentResumeCommandBuilder {
             "sessionId": sessionId,
             "sessionPath": sessionId,
             "executable": original.executable,
-            "cwd": normalized(launchCommand?.workingDirectory) ?? "",
+            "cwd": normalized(workingDirectory ?? launchCommand?.workingDirectory) ?? "",
             "sessionDir": sessionDirectory ?? "",
         ]
         var resolved: [String] = []

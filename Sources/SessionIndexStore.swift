@@ -217,9 +217,9 @@ final class SessionIndexStore: ObservableObject {
         let sections: [IndexSection]
         switch grouping {
         case .agent:
-            let buckets = Dictionary(grouping: visible, by: \.agent)
+            let buckets = Dictionary(grouping: visible, by: { $0.agent.rawValue })
             sections = agentOrder.compactMap { agent in
-                guard let entries = buckets[agent], !entries.isEmpty else { return nil }
+                guard let entries = buckets[agent.rawValue], !entries.isEmpty else { return nil }
                 return IndexSection(
                     key: .agent(agent),
                     title: agent.displayName,
@@ -300,12 +300,12 @@ final class SessionIndexStore: ObservableObject {
             }
             return .registered(refreshed)
         }
-        var seen = Set(nextOrder)
+        var seen = Set(nextOrder.map(\.rawValue))
         var additions: [(agent: SessionAgent, latest: Date)] = []
         for entry in entries {
-            if seen.insert(entry.agent).inserted {
+            if seen.insert(entry.agent.rawValue).inserted {
                 additions.append((entry.agent, entry.modified))
-            } else if let idx = additions.firstIndex(where: { $0.agent == entry.agent }),
+            } else if let idx = additions.firstIndex(where: { $0.agent.rawValue == entry.agent.rawValue }),
                       additions[idx].latest < entry.modified {
                 additions[idx].latest = entry.modified
             }
@@ -355,16 +355,16 @@ final class SessionIndexStore: ObservableObject {
         case .agent:
             guard key.raw.hasPrefix("agent:"),
                   let agent = SessionAgent(rawValue: String(key.raw.dropFirst("agent:".count))) else { return }
-            guard let oldIndex = agentOrder.firstIndex(of: agent) else { return }
+            guard let oldIndex = agentOrder.firstIndex(where: { $0.rawValue == agent.rawValue }) else { return }
             var next = agentOrder
-            next.remove(at: oldIndex)
+            let moved = next.remove(at: oldIndex)
             if let referenceKey,
                referenceKey.raw.hasPrefix("agent:"),
                let refAgent = SessionAgent(rawValue: String(referenceKey.raw.dropFirst("agent:".count))),
-               let refIndex = next.firstIndex(of: refAgent) {
-                next.insert(agent, at: refIndex)
+               let refIndex = next.firstIndex(where: { $0.rawValue == refAgent.rawValue }) {
+                next.insert(moved, at: refIndex)
             } else {
-                next.append(agent)
+                next.append(moved)
             }
             if next != agentOrder { agentOrder = next }
         case .directory:
@@ -394,8 +394,8 @@ final class SessionIndexStore: ObservableObject {
         for agent in SessionAgent.builtInCases where !ordered.contains(agent) {
             ordered.append(agent)
         }
-        var seen = Set<SessionAgent>()
-        ordered = ordered.filter { seen.insert($0).inserted }
+        var seen = Set<String>()
+        ordered = ordered.filter { seen.insert($0.rawValue).inserted }
         return ordered
     }
 
