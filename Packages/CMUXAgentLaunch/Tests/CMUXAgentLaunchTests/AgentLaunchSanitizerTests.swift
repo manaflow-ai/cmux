@@ -50,6 +50,23 @@ struct AgentLaunchSanitizerTests {
         )
     }
 
+    @Test("Preserves repeated Pi extension and skill flags without replaying prompt")
+    func preservesRepeatedPiExtensionAndSkillFlags() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "pi", "--extension", "a.ts", "--extension", "b.ts",
+                    "--skill", "review", "--skill", "swift", "initial prompt"
+                ],
+                launcher: "pi",
+                fallbackKind: "pi"
+            ) == [
+                "pi", "--extension", "a.ts", "--extension", "b.ts",
+                "--skill", "review", "--skill", "swift"
+            ]
+        )
+    }
+
     @Test("Rejects noninteractive Pi launches")
     func rejectsNoninteractivePiLaunches() {
         #expect(

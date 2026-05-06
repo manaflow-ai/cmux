@@ -1167,6 +1167,14 @@ final class SessionPersistenceTests: XCTestCase {
                 ]
             ),
             (
+                .pi,
+                [
+                    "/usr/local/bin/pi",
+                    "--model",
+                    "anthropic/claude-sonnet-4-5",
+                ]
+            ),
+            (
                 .cursor,
                 [
                     "/usr/local/bin/cursor-agent",
