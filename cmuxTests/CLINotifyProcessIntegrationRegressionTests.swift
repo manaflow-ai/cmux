@@ -112,12 +112,18 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let result = runClaudeHook(
             context: context,
             arguments: ["hooks", "claude", "session-end"],
-            standardInput: #"{"session_id":"\#(staleSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionEnd"}"#
+            standardInput: #"{"session_id":"unknown-late-session","cwd":"\#(context.root.path)","hook_event_name":"SessionEnd"}"#
         )
 
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertEqual(result.stdout, "OK\n")
+        let savedState = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        let savedSessions = try XCTUnwrap(savedState["sessions"] as? [String: Any])
+        XCTAssertNil(
+            savedSessions[staleSessionId],
+            "Expected fallback session-end handling to consume the seeded stale session"
+        )
         XCTAssertFalse(
             context.state.commands.contains { $0 == "clear_status claude_code --tab=\(staleWorkspaceId)" },
             "Expected stale SessionEnd not to clear the consumed workspace, saw \(context.state.commands)"
