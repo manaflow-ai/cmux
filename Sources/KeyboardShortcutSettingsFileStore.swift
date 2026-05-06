@@ -996,11 +996,18 @@ final class CmuxSettingsFileStore {
         var didMutateStoredValue = false
         switch value {
         case .bool(let next):
-            if SidebarMatchTerminalBackgroundSettings.isSettingsFileDefaultKey(defaultsKey), !SidebarMatchTerminalBackgroundSettings.shouldApplySettingsFileDefault(next, defaults: defaults) { return }
+            let shouldTrackFileDefault = SidebarMatchTerminalBackgroundSettings.isSettingsFileDefaultKey(defaultsKey)
+            if shouldTrackFileDefault, !SidebarMatchTerminalBackgroundSettings.shouldApplySettingsFileDefault(defaults: defaults) {
+                SidebarMatchTerminalBackgroundSettings.recordSettingsFileDefault(next, defaults: defaults)
+                return
+            }
             let current = defaults.object(forKey: defaultsKey) as? Bool
             if current != next {
                 defaults.set(next, forKey: defaultsKey)
                 didMutateStoredValue = true
+            }
+            if shouldTrackFileDefault, didMutateStoredValue {
+                SidebarMatchTerminalBackgroundSettings.recordSettingsFileDefault(next, defaults: defaults)
             }
         case .int(let next):
             let current = defaults.object(forKey: defaultsKey) as? Int
@@ -1044,9 +1051,6 @@ final class CmuxSettingsFileStore {
             }
         }
 
-        if defaultsKey == SidebarMatchTerminalBackgroundSettings.userDefaultsKey, didMutateStoredValue {
-            SidebarMatchTerminalBackgroundSettings.recordSettingsFileDefault(defaults.bool(forKey: defaultsKey), defaults: defaults)
-        }
         if didMutateStoredValue {
             applyManagedDefaultSideEffects(for: defaultsKey, notifyScrollBar: defaultsKey == TerminalScrollBarSettings.showScrollBarKey, source: "cmuxConfig.applyManagedDefault")
         }

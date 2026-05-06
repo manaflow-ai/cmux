@@ -251,6 +251,23 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         withExtendedLifetime(store) {
             notificationCenter.post(name: UserDefaults.didChangeNotification, object: defaults)
             XCTAssertEqual(defaults.object(forKey: key) as? Bool, false)
+
+            try writeSettingsFile(
+                """
+                {
+                  "sidebarAppearance": {
+                    "matchTerminalBackground": false
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+            store.reload()
+            XCTAssertEqual(defaults.object(forKey: key) as? Bool, false)
+
+            defaults.set(true, forKey: key)
+            notificationCenter.post(name: UserDefaults.didChangeNotification, object: defaults)
+            XCTAssertEqual(defaults.object(forKey: key) as? Bool, true)
         }
     }
 

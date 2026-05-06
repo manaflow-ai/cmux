@@ -10,7 +10,7 @@ enum SidebarMatchTerminalBackgroundSettings {
         key == userDefaultsKey
     }
 
-    static func shouldApplySettingsFileDefault(_ next: Bool, defaults: UserDefaults = .standard) -> Bool {
+    static func shouldApplySettingsFileDefault(defaults: UserDefaults = .standard) -> Bool {
         guard defaults.object(forKey: userDefaultsKey) != nil else { return true }
         guard let applied = defaults.object(forKey: appliedSettingsFileDefaultKey) as? Bool else { return false }
         return applied == defaults.bool(forKey: userDefaultsKey)
