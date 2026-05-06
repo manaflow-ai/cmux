@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import socket
 import subprocess
 import tempfile
@@ -104,8 +105,11 @@ class FakeCmuxSocket:
 
 
 def monitor_pids_for_session(session_id: str) -> list[int]:
+    ps_path = shutil.which("ps")
+    if ps_path is None:
+        raise AssertionError("ps executable not found")
     result = subprocess.run(
-        ["ps", "-axo", "pid=,command="],
+        [ps_path, "-axo", "pid=,command="],
         capture_output=True,
         text=True,
         check=False,
@@ -260,9 +264,7 @@ def test_codex_stop_without_turn_keeps_session_wide_monitor(cli_path: str, root:
                     f"hooks codex stop failed exit={result.returncode}\n"
                     f"stdout={result.stdout}\nstderr={result.stderr}"
                 )
-            time.sleep(0.5)
-            if not monitor_pids_for_session(session_id):
-                raise AssertionError("turn-less Stop reaped a session-wide monitor")
+            wait_for_monitor_pids(session_id, present=True, timeout=2)
 
             result = subprocess.run(
                 [cli_path, "--socket", str(socket_path), "hooks", "codex", "session-end"],

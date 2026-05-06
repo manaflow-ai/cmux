@@ -4024,10 +4024,11 @@ struct ContentView: View {
 
                     let timeoutWorkItem = DispatchWorkItem {
                         Task { @MainActor in
-                            if tabManager.pendingBackgroundWorkspaceLoadIds.contains(workspaceId) {
-                                tabManager.completeBackgroundWorkspaceLoad(for: workspaceId)
+                            if case .completed(let reason) = stepBackgroundWorkspacePrime(workspaceId: workspaceId) {
+                                waiter.finish(reason: reason)
+                            } else {
+                                waiter.finish(reason: "timeout")
                             }
-                            waiter.finish(reason: "timeout")
                         }
                     }
                     waiter.addTimeoutWorkItem(timeoutWorkItem)

@@ -199,11 +199,17 @@ def main() -> int:
                 "background workspace priming should not switch the selected workspace",
             )
         finally:
+            active_exc_type = sys.exc_info()[0]
+            teardown_exc_info = None
             for workspace_id in reversed(created_workspaces):
                 try:
                     client.close_workspace(workspace_id)
                 except Exception:
-                    pass
+                    if teardown_exc_info is None:
+                        teardown_exc_info = sys.exc_info()
+            if teardown_exc_info is not None and active_exc_type is None:
+                _, teardown_exc, teardown_tb = teardown_exc_info
+                raise teardown_exc.with_traceback(teardown_tb)
 
     print("PASS: background workspace priming keeps idle thread and footprint growth bounded")
     return 0
