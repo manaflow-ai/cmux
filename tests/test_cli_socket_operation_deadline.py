@@ -233,7 +233,7 @@ def main() -> int:
                 )
                 break
             if not all(
-                isinstance(pair, list) and len(pair) == 2 and isinstance(pair[0], str)
+                isinstance(pair, (list, tuple)) and len(pair) == 2 and isinstance(pair[0], str)
                 for pair in top_level_pairs
             ):
                 failures.append(
