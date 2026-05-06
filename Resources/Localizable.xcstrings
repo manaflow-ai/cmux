@@ -106451,6 +106451,35 @@
         }
       }
     },
+    "settings.account.error.signInFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in failed. Try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインに失敗しました。もう一度お試しください。"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося ввійти. Спробуйте ще раз."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그인에 실패했습니다. 다시 시도하세요."
+          }
+        }
+      }
+    },
     "rightSidebar.mode.feed": {
       "extractionState": "manual",
       "localizations": {

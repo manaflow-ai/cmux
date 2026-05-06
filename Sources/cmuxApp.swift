@@ -7517,7 +7517,7 @@ private struct AuthSettingsRow: View {
     @ObservedObject var authManager: AuthManager
 
     var body: some View {
-        HStack(alignment: .center, spacing: 12) {
+        HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(titleText)
                     .font(.system(size: 13, weight: .medium))
@@ -7530,12 +7530,23 @@ private struct AuthSettingsRow: View {
             Spacer(minLength: 12)
             if authManager.isLoading || authManager.isRestoringSession {
                 ProgressView().controlSize(.small)
+                    .padding(.top, 2)
             }
-            Button(action: buttonAction) {
-                Text(buttonTitle)
+            VStack(alignment: .trailing, spacing: 4) {
+                Button(action: buttonAction) {
+                    Text(buttonTitle)
+                }
+                .controlSize(.small)
+                .disabled(authManager.isLoading || authManager.isRestoringSession)
+                if let signInErrorText {
+                    Text(signInErrorText)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.red)
+                        .multilineTextAlignment(.trailing)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: 220, alignment: .trailing)
+                }
             }
-            .controlSize(.small)
-            .disabled(authManager.isLoading || authManager.isRestoringSession)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -7567,6 +7578,11 @@ private struct AuthSettingsRow: View {
         )
     }
 
+    private var signInErrorText: String? {
+        guard !authManager.isAuthenticated else { return nil }
+        return authManager.lastSignInError?.localizedMessage
+    }
+
     private var buttonTitle: String {
         if authManager.isAuthenticated {
             return String(
@@ -7581,6 +7597,7 @@ private struct AuthSettingsRow: View {
     }
 
     private func buttonAction() {
+        guard !authManager.isLoading && !authManager.isRestoringSession else { return }
         if authManager.isAuthenticated {
             Task { @MainActor in
                 await authManager.signOut()

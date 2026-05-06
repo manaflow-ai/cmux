@@ -2,6 +2,11 @@
 
 All notable changes to cmux are documented here.
 
+## [Unreleased]
+
+### Fixed
+- Surface Settings > Sign In failures in Account settings instead of only logging ASWebAuthenticationSession and callback errors ([#3617](https://github.com/manaflow-ai/cmux/issues/3617))
+
 ## [0.64.3] - 2026-05-05
 
 ### Added
@@ -63,6 +68,7 @@ All notable changes to cmux are documented here.
 - Gemini and Rovo Dev session hooks with sessions piped into Vault ([#3530](https://github.com/manaflow-ai/cmux/pull/3530), [#3535](https://github.com/manaflow-ai/cmux/pull/3535))
 - iMessage mode for agent prompts ([#3252](https://github.com/manaflow-ai/cmux/pull/3252))
 - Settings sidebar shell and unified config utility window with cmux, Ghostty, and synced tabs ([#3024](https://github.com/manaflow-ai/cmux/pull/3024), [#3244](https://github.com/manaflow-ai/cmux/pull/3244), [#3400](https://github.com/manaflow-ai/cmux/pull/3400))
+- Settings > Sign In for connecting a cmux account from Account settings
 - Make `cmux.json` the canonical settings file with JSONC parsing and legacy `settings.json` fallback ([#3409](https://github.com/manaflow-ai/cmux/pull/3409), [#3424](https://github.com/manaflow-ai/cmux/pull/3424))
 - Configurable `cmux.json` workspace and tab bar plus-button actions ([#3084](https://github.com/manaflow-ai/cmux/pull/3084), [#3348](https://github.com/manaflow-ai/cmux/pull/3348))
 - Configurable surface tab bar font size ([#2645](https://github.com/manaflow-ai/cmux/pull/2645))

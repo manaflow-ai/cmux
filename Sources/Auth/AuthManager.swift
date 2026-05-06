@@ -31,7 +31,7 @@ private final class AuthPresentationContext: NSObject, ASWebAuthenticationPresen
     }
 }
 
-enum AuthManagerError: LocalizedError {
+enum AuthManagerError: LocalizedError, Equatable {
     case invalidCallback
     case missingAccessToken
     case missingRefreshToken
@@ -54,6 +54,31 @@ enum AuthManagerError: LocalizedError {
                 defaultValue: "Account refresh token is unavailable."
             )
         }
+    }
+}
+
+enum AuthSignInError: Equatable {
+    case authManager(AuthManagerError)
+    case message(String)
+
+    var localizedMessage: String {
+        switch self {
+        case .authManager(let error):
+            return error.errorDescription ?? Self.genericLocalizedMessage
+        case .message(let message):
+            let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                return Self.genericLocalizedMessage
+            }
+            return "\(Self.genericLocalizedMessage) \(trimmed)"
+        }
+    }
+
+    private static var genericLocalizedMessage: String {
+        String(
+            localized: "settings.account.error.signInFailed",
+            defaultValue: "Sign in failed. Try again."
+        )
     }
 }
 
@@ -128,6 +153,7 @@ final class AuthManager: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var isRestoringSession = false
     @Published private(set) var didCompleteBrowserSignIn = false
+    @Published private(set) var lastSignInError: AuthSignInError?
     @Published var selectedTeamID: String? {
         didSet {
             guard selectedTeamID != oldValue else { return }
@@ -186,9 +212,9 @@ final class AuthManager: ObservableObject {
     private var webAuthSession: ASWebAuthenticationSession?
 
     func beginSignIn() {
+        guard webAuthSession == nil else { return }
         loginPollTask?.cancel()
-        webAuthSession?.cancel()
-        webAuthSession = nil
+        lastSignInError = nil
         isLoading = true
 
         let signInURL = AuthEnvironment.signInURL()
@@ -205,13 +231,19 @@ final class AuthManager: ObservableObject {
                     self.webAuthSession = nil
                 }
                 if let error {
-                    NSLog("auth.webauth failed: %@", "\(error)")
+                    let nsError = error as NSError
+                    self.lastSignInError = .message(nsError.localizedDescription)
+                    NSLog("auth.webauth failed: %@ (%ld) %@", nsError.domain, nsError.code, nsError.localizedDescription)
                     return
                 }
-                guard let callbackURL else { return }
+                guard let callbackURL else {
+                    self.lastSignInError = .authManager(.invalidCallback)
+                    return
+                }
                 do {
                     try await self.handleCallbackURL(callbackURL)
                 } catch {
+                    self.lastSignInError = Self.signInError(from: error)
                     NSLog("auth.webauth callback failed: %@", "\(error)")
                 }
             }
@@ -219,10 +251,11 @@ final class AuthManager: ObservableObject {
         session.presentationContextProvider = AuthPresentationContext.shared
         session.prefersEphemeralWebBrowserSession = false
 
-        if session.start() {
-            webAuthSession = session
-        } else {
+        webAuthSession = session
+        if !session.start() {
             NSLog("auth.webauth: session.start() returned false")
+            webAuthSession = nil
+            lastSignInError = .message("")
             isLoading = false
         }
     }
@@ -395,18 +428,26 @@ final class AuthManager: ObservableObject {
 
     func handleCallbackURL(_ url: URL) async throws {
         guard let payload = AuthCallbackRouter.callbackPayload(from: url) else {
-            throw AuthManagerError.invalidCallback
+            let error = AuthManagerError.invalidCallback
+            lastSignInError = .authManager(error)
+            throw error
         }
 
         isLoading = true
         defer { isLoading = false }
 
-        await tokenStore.seed(
-            accessToken: payload.accessToken,
-            refreshToken: payload.refreshToken
-        )
-        try await refreshSession()
-        didCompleteBrowserSignIn = true
+        do {
+            await tokenStore.seed(
+                accessToken: payload.accessToken,
+                refreshToken: payload.refreshToken
+            )
+            try await refreshSession()
+            didCompleteBrowserSignIn = true
+            lastSignInError = nil
+        } catch {
+            lastSignInError = Self.signInError(from: error)
+            throw error
+        }
     }
 
     func seedTokensFromCLI(refreshToken: String, accessToken: String?) async {
@@ -434,6 +475,7 @@ final class AuthManager: ObservableObject {
         do {
             try await refreshSession()
             authLog("seedTokensFromCLI: success user=\(currentUser?.primaryEmail ?? "nil")")
+            lastSignInError = nil
         } catch {
             authLog("seedTokensFromCLI: refreshSession failed: \(error)")
         }
@@ -505,6 +547,7 @@ final class AuthManager: ObservableObject {
         isAuthenticated = true
         selectedTeamID = Self.resolveTeamID(selectedTeamID: selectedTeamID, teams: result.teams)
         didCompleteBrowserSignIn = true
+        lastSignInError = nil
         authLog("applySignInResult: user=\(result.email ?? "nil") teams=\(result.teams.count) teamID=\(selectedTeamID ?? "nil")")
     }
 
@@ -568,6 +611,7 @@ final class AuthManager: ObservableObject {
         availableTeams = teams
         isAuthenticated = true
         selectedTeamID = Self.resolveTeamID(selectedTeamID: selectedTeamID, teams: teams)
+        lastSignInError = nil
         authLog("signInWithCredential: success user=\(user.primaryEmail ?? "nil") teams=\(teams.count) teamID=\(selectedTeamID ?? "nil")")
         didCompleteBrowserSignIn = true
     }
@@ -576,6 +620,7 @@ final class AuthManager: ObservableObject {
         try? await client.signOut()
         await tokenStore.clear()
         clearSessionState(clearSelectedTeam: true)
+        lastSignInError = nil
     }
 
     /// Cached access token for fast synchronous reads (no actor hops).
@@ -665,6 +710,13 @@ final class AuthManager: ObservableObject {
 
     private func authLog(_ message: String) {
         Self.authLog(message)
+    }
+
+    private static func signInError(from error: Error) -> AuthSignInError {
+        if let authError = error as? AuthManagerError {
+            return .authManager(authError)
+        }
+        return .message((error as NSError).localizedDescription)
     }
 
     private func refreshSession() async throws {
