@@ -29,15 +29,19 @@ enum WorkspaceFinderDirectoryResolver {
         return path.isEmpty ? nil : path
     }
 
-    @concurrent static func cache(for key: WorkspaceFinderDirectoryCacheKey) async -> WorkspaceFinderDirectoryCache {
+    static func cache(for key: WorkspaceFinderDirectoryCacheKey) async -> WorkspaceFinderDirectoryCache {
         guard let path = key.path else { return WorkspaceFinderDirectoryCache(key: key) }
         let directoryURL = await existingDirectoryURL(for: path)
         return WorkspaceFinderDirectoryCache(key: key, directoryURL: directoryURL)
     }
 
-    @concurrent static func existingDirectoryURL(for path: String) async -> URL? {
+    static func existingDirectoryURL(for path: String) async -> URL? {
         guard !Task.isCancelled else { return nil }
-        return existingDirectoryURLUnchecked(for: path)
+        let directoryURL = await Task.detached(priority: .utility) {
+            existingDirectoryURLUnchecked(for: path)
+        }.value
+        guard !Task.isCancelled else { return nil }
+        return directoryURL
     }
 
     private nonisolated static func existingDirectoryURLUnchecked(for path: String) -> URL? {
