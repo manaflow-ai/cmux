@@ -43,6 +43,19 @@ extension TerminalController {
         while true {
             if let event = snapshot.subscription.next(timeout: CmuxEventBus.defaultHeartbeatIntervalSeconds) {
                 guard writeEventsStreamLine(event, socket: socket) else { return }
+            } else if snapshot.subscription.isClosed {
+                if let reason = snapshot.subscription.closeReason {
+                    _ = writeEventsStreamLine([
+                        "type": "error",
+                        "ok": false,
+                        "error": [
+                            "code": "slow_consumer",
+                            "message": reason,
+                            "latest_seq": NSNumber(value: CmuxEventBus.shared.latestSequence)
+                        ]
+                    ], socket: socket)
+                }
+                return
             } else if includeHeartbeats {
                 let heartbeat = CmuxEventBus.shared.heartbeat(subscription: snapshot.subscription)
                 guard writeEventsStreamLine(heartbeat, socket: socket) else { return }

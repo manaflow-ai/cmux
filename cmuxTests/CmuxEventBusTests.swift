@@ -74,6 +74,20 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertNil(snapshot.subscription.next(timeout: 0.05))
     }
 
+    func testSlowSubscriptionClosesWhenPendingQueueIsFull() {
+        let bus = CmuxEventBus(retainedEventLimit: 8, maxPendingEventsPerSubscription: 2)
+        let snapshot = bus.subscribe(afterSequence: nil, names: [], categories: [])
+        defer { bus.unsubscribe(snapshot.subscription) }
+
+        bus.publish(name: "one", category: "test", source: "test")
+        bus.publish(name: "two", category: "test", source: "test")
+        bus.publish(name: "three", category: "test", source: "test")
+
+        XCTAssertTrue(snapshot.subscription.isClosed)
+        XCTAssertEqual(snapshot.subscription.closeReason, "pending event buffer exceeded 2 events")
+        XCTAssertNil(snapshot.subscription.next(timeout: 0.05))
+    }
+
     func testEventEncodingIsSingleLineJSON() throws {
         let bus = CmuxEventBus(retainedEventLimit: 4)
         bus.publish(
@@ -103,6 +117,23 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertTrue(line.contains("\"zero\":0"))
         XCTAssertTrue(line.contains("\"one\":1"))
         XCTAssertTrue(line.contains("\"truth\":true"))
+    }
+
+    func testOversizedEventPayloadIsTruncatedBeforeRetention() throws {
+        let bus = CmuxEventBus(retainedEventLimit: 4, maxEventLineBytes: 1_024)
+
+        bus.publish(
+            name: "agent.log",
+            category: "agent",
+            source: "test",
+            payload: ["message": String(repeating: "x", count: 20_000)]
+        )
+
+        let event = try XCTUnwrap(bus.retainedSnapshot().first)
+        XCTAssertEqual(event["payload_truncated"] as? Bool, true)
+
+        let line = try XCTUnwrap(CmuxEventBus.encodeLine(event))
+        XCTAssertLessThanOrEqual(line.utf8.count, 1_024)
     }
 
     func testWindowLifecyclePayloadIncludesFocusState() throws {
@@ -149,5 +180,37 @@ final class CmuxEventBusTests: XCTestCase {
         let secondData = try XCTUnwrap(lines.last?.data(using: .utf8))
         let second = try XCTUnwrap(JSONSerialization.jsonObject(with: secondData) as? [String: Any])
         XCTAssertEqual(second["name"] as? String, "surface.created")
+    }
+
+    func testDurableEventLogRotatesAtByteLimit() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-event-log-rotation-\(UUID().uuidString)", isDirectory: true)
+        let logURL = directory.appendingPathComponent("events.jsonl")
+        let bus = CmuxEventBus(
+            retainedEventLimit: 32,
+            eventLogURL: logURL,
+            maxEventLogBytes: 1_500,
+            maxEventLineBytes: 1_024
+        )
+
+        for index in 0..<20 {
+            bus.publish(
+                name: "agent.log",
+                category: "agent",
+                source: "test",
+                payload: ["index": index, "message": String(repeating: "x", count: 120)]
+            )
+        }
+
+        let rotatedURL = logURL.appendingPathExtension("1")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: logURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: rotatedURL.path))
+        XCTAssertLessThanOrEqual(try fileSize(logURL), 1_500)
+        XCTAssertLessThanOrEqual(try fileSize(rotatedURL), 1_500)
+    }
+
+    private func fileSize(_ url: URL) throws -> UInt64 {
+        let size = try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber
+        return try XCTUnwrap(size).uint64Value
     }
 }

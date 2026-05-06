@@ -166,11 +166,22 @@ The intended client loop is:
 6. Persist each event's `seq` only after your side effect succeeds.
 7. Reconnect with the latest persisted `seq` if the socket closes.
 
-The retained replay buffer is in memory and bounded. It is designed for socket
-reconnects and short consumer outages within one cmux process. The durable event
-log is `~/.cmuxterm/events.jsonl`; clients can read it directly for auditing or
-for deeper catch-up after a replay gap. Feed still writes its specialized
-long-term audit log to `~/.cmuxterm/workstream.jsonl`.
+The retained replay buffer is in memory and bounded to 4,096 events. Individual
+event frames are capped to 16 KiB after JSON encoding; oversized payloads are
+replaced with a small payload that sets `payload_truncated: true`.
+
+Each live subscriber also has a bounded pending queue of 1,024 events. If a
+client stops reading and falls behind that queue, cmux closes that subscription
+with a `slow_consumer` error. The client should reconnect with the last `seq` it
+successfully processed.
+
+The durable event log is bounded too. cmux writes current events to
+`~/.cmuxterm/events.jsonl`, rotates the previous file to
+`~/.cmuxterm/events.jsonl.1`, and caps each file at 16 MiB. Clients can read
+those files for recent auditing, but should treat the socket `ack.resume.gap`
+contract plus snapshot commands as the source of truth for catch-up after long
+outages. Feed still writes its specialized long-term audit log to
+`~/.cmuxterm/workstream.jsonl`.
 
 ## CLI
 

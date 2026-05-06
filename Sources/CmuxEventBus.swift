@@ -10,16 +10,19 @@ final class CmuxEventSubscription: @unchecked Sendable {
     let id: UUID
     let names: Set<String>
     let categories: Set<String>
+    let maxPendingEvents: Int
 
     private let lock = NSLock()
     private let semaphore = DispatchSemaphore(value: 0)
     private var queue: [[String: Any]] = []
     private var closed = false
+    private var closedReason: String?
 
-    init(id: UUID = UUID(), names: Set<String>, categories: Set<String>) {
+    init(id: UUID = UUID(), names: Set<String>, categories: Set<String>, maxPendingEvents: Int) {
         self.id = id
         self.names = names
         self.categories = categories
+        self.maxPendingEvents = max(1, maxPendingEvents)
     }
 
     func accepts(_ event: [String: Any]) -> Bool {
@@ -32,19 +35,41 @@ final class CmuxEventSubscription: @unchecked Sendable {
         return true
     }
 
-    func enqueue(_ event: [String: Any]) {
+    var isClosed: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return closed
+    }
+
+    var closeReason: String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return closedReason
+    }
+
+    func enqueue(_ event: [String: Any]) -> Bool {
         lock.lock()
         let shouldSignal: Bool
+        let accepted: Bool
         if closed {
             shouldSignal = false
+            accepted = false
+        } else if queue.count >= maxPendingEvents {
+            closed = true
+            closedReason = "pending event buffer exceeded \(maxPendingEvents) events"
+            queue.removeAll()
+            shouldSignal = true
+            accepted = false
         } else {
             queue.append(event)
             shouldSignal = true
+            accepted = true
         }
         lock.unlock()
         if shouldSignal {
             semaphore.signal()
         }
+        return accepted
     }
 
     func next(timeout: TimeInterval) -> [String: Any]? {
@@ -69,9 +94,12 @@ final class CmuxEventSubscription: @unchecked Sendable {
         return queue.removeFirst()
     }
 
-    func close() {
+    func close(reason: String? = nil) {
         lock.lock()
         closed = true
+        if let reason {
+            closedReason = reason
+        }
         queue.removeAll()
         lock.unlock()
         semaphore.signal()
@@ -85,18 +113,31 @@ final class CmuxEventBus: @unchecked Sendable {
     static let protocolVersion = 1
     static let defaultHeartbeatIntervalSeconds: TimeInterval = 15
     static let defaultRetainedEventLimit = 4_096
+    static let defaultMaxEventLineBytes = 16 * 1024
+    static let defaultMaxEventLogBytes: UInt64 = 16 * 1024 * 1024
+    static let defaultMaxPendingEventsPerSubscription = 1_024
+    static let maxSanitizedStringBytes = 8 * 1024
+    static let maxSanitizedArrayItems = 256
+    static let maxSanitizedObjectEntries = 256
+    static let maxSanitizedDepth = 12
 
     private let lock = NSLock()
     private let retainedEventLimit: Int
     private let eventLogURL: URL?
+    private let maxEventLogBytes: UInt64
+    private let maxEventLineBytes: Int
+    private let maxPendingEventsPerSubscription: Int
     private let bootId = UUID().uuidString
     private var nextSequence: Int64 = 1
     private var retained: [[String: Any]] = []
     private var subscriptions: [UUID: CmuxEventSubscription] = [:]
 
-    init(retainedEventLimit: Int = CmuxEventBus.defaultRetainedEventLimit, eventLogURL: URL? = nil) {
+    init(retainedEventLimit: Int = CmuxEventBus.defaultRetainedEventLimit, eventLogURL: URL? = nil, maxEventLogBytes: UInt64 = CmuxEventBus.defaultMaxEventLogBytes, maxEventLineBytes: Int = CmuxEventBus.defaultMaxEventLineBytes, maxPendingEventsPerSubscription: Int = CmuxEventBus.defaultMaxPendingEventsPerSubscription) {
         self.retainedEventLimit = max(1, retainedEventLimit)
         self.eventLogURL = eventLogURL
+        self.maxEventLogBytes = max(1, maxEventLogBytes)
+        self.maxEventLineBytes = max(1, maxEventLineBytes)
+        self.maxPendingEventsPerSubscription = max(1, maxPendingEventsPerSubscription)
     }
 
     var latestSequence: Int64 {
@@ -141,6 +182,7 @@ final class CmuxEventBus: @unchecked Sendable {
         ]
 
         event = Self.sanitizedJSONValue(event) as? [String: Any] ?? event
+        event = Self.eventByApplyingEncodedByteLimit(event, maxBytes: maxEventLineBytes)
         retained.append(event)
         if retained.count > retainedEventLimit {
             retained.removeFirst(retained.count - retainedEventLimit)
@@ -152,7 +194,9 @@ final class CmuxEventBus: @unchecked Sendable {
         lock.unlock()
 
         for subscription in liveSubscriptions where subscription.accepts(event) {
-            subscription.enqueue(event)
+            if !subscription.enqueue(event) {
+                removeSubscriptionIfStillActive(subscription)
+            }
         }
     }
 
@@ -161,7 +205,11 @@ final class CmuxEventBus: @unchecked Sendable {
         names: Set<String>,
         categories: Set<String>
     ) -> CmuxEventSubscriptionSnapshot {
-        let subscription = CmuxEventSubscription(names: names, categories: categories)
+        let subscription = CmuxEventSubscription(
+            names: names,
+            categories: categories,
+            maxPendingEvents: maxPendingEventsPerSubscription
+        )
 
         lock.lock()
         let oldestSequence = (retained.first?["seq"] as? NSNumber)?.int64Value
@@ -224,6 +272,14 @@ final class CmuxEventBus: @unchecked Sendable {
         subscription.close()
     }
 
+    private func removeSubscriptionIfStillActive(_ subscription: CmuxEventSubscription) {
+        lock.lock()
+        if subscriptions[subscription.id] === subscription {
+            subscriptions.removeValue(forKey: subscription.id)
+        }
+        lock.unlock()
+    }
+
     func heartbeat(subscription: CmuxEventSubscription) -> [String: Any] {
         [
             "type": "heartbeat",
@@ -259,9 +315,11 @@ final class CmuxEventBus: @unchecked Sendable {
                 at: eventLogURL.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
-            if !FileManager.default.fileExists(atPath: eventLogURL.path) {
-                _ = FileManager.default.createFile(atPath: eventLogURL.path, contents: nil)
+            let fileManager = FileManager.default
+            if !fileManager.fileExists(atPath: eventLogURL.path) {
+                _ = fileManager.createFile(atPath: eventLogURL.path, contents: nil)
             }
+            try rotateEventLogIfNeeded(eventLogURL: eventLogURL, incomingByteCount: UInt64(line.utf8.count + 1), fileManager: fileManager)
             let handle = try FileHandle(forWritingTo: eventLogURL)
             defer { try? handle.close() }
             try handle.seekToEnd()
@@ -269,6 +327,35 @@ final class CmuxEventBus: @unchecked Sendable {
         } catch {
             NSLog("Failed to append cmux event log: \(error)")
         }
+    }
+
+    private func rotateEventLogIfNeeded(eventLogURL: URL, incomingByteCount: UInt64, fileManager: FileManager) throws {
+        let currentSize = Self.fileSize(at: eventLogURL, fileManager: fileManager)
+        let rotatedURL = eventLogURL.appendingPathExtension("1")
+        if Self.fileSize(at: rotatedURL, fileManager: fileManager) > maxEventLogBytes {
+            try fileManager.removeItem(at: rotatedURL)
+        }
+        if currentSize > maxEventLogBytes {
+            try fileManager.removeItem(at: eventLogURL)
+            _ = fileManager.createFile(atPath: eventLogURL.path, contents: nil)
+            return
+        }
+        guard currentSize + incomingByteCount > maxEventLogBytes else { return }
+
+        if fileManager.fileExists(atPath: rotatedURL.path) {
+            try fileManager.removeItem(at: rotatedURL)
+        }
+        if fileManager.fileExists(atPath: eventLogURL.path) {
+            try fileManager.moveItem(at: eventLogURL, to: rotatedURL)
+        }
+        _ = fileManager.createFile(atPath: eventLogURL.path, contents: nil)
+    }
+
+    private static func fileSize(at url: URL, fileManager: FileManager) -> UInt64 {
+        guard let size = try? fileManager.attributesOfItem(atPath: url.path)[.size] as? NSNumber else {
+            return 0
+        }
+        return size.uint64Value
     }
 
     static func defaultEventLogURL() -> URL {
@@ -297,10 +384,18 @@ final class CmuxEventBus: @unchecked Sendable {
     }
 
     static func sanitizedJSONValue(_ value: Any) -> Any {
+        sanitizedJSONValue(value, depth: 0)
+    }
+
+    private static func sanitizedJSONValue(_ value: Any, depth: Int) -> Any {
+        guard depth <= maxSanitizedDepth else {
+            return "[truncated: max depth]"
+        }
+
         let mirror = Mirror(reflecting: value)
         if mirror.displayStyle == .optional {
             guard let child = mirror.children.first else { return NSNull() }
-            return sanitizedJSONValue(child.value)
+            return sanitizedJSONValue(child.value, depth: depth + 1)
         }
 
         switch value {
@@ -311,7 +406,7 @@ final class CmuxEventBus: @unchecked Sendable {
         case let value as Date:
             return isoTimestamp(value)
         case let value as String:
-            return value
+            return truncatedString(value, maxUTF8Bytes: maxSanitizedStringBytes)
         case let value as NSNumber:
             if CFGetTypeID(value) == CFBooleanGetTypeID() {
                 return value.boolValue
@@ -330,14 +425,68 @@ final class CmuxEventBus: @unchecked Sendable {
         case let value as Float:
             return value.isFinite ? Double(value) : NSNull()
         case let value as [String: Any]:
-            return value.reduce(into: [String: Any]()) { result, pair in
-                result[pair.key] = sanitizedJSONValue(pair.value)
+            var result: [String: Any] = [:]
+            for key in value.keys.sorted().prefix(maxSanitizedObjectEntries) {
+                result[truncatedString(key, maxUTF8Bytes: 256)] = sanitizedJSONValue(value[key] as Any, depth: depth + 1)
             }
+            if value.count > maxSanitizedObjectEntries {
+                result["__cmux_truncated_entries"] = value.count - maxSanitizedObjectEntries
+            }
+            return result
         case let value as [Any]:
-            return value.map { sanitizedJSONValue($0) }
+            var result = value.prefix(maxSanitizedArrayItems).map { sanitizedJSONValue($0, depth: depth + 1) }
+            if value.count > maxSanitizedArrayItems {
+                result.append(["__cmux_truncated_items": value.count - maxSanitizedArrayItems])
+            }
+            return result
         default:
-            return String(describing: value)
+            return truncatedString(String(describing: value), maxUTF8Bytes: maxSanitizedStringBytes)
         }
+    }
+
+    private static func eventByApplyingEncodedByteLimit(_ event: [String: Any], maxBytes: Int) -> [String: Any] {
+        guard maxBytes > 0,
+              let line = encodeLine(event),
+              line.utf8.count > maxBytes else {
+            return event
+        }
+
+        var compact = event
+        let payload = event["payload"] as? [String: Any] ?? [:]
+        compact["payload_truncated"] = true
+        compact["payload"] = [
+            "truncated": true,
+            "reason": "event exceeded max encoded byte limit",
+            "max_bytes": maxBytes,
+            "original_payload_keys": Array(payload.keys.sorted().prefix(64))
+        ]
+
+        if let line = encodeLine(compact), line.utf8.count <= maxBytes {
+            return compact
+        }
+
+        compact["payload"] = [
+            "truncated": true,
+            "reason": "event exceeded max encoded byte limit",
+            "max_bytes": maxBytes
+        ]
+        return compact
+    }
+
+    private static func truncatedString(_ value: String, maxUTF8Bytes: Int) -> String {
+        guard value.utf8.count > maxUTF8Bytes else { return value }
+        let suffix = "..."
+        let budget = max(0, maxUTF8Bytes - suffix.utf8.count)
+        var result = ""
+        var used = 0
+        for scalar in value.unicodeScalars {
+            let scalarText = String(scalar)
+            let scalarBytes = scalarText.utf8.count
+            guard used + scalarBytes <= budget else { break }
+            result.append(scalarText)
+            used += scalarBytes
+        }
+        return result + suffix
     }
 
     private static func isoTimestamp(_ date: Date) -> String {
