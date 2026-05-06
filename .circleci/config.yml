@@ -49,6 +49,14 @@ commands:
             export PATH="$NPM_GLOBAL/bin:$PATH"
             test "$(bun --version)" = "$BUN_VERSION"
 
+  install-zig:
+    steps:
+      - run:
+          name: Install zig
+          no_output_timeout: 35m
+          command: |
+            ./scripts/install-zig-ci.sh
+
   print-xcode:
     steps:
       - run:
