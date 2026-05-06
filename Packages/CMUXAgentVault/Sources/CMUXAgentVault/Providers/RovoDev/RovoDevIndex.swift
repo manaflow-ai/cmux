@@ -163,7 +163,7 @@ public enum RovoDevIndex {
                 sessionId: sessionURL.lastPathComponent,
                 metadataURL: metadataURL,
                 sessionContextURL: sessionContextURL,
-                mtime: max(mtime, contentModificationDate(ofRegularFile: sessionContextURL) ?? mtime)
+                mtime: max(mtime, Self.contentModificationDate(ofRegularFile: sessionContextURL) ?? mtime)
             ))
         }
         candidates.sort { $0.mtime > $1.mtime }
@@ -223,7 +223,7 @@ public enum RovoDevIndex {
         return url
     }
 
-    private static func contentModificationDate(ofRegularFile url: URL) -> Date? {
+    public static func contentModificationDate(ofRegularFile url: URL) -> Date? {
         guard let values = try? url.resourceValues(
             forKeys: [.contentModificationDateKey, .isRegularFileKey]
         ),
@@ -235,14 +235,14 @@ public enum RovoDevIndex {
 
     private static func workspacePath(_ workspacePath: String?, matchesFilter filter: String?) -> Bool {
         guard let filter else { return true }
-        guard let workspace = normalizedPath(workspacePath),
-              let target = normalizedPath(filter) else {
+        guard let workspace = Self.normalizedPath(workspacePath),
+              let target = Self.normalizedPath(filter) else {
             return false
         }
         return workspace == target
     }
 
-    private static func normalizedPath(_ path: String?) -> String? {
+    public static func normalizedPath(_ path: String?) -> String? {
         guard let trimmed = path?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else {
             return nil

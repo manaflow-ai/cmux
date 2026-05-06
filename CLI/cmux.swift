@@ -15689,7 +15689,10 @@ struct CMUXCLI {
             self.binaryName = binaryName ?? name
             self.sessionStoreSuffix = sessionStoreSuffix; self.disableEnvVar = disableEnvVar
             self.hookMarker = hookMarker; self.format = format; self.events = events
-            self.aliases = aliases
+            self.aliases = Set(aliases.compactMap { alias in
+                let normalized = alias.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                return normalized.isEmpty ? nil : normalized
+            })
             self.feedHookEvents = feedHookEvents
             self.postInstallAction = postInstallAction
         }
@@ -19394,14 +19397,14 @@ export default CMUXSessionRestore;
         case "setup":
             try runSetupHooks(
                 uninstall: false,
-                positionalAgentFilter: Self.hooksSetupPositionalAgentFilter(from: Array(commandArgs.dropFirst()))
+                positionalAgentFilter: try Self.hooksSetupPositionalAgentFilter(from: Array(commandArgs.dropFirst()))
             )
             return true
 
         case "uninstall":
             try runSetupHooks(
                 uninstall: true,
-                positionalAgentFilter: Self.hooksSetupPositionalAgentFilter(from: Array(commandArgs.dropFirst()))
+                positionalAgentFilter: try Self.hooksSetupPositionalAgentFilter(from: Array(commandArgs.dropFirst()))
             )
             return true
 
@@ -19523,8 +19526,9 @@ export default CMUXSessionRestore;
         }
     }
 
-    private static func hooksSetupPositionalAgentFilter(from args: [String]) -> String? {
+    private static func hooksSetupPositionalAgentFilter(from args: [String]) throws -> String? {
         var skipNext = false
+        var positionalAgent: String?
         for arg in args {
             if skipNext {
                 skipNext = false
@@ -19537,11 +19541,14 @@ export default CMUXSessionRestore;
                 continue
             default:
                 if !arg.hasPrefix("-") {
-                    return arg
+                    if positionalAgent != nil {
+                        throw CLIError(message: "Too many hooks targets: specify at most one positional agent")
+                    }
+                    positionalAgent = arg
                 }
             }
         }
-        return nil
+        return positionalAgent
     }
 
     private func runSetupHooks(uninstall: Bool = false, positionalAgentFilter: String? = nil) throws {

@@ -14,7 +14,7 @@ public enum RovoDevSessionResolver {
             return nil
         }
 
-        let normalizedCwd = rovoDevNormalizedPath(cwd)
+        let normalizedCwd = RovoDevIndex.normalizedPath(cwd)
         var candidates: [RovoDevSessionCandidate] = []
         candidates.reserveCapacity(sessionURLs.count)
         for sessionURL in sessionURLs {
@@ -27,14 +27,14 @@ public enum RovoDevSessionResolver {
                 continue
             }
             let workspace = RovoDevMetadataFields.workspacePath(from: metadata)
-            let normalizedWorkspace = rovoDevNormalizedPath(workspace)
+            let normalizedWorkspace = RovoDevIndex.normalizedPath(workspace)
             guard rovoDevWorkspace(normalizedWorkspace, matches: normalizedCwd) else {
                 continue
             }
             let sessionContextURL = sessionURL.appendingPathComponent("session_context.json", isDirectory: false)
             let modified = max(
-                rovoDevContentModificationDate(ofRegularFile: metadataURL) ?? Date.distantPast,
-                rovoDevContentModificationDate(ofRegularFile: sessionContextURL) ?? Date.distantPast
+                RovoDevIndex.contentModificationDate(ofRegularFile: metadataURL) ?? Date.distantPast,
+                RovoDevIndex.contentModificationDate(ofRegularFile: sessionContextURL) ?? Date.distantPast
             )
             candidates.append(RovoDevSessionCandidate(
                 sessionId: sessionURL.lastPathComponent,
@@ -76,27 +76,6 @@ public enum RovoDevSessionResolver {
     private struct RovoDevSessionCandidate {
         let sessionId: String
         let modified: Date
-    }
-
-    private static func rovoDevNormalizedPath(_ path: String?) -> String? {
-        guard let trimmed = path?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !trimmed.isEmpty else {
-            return nil
-        }
-        return URL(fileURLWithPath: NSString(string: trimmed).expandingTildeInPath)
-            .resolvingSymlinksInPath()
-            .standardizedFileURL
-            .path
-    }
-
-    private static func rovoDevContentModificationDate(ofRegularFile url: URL) -> Date? {
-        guard let values = try? url.resourceValues(
-            forKeys: [.contentModificationDateKey, .isRegularFileKey]
-        ),
-              values.isRegularFile == true else {
-            return nil
-        }
-        return values.contentModificationDate
     }
 
     public static func rovoDevPersistenceDir(fromConfig config: String) -> String? {

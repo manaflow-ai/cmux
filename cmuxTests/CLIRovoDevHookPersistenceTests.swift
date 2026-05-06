@@ -441,6 +441,29 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(result.stderr.contains("Conflicting hooks target"), result.stderr)
     }
 
+    func testSetupHooksRejectsMultiplePositionalTargets() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hooks-multiple-targets-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "setup", "codex", "rovo", "--yes"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertNotEqual(result.status, 0)
+        XCTAssertTrue(result.stderr.contains("Too many hooks targets"), result.stderr)
+    }
+
     func writeRovoDevSessionMetadata(
         sessionsRoot: URL,
         sessionId: String,
