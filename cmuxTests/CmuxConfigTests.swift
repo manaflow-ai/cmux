@@ -1857,6 +1857,113 @@ final class CmuxConfigCwdResolutionTests: XCTestCase {
     }
 }
 
+// MARK: - Environment definitions
+
+final class CmuxEnvironmentDecodingTests: XCTestCase {
+
+    private func decode(_ json: String) throws -> CmuxConfigFile {
+        let data = json.data(using: .utf8)!
+        return try JSONDecoder().decode(CmuxConfigFile.self, from: data)
+    }
+
+    func testDecodeValidEnvironment() throws {
+        let json = """
+        {
+          "commands": [
+            { "name": "WS A", "workspace": { "name": "A" } },
+            { "name": "WS B", "workspace": { "name": "B" } }
+          ],
+          "environments": [{
+            "name": "Daily",
+            "description": "All workspaces",
+            "keywords": ["daily", "all"],
+            "workspaces": ["WS A", "WS B"]
+          }]
+        }
+        """
+        let config = try decode(json)
+        XCTAssertEqual(config.environments?.count, 1)
+        let env = config.environments![0]
+        XCTAssertEqual(env.name, "Daily")
+        XCTAssertEqual(env.description, "All workspaces")
+        XCTAssertEqual(env.keywords, ["daily", "all"])
+        XCTAssertEqual(env.workspaces, ["WS A", "WS B"])
+    }
+
+    func testDecodeConfigWithoutEnvironments() throws {
+        let json = """
+        {
+          "commands": [{ "name": "Build", "command": "make" }]
+        }
+        """
+        let config = try decode(json)
+        XCTAssertNil(config.environments)
+        XCTAssertEqual(config.commands.count, 1)
+    }
+
+    func testDecodeEmptyEnvironmentsArray() throws {
+        let json = """
+        {
+          "commands": [{ "name": "Build", "command": "make" }],
+          "environments": []
+        }
+        """
+        let config = try decode(json)
+        XCTAssertEqual(config.environments?.count, 0)
+    }
+
+    func testDecodeBlankEnvironmentNameThrows() {
+        let json = """
+        {
+          "commands": [{ "name": "WS", "workspace": { "name": "ws" } }],
+          "environments": [{ "name": "", "workspaces": ["WS"] }]
+        }
+        """
+        XCTAssertThrowsError(try decode(json))
+    }
+
+    func testDecodeWhitespaceOnlyEnvironmentNameThrows() {
+        let json = """
+        {
+          "commands": [{ "name": "WS", "workspace": { "name": "ws" } }],
+          "environments": [{ "name": "   ", "workspaces": ["WS"] }]
+        }
+        """
+        XCTAssertThrowsError(try decode(json))
+    }
+
+    func testDecodeEmptyWorkspacesArrayThrows() {
+        let json = """
+        {
+          "commands": [{ "name": "WS", "workspace": { "name": "ws" } }],
+          "environments": [{ "name": "Empty", "workspaces": [] }]
+        }
+        """
+        XCTAssertThrowsError(try decode(json))
+    }
+
+    func testDecodeDuplicateWorkspaceReferencesThrows() {
+        let json = """
+        {
+          "commands": [{ "name": "WS", "workspace": { "name": "ws" } }],
+          "environments": [{ "name": "Dupes", "workspaces": ["WS", "WS"] }]
+        }
+        """
+        XCTAssertThrowsError(try decode(json))
+    }
+
+    func testEnvironmentIdIsDeterministic() {
+        let env = CmuxEnvironmentDefinition(name: "Daily Work", workspaces: ["A"])
+        XCTAssertEqual(env.id, "cmux.config.environment.Daily%20Work")
+    }
+
+    func testEnvironmentIdDoesNotCollideWithCommandId() {
+        let env = CmuxEnvironmentDefinition(name: "build", workspaces: ["A"])
+        let cmd = CmuxCommandDefinition(name: "build", command: "make")
+        XCTAssertNotEqual(env.id, cmd.id)
+    }
+}
+
 // MARK: - Layout encoding round-trip
 
 final class CmuxLayoutEncodingTests: XCTestCase {

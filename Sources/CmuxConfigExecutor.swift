@@ -421,6 +421,31 @@ struct CmuxConfigExecutor {
         return filtered.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    static func executeEnvironment(
+        environment: CmuxEnvironmentDefinition,
+        commands: [CmuxCommandDefinition],
+        tabManager: TabManager,
+        baseCwd: String,
+        configSourcePaths: [String: String],
+        globalConfigPath: String
+    ) {
+        let commandsByName = Dictionary(commands.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
+        Task { @MainActor in
+            for wsName in environment.workspaces {
+                guard let command = commandsByName[wsName] else { continue }
+                let proceeded = execute(
+                    command: command,
+                    tabManager: tabManager,
+                    baseCwd: baseCwd,
+                    configSourcePath: configSourcePaths[command.id],
+                    globalConfigPath: globalConfigPath
+                )
+                if !proceeded { break }
+                try? await Task.sleep(nanoseconds: 500_000_000)
+            }
+        }
+    }
+
     private static func executeWorkspaceCommand(
         command: CmuxCommandDefinition,
         workspace wsDef: CmuxWorkspaceDefinition,
