@@ -70,6 +70,24 @@ commands:
                 ;;
             esac
 
+            if command -v brew >/dev/null 2>&1 && brew info zig@0.15 >/dev/null 2>&1; then
+              echo "Trying Homebrew zig@0.15 before direct ziglang.org download"
+              if brew install zig@0.15; then
+                ZIG_BREW_PREFIX="$(brew --prefix zig@0.15)"
+                ZIG_BREW_BIN="${ZIG_BREW_PREFIX}/bin/zig"
+                if [[ -x "$ZIG_BREW_BIN" ]] && "$ZIG_BREW_BIN" version | grep -q "^${ZIG_REQUIRED}$"; then
+                  BASH_ENV="${BASH_ENV:-$HOME/.bash_env}"
+                  echo "export PATH=\"${ZIG_BREW_PREFIX}/bin:\$PATH\"" >> "$BASH_ENV"
+                  export PATH="${ZIG_BREW_PREFIX}/bin:$PATH"
+                  zig version
+                  exit 0
+                fi
+                echo "Homebrew zig@0.15 did not provide zig ${ZIG_REQUIRED}; falling back to verified tarball"
+              else
+                echo "Homebrew zig@0.15 install failed; falling back to verified tarball"
+              fi
+            fi
+
             if ! command -v minisign >/dev/null 2>&1; then
               brew install minisign
             fi
