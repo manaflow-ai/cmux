@@ -1985,25 +1985,23 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         }
 
         documentLoadTask?.cancel()
-        documentLoadTask = Task { [
-            weak self,
-            loadURL = url,
-            loadRevision = revision,
-            viewportSnapshot,
-            preserveExistingDocument = sameURLReload
+        documentLoadTask = Task.detached(priority: .userInitiated) { [
+            weak self, loadURL = url, loadRevision = revision, viewportSnapshot,
+            pageRotations, preserveExistingDocument = sameURLReload
         ] in
             let document = FilePreviewDocumentLoader.loadPDFDocument(at: loadURL)
-            guard !Task.isCancelled,
-                  let self,
-                  self.currentURL == loadURL,
-                  self.currentRevision == loadRevision else { return }
-            self.applyLoadedPDFDocument(
-                document,
-                for: loadURL,
-                restoring: viewportSnapshot,
-                preservingPageRotations: pageRotations,
-                preserveExistingDocumentOnFailure: preserveExistingDocument
-            )
+            await MainActor.run { [weak self] in
+                guard !Task.isCancelled, let self,
+                      self.currentURL == loadURL,
+                      self.currentRevision == loadRevision else { return }
+                self.applyLoadedPDFDocument(
+                    document,
+                    for: loadURL,
+                    restoring: viewportSnapshot,
+                    preservingPageRotations: pageRotations,
+                    preserveExistingDocumentOnFailure: preserveExistingDocument
+                )
+            }
         }
     }
 
@@ -3164,19 +3162,23 @@ private final class FilePreviewImageContainerView: NSView {
         rotationAccumulator = 0
 
         imageLoadTask?.cancel()
-        imageLoadTask = Task { [weak self, loadURL = url, loadRevision = revision] in
+        imageLoadTask = Task.detached(priority: .userInitiated) { [
+            weak self, loadURL = url, loadRevision = revision, shouldPreserveViewport,
+            wasFitMode, previousScale, previousRotationDegrees
+        ] in
             let image = FilePreviewDocumentLoader.loadImage(at: loadURL)
-            guard !Task.isCancelled,
-                  let self,
-                  self.currentURL == loadURL,
-                  self.currentRevision == loadRevision else { return }
-            self.applyLoadedImage(
-                image,
-                preservingViewport: shouldPreserveViewport,
-                previousFitMode: wasFitMode,
-                previousScale: previousScale,
-                previousRotationDegrees: previousRotationDegrees
-            )
+            await MainActor.run { [weak self] in
+                guard !Task.isCancelled, let self,
+                      self.currentURL == loadURL,
+                      self.currentRevision == loadRevision else { return }
+                self.applyLoadedImage(
+                    image,
+                    preservingViewport: shouldPreserveViewport,
+                    previousFitMode: wasFitMode,
+                    previousScale: previousScale,
+                    previousRotationDegrees: previousRotationDegrees
+                )
+            }
         }
     }
 
