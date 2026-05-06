@@ -282,6 +282,7 @@
 		B8F266266A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8F266276A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift */; };
 		B9000002A1B2C3D4E5F60719 /* cmux.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000001A1B2C3D4E5F60719 /* cmux.swift */; };
 		C5A100020000000000000001 /* CMUXCLI+Use.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5A100010000000000000001 /* CMUXCLI+Use.swift */; };
+		C5A210040000000000000001 /* CMUXCLI+GeneratedManifestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5A210030000000000000001 /* CMUXCLI+GeneratedManifestSupport.swift */; };
 		C5A210020000000000000001 /* CMUXCLI+UseHelp.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5A210010000000000000001 /* CMUXCLI+UseHelp.swift */; };
 		C5A100040000000000000001 /* CMUXCLI+UseSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5A100030000000000000001 /* CMUXCLI+UseSupport.swift */; };
 		C5A100060000000000000001 /* CMUXCLI+SocketSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5A100050000000000000001 /* CMUXCLI+SocketSupport.swift */; };
@@ -716,6 +717,7 @@
 		B8F266276A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayResolutionRegressionUITests.swift; sourceTree = "<group>"; };
 		B9000001A1B2C3D4E5F60719 /* cmux.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmux.swift; sourceTree = "<group>"; };
 		C5A100010000000000000001 /* CMUXCLI+Use.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Use.swift"; sourceTree = "<group>"; };
+		C5A210030000000000000001 /* CMUXCLI+GeneratedManifestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+GeneratedManifestSupport.swift"; sourceTree = "<group>"; };
 		C5A210010000000000000001 /* CMUXCLI+UseHelp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+UseHelp.swift"; sourceTree = "<group>"; };
 		C5A100030000000000000001 /* CMUXCLI+UseSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+UseSupport.swift"; sourceTree = "<group>"; };
 		C5A100070000000000000001 /* CMUXCLI+UsePathSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+UsePathSupport.swift"; sourceTree = "<group>"; };
@@ -1192,6 +1194,7 @@
 			children = (
 				B9000001A1B2C3D4E5F60719 /* cmux.swift */,
 				C5A100010000000000000001 /* CMUXCLI+Use.swift */,
+				C5A210030000000000000001 /* CMUXCLI+GeneratedManifestSupport.swift */,
 				C5A210010000000000000001 /* CMUXCLI+UseHelp.swift */,
 				C5A100030000000000000001 /* CMUXCLI+UseSupport.swift */,
 				C5A100070000000000000001 /* CMUXCLI+UsePathSupport.swift */,
@@ -1775,6 +1778,7 @@
 			files = (
 				B9000002A1B2C3D4E5F60719 /* cmux.swift in Sources */,
 				C5A100020000000000000001 /* CMUXCLI+Use.swift in Sources */,
+				C5A210040000000000000001 /* CMUXCLI+GeneratedManifestSupport.swift in Sources */,
 				C5A210020000000000000001 /* CMUXCLI+UseHelp.swift in Sources */,
 				C5A100040000000000000001 /* CMUXCLI+UseSupport.swift in Sources */,
 				C5A100080000000000000001 /* CMUXCLI+UsePathSupport.swift in Sources */,

@@ -188,7 +188,7 @@ nonisolated enum CmuxUseSupport {
     }
 
     static func generateManifest(in checkoutURL: URL, repository: CmuxUseRepository) -> CmuxUseManifest {
-        let hints = CMUXRepoDetection.generatedManifestHints(in: checkoutURL)
+        let hints = generatedManifestHints(in: checkoutURL)
         let generatedVersion = hints.version ?? "0.0.0-generated"
         let commandSource = hints.launchCommand.map { "generated:\($0.source)" }
 
@@ -217,9 +217,7 @@ nonisolated enum CmuxUseSupport {
             return trimmed.isEmpty ? nil : CmuxUseLaunchCommand(command: trimmed, source: source)
         }
 
-        return CMUXRepoDetection.launchCommand(in: checkoutURL).map {
-            CmuxUseLaunchCommand(command: $0.command, source: $0.source)
-        }
+        return runtimeLaunchCommand(in: checkoutURL)
     }
 
     private static func parseGitHubPath(_ rawPath: String) throws -> CmuxUseRepository {
