@@ -8766,8 +8766,8 @@ struct CMUXCLI {
             """
         case "hooks":
             return """
-            Usage: cmux hooks setup [--agent <name>] [--yes|-y]
-                   cmux hooks uninstall [--agent <name>] [--yes|-y]
+            Usage: cmux hooks setup [agent] [--agent <name>] [--yes|-y]
+                   cmux hooks uninstall [agent] [--agent <name>] [--yes|-y]
                    cmux hooks <agent> install [--yes|-y] (opencode supports --project)
                    cmux hooks <agent> uninstall [--yes|-y] (opencode supports --project)
                    cmux hooks <agent> <event> [flags]
@@ -8777,7 +8777,7 @@ struct CMUXCLI {
             agent. Claude Code hooks are injected automatically by the cmux Claude wrapper.
 
             Agents:
-              codex, opencode, cursor, gemini, rovodev, copilot, codebuddy, factory, qoder
+              codex, opencode, cursor, gemini, rovodev (alias: rovo), copilot, codebuddy, factory, qoder
 
             Hook targets:
               setup              Install hooks for all supported agents on PATH
@@ -8794,6 +8794,8 @@ struct CMUXCLI {
             Examples:
               cmux hooks setup
               cmux hooks setup --agent codex
+              cmux hooks setup rovo
+              cmux hooks uninstall rovo
               cmux hooks codex install
               cmux hooks opencode install --project
               cmux hooks uninstall
@@ -15975,6 +15977,7 @@ struct CMUXCLI {
         let binaryName: String
         let format: HookFormat
         let events: [HookEvent]
+        let aliases: Set<String>
         /// Feed-hook events. Each entry installs a second hook for
         /// `agentEvent` that invokes `cmux hooks feed --source <name>`
         /// with a 120s timeout so the socket reply wait doesn't trip the
@@ -16019,6 +16022,7 @@ struct CMUXCLI {
              binaryName: String? = nil,
              sessionStoreSuffix: String, disableEnvVar: String, hookMarker: String,
              format: HookFormat, events: [HookEvent],
+             aliases: Set<String> = [],
              feedHookEvents: [String] = [],
              postInstallAction: PostInstallAction? = nil) {
             self.name = name; self.displayName = displayName; self.statusKey = statusKey
@@ -16027,6 +16031,10 @@ struct CMUXCLI {
             self.binaryName = binaryName ?? name
             self.sessionStoreSuffix = sessionStoreSuffix; self.disableEnvVar = disableEnvVar
             self.hookMarker = hookMarker; self.format = format; self.events = events
+            self.aliases = Set(aliases.compactMap { alias in
+                let normalized = alias.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                return normalized.isEmpty ? nil : normalized
+            })
             self.feedHookEvents = feedHookEvents
             self.postInstallAction = postInstallAction
         }
@@ -16105,7 +16113,8 @@ struct CMUXCLI {
                 .init(agentEvent: "on_complete", cmuxSubcommand: "stop"),
                 .init(agentEvent: "on_error", cmuxSubcommand: "stop"),
                 .init(agentEvent: "on_tool_permission", cmuxSubcommand: "prompt-submit"),
-            ]
+            ],
+            aliases: ["rovo"]
         ),
         AgentHookDef(
             name: "copilot", displayName: "Copilot", statusKey: "copilot",
@@ -16161,7 +16170,8 @@ struct CMUXCLI {
     ]
 
     private static func agentDef(named name: String) -> AgentHookDef? {
-        agentDefs.first { $0.name == name }
+        let normalized = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return agentDefs.first { $0.name == normalized || $0.aliases.contains(normalized) }
     }
 
     private static func hookMarkers(for def: AgentHookDef) -> [String] {
@@ -16549,9 +16559,11 @@ export default CMUXSessionRestore;
         let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
             || ProcessInfo.processInfo.arguments.contains("-y")
 
-        guard fm.fileExists(atPath: configDir) else {
-            print("~/\(def.configDir)/ does not exist. Install \(def.displayName) first.")
-            return
+        var isDirectory = ObjCBool(false)
+        if !fm.fileExists(atPath: configDir, isDirectory: &isDirectory) {
+            try fm.createDirectory(atPath: configDir, withIntermediateDirectories: true)
+        } else if !isDirectory.boolValue {
+            throw CLIError(message: "\(configDir) exists but is not a directory. Move it aside before installing \(def.displayName) hooks.")
         }
 
         let oldString = try readRovoDevConfig(filePath: filePath, displayName: def.displayName)
@@ -19727,11 +19739,17 @@ export default CMUXSessionRestore;
             return true
 
         case "setup":
-            try runSetupHooks(uninstall: false)
+            try runSetupHooks(
+                uninstall: false,
+                positionalAgentFilter: try Self.hooksSetupPositionalAgentFilter(from: Array(commandArgs.dropFirst()))
+            )
             return true
 
         case "uninstall":
-            try runSetupHooks(uninstall: true)
+            try runSetupHooks(
+                uninstall: true,
+                positionalAgentFilter: try Self.hooksSetupPositionalAgentFilter(from: Array(commandArgs.dropFirst()))
+            )
             return true
 
         default:
@@ -19852,9 +19870,55 @@ export default CMUXSessionRestore;
         }
     }
 
-    private func runSetupHooks(uninstall: Bool = false) throws {
+    private static func hooksSetupPositionalAgentFilter(from args: [String]) throws -> String? {
+        var skipNext = false
+        var positionalAgent: String?
+        for arg in args {
+            if skipNext {
+                skipNext = false
+                continue
+            }
+            switch arg {
+            case "--agent":
+                skipNext = true
+            case "--yes", "-y", "--uninstall":
+                continue
+            default:
+                if !arg.hasPrefix("-") {
+                    if positionalAgent != nil {
+                        throw CLIError(message: "Too many hooks targets: specify at most one positional agent")
+                    }
+                    positionalAgent = arg
+                }
+            }
+        }
+        return positionalAgent
+    }
+
+    private func runSetupHooks(uninstall: Bool = false, positionalAgentFilter: String? = nil) throws {
         let args = ProcessInfo.processInfo.arguments
-        let agentFilter = optionValue(args, name: "--agent")
+        let flagAgentFilter = optionValue(args, name: "--agent")
+        if let flagAgentFilter, let positionalAgentFilter {
+            guard let flagDef = Self.agentDef(named: flagAgentFilter) else {
+                throw CLIError(message: "Unknown hooks target: \(flagAgentFilter)")
+            }
+            guard let positionalDef = Self.agentDef(named: positionalAgentFilter) else {
+                throw CLIError(message: "Unknown hooks target: \(positionalAgentFilter)")
+            }
+            if flagDef.name != positionalDef.name {
+                throw CLIError(message: "Conflicting hooks target: use either --agent or a positional target, not both")
+            }
+        }
+        let agentFilter = flagAgentFilter ?? positionalAgentFilter
+        let agentFilterDef: AgentHookDef?
+        if let agentFilter {
+            guard let def = Self.agentDef(named: agentFilter) else {
+                throw CLIError(message: "Unknown hooks target: \(agentFilter)")
+            }
+            agentFilterDef = def
+        } else {
+            agentFilterDef = nil
+        }
         let isUninstall = uninstall || args.contains("--uninstall")
         let fm = FileManager.default
         let verb = isUninstall ? "uninstalling" : "installing"
@@ -19870,9 +19934,10 @@ export default CMUXSessionRestore;
         var skippedNoBinary: [String] = []
 
         for def in Self.agentDefs {
-            if let filter = agentFilter, filter.lowercased() != def.name { continue }
+            if let agentFilterDef, agentFilterDef.name != def.name { continue }
             let configDir = def.resolvedConfigDir()
-            if def.name != "opencode", !fm.fileExists(atPath: configDir) {
+            let canCreateMissingConfigDir = !isUninstall && def.name == "rovodev"
+            if def.name != "opencode", !canCreateMissingConfigDir, !fm.fileExists(atPath: configDir) {
                 print("  \(def.name): skipped (config dir not found)")
                 skipped += 1
                 continue
