@@ -163,6 +163,59 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertEqual(payload["is_main_window"] as? Bool, true)
     }
 
+    func testNotificationReplacementPublishesRemovedThenCreatedWithReplacedIds() throws {
+        let bus = CmuxEventBus(retainedEventLimit: 8)
+        let workspaceId = UUID()
+        let surfaceId = UUID()
+        let oldNotification = TerminalNotification(
+            id: UUID(),
+            tabId: workspaceId,
+            surfaceId: surfaceId,
+            title: "Old",
+            subtitle: "",
+            body: "Done",
+            createdAt: Date(),
+            isRead: false
+        )
+        let newNotification = TerminalNotification(
+            id: UUID(),
+            tabId: workspaceId,
+            surfaceId: surfaceId,
+            title: "New",
+            subtitle: "",
+            body: "Done",
+            createdAt: Date(),
+            isRead: false
+        )
+
+        bus.publishNotificationChanges(oldValue: [oldNotification], newValue: [newNotification])
+
+        let events = bus.retainedSnapshot()
+        XCTAssertEqual(events.compactMap { $0["name"] as? String }, ["notification.removed", "notification.created"])
+        let createdPayload = try XCTUnwrap(events.last?["payload"] as? [String: Any])
+        let replacedIds = try XCTUnwrap(createdPayload["replaced_notification_ids"] as? [String])
+        XCTAssertEqual(replacedIds, [oldNotification.id.uuidString])
+    }
+
+    func testNotificationSocketParamsRedactTextFields() throws {
+        let redacted = CmuxSocketEventMapper.redactedNotificationParams([
+            "title": "Secret title",
+            "subtitle": "Private subtitle",
+            "body": "Sensitive body",
+            "redacted_fields": ["existing"],
+            "workspace_id": "workspace"
+        ])
+
+        XCTAssertTrue(redacted["title"] is NSNull)
+        XCTAssertTrue(redacted["subtitle"] is NSNull)
+        XCTAssertTrue(redacted["body"] is NSNull)
+        XCTAssertEqual(redacted["title_length"] as? Int, 12)
+        XCTAssertEqual(redacted["subtitle_length"] as? Int, 16)
+        XCTAssertEqual(redacted["body_length"] as? Int, 14)
+        XCTAssertEqual(redacted["redacted_fields"] as? [String], ["existing", "title", "subtitle", "body"])
+        XCTAssertEqual(redacted["workspace_id"] as? String, "workspace")
+    }
+
     func testPublishAppendsDurableEventLog() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-event-log-\(UUID().uuidString)", isDirectory: true)
@@ -171,6 +224,7 @@ final class CmuxEventBusTests: XCTestCase {
 
         bus.publish(name: "workspace.created", category: "workspace", source: "test")
         bus.publish(name: "surface.created", category: "surface", source: "test")
+        bus.flushEventLogForTesting()
 
         let lines = try String(contentsOf: logURL, encoding: .utf8)
             .split(separator: "\n")
@@ -201,6 +255,7 @@ final class CmuxEventBusTests: XCTestCase {
                 payload: ["index": index, "message": String(repeating: "x", count: 120)]
             )
         }
+        bus.flushEventLogForTesting()
 
         let rotatedURL = logURL.appendingPathExtension("1")
         XCTAssertTrue(FileManager.default.fileExists(atPath: logURL.path))

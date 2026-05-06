@@ -125,7 +125,7 @@ Event fields:
 | Field | Meaning |
 | --- | --- |
 | `seq` | Process-local sequence. Increases by one for every emitted event. |
-| `boot_id` | Process id for this in-memory event log. Changes when cmux restarts. |
+| `boot_id` | UUID process-boot identifier for this in-memory event log. Changes when cmux restarts. |
 | `id` | Stable event id for the current cmux process. Use it for dedupe. |
 | `name` | Specific event name, such as `feed.item.received`. |
 | `category` | Coarse subscription group. |

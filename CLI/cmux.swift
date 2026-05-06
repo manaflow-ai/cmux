@@ -3910,7 +3910,7 @@ struct CMUXCLI {
     ) throws {
         var options = try parseEventsOptions(commandArgs)
         if options.afterSeq == nil, let cursorFile = options.cursorFile {
-            options.afterSeq = readEventCursor(from: cursorFile)
+            options.afterSeq = try readEventCursor(from: cursorFile)
         }
 
         var lastSeq = options.afterSeq
@@ -3944,11 +3944,14 @@ struct CMUXCLI {
                     let frame = try parseEventStreamFrame(line)
                     let type = frame["type"] as? String ?? ""
 
-                    if type == "event", let seq = int64Value(frame["seq"]) {
-                        lastSeq = seq
-                        if let cursorFile = options.cursorFile {
-                            try writeEventCursor(seq, to: cursorFile)
+                    let eventSequence: Int64?
+                    if type == "event" {
+                        guard let seq = int64Value(frame["seq"]) else {
+                            throw CLIError(message: "Invalid event stream frame: event missing numeric seq")
                         }
+                        eventSequence = seq
+                    } else {
+                        eventSequence = nil
                     }
 
                     if type == "ack", !options.printAck {
@@ -3961,7 +3964,11 @@ struct CMUXCLI {
                     print(line)
                     fflush(stdout)
 
-                    if type == "event" {
+                    if let eventSequence {
+                        if let cursorFile = options.cursorFile {
+                            try writeEventCursor(eventSequence, to: cursorFile)
+                        }
+                        lastSeq = eventSequence
                         emittedEvents += 1
                         if let limit = options.limit, emittedEvents >= limit {
                             throw EventStreamLimitReached()
@@ -3973,10 +3980,10 @@ struct CMUXCLI {
                 return
             } catch {
                 client.close()
-                guard options.reconnect else {
+                guard options.reconnect, isTransientEventStreamError(error) else {
                     throw error
                 }
-                Thread.sleep(forTimeInterval: 1.0)
+                waitBeforeReconnectingEventStream()
                 continue
             }
         }
@@ -4041,12 +4048,22 @@ struct CMUXCLI {
         return object
     }
 
-    private func readEventCursor(from path: String) -> Int64? {
+    private func readEventCursor(from path: String) throws -> Int64? {
         let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
-        guard let text = try? String(contentsOf: url, encoding: .utf8) else {
+        guard FileManager.default.fileExists(atPath: url.path) else {
             return nil
         }
-        return Int64(text.trimmingCharacters(in: .whitespacesAndNewlines))
+        let text: String
+        do {
+            text = try String(contentsOf: url, encoding: .utf8)
+        } catch {
+            throw CLIError(message: "Failed to read events cursor file \(url.path): \(String(describing: error))")
+        }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let sequence = Int64(trimmed), sequence >= 0 else {
+            throw CLIError(message: "Malformed events cursor file \(url.path): expected a non-negative sequence number")
+        }
+        return sequence
     }
 
     private func writeEventCursor(_ seq: Int64, to path: String) throws {
@@ -4064,6 +4081,50 @@ struct CMUXCLI {
         if let int64 = value as? Int64 { return int64 }
         if let string = value as? String { return Int64(string) }
         return nil
+    }
+
+    private func isTransientEventStreamError(_ error: Error) -> Bool {
+        if let cliError = error as? CLIError {
+            let message = cliError.message.lowercased()
+            let transientMarkers = [
+                "socket not found",
+                "failed to connect",
+                "event stream closed",
+                "event stream socket read error",
+                "timed out waiting for event stream frame",
+                "stream request timed out",
+                "failed to write stream request",
+                "broken pipe",
+                "connection reset",
+                "connection refused",
+                "errno 32",
+                "errno 35",
+                "errno 54",
+                "errno 57",
+                "errno 60",
+                "errno 61"
+            ]
+            return transientMarkers.contains { message.contains($0) }
+        }
+
+        let description = String(describing: error).lowercased()
+        return description.contains("connection reset")
+            || description.contains("connection refused")
+            || description.contains("broken pipe")
+            || description.contains("timed out")
+    }
+
+    private func waitBeforeReconnectingEventStream() {
+        let semaphore = DispatchSemaphore(value: 0)
+        let queue = DispatchQueue(label: "com.cmux.cli.events.reconnect-delay.\(UUID().uuidString)")
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + 1.0)
+        timer.setEventHandler {
+            semaphore.signal()
+        }
+        timer.resume()
+        semaphore.wait()
+        timer.cancel()
     }
 
     private func launchApp() throws {

@@ -186,12 +186,20 @@ enum CmuxSocketEventMapper {
         return out
     }
 
-    private static func redactedNotificationParams(_ params: [String: Any]) -> [String: Any] {
+    static func redactedNotificationParams(_ params: [String: Any]) -> [String: Any] {
         var out = params
+        var redactedFields = (out["redacted_fields"] as? [String]) ?? []
         for key in ["title", "subtitle", "body"] {
             if let text = out[key] as? String {
-                out[key] = text
+                out[key] = NSNull()
+                out["\(key)_length"] = text.count
+                if !redactedFields.contains(key) {
+                    redactedFields.append(key)
+                }
             }
+        }
+        if !redactedFields.isEmpty {
+            out["redacted_fields"] = redactedFields
         }
         return out
     }

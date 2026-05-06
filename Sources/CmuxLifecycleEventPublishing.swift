@@ -177,7 +177,7 @@ extension Workspace {
         }
     }
 
-    private static func cmuxEventSurfaceKind(_ panel: any Panel) -> String {
+    static func cmuxEventSurfaceKind(_ panel: any Panel) -> String {
         switch panel.panelType {
         case .terminal:
             return "terminal"

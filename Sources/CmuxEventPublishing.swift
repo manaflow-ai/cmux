@@ -251,6 +251,11 @@ extension CmuxEventBus {
 
     func publishNotificationChanges(oldValue: [TerminalNotification], newValue: [TerminalNotification]) {
         let oldById = Dictionary(uniqueKeysWithValues: oldValue.map { ($0.id, $0) })
+        let newIds = Set(newValue.map(\.id))
+        let removed = oldValue.filter { !newIds.contains($0.id) }
+        for notification in removed {
+            publishNotificationRemoved(notification)
+        }
         for notification in newValue {
             if let old = oldById[notification.id] {
                 if !old.isRead, notification.isRead {
@@ -261,7 +266,10 @@ extension CmuxEventBus {
                     )
                 }
             } else {
-                publishNotificationCreated(notification, delivery: "store", replacedNotificationIds: [])
+                let replacedIds = removed
+                    .filter { $0.tabId == notification.tabId && $0.surfaceId == notification.surfaceId }
+                    .map { $0.id.uuidString }
+                publishNotificationCreated(notification, delivery: "store", replacedNotificationIds: replacedIds)
             }
         }
     }
@@ -344,6 +352,7 @@ extension CmuxEventBus {
         )
     }
 
+    // swiftlint:disable:next discouraged_optional_collection
     func publishWorkstreamEvent(_ event: WorkstreamEvent, phase: String, result: [String: Any]? = nil) {
         var payload = Self.workstreamPayload(event)
         payload["phase"] = phase

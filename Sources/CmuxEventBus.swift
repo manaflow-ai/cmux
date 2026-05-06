@@ -6,6 +6,7 @@ struct CmuxEventSubscriptionSnapshot {
     let ack: [String: Any]
 }
 
+// Sendable safety: every mutable field is protected by `lock`; `semaphore` only wakes `next(timeout:)`.
 final class CmuxEventSubscription: @unchecked Sendable {
     let id: UUID
     let names: Set<String>
@@ -106,6 +107,7 @@ final class CmuxEventSubscription: @unchecked Sendable {
     }
 }
 
+// Sendable safety: event state is protected by `lock`; disk appends run on `eventLogQueue`.
 final class CmuxEventBus: @unchecked Sendable {
     static let shared = CmuxEventBus(eventLogURL: defaultEventLogURL())
 
@@ -120,6 +122,9 @@ final class CmuxEventBus: @unchecked Sendable {
     static let maxSanitizedArrayItems = 256
     static let maxSanitizedObjectEntries = 256
     static let maxSanitizedDepth = 12
+    private static let eventLogQueue = DispatchQueue(label: "com.cmuxterm.event-log", qos: .utility)
+    private static let isoFormatter: ISO8601DateFormatter = { let formatter = ISO8601DateFormatter(); formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]; return formatter }()
+    private static let isoFormatterLock = NSLock()
 
     private let lock = NSLock()
     private let retainedEventLimit: Int
@@ -187,11 +192,11 @@ final class CmuxEventBus: @unchecked Sendable {
         if retained.count > retainedEventLimit {
             retained.removeFirst(retained.count - retainedEventLimit)
         }
-        if let line = Self.encodeLine(event) {
-            appendEventLogLine(line)
-        }
+        let encodedLine = Self.encodeLine(event)
         let liveSubscriptions = Array(subscriptions.values)
         lock.unlock()
+
+        if let encodedLine { Self.eventLogQueue.async { [self] in appendEventLogLine(encodedLine) } }
 
         for subscription in liveSubscriptions where subscription.accepts(event) {
             if !subscription.enqueue(event) {
@@ -212,9 +217,7 @@ final class CmuxEventBus: @unchecked Sendable {
         )
 
         lock.lock()
-        let oldestSequence = (retained.first?["seq"] as? NSNumber)?.int64Value
-            ?? (retained.first?["seq"] as? Int64)
-            ?? nextSequence
+        let oldestSequence = Self.int64(retained.first?["seq"]) ?? nextSequence
         let latestSequence = nextSequence - 1
         let replay = retained.filter { event in
             let seq = Self.int64(event["seq"]) ?? 0
@@ -307,6 +310,8 @@ final class CmuxEventBus: @unchecked Sendable {
         lock.unlock()
         active.forEach { $0.close() }
     }
+
+    func flushEventLogForTesting() { Self.eventLogQueue.sync {} }
 
     private func appendEventLogLine(_ line: String) {
         guard let eventLogURL else { return }
@@ -489,9 +494,5 @@ final class CmuxEventBus: @unchecked Sendable {
         return result + suffix
     }
 
-    private static func isoTimestamp(_ date: Date) -> String {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter.string(from: date)
-    }
+    private static func isoTimestamp(_ date: Date) -> String { isoFormatterLock.lock(); defer { isoFormatterLock.unlock() }; return isoFormatter.string(from: date) }
 }

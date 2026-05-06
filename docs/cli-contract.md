@@ -321,11 +321,11 @@ Events command:
 | `--no-heartbeat`, `--no-heartbeats` | Suppress heartbeat frames in stdout. |
 
 `events.stream` is a v2 socket method advertised by `capabilities`. The first
-response frame is an `ack` with `resume.after_seq`, `oldest_seq`, `latest_seq`,
-`next_seq`, and `gap`. Event frames carry a process-local monotonic `seq` and a
-stable `id` for dedupe. Clients should persist `seq` after processing each event
-and reconnect with that value. See [events.md](events.md) for the full protocol
-and event catalog. Every emitted event is also appended to
+response frame is an `ack`; sequence resume metadata lives under `ack.resume` as
+`after_seq`, `oldest_seq`, `latest_seq`, `next_seq`, and `gap`. Event frames
+carry a process-local monotonic `seq` and a stable `id` for dedupe. Clients
+should persist `seq` after processing each event and reconnect with that value.
+See [events.md](events.md) for the full protocol and event catalog. Every emitted event is also appended to
 `~/.cmuxterm/events.jsonl`, including model lifecycle events for window
 creation, close, focus, key-window state, workspace selection, pane focus, and
 surface selection, focus, creation, or closure. The stream is bounded: cmux keeps

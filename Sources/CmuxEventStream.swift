@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 extension TerminalController {
@@ -59,6 +60,8 @@ extension TerminalController {
             } else if includeHeartbeats {
                 let heartbeat = CmuxEventBus.shared.heartbeat(subscription: snapshot.subscription)
                 guard writeEventsStreamLine(heartbeat, socket: socket) else { return }
+            } else if Self.socketPeerClosed(socket) {
+                return
             }
         }
     }
@@ -84,5 +87,18 @@ extension TerminalController {
             return Set(values.compactMap { ($0 as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty })
         }
         return []
+    }
+
+    private nonisolated static func socketPeerClosed(_ socket: Int32) -> Bool {
+        var byte: UInt8 = 0
+        let result = recv(socket, &byte, 1, MSG_PEEK | MSG_DONTWAIT)
+        if result == 0 {
+            return true
+        }
+        if result > 0 {
+            return false
+        }
+        let errorCode = errno
+        return errorCode != EAGAIN && errorCode != EWOULDBLOCK && errorCode != EINTR
     }
 }

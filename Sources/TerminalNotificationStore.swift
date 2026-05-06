@@ -1075,7 +1075,6 @@ final class TerminalNotificationStore: ObservableObject {
         notifications = updated
         if let removed {
             clearFocusedReadIndicator(forTabId: removed.tabId, surfaceId: removed.surfaceId)
-            CmuxEventBus.shared.publishNotificationRemoved(removed)
         }
         center.removeDeliveredNotificationsOffMain(withIdentifiers: [id.uuidString])
     }
