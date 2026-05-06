@@ -35,7 +35,9 @@ final class AuthManagerSignInErrorVisibilityTests: XCTestCase {
         do {
             try await manager.handleCallbackURL(badCallbackURL)
             XCTFail("Expected handleCallbackURL to throw AuthManagerError.invalidCallback")
-        } catch is AuthManagerError {
+        } catch AuthManagerError.invalidCallback {
+        } catch let error as AuthManagerError {
+            XCTFail("Expected .invalidCallback, got AuthManagerError.\(error)")
         } catch {
             XCTFail("Expected AuthManagerError, got \(type(of: error)): \(error)")
         }
@@ -44,6 +46,30 @@ final class AuthManagerSignInErrorVisibilityTests: XCTestCase {
             manager.lastSignInError,
             AuthManagerError.invalidCallback,
             "After a failed sign-in callback, AuthManager.lastSignInError must be populated so AuthSettingsRow can render it"
+        )
+    }
+
+    func testSignOutClearsStaleLastSignInError() async throws {
+        let manager = AuthManager(
+            client: NoopAuthTestClient(),
+            tokenStore: InMemoryTestTokenStore()
+        )
+        await manager.awaitBootstrapped()
+
+        // Stale-error invariant: a prior failed sign-in leaves .invalidCallback
+        // published; signOut → clearSessionState must clear it.
+        do {
+            try await manager.handleCallbackURL(URL(string: "cmux://auth-callback")!)
+            XCTFail("Expected handleCallbackURL to throw")
+        } catch {
+        }
+        XCTAssertEqual(manager.lastSignInError, .invalidCallback)
+
+        await manager.signOut()
+
+        XCTAssertNil(
+            manager.lastSignInError,
+            "signOut() routes through clearSessionState which must clear lastSignInError so it doesn't survive across auth-state transitions"
         )
     }
 }

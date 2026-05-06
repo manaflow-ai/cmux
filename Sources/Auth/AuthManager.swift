@@ -213,7 +213,7 @@ final class AuthManager: ObservableObject {
                     self.webAuthSession = nil
                 }
                 if let error {
-                    NSLog("auth.webauth failed: %@", "\(error)")
+                    Self.authLog("webauth failed: \(error)")
                     self.recordSignInSessionError(error)
                     return
                 }
@@ -221,7 +221,7 @@ final class AuthManager: ObservableObject {
                 do {
                     try await self.handleCallbackURL(callbackURL)
                 } catch {
-                    NSLog("auth.webauth callback failed: %@", "\(error)")
+                    Self.authLog("webauth callback failed: \(error)")
                 }
             }
         }
@@ -231,7 +231,7 @@ final class AuthManager: ObservableObject {
         if session.start() {
             webAuthSession = session
         } else {
-            NSLog("auth.webauth: session.start() returned false")
+            Self.authLog("webauth: session.start() returned false")
             lastSignInError = .signInSessionFailed
             isLoading = false
         }
@@ -460,6 +460,7 @@ final class AuthManager: ObservableObject {
         await tokenStore.setTokens(accessToken: resolvedAccess, refreshToken: refreshToken)
         do {
             try await refreshSession()
+            lastSignInError = nil
             authLog("seedTokensFromCLI: success user=\(currentUser?.primaryEmail ?? "nil")")
         } catch {
             authLog("seedTokensFromCLI: refreshSession failed: \(error)")
@@ -532,6 +533,7 @@ final class AuthManager: ObservableObject {
         isAuthenticated = true
         selectedTeamID = Self.resolveTeamID(selectedTeamID: selectedTeamID, teams: result.teams)
         didCompleteBrowserSignIn = true
+        lastSignInError = nil
         authLog("applySignInResult: user=\(result.email ?? "nil") teams=\(result.teams.count) teamID=\(selectedTeamID ?? "nil")")
     }
 
@@ -597,6 +599,7 @@ final class AuthManager: ObservableObject {
         selectedTeamID = Self.resolveTeamID(selectedTeamID: selectedTeamID, teams: teams)
         authLog("signInWithCredential: success user=\(user.primaryEmail ?? "nil") teams=\(teams.count) teamID=\(selectedTeamID ?? "nil")")
         didCompleteBrowserSignIn = true
+        lastSignInError = nil
     }
 
     func signOut() async {
@@ -723,6 +726,7 @@ final class AuthManager: ObservableObject {
         currentUser = nil
         isAuthenticated = false
         didCompleteBrowserSignIn = false
+        lastSignInError = nil
         if clearSelectedTeam {
             selectedTeamID = nil
         }
