@@ -986,6 +986,10 @@ final class SocketClient {
         path
     }
 
+    var isRelayBacked: Bool {
+        relayEndpoint != nil
+    }
+
     func connectionAppearsOpen() -> Bool {
         if relayEndpoint != nil, socketFD < 0 {
             do {
@@ -15244,7 +15248,7 @@ struct CMUXCLI {
     }
 
     private func codexMonitorOwnerState(workspaceId: String, surfaceId: String?, client: SocketClient) -> CodexMonitorOwnerState {
-        guard client.connectionAppearsOpen() else { return .gone }
+        guard client.connectionAppearsOpen() else { return client.isRelayBacked ? .unknown : .gone }
         guard let payload = try? client.sendV2(
             method: "surface.list",
             params: ["workspace_id": workspaceId],
