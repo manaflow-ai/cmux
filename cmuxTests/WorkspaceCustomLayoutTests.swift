@@ -51,4 +51,35 @@ final class WorkspaceCustomLayoutTests: XCTestCase {
         )
         XCTAssertEqual(focusedMarkdownPanel.filePath, planURL.path)
     }
+
+    @MainActor
+    func testCustomLayoutInvalidMarkdownPathFailsBeforeMutatingWorkspace() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-layout-markdown-invalid-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let layoutJSON = """
+        {
+          "pane": {
+            "surfaces": [
+              { "type": "terminal", "name": "shell" },
+              { "type": "markdown", "path": "missing.md" }
+            ]
+          }
+        }
+        """
+        let layoutData = try XCTUnwrap(layoutJSON.data(using: .utf8))
+        let layout = try JSONDecoder().decode(CmuxLayoutNode.self, from: layoutData)
+
+        let failure = try XCTUnwrap(layout.firstMarkdownPathResolutionFailure(relativeTo: root.path))
+        XCTAssertEqual(failure.code, "not_found")
+
+        let workspace = Workspace()
+        let initialPanelIds = Set(workspace.panels.keys)
+
+        XCTAssertFalse(workspace.applyCustomLayout(layout, baseCwd: root.path))
+        XCTAssertEqual(Set(workspace.panels.keys), initialPanelIds)
+        XCTAssertTrue(workspace.panels.values.allSatisfy { $0 is TerminalPanel })
+    }
 }

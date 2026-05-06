@@ -12,8 +12,16 @@ private let workspaceCustomLayoutLogger = Logger(
 
 extension Workspace {
 
-    func applyCustomLayout(_ layout: CmuxLayoutNode, baseCwd: String) {
-        guard let rootPaneId = bonsplitController.allPaneIds.first else { return }
+    @discardableResult
+    func applyCustomLayout(_ layout: CmuxLayoutNode, baseCwd: String) -> Bool {
+        if let failure = layout.firstMarkdownPathResolutionFailure(relativeTo: baseCwd) {
+            workspaceCustomLayoutLogger.warning(
+                "Custom layout markdown path invalid: \(failure.code, privacy: .public)"
+            )
+            return false
+        }
+
+        guard let rootPaneId = bonsplitController.allPaneIds.first else { return false }
 
         var leaves: [(paneId: PaneID, surfaces: [CmuxSurfaceDefinition])] = []
         buildCustomLayoutTree(layout, inPane: rootPaneId, leaves: &leaves)
@@ -32,6 +40,7 @@ extension Workspace {
         if let focusPanelId {
             focusPanel(focusPanelId)
         }
+        return true
     }
 
     private func buildCustomLayoutTree(
@@ -217,12 +226,7 @@ extension Workspace {
         for surface: CmuxSurfaceDefinition,
         baseCwd: String
     ) -> String? {
-        guard let rawPath = surface.path else {
-            workspaceCustomLayoutLogger.warning("Markdown surface missing path")
-            return nil
-        }
-
-        let resolvedPath = CmuxReadableFilePathResolver.resolve(rawPath, relativeTo: baseCwd)
+        let resolvedPath = surface.resolvedMarkdownPath(relativeTo: baseCwd)
         if let failure = resolvedPath.failure {
             workspaceCustomLayoutLogger.warning(
                 "Markdown surface path invalid: \(failure.code, privacy: .public)"
@@ -252,5 +256,34 @@ extension Workspace {
         default:
             break
         }
+    }
+}
+
+extension CmuxLayoutNode {
+    func firstMarkdownPathResolutionFailure(
+        relativeTo baseCwd: String
+    ) -> CmuxReadableFilePathResolutionFailure? {
+        switch self {
+        case .pane(let pane):
+            return pane.surfaces.lazy
+                .compactMap { $0.resolvedMarkdownPath(relativeTo: baseCwd).failure }
+                .first
+        case .split(let split):
+            for child in split.children {
+                if let failure = child.firstMarkdownPathResolutionFailure(relativeTo: baseCwd) {
+                    return failure
+                }
+            }
+            return nil
+        }
+    }
+}
+
+extension CmuxSurfaceDefinition {
+    func resolvedMarkdownPath(
+        relativeTo baseCwd: String
+    ) -> (path: String?, failure: CmuxReadableFilePathResolutionFailure?) {
+        guard type == .markdown else { return (nil, nil) }
+        return CmuxReadableFilePathResolver.resolve(path ?? "", relativeTo: baseCwd)
     }
 }

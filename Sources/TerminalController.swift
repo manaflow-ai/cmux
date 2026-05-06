@@ -4197,6 +4197,14 @@ class TerminalController {
                 return .err(code: "invalid_params", message: "Invalid layout: \(error.localizedDescription)", data: nil)
             }
         }
+        let layoutBaseCwd = cwd ?? FileManager.default.homeDirectoryForCurrentUser.path
+        if let failure = layoutNode?.firstMarkdownPathResolutionFailure(relativeTo: layoutBaseCwd) {
+            return .err(
+                code: failure.code,
+                message: "Invalid layout: \(failure.message)",
+                data: ["path": failure.path]
+            )
+        }
 
         var newId: UUID?
         let shouldFocus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
@@ -4211,7 +4219,7 @@ class TerminalController {
             )
             ws.setCustomDescription(description)
             if let layoutNode {
-                ws.applyCustomLayout(layoutNode, baseCwd: cwd ?? ws.currentDirectory)
+                ws.applyCustomLayout(layoutNode, baseCwd: layoutBaseCwd)
             }
             newId = ws.id
         }
