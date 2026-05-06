@@ -31,6 +31,7 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertEqual(snapshot.replay.count, 1)
         XCTAssertEqual(snapshot.replay.first?["name"] as? String, "notification.created")
         XCTAssertEqual(snapshot.ack["type"] as? String, "ack")
+        XCTAssertEqual(snapshot.ack["replay_count"] as? Int, 1)
 
         let resume = try XCTUnwrap(snapshot.ack["resume"] as? [String: Any])
         XCTAssertEqual((resume["latest_seq"] as? NSNumber)?.int64Value, 2)

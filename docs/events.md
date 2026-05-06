@@ -112,9 +112,13 @@ or focused surface queries.
   "window_id": null,
   "payload": {
     "notification_id": "7ED5F805-CC6F-4B06-9701-AC798F63E209",
-    "title": "Build finished",
-    "subtitle": "",
-    "body": "Tests passed.",
+    "title": null,
+    "subtitle": null,
+    "body": null,
+    "title_length": 14,
+    "subtitle_length": 0,
+    "body_length": 13,
+    "redacted_fields": ["title", "subtitle", "body"],
     "delivery": "store"
   }
 }
@@ -324,10 +328,11 @@ The `feed.item.completed` event contains the same workstream payload plus a
 
 ## Privacy
 
-`surface.input_sent`, `browser.input`, and v1 terminal send commands redact text
-and include only length metadata. Notification and Feed payloads may contain
-local user content because downstream tools often need the title, body, hook
-name, tool name, request id, and decision result to be useful.
+`surface.input_sent`, `browser.input`, v1 terminal send commands, notification
+text fields, and large agent-hook fields redact local text and include only
+length metadata. Feed and agent-hook events keep operational identifiers such as
+hook name, tool name, request id, phase, and decision result so local consumers
+can correlate events without receiving prompt/tool payloads by default.
 
 Consumers should treat the stream as local-sensitive data and avoid forwarding
 it to third-party services without an explicit user opt-in.

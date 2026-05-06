@@ -1,5 +1,6 @@
 import Foundation
 import os
+nonisolated private let cmuxEventLogLogger = Logger(subsystem: "com.cmuxterm.app", category: "event-log")
 
 struct CmuxEventSubscriptionSnapshot {
     let subscription: CmuxEventSubscription
@@ -123,7 +124,6 @@ final class CmuxEventBus: @unchecked Sendable {
     static let maxSanitizedObjectEntries = 256
     static let maxSanitizedDepth = 12
     private static let eventLogQueue = DispatchQueue(label: "com.cmuxterm.event-log", qos: .utility)
-    private static let eventLogLogger = Logger(subsystem: "com.cmuxterm.app", category: "event-log")
     private static let isoFormatter: ISO8601DateFormatter = { let formatter = ISO8601DateFormatter(); formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]; return formatter }()
     private static let isoFormatterLock = NSLock()
 
@@ -331,7 +331,7 @@ final class CmuxEventBus: @unchecked Sendable {
             try handle.seekToEnd()
             try handle.write(contentsOf: Data((line + "\n").utf8))
         } catch {
-            Self.eventLogLogger.error("Failed to append cmux event log: \(String(describing: error), privacy: .private)")
+            cmuxEventLogLogger.error("Failed to append cmux event log: \(String(describing: error), privacy: .private)")
         }
     }
 
