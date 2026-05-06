@@ -246,6 +246,8 @@ def test_variant_last_socket_markers(cli_path: str) -> bool:
     rogue_stable_tag = f"rogue-stable-{pid}"
     rogue_nightly_socket = f"/tmp/cmux-debug-rogue-nightly-{pid}.sock"
     rogue_nightly_tag = f"rogue-nightly-{pid}"
+    rogue_dev_agent_socket = f"/tmp/cmux-debug-rogue-dev-agent-{pid}.sock"
+    rogue_dev_agent_tag = f"rogue-dev-agent-{pid}"
 
     with tempfile.TemporaryDirectory(prefix="cmux-cli-variant-home-") as home, \
             tempfile.TemporaryDirectory(prefix="cmux-cli-variant-apps-") as apps:
@@ -297,6 +299,15 @@ def test_variant_last_socket_markers(cli_path: str) -> bool:
                 "nightly with stray CMUX_TAG",
             ):
                 return False
+            if not expect_ping_ignores_dev_tag(
+                dev_agent_cli,
+                home,
+                dev_agent_socket,
+                rogue_dev_agent_socket,
+                rogue_dev_agent_tag,
+                "dev-agent with stray CMUX_TAG",
+            ):
+                return False
         finally:
             for path in [
                 stable_socket,
@@ -304,6 +315,7 @@ def test_variant_last_socket_markers(cli_path: str) -> bool:
                 dev_agent_socket,
                 rogue_stable_socket,
                 rogue_nightly_socket,
+                rogue_dev_agent_socket,
             ]:
                 try:
                     os.remove(path)

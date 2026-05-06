@@ -432,6 +432,7 @@ struct SocketControlSettings {
     ) -> String {
         let fallback = defaultSocketPath(
             bundleIdentifier: bundleIdentifier,
+            environment: environment,
             isDebugBuild: isDebugBuild,
             currentUserID: currentUserID,
             probeStableDefaultPathEntry: probeStableDefaultPathEntry
@@ -466,13 +467,14 @@ struct SocketControlSettings {
 
     static func defaultSocketPath(
         bundleIdentifier: String?,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
         isDebugBuild: Bool,
         currentUserID: uid_t = getuid(),
         probeStableDefaultPathEntry: (String) -> StableDefaultSocketPathEntry = inspectStableDefaultSocketPathEntry
     ) -> String {
         SocketPathMarkerFiles.defaultSocketPath(
             bundleIdentifier: bundleIdentifier,
-            environment: [:],
+            environment: environment,
             isDebugBuild: isDebugBuild,
             stableSocketPath: resolvedStableDefaultSocketPath(
                 currentUserID: currentUserID,

@@ -710,18 +710,13 @@ if [[ "$LAUNCH" -eq 1 ]]; then
 
   LAUNCH_CMD=()
   LAUNCH_RETRY_CMD=()
-  if [[ -n "${TAG_SLUG:-}" && -n "${CMUX_SOCKET_PATH_VALUE:-}" ]]; then
+  if [[ -n "${CMUX_SOCKET_PATH_VALUE:-}" ]]; then
     # Ensure tag-specific socket paths win even if the caller has CMUX_* overrides.
     LAUNCH_CMD=("${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" CMUX_SOCKET_PATH="$CMUX_SOCKET_PATH_VALUE" CMUXD_UNIX_PATH="$CMUXD_SOCKET" open -g "$APP_PATH")
     LAUNCH_RETRY_CMD=("${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" CMUX_SOCKET_PATH="$CMUX_SOCKET_PATH_VALUE" CMUXD_UNIX_PATH="$CMUXD_SOCKET" open -n -g "$APP_PATH")
-  elif [[ -n "${TAG_SLUG:-}" ]]; then
+  else
     LAUNCH_CMD=("${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" open -g "$APP_PATH")
     LAUNCH_RETRY_CMD=("${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" open -n -g "$APP_PATH")
-  else
-    write_last_socket_path "/tmp/cmux-debug.sock"
-    echo "/tmp/cmux-debug.log" > /tmp/cmux-last-debug-log-path || true
-    LAUNCH_CMD=("${OPEN_CLEAN_ENV[@]}" open -g "$APP_PATH")
-    LAUNCH_RETRY_CMD=("${OPEN_CLEAN_ENV[@]}" open -n -g "$APP_PATH")
   fi
 
   if ! "${LAUNCH_CMD[@]}"; then

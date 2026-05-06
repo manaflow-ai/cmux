@@ -150,20 +150,13 @@ enum CLISocketPathResolver {
         var candidates: [String] = []
         let variant = SocketPathMarkerFiles.variant(bundleIdentifier: bundleIdentifier, environment: environment)
 
-        if variant.isDev,
-           let tag = normalized(environment["CMUX_TAG"]),
-           let slug = SocketPathMarkerFiles.sanitizeSocketSlug(tag) {
-            candidates.append("/tmp/cmux-debug-\(slug).sock")
-            candidates.append("/tmp/cmux-\(slug).sock")
-        }
-
         candidates.append(defaultSocketPath(bundleIdentifier: bundleIdentifier, environment: environment))
         if let last = readLastSocketPath(bundleIdentifier: bundleIdentifier, environment: environment) {
             candidates.append(last)
         }
         candidates.append(requestedPath)
         candidates.append(contentsOf: knownImplicitDefaultPaths(bundleIdentifier: bundleIdentifier, environment: environment))
-        if variant.isDev {
+        if variant == .dev(slug: nil) {
             candidates.append(contentsOf: discoverTaggedSockets(limit: 12))
         }
         return candidates
@@ -192,7 +185,7 @@ enum CLISocketPathResolver {
                 continue
             }
             discovered.reserveCapacity(min(limit, discovered.count + entries.count))
-            for name in entries where name.hasPrefix("cmux") && name.hasSuffix(".sock") {
+            for name in entries where name.hasPrefix("cmux-debug-") && name.hasSuffix(".sock") {
                 let path = URL(fileURLWithPath: directory)
                     .appendingPathComponent(name, isDirectory: false)
                     .path
