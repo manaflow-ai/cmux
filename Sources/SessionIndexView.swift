@@ -1380,12 +1380,8 @@ private enum SessionTranscriptLoader {
         agent: SessionAgent,
         id: Int
     ) -> SessionTranscriptTurn? {
-        let role: SessionTranscriptRole
-        if let explicitRole = transcriptRole(from: object["role"] as? String) {
-            role = explicitRole
-        } else if case .registered = agent {
-            role = .event
-        } else {
+        let fallbackRole: SessionTranscriptRole? = { if case .registered = agent { return .event }; return nil }()
+        guard let role = transcriptRole(from: object["role"] as? String) ?? fallbackRole else {
             return nil
         }
         let content = object["content"] ?? object["text"] ?? object["message"]
