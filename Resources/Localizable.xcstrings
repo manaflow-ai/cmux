@@ -116372,6 +116372,102 @@
           }
         }
       }
+    },
+    "settings.workspaceColors.selectionColor": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selection Highlight"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选中高亮"
+          }
+        }
+      }
+    },
+    "settings.workspaceColors.selectionColor.subtitle": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Background color of the selected workspace in the sidebar."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "侧边栏中已选中工作区的背景颜色。"
+          }
+        }
+      }
+    },
+    "settings.workspaceColors.selectionColor.reset": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重置"
+          }
+        }
+      }
+    },
+    "settings.workspaceColors.notificationBadgeColor": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notification Badge"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知徽章"
+          }
+        }
+      }
+    },
+    "settings.workspaceColors.notificationBadgeColor.subtitle": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Color of the unread notification badge on workspace tabs."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区标签页上未读通知徽章的颜色。"
+          }
+        }
+      }
+    },
+    "settings.workspaceColors.notificationBadgeColor.reset": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重置"
+          }
+        }
+      }
     }
   }
 }
