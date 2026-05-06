@@ -238,15 +238,16 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
 
             let scriptURL = directory.appendingPathComponent("process_tree.py")
             let pidURL = directory.appendingPathComponent("children.txt")
-            try processTreeScript.write(to: scriptURL, atomically: true, encoding: .utf8)
-
+            let readyURL = directory.appendingPathComponent("ready.txt")
             let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
-            process.arguments = [scriptURL.path, pidURL.path]
-            try process.run()
 
             do {
-                let childPIDs = try waitForChildPIDs(at: pidURL)
+                try processTreeScript.write(to: scriptURL, atomically: true, encoding: .utf8)
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+                process.arguments = [scriptURL.path, pidURL.path, readyURL.path]
+                try process.run()
+
+                let childPIDs = try waitForReadyChildPIDs(pidURL: pidURL, readyURL: readyURL)
                 return SpawnedProcessTree(process: process, childPIDs: childPIDs, directory: directory)
             } catch {
                 if process.isRunning {
@@ -274,6 +275,7 @@ import sys
 import time
 
 pid_file = sys.argv[1]
+ready_file = sys.argv[2]
 allocations = []
 
 def touch(size):
@@ -282,12 +284,18 @@ def touch(size):
         data[index] = 1
     return data
 
+def signal_ready(pid):
+    with open(ready_file, "a", encoding="utf-8") as handle:
+        handle.write(f"{pid}\n")
+        handle.flush()
+
 allocations.append(touch(16 * 1024 * 1024))
 children = []
 for offset in range(2):
     pid = os.fork()
     if pid == 0:
         child_data = touch((8 + offset) * 1024 * 1024)
+        signal_ready(os.getpid())
         while child_data:
             time.sleep(1)
     children.append(pid)
@@ -309,20 +317,27 @@ while allocations:
     time.sleep(1)
 """#
 
-        private static func waitForChildPIDs(at url: URL) throws -> [Int] {
+        private static func waitForReadyChildPIDs(pidURL: URL, readyURL: URL) throws -> [Int] {
             let deadline = Date().addingTimeInterval(5)
             while Date() < deadline {
-                if let raw = try? String(contentsOf: url, encoding: .utf8) {
-                    let pids = raw
-                        .split(separator: " ")
-                        .compactMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
-                    if pids.count == 2 {
-                        return pids
+                if let raw = try? String(contentsOf: pidURL, encoding: .utf8) {
+                    let pids = intValues(in: raw)
+                    if pids.count == 2,
+                       let readyRaw = try? String(contentsOf: readyURL, encoding: .utf8) {
+                        let readyPIDs = Set(intValues(in: readyRaw))
+                        if pids.allSatisfy(readyPIDs.contains) {
+                            return pids
+                        }
                     }
                 }
                 Thread.sleep(forTimeInterval: 0.05)
             }
             throw XCTSkip("Timed out waiting for process tree fixture")
+        }
+
+        private static func intValues(in raw: String) -> [Int] {
+            raw.split(whereSeparator: { $0 == " " || $0 == "\n" || $0 == "\t" })
+                .compactMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
         }
     }
 
