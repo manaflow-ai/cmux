@@ -11,6 +11,34 @@ import PDFKit
 
 @MainActor
 final class FilePreviewPDFThumbnailSidebarTests: XCTestCase {
+    func testPrimaryClickFocusesPDFCanvasForKeyboardScroll() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 500),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let pdfView = FilePreviewMagnifyingPDFView(frame: window.contentView?.bounds ?? .zero)
+        window.contentView = pdfView
+        XCTAssertTrue(window.makeFirstResponder(nil))
+
+        let click = try XCTUnwrap(NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: NSPoint(x: 120, y: 120),
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 1,
+            pressure: 1
+        ))
+
+        pdfView.mouseDown(with: click)
+
+        XCTAssertTrue(window.firstResponder === pdfView)
+    }
+
     func testFocusedPDFCanvasArrowDownScrollsWithoutPageStepping() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 600, height: 500),
