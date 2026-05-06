@@ -209,6 +209,7 @@ extension AgentLaunchSanitizer {
             "--mode",
             "--no-session",
             "--print",
+            "--prompt",
             "--version",
             "-h",
             "-p",

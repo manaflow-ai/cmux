@@ -59,5 +59,12 @@ struct AgentLaunchSanitizerTests {
                 fallbackKind: "pi"
             ) == nil
         )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["pi", "--prompt", "summarize"],
+                launcher: "pi",
+                fallbackKind: "pi"
+            ) == nil
+        )
     }
 }
