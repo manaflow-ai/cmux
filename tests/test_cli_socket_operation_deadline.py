@@ -223,15 +223,24 @@ def main() -> int:
                 )
                 break
             try:
-                json.loads(result.stdout)
+                top_level_pairs = json.loads(result.stdout, object_pairs_hook=list)
             except json.JSONDecodeError as exc:
                 failures.append(f"capabilities sorted-key run {index} emitted invalid JSON: {exc}: {result.stdout!r}")
                 break
-            top_level_keys = [
-                line.strip().split('"')[1]
-                for line in result.stdout.splitlines()
-                if line.startswith('  "')
-            ]
+            if not isinstance(top_level_pairs, list):
+                failures.append(
+                    f"capabilities sorted-key run {index} top-level was not a JSON object: {result.stdout!r}"
+                )
+                break
+            if not all(
+                isinstance(pair, list) and len(pair) == 2 and isinstance(pair[0], str)
+                for pair in top_level_pairs
+            ):
+                failures.append(
+                    f"capabilities sorted-key run {index} top-level pairs were malformed: {top_level_pairs!r}"
+                )
+                break
+            top_level_keys = [key for key, _ in top_level_pairs]
             expected_keys = ["access_mode", "methods", "protocol", "socket_path", "version"]
             if top_level_keys != expected_keys:
                 failures.append(
