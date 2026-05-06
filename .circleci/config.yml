@@ -88,9 +88,10 @@ commands:
                   && curl -fSL --connect-timeout 20 --speed-limit 1024 --speed-time 60 "${ZIG_URL}.minisig" -o /tmp/zig.tar.xz.minisig \
                   && minisign -Vm /tmp/zig.tar.xz -x /tmp/zig.tar.xz.minisig -P "$ZIG_MINISIGN_PUBLIC_KEY"; then
                   return 0
+                else
+                  status=$?
                 fi
 
-                status=$?
                 if [ "$attempt" -eq 5 ]; then
                   return "$status"
                 fi

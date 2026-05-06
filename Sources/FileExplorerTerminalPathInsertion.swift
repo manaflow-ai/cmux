@@ -11,7 +11,7 @@ enum FileExplorerTerminalPathInsertion {
 
     static func relativePath(for path: String, rootPath: String) -> String {
         guard !rootPath.isEmpty else { return path }
-        if path == rootPath { return "" }
+        if path == rootPath { return "." }
         let normalizedRoot = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
         if path.hasPrefix(normalizedRoot) {
             return String(path.dropFirst(normalizedRoot.count))

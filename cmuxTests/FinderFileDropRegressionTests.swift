@@ -115,6 +115,13 @@ final class FinderFileDropRegressionTests: XCTestCase {
         XCTAssertEqual(text, "README.md Folder\\ With\\ Spaces/file.txt")
         XCTAssertEqual(
             FileExplorerTerminalPathInsertion.relativePath(
+                for: rootPath,
+                rootPath: rootPath
+            ),
+            "."
+        )
+        XCTAssertEqual(
+            FileExplorerTerminalPathInsertion.relativePath(
                 for: "/Users/example/project-backup/file.txt",
                 rootPath: rootPath
             ),
