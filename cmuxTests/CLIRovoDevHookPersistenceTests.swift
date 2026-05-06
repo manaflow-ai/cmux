@@ -95,12 +95,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
-    func testRovoDevPromptSubmitDoesNotInferAmbiguousWorkspaceMetadata() throws {
+    func testRovoDevPromptSubmitInfersNewestMatchingWorkspaceMetadata() throws {
         let cliPath = try bundledCLIPath()
-        let socketPath = makeSocketPath("rovo-ambiguous")
+        let socketPath = makeSocketPath("rovo-newest")
         let listenerFD = try bindUnixSocket(at: socketPath)
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-rovo-ambiguous-hook-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("cmux-rovo-newest-hook-\(UUID().uuidString)", isDirectory: true)
         let workspace = root.appendingPathComponent("repo", isDirectory: true)
         let sessionsRoot = root.appendingPathComponent("sessions", isDirectory: true)
         let workspaceId = "55555555-5555-5555-5555-555555555555"
@@ -111,13 +111,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
             sessionsRoot: sessionsRoot,
             sessionId: "rovo-older-session",
             workspacePath: workspace.path,
-            modified: Date(timeIntervalSince1970: 100)
+            modified: Date(timeIntervalSince1970: 100),
+            sessionContextModified: Date(timeIntervalSince1970: 100)
         )
         try writeRovoDevSessionMetadata(
             sessionsRoot: sessionsRoot,
             sessionId: "rovo-newer-session",
             workspacePath: workspace.path,
-            modified: Date(timeIntervalSince1970: 200)
+            modified: Date(timeIntervalSince1970: 200),
+            sessionContextModified: Date(timeIntervalSince1970: 300)
         )
         defer {
             Darwin.close(listenerFD)
@@ -154,6 +156,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "CMUX_AGENT_HOOK_STATE_DIR": root.path,
                 "CMUX_ROVODEV_SESSIONS_DIR": sessionsRoot.path,
                 "CMUX_AGENT_LAUNCH_CWD": workspace.path,
+                "CMUX_AGENT_LAUNCH_KIND": "rovodev",
+                "CMUX_AGENT_LAUNCH_EXECUTABLE": "/usr/local/bin/acli",
+                "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated([
+                    "/usr/local/bin/acli",
+                    "rovodev",
+                    "run",
+                    "--yolo",
+                ]),
                 "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
             standardInput: #"{"cwd":"\#(workspace.path)","hook_event_name":"on_tool_permission"}"#,
@@ -166,7 +176,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(result.stdout, "{}\n")
 
         let storeURL = root.appendingPathComponent("rovodev-hook-sessions.json", isDirectory: false)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: storeURL.path))
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        let sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
+        XCTAssertNil(sessions["rovo-older-session"] as? [String: Any])
+        XCTAssertNotNil(sessions["rovo-newer-session"] as? [String: Any])
     }
 
     func testRovoDevPromptSubmitReadsConfiguredPersistenceDirWithCommentsHashAndApostrophePath() throws {
@@ -368,21 +381,68 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(FileManager.default.fileExists(atPath: sentinelURL.path))
     }
 
+    func testRovoAliasInstallsRovoDevHooksFromSetup() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-rovo-alias-install-\(UUID().uuidString)", isDirectory: true)
+        let configDir = root.appendingPathComponent(".rovodev", isDirectory: true)
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        let acliURL = binDir.appendingPathComponent("acli", isDirectory: false)
+
+        try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+        try "#!/bin/sh\nexit 0\n".write(to: acliURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: acliURL.path)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "setup", "rovo", "--yes"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "\(binDir.path):/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.contains("rovodev:"), result.stdout)
+
+        let config = try String(
+            contentsOf: configDir.appendingPathComponent("config.yml", isDirectory: false),
+            encoding: .utf8
+        )
+        XCTAssertTrue(config.contains("eventHooks:"), config)
+        XCTAssertTrue(config.contains("cmux hooks rovodev prompt-submit"), config)
+    }
+
     func writeRovoDevSessionMetadata(
         sessionsRoot: URL,
         sessionId: String,
         workspacePath: String,
-        modified: Date
+        modified: Date,
+        sessionContextModified: Date? = nil,
+        workspaceKey: String = "workspace_path"
     ) throws {
         let sessionURL = sessionsRoot.appendingPathComponent(sessionId, isDirectory: true)
         try FileManager.default.createDirectory(at: sessionURL, withIntermediateDirectories: true)
         let metadataURL = sessionURL.appendingPathComponent("metadata.json", isDirectory: false)
         let metadata = [
             "title": "Rovo Dev session",
-            "workspace_path": workspacePath,
+            workspaceKey: workspacePath,
         ]
         let data = try JSONSerialization.data(withJSONObject: metadata, options: [.prettyPrinted])
         try data.write(to: metadataURL, options: .atomic)
         try FileManager.default.setAttributes([.modificationDate: modified], ofItemAtPath: metadataURL.path)
+        let sessionContextURL = sessionURL.appendingPathComponent("session_context.json", isDirectory: false)
+        try Data(#"{"message_history":[]}"#.utf8).write(to: sessionContextURL, options: .atomic)
+        if let sessionContextModified {
+            try FileManager.default.setAttributes(
+                [.modificationDate: sessionContextModified],
+                ofItemAtPath: sessionContextURL.path
+            )
+        }
     }
 }

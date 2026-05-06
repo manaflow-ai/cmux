@@ -262,7 +262,7 @@ Hook subcommands:
 
 | Command | Contract |
 | --- | --- |
-| `hooks setup` | Install hooks for all supported agents whose binaries are on `PATH`. Supports `--agent <name>` and `--yes`. |
+| `hooks setup` | Install hooks for all supported agents whose binaries are on `PATH`. Supports `--agent <name>`, positional agent filters such as `cmux hooks setup rovo`, and `--yes`. |
 | `hooks uninstall` | Remove hooks for all supported agents. Supports `--agent <name>` and `--yes`. |
 | `hooks <agent> install` | Install hooks for one supported agent. `opencode` also supports `--project` for the project-local Feed plugin. |
 | `hooks <agent> uninstall` | Remove hooks for one supported agent. |

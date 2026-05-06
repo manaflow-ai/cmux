@@ -38,15 +38,51 @@ private struct RovoDevMetadata: Decodable {
 
     private enum CodingKeys: String, CodingKey {
         case title
-        case workspacePath = "workspace_path"
+        case name
+        case summary
+        case workspacePathSnake = "workspace_path"
         case workspacePathCamel = "workspacePath"
+        case workspace
+        case cwd
+        case workingDirectorySnake = "working_directory"
+        case workingDirectoryCamel = "workingDirectory"
+        case projectPathSnake = "project_path"
+        case projectPathCamel = "projectPath"
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        title = try container.decodeIfPresent(String.self, forKey: .title)
-        workspacePath = try container.decodeIfPresent(String.self, forKey: .workspacePath)
-            ?? container.decodeIfPresent(String.self, forKey: .workspacePathCamel)
+        title = Self.firstString(
+            in: container,
+            keys: [.title, .name, .summary]
+        )
+        workspacePath = Self.firstString(
+            in: container,
+            keys: [
+                .workspacePathSnake,
+                .workspacePathCamel,
+                .workspace,
+                .cwd,
+                .workingDirectorySnake,
+                .workingDirectoryCamel,
+                .projectPathSnake,
+                .projectPathCamel,
+            ]
+        )
+    }
+
+    private static func firstString(
+        in container: KeyedDecodingContainer<CodingKeys>,
+        keys: [CodingKeys]
+    ) -> String? {
+        for key in keys {
+            guard let value = try? container.decodeIfPresent(String.self, forKey: key) else { continue }
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+        return nil
     }
 }
 
@@ -127,11 +163,12 @@ public enum RovoDevIndex {
                 continue
             }
 
+            let sessionContextURL = sessionURL.appendingPathComponent("session_context.json", isDirectory: false)
             candidates.append(RovoDevSessionCandidate(
                 sessionId: sessionURL.lastPathComponent,
                 metadataURL: metadataURL,
-                sessionContextURL: sessionURL.appendingPathComponent("session_context.json", isDirectory: false),
-                mtime: mtime
+                sessionContextURL: sessionContextURL,
+                mtime: max(mtime, contentModificationDate(ofRegularFile: sessionContextURL) ?? mtime)
             ))
         }
         candidates.sort { $0.mtime > $1.mtime }
@@ -156,7 +193,7 @@ public enum RovoDevIndex {
 
             let title = metadata.title ?? ""
             let cwd = metadata.workspacePath
-            if let cwdFilter, cwd != cwdFilter {
+            if !workspacePath(cwd, matchesFilter: cwdFilter) {
                 continue
             }
             if !normalizedNeedle.isEmpty {
@@ -187,5 +224,34 @@ public enum RovoDevIndex {
             return nil
         }
         return url
+    }
+
+    private static func contentModificationDate(ofRegularFile url: URL) -> Date? {
+        guard let values = try? url.resourceValues(
+            forKeys: [.contentModificationDateKey, .isRegularFileKey]
+        ),
+              values.isRegularFile == true else {
+            return nil
+        }
+        return values.contentModificationDate
+    }
+
+    private static func workspacePath(_ workspacePath: String?, matchesFilter filter: String?) -> Bool {
+        guard let filter else { return true }
+        guard let workspace = normalizedPath(workspacePath),
+              let target = normalizedPath(filter) else {
+            return false
+        }
+        return workspace == target
+    }
+
+    private static func normalizedPath(_ path: String?) -> String? {
+        guard let trimmed = path?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return URL(fileURLWithPath: NSString(string: trimmed).expandingTildeInPath)
+            .standardizedFileURL
+            .path
     }
 }

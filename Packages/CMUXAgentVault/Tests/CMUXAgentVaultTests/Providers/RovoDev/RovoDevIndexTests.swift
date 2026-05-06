@@ -30,6 +30,41 @@ struct RovoDevIndexTests {
         #expect(result.sessions.first?.sessionContextURL?.lastPathComponent == "session_context.json")
     }
 
+    @Test("Sorts by session activity and accepts workspacePath metadata")
+    func sortsBySessionActivityAndAcceptsWorkspacePathMetadata() throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.tempDir) }
+
+        try writeSession(
+            in: fixture.sessionsRoot,
+            id: "metadata-newer",
+            title: "Metadata changed",
+            cwd: "/tmp/rovo repo",
+            modified: Date(timeIntervalSince1970: 300),
+            sessionContextModified: Date(timeIntervalSince1970: 100)
+        )
+        try writeSession(
+            in: fixture.sessionsRoot,
+            id: "conversation-newer",
+            title: "Conversation changed",
+            cwd: "/tmp/rovo repo",
+            modified: Date(timeIntervalSince1970: 200),
+            sessionContextModified: Date(timeIntervalSince1970: 400),
+            workspaceKey: "workspacePath"
+        )
+
+        let result = RovoDevIndex.loadSessions(
+            needle: "",
+            cwdFilter: "/tmp/rovo repo",
+            offset: 0,
+            limit: 10,
+            sessionsRoot: fixture.sessionsRoot.path
+        )
+
+        #expect(result.errors == [])
+        #expect(result.sessions.map(\.sessionId) == ["conversation-newer", "metadata-newer"])
+    }
+
     @Test("Reports malformed metadata")
     func reportsMalformedMetadata() throws {
         let fixture = try makeFixture()
@@ -88,7 +123,7 @@ struct RovoDevIndexTests {
 
     private func makeFixture() throws -> (tempDir: URL, sessionsRoot: URL) {
         let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-rovodev-index-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("cmux-agent-vault-rovodev-index-\(UUID().uuidString)", isDirectory: true)
         let sessionsRoot = tempDir.appendingPathComponent("sessions", isDirectory: true)
         try FileManager.default.createDirectory(at: sessionsRoot, withIntermediateDirectories: true)
         return (tempDir, sessionsRoot)
@@ -99,7 +134,9 @@ struct RovoDevIndexTests {
         id: String,
         title: String,
         cwd: String,
-        modified: Date
+        modified: Date,
+        sessionContextModified: Date? = nil,
+        workspaceKey: String = "workspace_path"
     ) throws {
         let sessionDir = sessionsRoot.appendingPathComponent(id, isDirectory: true)
         try FileManager.default.createDirectory(at: sessionDir, withIntermediateDirectories: true)
@@ -108,7 +145,7 @@ struct RovoDevIndexTests {
         let data = try JSONSerialization.data(
             withJSONObject: [
                 "title": title,
-                "workspace_path": cwd,
+                workspaceKey: cwd,
             ],
             options: [.sortedKeys]
         )
@@ -118,7 +155,13 @@ struct RovoDevIndexTests {
             ofItemAtPath: metadataURL.path
         )
 
-        try Data(#"{"messages":[]}"#.utf8)
-            .write(to: sessionDir.appendingPathComponent("session_context.json"))
+        let sessionContextURL = sessionDir.appendingPathComponent("session_context.json")
+        try Data(#"{"messages":[]}"#.utf8).write(to: sessionContextURL)
+        if let sessionContextModified {
+            try FileManager.default.setAttributes(
+                [.modificationDate: sessionContextModified],
+                ofItemAtPath: sessionContextURL.path
+            )
+        }
     }
 }
