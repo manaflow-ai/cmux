@@ -987,6 +987,13 @@ final class SocketClient {
     }
 
     func connectionAppearsOpen() -> Bool {
+        if relayEndpoint != nil, socketFD < 0 {
+            do {
+                try connect()
+            } catch {
+                return false
+            }
+        }
         guard socketFD >= 0 else { return false }
         while true {
             var descriptor = pollfd(
