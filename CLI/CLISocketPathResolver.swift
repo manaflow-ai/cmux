@@ -297,7 +297,11 @@ enum CLISocketPathResolver {
                 legacyDefaultSocketPath,
             ])
         case .nightly, .staging, .dev:
-            return [defaultSocketPath(bundleIdentifier: bundleIdentifier, environment: environment)]
+            return dedupe([
+                defaultSocketPath(bundleIdentifier: bundleIdentifier, environment: environment),
+                stableDefaultSocketPath,
+                legacyDefaultSocketPath,
+            ])
         }
     }
 
