@@ -1167,6 +1167,14 @@ final class SessionPersistenceTests: XCTestCase {
                 ]
             ),
             (
+                .pi,
+                [
+                    "/usr/local/bin/pi",
+                    "--model",
+                    "anthropic/claude-sonnet-4-5",
+                ]
+            ),
+            (
                 .cursor,
                 [
                     "/usr/local/bin/cursor-agent",
@@ -1356,6 +1364,8 @@ final class SessionPersistenceTests: XCTestCase {
                 resolvedEnvironment = ["CLAUDE_CONFIG_DIR": "/tmp/claude"]
             case .codex:
                 resolvedEnvironment = ["CODEX_HOME": "/tmp/codex"]
+            case .pi:
+                resolvedEnvironment = ["PI_CODING_AGENT_DIR": "/tmp/pi"]
             case .cursor:
                 resolvedEnvironment = [:]
             case .gemini:

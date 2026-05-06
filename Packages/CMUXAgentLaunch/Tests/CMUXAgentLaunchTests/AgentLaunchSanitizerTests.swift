@@ -36,6 +36,55 @@ struct AgentLaunchSanitizerTests {
         )
     }
 
+    @Test("Drops Pi session selectors and prompt while preserving configuration")
+    func dropsPiSessionSelectorsAndPrompt() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "pi", "--session", "old-session", "--model", "anthropic/claude-sonnet-4-5",
+                    "--thinking", "high", "--api-key", "secret", "implement this",
+                ],
+                launcher: "pi",
+                fallbackKind: "pi"
+            ) == ["pi", "--model", "anthropic/claude-sonnet-4-5", "--thinking", "high"]
+        )
+    }
+
+    @Test("Preserves repeated Pi extension and skill flags without replaying prompt")
+    func preservesRepeatedPiExtensionAndSkillFlags() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "pi", "--extension", "a.ts", "--extension", "b.ts",
+                    "--skill", "review", "--skill", "swift", "initial prompt",
+                ],
+                launcher: "pi",
+                fallbackKind: "pi"
+            ) == [
+                "pi", "--extension", "a.ts", "--extension", "b.ts",
+                "--skill", "review", "--skill", "swift",
+            ]
+        )
+    }
+
+    @Test("Rejects noninteractive Pi launches")
+    func rejectsNoninteractivePiLaunches() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["pi", "--print", "summarize"],
+                launcher: "pi",
+                fallbackKind: "pi"
+            ) == nil
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["pi", "--prompt", "summarize"],
+                launcher: "pi",
+                fallbackKind: "pi"
+            ) == nil
+        )
+    }
+
     @Test("Preserves Hermes inherited flags without replaying startup-only input")
     func preservesHermesInheritedFlagsWithoutReplayingStartupOnlyInput() {
         #expect(
@@ -58,7 +107,7 @@ struct AgentLaunchSanitizerTests {
                     "old-session",
                     "--source",
                     "cli",
-                    "initial prompt should not replay"
+                    "initial prompt should not replay",
                 ],
                 launcher: "hermes-agent",
                 fallbackKind: "hermes-agent"
@@ -70,7 +119,7 @@ struct AgentLaunchSanitizerTests {
                 "--skills",
                 "github-auth",
                 "-s",
-                "hermes-agent-dev"
+                "hermes-agent-dev",
             ]
         )
     }

@@ -59,19 +59,21 @@ cmux hooks uninstall
 cmux hooks uninstall rovo
 ```
 
-Installs Feed-relevant hooks for every supported CLI whose binary is on `PATH`:
+Installs supported agent hooks whose binaries are on `PATH`. See [Agent hook integrations](agent-hooks.md) for the complete session restore and Feed support matrix.
 
 | Agent        | Config                                    | Feed trigger             |
 |--------------|-------------------------------------------|--------------------------|
 | Claude Code  | wrapper-injected                          | PermissionRequest        |
 | Codex        | `~/.codex/hooks.json`                     | PermissionRequest        |
+| OpenCode     | `~/.config/opencode/plugins/cmux-feed.js` | plugin event bus         |
 | Cursor CLI   | `~/.cursor/hooks.json`                    | beforeShellExecution     |
 | Gemini       | `~/.gemini/settings.json`                 | PreToolUse               |
 | Copilot      | `~/.copilot/config.json`                  | PreToolUse               |
 | CodeBuddy    | `~/.codebuddy/settings.json`              | PreToolUse               |
 | Factory      | `~/.factory/settings.json`                | PreToolUse               |
 | Qoder        | `~/.qoder/settings.json`                  | PreToolUse               |
-| OpenCode     | `~/.config/opencode/plugins/cmux-feed.js` | plugin event bus         |
+| Pi           | `~/.pi/agent/extensions/cmux-session.ts`  | lifecycle only           |
+| Rovo Dev     | `~/.rovodev/config.yml`                   | lifecycle only           |
 
 Individual agents:
 
