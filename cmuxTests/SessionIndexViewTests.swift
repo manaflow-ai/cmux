@@ -98,6 +98,34 @@ final class SessionIndexViewTests: XCTestCase {
         XCTAssertEqual(emittedValues, ["/foo"])
     }
 
+    func testDisabledVaultAgentIsFilteredFromSections() {
+        let defaults = UserDefaults.standard
+        let key = "terminal.vaultShowClaudeSessions"
+        let previous = defaults.object(forKey: key)
+        defer {
+            if let previous {
+                defaults.set(previous, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+        }
+
+        defaults.set(false, forKey: key)
+
+        let store = SessionIndexStore()
+        store.grouping = .agent
+        store.replaceEntriesForTesting([
+            makeEntry(agent: .claude, sessionId: "claude-disabled", title: "Claude session"),
+            makeEntry(agent: .codex, sessionId: "codex-visible", title: "Codex session"),
+        ])
+
+        let visibleAgents = store.sectionsForCurrentGrouping()
+            .flatMap(\.entries)
+            .map(\.agent)
+
+        XCTAssertEqual(visibleAgents, [.codex])
+    }
+
     func testCodexSQLSearchMatchesRolloutTranscriptContent() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-index-\(UUID().uuidString)", isDirectory: true)
@@ -230,13 +258,14 @@ final class SessionIndexViewTests: XCTestCase {
     }
 
     private func makeEntry(
+        agent: SessionAgent = .claude,
         sessionId: String = UUID().uuidString,
         title: String,
         fileURL: URL? = nil
     ) -> SessionEntry {
         SessionEntry(
             id: UUID().uuidString,
-            agent: .claude,
+            agent: agent,
             sessionId: sessionId,
             title: title,
             cwd: nil,
@@ -244,7 +273,7 @@ final class SessionIndexViewTests: XCTestCase {
             pullRequest: nil,
             modified: Date(timeIntervalSince1970: 0),
             fileURL: fileURL,
-            specifics: .claude(model: nil, permissionMode: nil)
+            specifics: agent.defaultSpecificsForTesting
         )
     }
 
@@ -323,6 +352,21 @@ final class SessionIndexViewTests: XCTestCase {
     private func sqliteMessage(_ db: OpaquePointer) -> String? {
         guard let cString = sqlite3_errmsg(db) else { return nil }
         return String(cString: cString)
+    }
+}
+
+private extension SessionAgent {
+    var defaultSpecificsForTesting: AgentSpecifics {
+        switch self {
+        case .claude:
+            return .claude(model: nil, permissionMode: nil)
+        case .codex:
+            return .codex(model: nil, approvalPolicy: nil, sandboxMode: nil, effort: nil)
+        case .opencode:
+            return .opencode(providerModel: nil, agentName: nil)
+        case .rovodev:
+            return .rovodev
+        }
     }
 }
 

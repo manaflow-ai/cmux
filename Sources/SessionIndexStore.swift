@@ -449,6 +449,13 @@ final class SessionIndexStore: ObservableObject {
         currentDirectory = next
     }
 
+    #if DEBUG
+    func replaceEntriesForTesting(_ entries: [SessionEntry]) {
+        self.entries = entries
+        backfillDirectoryOrderFromEntries()
+    }
+    #endif
+
     @Published var grouping: SessionGrouping {
         didSet {
             guard grouping != oldValue else { return }
