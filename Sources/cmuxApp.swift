@@ -6284,6 +6284,11 @@ struct SettingsView: View {
                                     String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar")
                                 )
                         }
+
+                        ForEach(SessionAgent.allCases) { agent in
+                            SettingsCardDivider()
+                            VaultAgentVisibilitySettingsRow(agent: agent)
+                        }
                     }
 
                     SettingsSectionHeader(title: String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar"))
@@ -7411,6 +7416,7 @@ struct SettingsView: View {
         if previousShowTerminalScrollBar != showTerminalScrollBar {
             TerminalScrollBarSettings.notifyDidChange()
         }
+        VaultAgentVisibilitySettings.reset(defaults: defaults)
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
         iMessageMode = IMessageModeSettings.defaultValue
         sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails

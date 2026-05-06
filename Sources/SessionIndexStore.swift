@@ -491,12 +491,32 @@ final class SessionIndexStore: ObservableObject {
     private var sectionsCacheRevision: UInt64 = 0
     private var cachedSectionsRevision: UInt64?
     private var cachedSections: [IndexSection] = []
+    private let notificationCenter: NotificationCenter
+    private var vaultAgentVisibilityObserver: NSObjectProtocol?
 
-    init() {
+    init(notificationCenter: NotificationCenter = .default) {
+        self.notificationCenter = notificationCenter
         self.agentOrder = Self.loadAgentOrder()
         self.directoryOrder = Self.loadDirectoryOrder()
         let storedGrouping = UserDefaults.standard.string(forKey: Self.groupingKey)
         self.grouping = SessionGrouping(rawValue: storedGrouping ?? "") ?? .directory
+        vaultAgentVisibilityObserver = notificationCenter.addObserver(
+            forName: VaultAgentVisibilitySettings.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.invalidateSectionsCache()
+                self?.reload()
+            }
+        }
+    }
+
+    deinit {
+        loadTask?.cancel()
+        if let vaultAgentVisibilityObserver {
+            notificationCenter.removeObserver(vaultAgentVisibilityObserver)
+        }
     }
 
     /// Returns the sections for the current grouping mode, in the user-saved order.
@@ -579,10 +599,11 @@ final class SessionIndexStore: ObservableObject {
     }
 
     private func filteredEntriesForCurrentScope() -> [SessionEntry] {
+        let visibleEntries = Self.filterVisibleAgents(entries)
         guard scopeToCurrentDirectory, let dir = normalizedDirectory(currentDirectory) else {
-            return entries
+            return visibleEntries
         }
-        return entries.filter { entry in
+        return visibleEntries.filter { entry in
             guard let cwd = normalizedDirectory(entry.cwd) else { return false }
             return cwd == dir || cwd.hasPrefix(dir + "/")
         }
@@ -712,30 +733,20 @@ final class SessionIndexStore: ObservableObject {
         // Fetch unfiltered and post-filter locally to preserve that scope.
         let noFolderScope = (cwd == nil) || ((cwd ?? "").isEmpty)
         let cwdFilter = noFolderScope ? nil : cwd
-        // Large limit so every per-agent loader returns all matching rows.
-        // Claude's `searchMaxFiles` cap still applies (currently 1500); if
-        // anyone has more Claude sessions in a single cwd we'll bump it.
+        // Large limit so every enabled per-agent loader returns all matching
+        // rows. Claude's `searchMaxFiles` cap still applies (currently 1500);
+        // if anyone has more Claude sessions in a single cwd we'll bump it.
         let bigLimit = 10_000
-        async let c = Self.timedAgent(
-            needle: "", agent: .claude, cwdFilter: cwdFilter,
-            offset: 0, limit: bigLimit, errorBag: bag
+        var merged = await Self.searchEnabledAgents(
+            needle: "",
+            cwdFilter: cwdFilter,
+            limit: bigLimit,
+            errorBag: bag
         )
-        async let x = Self.timedAgent(
-            needle: "", agent: .codex, cwdFilter: cwdFilter,
-            offset: 0, limit: bigLimit, errorBag: bag
-        )
-        async let o = Self.timedAgent(
-            needle: "", agent: .opencode, cwdFilter: cwdFilter,
-            offset: 0, limit: bigLimit, errorBag: bag
-        )
-        async let r = Self.timedAgent(
-            needle: "", agent: .rovodev, cwdFilter: cwdFilter,
-            offset: 0, limit: bigLimit, errorBag: bag
-        )
-        var merged = (await c) + (await x) + (await o) + (await r)
         if Task.isCancelled {
             return DirectorySnapshot(cwd: key, entries: [], errors: [])
         }
+        merged = Self.filterVisibleAgents(merged)
         if noFolderScope {
             merged = merged.filter { ($0.cwd ?? "").isEmpty }
         }
@@ -800,12 +811,13 @@ final class SessionIndexStore: ObservableObject {
         // entries we did get. Errors get surfaced when the user actively
         // searches via the popover.
         let bag = ErrorBag()
-        async let claude = loadClaudeEntries(needle: "", cwdFilter: nil, offset: 0, limit: perAgentLimit)
-        async let codex = loadCodexEntries(needle: "", cwdFilter: nil, offset: 0, limit: perAgentLimit, errorBag: bag)
-        async let opencode = loadOpenCodeEntries(needle: "", cwdFilter: nil, offset: 0, limit: perAgentLimit, errorBag: bag)
-        async let rovodev = loadRovoDevEntries(needle: "", cwdFilter: nil, offset: 0, limit: perAgentLimit, errorBag: bag)
-        let combined = await claude + codex + opencode + rovodev
-        return combined.sorted { $0.modified > $1.modified }
+        let combined = await searchEnabledAgents(
+            needle: "",
+            cwdFilter: nil,
+            limit: perAgentLimit,
+            errorBag: bag
+        )
+        return filterVisibleAgents(combined).sorted { $0.modified > $1.modified }
     }
 
     private struct ClaudeParsed {
@@ -1236,36 +1248,9 @@ final class SessionIndexStore: ObservableObject {
 
     // MARK: - Deep search (popover "Show more")
 
-    enum SearchScope {
-        case agent(SessionAgent)
-        /// Filter by absolute cwd; nil/"" = unknown-folder bucket.
-        case directory(String?)
-    }
-
-    /// What the popover gets back. `errors` is non-empty when one or more
-    /// agents failed to read their data source (schema mismatch, file missing,
-    /// SQL error). UI should surface them so users see why the list looks
-    /// short or empty rather than thinking nothing matched.
-    struct SearchOutcome: Sendable {
-        var entries: [SessionEntry]
-        var errors: [String]
-    }
-
-    /// Thread-safe accumulator passed down to per-agent helpers so they can
-    /// report failures (e.g. SQL prepare errors when an agent bumps its
-    /// schema) without requiring the helpers to throw across actor boundaries.
-    final class ErrorBag: @unchecked Sendable {
-        private let lock = NSLock()
-        private var messages: [String] = []
-        func add(_ msg: String) {
-            lock.lock(); defer { lock.unlock() }
-            messages.append(msg)
-        }
-        func snapshot() -> [String] {
-            lock.lock(); defer { lock.unlock() }
-            return messages
-        }
-    }
+    #if DEBUG
+    nonisolated(unsafe) static var searchAgentOverrideForTesting: SearchAgentOverrideForTesting?
+    #endif
 
     /// Paginated on-demand search across the full filesystem (Claude/Codex) and
     /// SQLite (OpenCode). Empty query is allowed and returns the most-recent
@@ -1291,39 +1276,40 @@ final class SessionIndexStore: ObservableObject {
         let entries: [SessionEntry]
         switch scope {
         case .agent(let a):
-            entries = await Self.searchAgent(
-                needle: needle, agent: a, cwdFilter: nil,
-                offset: offset, limit: limit, errorBag: bag
-            )
+            if VaultAgentVisibilitySettings.isAgentEnabled(a) {
+                entries = await Self.searchAgent(
+                    needle: needle, agent: a, cwdFilter: nil,
+                    offset: offset, limit: limit, errorBag: bag
+                )
+            } else {
+                entries = []
+            }
         case .directory(let path):
             let cwdFilter = (path?.isEmpty == false) ? path : nil
-            // Multi-agent merge: fetch the union of (offset+limit) per agent so the
-            // merge-sort can produce a stable global ordering, then slice.
+            let shouldRestrictToUnknownFolder = path?.isEmpty ?? true
+            // Multi-agent merge: fetch the union of (offset+limit) per enabled
+            // agent so the merge-sort can produce a stable global ordering,
+            // then slice.
             let target = offset + limit
-            async let c = Self.timedAgent(
-                needle: needle, agent: .claude, cwdFilter: cwdFilter,
-                offset: 0, limit: target, errorBag: bag
+            let merged = await Self.searchEnabledAgents(
+                needle: needle,
+                cwdFilter: cwdFilter,
+                limit: target,
+                errorBag: bag
             )
-            async let x = Self.timedAgent(
-                needle: needle, agent: .codex, cwdFilter: cwdFilter,
-                offset: 0, limit: target, errorBag: bag
-            )
-            async let o = Self.timedAgent(
-                needle: needle, agent: .opencode, cwdFilter: cwdFilter,
-                offset: 0, limit: target, errorBag: bag
-            )
-            async let r = Self.timedAgent(
-                needle: needle, agent: .rovodev, cwdFilter: cwdFilter,
-                offset: 0, limit: target, errorBag: bag
-            )
-            let merged = (await c) + (await x) + (await o) + (await r)
-            let sorted = merged.sorted { $0.modified > $1.modified }
+            let scoped: [SessionEntry]
+            if shouldRestrictToUnknownFolder {
+                scoped = merged.filter { ($0.cwd ?? "").isEmpty }
+            } else {
+                scoped = merged
+            }
+            let sorted = Self.filterVisibleAgents(scoped).sorted { $0.modified > $1.modified }
             entries = Array(sorted.dropFirst(offset).prefix(limit))
         }
         return SearchOutcome(entries: entries, errors: bag.snapshot())
     }
 
-    nonisolated private static func timedAgent(
+    nonisolated static func timedAgent(
         needle: String, agent: SessionAgent, cwdFilter: String?,
         offset: Int, limit: Int, errorBag: ErrorBag
     ) async -> [SessionEntry] {
@@ -1342,6 +1328,12 @@ final class SessionIndexStore: ObservableObject {
         needle: String, agent: SessionAgent, cwdFilter: String?,
         offset: Int, limit: Int, errorBag: ErrorBag
     ) async -> [SessionEntry] {
+        #if DEBUG
+        if let override = searchAgentOverrideForTesting {
+            return await override(needle, agent, cwdFilter, offset, limit, errorBag)
+        }
+        #endif
+
         switch agent {
         case .claude: return await loadClaudeEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit)
         case .codex: return await loadCodexEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)

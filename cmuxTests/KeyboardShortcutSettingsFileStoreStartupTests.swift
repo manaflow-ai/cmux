@@ -192,6 +192,77 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         XCTAssertEqual(dockTileNotificationCount, 0)
     }
 
+    func testSettingsFileStoreParsesVaultAgentVisibilitySettings() throws {
+        let defaults = UserDefaults.standard
+        let previousValues: [String: Any?] = Dictionary(
+            uniqueKeysWithValues: VaultAgentVisibilitySettings.allDefaultsKeys.map {
+                ($0, defaults.object(forKey: $0))
+            }
+        )
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            for (key, value) in previousValues {
+                if let value {
+                    defaults.set(value, forKey: key)
+                } else {
+                    defaults.removeObject(forKey: key)
+                }
+            }
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+
+        for key in VaultAgentVisibilitySettings.allDefaultsKeys {
+            defaults.removeObject(forKey: key)
+        }
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let configURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "terminal": {
+                "vaultShowClaudeSessions": false,
+                "vaultShowCodexSessions": true,
+                "vaultShowOpenCodeSessions": false,
+                "vaultShowRovoDevSessions": true
+              }
+            }
+            """,
+            to: configURL
+        )
+
+        let notificationCenter = NotificationCenter()
+        var notificationCount = 0
+        let observer = notificationCenter.addObserver(
+            forName: VaultAgentVisibilitySettings.didChangeNotification,
+            object: nil,
+            queue: nil
+        ) { _ in
+            notificationCount += 1
+        }
+        defer { notificationCenter.removeObserver(observer) }
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: configURL.path,
+            fallbackPath: nil,
+            notificationCenter: notificationCenter,
+            startWatching: false
+        )
+
+        XCTAssertFalse(VaultAgentVisibilitySettings.isAgentEnabled(.claude))
+        XCTAssertTrue(VaultAgentVisibilitySettings.isAgentEnabled(.codex))
+        XCTAssertFalse(VaultAgentVisibilitySettings.isAgentEnabled(.opencode))
+        XCTAssertTrue(VaultAgentVisibilitySettings.isAgentEnabled(.rovodev))
+        XCTAssertEqual(notificationCount, 1)
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-settings-startup-\(UUID().uuidString)",

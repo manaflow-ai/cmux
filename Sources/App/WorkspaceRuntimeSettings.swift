@@ -109,6 +109,100 @@ enum TerminalScrollBarSettings {
     }
 }
 
+enum VaultAgentVisibilitySettings {
+    static let showClaudeSessionsKey = "terminal.vaultShowClaudeSessions"
+    static let showCodexSessionsKey = "terminal.vaultShowCodexSessions"
+    static let showOpenCodeSessionsKey = "terminal.vaultShowOpenCodeSessions"
+    static let showRovoDevSessionsKey = "terminal.vaultShowRovoDevSessions"
+    static let defaultValue = true
+    static let didChangeNotification = Notification.Name("cmux.vaultAgentVisibilitySettingsDidChange")
+
+    static var allDefaultsKeys: [String] {
+        SessionAgent.allCases.map { key(for: $0) }
+    }
+
+    static func key(for agent: SessionAgent) -> String {
+        switch agent {
+        case .claude:
+            return showClaudeSessionsKey
+        case .codex:
+            return showCodexSessionsKey
+        case .opencode:
+            return showOpenCodeSessionsKey
+        case .rovodev:
+            return showRovoDevSessionsKey
+        }
+    }
+
+    static func jsonField(for agent: SessionAgent) -> String {
+        switch agent {
+        case .claude:
+            return "vaultShowClaudeSessions"
+        case .codex:
+            return "vaultShowCodexSessions"
+        case .opencode:
+            return "vaultShowOpenCodeSessions"
+        case .rovodev:
+            return "vaultShowRovoDevSessions"
+        }
+    }
+
+    static func settingsJSONPath(for agent: SessionAgent) -> String {
+        "terminal.\(jsonField(for: agent))"
+    }
+
+    static func isAgentEnabled(_ agent: SessionAgent, defaults: UserDefaults = .standard) -> Bool {
+        let defaultsKey = key(for: agent)
+        guard defaults.object(forKey: defaultsKey) != nil else { return defaultValue }
+        return defaults.bool(forKey: defaultsKey)
+    }
+
+    static func enabledAgents(defaults: UserDefaults = .standard) -> [SessionAgent] {
+        SessionAgent.allCases.filter { isAgentEnabled($0, defaults: defaults) }
+    }
+
+    static func isDefaultsKey(_ defaultsKey: String) -> Bool {
+        allDefaultsKeys.contains(defaultsKey)
+    }
+
+    static func setAgent(
+        _ agent: SessionAgent,
+        enabled: Bool,
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) {
+        let wasEnabled = isAgentEnabled(agent, defaults: defaults)
+        defaults.set(enabled, forKey: key(for: agent))
+        if wasEnabled != enabled {
+            notifyDidChange(notificationCenter: notificationCenter)
+        }
+    }
+
+    @discardableResult
+    static func reset(
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) -> Bool {
+        let previous = Dictionary(uniqueKeysWithValues: SessionAgent.allCases.map {
+            ($0, isAgentEnabled($0, defaults: defaults))
+        })
+        for defaultsKey in allDefaultsKeys {
+            defaults.removeObject(forKey: defaultsKey)
+        }
+        let didChange = SessionAgent.allCases.contains {
+            previous[$0] != isAgentEnabled($0, defaults: defaults)
+        }
+        if didChange {
+            notifyDidChange(notificationCenter: notificationCenter)
+        }
+        return didChange
+    }
+
+    static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
+        notificationCenter.post(name: didChangeNotification, object: nil)
+    }
+}
+
 enum RightSidebarBetaFeatureSettings {
     static let feedEnabledKey = "rightSidebar.beta.feed.enabled"
     static let dockEnabledKey = "rightSidebar.beta.dock.enabled"

@@ -108,6 +108,8 @@
 		A50019B2 /* SettingsSearchIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50019B3 /* SettingsSearchIndexTests.swift */; };
 		B37A00000000000000000001 /* BetaFeaturesSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A00000000000000000002 /* BetaFeaturesSettingsView.swift */; };
 		B37A00000000000000000007 /* SettingsCardNote.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A00000000000000000008 /* SettingsCardNote.swift */; };
+		D3610A010000000000000001 /* VaultAgentVisibilitySettingsRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3610A010000000000000002 /* VaultAgentVisibilitySettingsRow.swift */; };
+		D3610A010000000000000003 /* CmuxSettingsJSONPathSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3610A010000000000000004 /* CmuxSettingsJSONPathSupport.swift */; };
 		A5001002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001012 /* ContentView.swift */; };
 		C0DE35010000000000000001 /* SidebarScrim.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE35010000000000000002 /* SidebarScrim.swift */; };
 		62270F3DCECB4787D789CCE3 /* SidebarWorkspaceSnapshotRefreshPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F016B5C09357B3226FA2E014 /* SidebarWorkspaceSnapshotRefreshPolicyTests.swift */; };
@@ -371,12 +373,15 @@
 		B37A00000000000000000003 /* RightSidebarMode+Availability.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A00000000000000000004 /* RightSidebarMode+Availability.swift */; };
 		FE003103 /* RightSidebarPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003003 /* RightSidebarPanelView.swift */; };
 		FE003104 /* SessionIndexStore+CodexSQL.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003004 /* SessionIndexStore+CodexSQL.swift */; };
+		D3610A010000000000000005 /* SessionIndexStore+Visibility.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3610A010000000000000006 /* SessionIndexStore+Visibility.swift */; };
+		D3610A010000000000000009 /* SessionIndexStore+SearchTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3610A01000000000000000A /* SessionIndexStore+SearchTypes.swift */; };
 		FE003105 /* RovoDevIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003005 /* RovoDevIndex.swift */; };
 		FE003106 /* SessionAgentPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003006 /* SessionAgentPresentation.swift */; };
 		FE003107 /* RovoDevTranscriptPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003007 /* RovoDevTranscriptPreview.swift */; };
 		F5300000A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5300001A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift */; };
 		F5300002A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5300003A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift */; };
 		F5310000A1B2C3D4E5F60718 /* RovoDevHookConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5310001A1B2C3D4E5F60718 /* RovoDevHookConfigTests.swift */; };
+		D3610A010000000000000007 /* VaultAgentVisibilitySettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3610A010000000000000008 /* VaultAgentVisibilitySettingsTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -526,6 +531,8 @@
 		A50019B3 /* SettingsSearchIndexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSearchIndexTests.swift; sourceTree = "<group>"; };
 		B37A00000000000000000002 /* BetaFeaturesSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BetaFeaturesSettingsView.swift; sourceTree = "<group>"; };
 		B37A00000000000000000008 /* SettingsCardNote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsCardNote.swift; sourceTree = "<group>"; };
+		D3610A010000000000000002 /* VaultAgentVisibilitySettingsRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultAgentVisibilitySettingsRow.swift; sourceTree = "<group>"; };
+		D3610A010000000000000004 /* CmuxSettingsJSONPathSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxSettingsJSONPathSupport.swift; sourceTree = "<group>"; };
 		A5001012 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		C0DE35010000000000000002 /* SidebarScrim.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarScrim.swift; sourceTree = "<group>"; };
 		C3408A000000000000000002 /* ContentView+RightSidebarCommandPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+RightSidebarCommandPalette.swift"; sourceTree = "<group>"; };
@@ -803,11 +810,14 @@
 		FE003002 /* SessionIndexView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexView.swift; sourceTree = "<group>"; };
 		FE003003 /* RightSidebarPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarPanelView.swift; sourceTree = "<group>"; };
 		FE003004 /* SessionIndexStore+CodexSQL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionIndexStore+CodexSQL.swift"; sourceTree = "<group>"; };
+		D3610A010000000000000006 /* SessionIndexStore+Visibility.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionIndexStore+Visibility.swift"; sourceTree = "<group>"; };
+		D3610A01000000000000000A /* SessionIndexStore+SearchTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionIndexStore+SearchTypes.swift"; sourceTree = "<group>"; };
 		FE003005 /* RovoDevIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RovoDevIndex.swift; sourceTree = "<group>"; };
 		FE003006 /* SessionAgentPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionAgentPresentation.swift; sourceTree = "<group>"; };
 		FE003007 /* RovoDevTranscriptPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RovoDevTranscriptPreview.swift; sourceTree = "<group>"; };
 		F5300003A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RovoDevTranscriptPreviewTests.swift; sourceTree = "<group>"; };
 		F5310001A1B2C3D4E5F60718 /* RovoDevHookConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RovoDevHookConfigTests.swift; sourceTree = "<group>"; };
+		D3610A010000000000000008 /* VaultAgentVisibilitySettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultAgentVisibilitySettingsTests.swift; sourceTree = "<group>"; };
 		IC000002 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder; path = AppIcon.icon; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -978,10 +988,11 @@
 				C0DE34020000000000000003 /* CmuxHelpCommands.swift */,
 				C0DE34020000000000000004 /* CmuxHelpResource.swift */,
 				A50019A1 /* SettingsNavigation.swift */,
-				A50019B1 /* SettingsSearchAliases.swift */,
-				B37A00000000000000000002 /* BetaFeaturesSettingsView.swift */,
-				B37A00000000000000000008 /* SettingsCardNote.swift */,
-				A5001012 /* ContentView.swift */,
+					A50019B1 /* SettingsSearchAliases.swift */,
+					B37A00000000000000000002 /* BetaFeaturesSettingsView.swift */,
+					B37A00000000000000000008 /* SettingsCardNote.swift */,
+					D3610A010000000000000002 /* VaultAgentVisibilitySettingsRow.swift */,
+					A5001012 /* ContentView.swift */,
 				C0DE35010000000000000002 /* SidebarScrim.swift */,
 				D0B10015A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift */,
 				C3408A000000000000000002 /* ContentView+RightSidebarCommandPalette.swift */,
@@ -1021,9 +1032,10 @@
 				C1713003C1713003C1713003 /* KeyboardShortcutSettingsLookup.swift */,
 				C34670030000000000000002 /* KeyboardShortcutContext.swift */,
 				A50012F6 /* KeyboardShortcutRecorder.swift */,
-				A50012F9 /* KeyboardShortcutSettingsControls.swift */,
-				A5F10010A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore.swift */,
-				C0DEF0B10000000000000002 /* JSONCParser.swift */,
+					A50012F9 /* KeyboardShortcutSettingsControls.swift */,
+					A5F10010A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore.swift */,
+					D3610A010000000000000004 /* CmuxSettingsJSONPathSupport.swift */,
+					C0DEF0B10000000000000002 /* JSONCParser.swift */,
 					A50012F4 /* KeyboardLayout.swift */,
 					A5001013 /* TabManager.swift */,
 					E3309A04 /* TabManager+EqualizeSplits.swift */,
@@ -1145,9 +1157,11 @@
 				B37A0000000000000000000A /* FileExplorerState.swift */,
 				FE001003 /* FileExplorerSearchController.swift */,
 				FE001002 /* FileExplorerView.swift */,
-				FE003001 /* SessionIndexStore.swift */,
-				FE003004 /* SessionIndexStore+CodexSQL.swift */,
-				FE003005 /* RovoDevIndex.swift */,
+					FE003001 /* SessionIndexStore.swift */,
+					FE003004 /* SessionIndexStore+CodexSQL.swift */,
+					D3610A010000000000000006 /* SessionIndexStore+Visibility.swift */,
+					D3610A01000000000000000A /* SessionIndexStore+SearchTypes.swift */,
+					FE003005 /* RovoDevIndex.swift */,
 				FE003006 /* SessionAgentPresentation.swift */,
 				FE003007 /* RovoDevTranscriptPreview.swift */,
 				FE003002 /* SessionIndexView.swift */,
@@ -1216,9 +1230,10 @@
 					F5410001A1B2C3D4E5F60718 /* RestorableAgentHookProviderResumeTests.swift */,
 					F5410003A1B2C3D4E5F60718 /* RestorableAgentNonInteractiveTests.swift */,
 					F5300001A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift */,
-				F5300003A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift */,
-				F5310001A1B2C3D4E5F60718 /* RovoDevHookConfigTests.swift */,
-				FA100001A1B2C3D4E5F60718 /* BrowserImportMappingTests.swift */,
+					F5300003A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift */,
+					F5310001A1B2C3D4E5F60718 /* RovoDevHookConfigTests.swift */,
+					D3610A010000000000000008 /* VaultAgentVisibilitySettingsTests.swift */,
+					FA100001A1B2C3D4E5F60718 /* BrowserImportMappingTests.swift */,
 				F6000001A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift */,
 					C1713005C1713005C1713005 /* CommandPaletteShortcutCustomizationTests.swift */,
 					17FCD4CC61D54A2F8F2F463D /* AppDelegateBareSpaceShortcutRoutingTests.swift */,
@@ -1558,10 +1573,11 @@
 				C0DE34020000000000000001 /* CmuxHelpCommands.swift in Sources */,
 				C0DE34020000000000000002 /* CmuxHelpResource.swift in Sources */,
 				A50019A0 /* SettingsNavigation.swift in Sources */,
-				A50019B0 /* SettingsSearchAliases.swift in Sources */,
-				B37A00000000000000000001 /* BetaFeaturesSettingsView.swift in Sources */,
-				B37A00000000000000000007 /* SettingsCardNote.swift in Sources */,
-				A5001002 /* ContentView.swift in Sources */,
+					A50019B0 /* SettingsSearchAliases.swift in Sources */,
+					B37A00000000000000000001 /* BetaFeaturesSettingsView.swift in Sources */,
+					B37A00000000000000000007 /* SettingsCardNote.swift in Sources */,
+					D3610A010000000000000001 /* VaultAgentVisibilitySettingsRow.swift in Sources */,
+					A5001002 /* ContentView.swift in Sources */,
 				C0DE35010000000000000001 /* SidebarScrim.swift in Sources */,
 				C3408A000000000000000001 /* ContentView+RightSidebarCommandPalette.swift in Sources */,
 				C3408A000000000000000005 /* ContentView+ViewCommandPalette.swift in Sources */,
@@ -1598,10 +1614,11 @@
 				A50012F3 /* KeyboardShortcutSettings.swift in Sources */,
 				C1713004C1713004C1713004 /* KeyboardShortcutSettingsLookup.swift in Sources */,
 				C34670030000000000000001 /* KeyboardShortcutContext.swift in Sources */,
-				A50012F7 /* KeyboardShortcutRecorder.swift in Sources */,
-				A50012F8 /* KeyboardShortcutSettingsControls.swift in Sources */,
-				A5F10011A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore.swift in Sources */,
-				C0DEF0B10000000000000001 /* JSONCParser.swift in Sources */,
+					A50012F7 /* KeyboardShortcutRecorder.swift in Sources */,
+					A50012F8 /* KeyboardShortcutSettingsControls.swift in Sources */,
+					A5F10011A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore.swift in Sources */,
+					D3610A010000000000000003 /* CmuxSettingsJSONPathSupport.swift in Sources */,
+					C0DEF0B10000000000000001 /* JSONCParser.swift in Sources */,
 					A50012F5 /* KeyboardLayout.swift in Sources */,
 					A5001003 /* TabManager.swift in Sources */,
 					E3309A03 /* TabManager+EqualizeSplits.swift in Sources */,
@@ -1724,9 +1741,11 @@
 				B37A00000000000000000009 /* FileExplorerState.swift in Sources */,
 				FE001103 /* FileExplorerSearchController.swift in Sources */,
 				FE001102 /* FileExplorerView.swift in Sources */,
-				FE003101 /* SessionIndexStore.swift in Sources */,
-				FE003104 /* SessionIndexStore+CodexSQL.swift in Sources */,
-				FE003105 /* RovoDevIndex.swift in Sources */,
+					FE003101 /* SessionIndexStore.swift in Sources */,
+					FE003104 /* SessionIndexStore+CodexSQL.swift in Sources */,
+					D3610A010000000000000005 /* SessionIndexStore+Visibility.swift in Sources */,
+					D3610A010000000000000009 /* SessionIndexStore+SearchTypes.swift in Sources */,
+					FE003105 /* RovoDevIndex.swift in Sources */,
 				FE003106 /* SessionAgentPresentation.swift in Sources */,
 				FE003107 /* RovoDevTranscriptPreview.swift in Sources */,
 				FE003102 /* SessionIndexView.swift in Sources */,
@@ -1835,9 +1854,10 @@
 					F5410000A1B2C3D4E5F60718 /* RestorableAgentHookProviderResumeTests.swift in Sources */,
 					F5410002A1B2C3D4E5F60718 /* RestorableAgentNonInteractiveTests.swift in Sources */,
 					F5300000A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift in Sources */,
-				F5300002A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift in Sources */,
-				F5310000A1B2C3D4E5F60718 /* RovoDevHookConfigTests.swift in Sources */,
-				FA100000A1B2C3D4E5F60718 /* BrowserImportMappingTests.swift in Sources */,
+					F5300002A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift in Sources */,
+					F5310000A1B2C3D4E5F60718 /* RovoDevHookConfigTests.swift in Sources */,
+					D3610A010000000000000007 /* VaultAgentVisibilitySettingsTests.swift in Sources */,
+					FA100000A1B2C3D4E5F60718 /* BrowserImportMappingTests.swift in Sources */,
 				F6000000A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift in Sources */,
 					C1713006C1713006C1713006 /* CommandPaletteShortcutCustomizationTests.swift in Sources */,
 					725746692D9647948561044D /* AppDelegateBareSpaceShortcutRoutingTests.swift in Sources */,

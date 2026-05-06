@@ -179,6 +179,26 @@
           "type": "boolean",
           "default": true,
           "description": "Show the right-edge terminal scroll bar when scrollback is available. cmux automatically suppresses it for alternate-screen style TUI surfaces."
+        },
+        "vaultShowClaudeSessions": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show Claude Code resume sessions in the Vault sidebar and scan Claude session files."
+        },
+        "vaultShowCodexSessions": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show Codex resume sessions in the Vault sidebar and scan Codex session storage."
+        },
+        "vaultShowOpenCodeSessions": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show OpenCode resume sessions in the Vault sidebar and scan OpenCode session storage."
+        },
+        "vaultShowRovoDevSessions": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show Rovo Dev resume sessions in the Vault sidebar and scan Rovo Dev session storage."
         }
       }
     },

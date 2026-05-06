@@ -60,7 +60,11 @@ const settingsFileExample = `{
   // },
 
   // "terminal": {
-  //   "showScrollBar": false
+  //   "showScrollBar": false,
+  //   "vaultShowClaudeSessions": true,
+  //   "vaultShowCodexSessions": true,
+  //   "vaultShowOpenCodeSessions": true,
+  //   "vaultShowRovoDevSessions": true
   // },
 
   // "browser": {

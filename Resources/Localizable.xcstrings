@@ -105248,6 +105248,210 @@
         }
       }
     },
+    "settings.terminal.vault.claude": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Claude Code Sessions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code セッションを表示"
+          }
+        }
+      }
+    },
+    "settings.terminal.vault.claude.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code sessions are hidden from the Vault and skipped during scans."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code のセッションを Vault から非表示にし、スキャン時にスキップします。"
+          }
+        }
+      }
+    },
+    "settings.terminal.vault.claude.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code sessions appear in the Vault and are scanned for resume."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code のセッションを Vault に表示し、再開用にスキャンします。"
+          }
+        }
+      }
+    },
+    "settings.terminal.vault.codex": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Codex Sessions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex セッションを表示"
+          }
+        }
+      }
+    },
+    "settings.terminal.vault.codex.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex sessions are hidden from the Vault and skipped during scans."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex のセッションを Vault から非表示にし、スキャン時にスキップします。"
+          }
+        }
+      }
+    },
+    "settings.terminal.vault.codex.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex sessions appear in the Vault and are scanned for resume."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex のセッションを Vault に表示し、再開用にスキャンします。"
+          }
+        }
+      }
+    },
+    "settings.terminal.vault.opencode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show OpenCode Sessions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode セッションを表示"
+          }
+        }
+      }
+    },
+    "settings.terminal.vault.opencode.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode sessions are hidden from the Vault and skipped during scans."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode のセッションを Vault から非表示にし、スキャン時にスキップします。"
+          }
+        }
+      }
+    },
+    "settings.terminal.vault.opencode.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode sessions appear in the Vault and are scanned for resume."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode のセッションを Vault に表示し、再開用にスキャンします。"
+          }
+        }
+      }
+    },
+    "settings.terminal.vault.rovodev": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Rovo Dev Sessions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rovo Dev セッションを表示"
+          }
+        }
+      }
+    },
+    "settings.terminal.vault.rovodev.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rovo Dev sessions are hidden from the Vault and skipped during scans."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rovo Dev のセッションを Vault から非表示にし、スキャン時にスキップします。"
+          }
+        }
+      }
+    },
+    "settings.terminal.vault.rovodev.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rovo Dev sessions appear in the Vault and are scanned for resume."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rovo Dev のセッションを Vault に表示し、再開用にスキャンします。"
+          }
+        }
+      }
+    },
     "settings.app.openMarkdownInCmuxViewer": {
       "extractionState": "manual",
       "localizations": {
