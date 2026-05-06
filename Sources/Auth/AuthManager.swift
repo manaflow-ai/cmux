@@ -221,6 +221,7 @@ final class AuthManager: ObservableObject {
     func beginSignInAndAwait(timeout: TimeInterval) async -> Bool {
         if isAuthenticated { return true }
         beginSignIn()
+        if !isLoading { return isAuthenticated }
         return await waitForSignInSettled(timeout: timeout)
     }
 
