@@ -1,6 +1,6 @@
 import Foundation
 
-enum JSONCSettingsPatcher {
+nonisolated enum JSONCSettingsPatcher {
     static func setting(_ path: String, to value: Any, in source: String) throws -> String {
         let components = path.split(separator: ".").map(String.init)
         guard components.count == 2 else {

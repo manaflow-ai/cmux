@@ -6938,11 +6938,12 @@ struct SettingsView: View {
                         SettingsCardDivider()
 
                         SettingsCardRow(
-                            configurationReview: .json("shortcuts.showModifierHoldHints"),
+                            configurationReview: .settingsOnly,
                             String(localized: "settings.shortcuts.showHints", defaultValue: "Show Cmd/Ctrl-Hold Shortcut Hints"),
                             subtitle: (showShortcutHintsOnCommandHold || showShortcutHintsOnControlHold)
                                 ? String(localized: "settings.shortcuts.showHints.subtitleOn", defaultValue: "Holding Cmd (sidebar/titlebar) or Ctrl/Cmd (pane tabs) shows shortcut hint pills.")
-                                : String(localized: "settings.shortcuts.showHints.subtitleOff", defaultValue: "Holding Cmd or Ctrl keeps shortcut hint pills hidden.")
+                                : String(localized: "settings.shortcuts.showHints.subtitleOff", defaultValue: "Holding Cmd or Ctrl keeps shortcut hint pills hidden."),
+                            searchAnchorID: SettingsSearchIndex.settingID(for: .keyboardShortcuts, idSuffix: "show-hints")
                         ) {
                             Toggle(
                                 "",

@@ -1,6 +1,6 @@
 import Foundation
 
-enum CmuxSettingsJSONPersistence {
+nonisolated enum CmuxSettingsJSONPersistence {
     static func currentSettingsJSONValuesFromUserDefaults(
         defaults: UserDefaults = .standard
     ) -> [String: ManagedSettingsValue] {
@@ -171,7 +171,6 @@ enum CmuxSettingsJSONPersistence {
             )),
             "workspaceColors.selectionColor": .nullableString(defaults.string(forKey: "sidebarSelectionColorHex")),
             "workspaceColors.notificationBadgeColor": .nullableString(defaults.string(forKey: "sidebarNotificationBadgeColorHex")),
-            "workspaceColors.colors": .stringDictionary(WorkspaceTabColorSettings.resolvedPaletteMap(defaults: defaults)),
             "sidebarAppearance.matchTerminalBackground": .bool(boolValue(
                 "sidebarMatchTerminalBackground",
                 defaultValue: false,
@@ -241,21 +240,6 @@ enum CmuxSettingsJSONPersistence {
                 defaultValue: BrowserLinkOpenSettings.initialInterceptTerminalOpenCommandInCmuxBrowserValue(defaults: defaults),
                 defaults: defaults
             )),
-            "browser.hostsToOpenInEmbeddedBrowser": .stringArray(stringListValue(
-                BrowserLinkOpenSettings.browserHostWhitelistKey,
-                defaultValue: BrowserLinkOpenSettings.defaultBrowserHostWhitelist,
-                defaults: defaults
-            )),
-            "browser.urlsToAlwaysOpenExternally": .stringArray(stringListValue(
-                BrowserLinkOpenSettings.browserExternalOpenPatternsKey,
-                defaultValue: BrowserLinkOpenSettings.defaultBrowserExternalOpenPatterns,
-                defaults: defaults
-            )),
-            "browser.insecureHttpHostsAllowedInEmbeddedBrowser": .stringArray(stringListValue(
-                BrowserInsecureHTTPSettings.allowlistKey,
-                defaultValue: BrowserInsecureHTTPSettings.defaultAllowlistText,
-                defaults: defaults
-            )),
             "browser.showImportHintOnBlankTabs": .bool(boolValue(
                 BrowserImportHintSettings.showOnBlankTabsKey,
                 defaultValue: BrowserImportHintSettings.defaultShowOnBlankTabs,
@@ -268,8 +252,9 @@ enum CmuxSettingsJSONPersistence {
             )),
         ]
 
-        // The JSON key applies to both modifier-hint toggles, while the UI
-        // exposes them independently. Avoid lossy UI write-back for this path.
+        // Collection-valued settings and non-bijective combined settings are
+        // read from cmux.json but omitted from UI write-back until the writer
+        // can preserve nested JSONC trivia and round-trip each mapping exactly.
         return values
     }
 
@@ -318,13 +303,6 @@ enum CmuxSettingsJSONPersistence {
 
     private static func stringValue(_ key: String, defaultValue: String, defaults: UserDefaults) -> String {
         defaults.string(forKey: key) ?? defaultValue
-    }
-
-    private static func stringListValue(_ key: String, defaultValue: String, defaults: UserDefaults) -> [String] {
-        stringValue(key, defaultValue: defaultValue, defaults: defaults)
-            .components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
     }
 
     private static func settingsFileSource(from fileURL: URL, fileManager: FileManager) throws -> String {

@@ -45,12 +45,19 @@ struct TerminalPanelView: View {
 
 /// Shared appearance settings for panels
 struct PanelAppearance {
+    let backgroundColor: NSColor
+    let foregroundColor: NSColor
     let dividerColor: Color
     let unfocusedOverlayNSColor: NSColor
     let unfocusedOverlayOpacity: Double
 
     static func fromConfig(_ config: GhosttyConfig) -> PanelAppearance {
         PanelAppearance(
+            backgroundColor: GhosttyBackgroundTheme.color(
+                backgroundColor: config.backgroundColor,
+                opacity: config.backgroundOpacity
+            ),
+            foregroundColor: config.foregroundColor,
             dividerColor: Color(nsColor: config.resolvedSplitDividerColor),
             unfocusedOverlayNSColor: config.unfocusedSplitOverlayFill,
             unfocusedOverlayOpacity: config.unfocusedSplitOverlayOpacity

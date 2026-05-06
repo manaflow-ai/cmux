@@ -11,14 +11,8 @@ final class KeyboardShortcutSettingsObserver: ObservableObject {
     private var recorderCancellable: AnyCancellable?
 
     private init(notificationCenter: NotificationCenter = .default) {
-        settingsCancellable = notificationCenter.publisher(for: KeyboardShortcutSettings.didChangeNotification)
-            .sink { [weak self] _ in
-                self?.revision &+= 1
-            }
-        recorderCancellable = notificationCenter.publisher(for: KeyboardShortcutRecorderActivity.didChangeNotification)
-            .sink { [weak self] _ in
-                self?.revision &+= 1
-            }
+        settingsCancellable = notificationCenter.publisher(for: KeyboardShortcutSettings.didChangeNotification).receive(on: DispatchQueue.main).sink { [weak self] _ in self?.revision &+= 1 }
+        recorderCancellable = notificationCenter.publisher(for: KeyboardShortcutRecorderActivity.didChangeNotification).receive(on: DispatchQueue.main).sink { [weak self] _ in self?.revision &+= 1 }
     }
 }
 
@@ -97,7 +91,6 @@ final class CmuxSettingsFileStore {
         "browser.insecureHttpHostsAllowedInEmbeddedBrowser",
         "browser.showImportHintOnBlankTabs",
         "browser.reactGrabVersion",
-        "shortcuts.showModifierHoldHints",
         "shortcuts.bindings",
     ]
 
@@ -1133,20 +1126,8 @@ final class CmuxSettingsFileStore {
             }
         }
 
-        if defaultsKey == TerminalScrollBarSettings.showScrollBarKey, didMutateStoredValue {
-            TerminalScrollBarSettings.notifyDidChange(notificationCenter: notificationCenter)
-        }
-
-        switch defaultsKey {
-        case LanguageSettings.languageKey:
-            let language = AppLanguage(rawValue: userDefaults.string(forKey: defaultsKey) ?? "") ?? .system
-            LanguageSettings.apply(language)
-        case AppearanceSettings.appearanceModeKey:
-            AppearanceSettings.applyStoredMode(rawValue: userDefaults.string(forKey: defaultsKey), source: "cmuxConfig.applyManagedDefault")
-        case AppIconSettings.modeKey:
-            AppIconSettings.applyIcon(AppIconSettings.resolvedMode())
-        default:
-            break
+        if didMutateStoredValue {
+            applyManagedDefaultSideEffects(for: defaultsKey, notifyScrollBar: defaultsKey == TerminalScrollBarSettings.showScrollBarKey, source: "cmuxConfig.applyManagedDefault")
         }
     }
 
@@ -1164,37 +1145,53 @@ final class CmuxSettingsFileStore {
             return
         }
 
+        var didMutateStoredValue = false
         switch backup {
         case .absent:
-            defaults.removeObject(forKey: defaultsKey)
+            if defaults.object(forKey: defaultsKey) != nil { defaults.removeObject(forKey: defaultsKey); didMutateStoredValue = true }
         case .bool(let value):
-            defaults.set(value, forKey: defaultsKey)
+            if defaults.object(forKey: defaultsKey) as? Bool != value { defaults.set(value, forKey: defaultsKey); didMutateStoredValue = true }
         case .int(let value):
-            defaults.set(value, forKey: defaultsKey)
+            if defaults.object(forKey: defaultsKey) as? Int != value { defaults.set(value, forKey: defaultsKey); didMutateStoredValue = true }
         case .double(let value):
-            defaults.set(value, forKey: defaultsKey)
+            if defaults.object(forKey: defaultsKey) as? Double != value { defaults.set(value, forKey: defaultsKey); didMutateStoredValue = true }
         case .string(let value):
-            defaults.set(value, forKey: defaultsKey)
+            if defaults.string(forKey: defaultsKey) != value { defaults.set(value, forKey: defaultsKey); didMutateStoredValue = true }
         case .stringArray(let value):
-            defaults.set(value, forKey: defaultsKey)
+            if defaults.array(forKey: defaultsKey) as? [String] != value { defaults.set(value, forKey: defaultsKey); didMutateStoredValue = true }
         case .stringDictionary(let value):
-            defaults.set(value, forKey: defaultsKey)
+            if defaults.dictionary(forKey: defaultsKey) as? [String: String] != value { defaults.set(value, forKey: defaultsKey); didMutateStoredValue = true }
         }
 
-        if defaultsKey == TerminalScrollBarSettings.showScrollBarKey {
-            TerminalScrollBarSettings.notifyDidChange(notificationCenter: notificationCenter)
+        if didMutateStoredValue {
+            applyManagedDefaultSideEffects(for: defaultsKey, notifyScrollBar: defaultsKey == TerminalScrollBarSettings.showScrollBarKey, source: "cmuxConfig.restoreUserDefault")
+        }
+    }
+
+    private func applyManagedDefaultSideEffects(for defaultsKey: String, notifyScrollBar: Bool, source: String) {
+        let notificationCenter = notificationCenter
+        let language = defaultsKey == LanguageSettings.languageKey ? AppLanguage(rawValue: userDefaults.string(forKey: defaultsKey) ?? "") ?? .system : nil
+        let shouldApplyAppearance = defaultsKey == AppearanceSettings.appearanceModeKey
+        let appearanceRawValue = shouldApplyAppearance ? userDefaults.string(forKey: defaultsKey) : nil
+        let appIconMode = defaultsKey == AppIconSettings.modeKey ? AppIconSettings.resolvedMode() : nil
+        let apply = {
+            if notifyScrollBar {
+                TerminalScrollBarSettings.notifyDidChange(notificationCenter: notificationCenter)
+            }
+
+            if let language {
+                LanguageSettings.apply(language)
+            } else if shouldApplyAppearance {
+                AppearanceSettings.applyStoredMode(rawValue: appearanceRawValue, source: source)
+            } else if let appIconMode {
+                AppIconSettings.applyIcon(appIconMode)
+            }
         }
 
-        switch defaultsKey {
-        case LanguageSettings.languageKey:
-            let language = AppLanguage(rawValue: userDefaults.string(forKey: defaultsKey) ?? "") ?? .system
-            LanguageSettings.apply(language)
-        case AppearanceSettings.appearanceModeKey:
-            AppearanceSettings.applyStoredMode(rawValue: userDefaults.string(forKey: defaultsKey), source: "cmuxConfig.restoreUserDefault")
-        case AppIconSettings.modeKey:
-            AppIconSettings.applyIcon(AppIconSettings.resolvedMode())
-        default:
-            break
+        if Thread.isMainThread {
+            apply()
+        } else {
+            DispatchQueue.main.async { apply() }
         }
     }
 
@@ -1278,189 +1275,6 @@ final class CmuxSettingsFileStore {
         return strings
     }
 
-    static func defaultTemplate() -> String {
-        var lines: [String] = [
-            "{",
-            "  \"$schema\": \"\(schemaURLString)\",",
-            "  \"schemaVersion\": \(currentSchemaVersion),",
-            "",
-            "  // This file uses JSON with comments (JSONC).",
-            "  // Uncomment and edit any setting to make it file-managed.",
-            "  // Remove a setting to fall back to the value saved in Settings.",
-            "  // cmux creates this template on launch when ~/.config/cmux/cmux.json is missing.",
-            "  // Legacy settings.json files are read only as fallback for keys not present here.",
-            "",
-        ]
-
-        let sections = defaultTemplateSections()
-        for (index, section) in sections.enumerated() {
-            lines.append(contentsOf: commentedTemplateLines(for: section))
-            if index < sections.count - 1 {
-                lines.append("")
-            }
-        }
-
-        lines.append("}")
-        return lines.joined(separator: "\n") + "\n"
-    }
-
-    private static func commentedTemplateLines(for section: [String: Any]) -> [String] {
-        let json = prettyJSONString(section)
-        let sectionLines = json
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .map(String.init)
-        guard sectionLines.count >= 2 else { return [] }
-
-        return sectionLines
-            .dropFirst()
-            .dropLast()
-            .enumerated()
-            .map { index, line in
-                if index == sectionLines.count - 3 {
-                    return "  // \(line),"
-                }
-                return "  // \(line)"
-            }
-    }
-
-    private static func defaultTemplateSections() -> [[String: Any]] {
-        let shortcutsBindings = Dictionary(
-            uniqueKeysWithValues: KeyboardShortcutSettings.Action.allCases.map { action in
-                (action.rawValue, shortcutTemplateValue(action.defaultShortcut, usesNumberedDigits: action.usesNumberedDigitMatching))
-            }
-        )
-
-        return [
-            [
-                "app": [
-                    "language": LanguageSettings.defaultLanguage.rawValue,
-                    "appearance": AppearanceSettings.defaultMode.rawValue,
-                    "appIcon": AppIconSettings.defaultMode.rawValue,
-                    "menuBarOnly": MenuBarOnlySettings.defaultMenuBarOnly,
-                    "newWorkspacePlacement": WorkspacePlacementSettings.defaultPlacement.rawValue,
-                    "minimalMode": false,
-                    "keepWorkspaceOpenWhenClosingLastSurface": !LastSurfaceCloseShortcutSettings.defaultValue,
-                    "focusPaneOnFirstClick": PaneFirstClickFocusSettings.defaultEnabled,
-                    "preferredEditor": "",
-                    "openMarkdownInCmuxViewer": CmdClickMarkdownRouteSettings.defaultValue,
-                    "reorderOnNotification": WorkspaceAutoReorderSettings.defaultValue,
-                    "iMessageMode": IMessageModeSettings.defaultValue,
-                    "sendAnonymousTelemetry": TelemetrySettings.defaultSendAnonymousTelemetry,
-                    "warnBeforeQuit": QuitWarningSettings.defaultWarnBeforeQuit,
-                    "renameSelectsExistingName": CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus,
-                    "commandPaletteSearchesAllSurfaces": CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces,
-                ],
-            ],
-            [
-                "terminal": [
-                    "showScrollBar": TerminalScrollBarSettings.defaultShowScrollBar,
-                ],
-            ],
-            [
-                "notifications": [
-                    "dockBadge": NotificationBadgeSettings.defaultDockBadgeEnabled,
-                    "showInMenuBar": MenuBarExtraSettings.defaultShowInMenuBar,
-                    "unreadPaneRing": NotificationPaneRingSettings.defaultEnabled,
-                    "paneFlash": NotificationPaneFlashSettings.defaultEnabled,
-                    "sound": NotificationSoundSettings.defaultValue,
-                    "customSoundFilePath": NotificationSoundSettings.defaultCustomFilePath,
-                    "command": NotificationSoundSettings.defaultCustomCommand,
-                ],
-            ],
-            [
-                "sidebar": [
-                    "hideAllDetails": SidebarWorkspaceDetailSettings.defaultHideAllDetails,
-                    "branchLayout": SidebarBranchLayoutSettings.defaultVerticalLayout ? "vertical" : "inline",
-                    "showNotificationMessage": SidebarWorkspaceDetailSettings.defaultShowNotificationMessage,
-                    "showBranchDirectory": true,
-                    "showPullRequests": true,
-                    "makePullRequestsClickable": SidebarPullRequestClickabilitySettings.defaultClickable,
-                    "openPullRequestLinksInCmuxBrowser": BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser,
-                    "openPortLinksInCmuxBrowser": BrowserLinkOpenSettings.defaultOpenSidebarPortLinksInCmuxBrowser,
-                    "showSSH": true,
-                    "showPorts": true,
-                    "showLog": true,
-                    "showProgress": true,
-                    "showCustomMetadata": true,
-                ],
-            ],
-            [
-                "workspaceColors": [
-                    "indicatorStyle": SidebarActiveTabIndicatorSettings.defaultStyle.rawValue,
-                    "selectionColor": NSNull(),
-                    "notificationBadgeColor": NSNull(),
-                    "colors": Dictionary(
-                        uniqueKeysWithValues: WorkspaceTabColorSettings.defaultPalette.map { ($0.name, $0.hex) }
-                    )
-                ],
-            ],
-            [
-                "sidebarAppearance": [
-                    "matchTerminalBackground": false,
-                    "tintColor": SidebarTintDefaults.hex,
-                    "lightModeTintColor": NSNull(),
-                    "darkModeTintColor": NSNull(),
-                    "tintOpacity": SidebarTintDefaults.opacity,
-                ],
-            ],
-            [
-                "automation": [
-                    "socketControlMode": SocketControlSettings.defaultMode.rawValue,
-                    "socketPassword": "",
-                    "claudeCodeIntegration": ClaudeCodeIntegrationSettings.defaultHooksEnabled,
-                    "claudeBinaryPath": "",
-                    "cursorIntegration": CursorIntegrationSettings.defaultHooksEnabled,
-                    "geminiIntegration": GeminiIntegrationSettings.defaultHooksEnabled,
-                    "portBase": 9100,
-                    "portRange": 10,
-                ],
-            ],
-            [
-                "browser": [
-                    "defaultSearchEngine": BrowserSearchSettings.defaultSearchEngine.rawValue,
-                    "showSearchSuggestions": BrowserSearchSettings.defaultSearchSuggestionsEnabled,
-                    "theme": BrowserThemeSettings.defaultMode.rawValue,
-                    "openTerminalLinksInCmuxBrowser": BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser,
-                    "interceptTerminalOpenCommandInCmuxBrowser": BrowserLinkOpenSettings.defaultInterceptTerminalOpenCommandInCmuxBrowser,
-                    "hostsToOpenInEmbeddedBrowser": [String](),
-                    "urlsToAlwaysOpenExternally": [String](),
-                    "insecureHttpHostsAllowedInEmbeddedBrowser": BrowserInsecureHTTPSettings.defaultAllowlistPatterns,
-                    "showImportHintOnBlankTabs": BrowserImportHintSettings.defaultShowOnBlankTabs,
-                    "reactGrabVersion": ReactGrabSettings.defaultVersion,
-                ],
-            ],
-            [
-                "shortcuts": [
-                    "showModifierHoldHints": ShortcutHintDebugSettings.defaultShowHintsOnCommandHold &&
-                        ShortcutHintDebugSettings.defaultShowHintsOnControlHold,
-                    "bindings": shortcutsBindings,
-                ],
-            ],
-        ]
-    }
-
-    private static func shortcutTemplateValue(
-        _ shortcut: StoredShortcut,
-        usesNumberedDigits: Bool
-    ) -> Any {
-        let defaultShortcut = usesNumberedDigits ? (shortcut.secondStroke ?? shortcut.firstStroke) : nil
-        let rendered = shortcut.firstStroke.configString(preserveDigit: !usesNumberedDigits)
-        if let secondStroke = shortcut.secondStroke {
-            return [rendered, secondStroke.configString(preserveDigit: true)]
-        }
-        if let defaultShortcut {
-            return defaultShortcut.configString(preserveDigit: true)
-        }
-        return rendered
-    }
-
-    private static func prettyJSONString(_ value: Any) -> String {
-        guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys]),
-              let string = String(data: data, encoding: .utf8) else {
-            return "{}"
-        }
-        return string
-    }
 }
 
 typealias KeyboardShortcutSettingsFileStore = CmuxSettingsFileStore
