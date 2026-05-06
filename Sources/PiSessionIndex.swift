@@ -283,7 +283,7 @@ extension SessionIndexStore {
     /// Parsed metadata from a single pi session JSONL file. All fields are
     /// optional / defaulted because pi files can be partially written and we
     /// want lenient parsing for the index.
-    struct PiParsed: Equatable {
+    private struct PiParsed: Equatable {
         var version: Int = 0
         var sessionId: String = ""
         var cwd: String?
@@ -301,7 +301,7 @@ extension SessionIndexStore {
     ///
     /// Returns nil if the file has no parseable session header (likely empty
     /// file mid-write or corrupted).
-    nonisolated static func extractPiMetadata(url: URL) -> PiParsed? {
+    nonisolated private static func extractPiMetadata(url: URL) -> PiParsed? {
         var out = PiParsed()
         var sawHeader = false
         let maxBytes = 4 * 1024 * 1024
@@ -349,7 +349,7 @@ extension SessionIndexStore {
 
     /// pi user message content can be either a plain string or an array of
     /// `{type:"text",text:"..."}` parts. Return the first non-empty text part.
-    nonisolated static func piExtractUserText(_ raw: Any?) -> String? {
+    nonisolated private static func piExtractUserText(_ raw: Any?) -> String? {
         if let str = raw as? String {
             return str.trimmingCharacters(in: .whitespacesAndNewlines)
         }
@@ -368,7 +368,7 @@ extension SessionIndexStore {
     ///   - if user set a name via `/name <name>`, use it verbatim
     ///   - else use the first user message, single-lined and truncated to 80
     ///   - else "(untitled)"
-    nonisolated static func piResolveTitle(
+    nonisolated private static func piResolveTitle(
         sessionInfoName: String?,
         firstUserMessage: String?
     ) -> String {
