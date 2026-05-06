@@ -3,6 +3,7 @@ import Foundation
 enum RestorableAgentKind: Codable, Hashable, Sendable {
     case claude
     case codex
+    case pi
     case cursor
     case gemini
     case opencode

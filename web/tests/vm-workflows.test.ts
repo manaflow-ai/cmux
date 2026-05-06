@@ -4,6 +4,7 @@ import * as Layer from "effect/Layer";
 import postgres, { type Sql } from "postgres";
 import { closeCloudDbForTests } from "../db/client";
 import {
+  FREE_INITIAL_CREATE_CREDITS_REASON,
   VmBillingGateway,
   noOpVmBillingGateway,
   type VmBillingGatewayShape,
@@ -61,7 +62,7 @@ afterAll(async () => {
 describe("VM Effect workflows", () => {
   dbTest("creates one provider VM per user idempotency key and records usage", async () => {
     if (!sql) throw new Error("test database not initialized");
-    await sql`truncate cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
 
     let createCalls = 0;
     const provider: VmProviderGatewayShape = {
@@ -118,7 +119,7 @@ describe("VM Effect workflows", () => {
 
   dbTest("revokes the previous SSH identity before minting a replacement", async () => {
     if (!sql) throw new Error("test database not initialized");
-    await sql`truncate cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
     const [vm] = await sql<{ id: string }[]>`
       insert into cloud_vms (user_id, provider, provider_vm_id, image_id, status)
       values ('user-workflow-ssh', 'freestyle', 'provider-vm-ssh-1', 'snapshot-test', 'running')
@@ -181,7 +182,7 @@ describe("VM Effect workflows", () => {
 
   dbTest("enforces active VM limits per billing team before provider create", async () => {
     if (!sql) throw new Error("test database not initialized");
-    await sql`truncate cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
     await sql`
       insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status)
       values ('user-workflow-limit-owner', 'team-workflow-limit', 'free', 'e2b', 'provider-vm-limit-1', 'cmuxd-ws:test', 'running')
@@ -230,7 +231,7 @@ describe("VM Effect workflows", () => {
   dbTest("returns in-progress for concurrent same-key creates before active limit checks", async () => {
     if (!sql) throw new Error("test database not initialized");
     const testSql = sql;
-    await sql`truncate cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
 
     let createCalls = 0;
     const provider: VmProviderGatewayShape = {
@@ -312,7 +313,7 @@ describe("VM Effect workflows", () => {
 
   dbTest("allows a new create after destroy releases the active team slot", async () => {
     if (!sql) throw new Error("test database not initialized");
-    await sql`truncate cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
     await sql`
       insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status)
       values ('user-workflow-reuse-slot', 'team-workflow-reuse-slot', 'free', 'e2b', 'provider-vm-reuse-old', 'cmuxd-ws:test', 'running')
@@ -375,7 +376,7 @@ describe("VM Effect workflows", () => {
 
   dbTest("reserves Stack Auth credits only once per new idempotency key", async () => {
     if (!sql) throw new Error("test database not initialized");
-    await sql`truncate cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
 
     let createCalls = 0;
     const provider: VmProviderGatewayShape = {
@@ -399,6 +400,7 @@ describe("VM Effect workflows", () => {
 
     let reserveCalls = 0;
     const billing: VmBillingGatewayShape = {
+      ...noOpVmBillingGateway(),
       reserveCreate: () =>
         Effect.sync(() => {
           reserveCalls += 1;
@@ -440,9 +442,99 @@ describe("VM Effect workflows", () => {
     expect(usageEvents.map((event) => event.eventType)).toContain("vm.create.credit.reserved");
   });
 
+  dbTest("grants initial free-plan Stack Auth credits once per billing team", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+
+    let createCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      create: () =>
+        Effect.sync(() => {
+          createCalls += 1;
+          return {
+            provider: "e2b" as const,
+            providerVmId: `provider-vm-credit-grant-${createCalls}`,
+            status: "running" as const,
+            image: "cmuxd-ws:credit-grant",
+            createdAt: Date.now(),
+          };
+        }),
+      destroy: () => Effect.void,
+      exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
+      openAttach: () => Effect.fail(new Error("unused") as never),
+      openSSH: () => Effect.fail(new Error("unused") as never),
+      revokeSSHIdentity: () => Effect.void,
+    };
+
+    let grantCalls = 0;
+    let reserveCalls = 0;
+    const billing: VmBillingGatewayShape = {
+      ...noOpVmBillingGateway(),
+      resolveInitialCreateCreditGrant: () => ({
+        kind: "stack_item" as const,
+        itemId: "cmux-vm-create-credit",
+        customerType: "team" as const,
+        customerId: "team-workflow-credit-grant",
+        amount: 20,
+        reason: FREE_INITIAL_CREATE_CREDITS_REASON,
+      }),
+      applyCreateCreditGrant: () =>
+        Effect.sync(() => {
+          grantCalls += 1;
+        }),
+      reserveCreate: () =>
+        Effect.sync(() => {
+          reserveCalls += 1;
+          return {
+            kind: "stack_item" as const,
+            itemId: "cmux-vm-create-credit",
+            customerType: "team" as const,
+            customerId: "team-workflow-credit-grant",
+            amount: 1,
+          };
+        }),
+    };
+
+    const layer = providerLayer(provider, billing);
+    for (const idempotencyKey of ["credit-grant-1", "credit-grant-2"]) {
+      await Effect.runPromise(
+        createVm({
+          userId: "user-workflow-credit-grant",
+          billingCustomerType: "team",
+          billingTeamId: "team-workflow-credit-grant",
+          billingPlanId: "free",
+          maxActiveVms: 10,
+          provider: "e2b",
+          image: "cmuxd-ws:credit-grant",
+          idempotencyKey,
+        }).pipe(Effect.provide(layer)),
+      );
+    }
+
+    expect(createCalls).toBe(2);
+    expect(grantCalls).toBe(1);
+    expect(reserveCalls).toBe(2);
+
+    const [grantRow] = await sql<{ total: number; applied: number }[]>`
+      select count(*)::int as total, count(applied_at)::int as applied
+      from cloud_vm_billing_grants
+      where billing_customer_id = 'team-workflow-credit-grant'
+        and item_id = 'cmux-vm-create-credit'
+    `;
+    expect(grantRow).toEqual({ total: 1, applied: 1 });
+
+    const [grantEvents] = await sql<{ total: number }[]>`
+      select count(*)::int as total
+      from cloud_vm_usage_events
+      where billing_team_id = 'team-workflow-credit-grant'
+        and event_type = 'vm.create.credit.granted'
+    `;
+    expect(grantEvents?.total).toBe(1);
+  });
+
   dbTest("does not call the provider when Stack Auth credits are insufficient", async () => {
     if (!sql) throw new Error("test database not initialized");
-    await sql`truncate cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
 
     let createCalls = 0;
     const provider: VmProviderGatewayShape = {
@@ -458,6 +550,7 @@ describe("VM Effect workflows", () => {
       revokeSSHIdentity: () => Effect.void,
     };
     const billing: VmBillingGatewayShape = {
+      ...noOpVmBillingGateway(),
       reserveCreate: () => Effect.fail(new VmCreateCreditsInsufficientError({
         itemId: "cmux-vm-create-credit",
         billingCustomerId: "team-workflow-credit-empty",
@@ -546,7 +639,7 @@ describe("VM Effect workflows", () => {
 
   dbTest("refunds a reserved Stack Auth credit when provider create fails", async () => {
     if (!sql) throw new Error("test database not initialized");
-    await sql`truncate cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
 
     const provider: VmProviderGatewayShape = {
       create: () => Effect.fail(new Error("provider unavailable") as never),
@@ -558,6 +651,7 @@ describe("VM Effect workflows", () => {
     };
     let refundCalls = 0;
     const billing: VmBillingGatewayShape = {
+      ...noOpVmBillingGateway(),
       reserveCreate: () => Effect.succeed({
         kind: "stack_item" as const,
         itemId: "cmux-vm-create-credit",
@@ -591,7 +685,7 @@ describe("VM Effect workflows", () => {
 
   dbTest("does not attach another user's VM", async () => {
     if (!sql) throw new Error("test database not initialized");
-    await sql`truncate cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
     await sql`
       insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status)
       values ('user-workflow-owner', 'team-workflow-owner', 'free', 'freestyle', 'provider-vm-private-1', 'snapshot-test', 'running')
@@ -633,7 +727,7 @@ describe("VM Effect workflows", () => {
 
   dbTest("does not destroy, exec, or mint SSH for another user's VM", async () => {
     if (!sql) throw new Error("test database not initialized");
-    await sql`truncate cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
     await sql`
       insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status)
       values ('user-workflow-owner', 'team-workflow-owner', 'free', 'freestyle', 'provider-vm-private-2', 'snapshot-test', 'running')
@@ -699,7 +793,7 @@ describe("VM Effect workflows", () => {
 
   dbTest("records repeated attach RPC leases idempotently when provider returns a stable daemon token", async () => {
     if (!sql) throw new Error("test database not initialized");
-    await sql`truncate cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
     const [vm] = await sql<{ id: string }[]>`
       insert into cloud_vms (user_id, provider, provider_vm_id, image_id, status)
       values ('user-workflow-attach', 'freestyle', 'provider-vm-attach-1', 'snapshot-test', 'running')

@@ -35,4 +35,53 @@ struct AgentLaunchSanitizerTests {
             ) == ["cursor-agent", "--model", "gpt-5.4", "--sandbox", "enabled"]
         )
     }
+
+    @Test("Drops Pi session selectors and prompt while preserving configuration")
+    func dropsPiSessionSelectorsAndPrompt() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "pi", "--session", "old-session", "--model", "anthropic/claude-sonnet-4-5",
+                    "--thinking", "high", "--api-key", "secret", "implement this"
+                ],
+                launcher: "pi",
+                fallbackKind: "pi"
+            ) == ["pi", "--model", "anthropic/claude-sonnet-4-5", "--thinking", "high"]
+        )
+    }
+
+    @Test("Preserves repeated Pi extension and skill flags without replaying prompt")
+    func preservesRepeatedPiExtensionAndSkillFlags() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "pi", "--extension", "a.ts", "--extension", "b.ts",
+                    "--skill", "review", "--skill", "swift", "initial prompt"
+                ],
+                launcher: "pi",
+                fallbackKind: "pi"
+            ) == [
+                "pi", "--extension", "a.ts", "--extension", "b.ts",
+                "--skill", "review", "--skill", "swift"
+            ]
+        )
+    }
+
+    @Test("Rejects noninteractive Pi launches")
+    func rejectsNoninteractivePiLaunches() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["pi", "--print", "summarize"],
+                launcher: "pi",
+                fallbackKind: "pi"
+            ) == nil
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["pi", "--prompt", "summarize"],
+                launcher: "pi",
+                fallbackKind: "pi"
+            ) == nil
+        )
+    }
 }
