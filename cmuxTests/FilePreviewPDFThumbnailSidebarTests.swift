@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import Carbon.HIToolbox
 import PDFKit
 
 #if canImport(cmux_DEV)
@@ -10,6 +11,103 @@ import PDFKit
 
 @MainActor
 final class FilePreviewPDFThumbnailSidebarTests: XCTestCase {
+    func testPrimaryClickFocusesPDFCanvasForKeyboardScroll() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 500),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let pdfView = FilePreviewMagnifyingPDFView(frame: window.contentView?.bounds ?? .zero)
+        window.contentView = pdfView
+        XCTAssertTrue(window.makeFirstResponder(nil))
+
+        let click = try XCTUnwrap(NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: NSPoint(x: 120, y: 120),
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 1,
+            pressure: 1
+        ))
+
+        pdfView.mouseDown(with: click)
+
+        XCTAssertTrue(window.firstResponder === pdfView)
+    }
+
+    func testFocusedPDFCanvasArrowDownScrollsWithoutPageStepping() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 500),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let pdfView = FilePreviewMagnifyingPDFView(frame: window.contentView?.bounds ?? .zero)
+        window.contentView = pdfView
+        pdfView.displayMode = .singlePageContinuous
+        pdfView.displayDirection = .vertical
+        pdfView.autoScales = true
+
+        let document = try makePDFDocument(pageSizes: Array(repeating: NSSize(width: 600, height: 700), count: 4))
+        pdfView.document = document
+        pdfView.layoutDocumentView()
+        pdfView.layoutSubtreeIfNeeded()
+        let firstPage = try XCTUnwrap(document.page(at: 0))
+        pdfView.go(to: firstPage)
+        pdfView.layoutDocumentView()
+        pdfView.layoutSubtreeIfNeeded()
+
+        let scrollView = try XCTUnwrap(findScrollView(in: pdfView))
+        let initialPage = pdfView.currentPage
+        let initialOrigin = scrollView.contentView.bounds.origin
+        let downArrow = try XCTUnwrap(downArrowKeyEvent())
+
+        XCTAssertTrue(window.makeFirstResponder(pdfView))
+        XCTAssertTrue(pdfView.performKeyEquivalent(with: downArrow))
+
+        let nextOrigin = scrollView.contentView.bounds.origin
+        XCTAssertEqual(pdfView.currentPage, initialPage)
+        let scrollDelta = nextOrigin.y - initialOrigin.y
+        if scrollView.contentView.isFlipped {
+            XCTAssertGreaterThan(scrollDelta, 0)
+        } else {
+            XCTAssertLessThan(scrollDelta, 0)
+        }
+        XCTAssertLessThan(abs(scrollDelta), scrollView.contentView.bounds.height * 0.5)
+    }
+
+    func testThumbnailArrowNavigationRequiresThumbnailKeyboardFocus() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: window.contentView?.bounds ?? .zero)
+        window.contentView = contentView
+
+        let thumbnailCollection = FilePreviewPDFThumbnailCollectionView(frame: contentView.bounds)
+        let pdfFocusOwner = ThumbnailSidebarFocusProbeView(frame: contentView.bounds)
+        contentView.addSubview(thumbnailCollection)
+        contentView.addSubview(pdfFocusOwner)
+
+        var navigationDeltas: [Int] = []
+        thumbnailCollection.onPageNavigation = { navigationDeltas.append($0) }
+        let downArrow = try XCTUnwrap(downArrowKeyEvent())
+
+        XCTAssertTrue(window.makeFirstResponder(pdfFocusOwner))
+        XCTAssertFalse(thumbnailCollection.performKeyEquivalent(with: downArrow))
+        XCTAssertEqual(navigationDeltas, [])
+
+        XCTAssertTrue(window.makeFirstResponder(thumbnailCollection))
+        XCTAssertTrue(thumbnailCollection.performKeyEquivalent(with: downArrow))
+        XCTAssertEqual(navigationDeltas, [1])
+    }
+
     func testPrimaryClickSelectsItemWithoutScrollingSidebar() throws {
         let sidebar = FilePreviewPDFThumbnailSidebarView(frame: NSRect(x: 0, y: 0, width: 220, height: 420))
         let document = try makePDFDocument(pageCount: 8)
@@ -98,12 +196,16 @@ final class FilePreviewPDFThumbnailSidebarTests: XCTestCase {
     }
 
     private func makePDFDocument(pageCount: Int) throws -> PDFDocument {
+        try makePDFDocument(pageSizes: Array(repeating: NSSize(width: 80, height: 80), count: pageCount))
+    }
+
+    private func makePDFDocument(pageSizes: [NSSize]) throws -> PDFDocument {
         let document = PDFDocument()
-        for pageIndex in 0..<pageCount {
-            let image = NSImage(size: NSSize(width: 80, height: 80))
+        for (pageIndex, pageSize) in pageSizes.enumerated() {
+            let image = NSImage(size: pageSize)
             image.lockFocus()
             NSColor(
-                calibratedHue: CGFloat(pageIndex) / CGFloat(max(pageCount, 1)),
+                calibratedHue: CGFloat(pageIndex) / CGFloat(max(pageSizes.count, 1)),
                 saturation: 0.5,
                 brightness: 0.8,
                 alpha: 1
@@ -127,4 +229,25 @@ final class FilePreviewPDFThumbnailSidebarTests: XCTestCase {
         }
         return nil
     }
+
+    private func downArrowKeyEvent() -> NSEvent? {
+        let key = String(UnicodeScalar(NSDownArrowFunctionKey)!)
+        return NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: key,
+            charactersIgnoringModifiers: key,
+            isARepeat: false,
+            keyCode: UInt16(kVK_DownArrow)
+        )
+    }
+}
+
+private final class ThumbnailSidebarFocusProbeView: NSView {
+    override var acceptsFirstResponder: Bool { true }
+    override var canBecomeKeyView: Bool { true }
 }

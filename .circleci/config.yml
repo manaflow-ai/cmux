@@ -160,7 +160,26 @@ jobs:
                 -disableAutomaticPackageResolution \
                 -destination "platform=macOS" \
                 -skip-testing:cmuxTests/AppDelegateShortcutRoutingTests/testCmdWClosesWindowWhenClosingLastSurfaceInLastWorkspace \
-                test 2>&1
+                test 2>&1 &
+              TEST_PID=$!
+              ELAPSED_SECONDS=0
+              TIMEOUT_SECONDS=2700
+              while kill -0 "$TEST_PID" 2>/dev/null; do
+                sleep 60
+                ELAPSED_SECONDS=$((ELAPSED_SECONDS + 60))
+                if [ "$ELAPSED_SECONDS" -ge "$TIMEOUT_SECONDS" ]; then
+                  echo "Unit tests exceeded ${TIMEOUT_SECONDS}s, terminating xcodebuild."
+                  pkill -TERM -P "$TEST_PID" 2>/dev/null || true
+                  kill -TERM "$TEST_PID" 2>/dev/null || true
+                  sleep 5
+                  pkill -KILL -P "$TEST_PID" 2>/dev/null || true
+                  kill -KILL "$TEST_PID" 2>/dev/null || true
+                  wait "$TEST_PID" 2>/dev/null || true
+                  return 124
+                fi
+                echo "Unit tests still running after ${ELAPSED_SECONDS}s..."
+              done
+              wait "$TEST_PID"
             }
 
             set +e

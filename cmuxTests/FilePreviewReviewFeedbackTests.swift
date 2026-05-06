@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import Carbon.HIToolbox
+import PDFKit
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -64,6 +65,110 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
 
         XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .quickLook)
         XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
+    }
+
+    func testTypeScriptExtensionResolvesAsEditableText() throws {
+        let url = try temporaryTextFile(contents: "export const value: number = 1\n", encoding: .utf8, pathExtension: "ts")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .text)
+        XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
+        XCTAssertEqual(FilePreviewKindResolver.initialTabIconName(for: url), "doc.text")
+    }
+
+    func testTextPreviewReloadsExternalFileUpdates() async throws {
+        let url = try temporaryTextFile(contents: "first", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
+        await panel.loadTextContent().value
+
+        XCTAssertEqual(panel.textContent, "first")
+        XCTAssertFalse(panel.isDirty)
+
+        try "second".write(to: url, atomically: true, encoding: .utf8)
+
+        await waitUntil("text preview external reload") {
+            panel.textContent == "second" && !panel.isDirty
+        }
+    }
+
+    func testNonTextPreviewPublishesFileRevisionOnExternalUpdates() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("png")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        try writeTestPNG(color: .red, to: url)
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
+
+        XCTAssertEqual(panel.previewMode, .image)
+        let initialRevision = panel.fileContentRevision
+
+        try writeTestPNG(color: .blue, to: url)
+
+        await waitUntil("image preview external revision") {
+            panel.fileContentRevision > initialRevision && !panel.isFileUnavailable
+        }
+    }
+
+    func testFileWatcherCoalescingKeepsLatestAvailabilityTransition() {
+        XCTAssertEqual(
+            FilePreviewFileWatcher.mergedEvent(.movedOrDeleted, .reappeared),
+            .reappeared
+        )
+        XCTAssertEqual(
+            FilePreviewFileWatcher.mergedEvent(.reappeared, .movedOrDeleted),
+            .movedOrDeleted
+        )
+        XCTAssertEqual(
+            FilePreviewFileWatcher.mergedEvent(.movedOrDeleted, .changed),
+            .movedOrDeleted
+        )
+        XCTAssertEqual(
+            FilePreviewFileWatcher.mergedEvent(.reappeared, .changed),
+            .reappeared
+        )
+    }
+
+    func testPDFPreviewKeepsExistingDocumentVisibleDuringSameFileReload() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("pdf")
+        let document = PDFDocument()
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
+        let view = FilePreviewPDFContainerView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+        view.setPanel(panel)
+        view.debugSeedPDFDocumentForTesting(document, url: url, revision: 0)
+
+        view.setURL(url, revision: 1)
+        XCTAssertTrue(
+            view.debugPDFDocumentForTesting === document,
+            "Reloading the same PDF should not blank the current document before the replacement finishes loading"
+        )
+    }
+
+    func testDirtyTextPreviewRebasesWhenExternalFileMatchesLocalEdit() async throws {
+        let url = try temporaryTextFile(contents: "first", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
+        await panel.loadTextContent().value
+
+        panel.updateTextContent("local edit")
+        XCTAssertEqual(panel.textContent, "local edit")
+        XCTAssertTrue(panel.isDirty)
+
+        try "local edit".write(to: url, atomically: true, encoding: .utf8)
+
+        await waitUntil("dirty text preview rebase") {
+            panel.textContent == "local edit" && !panel.isDirty
+        }
     }
 
     func testTextLoaderRejectsOversizedTextFiles() throws {
@@ -145,12 +250,28 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         XCTAssertEqual(workspace.bonsplitController.tabs(inPane: targetPane).count, startingTargetTabs + 1)
     }
 
-    private func temporaryTextFile(contents: String, encoding: String.Encoding) throws -> URL {
+    private func temporaryTextFile(
+        contents: String,
+        encoding: String.Encoding,
+        pathExtension: String = "txt"
+    ) throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("txt")
+            .appendingPathExtension(pathExtension)
         try contents.write(to: url, atomically: true, encoding: encoding)
         return url
+    }
+
+    private func writeTestPNG(color: NSColor, to url: URL) throws {
+        let image = NSImage(size: NSSize(width: 8, height: 8))
+        image.lockFocus()
+        color.setFill()
+        NSRect(x: 0, y: 0, width: 8, height: 8).fill()
+        image.unlockFocus()
+        let data = try XCTUnwrap(image.tiffRepresentation)
+        let bitmap = try XCTUnwrap(NSBitmapImageRep(data: data))
+        let pngData = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+        try pngData.write(to: url, options: [.atomic])
     }
 
     private func keyEvent(key: String, keyCode: UInt16) -> NSEvent? {
@@ -179,6 +300,22 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         }
         if panel.isSaving {
             XCTFail("Timed out waiting for panel save", file: file, line: line)
+        }
+    }
+
+    private func waitUntil(
+        _ description: String,
+        timeout: TimeInterval = 2,
+        predicate: @MainActor @escaping () -> Bool,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !predicate(), Date() < deadline {
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+        if !predicate() {
+            XCTFail("Timed out waiting for \(description)", file: file, line: line)
         }
     }
 }

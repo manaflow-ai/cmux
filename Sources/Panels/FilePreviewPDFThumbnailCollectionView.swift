@@ -51,6 +51,7 @@ final class FilePreviewPDFThumbnailCollectionView: NSCollectionView {
     }
 
     private func handlePageNavigation(_ event: NSEvent) -> Bool {
+        guard ownsKeyboardFocus else { return false }
         guard case .navigatePage(let delta) = FilePreviewPDFKeyboardRouting.action(
             for: event,
             region: .pdfThumbnails
@@ -59,5 +60,12 @@ final class FilePreviewPDFThumbnailCollectionView: NSCollectionView {
         }
         onPageNavigation(delta)
         return true
+    }
+
+    private var ownsKeyboardFocus: Bool {
+        guard let firstResponder = window?.firstResponder else { return false }
+        if firstResponder === self { return true }
+        guard let view = firstResponder as? NSView else { return false }
+        return view.isDescendant(of: self)
     }
 }
