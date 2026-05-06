@@ -97,16 +97,31 @@ public enum WorktreeManager {
         branch: String,
         basedOn: String? = nil
     ) throws -> Record {
+        // Pre-checks are a fast path for common errors. The catch block below
+        // re-maps git's stderr to the same typed errors so a parallel agent
+        // that creates the path/branch between the pre-check and `git worktree
+        // add` (TOCTOU) still gets `worktreePathExists` / `branchAlreadyExists`
+        // instead of an opaque `gitFailed`.
         if FileManager.default.fileExists(atPath: worktreePath) {
             throw Failure.worktreePathExists(path: worktreePath)
         }
-        // git worktree add will refuse if branch exists; surface a typed error.
         if branchExists(repoPath: repoPath, branch: branch) {
             throw Failure.branchAlreadyExists(branch: branch)
         }
         var args: [String] = ["worktree", "add", "-b", branch, worktreePath]
         if let basedOn { args.append(basedOn) }
-        _ = try runGit(args: args, cwd: repoPath)
+        do {
+            _ = try runGit(args: args, cwd: repoPath)
+        } catch let Failure.gitFailed(failedArgs, stderr, code) {
+            let lower = stderr.lowercased()
+            if lower.contains("already exists") && lower.contains("branch") {
+                throw Failure.branchAlreadyExists(branch: branch)
+            }
+            if lower.contains("already exists") || lower.contains("not an empty directory") {
+                throw Failure.worktreePathExists(path: worktreePath)
+            }
+            throw Failure.gitFailed(args: failedArgs, stderr: stderr, exitCode: code)
+        }
 
         return Record(
             path: absolute(worktreePath),
@@ -156,8 +171,12 @@ public enum WorktreeManager {
         mainRepoPath: String,
         snapshotBranch: String
     ) throws -> String {
-        let stashRaw = (try? runGit(args: ["stash", "create"], cwd: worktreePath)) ?? ""
-        let stash = stashRaw.trimmingCharacters(in: .whitespacesAndNewlines)
+        // `git stash create` exits 0 with empty stdout when the working tree
+        // is clean — the only valid case for falling back to HEAD. A non-zero
+        // exit signals a real failure (locked index, corrupted store, etc.)
+        // and must propagate, not be silently swallowed.
+        let stash = try runGit(args: ["stash", "create"], cwd: worktreePath)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         let target: String
         if !stash.isEmpty {
             target = stash
@@ -165,10 +184,25 @@ public enum WorktreeManager {
             target = try runGit(args: ["rev-parse", "HEAD"], cwd: worktreePath)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         }
+        // Snapshot collision policy: refuse rather than overwrite. The caller
+        // (Phase 2 cleanup pipeline) is expected to expand `branch_template`
+        // with a timestamp/uuid so collisions are pathological. Surfacing a
+        // typed error preserves the prior recovery branch's contents.
         if branchExists(repoPath: mainRepoPath, branch: snapshotBranch) {
             throw Failure.branchAlreadyExists(branch: snapshotBranch)
         }
-        _ = try runGit(args: ["branch", snapshotBranch, target], cwd: mainRepoPath)
+        // TOCTOU mirror of `add()`: a parallel actor may create the branch
+        // between the check above and `git branch ...`. Map git's stderr back
+        // to `branchAlreadyExists` so callers see the typed error either way.
+        do {
+            _ = try runGit(args: ["branch", snapshotBranch, target], cwd: mainRepoPath)
+        } catch let Failure.gitFailed(failedArgs, stderr, code) {
+            let lower = stderr.lowercased()
+            if lower.contains("already exists") {
+                throw Failure.branchAlreadyExists(branch: snapshotBranch)
+            }
+            throw Failure.gitFailed(args: failedArgs, stderr: stderr, exitCode: code)
+        }
         return target
     }
 
@@ -304,12 +338,33 @@ public enum WorktreeManager {
                 throw Failure.gitFailed(args: args, stderr: "\(error)", exitCode: -1)
             }
 
-            // See PortScanner.captureStandardOutput — must close parent's write
-            // handle before draining the pipe to avoid blocking on EOF.
+            // Close the parent's write ends before draining; readDataToEndOfFile
+            // blocks until every write-fd holder has closed (see PortScanner).
             try? stdoutWrite.close()
             try? stderrWrite.close()
-            let stdoutData = stdoutRead.readDataToEndOfFile()
-            let stderrData = stderrRead.readDataToEndOfFile()
+
+            // Drain stdout and stderr concurrently. Sequential reads deadlock
+            // when either stream exceeds the OS pipe buffer (~64KB on macOS):
+            // the child blocks writing to the unread pipe while we're stuck in
+            // readDataToEndOfFile on the other.
+            let drainQueue = DispatchQueue(
+                label: "cmux.worktree.runGit.drain",
+                attributes: .concurrent
+            )
+            let group = DispatchGroup()
+            var stdoutData = Data()
+            var stderrData = Data()
+            group.enter()
+            drainQueue.async {
+                stdoutData = stdoutRead.readDataToEndOfFile()
+                group.leave()
+            }
+            group.enter()
+            drainQueue.async {
+                stderrData = stderrRead.readDataToEndOfFile()
+                group.leave()
+            }
+            group.wait()
             process.waitUntilExit()
 
             let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
