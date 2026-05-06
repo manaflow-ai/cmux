@@ -1231,6 +1231,16 @@ final class SessionPersistenceTests: XCTestCase {
                     "gemini-2.5-pro",
                 ]
             ),
+            (
+                .pi,
+                [
+                    "/usr/local/bin/pi",
+                    "--provider",
+                    "anthropic",
+                    "--model",
+                    "claude-sonnet-4-5",
+                ]
+            ),
         ]
 
         for scenario in scenarios {
@@ -1363,6 +1373,8 @@ final class SessionPersistenceTests: XCTestCase {
                 resolvedEnvironment = [:]
             case .qoder:
                 resolvedEnvironment = ["QODER_CONFIG_DIR": "/tmp/qoder"]
+            case .pi:
+                resolvedEnvironment = [:]
             }
         }
         let resolvedExecutablePath = executablePath ?? arguments.first ?? "/usr/local/bin/\(kind.rawValue)"

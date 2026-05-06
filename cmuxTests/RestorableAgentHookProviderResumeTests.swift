@@ -44,6 +44,136 @@ extension SocketListenerAcceptPolicyTests {
         )
     }
 
+    /// Pi has no `--resume <id>` flag (it uses `--session <id>`), and the
+    /// bridge re-injects --session itself, so any pre-existing --session/--fork/
+    /// --continue/--print/--no-session must drop. User-set provider/model/
+    /// thinking-level preferences survive verbatim. Positional args (initial
+    /// prompt) drop because pi treats them as a one-shot prompt that doesn't
+    /// belong in a restored interactive session.
+    func testPiResumeCommandUsesSessionAndDropsSelectorsAndPrompt() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .pi,
+            sessionId: "019dfabc-0001-7000-8000-000000000001",
+            workingDirectory: "/tmp/pi repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "pi",
+                executablePath: "/Users/example/.nvm/versions/node/v22.16.0/bin/pi",
+                arguments: [
+                    "/Users/example/.nvm/versions/node/v22.16.0/bin/pi",
+                    "--provider",
+                    "anthropic",
+                    "--model",
+                    "claude-sonnet-4-5",
+                    "--thinking",
+                    "medium",
+                    "--continue",
+                    "--session",
+                    "old-session-uuid",
+                    "--no-session",
+                    "initial prompt should not replay"
+                ],
+                workingDirectory: "/tmp/pi repo",
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "cd '/tmp/pi repo' && '/Users/example/.nvm/versions/node/v22.16.0/bin/pi' '--session' '019dfabc-0001-7000-8000-000000000001' '--provider' 'anthropic' '--model' 'claude-sonnet-4-5' '--thinking' 'medium'"
+        )
+    }
+
+    /// Regression: when the launchCommand was recorded WITHOUT going through
+    /// the cmux-vault TS bridge (e.g. an older session, a launch via raw
+    /// `node /.../pi-coding-agent/dist/cli.js ...`, or a custom wrapper that
+    /// bypassed argv normalization), `original.executable` may be "node"
+    /// instead of "pi". The resume code must detect this shape and rewrite
+    /// to `pi --session <id>` rather than emit a useless `node --session <id>`.
+    /// https://github.com/manaflow-ai/cmux/pull/3562#discussion_r3192272322
+    func testPiResumeRewritesNodeShimArgvToPi() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .pi,
+            sessionId: "shim-session",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "pi",
+                // Recorded by something that bypassed the bridge -- the actual
+                // node binary, not the pi shim.
+                executablePath: "/Users/example/.nvm/versions/node/v22.16.0/bin/node",
+                arguments: [
+                    "/Users/example/.nvm/versions/node/v22.16.0/bin/node",
+                    "/Users/example/.nvm/versions/node/v22.16.0/lib/node_modules/@mariozechner/pi-coding-agent/dist/cli.js",
+                    "--provider", "anthropic",
+                    "--model", "claude-sonnet-4-5",
+                ],
+                workingDirectory: nil,
+                environment: nil,
+                capturedAt: nil,
+                source: nil
+            )
+        )
+        // Resume must collapse to `pi --session <id> ...`, NOT `node --session ...`.
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "pi --session shim-session --provider anthropic --model claude-sonnet-4-5"
+        )
+    }
+
+    /// And: a `nodejs` (Debian) basename should be treated the same way.
+    func testPiResumeRewritesNodejsShimArgvToPi() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .pi,
+            sessionId: "nodejs-shim",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "pi",
+                executablePath: "/usr/bin/nodejs",
+                arguments: [
+                    "/usr/bin/nodejs",
+                    "/opt/pi-coding-agent/dist/cli.js",
+                    "--thinking", "medium",
+                ],
+                workingDirectory: nil,
+                environment: nil,
+                capturedAt: nil,
+                source: nil
+            )
+        )
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "pi --session nodejs-shim --thinking medium"
+        )
+    }
+
+    /// Negative case: an executable basename of `pi` followed by what HAPPENS
+    /// to look like a script path must NOT trigger the shim rewrite -- the
+    /// `pi` binary already takes care of itself.
+    func testPiResumePreservesPiExecutableEvenWhenFirstArgLooksLikeScript() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .pi,
+            sessionId: "healthy",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "pi",
+                executablePath: "/opt/homebrew/bin/pi",
+                arguments: [
+                    "/opt/homebrew/bin/pi",
+                    "--provider", "anthropic",
+                ],
+                workingDirectory: nil,
+                environment: nil,
+                capturedAt: nil,
+                source: nil
+            )
+        )
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "'/opt/homebrew/bin/pi' '--session' 'healthy' '--provider' 'anthropic'"
+        )
+    }
+
     func testRovoDevResumeCommandUsesRestoreAndPreservesYolo() {
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .rovodev,
@@ -480,6 +610,37 @@ extension SocketListenerAcceptPolicyTests {
                 "plan",
                 "--workspace",
                 "/tmp/qoder repo"
+            ]
+        )
+        // Pi: drop --continue/--session/--fork/--no-session and the trailing
+        // positional prompt; preserve --provider/--model/--thinking.
+        XCTAssertEqual(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "/Users/example/.nvm/versions/node/v22.16.0/bin/pi",
+                    "--provider",
+                    "anthropic",
+                    "--model",
+                    "claude-sonnet-4-5",
+                    "--thinking",
+                    "medium",
+                    "--continue",
+                    "--session",
+                    "old-session-uuid",
+                    "--no-session",
+                    "initial prompt should not replay"
+                ],
+                launcher: "pi",
+                fallbackKind: "pi"
+            ),
+            [
+                "/Users/example/.nvm/versions/node/v22.16.0/bin/pi",
+                "--provider",
+                "anthropic",
+                "--model",
+                "claude-sonnet-4-5",
+                "--thinking",
+                "medium"
             ]
         )
     }

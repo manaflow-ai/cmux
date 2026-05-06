@@ -10,6 +10,7 @@ public enum WorkstreamSource: String, Codable, Sendable, CaseIterable, Equatable
     case cursor
     case opencode
     case gemini
+    case pi
     case copilot
     case codebuddy
     case factory

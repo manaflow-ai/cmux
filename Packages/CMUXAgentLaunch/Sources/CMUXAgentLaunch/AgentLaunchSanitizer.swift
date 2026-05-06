@@ -70,6 +70,8 @@ public enum AgentLaunchSanitizer {
                 args.filter { !isOpenCodeInternalWorkerArgument($0) },
                 policy: openCodePolicy
             )
+        case "pi":
+            return preserveOptions(args, policy: piPolicy)
         case "rovodev":
             var tail = args
             if tail.first == "rovodev" {

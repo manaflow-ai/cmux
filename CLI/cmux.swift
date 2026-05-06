@@ -8437,8 +8437,8 @@ struct CMUXCLI {
             return """
             Usage: cmux hooks setup [--agent <name>] [--yes|-y]
                    cmux hooks uninstall [--agent <name>] [--yes|-y]
-                   cmux hooks <agent> install [--yes|-y] (opencode supports --project)
-                   cmux hooks <agent> uninstall [--yes|-y] (opencode supports --project)
+                   cmux hooks <agent> install [--yes|-y] (opencode/pi support --project)
+                   cmux hooks <agent> uninstall [--yes|-y] (opencode/pi support --project)
                    cmux hooks <agent> <event> [flags]
                    cmux hooks feed --source <agent> [--event <event>]
 
@@ -8446,7 +8446,7 @@ struct CMUXCLI {
             agent. Claude Code hooks are injected automatically by the cmux Claude wrapper.
 
             Agents:
-              codex, opencode, cursor, gemini, rovodev, copilot, codebuddy, factory, qoder
+              codex, opencode, cursor, gemini, rovodev, copilot, codebuddy, factory, qoder, pi
 
             Hook targets:
               setup              Install hooks for all supported agents on PATH
@@ -8460,11 +8460,16 @@ struct CMUXCLI {
               ~/.config/opencode/plugins/cmux-session.js
               ~/.config/opencode/plugins/cmux-feed.js
 
+            Pi files:
+              ~/.pi/agent/extensions/cmux-vault/index.ts (global)
+              <cwd>/.pi/extensions/cmux-vault/index.ts   (--project)
+
             Examples:
               cmux hooks setup
               cmux hooks setup --agent codex
               cmux hooks codex install
               cmux hooks opencode install --project
+              cmux hooks pi install
               cmux hooks uninstall
             """
         case "themes":
@@ -15651,6 +15656,15 @@ struct CMUXCLI {
         /// approve/deny a permission / plan / question.
         let feedHookEvents: [String]
         let postInstallAction: PostInstallAction?
+        /// Whether `cmux hooks setup` requires the agent's `~/<configDir>` to
+        /// exist before installing. Most agents (Codex, Cursor, Gemini, ...)
+        /// keep their config under `~/.<agent>/` and we use that as a
+        /// "is the agent installed?" probe. OpenCode and Pi don't write a
+        /// config dir on first invocation — they ship plugin/extension
+        /// scaffolding that we own — so they need to be exempt from the gate.
+        /// Set to `false` for agents whose `installHooksForAgent` creates its
+        /// own scaffold under `~/`.
+        let requiresConfigDir: Bool
 
         enum HookFormat {
             case flat       // Cursor: {"hooks": {"event": [{"command": "..."}]}, "version": 1}
@@ -15689,7 +15703,8 @@ struct CMUXCLI {
              sessionStoreSuffix: String, disableEnvVar: String, hookMarker: String,
              format: HookFormat, events: [HookEvent],
              feedHookEvents: [String] = [],
-             postInstallAction: PostInstallAction? = nil) {
+             postInstallAction: PostInstallAction? = nil,
+             requiresConfigDir: Bool = true) {
             self.name = name; self.displayName = displayName; self.statusKey = statusKey
             self.configDir = configDir; self.configFile = configFile
             self.configDirEnvOverride = configDirEnvOverride
@@ -15698,6 +15713,7 @@ struct CMUXCLI {
             self.hookMarker = hookMarker; self.format = format; self.events = events
             self.feedHookEvents = feedHookEvents
             self.postInstallAction = postInstallAction
+            self.requiresConfigDir = requiresConfigDir
         }
     }
 
@@ -15736,7 +15752,10 @@ struct CMUXCLI {
             configDir: ".config/opencode", configFile: "plugins/cmux-session.js", configDirEnvOverride: "OPENCODE_CONFIG_DIR",
             sessionStoreSuffix: "opencode", disableEnvVar: "CMUX_OPENCODE_HOOKS_DISABLED",
             hookMarker: "cmux hooks opencode", format: .flat,
-            events: []
+            events: [],
+            // OpenCode's plugin file is created by our installer; the user is
+            // not expected to have ~/.config/opencode populated beforehand.
+            requiresConfigDir: false
         ),
         AgentHookDef(
             name: "cursor", displayName: "Cursor", statusKey: "cursor",
@@ -15827,6 +15846,17 @@ struct CMUXCLI {
             ],
             feedHookEvents: ["PreToolUse"]
         ),
+        AgentHookDef(
+            name: "pi", displayName: "Pi", statusKey: "pi",
+            configDir: ".pi/agent", configFile: "extensions/cmux-vault/index.ts",
+            sessionStoreSuffix: "pi", disableEnvVar: "CMUX_PI_HOOKS_DISABLED",
+            hookMarker: "cmux hooks pi", format: .flat,
+            events: [],  // pi loads the bundled TS extension that emits hooks itself
+            // pi auto-creates ~/.pi/agent on first run; our installer drops
+            // the cmux-vault extension under it so the dir is allowed to be
+            // missing at install time.
+            requiresConfigDir: false
+        ),
     ]
 
     private static func agentDef(named name: String) -> AgentHookDef? {
@@ -15907,6 +15937,204 @@ struct CMUXCLI {
         }
         return result
     }
+
+    private static let piSessionExtensionMarker = "cmux-pi-session-extension-marker"
+    private static let piSessionExtensionFilename = "index.ts"
+    private static let piSessionExtensionDirName = "cmux-vault"
+    /// TypeScript bridge written into ~/.pi/agent/extensions/cmux-vault/index.ts (or
+    /// `<cwd>/.pi/extensions/cmux-vault/index.ts` for project-local installs). Pi auto-
+    /// discovers extensions in those locations; jiti loads .ts directly. The bridge
+    /// listens to pi's `session_start` and `session_shutdown` events and shells out to
+    /// `cmux hooks pi session-start` / `session-end` so cmux's restorable-session store
+    /// gets the same lifecycle data Vault already collects for codex/opencode/etc.
+    private static let piSessionExtensionSource = #"""
+    // cmux-pi-session-extension-marker v2
+    // Bridges pi session lifecycle events into cmux's restorable session store.
+    // Installed by `cmux hooks pi install` or `cmux hooks setup`.
+    // DO NOT EDIT MANUALLY. cmux upgrades this file in place.
+    import { spawnSync } from "node:child_process";
+    import * as fs from "node:fs";
+    import * as path from "node:path";
+
+    function firstString(...values) {
+      for (const value of values) {
+        if (typeof value === "string" && value.trim().length > 0) return value.trim();
+      }
+      return null;
+    }
+
+    function resolveExecutable(name) {
+      const pathEnv = process.env.PATH || "";
+      for (const dir of pathEnv.split(path.delimiter)) {
+        if (!dir) continue;
+        const candidate = path.join(dir, name);
+        try {
+          fs.accessSync(candidate, fs.constants.X_OK);
+          return candidate;
+        } catch (_) {}
+      }
+      return name;
+    }
+
+    function looksLikePiScript(value) {
+      if (!value) return false;
+      const lower = String(value).toLowerCase();
+      // pi's launcher is `~/.../bin/pi` (a `#!/usr/bin/env node` JS file). The user
+      // can also run a wrapper named `pi` or invoke via `npx @mariozechner/pi-coding-agent`.
+      // Treat anything ending in `pi` (basename) or containing `pi-coding-agent` as pi.
+      const base = path.basename(lower);
+      if (base === "pi" || base === "pi.js" || base === "pi.cmd") return true;
+      return lower.includes("pi-coding-agent") && (lower.endsWith("cli.js") || lower.endsWith("main.js"));
+    }
+
+    function isPiInternalDistArg(value) {
+      if (!value) return false;
+      const normalized = String(value).replaceAll("\\", "/");
+      // process.argv[1] is typically /<prefix>/pi-coding-agent/dist/cli.js — we want to
+      // collapse that into a plain `pi` invocation so resume commands don't bake in a
+      // machine-specific path.
+      return normalized.includes("/pi-coding-agent/") && normalized.endsWith("cli.js");
+    }
+
+    /**
+     * Pi launches as `node /<prefix>/pi-coding-agent/dist/cli.js [args]`. Without
+     * normalization, Vault's resume command becomes
+     *   node /<long-machine-specific-path> --session <id>
+     * which is ugly and breaks across machines. We collapse argv to `[pi, ...rest]`,
+     * mirroring OpenCode's `normalizedLaunchArgv()` in cmux.swift.
+     */
+    function normalizedPiLaunchArgv() {
+      const raw = Array.isArray(process.argv) ? process.argv.map((value) => String(value)) : [];
+      // Always use the literal token "pi" rather than resolveExecutable("pi")
+      // so the recorded launch is portable across machines. Vault re-runs the
+      // launch command on resume; baking in /opt/.../pi or a homebrew prefix
+      // would make the same launch fail when restored on a peer device.
+      const piExecutable = "pi";
+      if (raw.length === 0) return [piExecutable];
+
+      const firstBase = path.basename(raw[0]).toLowerCase();
+
+      // Already invoked via a `pi` shim that survives directly. Collapse the
+      // first token to the literal "pi" too — raw[0] would otherwise be the
+      // absolute shim path (~/.nvm/versions/.../bin/pi etc.).
+      if (looksLikePiScript(firstBase) || looksLikePiScript(raw[0])) {
+        return [piExecutable, ...raw.slice(1).filter((arg) => !isPiInternalDistArg(arg))];
+      }
+
+      // Common case: argv is [node, /.../dist/cli.js, ...rest]. Strip the first two and
+      // prepend the literal `pi` token.
+      let tail = raw.slice(1);
+      if (tail.length > 0 && (looksLikePiScript(tail[0]) || isPiInternalDistArg(tail[0]))) {
+        tail = tail.slice(1);
+      }
+      tail = tail.filter((arg) => !isPiInternalDistArg(arg));
+      return [piExecutable, ...tail];
+    }
+
+    function base64NulSeparated(values) {
+      const bytes = [];
+      for (const value of values) {
+        bytes.push(Buffer.from(String(value), "utf8"));
+        bytes.push(Buffer.from([0]));
+      }
+      return Buffer.concat(bytes).toString("base64");
+    }
+
+    function hookEnvironment(cwd) {
+      const env = { ...process.env };
+      if (!env.CMUX_AGENT_LAUNCH_ARGV_B64) {
+        const argv = normalizedPiLaunchArgv();
+        env.CMUX_AGENT_LAUNCH_KIND = "pi";
+        // argv[0] is the canonical literal "pi" produced by
+        // normalizedPiLaunchArgv. The `|| "pi"` arm is just a defensive
+        // fallback for the empty-argv case (which already returns ["pi"]).
+        // Never substitute resolveExecutable("pi") here — baking an
+        // absolute path into Vault breaks cross-machine restore.
+        env.CMUX_AGENT_LAUNCH_EXECUTABLE = argv[0] || "pi";
+        env.CMUX_AGENT_LAUNCH_ARGV_B64 = base64NulSeparated(argv);
+        env.CMUX_AGENT_LAUNCH_CWD = cwd || process.cwd();
+      }
+      return env;
+    }
+
+    function sendHook(subcommand, payload, cwd) {
+      if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return;
+      if (!process.env.CMUX_SURFACE_ID) return; // not running inside cmux
+      const cmuxBin = process.env.CMUX_PI_CMUX_BIN || resolveExecutable("cmux");
+      try {
+        spawnSync(cmuxBin, ["hooks", "pi", subcommand], {
+          input: JSON.stringify(payload),
+          encoding: "utf8",
+          env: hookEnvironment(cwd),
+          stdio: ["pipe", "ignore", "ignore"],
+          timeout: 5000,
+        });
+      } catch (_) {}
+    }
+
+    function sessionFieldsFromCtx(ctx) {
+      const sm = ctx && ctx.sessionManager;
+      const sessionId = sm && typeof sm.getSessionId === "function" ? sm.getSessionId() : undefined;
+      const sessionFile = sm && typeof sm.getSessionFile === "function" ? sm.getSessionFile() : undefined;
+      const cwd = firstString(
+        sm && typeof sm.getCwd === "function" ? sm.getCwd() : undefined,
+        ctx && ctx.cwd,
+        process.cwd()
+      );
+      return { sessionId, sessionFile, cwd };
+    }
+
+    export default async function (pi) {
+      pi.on("session_start", async (event, ctx) => {
+        const { sessionId, sessionFile, cwd } = sessionFieldsFromCtx(ctx);
+        if (!sessionId) return; // ephemeral / --no-session, nothing to restore
+        sendHook(
+          "session-start",
+          {
+            session_id: sessionId,
+            cwd,
+            event: "session_start",
+            reason: event && event.reason,
+            session_file: sessionFile,
+            previous_session_file: event && event.previousSessionFile,
+          },
+          cwd
+        );
+      });
+
+      pi.on("agent_end", async (_event, ctx) => {
+        const { sessionId, sessionFile, cwd } = sessionFieldsFromCtx(ctx);
+        if (!sessionId) return;
+        sendHook(
+          "stop",
+          {
+            session_id: sessionId,
+            cwd,
+            event: "agent_end",
+            session_file: sessionFile,
+          },
+          cwd
+        );
+      });
+
+      pi.on("session_shutdown", async (event, ctx) => {
+        const { sessionId, sessionFile, cwd } = sessionFieldsFromCtx(ctx);
+        if (!sessionId) return;
+        sendHook(
+          "session-end",
+          {
+            session_id: sessionId,
+            cwd,
+            event: "session_shutdown",
+            reason: event && event.reason,
+            session_file: sessionFile,
+            target_session_file: event && event.targetSessionFile,
+          },
+          cwd
+        );
+      });
+    }
+    """#
 
     private static let openCodeSessionPluginMarker = "cmux-opencode-session-plugin-marker"
     private static let openCodeSessionPluginFilename = "cmux-session.js"
@@ -16209,6 +16437,94 @@ export default CMUXSessionRestore;
             shouldInstall: false
         )
         print("Removed OpenCode cmux plugin from \(pluginURL.path)")
+    }
+
+    // MARK: - Pi session-restore extension
+
+    private func piSessionExtensionPath(projectLocal: Bool) -> String {
+        if projectLocal {
+            let cwd = FileManager.default.currentDirectoryPath
+            return "\(cwd)/.pi/extensions/\(Self.piSessionExtensionDirName)/\(Self.piSessionExtensionFilename)"
+        }
+        let home = ProcessInfo.processInfo.environment["HOME"].flatMap { value -> String? in
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        } ?? NSHomeDirectory()
+        return "\(home)/.pi/agent/extensions/\(Self.piSessionExtensionDirName)/\(Self.piSessionExtensionFilename)"
+    }
+
+    private func installPiExtension(projectLocal: Bool) throws {
+        let path = piSessionExtensionPath(projectLocal: projectLocal)
+        let fm = FileManager.default
+        // Important: distinguish "file does not exist" from "file exists but
+        // we couldn't read it". Collapsing both into "" via `try?` would
+        // bypass the foreign-file marker guard below — we'd overwrite a
+        // file we couldn't even verify (permission denied, non-UTF8 blob,
+        // transient I/O error). Propagate read failures instead.
+        let existing: String
+        if fm.fileExists(atPath: path) {
+            do {
+                existing = try String(contentsOfFile: path, encoding: .utf8)
+            } catch {
+                // Use String(describing:) over .localizedDescription: non-
+                // LocalizedError Foundation errors collapse the latter to a
+                // generic "The operation couldn’t be completed" string and
+                // hide the real cause (e.g. permission denied, encoding
+                // failure). Repo convention for CLI install error paths.
+                throw CLIError(message: "\(path) exists but could not be read (\(String(describing: error))); refusing to overwrite")
+            }
+        } else {
+            existing = ""
+        }
+        if !existing.isEmpty, !existing.contains(Self.piSessionExtensionMarker) {
+            throw CLIError(message: "\(path) exists and is not a cmux extension; leaving it alone")
+        }
+        let parent = (path as NSString).deletingLastPathComponent
+        try fm.createDirectory(atPath: parent, withIntermediateDirectories: true)
+        let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
+            || ProcessInfo.processInfo.arguments.contains("-y")
+        if existing == Self.piSessionExtensionSource {
+            print("Pi cmux-vault extension already up to date at \(path)")
+            return
+        }
+        if !skipConfirm {
+            Self.printInstallPreview(
+                path: path,
+                oldContent: existing,
+                newContent: Self.piSessionExtensionSource,
+                fallbackContent: Self.piSessionExtensionSource
+            )
+            print("\nProceed? [y/N] ", terminator: "")
+            guard readLine()?.lowercased().hasPrefix("y") == true else {
+                print("Aborted.")
+                return
+            }
+        }
+        try Self.piSessionExtensionSource.write(toFile: path, atomically: true, encoding: .utf8)
+        print("Pi cmux-vault extension installed at \(path)")
+    }
+
+    private func uninstallPiExtension(projectLocal: Bool = false) throws {
+        let fm = FileManager.default
+        let candidates = projectLocal
+            ? [piSessionExtensionPath(projectLocal: true)]
+            : [piSessionExtensionPath(projectLocal: false), piSessionExtensionPath(projectLocal: true)]
+        for path in candidates {
+            guard fm.fileExists(atPath: path) else { continue }
+            guard let existing = try? String(contentsOfFile: path, encoding: .utf8),
+                  existing.contains(Self.piSessionExtensionMarker)
+            else {
+                print("Skipping \(path) (no cmux marker)")
+                continue
+            }
+            try fm.removeItem(atPath: path)
+            // Remove the cmux-vault dir if it's now empty (we created it).
+            let parent = (path as NSString).deletingLastPathComponent
+            if let entries = try? fm.contentsOfDirectory(atPath: parent), entries.isEmpty {
+                try? fm.removeItem(atPath: parent)
+            }
+            print("Pi cmux-vault extension removed from \(path)")
+        }
     }
 
     private func installRovoDevHooks(_ def: AgentHookDef) throws {
@@ -19452,6 +19768,12 @@ export default CMUXSessionRestore;
             try installOpenCodePlugin(projectLocal: false)
             return
         }
+        if def.name == "pi" {
+            // Pi has no settings-file hook registration step (it auto-discovers
+            // extensions). The install is just the cmux-vault TS bridge file.
+            try installPiExtension(projectLocal: arguments.contains("--project"))
+            return
+        }
         try installAgentHooks(def)
     }
 
@@ -19464,6 +19786,10 @@ export default CMUXSessionRestore;
             }
             try uninstallAgentHooks(def)
             try uninstallOpenCodePlugin(projectLocal: false)
+            return
+        }
+        if def.name == "pi" {
+            try uninstallPiExtension(projectLocal: arguments.contains("--project"))
             return
         }
         try uninstallAgentHooks(def)
@@ -19541,7 +19867,7 @@ export default CMUXSessionRestore;
         for def in Self.agentDefs {
             if let filter = agentFilter, filter.lowercased() != def.name { continue }
             let configDir = def.resolvedConfigDir()
-            if def.name != "opencode", !fm.fileExists(atPath: configDir) {
+            if def.requiresConfigDir, !fm.fileExists(atPath: configDir) {
                 print("  \(def.name): skipped (config dir not found)")
                 skipped += 1
                 continue

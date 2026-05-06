@@ -264,12 +264,12 @@ Hook subcommands:
 | --- | --- |
 | `hooks setup` | Install hooks for all supported agents whose binaries are on `PATH`. Supports `--agent <name>` and `--yes`. |
 | `hooks uninstall` | Remove hooks for all supported agents. Supports `--agent <name>` and `--yes`. |
-| `hooks <agent> install` | Install hooks for one supported agent. `opencode` also supports `--project` for the project-local Feed plugin. |
+| `hooks <agent> install` | Install hooks for one supported agent. `opencode` and `pi` also support `--project` for project-local installs (the Feed plugin and the cmux-vault TS extension respectively). |
 | `hooks <agent> uninstall` | Remove hooks for one supported agent. |
 | `hooks claude <event>` | Handle Claude Code hook events. `claude-hook <event>` remains as the main-compatibility alias. |
 | `hooks codex <event>` | Handle Codex hook events. `codex install-hooks` remains as the main-compatibility installer alias. |
 | `hooks feed --source <agent>` | Convert agent hook events into Feed context. |
-| `hooks <agent> <event>` | Generic hook surface for `opencode`, `cursor`, `gemini`, `copilot`, `codebuddy`, `factory`, and `qoder`. |
+| `hooks <agent> <event>` | Generic hook surface for `opencode`, `cursor`, `gemini`, `copilot`, `codebuddy`, `factory`, `qoder`, and `pi`. |
 
 Docs topics:
 
@@ -340,6 +340,13 @@ the expected text without connecting to a cmux socket.
 - `cmux feedback --help` -> `Usage: cmux feedback`
 - `cmux feed --help` -> `Usage: cmux feed tui [--opentui|--legacy]`
 - `cmux hooks --help` -> `Usage: cmux hooks setup [--agent <name>] [--yes|-y]`
+- `cmux hooks setup --help` -> `cmux hooks setup [--agent <name>] [--yes|-y]`
+- `cmux hooks pi --help` -> `(opencode/pi support --project)`
+- `cmux hooks pi install --help` -> `(opencode/pi support --project)`
+- `cmux hooks pi uninstall --help` -> `(opencode/pi support --project)`
+- `cmux hooks claude --help` -> `cmux hooks <agent> <event>`
+- `cmux hooks codex --help` -> `cmux hooks <agent> <event>`
+- `cmux hooks feed --help` -> `cmux hooks feed --source <agent>`
 - `cmux codex --help` -> `Usage: cmux codex <install-hooks|uninstall-hooks>`
 - `cmux themes --help` -> `Usage: cmux themes`
 - `cmux omo --help` -> `Usage: cmux omo [opencode-args...]`

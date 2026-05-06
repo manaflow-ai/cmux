@@ -139,6 +139,30 @@ enum AgentResumeCommandBuilder {
             let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "opencode")
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "opencode", args: original.tail) else { return nil }
             return [original.executable, "--session", sessionId] + preserved
+        case .pi:
+            // pi launches via a `#!/usr/bin/env node` shim, so the launchCommand may
+            // record ["/path/to/node", "/path/to/dist/cli.js", ...rest] when the cmux-
+            // vault TS bridge isn't loaded (or pre-bridge sessions). The bridge
+            // normally normalizes argv to the literal token "pi" before recording.
+            //
+            // Detect the node-shim shape ourselves so a missed-bridge launch still
+            // produces a usable resume command (`pi --session <id> ...`) rather than
+            // `node --session <id> ...` which is meaningless.
+            let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "pi")
+            var executable = original.executable
+            var tail = original.tail
+            let executableBase = (executable as NSString).lastPathComponent.lowercased()
+            if executableBase == "node" || executableBase == "nodejs", let firstArg = tail.first {
+                let normalized = firstArg.replacingOccurrences(of: "\\", with: "/").lowercased()
+                if normalized.hasSuffix("/dist/cli.js")
+                    || normalized.hasSuffix("/cli.js")
+                    || normalized.contains("pi-coding-agent") {
+                    executable = "pi"
+                    tail.removeFirst()
+                }
+            }
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "pi", args: tail) else { return nil }
+            return [executable, "--session", sessionId] + preserved
         case .rovodev:
             let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "acli")
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "rovodev", args: original.tail) else { return nil }

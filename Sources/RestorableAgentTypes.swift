@@ -6,6 +6,7 @@ enum RestorableAgentKind: String, Codable, CaseIterable, Sendable {
     case cursor
     case gemini
     case opencode
+    case pi
     case rovodev
     case copilot
     case codebuddy

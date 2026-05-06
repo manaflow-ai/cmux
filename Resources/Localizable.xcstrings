@@ -105537,6 +105537,29 @@
         }
       }
     },
+    "sessionIndex.pi.untitled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(untitled)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(無題)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(제목 없음)"
+          }
+        }
+      }
+    },
     "sessionIndex.scope.thisFolder": {
       "extractionState": "manual",
       "localizations": {
@@ -105629,19 +105652,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude Code, Codex, OpenCode, and Rovo Dev history will appear here."
+            "value": "Claude Code, Codex, OpenCode, Rovo Dev, and Pi history will appear here."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude Code、Codex、OpenCode、Rovo Dev の履歴がここに表示されます。"
+            "value": "Claude Code、Codex、OpenCode、Rovo Dev、Pi の履歴がここに表示されます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude Code, Codex, OpenCode 및 Rovo Dev의 기록이 여기에 표시됩니다."
+            "value": "Claude Code, Codex, OpenCode, Rovo Dev 및 Pi의 기록이 여기에 표시됩니다."
           }
         }
       }

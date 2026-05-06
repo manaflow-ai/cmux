@@ -377,6 +377,9 @@
 		F5300000A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5300001A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift */; };
 		F5300002A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5300003A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift */; };
 		F5310000A1B2C3D4E5F60718 /* RovoDevHookConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5310001A1B2C3D4E5F60718 /* RovoDevHookConfigTests.swift */; };
+		21F4935E8B618CB5387C7D67 /* PiSessionIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97F1FDC8ECD147A4CB49DF6E /* PiSessionIndex.swift */; };
+		6409F482DA9C36A9AFA0860D /* PiHookRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 715F71E02D7F717C7E48ECE8 /* PiHookRegressionTests.swift */; };
+		C8475ADA845785179AAA1C91 /* PiSessionIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F1D059470876B7781C97AF6 /* PiSessionIndexTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -809,6 +812,9 @@
 		F5300003A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RovoDevTranscriptPreviewTests.swift; sourceTree = "<group>"; };
 		F5310001A1B2C3D4E5F60718 /* RovoDevHookConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RovoDevHookConfigTests.swift; sourceTree = "<group>"; };
 		IC000002 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder; path = AppIcon.icon; sourceTree = "<group>"; };
+		97F1FDC8ECD147A4CB49DF6E /* PiSessionIndex.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PiSessionIndex.swift; sourceTree = "<group>"; };
+		715F71E02D7F717C7E48ECE8 /* PiHookRegressionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PiHookRegressionTests.swift; sourceTree = "<group>"; };
+		0F1D059470876B7781C97AF6 /* PiSessionIndexTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PiSessionIndexTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -1161,6 +1167,7 @@
 				105D8421DF4E2E09D255D785 /* Auth */,
 				590E4F5F342E5B27010ECC8D /* Cloud */,
 				FEED0000000000000000F003 /* Feed */,
+				97F1FDC8ECD147A4CB49DF6E /* PiSessionIndex.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -1301,6 +1308,8 @@
 				FE002001 /* FileExplorerRootResolverTests.swift */,
 				FE002002 /* FileExplorerStoreTests.swift */,
 				FE002003 /* FileSearchRipgrepParserTests.swift */,
+				715F71E02D7F717C7E48ECE8 /* PiHookRegressionTests.swift */,
+				0F1D059470876B7781C97AF6 /* PiSessionIndexTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -1750,6 +1759,7 @@
 				698944F99A6ADFBA24A7BFB9 /* AuthSettingsStore.swift in Sources */,
 				ACE4FE1A8F1CC6C0B6A673AB /* VMClient.swift in Sources */,
 				ACE4FE2A8F1CC6C0B6A673AB /* VMClientSocketCommands.swift in Sources */,
+				21F4935E8B618CB5387C7D67 /* PiSessionIndex.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1920,6 +1930,8 @@
 				FE002101 /* FileExplorerRootResolverTests.swift in Sources */,
 				FE002102 /* FileExplorerStoreTests.swift in Sources */,
 				FE002103 /* FileSearchRipgrepParserTests.swift in Sources */,
+				6409F482DA9C36A9AFA0860D /* PiHookRegressionTests.swift in Sources */,
+				C8475ADA845785179AAA1C91 /* PiSessionIndexTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

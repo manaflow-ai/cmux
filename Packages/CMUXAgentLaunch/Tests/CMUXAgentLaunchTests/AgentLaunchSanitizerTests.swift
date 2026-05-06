@@ -35,4 +35,209 @@ struct AgentLaunchSanitizerTests {
             ) == ["cursor-agent", "--model", "gpt-5.4", "--sandbox", "enabled"]
         )
     }
+
+    @Test("Drops pi --session/--continue/--no-session before preserving later options")
+    func dropsPiSessionSelectorsBeforePreservingLaterOptions() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "pi",
+                    "--continue",
+                    "--session",
+                    "old-session",
+                    "--no-session",
+                    "--provider",
+                    "anthropic",
+                    "--model",
+                    "claude-sonnet-4-5",
+                    "--thinking",
+                    "medium"
+                ],
+                launcher: "pi",
+                fallbackKind: "pi"
+            ) == [
+                "pi",
+                "--provider",
+                "anthropic",
+                "--model",
+                "claude-sonnet-4-5",
+                "--thinking",
+                "medium"
+            ]
+        )
+    }
+
+    @Test("Drops pi --resume / -r and preserves later options")
+    func dropsPiResumeBeforePreservingLaterOptions() {
+        // Pi's `--resume`/`-r` is a boolean flag (consumes no value): it
+        // opens the session-picker. Different from gemini/cursor where
+        // `--resume` takes a value. Pi keeps it in droppedOptions ONLY
+        // (not in valueOptions) so optionWidth returns 1 and the
+        // following options must survive.
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["pi", "--resume", "--model", "claude-sonnet-4-5"],
+                launcher: "pi",
+                fallbackKind: "pi"
+            ) == ["pi", "--model", "claude-sonnet-4-5"]
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["pi", "-r", "--provider", "anthropic", "--thinking", "medium"],
+                launcher: "pi",
+                fallbackKind: "pi"
+            ) == ["pi", "--provider", "anthropic", "--thinking", "medium"]
+        )
+        // Mixed with other session selectors that ARE in droppedOptions
+        // -- everything session-related vanishes, model/provider stay.
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["pi", "--continue", "-r", "--no-session", "--model", "sonnet"],
+                launcher: "pi",
+                fallbackKind: "pi"
+            ) == ["pi", "--model", "sonnet"]
+        )
+    }
+
+    @Test("Drops pi positional prompt and stops parsing")
+    func dropsPiPositionalPromptAndStopsParsing() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "pi",
+                    "--model",
+                    "claude-sonnet-4-5",
+                    "refactor this codebase",
+                    "--provider",
+                    "anthropic"
+                ],
+                launcher: "pi",
+                fallbackKind: "pi"
+            ) == [
+                "pi",
+                "--model",
+                "claude-sonnet-4-5"
+            ]
+        )
+    }
+
+    @Test("Pi --theme is single-value: trailing prompt tokens do not bleed into the flag")
+    func piThemeDoesNotSlurpTrailingPositionalPrompt() {
+        // Pi accepts `--theme <path>` as a single value. With
+        // variadicOptions = ["--theme"] the sanitizer would greedily
+        // consume every following non-`-` token as part of the flag,
+        // leaking the user's prompt ("my task description") into the
+        // recorded --theme value. Without that entry, --theme has
+        // optionWidth=2 and the trailing positionals fall through to
+        // preserveFirstPositional: false, which drops them along with
+        // every later token (pi treats positionals as the start of the
+        // prompt and stops option parsing there — matches the existing
+        // "Drops pi positional prompt and stops parsing" expectation).
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["pi", "--theme", "dark", "my", "task", "description"],
+                launcher: "pi",
+                fallbackKind: "pi"
+            ) == ["pi", "--theme", "dark"]
+        )
+        // And the same with options BEFORE the theme: the theme value
+        // is single-token and earlier flags are preserved.
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["pi", "--provider", "anthropic", "--theme", "dark", "my", "task"],
+                launcher: "pi",
+                fallbackKind: "pi"
+            ) == ["pi", "--provider", "anthropic", "--theme", "dark"]
+        )
+    }
+
+    @Test("Pi repeated single-value flags survive without slurping the prompt")
+    func piRepeatedSingleValueFlagsDoNotSlurpPrompt() {
+        // Each of pi's 'can be used multiple times' flags (--extension /
+        // -e, --skill, --prompt-template, --append-system-prompt, --theme)
+        // is single-value per occurrence — the user repeats the flag with
+        // one value each. Confirms the audit in piPolicy.variadicOptions:
+        // none of them belong there. If any returns to variadicOptions,
+        // the trailing 'finish the auth flow' prompt would be slurped
+        // into the last flag's value.
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "pi",
+                    "--extension", "/abs/a.ts",
+                    "-e", "/abs/b.ts",
+                    "--skill", "/abs/skill.md",
+                    "--prompt-template", "/abs/template.md",
+                    "--append-system-prompt", "be terse",
+                    "finish", "the", "auth", "flow"
+                ],
+                launcher: "pi",
+                fallbackKind: "pi"
+            ) == [
+                "pi",
+                "--extension", "/abs/a.ts",
+                "-e", "/abs/b.ts",
+                "--skill", "/abs/skill.md",
+                "--prompt-template", "/abs/template.md",
+                "--append-system-prompt", "be terse"
+            ]
+        )
+    }
+
+    @Test("Drops pi --api-key value-form from sanitized launch arguments")
+    func dropsPiApiKeyValueForm() {
+        // Tail position: parser must consume the value, not leak it as a
+        // positional prompt; result must contain neither --api-key nor sk-foo.
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["pi", "--provider", "anthropic", "--api-key", "sk-foo"],
+                launcher: "pi",
+                fallbackKind: "pi"
+            ) == ["pi", "--provider", "anthropic"]
+        )
+        // Mid-arglist: trailing options after the credential must be preserved.
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["pi", "--api-key", "sk-foo", "--model", "claude-sonnet-4-5"],
+                launcher: "pi",
+                fallbackKind: "pi"
+            ) == ["pi", "--model", "claude-sonnet-4-5"]
+        )
+    }
+
+    @Test("Drops pi --api-key=value equals-form from sanitized launch arguments")
+    func dropsPiApiKeyEqualsForm() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["pi", "--api-key=sk-foo", "--model", "claude-sonnet-4-5"],
+                launcher: "pi",
+                fallbackKind: "pi"
+            ) == ["pi", "--model", "claude-sonnet-4-5"]
+        )
+    }
+
+    @Test("pi install/update/list subcommands are non-restorable")
+    func piNonRestorableSubcommandsReturnNil() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["pi", "install", "./my-extension"],
+                launcher: "pi",
+                fallbackKind: "pi"
+            ) == nil
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["pi", "update"],
+                launcher: "pi",
+                fallbackKind: "pi"
+            ) == nil
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["pi", "list"],
+                launcher: "pi",
+                fallbackKind: "pi"
+            ) == nil
+        )
+    }
 }

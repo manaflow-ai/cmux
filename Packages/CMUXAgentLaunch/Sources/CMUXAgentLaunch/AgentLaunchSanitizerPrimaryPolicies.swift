@@ -301,6 +301,95 @@ extension AgentLaunchSanitizer {
         resumeSubcommand: "resume"
     )
 
+    /// Pi (`pi-coding-agent`) policy. Pi launches as `pi [options] [@files...] [messages...]`
+    /// where positional args are an initial prompt. For Vault resume we re-inject
+    /// `--session <id>`; everything related to session selection / output mode /
+    /// initial prompt must be stripped. User-set provider/model/system-prompt
+    /// preferences are preserved so the resumed session keeps the same configuration.
+    ///
+    /// Boolean flags not listed in `valueOptions` (e.g. pi's `--no-tools`,
+    /// `--verbose`, `--offline`, `--no-extensions`) flow through
+    /// `preserveOptions`'s "unknown option = keep" default — `optionWidth`
+    /// returns 1 for them and they're appended to the preserved result. Only
+    /// flags we explicitly want to drop or reject need to appear below.
+    static let piPolicy = Policy(
+        valueOptions: [
+            "--provider",
+            "--model",
+            "--api-key",
+            "--system-prompt",
+            "--append-system-prompt",
+            "--mode",
+            "--session",
+            "--fork",
+            "--session-dir",
+            "--models",
+            "--tools",
+            "-t",
+            "--thinking",
+            "--extension",
+            "-e",
+            "--skill",
+            "--prompt-template",
+            "--theme"
+        ],
+        optionalValueOptions: [],
+        // Pi has no truly-variadic value options. Flags listed in
+        // pi --help as 'can be used multiple times' (--extension/-e,
+        // --skill, --prompt-template, --append-system-prompt, --theme)
+        // each take exactly one value per occurrence — multiplicity is
+        // achieved by repeating the flag, not by a single flag with
+        // many trailing values. Putting any of them in variadicOptions
+        // makes the sanitizer slurp the user's prompt positionals into
+        // the flag value (see piThemeDoesNotSlurpTrailingPositionalPrompt
+        // for the canonical bug shape). Leave empty.
+        variadicOptions: [],
+        nonRestorableCommands: [
+            // pi subcommands that don't start a session
+            "install",
+            "remove",
+            "uninstall",
+            "update",
+            "list",
+            "config"
+        ],
+        droppedOptions: [
+            // Session selection — Vault re-injects --session <id>
+            "--session",
+            "--fork",
+            "--continue",
+            "-c",
+            "--resume",
+            "-r",
+            "--no-session",
+            // One-shot prompt flags — drop so the recorded launch can be
+            // resumed as an interactive `pi --session <id>` session.
+            "--print",
+            "-p",
+            // Credentials — never persist into a recorded launch command
+            // (Vault stores commands and re-emits them for resume).
+            // `--api-key` stays in `valueOptions` above so the parser still
+            // consumes its trailing value; listing it here drops the flag
+            // from the sanitized output. Mirrors `cursorPolicy`.
+            "--api-key"
+        ],
+        droppedOptionPrefixes: [
+            "--session=",
+            "--fork=",
+            "--api-key="
+        ],
+        rejectOptions: [
+            // These are incompatible with restoring an interactive session
+            "--export",
+            "--list-models",
+            "--help",
+            "-h",
+            "--version",
+            "-v"
+        ],
+        preserveFirstPositional: false
+    )
+
     static let openCodePolicy = Policy(
         valueOptions: [
             "--log-level",
