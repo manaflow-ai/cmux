@@ -1,7 +1,11 @@
 declare module "bun:test" {
   type TestCallback = () => unknown | Promise<unknown>;
   type Lifecycle = (fn: TestCallback, timeout?: number) => void;
-  type NamedTest = (name: string, fn: TestCallback, timeout?: number) => void;
+  type NamedTest = {
+    (name: string, fn: TestCallback, timeout?: number): void;
+    readonly only: NamedTest;
+    readonly skip: NamedTest;
+  };
 
   type Matchers = {
     readonly not: Matchers;
@@ -23,6 +27,7 @@ declare module "bun:test" {
 
   type MockControls = {
     mockClear(): void;
+    mockResolvedValue(value: unknown): void;
   };
 
   type MockModule = {
@@ -35,7 +40,10 @@ declare module "bun:test" {
   export const beforeAll: Lifecycle;
   export const beforeEach: Lifecycle;
   export const describe: NamedTest;
-  export const expect: (actual: unknown) => Matchers;
+  export const expect: {
+    (actual: unknown): Matchers;
+    objectContaining(expected: unknown): unknown;
+  };
   export const mock: MockModule;
   export const test: NamedTest;
 }
