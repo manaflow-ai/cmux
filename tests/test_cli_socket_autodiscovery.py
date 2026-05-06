@@ -91,15 +91,43 @@ def write_marker(home: str, marker_name: str, socket_path: str) -> None:
         f.write(f"{socket_path}\n")
 
 
+def copy_runtime_frameworks(cli_path: str, fixture_contents: str) -> None:
+    frameworks_dir = os.path.join(fixture_contents, "Frameworks")
+    os.makedirs(frameworks_dir, exist_ok=True)
+
+    search_roots: list[str] = []
+    current = os.path.dirname(cli_path)
+    for _ in range(4):
+        search_roots.append(os.path.join(current, "Frameworks"))
+        search_roots.append(os.path.join(current, "PackageFrameworks"))
+        parent = os.path.dirname(current)
+        if parent == current:
+            break
+        current = parent
+
+    for search_root in search_roots:
+        if not os.path.isdir(search_root):
+            continue
+        for framework_name in sorted(os.listdir(search_root)):
+            if not framework_name.endswith(".framework"):
+                continue
+            source = os.path.join(search_root, framework_name)
+            destination = os.path.join(frameworks_dir, framework_name)
+            if os.path.isdir(source) and not os.path.exists(destination):
+                shutil.copytree(source, destination, symlinks=True)
+
+
 def bundled_cli_for_variant(cli_path: str, root: str, app_name: str, bundle_id: str) -> str:
     app_dir = os.path.join(root, f"{app_name}.app")
+    contents_dir = os.path.join(app_dir, "Contents")
     bin_dir = os.path.join(app_dir, "Contents", "Resources", "bin")
     os.makedirs(bin_dir, exist_ok=True)
     bundled_cli = os.path.join(bin_dir, "cmux")
     shutil.copy2(cli_path, bundled_cli)
     os.chmod(bundled_cli, 0o755)
+    copy_runtime_frameworks(cli_path, contents_dir)
 
-    plist_path = os.path.join(app_dir, "Contents", "Info.plist")
+    plist_path = os.path.join(contents_dir, "Info.plist")
     os.makedirs(os.path.dirname(plist_path), exist_ok=True)
     with open(plist_path, "wb") as f:
         plistlib.dump(
