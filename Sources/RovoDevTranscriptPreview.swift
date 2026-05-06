@@ -257,16 +257,15 @@ enum RovoDevTranscriptPreview {
 
     private static func toolCallFragments(from object: [String: Any]) -> [String] {
         var parts: [String] = []
-        if let toolName = object["tool_name"] as? String,
-           toolName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "unknown" {
+        let name = trimmedToolName(object["name"] as? String)
+        let toolName = trimmedToolName(object["tool_name"] as? String)
+        if isUnknownToolName(name) || isUnknownToolName(toolName) {
             return []
         }
-        if let name = object["name"] as? String, !name.isEmpty {
+        if let name {
             parts.append(name)
         }
-        if let toolName = object["tool_name"] as? String,
-           !toolName.isEmpty,
-           parts.isEmpty {
+        if let toolName, parts.isEmpty {
             parts.append(toolName)
         }
         if let input = object["input"] ?? object["arguments"] ?? object["tool_input"],
@@ -275,6 +274,16 @@ enum RovoDevTranscriptPreview {
             parts.append(rendered)
         }
         return parts
+    }
+
+    private static func trimmedToolName(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func isUnknownToolName(_ name: String?) -> Bool {
+        name?.lowercased() == "unknown"
     }
 
     private static func isEmptyJSONContainer(_ value: Any) -> Bool {
