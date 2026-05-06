@@ -95,7 +95,6 @@ All notable changes to cmux are documented here.
 - Show Codex TUI errors in the sidebar ([#3212](https://github.com/manaflow-ai/cmux/pull/3212))
 - Keep Cmd-Shift-N windows on the source display ([#3214](https://github.com/manaflow-ai/cmux/pull/3214))
 - Select find text on repeated Cmd+F ([#3314](https://github.com/manaflow-ai/cmux/pull/3314))
-- Search Codex rollout content from the sessions sidebar ([#3396](https://github.com/manaflow-ai/cmux/pull/3396))
 - Disable Claude OSC notifications in the cmux wrapper and gate Claude OSC suppression on integration setting ([#3418](https://github.com/manaflow-ai/cmux/pull/3418), [#3474](https://github.com/manaflow-ai/cmux/pull/3474))
 - Namespace agent hook CLI commands ([#3298](https://github.com/manaflow-ai/cmux/pull/3298))
 
@@ -111,7 +110,7 @@ All notable changes to cmux are documented here.
 - Fix close confirmation bypass when spamming close ([#2989](https://github.com/manaflow-ai/cmux/pull/2989))
 - Fix multi-workspace close confirmation modality ([#3153](https://github.com/manaflow-ai/cmux/pull/3153))
 - Fix Cmd/Ctrl shortcut hint parity ([#2994](https://github.com/manaflow-ai/cmux/pull/2994))
-- Fix Sessions panel CPU loop on nightly and cancel drag on Escape ([#2995](https://github.com/manaflow-ai/cmux/pull/2995), [#3013](https://github.com/manaflow-ai/cmux/pull/3013))
+- Cancel drag on Escape ([#3013](https://github.com/manaflow-ai/cmux/pull/3013))
 - Pin regular-weight Japanese auto-fallback face ([#3015](https://github.com/manaflow-ai/cmux/pull/3015))
 - Fix 100% CPU from ContentView publisher feedback loop ([#3028](https://github.com/manaflow-ai/cmux/pull/3028))
 - Fix `DebugEventLog` `NSFileHandle` ObjC exception crash ([#3034](https://github.com/manaflow-ai/cmux/pull/3034))
