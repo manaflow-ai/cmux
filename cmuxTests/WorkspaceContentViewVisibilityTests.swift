@@ -9,17 +9,19 @@ import Bonsplit
 #endif
 
 final class WorkspaceContentViewVisibilityTests: XCTestCase {
-    func testBackgroundPrimedWorkspaceStaysMountedButNotPanelVisible() {
+    func testNonSelectedNonRetiringWorkspaceIsFullyHidden() {
+        // Background priming no longer mounts workspaces in the SwiftUI tree, so a
+        // mounted workspace that is neither selected nor retiring must render fully
+        // hidden rather than ghosting in at 0.001 opacity.
         XCTAssertEqual(
             MountedWorkspacePresentationPolicy.resolve(
                 isSelectedWorkspace: false,
-                isRetiringWorkspace: false,
-                shouldPrimeInBackground: true
+                isRetiringWorkspace: false
             ),
             MountedWorkspacePresentation(
                 isRenderedVisible: false,
                 isPanelVisible: false,
-                renderOpacity: 0.001
+                renderOpacity: 0
             )
         )
     }
@@ -28,8 +30,7 @@ final class WorkspaceContentViewVisibilityTests: XCTestCase {
         XCTAssertEqual(
             MountedWorkspacePresentationPolicy.resolve(
                 isSelectedWorkspace: false,
-                isRetiringWorkspace: true,
-                shouldPrimeInBackground: false
+                isRetiringWorkspace: true
             ),
             MountedWorkspacePresentation(
                 isRenderedVisible: true,

@@ -8330,10 +8330,57 @@ final class Workspace: Identifiable, ObservableObject {
         return surfaceKind(for: panel)
     }
 
+    private func backgroundPrimeTerminalPanels() -> [TerminalPanel] {
+        var orderedTargets: [TerminalPanel] = []
+        var seenPanelIds: Set<UUID> = []
+
+        // Background priming only needs the tabs that would actually be visible if this
+        // workspace were selected. Starting every terminal panel eagerly would also start
+        // hidden keepAllAlive tabs and balloon thread/memory usage while the workspace is idle.
+        for paneId in bonsplitController.allPaneIds {
+            guard let selectedTabId =
+                    bonsplitController.selectedTab(inPane: paneId)?.id
+                    ?? bonsplitController.tabs(inPane: paneId).first?.id,
+                  let panelId = panelIdFromSurfaceId(selectedTabId),
+                  let terminalPanel = panels[panelId] as? TerminalPanel,
+                  seenPanelIds.insert(panelId).inserted else {
+                continue
+            }
+            orderedTargets.append(terminalPanel)
+        }
+
+        if !orderedTargets.isEmpty {
+            return orderedTargets
+        }
+
+        if let focusedPanelId,
+           let focusedTerminal = panels[focusedPanelId] as? TerminalPanel {
+            return [focusedTerminal]
+        }
+
+        if let fallback = panels.values.compactMap({ $0 as? TerminalPanel }).first {
+            return [fallback]
+        }
+
+        return []
+    }
+
     func requestBackgroundTerminalSurfaceStartIfNeeded() {
         for terminalPanel in panels.values.compactMap({ $0 as? TerminalPanel }) {
             terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
         }
+    }
+
+    func requestBackgroundPrimeTerminalSurfaceStartIfNeeded() {
+        for terminalPanel in backgroundPrimeTerminalPanels() {
+            terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
+        }
+    }
+
+    func hasLoadedBackgroundPrimeTerminalSurface() -> Bool {
+        let targets = backgroundPrimeTerminalPanels()
+        guard !targets.isEmpty else { return true }
+        return targets.allSatisfy { $0.surface.surface != nil }
     }
 
     @discardableResult
