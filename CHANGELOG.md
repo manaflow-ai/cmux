@@ -2,6 +2,12 @@
 
 All notable changes to cmux are documented here.
 
+## [Unreleased]
+
+### Fixed
+
+- Fixed: Left/Right arrow keys in browser pane (regression after #2780).
+
 ## [0.64.3] - 2026-05-05
 
 ### Added
