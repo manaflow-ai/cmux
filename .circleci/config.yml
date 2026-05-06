@@ -83,18 +83,40 @@ commands:
             download_zig_asset() {
               local url="$1"
               local output="$2"
+              local expected_sha256="$3"
               local attempt
 
-              for attempt in 1 2 3; do
+              rm -f "$output"
+              for attempt in 1 2 3 4 5; do
                 echo "Downloading $url (attempt $attempt)"
-                if curl -fL --show-error --progress-bar --connect-timeout 20 --max-time 1800 \
-                  --speed-limit 32768 --speed-time 120 "$url" -o "$output"; then
-                  return 0
+                if [ -f "$output" ]; then
+                  saved_bytes="$(wc -c < "$output" | tr -d ' ')"
+                  echo "Resuming partial download with ${saved_bytes} bytes saved"
                 fi
 
-                rm -f "$output"
-                if [ "$attempt" -eq 3 ]; then
-                  echo "Failed to download $url after $attempt attempts" >&2
+                if curl -fL --show-error --progress-bar --continue-at - --connect-timeout 20 \
+                  --max-time 1800 --speed-limit 8192 --speed-time 120 "$url" -o "$output"; then
+                  actual_sha256="$(shasum -a 256 "$output" | awk '{print $1}')"
+                  if [ "$actual_sha256" = "$expected_sha256" ]; then
+                    echo "Verified $output"
+                    return 0
+                  fi
+
+                  echo "Checksum mismatch for $output: expected $expected_sha256, got $actual_sha256" >&2
+                  rm -f "$output"
+                elif [ -f "$output" ]; then
+                  saved_bytes="$(wc -c < "$output" | tr -d ' ')"
+                  echo "Download attempt $attempt failed with ${saved_bytes} bytes saved"
+                  actual_sha256="$(shasum -a 256 "$output" | awk '{print $1}')"
+                  if [ "$actual_sha256" = "$expected_sha256" ]; then
+                    echo "Verified $output after curl reported failure"
+                    return 0
+                  fi
+                fi
+
+                if [ "$attempt" -eq 5 ]; then
+                  echo "Failed to download and verify $url after $attempt attempts" >&2
+                  rm -f "$output"
                   return 1
                 fi
 
@@ -106,8 +128,7 @@ commands:
             if [ ! -x "${ZIG_EXTRACTED_DIR}/zig" ]; then
               echo "Installing verified zig ${ZIG_REQUIRED} from tarball"
               mkdir -p "$ZIG_TOOLCHAIN_ROOT"
-              download_zig_asset "$ZIG_URL" /tmp/zig.tar.xz
-              echo "${ZIG_SHA256}  /tmp/zig.tar.xz" | shasum -a 256 -c -
+              download_zig_asset "$ZIG_URL" /tmp/zig.tar.xz "$ZIG_SHA256"
               rm -rf "$ZIG_EXTRACTED_DIR"
               tar xf /tmp/zig.tar.xz -C "$ZIG_TOOLCHAIN_ROOT"
             else
