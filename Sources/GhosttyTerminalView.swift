@@ -7468,7 +7468,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         keyTextAccumulator = []
         defer { keyTextAccumulator = nil }
 
-        // Track preedit state before AppKit mutates it.
         let markedTextBefore = markedText.length > 0
         let markedStateBefore = (markedText.string, markedSelectedRange)
 
@@ -12731,10 +12730,7 @@ extension GhosttyNSView: NSTextInputClient {
     func selectedRange() -> NSRange {
         if markedText.length > 0 {
 #if DEBUG
-            assert(
-                markedSelectedRange.location != NSNotFound,
-                "markedSelectedRange must be valid when markedText is non-empty"
-            )
+            assert(markedSelectedRange.location != NSNotFound, "markedSelectedRange must be valid")
 #endif
             return markedSelectedRange
         }
@@ -12760,10 +12756,7 @@ extension GhosttyNSView: NSTextInputClient {
         default:
             return
         }
-        markedSelectedRange = normalizedMarkedSelectionRange(
-            selectedRange,
-            markedLength: markedText.length
-        )
+        markedSelectedRange = normalizedMarkedSelectionRange(selectedRange, markedLength: markedText.length)
 
         // If we're not in a keyDown event, sync preedit immediately.
         // This can happen due to external events like changing keyboard layouts
