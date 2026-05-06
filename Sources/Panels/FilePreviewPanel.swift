@@ -1992,7 +1992,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
             viewportSnapshot,
             preserveExistingDocument = sameURLReload
         ] in
-            let document = await FilePreviewDocumentLoader.loadPDFDocument(at: loadURL)
+            let document = FilePreviewDocumentLoader.loadPDFDocument(at: loadURL)
             guard !Task.isCancelled,
                   let self,
                   self.currentURL == loadURL,
@@ -3165,7 +3165,7 @@ private final class FilePreviewImageContainerView: NSView {
 
         imageLoadTask?.cancel()
         imageLoadTask = Task { [weak self, loadURL = url, loadRevision = revision] in
-            let image = await FilePreviewDocumentLoader.loadImage(at: loadURL)
+            let image = FilePreviewDocumentLoader.loadImage(at: loadURL)
             guard !Task.isCancelled,
                   let self,
                   self.currentURL == loadURL,

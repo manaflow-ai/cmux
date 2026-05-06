@@ -2,13 +2,11 @@ import AppKit
 import PDFKit
 
 nonisolated enum FilePreviewDocumentLoader {
-    @concurrent
-    static func loadPDFDocument(at url: URL) async -> PDFDocument? {
+    static func loadPDFDocument(at url: URL) -> PDFDocument? {
         PDFDocument(url: url)
     }
 
-    @concurrent
-    static func loadImage(at url: URL) async -> NSImage? {
+    static func loadImage(at url: URL) -> NSImage? {
         NSImage(contentsOf: url)
     }
 
