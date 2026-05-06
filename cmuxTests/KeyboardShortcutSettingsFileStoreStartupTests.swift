@@ -248,7 +248,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         XCTAssertEqual(defaults.object(forKey: key) as? Bool, true)
 
         defaults.set(false, forKey: key)
-        withExtendedLifetime(store) {
+        try withExtendedLifetime(store) {
             notificationCenter.post(name: UserDefaults.didChangeNotification, object: defaults)
             XCTAssertEqual(defaults.object(forKey: key) as? Bool, false)
 
