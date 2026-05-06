@@ -25,8 +25,6 @@ struct CLIError: Error, CustomStringConvertible {
     var description: String { message }
 }
 
-private struct EventStreamLimitReached: Error {}
-
 private enum CLISocketEnvironment {
     static func socketPath(in environment: [String: String]) throws -> String? {
         let socketPath = normalized(environment["CMUX_SOCKET_PATH"])
@@ -4098,50 +4096,6 @@ struct CMUXCLI {
         }
         if let string = value as? String { return Int64(string) }
         return nil
-    }
-
-    private func isTransientEventStreamError(_ error: Error) -> Bool {
-        if let cliError = error as? CLIError {
-            let message = cliError.message.lowercased()
-            let transientMarkers = [
-                "socket not found",
-                "failed to connect",
-                "event stream closed",
-                "event stream socket read error",
-                "timed out waiting for event stream frame",
-                "stream request timed out",
-                "failed to write stream request",
-                "broken pipe",
-                "connection reset",
-                "connection refused",
-                "errno 32",
-                "errno 35",
-                "errno 54",
-                "errno 57",
-                "errno 60",
-                "errno 61"
-            ]
-            return transientMarkers.contains { message.contains($0) }
-        }
-
-        let description = String(describing: error).lowercased()
-        return description.contains("connection reset")
-            || description.contains("connection refused")
-            || description.contains("broken pipe")
-            || description.contains("timed out")
-    }
-
-    private func waitBeforeReconnectingEventStream() {
-        let semaphore = DispatchSemaphore(value: 0)
-        let queue = DispatchQueue(label: "com.cmux.cli.events.reconnect-delay.\(UUID().uuidString)")
-        let timer = DispatchSource.makeTimerSource(queue: queue)
-        timer.schedule(deadline: .now() + 1.0)
-        timer.setEventHandler {
-            semaphore.signal()
-        }
-        timer.resume()
-        semaphore.wait()
-        timer.cancel()
     }
 
     private func launchApp() throws {
