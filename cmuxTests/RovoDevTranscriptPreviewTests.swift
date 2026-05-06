@@ -140,4 +140,38 @@ final class RovoDevTranscriptPreviewTests: XCTestCase {
             RovoDevTranscriptPreviewTurn(role: "assistant", text: "Readable assistant text"),
         ])
     }
+
+    func testDoesNotFallBackToSystemPromptParts() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-rovodev-preview-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let contextURL = tempDir.appendingPathComponent("session_context.json")
+        let context = """
+        {
+          "message_history": [
+            {
+              "role": "user",
+              "parts": [
+                { "part_kind": "system-prompt", "content": "Internal instructions should stay hidden" }
+              ]
+            },
+            {
+              "role": "assistant",
+              "parts": [
+                { "part_kind": "text", "content": "Visible response" }
+              ]
+            }
+          ]
+        }
+        """
+        try context.write(to: contextURL, atomically: true, encoding: .utf8)
+
+        let turns = try XCTUnwrap(RovoDevTranscriptPreview.load(from: contextURL, limit: 10))
+
+        XCTAssertEqual(turns, [
+            RovoDevTranscriptPreviewTurn(role: "assistant", text: "Visible response"),
+        ])
+    }
 }

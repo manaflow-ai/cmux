@@ -74,9 +74,8 @@ enum RovoDevTranscriptPreview {
     }
 
     private static func parseMessageObject(_ object: [String: Any]) -> [RovoDevTranscriptPreviewTurn] {
-        let partTurns = parseRovoDevParts(object)
-        if !partTurns.isEmpty {
-            return partTurns
+        if object["parts"] != nil {
+            return parseRovoDevParts(object)
         }
 
         for candidate in candidateMessages(from: object) {
@@ -149,7 +148,14 @@ enum RovoDevTranscriptPreview {
         ) ?? "event"
 
         return parts.compactMap { part in
-            guard let partObject = part as? [String: Any] else { return nil }
+            guard let partObject = part as? [String: Any] else {
+                let text = textFragments(from: part)
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+                    .joined(separator: "\n\n")
+                guard !text.isEmpty else { return nil }
+                return RovoDevTranscriptPreviewTurn(role: messageRole, text: text)
+            }
             return parseRovoDevPart(partObject, messageRole: messageRole)
         }
     }
@@ -223,10 +229,12 @@ enum RovoDevTranscriptPreview {
         }
 
         switch object["part_kind"] as? String {
-        case "text", "user-prompt", "retry-prompt", "system-prompt":
+        case "text", "user-prompt", "retry-prompt":
             if let text = object["content"] as? String ?? object["text"] as? String {
                 return [text]
             }
+        case "system-prompt":
+            return []
         case "tool-use", "tool_use", "tool-call", "tool_call":
             return toolCallFragments(from: object)
         case "tool-result", "tool_result", "tool-return", "tool_return":
