@@ -86,7 +86,7 @@ jobs:
                 ;;
             esac
             ZIG_DIR="/tmp/zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}"
-            curl -fSL --connect-timeout 30 --retry 5 --retry-delay 5 --retry-all-errors --speed-limit 1024 --speed-time 120 --continue-at - "https://ziglang.org/download/${ZIG_REQUIRED}/zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}.tar.xz" -o /tmp/zig.tar.xz
+            ./scripts/download-with-retry.sh "https://ziglang.org/download/${ZIG_REQUIRED}/zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}.tar.xz" /tmp/zig.tar.xz
             tar xf /tmp/zig.tar.xz -C /tmp
             sudo mkdir -p /usr/local/bin /usr/local/lib
             sudo cp -f "${ZIG_DIR}/zig" /usr/local/bin/zig

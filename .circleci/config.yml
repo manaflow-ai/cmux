@@ -71,7 +71,7 @@ commands:
             esac
 
             if ! command -v minisign >/dev/null 2>&1; then
-              brew install minisign
+              HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install minisign
             fi
 
             ZIG_URL="https://ziglang.org/download/${ZIG_REQUIRED}/zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}.tar.xz"
@@ -80,7 +80,7 @@ commands:
             download_with_retry() {
               local url="$1"
               local output="$2"
-              curl -fSL --connect-timeout 30 --retry 5 --retry-delay 5 --retry-all-errors --speed-limit 1024 --speed-time 120 --continue-at - -o "$output" "$url"
+              ./scripts/download-with-retry.sh "$url" "$output"
             }
 
             echo "Installing verified zig ${ZIG_REQUIRED} from tarball"
