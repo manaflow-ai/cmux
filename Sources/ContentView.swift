@@ -3870,7 +3870,7 @@ struct ContentView: View {
 
         var isResolved: Bool { resolvedReason != nil }
 
-        deinit { MainActor.assumeIsolated { drainCleanup()?.resume(returning: "cancelled") } }
+        isolated deinit { drainCleanup()?.resume(returning: "cancelled") }
 
         func start(continuation: CheckedContinuation<String, Never>) {
             if let resolvedReason {
