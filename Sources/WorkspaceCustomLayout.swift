@@ -28,6 +28,7 @@ func absoluteCustomLayoutDirectory(_ directory: String) -> String {
     ).standardizingPath
 }
 
+@MainActor
 func customLayoutBaseCwdForNewWorkspace(
     tabManager: TabManager,
     requestedCwd: String?
