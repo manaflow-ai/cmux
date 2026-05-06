@@ -185,18 +185,28 @@ enum SettingsWindowPresenter {
     private static func clampToVisibleAreaIfNeeded(_ window: NSWindow) {
         guard let screen = window.screen ?? NSScreen.main else { return }
         var frame = window.frame
+        let originalFrame = frame
         let visibleFrame = screen.visibleFrame
+        let minimumFrameSize = NSSize(
+            width: max(window.minSize.width, window.contentMinSize.width),
+            height: max(window.minSize.height, window.contentMinSize.height)
+        )
+        let maxVisibleSize = NSSize(
+            width: max(minimumFrameSize.width, visibleFrame.width - 2 * visibleAreaInset),
+            height: max(minimumFrameSize.height, visibleFrame.height - 2 * visibleAreaInset)
+        )
+        frame.size.width = min(frame.size.width, maxVisibleSize.width)
+        frame.size.height = min(frame.size.height, maxVisibleSize.height)
         let minX = visibleFrame.minX + visibleAreaInset
         let minY = visibleFrame.minY + visibleAreaInset
         let maxX = max(minX, visibleFrame.maxX - visibleAreaInset - frame.width)
         let maxY = max(minY, visibleFrame.maxY - visibleAreaInset - frame.height)
-        let clampedOrigin = NSPoint(
+        frame.origin = NSPoint(
             x: min(max(frame.origin.x, minX), maxX),
             y: min(max(frame.origin.y, minY), maxY)
         )
 
-        guard clampedOrigin != frame.origin else { return }
-        frame.origin = clampedOrigin
+        guard frame != originalFrame else { return }
         window.setFrame(frame, display: true)
     }
 }
