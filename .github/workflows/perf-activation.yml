@@ -92,7 +92,7 @@ jobs:
             ZIG_SIG_URL="${ZIG_URL}.minisig"
             ZIG_PUBKEY="RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U"
             if ! command -v minisign >/dev/null 2>&1; then
-              brew install minisign
+              HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install minisign
             fi
             curl \
               --fail \
