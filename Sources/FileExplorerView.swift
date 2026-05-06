@@ -225,15 +225,11 @@ struct FileExplorerPanelView: NSViewRepresentable {
                   let outlineView = notification.object as? NSOutlineView else {
                 return
             }
-            guard outlineView.selectedRow >= 0,
-                  outlineView.selectedRow < outlineView.numberOfRows,
-                  let node = outlineView.item(atRow: outlineView.selectedRow) as? FileExplorerNode else {
-                store.select(node: nil)
-                return
-            }
-            store.select(node: node)
+            let nodes = outlineView.selectedRowIndexes.compactMap { outlineView.item(atRow: $0) as? FileExplorerNode }
+            guard !nodes.isEmpty else { store.select(node: nil); return }
+            let anchor = outlineView.selectedRow >= 0 ? outlineView.item(atRow: outlineView.selectedRow) as? FileExplorerNode : nil
+            store.select(nodes: nodes, anchor: anchor ?? nodes.first)
         }
-
         func outlineViewItemDidExpand(_ notification: Notification) {
             guard let node = notification.userInfo?["NSObject"] as? FileExplorerNode else { return }
             if !store.isExpanded(node) {
@@ -370,6 +366,11 @@ struct FileExplorerPanelView: NSViewRepresentable {
             fallbackToFirstVisible: Bool,
             scroll: Bool
         ) {
+            let exactRows = store.selectedPaths.reduce(into: IndexSet()) { if let resolution = selectionResolution(for: $1, in: outlineView), resolution.isExact { $0.insert(resolution.row) } }
+            if !exactRows.isEmpty {
+                withProgrammaticOutlineUpdate { outlineView.selectRowIndexes(exactRows, byExtendingSelection: false) }
+                if scroll, let row = exactRows.first { outlineView.scrollRowToVisible(row) }; return
+            }
             if let selectedPath = store.selectedPath,
                let resolution = selectionResolution(for: selectedPath, in: outlineView) {
                 selectRow(
