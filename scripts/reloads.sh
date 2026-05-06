@@ -120,7 +120,8 @@ if [[ -n "$TAG" ]]; then
   TAG_ID="$(sanitize_bundle "$TAG")"
   TAG_SLUG="$(sanitize_path "$TAG")"
   if [[ -z "$TAG_SLUG" ]]; then
-    TAG_SLUG="$TAG_ID"
+    echo "error: --tag must contain at least one alphanumeric character" >&2
+    exit 1
   fi
   if [[ "$NAME_SET" -eq 0 ]]; then
     APP_NAME="cmux STAGING ${TAG}"
