@@ -263,6 +263,10 @@ EOF
         return 1
     }
     if [[ -f "$guard_path" ]] && cmp -s "$temp_path" "$guard_path"; then
+        chmod 0600 "$guard_path" || {
+            rm -f "$temp_path"
+            return 1
+        }
         rm -f "$temp_path" || return 1
     else
         mv -f "$temp_path" "$guard_path" || {
