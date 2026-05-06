@@ -346,31 +346,32 @@ extension CMUXCLI {
         let client = SocketClient(path: socketPath)
         do {
             try client.connect()
-            defer { client.close() }
-            try authenticateClientIfNeeded(
-                client,
-                explicitPassword: explicitPassword,
-                socketPath: socketPath,
-                allowV2Fallback: true
-            )
-            return try body(client, false)
         } catch {
             client.close()
             guard shouldLaunchAppAfterSocketConnectFailure(socketPath: socketPath) else {
                 throw CLIError(message: "Failed to connect to cmux socket at \(socketPath): \(error)")
             }
+
+            try launchApp()
+            let launchedClient = try SocketClient.waitForConnectableSocket(path: socketPath, timeout: 10)
+            defer { launchedClient.close() }
+            try authenticateClientIfNeeded(
+                launchedClient,
+                explicitPassword: explicitPassword,
+                socketPath: socketPath,
+                allowV2Fallback: true
+            )
+            return try body(launchedClient, true)
         }
 
-        try launchApp()
-        let launchedClient = try SocketClient.waitForConnectableSocket(path: socketPath, timeout: 10)
-        defer { launchedClient.close() }
+        defer { client.close() }
         try authenticateClientIfNeeded(
-            launchedClient,
+            client,
             explicitPassword: explicitPassword,
             socketPath: socketPath,
             allowV2Fallback: true
         )
-        return try body(launchedClient, true)
+        return try body(client, false)
     }
 
     private func shouldLaunchAppAfterSocketConnectFailure(socketPath: String) -> Bool {
