@@ -18,19 +18,19 @@ nonisolated enum JSONCSettingsPatcher {
                 if let setting = try scanner.property(settingKey, in: sectionObject) {
                     return replacing(setting.valueRange, with: renderedValue, in: source)
                 }
-                return inserting(settingKey, valueJSON: renderedValue, in: sectionObject, source: source)
+                return try inserting(settingKey, valueJSON: renderedValue, in: sectionObject, source: source)
             }
 
-            let replacement = objectJSON(setting: settingKey, valueJSON: renderedValue)
+            let replacement = try objectJSON(setting: settingKey, valueJSON: renderedValue)
             return replacing(section.valueRange, with: replacement, in: source)
         }
 
-        let valueJSON = objectJSON(setting: settingKey, valueJSON: renderedValue)
-        return inserting(sectionKey, valueJSON: valueJSON, in: root, source: source)
+        let valueJSON = try objectJSON(setting: settingKey, valueJSON: renderedValue)
+        return try inserting(sectionKey, valueJSON: valueJSON, in: root, source: source)
     }
 
-    private static func objectJSON(setting: String, valueJSON: String) -> String {
-        "{\n    \(renderString(setting)): \(valueJSON)\n  }"
+    private static func objectJSON(setting: String, valueJSON: String) throws -> String {
+        "{\n    \(try renderString(setting)): \(valueJSON)\n  }"
     }
 
     private static func inserting(
@@ -38,17 +38,17 @@ nonisolated enum JSONCSettingsPatcher {
         valueJSON: String,
         in object: ObjectInfo,
         source: String
-    ) -> String {
+    ) throws -> String {
         let indent = lineIndent(in: source, at: object.open)
         let childIndent = indent + "  "
         if object.hasProperties {
             let closeIndent = lineIndent(in: source, at: object.close)
             let closeChildIndent = closeIndent + "  "
-            let insertion = ",\n\(closeChildIndent)\(renderString(key)): \(valueJSON)\n\(closeIndent)"
+            let insertion = ",\n\(closeChildIndent)\(try renderString(key)): \(valueJSON)\n\(closeIndent)"
             return replacing(object.close..<object.close, with: insertion, in: source)
         }
 
-        let insertion = "\n\(childIndent)\(renderString(key)): \(valueJSON)\n\(indent)"
+        let insertion = "\n\(childIndent)\(try renderString(key)): \(valueJSON)\n\(indent)"
         let insertAt = source.index(after: object.open)
         return replacing(insertAt..<insertAt, with: insertion, in: source)
     }
@@ -97,7 +97,7 @@ nonisolated enum JSONCSettingsPatcher {
             return String(value)
         }
         if let value = value as? String {
-            return renderString(value)
+            return try renderString(value)
         }
 
         var options: JSONSerialization.WritingOptions = [.sortedKeys]
@@ -109,10 +109,10 @@ nonisolated enum JSONCSettingsPatcher {
         return string
     }
 
-    private static func renderString(_ value: String) -> String {
+    private static func renderString(_ value: String) throws -> String {
         guard let data = try? JSONSerialization.data(withJSONObject: [value], options: [.withoutEscapingSlashes]),
               let renderedArray = String(data: data, encoding: .utf8) else {
-            return "\"\""
+            throw CocoaError(.fileReadCorruptFile)
         }
         return String(renderedArray.dropFirst().dropLast())
     }
