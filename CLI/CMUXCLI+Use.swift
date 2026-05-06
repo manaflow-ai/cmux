@@ -109,7 +109,7 @@ extension CMUXCLI {
             generatedManifestURL = nil
         }
         if let installCommand = manifest.installCommand {
-            try runUseInstallCommand(installCommand, cwd: install.url)
+            try runUseInstallCommand(installCommand, cwd: install.url, jsonOutput: jsonOutput)
         }
 
         let detectedCommand: CmuxUseLaunchCommand?
@@ -246,13 +246,13 @@ extension CMUXCLI {
         return CmuxUseCheckoutResult(url: installURL, action: existed ? "reinstalled" : "installed")
     }
 
-    private func runUseInstallCommand(_ command: String, cwd: URL) throws {
+    private func runUseInstallCommand(_ command: String, cwd: URL, jsonOutput: Bool) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")
         process.arguments = ["-lc", command]
         process.currentDirectoryURL = cwd
 
-        process.standardOutput = FileHandle.standardOutput
+        process.standardOutput = jsonOutput ? FileHandle.standardError : FileHandle.standardOutput
         process.standardError = FileHandle.standardError
 
         try process.run()
