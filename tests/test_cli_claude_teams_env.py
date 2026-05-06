@@ -296,6 +296,58 @@ def main() -> int:
     proc, node_options_value, runtime_node_options_value, child_node_options_value = run_claude_teams(
         cli_path,
         base_env,
+        "--require=/tmp/cmux-claude-node-options/restore-node-options.cjs "
+        "--max-old-space-size=4096 "
+        '--require "/Users/example/Library/Application Support/cmux/node-options/restore-node-options.cjs" '
+        "--max-old-space-size 4096 "
+        "--trace-warnings",
+    )
+    if proc.returncode != 0:
+        print("FAIL: `cmux claude-teams --version` with stale cmux restore preloads exited non-zero")
+        print(f"exit={proc.returncode}")
+        print(f"stdout={proc.stdout.strip()}")
+        print(f"stderr={proc.stderr.strip()}")
+        return 1
+
+    require_flag, remaining_flags = restore_require_and_remaining(node_options_value)
+    if not require_flag.startswith("--require="):
+        print(
+            "FAIL: expected NODE_OPTIONS to prepend a fresh restore preload after stale preload cleanup, "
+            f"got {node_options_value!r}"
+        )
+        return 1
+    restore_path = require_flag.removeprefix("--require=")
+    if "/Library/Application Support/cmux/node-options/restore-node-options.cjs" not in restore_path:
+        print(
+            "FAIL: expected fresh NODE_OPTIONS restore preload to live in Application Support, "
+            f"got {restore_path!r}"
+        )
+        return 1
+
+    if remaining_flags != "--max-old-space-size=4096 --trace-warnings":
+        print(
+            "FAIL: expected stale cmux restore preloads and paired heap caps to be stripped before reinjection, "
+            f"got {node_options_value!r}"
+        )
+        return 1
+
+    if runtime_node_options_value != "--trace-warnings":
+        print(
+            "FAIL: expected Claude runtime NODE_OPTIONS to drop stale cmux restore preloads, "
+            f"got {runtime_node_options_value!r}"
+        )
+        return 1
+
+    if child_node_options_value != "--trace-warnings":
+        print(
+            "FAIL: expected child NODE_OPTIONS to drop stale cmux restore preloads, "
+            f"got {child_node_options_value!r}"
+        )
+        return 1
+
+    proc, node_options_value, runtime_node_options_value, child_node_options_value = run_claude_teams(
+        cli_path,
+        base_env,
         "--max-old-space-size 2048 --trace-warnings",
     )
     if proc.returncode != 0:
