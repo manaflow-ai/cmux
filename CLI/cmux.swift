@@ -363,6 +363,7 @@ private struct ClaudeHookParsedInput {
     let rawFallback: String?
     let sessionId: String?
     let turnId: String?
+    let source: String?
     let cwd: String?
     let transcriptPath: String?
 }
@@ -393,6 +394,34 @@ private struct AgentHookLaunchCommandRecord: Codable {
 private struct ClaudeHookSessionStoreFile: Codable {
     var version: Int = 1
     var sessions: [String: ClaudeHookSessionRecord] = [:]
+    var activeSessionIdsByWorkspace: [String: String] = [:]
+
+    enum CodingKeys: String, CodingKey {
+        case version
+        case sessions
+        case activeSessionIdsByWorkspace
+    }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        version = try container.decodeIfPresent(Int.self, forKey: .version) ?? 1
+        sessions = try container.decodeIfPresent([String: ClaudeHookSessionRecord].self, forKey: .sessions) ?? [:]
+        activeSessionIdsByWorkspace = try container.decodeIfPresent(
+            [String: String].self,
+            forKey: .activeSessionIdsByWorkspace
+        ) ?? [:]
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(version, forKey: .version)
+        try container.encode(sessions, forKey: .sessions)
+        if !activeSessionIdsByWorkspace.isEmpty {
+            try container.encode(activeSessionIdsByWorkspace, forKey: .activeSessionIdsByWorkspace)
+        }
+    }
 }
 
 private final class ClaudeHookSessionStore {
@@ -507,6 +536,40 @@ private final class ClaudeHookSessionStore {
         }
     }
 
+    func markActive(sessionId: String?, workspaceId: String?) throws {
+        guard let normalizedSessionId = normalizeOptional(sessionId),
+              let normalizedWorkspace = normalizeOptional(workspaceId) else {
+            return
+        }
+        try withLockedState { state in
+            state.activeSessionIdsByWorkspace[normalizedWorkspace] = normalizedSessionId
+        }
+    }
+
+    func clearActive(sessionId: String?, workspaceId: String?) throws {
+        guard let normalizedWorkspace = normalizeOptional(workspaceId) else { return }
+        let normalizedSessionId = normalizeOptional(sessionId)
+        try withLockedState { state in
+            guard let current = state.activeSessionIdsByWorkspace[normalizedWorkspace] else { return }
+            if normalizedSessionId == nil || normalizedSessionId == current {
+                state.activeSessionIdsByWorkspace.removeValue(forKey: normalizedWorkspace)
+            }
+        }
+    }
+
+    func isCurrent(sessionId: String?, workspaceId: String?) throws -> Bool {
+        guard let normalizedSessionId = normalizeOptional(sessionId),
+              let normalizedWorkspace = normalizeOptional(workspaceId) else {
+            return true
+        }
+        return try withLockedState { state in
+            guard let current = state.activeSessionIdsByWorkspace[normalizedWorkspace] else {
+                return true
+            }
+            return current == normalizedSessionId
+        }
+    }
+
     private func fallbackRecord(
         sessions: [ClaudeHookSessionRecord],
         workspaceId: String?,
@@ -569,6 +632,10 @@ private final class ClaudeHookSessionStore {
         let cutoff = now - Self.maxStateAgeSeconds
         state.sessions = state.sessions.filter { _, record in
             record.updatedAt >= cutoff
+        }
+        let activeSessionIds = Set(state.sessions.keys)
+        state.activeSessionIdsByWorkspace = state.activeSessionIdsByWorkspace.filter { _, sessionId in
+            activeSessionIds.contains(sessionId)
         }
     }
 
@@ -13779,15 +13846,26 @@ struct CMUXCLI {
                     pid: claudePid,
                     launchCommand: launchCommand
                 )
+                try? sessionStore.markActive(sessionId: sessionId, workspaceId: workspaceId)
             }
             // Register PID for stale-session detection and OSC suppression,
-            // but don't set a visible status. "Running" only appears when the
-            // user submits a prompt (UserPromptSubmit) or Claude starts working
-            // (PreToolUse).
+            // but don't set a visible status for ordinary Claude startup.
+            // /clear emits SessionStart(source=clear) while Claude is already
+            // active, so that event becomes the new visible running lifecycle.
             if let claudePid {
                 _ = try? sendV1Command(
                     "set_agent_pid claude_code \(claudePid) --tab=\(workspaceId)",
                     client: client
+                )
+            }
+            if isClaudeClearSessionStart(parsedInput) {
+                _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
+                try? setClaudeStatus(
+                    client: client,
+                    workspaceId: workspaceId,
+                    value: "Running",
+                    icon: "bolt.fill",
+                    color: "#4C8DFF"
                 )
             }
             print("OK")
@@ -13810,6 +13888,10 @@ struct CMUXCLI {
                     client: client
                 )
                 sendClaudeFeedTelemetry(workspaceId: workspaceId)
+                guard (try? sessionStore.isCurrent(sessionId: parsedInput.sessionId, workspaceId: workspaceId)) != false else {
+                    print("OK")
+                    return
+                }
 
                 // Update session with transcript summary and send completion notification.
                 let completion = summarizeClaudeHookStop(
@@ -13860,7 +13942,22 @@ struct CMUXCLI {
                 fallback: workspaceArg,
                 client: client
             )
+            let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
+                preferred: mappedSession?.surfaceId,
+                fallback: surfaceArg,
+                workspaceId: workspaceId,
+                client: client
+            )
             sendClaudeFeedTelemetry(workspaceId: workspaceId)
+            if let sessionId = parsedInput.sessionId {
+                try? sessionStore.upsert(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    cwd: parsedInput.cwd
+                )
+                try? sessionStore.markActive(sessionId: sessionId, workspaceId: workspaceId)
+            }
             _ = try sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
             try setClaudeStatus(
                 client: client,
@@ -13882,6 +13979,10 @@ struct CMUXCLI {
                 client: client
             )
             sendClaudeFeedTelemetry(workspaceId: workspaceId)
+            guard (try? sessionStore.isCurrent(sessionId: parsedInput.sessionId, workspaceId: workspaceId)) != false else {
+                print("OK")
+                return
+            }
             if let mappedSession,
                let savedBody = mappedSession.lastBody, !savedBody.isEmpty,
                summary.body.contains("needs your attention") || summary.body.contains("needs your input") {
@@ -13951,9 +14052,12 @@ struct CMUXCLI {
             if let consumedSession {
                 let workspaceId = consumedSession.workspaceId
                 sendClaudeFeedTelemetry(workspaceId: workspaceId)
-                _ = try? clearClaudeStatus(client: client, workspaceId: workspaceId)
-                _ = try? sendV1Command("clear_agent_pid claude_code --tab=\(workspaceId)", client: client)
-                _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
+                if (try? sessionStore.isCurrent(sessionId: consumedSession.sessionId, workspaceId: workspaceId)) != false {
+                    _ = try? clearClaudeStatus(client: client, workspaceId: workspaceId)
+                    _ = try? sendV1Command("clear_agent_pid claude_code --tab=\(workspaceId)", client: client)
+                    _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
+                    try? sessionStore.clearActive(sessionId: consumedSession.sessionId, workspaceId: workspaceId)
+                }
             }
             print("OK")
 
@@ -13969,6 +14073,13 @@ struct CMUXCLI {
             )
             sendClaudeFeedTelemetry(workspaceId: workspaceId)
             let claudePid = mappedSession?.pid
+            guard (try? sessionStore.isCurrent(sessionId: parsedInput.sessionId, workspaceId: workspaceId)) != false else {
+                print("OK")
+                return
+            }
+            if let sessionId = parsedInput.sessionId {
+                try? sessionStore.markActive(sessionId: sessionId, workspaceId: workspaceId)
+            }
 
             // AskUserQuestion means Claude is about to ask the user something.
             // Save question text in session so the Notification handler can use it
@@ -14043,6 +14154,10 @@ struct CMUXCLI {
 
     private func clearClaudeStatus(client: SocketClient, workspaceId: String) throws {
         _ = try client.send(command: "clear_status claude_code --tab=\(workspaceId)")
+    }
+
+    private func isClaudeClearSessionStart(_ parsedInput: ClaudeHookParsedInput) -> Bool {
+        parsedInput.source?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "clear"
     }
 
     private func resolvePreferredWorkspaceIdForClaudeHook(
@@ -14326,11 +14441,20 @@ struct CMUXCLI {
                 normalizedSingleLine(redactClaudeSensitiveSpans(trimmed)),
                 maxLength: 180
             )
-            return ClaudeHookParsedInput(object: nil, rawFallback: fallback, sessionId: nil, turnId: nil, cwd: nil, transcriptPath: nil)
+            return ClaudeHookParsedInput(
+                object: nil,
+                rawFallback: fallback,
+                sessionId: nil,
+                turnId: nil,
+                source: nil,
+                cwd: nil,
+                transcriptPath: nil
+            )
         }
 
         let sessionId = extractClaudeHookSessionId(from: object)
         let turnId = firstString(in: object, keys: ["turn_id", "turnId"])
+        let source = firstString(in: object, keys: ["source"])
         let cwd = extractClaudeHookCWD(from: object)
         let transcriptPath = firstString(in: object, keys: ["transcript_path", "transcriptPath"])
         let compactObject = compactClaudeHookObject(object)
@@ -14339,6 +14463,7 @@ struct CMUXCLI {
             rawFallback: nil,
             sessionId: sessionId,
             turnId: turnId,
+            source: source,
             cwd: cwd,
             transcriptPath: transcriptPath
         )
@@ -14350,7 +14475,7 @@ struct CMUXCLI {
         for key in [
             "tool_name", "turn_id", "turnId",
             "last_assistant_message", "lastAssistantMessage", "assistantPreamble", "assistant_preamble",
-            "event", "event_name", "hook_event_name", "type", "kind", "notification_type", "matcher", "reason",
+            "event", "event_name", "hook_event_name", "type", "kind", "source", "notification_type", "matcher", "reason",
             "message", "body", "text", "prompt", "error", "codex_error_info", "codexErrorInfo",
             "additional_details", "additionalDetails", "description",
         ] {
