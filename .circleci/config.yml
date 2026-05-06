@@ -71,7 +71,19 @@ commands:
             esac
 
             if ! command -v minisign >/dev/null 2>&1; then
-              brew install minisign
+              export HOMEBREW_NO_AUTO_UPDATE=1
+              export HOMEBREW_NO_INSTALL_CLEANUP=1
+              for attempt in 1 2 3; do
+                if brew install minisign; then
+                  break
+                fi
+                if [ "$attempt" -eq 3 ]; then
+                  echo "Failed to install minisign after 3 attempts" >&2
+                  exit 1
+                fi
+                echo "minisign install failed on attempt $attempt, retrying..."
+                sleep $((attempt * 5))
+              done
             fi
 
             ZIG_URL="https://ziglang.org/download/${ZIG_REQUIRED}/zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}.tar.xz"
