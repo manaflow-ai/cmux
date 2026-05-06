@@ -87,6 +87,8 @@ struct FilePreviewTextEditor: NSViewRepresentable {
             self.panel = panel
         }
 
+        deinit {}
+
         func textDidChange(_ notification: Notification) {
             guard !isApplyingPanelUpdate,
                   let textView = notification.object as? NSTextView else { return }
@@ -120,6 +122,8 @@ final class SavingTextView: NSTextView {
     weak var panel: FilePreviewPanel?
     private var previewFontSize: CGFloat = 13
     private var pendingSaveShortcutChordPrefix: ShortcutStroke?
+
+    deinit {}
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()

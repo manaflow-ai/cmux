@@ -90,6 +90,7 @@ struct PanelContentView: View {
     }
 
     private var shouldInstallPaneDropTarget: Bool {
+        guard isVisibleInUI else { return false }
         switch panel.panelType {
         case .markdown, .filePreview:
             return true

@@ -179,6 +179,7 @@ final class FileDropOverlayViewTests: XCTestCase {
         let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
         BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
         BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+        defer { BrowserWindowPortalRegistry.detach(webView: webView) }
 
         let overlay = FileDropOverlayView(frame: container.bounds)
         overlay.autoresizingMask = [.width, .height]

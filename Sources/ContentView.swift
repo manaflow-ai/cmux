@@ -242,8 +242,9 @@ final class FileDropOverlayView: NSView {
         }
         preparedDragWebView = nil
         if let paneDropTarget {
-            preparedPaneDropTarget = paneDropTarget
-            return true
+            let accepted = paneDropTarget.prepareForDragOperation(sender)
+            preparedPaneDropTarget = accepted ? paneDropTarget : nil
+            return accepted
         }
         preparedPaneDropTarget = nil
         return hasPaneTarget
@@ -284,9 +285,12 @@ final class FileDropOverlayView: NSView {
         }
         preparedDragWebView = nil
         if let paneDropTarget {
-            preparedPaneDropTarget = nil
-            activePaneDropTarget = nil
-            return paneDropTarget.performDragOperation(sender)
+            let handled = paneDropTarget.performDragOperation(sender)
+            if !handled {
+                preparedPaneDropTarget = nil
+                activePaneDropTarget = nil
+            }
+            return handled
         }
         preparedPaneDropTarget = nil
         activeDragWebView = nil
@@ -311,7 +315,7 @@ final class FileDropOverlayView: NSView {
         let webView = preparedDragWebView ?? activeDragWebView ?? webViewUnderPoint(sender.draggingLocation)
         webView?.concludeDragOperation(sender)
         if let paneDropTarget = preparedPaneDropTarget ?? activePaneDropTarget {
-            paneDropTarget.draggingExited(sender)
+            paneDropTarget.concludeDragOperation(sender)
         }
     }
 
