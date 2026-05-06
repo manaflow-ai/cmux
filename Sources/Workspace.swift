@@ -10583,11 +10583,8 @@ final class Workspace: Identifiable, ObservableObject {
     /// Returns true when a bonsplit tab close request was issued.
     func closePanel(_ panelId: UUID, force: Bool = false) -> Bool {
         if let tabId = surfaceIdFromPanelId(panelId) {
-            if force {
-                forceCloseTabIds.insert(tabId)
-            }
             // Close the tab in bonsplit (this triggers delegate callback)
-            return bonsplitController.closeTab(tabId)
+            return requestCloseTab(tabId, force: force)
         }
 
         // Mapping can transiently drift during split-tree mutations. If the target panel is
@@ -10611,10 +10608,7 @@ final class Workspace: Identifiable, ObservableObject {
             return false
         }
 
-        if force {
-            forceCloseTabIds.insert(selected.id)
-        }
-        let closed = bonsplitController.closeTab(selected.id)
+        let closed = requestCloseTab(selected.id, force: force)
 #if DEBUG
         cmuxDebugLog(
             "surface.close.fallback panel=\(panelId.uuidString.prefix(5)) " +
@@ -10622,6 +10616,14 @@ final class Workspace: Identifiable, ObservableObject {
             "closed=\(closed ? 1 : 0)"
         )
 #endif
+        return closed
+    }
+
+    @discardableResult
+    func requestCloseTab(_ tabId: TabID, force: Bool) -> Bool {
+        if force { forceCloseTabIds.insert(tabId) }
+        let closed = bonsplitController.closeTab(tabId)
+        if force && !closed { forceCloseTabIds.remove(tabId) }
         return closed
     }
 
@@ -12371,14 +12373,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func closeTabs(_ tabIds: [TabID], skipPinned: Bool = true) {
-        for tabId in tabIds {
-            if skipPinned,
-               let panelId = panelIdFromSurfaceId(tabId),
-               pinnedPanelIds.contains(panelId) {
-                continue
-            }
-            _ = bonsplitController.closeTab(tabId)
-        }
+        closeTabsFromContextMenu(tabIds, skipPinned: skipPinned)
     }
 
     private func tabIdsToLeft(of anchorTabId: TabID, inPane paneId: PaneID) -> [TabID] {
