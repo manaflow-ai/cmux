@@ -13413,7 +13413,7 @@ private struct TabItemView: View, Equatable {
         let renameWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .renameWorkspace)
         let editWorkspaceDescriptionShortcut = KeyboardShortcutSettings.shortcut(for: .editWorkspaceDescription)
         let closeWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .closeWorkspace)
-        let finderDirectoryURL = isMulti ? nil : tab.sidebarFinderDirectoryURL()
+        let finderDirectoryURL = isMulti ? nil : workspaceFinderDirectoryURL()
         Button(pinLabel) {
             guard let contextMenuPinState else {
                 NSSound.beep()
@@ -13641,6 +13641,19 @@ private struct TabItemView: View, Equatable {
             return
         }
         NSWorkspace.shared.activateFileViewerSelecting([directoryURL])
+    }
+
+    private func workspaceFinderDirectoryURL() -> URL? {
+        guard !tab.isRemoteWorkspace,
+              let directory = tab.sidebarDirectoriesInDisplayOrder().first else {
+            return nil
+        }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: directory, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            return nil
+        }
+        return URL(fileURLWithPath: directory, isDirectory: true).standardizedFileURL
     }
 
     private var backgroundColor: Color {

@@ -8904,17 +8904,6 @@ final class Workspace: Identifiable, ObservableObject {
         sidebarDirectoriesInDisplayOrder(orderedPanelIds: sidebarOrderedPanelIds())
     }
 
-    func sidebarFinderDirectoryURL() -> URL? {
-        guard !isRemoteWorkspace else { return nil }
-        guard let directory = sidebarDirectoriesInDisplayOrder().first else { return nil }
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: directory, isDirectory: &isDirectory),
-              isDirectory.boolValue else {
-            return nil
-        }
-        return URL(fileURLWithPath: directory, isDirectory: true).standardizedFileURL
-    }
-
     func sidebarGitBranchesInDisplayOrder(orderedPanelIds: [UUID]) -> [SidebarGitBranchState] {
         SidebarBranchOrdering
             .orderedUniqueBranches(
