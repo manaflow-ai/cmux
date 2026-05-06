@@ -5335,6 +5335,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
         writeTextData(data, to: surface)
     }
 
+    func sendBracketedPasteText(_ text: String) {
+        guard !text.isEmpty else { return }
+        sendInput(TerminalAgentPromptPaste.bracketedSequence(for: text))
+    }
+
     @discardableResult
     func sendNamedKey(_ keyName: String) -> Bool {
         guard let event = pendingKeyEvent(for: keyName) else { return false }
@@ -5805,6 +5810,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         case insertText(String)
         case uploadFiles([URL])
         case reject
+    }
+
+    private enum DroppedTextDelivery {
+        case terminalPaste
+        case agentPromptPaste
     }
 
     private static let dropTypes: Set<NSPasteboard.PasteboardType> = PasteboardFileURLReader.fileURLPasteboardTypes.union([
@@ -9154,6 +9164,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private func executeImageTransferPlan(
         _ plan: TerminalImageTransferPlan,
+        textDelivery: DroppedTextDelivery = .terminalPaste,
         operation: TerminalImageTransferOperation? = nil,
         onCancel: @escaping () -> Void = {}
     ) -> Bool {
@@ -9211,7 +9222,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     // Use the text/paste path (ghostty_surface_text) instead of the key event
                     // path (ghostty_surface_key) so bracketed paste mode is triggered and the
                     // insertion is instant, matching upstream Ghostty behaviour.
-                    self?.terminalSurface?.sendText(text)
+                    switch textDelivery {
+                    case .terminalPaste:
+                        self?.terminalSurface?.sendText(text)
+                    case .agentPromptPaste:
+                        self?.terminalSurface?.sendBracketedPasteText(text)
+                    }
                 }
                 if Thread.isMainThread {
                     send()
@@ -9247,6 +9263,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
 
+    fileprivate func handleAgentDroppedFileURLs(_ urls: [URL]) -> Bool {
+        executePreparedImageTransfer(
+            .fileURLs(urls),
+            textDelivery: .agentPromptPaste,
+            onCancel: {}
+        )
+    }
+
     @discardableResult
     fileprivate func insertDroppedPasteboard(_ pasteboard: NSPasteboard) -> Bool {
         executePreparedImageTransfer(
@@ -9261,20 +9285,26 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     @discardableResult
     private func executePreparedImageTransfer(
         _ preparedContent: TerminalImageTransferPreparedContent,
+        textDelivery: DroppedTextDelivery = .terminalPaste,
         onCancel: @escaping () -> Void
     ) -> Bool {
         switch preparedContent {
         case .reject:
             return false
         case .insertText(let text):
-            terminalSurface?.sendText(text)
+            switch textDelivery {
+            case .terminalPaste:
+                terminalSurface?.sendText(text)
+            case .agentPromptPaste:
+                terminalSurface?.sendBracketedPasteText(text)
+            }
             return true
         case .fileURLs(let fileURLs):
             let plan = TerminalImageTransferPlanner.plan(
                 fileURLs: fileURLs,
                 target: resolvedImageTransferTarget()
             )
-            return executeImageTransferPlan(plan, onCancel: onCancel)
+            return executeImageTransferPlan(plan, textDelivery: textDelivery, onCancel: onCancel)
         }
     }
 
@@ -11226,6 +11256,14 @@ final class GhosttySurfaceScrollView: NSView {
         cmuxDebugLog("terminal.swiftUIDrop surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") urls=\(urls.map(\.lastPathComponent))")
         #endif
         return surfaceView.handleDroppedFileURLs(urls)
+    }
+
+    /// Handle agent terminal file/URL drops as a bracketed paste so agent TUIs can attach images.
+    func handleAgentDroppedURLs(_ urls: [URL]) -> Bool {
+        #if DEBUG
+        cmuxDebugLog("terminal.swiftUIDrop.agent surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") urls=\(urls.map(\.lastPathComponent))")
+        #endif
+        return surfaceView.handleAgentDroppedFileURLs(urls)
     }
 
     func terminalViewForDrop(at point: NSPoint) -> GhosttyNSView? {

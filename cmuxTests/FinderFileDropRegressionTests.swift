@@ -60,14 +60,9 @@ final class FinderFileDropRegressionTests: XCTestCase {
 
     func testPaneFileDropRoutingDistinguishesAgentTerminalsFromPlainShells() {
         XCTAssertEqual(
-            String(describing: PaneDropRouting.externalFileDropRouting(panelType: .terminal, hostsAgent: true)),
-            "agentPromptPaste",
-            "Agent terminals need an agent-prompt paste route so image drops become prompt attachments instead of literal path text"
-        )
-        XCTAssertEqual(
             PaneDropRouting.externalFileDropRouting(panelType: .terminal, hostsAgent: true),
-            .terminalInput,
-            "Agent terminals should keep Finder file drops on the terminal input path so Claude Code/Codex can attach images to the prompt"
+            .agentPromptPaste,
+            "Agent terminals need an agent-prompt paste route so image drops become prompt attachments instead of literal path text"
         )
         XCTAssertEqual(
             PaneDropRouting.externalFileDropRouting(panelType: .terminal, hostsAgent: false),
@@ -82,6 +77,19 @@ final class FinderFileDropRegressionTests: XCTestCase {
             PaneDropRouting.externalFileDropRouting(panelType: .markdown, hostsAgent: true),
             .filePreview
         )
+    }
+
+    func testAgentPromptDropPasteWrapsEscapedImagePathInBracketedPaste() throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agent dropped \(UUID().uuidString)")
+            .appendingPathExtension("png")
+
+        let escapedPath = TerminalImageTransferPlanner.escapeForShell(fileURL.path)
+        let sequence = TerminalAgentPromptPaste.bracketedSequence(for: escapedPath)
+
+        XCTAssertTrue(sequence.hasPrefix("\u{001B}[200~"))
+        XCTAssertTrue(sequence.hasSuffix("\u{001B}[201~"))
+        XCTAssertTrue(sequence.contains(escapedPath))
     }
 
     func testLegacyFinderFilenameDropPlanInsertsEscapedLocalPath() throws {

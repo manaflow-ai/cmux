@@ -28,6 +28,28 @@ enum TerminalImageTransferPreparedContent: Equatable {
     case reject
 }
 
+enum TerminalAgentPromptPaste {
+    private static let startSequence = "\u{001B}[200~"
+    private static let endSequence = "\u{001B}[201~"
+
+    static func bracketedSequence(for text: String) -> String {
+        "\(startSequence)\(controlSafeText(text))\(endSequence)"
+    }
+
+    private static func controlSafeText(_ text: String) -> String {
+        var scalars = String.UnicodeScalarView()
+        scalars.reserveCapacity(text.unicodeScalars.count)
+        for scalar in text.unicodeScalars {
+            if scalar.value < 0x20 || scalar.value == 0x7F {
+                scalars.append(" ")
+            } else {
+                scalars.append(scalar)
+            }
+        }
+        return String(scalars)
+    }
+}
+
 enum PasteboardFileURLReader {
     static let legacyFilenamesPboardType = NSPasteboard.PasteboardType(rawValue: "NSFilenamesPboardType")
     static let fileURLPasteboardTypes: Set<NSPasteboard.PasteboardType> = [

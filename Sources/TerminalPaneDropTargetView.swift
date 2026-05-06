@@ -12,6 +12,7 @@ struct PaneDropContext: Equatable {
 typealias TerminalPaneDropContext = PaneDropContext
 
 enum PaneExternalFileDropRouting: Equatable {
+    case agentPromptPaste
     case terminalInput
     case filePreview
 }
@@ -64,7 +65,7 @@ enum PaneDropRouting {
         guard panelType == .terminal, hostsAgent else {
             return .filePreview
         }
-        return .terminalInput
+        return .agentPromptPaste
     }
 
     static func zone(for location: CGPoint, in size: CGSize) -> DropZone {
@@ -268,6 +269,16 @@ final class PaneDropTargetView: NSView {
         }
 
         switch workspace.externalFileDropRouting(forPanelId: dropContext.panelId) {
+        case .agentPromptPaste:
+            let handled = hostedView?.handleAgentDroppedURLs(urls) ?? false
+#if DEBUG
+            cmuxDebugLog(
+                "terminal.paneDrop.perform panel=\(dropContext.panelId.uuidString.prefix(5)) " +
+                "fileURLs=\(urls.count) route=agentPromptPaste " +
+                "pane=\(dropContext.paneId.id.uuidString.prefix(5)) handled=\(handled ? 1 : 0)"
+            )
+#endif
+            return handled
         case .terminalInput:
             let handled = hostedView?.handleDroppedURLs(urls) ?? false
 #if DEBUG
@@ -337,6 +348,15 @@ final class PaneDropTargetView: NSView {
         }
 
         switch workspace.externalFileDropRouting(forPanelId: dropContext.panelId) {
+        case .agentPromptPaste:
+            clearDragState(phase: "\(phase).agentPromptPaste")
+#if DEBUG
+            cmuxDebugLog(
+                "terminal.paneDrop.\(phase) panel=\(dropContext.panelId.uuidString.prefix(5)) " +
+                "fileURL=1 route=agentPromptPaste"
+            )
+#endif
+            return .copy
         case .terminalInput:
             clearDragState(phase: "\(phase).terminalInput")
 #if DEBUG
