@@ -1,11 +1,5 @@
 import AppKit
 import Foundation
-import OSLog
-
-private let cmuxConfigExecutorLogger = Logger(
-    subsystem: Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
-    category: "CmuxConfigExecutor"
-)
 
 @MainActor
 struct CmuxConfigExecutor {
@@ -475,10 +469,7 @@ struct CmuxConfigExecutor {
 
         let resolvedCwd = CmuxConfigStore.resolveCwd(wsDef.cwd, relativeTo: baseCwd)
         if let layout = wsDef.layout,
-           let failure = layout.firstMarkdownPathResolutionFailure(relativeTo: resolvedCwd) {
-            cmuxConfigExecutorLogger.warning(
-                "Workspace command layout markdown path invalid: \(failure.code, privacy: .public)"
-            )
+           layout.firstMarkdownPathResolutionFailure(relativeTo: resolvedCwd) != nil {
             return false
         }
 

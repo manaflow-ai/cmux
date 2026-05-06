@@ -7,6 +7,47 @@ import XCTest
 #endif
 
 final class WorkspaceCustomLayoutTests: XCTestCase {
+    func testMarkdownSurfaceRequiresPathWhenDecodingLayout() throws {
+        let json = """
+        {
+          "pane": {
+            "surfaces": [
+              { "type": "markdown" }
+            ]
+          }
+        }
+        """
+        let data = try XCTUnwrap(json.data(using: .utf8))
+
+        XCTAssertThrowsError(try JSONDecoder().decode(CmuxLayoutNode.self, from: data)) { error in
+            guard case DecodingError.keyNotFound(let key, let context) = error else {
+                return XCTFail("Expected keyNotFound for markdown path, got \(error)")
+            }
+            XCTAssertEqual(key.stringValue, "path")
+            XCTAssertTrue(context.debugDescription.contains("Markdown surface requires"))
+        }
+    }
+
+    func testMarkdownSurfaceRejectsBlankPathWhenDecodingLayout() throws {
+        let json = """
+        {
+          "pane": {
+            "surfaces": [
+              { "type": "markdown", "path": "   " }
+            ]
+          }
+        }
+        """
+        let data = try XCTUnwrap(json.data(using: .utf8))
+
+        XCTAssertThrowsError(try JSONDecoder().decode(CmuxLayoutNode.self, from: data)) { error in
+            guard case DecodingError.dataCorrupted(let context) = error else {
+                return XCTFail("Expected dataCorrupted for blank markdown path, got \(error)")
+            }
+            XCTAssertTrue(context.debugDescription.contains("must not be empty"))
+        }
+    }
+
     @MainActor
     func testCustomLayoutMarkdownSurfacesOpenInDeclaredPaneWithResolvedPaths() throws {
         let root = FileManager.default.temporaryDirectory
