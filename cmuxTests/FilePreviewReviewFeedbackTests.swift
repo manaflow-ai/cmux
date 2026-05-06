@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import Carbon.HIToolbox
+import PDFKit
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -111,6 +112,25 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         await waitUntil("image preview external revision") {
             panel.fileContentRevision > initialRevision && !panel.isFileUnavailable
         }
+    }
+
+    func testPDFPreviewKeepsExistingDocumentVisibleDuringSameFileReload() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("pdf")
+        let document = PDFDocument()
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
+        let view = FilePreviewPDFContainerView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+        view.setPanel(panel)
+        view.debugSeedPDFDocumentForTesting(document, url: url, revision: 0)
+
+        view.setURL(url, revision: 1)
+        XCTAssertTrue(
+            view.debugPDFDocumentForTesting === document,
+            "Reloading the same PDF should not blank the current document before the replacement finishes loading"
+        )
     }
 
     func testDirtyTextPreviewRebasesWhenExternalFileMatchesLocalEdit() async throws {

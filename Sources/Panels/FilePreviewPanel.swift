@@ -1903,6 +1903,11 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
     private var rotationAccumulator: CGFloat = 0
     private var documentLoadTask: Task<Void, Never>?
 
+#if DEBUG
+    var debugPDFDocumentForTesting: PDFDocument? { pdfView.document }
+    func debugSeedPDFDocumentForTesting(_ document: PDFDocument, url: URL, revision: Int) { currentURL = url; currentRevision = revision; pdfView.document = document }
+#endif
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         setupView()
