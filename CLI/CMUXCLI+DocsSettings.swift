@@ -1,11 +1,11 @@
 import Foundation
 
 extension CMUXCLI {
-    private static let settingsDocsURL = "https://cmux.com/docs/configuration#cmux-json"
-    private static let settingsSchemaURL = "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json"
-    private static let primarySettingsDisplayPath = "~/.config/cmux/cmux.json"
-    private static let legacySettingsDisplayPath = "~/.config/cmux/settings.json"
-    private static let fallbackSettingsDisplayPath = "~/Library/Application Support/com.cmuxterm.app/settings.json"
+    static let settingsDocsURL = "https://cmux.com/docs/configuration#cmux-json"
+    static let settingsSchemaURL = "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json"
+    static let primarySettingsDisplayPath = "~/.config/cmux/cmux.json"
+    static let legacySettingsDisplayPath = "~/.config/cmux/settings.json"
+    static let fallbackSettingsDisplayPath = "~/Library/Application Support/com.cmuxterm.app/settings.json"
 
     private struct DocsResource {
         let label: String
@@ -34,6 +34,7 @@ extension CMUXCLI {
             commands: [
                 "cmux settings path",
                 "cmux settings cmux-json",
+                "cmux config doctor",
                 "cmux reload-config",
             ]
         ),
@@ -358,40 +359,6 @@ extension CMUXCLI {
         """
     }
 
-    private func printSettingsPaths(jsonOutput: Bool) {
-        let payload: [String: Any] = [
-            "primary": Self.primarySettingsDisplayPath,
-            "legacy": Self.legacySettingsDisplayPath,
-            "fallback": Self.fallbackSettingsDisplayPath,
-            "docs_url": Self.settingsDocsURL,
-            "schema_url": Self.settingsSchemaURL,
-            "reload_command": "cmux reload-config",
-            "backup": "Back up any existing cmux.json file to a timestamped .bak copy before editing so the user can revert.",
-        ]
-
-        if jsonOutput {
-            print(jsonString(payload))
-            return
-        }
-
-        print("Config files:")
-        print("  primary:  \(Self.primarySettingsDisplayPath)")
-        print("  legacy config: \(Self.legacySettingsDisplayPath)")
-        print("  legacy app support: \(Self.fallbackSettingsDisplayPath)")
-        print()
-        print("Docs:")
-        print("  \(Self.settingsDocsURL)")
-        print()
-        print("Schema:")
-        print("  \(Self.settingsSchemaURL)")
-        print()
-        print("Before editing cmux.json:")
-        print("  Back up any existing cmux.json file to a timestamped .bak copy so the user can revert.")
-        print()
-        print("After editing cmux.json:")
-        print("  cmux reload-config")
-    }
-
     private func settingsTargetRawValue(for rawValue: String) -> String? {
         let normalized = rawValue
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -484,7 +451,7 @@ extension CMUXCLI {
         }
     }
 
-    private func docsSettingsArguments(_ commandArgs: [String]) -> (head: [String], arguments: [String]) {
+    func docsSettingsArguments(_ commandArgs: [String]) -> (head: [String], arguments: [String]) {
         let separatorIndex = commandArgs.firstIndex(of: "--")
         let head = separatorIndex.map { Array(commandArgs[..<$0]) } ?? commandArgs
         let tail = separatorIndex.map { Array(commandArgs[commandArgs.index(after: $0)...]) } ?? []
@@ -492,7 +459,7 @@ extension CMUXCLI {
         return (head, headArguments + tail)
     }
 
-    private func hasHelpRequest(beforeSeparator args: [String]) -> Bool {
+    func hasHelpRequest(beforeSeparator args: [String]) -> Bool {
         let positionalArgs = args.filter { $0 != "--json" }
         return args.contains("--help") || args.contains("-h") || positionalArgs.first?.lowercased() == "help"
     }

@@ -2064,6 +2064,19 @@ struct CMUXCLI {
             return
         }
 
+        // Keep no-socket config subcommands on the early path. Socket-backed
+        // config subcommands fall through to the resolved-socket dispatch below.
+        if command == "config",
+           configCommandDoesNotNeedSocket(commandArgs) {
+            try runConfigCommand(
+                commandArgs: commandArgs,
+                socketPath: nil,
+                explicitPassword: socketPasswordArg,
+                jsonOutput: jsonOutput
+            )
+            return
+        }
+
         let envSocketPath = explicitSocketPath == nil
             ? try CLISocketEnvironment.socketPath(in: processEnv)
             : CLISocketEnvironment.socketPathForTelemetry(in: processEnv)
@@ -2096,6 +2109,16 @@ struct CMUXCLI {
 
         if command == "settings" {
             try runSettings(
+                commandArgs: commandArgs,
+                socketPath: resolvedSocketPath,
+                explicitPassword: socketPasswordArg,
+                jsonOutput: jsonOutput
+            )
+            return
+        }
+
+        if command == "config" {
+            try runConfigCommand(
                 commandArgs: commandArgs,
                 socketPath: resolvedSocketPath,
                 explicitPassword: socketPasswordArg,
@@ -8319,6 +8342,8 @@ struct CMUXCLI {
             return docsUsage()
         case "settings":
             return settingsUsage()
+        case "config":
+            return configUsage()
         case "welcome":
             return """
             Usage: cmux welcome
@@ -19926,6 +19951,7 @@ export default CMUXSessionRestore;
           welcome
           docs [settings|shortcuts|api|browser|agents|dock]
           settings [open|path|docs|target]
+          config <doctor|check|validate|path|paths|docs|documentation|reload>
           shortcuts
           disable-browser | enable-browser | browser-status
           restore-session
