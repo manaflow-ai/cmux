@@ -27,7 +27,7 @@ extension CMUXCLI {
         }
     }
 
-    func launchApp() throws {
+    func launchApp(strictOpenExit: Bool = false) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
         process.arguments = ["-a", "cmux"]
@@ -46,9 +46,10 @@ extension CMUXCLI {
         let stderrData = (try? Data(contentsOf: stderrURL)) ?? Data()
         let stderr = String(data: stderrData, encoding: .utf8)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard process.terminationStatus == 0 else {
-            let detail = stderr.isEmpty ? "" : ": \(stderr)"
-            throw CLIError(message: "open -a cmux failed with exit \(process.terminationStatus)\(detail)")
+        guard strictOpenExit, process.terminationStatus != 0 else {
+            return
         }
+        let detail = stderr.isEmpty ? "" : ": \(stderr)"
+        throw CLIError(message: "open -a cmux failed with exit \(process.terminationStatus)\(detail)")
     }
 }

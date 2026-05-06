@@ -108,7 +108,7 @@ extension CMUXCLI {
         } else {
             generatedManifestURL = nil
         }
-        if let installCommand = manifest.installCommand {
+        if options.shouldRunDetectedCommand, let installCommand = manifest.installCommand {
             try runUseInstallCommand(installCommand, cwd: install.url, jsonOutput: jsonOutput)
         }
 
@@ -352,7 +352,7 @@ extension CMUXCLI {
                 throw CLIError(message: "Failed to connect to cmux socket at \(socketPath): \(error)")
             }
 
-            try launchApp()
+            try launchApp(strictOpenExit: true)
             let launchedClient = try SocketClient.waitForConnectableSocket(path: socketPath, timeout: 10)
             defer { launchedClient.close() }
             try authenticateClientIfNeeded(
