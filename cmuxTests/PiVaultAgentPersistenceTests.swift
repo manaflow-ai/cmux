@@ -7,6 +7,91 @@ import XCTest
 #endif
 
 final class PiVaultAgentPersistenceTests: XCTestCase {
+    func testRegisteredSessionAgentCodablePreservesPresentation() throws {
+        let encoded = try JSONEncoder().encode(
+            SessionAgent.registered(RegisteredSessionAgent(
+                id: "acme-agent",
+                name: "Acme Agent",
+                iconAssetName: "AgentIcons/Acme"
+            ))
+        )
+
+        let decoded = try JSONDecoder().decode(SessionAgent.self, from: encoded)
+
+        guard case .registered(let agent) = decoded else {
+            return XCTFail("Expected registered agent")
+        }
+        XCTAssertEqual(agent.id, "acme-agent")
+        XCTAssertEqual(agent.name, "Acme Agent")
+        XCTAssertEqual(agent.iconAssetName, "AgentIcons/Acme")
+    }
+
+    func testRegisteredAgentTemplateFailsClosedWhenPlaceholderIsUnavailable() {
+        let registration = CmuxVaultAgentRegistration(
+            id: "acme-agent",
+            name: "Acme Agent",
+            detect: CmuxVaultAgentDetectRule(processName: "acme-agent"),
+            sessionIdSource: .argvOption("--session"),
+            resumeCommand: "acme-agent --cwd {{cwd}} --session {{sessionId}}",
+            cwd: .preserve
+        )
+
+        let command = AgentResumeCommandBuilder.resumeShellCommand(
+            kind: .custom("acme-agent"),
+            sessionId: "session-123",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "acme-agent",
+                executablePath: nil,
+                arguments: ["acme-agent"],
+                workingDirectory: nil,
+                environment: nil,
+                capturedAt: nil,
+                source: "test"
+            ),
+            workingDirectory: nil,
+            registrationOverride: registration
+        )
+
+        XCTAssertNil(command)
+    }
+
+    func testRegisteredAgentJSONLNativeSessionIDOverridesPathFallback() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-registered-native-id-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let sessionFile = tempDir.appendingPathComponent("metadata.jsonl")
+        try """
+        {"sessionId":"native-session-123","cwd":"/tmp/acme","title":"Resume Acme"}
+        {"gitBranch":"issue-3575-vault-pi-agent-support"}
+        """.write(to: sessionFile, atomically: true, encoding: .utf8)
+
+        let registration = CmuxVaultAgentRegistration(
+            id: "acme-agent",
+            name: "Acme Agent",
+            detect: CmuxVaultAgentDetectRule(processName: "acme-agent"),
+            sessionIdSource: .argvOption("--session"),
+            resumeCommand: "acme-agent --session {{sessionId}}",
+            cwd: .preserve,
+            sessionDirectory: tempDir.path
+        )
+
+        let entries = await SessionIndexStore.loadRegisteredAgentEntries(
+            registration: registration,
+            needle: "",
+            cwdFilter: nil,
+            offset: 0,
+            limit: 10
+        )
+
+        let entry = try XCTUnwrap(entries.first)
+        XCTAssertEqual(entry.id, "acme-agent:native-session-123")
+        XCTAssertEqual(entry.sessionId, "native-session-123")
+        XCTAssertEqual(entry.title, "Resume Acme")
+        XCTAssertEqual(entry.gitBranch, "issue-3575-vault-pi-agent-support")
+    }
+
     func testRegisteredAgentMetadataKeepsScanningForBranchWhenFallbackCWDSet() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-pi-vault-branch-\(UUID().uuidString)", isDirectory: true)

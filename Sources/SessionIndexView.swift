@@ -209,6 +209,26 @@ struct SessionIndexView: View {
     }
 }
 
+private struct AgentIconImage: View, Equatable {
+    let agent: SessionAgent
+    let size: CGFloat
+
+    var body: some View {
+        if let assetName = agent.assetName {
+            Image(assetName)
+                .resizable()
+                .interpolation(.high)
+                .aspectRatio(contentMode: .fit)
+                .frame(width: size, height: size)
+        } else {
+            Image(systemName: agent.systemImageName ?? "person.crop.circle")
+                .font(.system(size: max(size - 2, 10), weight: .regular))
+                .foregroundColor(.secondary)
+                .frame(width: size, height: size)
+        }
+    }
+}
+
 private struct GroupingButton: View {
     let mode: SessionGrouping
     let isSelected: Bool
@@ -394,11 +414,7 @@ private struct IndexSectionView: View, Equatable {
     private var sectionIconView: some View {
         switch section.icon {
         case .agent(let agent):
-            Image(agent.assetName)
-                .resizable()
-                .interpolation(.high)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 14, height: 14)
+            AgentIconImage(agent: agent, size: 14)
         case .folder:
             Image(systemName: "folder")
                 .font(.system(size: 12, weight: .regular))
@@ -497,11 +513,7 @@ private struct SessionRow: View, Equatable {
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(entry.agent.assetName)
-                .resizable()
-                .interpolation(.high)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 12, height: 12)
+            AgentIconImage(agent: entry.agent, size: 12)
             Text(entry.displayTitle)
                 .font(.system(size: 13))
                 .foregroundColor(.primary.opacity(0.92))
@@ -529,11 +541,7 @@ private struct SessionRow: View, Equatable {
             sessionDragItemProvider(for: entry)
         } preview: {
             HStack(spacing: 6) {
-                Image(entry.agent.assetName)
-                    .resizable()
-                    .interpolation(.high)
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 12, height: 12)
+                AgentIconImage(agent: entry.agent, size: 12)
                 Text(entry.displayTitle)
                     .font(.system(size: 12, weight: .medium))
                     .lineLimit(1)
@@ -630,12 +638,14 @@ private func sessionRowMenuItems(entry: SessionEntry, onResume: ((SessionEntry) 
             Text(String(localized: "sessionIndex.row.copyPath", defaultValue: "Copy File Path"))
         }
     }
-    Button {
-        let pb = NSPasteboard.general
-        pb.clearContents()
-        pb.setString(entry.resumeCommandWithCwd, forType: .string)
-    } label: {
-        Text(String(localized: "sessionIndex.row.copyResume", defaultValue: "Copy Resume Command"))
+    if let resumeCommand = entry.resumeCommandWithCwd {
+        Button {
+            let pb = NSPasteboard.general
+            pb.clearContents()
+            pb.setString(resumeCommand, forType: .string)
+        } label: {
+            Text(String(localized: "sessionIndex.row.copyResume", defaultValue: "Copy Resume Command"))
+        }
     }
     if let cwd = entry.cwd, !cwd.isEmpty {
         Button {
@@ -688,11 +698,7 @@ private struct SessionTranscriptPreviewView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Image(entry.agent.assetName)
-                .resizable()
-                .interpolation(.high)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 14, height: 14)
+            AgentIconImage(agent: entry.agent, size: 14)
             VStack(alignment: .leading, spacing: 1) {
                 Text(entry.displayTitle)
                     .font(.system(size: 13, weight: .semibold))
@@ -2172,11 +2178,7 @@ private struct SectionPopoverView: View {
     private var sectionIconView: some View {
         switch section.icon {
         case .agent(let agent):
-            Image(agent.assetName)
-                .resizable()
-                .interpolation(.high)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 14, height: 14)
+            AgentIconImage(agent: agent, size: 14)
         case .folder:
             Image(systemName: "folder")
                 .font(.system(size: 12, weight: .regular))
@@ -2224,11 +2226,7 @@ private struct PopoverRow: View, Equatable {
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(entry.agent.assetName)
-                .resizable()
-                .interpolation(.high)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 12, height: 12)
+            AgentIconImage(agent: entry.agent, size: 12)
             // Flatten newlines so titles containing `<command-message>…\n…`
             // envelopes stay single-line; SwiftUI's `lineLimit(1)` doesn't
             // always constrain a Text that has hard line breaks in the

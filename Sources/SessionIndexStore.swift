@@ -46,30 +46,25 @@ final class ClaudeMetadataCache: @unchecked Sendable {
 /// Used to forward sessions through bonsplit's external-tab-drop hook (which only
 /// carries UUIDs in its payload). Workspace.handleExternalTabDrop consults this
 /// to decide whether a drop should spawn a brand new terminal vs. move an existing tab.
+@MainActor
 final class SessionDragRegistry {
     static let shared = SessionDragRegistry()
 
-    private let lock = NSLock()
     private var pending: [UUID: SessionEntry] = [:]
 
     func register(_ entry: SessionEntry) -> UUID {
         let id = UUID()
-        lock.lock()
         pending[id] = entry
-        lock.unlock()
         // Auto-expire so a cancelled drag doesn't leak forever.
-        DispatchQueue.global().asyncAfter(deadline: .now() + 60) { [weak self] in
-            self?.lock.lock()
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(60))
             self?.pending.removeValue(forKey: id)
-            self?.lock.unlock()
         }
         return id
     }
 
     func consume(id: UUID) -> SessionEntry? {
-        lock.lock()
-        defer { lock.unlock() }
-        return pending.removeValue(forKey: id)
+        pending.removeValue(forKey: id)
     }
 }
 
@@ -183,7 +178,7 @@ final class SessionIndexStore: ObservableObject {
     /// Persisted order for agent sections.
     @Published var agentOrder: [SessionAgent] {
         didSet {
-            guard agentOrder != oldValue else { return }
+            guard !Self.agentOrderPresentationEqual(agentOrder, oldValue) else { return }
             Self.persistAgentOrder(agentOrder)
             invalidateSectionsCache()
         }
@@ -316,12 +311,17 @@ final class SessionIndexStore: ObservableObject {
             }
         }
         if additions.isEmpty {
-            if nextOrder != agentOrder { agentOrder = nextOrder }
+            setAgentOrderIfPresentationChanged(nextOrder)
             return
         }
         additions.sort { $0.latest > $1.latest }
         nextOrder.append(contentsOf: additions.map(\.agent))
-        if nextOrder != agentOrder { agentOrder = nextOrder }
+        setAgentOrderIfPresentationChanged(nextOrder)
+    }
+
+    private func setAgentOrderIfPresentationChanged(_ nextOrder: [SessionAgent]) {
+        guard !Self.agentOrderPresentationEqual(nextOrder, agentOrder) else { return }
+        agentOrder = nextOrder
     }
 
     private func invalidateSectionsCache() {
@@ -431,6 +431,20 @@ final class SessionIndexStore: ObservableObject {
 
     private static func persistAgentOrder(_ order: [SessionAgent]) {
         UserDefaults.standard.set(order.map { $0.rawValue }, forKey: agentOrderDefaultsKey)
+    }
+
+    private static func agentOrderPresentationEqual(_ lhs: [SessionAgent], _ rhs: [SessionAgent]) -> Bool {
+        guard lhs.count == rhs.count else { return false }
+        return zip(lhs, rhs).allSatisfy { left, right in
+            guard left.rawValue == right.rawValue else { return false }
+            switch (left, right) {
+            case (.registered(let leftAgent), .registered(let rightAgent)):
+                return leftAgent.name == rightAgent.name
+                    && leftAgent.iconAssetName == rightAgent.iconAssetName
+            default:
+                return true
+            }
+        }
     }
 
     private static func persistDirectoryOrder(_ order: [String]) {
@@ -1067,13 +1081,17 @@ final class SessionIndexStore: ObservableObject {
         switch scope {
         case .agent(let a):
             let registry: CmuxVaultAgentRegistry
+            let cwdFilter: String?
             if case .registered = a {
-                registry = await Self.vaultAgentRegistry(workingDirectory: nil)
+                let scopedCwd = currentDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
+                cwdFilter = scopedCwd?.isEmpty == false ? scopedCwd : nil
+                registry = await Self.vaultAgentRegistry(workingDirectory: cwdFilter)
             } else {
+                cwdFilter = nil
                 registry = CmuxVaultAgentRegistry(registrations: [])
             }
             entries = await Self.searchAgent(
-                needle: needle, agent: a, cwdFilter: nil,
+                needle: needle, agent: a, cwdFilter: cwdFilter,
                 offset: offset, limit: limit, errorBag: bag, registry: registry
             )
         case .directory(let path):

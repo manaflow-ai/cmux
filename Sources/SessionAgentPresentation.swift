@@ -13,14 +13,23 @@ extension SessionAgent {
     }
 
     /// Asset catalog image name for the agent's brand mark.
-    var assetName: String {
+    var assetName: String? {
         switch self {
         case .claude: return "AgentIcons/Claude"
         case .codex: return "AgentIcons/Codex"
         case .opencode: return "AgentIcons/OpenCode"
         case .rovodev: return "AgentIcons/RovoDev"
+        case .registered(let agent):
+            return agent.iconAssetName
+        }
+    }
+
+    var systemImageName: String? {
+        switch self {
         case .registered:
-            return "AgentIcons/OpenCode"
+            return assetName == nil ? "person.crop.circle" : nil
+        default:
+            return nil
         }
     }
 }

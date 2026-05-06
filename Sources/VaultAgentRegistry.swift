@@ -11,6 +11,7 @@ struct CmuxVaultConfigDefinition: Codable, Hashable, Sendable {
 struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
     var id: String
     var name: String
+    var iconAssetName: String?
     var detect: CmuxVaultAgentDetectRule
     var sessionIdSource: CmuxVaultAgentSessionIDSource
     var resumeCommand: String
@@ -18,12 +19,13 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
     var sessionDirectory: String?
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, detect, sessionIdSource, resumeCommand, cwd, sessionDirectory
+        case id, name, iconAssetName, detect, sessionIdSource, resumeCommand, cwd, sessionDirectory
     }
 
     init(
         id: String,
         name: String,
+        iconAssetName: String? = nil,
         detect: CmuxVaultAgentDetectRule,
         sessionIdSource: CmuxVaultAgentSessionIDSource,
         resumeCommand: String,
@@ -32,6 +34,7 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
     ) {
         self.id = id
         self.name = name
+        self.iconAssetName = Self.normalizedOptional(iconAssetName)
         self.detect = detect
         self.sessionIdSource = sessionIdSource
         self.resumeCommand = resumeCommand
@@ -67,12 +70,13 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
             throw DecodingError.dataCorruptedError(
                 forKey: .resumeCommand,
                 in: container,
-                debugDescription: "Vault agent resumeCommand must include {{sessionId}}"
+                debugDescription: "Vault agent resumeCommand must include {{sessionId}} or {{sessionPath}}"
             )
         }
 
         self.id = id
         self.name = name
+        self.iconAssetName = Self.normalizedOptional(try container.decodeIfPresent(String.self, forKey: .iconAssetName))
         self.detect = try container.decodeIfPresent(CmuxVaultAgentDetectRule.self, forKey: .detect) ?? .init()
         self.sessionIdSource = try container.decode(CmuxVaultAgentSessionIDSource.self, forKey: .sessionIdSource)
         self.resumeCommand = resumeCommand
@@ -85,6 +89,11 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
     static func isValidID(_ value: String) -> Bool {
         guard !value.isEmpty else { return false }
         return value.range(of: #"^[A-Za-z0-9._-]+$"#, options: .regularExpression) != nil
+    }
+
+    private static func normalizedOptional(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
     }
 
     private static func isReservedID(_ value: String) -> Bool {
@@ -337,10 +346,15 @@ struct CmuxVaultAgentRegistry: Sendable {
     private static func decodeConfig(at path: String, fileManager: FileManager) -> CmuxConfigFile? {
         guard fileManager.fileExists(atPath: path),
               let data = fileManager.contents(atPath: path),
-              !data.isEmpty,
-              let sanitized = try? JSONCParser.preprocess(data: data) else {
+              !data.isEmpty else {
             return nil
         }
-        return try? JSONDecoder().decode(CmuxConfigFile.self, from: sanitized)
+        do {
+            let sanitized = try JSONCParser.preprocess(data: data)
+            return try JSONDecoder().decode(CmuxConfigFile.self, from: sanitized)
+        } catch {
+            NSLog("[CmuxVaultAgentRegistry] failed to decode config at %@: %@", path, String(describing: error))
+            return nil
+        }
     }
 }

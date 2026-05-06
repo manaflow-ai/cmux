@@ -62,6 +62,10 @@
                 "type": "string",
                 "description": "Display name shown in Vault."
               },
+              "iconAssetName": {
+                "type": "string",
+                "description": "Optional asset catalog image name shown for this agent in Vault."
+              },
               "detect": {
                 "type": "object",
                 "additionalProperties": false,
@@ -129,7 +133,7 @@
               },
               "resumeCommand": {
                 "type": "string",
-                "description": "Shell-like argv template used to resume a session. Supported placeholders: {{sessionId}}, {{sessionPath}}, {{executable}}, {{cwd}}, {{sessionDir}}. Must include {{sessionId}}."
+                "description": "Shell-like argv template used to resume a session. Supported placeholders: {{sessionId}}, {{sessionPath}}, {{executable}}, {{cwd}}, {{sessionDir}}. Must include {{sessionId}} or {{sessionPath}}."
               },
               "cwd": {
                 "type": "string",

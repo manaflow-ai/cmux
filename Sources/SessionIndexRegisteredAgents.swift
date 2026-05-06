@@ -5,6 +5,7 @@ extension SessionIndexStore {
         var title: String = ""
         var cwd: String?
         var branch: String?
+        var sessionId: String?
     }
 
     nonisolated static func loadRegisteredAgentEntries(
@@ -70,10 +71,11 @@ extension SessionIndexStore {
                 fallbackCWD: cwdFilter
             )
             if let cwdFilter, metadata.cwd != cwdFilter { continue }
+            let sessionId = metadata.sessionId ?? candidate.url.path
             matches.append(SessionEntry(
-                id: "\(registration.id):\(candidate.url.path)",
+                id: "\(registration.id):\(sessionId)",
                 agent: .registered(RegisteredSessionAgent(registration: registration)),
-                sessionId: candidate.url.path,
+                sessionId: sessionId,
                 title: metadata.title,
                 cwd: metadata.cwd,
                 gitBranch: metadata.branch,
@@ -129,7 +131,17 @@ extension SessionIndexStore {
     ) -> RegisteredAgentJSONLMetadata {
         var metadata = RegisteredAgentJSONLMetadata()
         metadata.cwd = fallbackCWD
+        let needsNativeSessionID: Bool
+        switch registration.sessionIdSource {
+        case .argvOption:
+            needsNativeSessionID = true
+        case .piSessionFile:
+            needsNativeSessionID = false
+        }
         forEachJSONLine(url: url, maxBytes: 512 * 1024) { object in
+            if metadata.sessionId == nil {
+                metadata.sessionId = firstString(in: object, keys: ["sessionId", "session_id", "id"])
+            }
             if metadata.cwd == nil {
                 metadata.cwd = firstString(
                     in: object,
@@ -155,7 +167,10 @@ extension SessionIndexStore {
                         : nil
                 }.first ?? ""
             }
-            return !metadata.title.isEmpty && metadata.cwd != nil && metadata.branch != nil
+            return !metadata.title.isEmpty
+                && metadata.cwd != nil
+                && metadata.branch != nil
+                && (!needsNativeSessionID || metadata.sessionId != nil)
         }
         if case .piSessionFile = registration.sessionIdSource, metadata.cwd == nil {
             metadata.cwd = piCWDInferred(from: url)

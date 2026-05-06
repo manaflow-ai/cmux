@@ -24,12 +24,16 @@ enum AgentResumeCommandBuilder {
         registrationOverride: CmuxVaultAgentRegistration? = nil,
         includeWorkingDirectoryPrefix: Bool = true
     ) -> String? {
-        let registry = registrationOverride.map {
-            CmuxVaultAgentRegistry(registrations: [$0])
-        } ?? CmuxVaultAgentRegistry.load(
-            workingDirectory: workingDirectory ?? launchCommand?.workingDirectory
-        )
-        let customRegistration = registrationOverride ?? kind.customAgentID.flatMap { registry.registration(id: $0) }
+        let customRegistration: CmuxVaultAgentRegistration?
+        if let registrationOverride {
+            customRegistration = registrationOverride
+        } else if let customID = kind.customAgentID {
+            customRegistration = CmuxVaultAgentRegistry.load(
+                workingDirectory: workingDirectory ?? launchCommand?.workingDirectory
+            ).registration(id: customID)
+        } else {
+            customRegistration = nil
+        }
         guard !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               let argv = resumeArguments(
                   kind: kind,
@@ -124,11 +128,12 @@ enum AgentResumeCommandBuilder {
 
         if case .custom = kind {
             guard let customRegistration else { return nil }
-            return customResumeArguments(
+            let arguments = customResumeArguments(
                 registration: customRegistration,
                 sessionId: sessionId,
                 launchCommand: launchCommand
             )
+            return arguments.isEmpty ? nil : arguments
         }
 
         switch kind {
@@ -209,9 +214,9 @@ enum AgentResumeCommandBuilder {
         registration: CmuxVaultAgentRegistration,
         sessionId: String,
         launchCommand: AgentLaunchCommandSnapshot?
-    ) -> [String]? {
+    ) -> [String] {
         let templateParts = splitShellWords(registration.resumeCommand)
-        guard !templateParts.isEmpty else { return nil }
+        guard !templateParts.isEmpty else { return [] }
         let original = commandParts(
             launchCommand: launchCommand,
             fallbackExecutable: registration.defaultExecutable
@@ -226,15 +231,21 @@ enum AgentResumeCommandBuilder {
             "cwd": normalized(launchCommand?.workingDirectory) ?? "",
             "sessionDir": sessionDirectory ?? "",
         ]
-        let resolved = templateParts.compactMap { part -> String? in
+        var resolved: [String] = []
+        for part in templateParts {
             var value = part
             for (key, replacement) in replacements {
+                if value.contains("{{\(key)}}"),
+                   replacement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    return []
+                }
                 value = value.replacingOccurrences(of: "{{\(key)}}", with: replacement)
             }
             let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? nil : trimmed
+            guard !trimmed.isEmpty else { return [] }
+            resolved.append(trimmed)
         }
-        return resolved.isEmpty ? nil : resolved
+        return resolved
     }
 
     private static func splitShellWords(_ command: String) -> [String] {

@@ -6,15 +6,16 @@ import Foundation
 struct RegisteredSessionAgent: Hashable, Sendable {
     let id: String
     let name: String?
+    let iconAssetName: String?
 
-    init(id: String, name: String? = nil) {
+    init(id: String, name: String? = nil, iconAssetName: String? = nil) {
         self.id = id
-        let trimmedName = name?.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.name = trimmedName?.isEmpty == false ? trimmedName : nil
+        self.name = Self.normalizedOptional(name)
+        self.iconAssetName = Self.normalizedOptional(iconAssetName)
     }
 
     init(registration: CmuxVaultAgentRegistration) {
-        self.init(id: registration.id, name: registration.name)
+        self.init(id: registration.id, name: registration.name, iconAssetName: registration.iconAssetName)
     }
 
     var displayName: String {
@@ -22,9 +23,14 @@ struct RegisteredSessionAgent: Hashable, Sendable {
             return name
         }
         if id == "pi" {
-            return String(localized: "sessionIndex.agent.pi", defaultValue: "Pi")
+            return "Pi"
         }
         return id
+    }
+
+    private static func normalizedOptional(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
     }
 }
 
@@ -70,7 +76,35 @@ enum SessionAgent: Identifiable, Codable, Sendable, Hashable {
         hasher.combine(rawValue)
     }
 
+    private enum CodingKeys: String, CodingKey {
+        case id, name, iconAssetName
+    }
+
     init(from decoder: Decoder) throws {
+        if let container = try? decoder.container(keyedBy: CodingKeys.self),
+           container.contains(.id) {
+            let id = try container.decode(String.self, forKey: .id)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if let builtIn = SessionAgent(rawValue: id),
+               !CmuxVaultAgentRegistration.isValidID(id) || SessionAgent.builtInCases.contains(builtIn) {
+                self = builtIn
+                return
+            }
+            guard CmuxVaultAgentRegistration.isValidID(id) else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .id,
+                    in: container,
+                    debugDescription: "Invalid session agent '\(id)'"
+                )
+            }
+            self = .registered(RegisteredSessionAgent(
+                id: id,
+                name: try container.decodeIfPresent(String.self, forKey: .name),
+                iconAssetName: try container.decodeIfPresent(String.self, forKey: .iconAssetName)
+            ))
+            return
+        }
+
         let container = try decoder.singleValueContainer()
         let value = try container.decode(String.self)
         guard let agent = SessionAgent(rawValue: value) else {
@@ -85,8 +119,16 @@ enum SessionAgent: Identifiable, Codable, Sendable, Hashable {
     }
 
     func encode(to encoder: Encoder) throws {
-        var container = encoder.singleValueContainer()
-        try container.encode(rawValue)
+        switch self {
+        case .registered(let agent):
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(agent.id, forKey: .id)
+            try container.encodeIfPresent(agent.name, forKey: .name)
+            try container.encodeIfPresent(agent.iconAssetName, forKey: .iconAssetName)
+        default:
+            var container = encoder.singleValueContainer()
+            try container.encode(rawValue)
+        }
     }
 }
 
@@ -174,7 +216,7 @@ struct SessionEntry: Identifiable, Hashable {
 
     /// Shell command that resumes this session in a new terminal, with the agent's
     /// known per-session settings injected as CLI flags.
-    var resumeCommand: String {
+    var resumeCommand: String? {
         switch specifics {
         case let .claude(model, permissionMode):
             var parts = ["claude --resume \(sessionId)"]
@@ -233,11 +275,12 @@ struct SessionEntry: Identifiable, Hashable {
             ) {
                 return command
             }
-            return registration.resumeCommand
+            return nil
         }
     }
 
-    var resumeCommandWithCwd: String {
+    var resumeCommandWithCwd: String? {
+        guard let resumeCommand else { return nil }
         guard let cwd, !cwd.isEmpty else {
             return resumeCommand
         }

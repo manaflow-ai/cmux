@@ -12528,7 +12528,8 @@ final class Workspace: Identifiable, ObservableObject {
         entry: SessionEntry,
         destination: BonsplitController.ExternalTabDropRequest.Destination
     ) -> Bool {
-        let inputWithReturn = entry.resumeCommand + "\n"
+        guard let resumeCommand = entry.resumeCommand else { return false }
+        let inputWithReturn = resumeCommand + "\n"
         switch destination {
         case .insert(let paneId, _):
             let panel = newTerminalSurface(
