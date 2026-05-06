@@ -234,6 +234,8 @@ final class FileDropOverlayView: NSView {
 #endif
         guard shouldCapture else {
             preparedDragWebView = nil
+            preparedPaneDropTarget = nil
+            activePaneDropTarget = nil
             return false
         }
         if let webView {
@@ -277,6 +279,8 @@ final class FileDropOverlayView: NSView {
         guard shouldCapture else {
             preparedDragWebView = nil
             activeDragWebView = nil
+            preparedPaneDropTarget = nil
+            activePaneDropTarget = nil
             return false
         }
         if let webView {
