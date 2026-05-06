@@ -339,8 +339,7 @@ extension AgentLaunchSanitizer {
             "--extension",
             "-e",
             "--skill",
-            "--prompt-template",
-            "--theme"
+            "--prompt-template"
         ],
         nonRestorableCommands: [
             // pi subcommands that don't start a session

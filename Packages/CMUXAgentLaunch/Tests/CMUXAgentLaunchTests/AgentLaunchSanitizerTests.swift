@@ -89,6 +89,36 @@ struct AgentLaunchSanitizerTests {
         )
     }
 
+    @Test("Pi --theme is single-value: trailing prompt tokens do not bleed into the flag")
+    func piThemeDoesNotSlurpTrailingPositionalPrompt() {
+        // Pi accepts `--theme <path>` as a single value. With
+        // variadicOptions = ["--theme"] the sanitizer would greedily
+        // consume every following non-`-` token as part of the flag,
+        // leaking the user's prompt ("my task description") into the
+        // recorded --theme value. Without that entry, --theme has
+        // optionWidth=2 and the trailing positionals fall through to
+        // preserveFirstPositional: false, which drops them along with
+        // every later token (pi treats positionals as the start of the
+        // prompt and stops option parsing there — matches the existing
+        // "Drops pi positional prompt and stops parsing" expectation).
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["pi", "--theme", "dark", "my", "task", "description"],
+                launcher: "pi",
+                fallbackKind: "pi"
+            ) == ["pi", "--theme", "dark"]
+        )
+        // And the same with options BEFORE the theme: the theme value
+        // is single-token and earlier flags are preserved.
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["pi", "--provider", "anthropic", "--theme", "dark", "my", "task"],
+                launcher: "pi",
+                fallbackKind: "pi"
+            ) == ["pi", "--provider", "anthropic", "--theme", "dark"]
+        )
+    }
+
     @Test("Drops pi --api-key value-form from sanitized launch arguments")
     func dropsPiApiKeyValueForm() {
         // Tail position: parser must consume the value, not leak it as a
