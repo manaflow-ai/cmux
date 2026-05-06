@@ -674,6 +674,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     nonisolated static let persistedWindowGeometrySchemaVersion = 2
     private nonisolated static let persistedWindowGeometryDefaultsKey = "cmux.session.lastWindowGeometry.v2"
+#if DEBUG
+    nonisolated static var debugPersistedWindowGeometryDefaultsKey: String { persistedWindowGeometryDefaultsKey }
+#endif
     private nonisolated static let legacyPersistedWindowGeometryDefaultsKeys = [
         "cmux.session.lastWindowGeometry.v1"
     ]
@@ -2511,9 +2514,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         startupSessionSnapshot = SessionPersistenceStore.load()
     }
 
-    func persistedWindowGeometry(
-        defaults: UserDefaults = .standard
-    ) -> PersistedWindowGeometry? {
+    private func persistedWindowGeometry(defaults: UserDefaults = .standard) -> PersistedWindowGeometry? {
         Self.removeLegacyPersistedWindowGeometry(defaults: defaults)
         guard let data = defaults.data(forKey: Self.persistedWindowGeometryDefaultsKey) else {
             return nil
@@ -2572,10 +2573,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    func currentDisplayGeometries() -> (
-        available: [SessionDisplayGeometry],
-        fallback: SessionDisplayGeometry?
-    ) {
+    private func currentDisplayGeometries() -> (available: [SessionDisplayGeometry], fallback: SessionDisplayGeometry?) {
         let available = NSScreen.screens.map { screen in
             SessionDisplayGeometry(
                 displayID: screen.cmuxDisplayID,
@@ -2593,6 +2591,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return (available, fallback)
     }
 
+    private func resolvedPersistedWindowGeometryFrame() -> NSRect? {
+        let displays = currentDisplayGeometries(), fallbackGeometry = persistedWindowGeometry(); return Self.resolvedWindowFrame(from: fallbackGeometry?.frame, display: fallbackGeometry?.display, availableDisplays: displays.available, fallbackDisplay: displays.fallback)
+    }
     private func attemptStartupSessionRestoreIfNeeded(primaryWindow: NSWindow) {
         guard !didAttemptStartupSessionRestore else { return }
         didAttemptStartupSessionRestore = true

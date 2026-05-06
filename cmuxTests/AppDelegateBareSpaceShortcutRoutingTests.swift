@@ -7,8 +7,6 @@ import XCTest
 @testable import cmux
 #endif
 
-private let appDelegatePersistedWindowGeometryDefaultsKey = "cmux.session.lastWindowGeometry.v2"
-
 @MainActor
 final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
     private var savedShortcutsByAction: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
@@ -137,7 +135,8 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
         defer { AppDelegate.shared = previousShared }
 
         let defaults = UserDefaults.standard
-        let previousPersistedGeometry = defaults.object(forKey: appDelegatePersistedWindowGeometryDefaultsKey)
+        let persistedGeometryKey = AppDelegate.debugPersistedWindowGeometryDefaultsKey
+        let previousPersistedGeometry = defaults.object(forKey: persistedGeometryKey)
         var windowId: UUID?
         defer {
             if let windowId {
@@ -145,7 +144,7 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
             }
             restoreDefaultsValue(
                 previousPersistedGeometry,
-                forKey: appDelegatePersistedWindowGeometryDefaultsKey,
+                forKey: persistedGeometryKey,
                 defaults: defaults
             )
         }
@@ -175,7 +174,7 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
                 visibleFrame: SessionRectSnapshot(screen.visibleFrame)
             )
         )
-        defaults.set(try JSONEncoder().encode(payload), forKey: appDelegatePersistedWindowGeometryDefaultsKey)
+        defaults.set(try JSONEncoder().encode(payload), forKey: persistedGeometryKey)
 
         let createdWindowId = appDelegate.createMainWindow(shouldActivate: false, sourceWindow: nil)
         windowId = createdWindowId

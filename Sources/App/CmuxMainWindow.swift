@@ -61,16 +61,3 @@ extension CmuxMainWindow {
         )
     }
 }
-
-extension AppDelegate {
-    func resolvedPersistedWindowGeometryFrame() -> NSRect? {
-        let displays = currentDisplayGeometries()
-        let fallbackGeometry = persistedWindowGeometry()
-        return Self.resolvedWindowFrame(
-            from: fallbackGeometry?.frame,
-            display: fallbackGeometry?.display,
-            availableDisplays: displays.available,
-            fallbackDisplay: displays.fallback
-        )
-    }
-}
