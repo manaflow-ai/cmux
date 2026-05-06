@@ -13148,8 +13148,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func installMainWindowKeyObserver() {
         guard windowKeyObservers.isEmpty else { return }
         let center = NotificationCenter.default
-        windowKeyObservers.append(center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { [weak self] note in self?.handleCmuxWindowBecameKey(note) })
-        windowKeyObservers.append(center.addObserver(forName: NSWindow.didResignKeyNotification, object: nil, queue: .main) { [weak self] note in self?.handleCmuxWindowResignedKey(note) })
+        windowKeyObservers.append(center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { [weak self] note in
+            MainActor.assumeIsolated {
+                self?.handleCmuxWindowBecameKey(note)
+            }
+        })
+        windowKeyObservers.append(center.addObserver(forName: NSWindow.didResignKeyNotification, object: nil, queue: .main) { [weak self] note in
+            MainActor.assumeIsolated {
+                self?.handleCmuxWindowResignedKey(note)
+            }
+        })
     }
 
     private func installBrowserAddressBarFocusObservers() {
