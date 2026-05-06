@@ -85,8 +85,14 @@ jobs:
               fi
             fi
             case "$(uname -m)" in
-              arm64) ZIG_ARCH="aarch64" ;;
-              x86_64) ZIG_ARCH="x86_64" ;;
+              arm64)
+                ZIG_ARCH="aarch64"
+                ZIG_SHASUM="3cc2bab367e185cdfb27501c4b30b1b0653c28d9f73df8dc91488e66ece5fa6b"
+                ;;
+              x86_64)
+                ZIG_ARCH="x86_64"
+                ZIG_SHASUM="375b6909fc1495d16fc2c7db9538f707456bfc3373b14ee83fdd3e22b3d43f7f"
+                ;;
               *)
                 echo "Unsupported macOS runner architecture: $(uname -m)" >&2
                 exit 1
@@ -116,6 +122,11 @@ jobs:
               fi
               sleep 5
             done
+            ACTUAL_SHASUM="$(shasum -a 256 "$ZIG_TARBALL" | awk '{print $1}')"
+            if [ "$ACTUAL_SHASUM" != "$ZIG_SHASUM" ]; then
+              echo "zig tarball checksum mismatch: expected ${ZIG_SHASUM}, got ${ACTUAL_SHASUM}" >&2
+              exit 1
+            fi
             tar xf "$ZIG_TARBALL" -C /tmp
             echo "$ZIG_DIR" >> "$GITHUB_PATH"
             export PATH="$ZIG_DIR:$PATH"
