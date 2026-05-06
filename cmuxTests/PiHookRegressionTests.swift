@@ -460,7 +460,20 @@ final class PiHookRegressionTests: XCTestCase {
     private func writeFakeBinary(name: String, in dir: URL) throws {
         let url = dir.appendingPathComponent(name, isDirectory: false)
         try "#!/bin/sh\nexit 0\n".write(to: url, atomically: true, encoding: .utf8)
-        chmod(url.path, 0o755)
+        // chmod returns -1 on failure with errno set. Without this guard a
+        // failed chmod produces a downstream 'binary not executable' fault
+        // (cmux skipping the agent because PATH lookup rejects the unset
+        // +x bit) instead of a clear test failure pointing at the helper.
+        guard chmod(url.path, 0o755) == 0 else {
+            let savedErrno = errno
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: Int(savedErrno),
+                userInfo: [
+                    NSLocalizedDescriptionKey: "chmod(\(url.path), 0o755) failed: \(String(cString: strerror(savedErrno)))"
+                ]
+            )
+        }
     }
 
     private func uniqueTempDirectory(prefix: String) -> URL {
