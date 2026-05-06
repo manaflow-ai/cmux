@@ -859,6 +859,7 @@ public final class GhosttyTerminalSurfaceView: UIView {
     private var forcedGridSize: (cols: Int, rows: Int)?
     private var followsLiveOutput = true
     private var accessibilityTranscript = ""
+    private var shouldFocusInputWhenAttached = false
     #if DEBUG
     var onOutputProcessedForTesting: (() -> Void)?
     var onFontZoomAppliedForTesting: ((Float32) -> Void)?
@@ -945,6 +946,10 @@ public final class GhosttyTerminalSurfaceView: UIView {
             syncSurfaceGeometry()
             ghostty_surface_set_occlusion(surface, true)
             ghostty_surface_set_focus(surface, true)
+            if shouldFocusInputWhenAttached {
+                shouldFocusInputWhenAttached = false
+                focusInput()
+            }
         } else {
             ghostty_surface_set_focus(surface, false)
             ghostty_surface_set_occlusion(surface, false)
@@ -1021,7 +1026,9 @@ public final class GhosttyTerminalSurfaceView: UIView {
                 self.appendAccessibilityTranscript(accessibilityText)
                 self.needsDraw = true
                 self.renderSurfaceNow(surface)
-                _ = self.requestServerReplayIfBlank()
+                if Self.shouldProbeBlankSurfaceAfterOutput(payload, accessibilityText: accessibilityText) {
+                    _ = self.requestServerReplayIfBlank()
+                }
                 #if DEBUG
                 self.onOutputProcessedForTesting?()
                 #endif
@@ -1031,6 +1038,22 @@ public final class GhosttyTerminalSurfaceView: UIView {
 
     nonisolated static func shouldForceScrollToActiveAreaForOutput(_ data: Data) -> Bool {
         data.range(of: Data([0x1B, 0x63])) != nil
+            || data.range(of: Data("\u{1B}[?1049h".utf8)) != nil
+            || data.range(of: Data("\u{1B}[?1049l".utf8)) != nil
+    }
+
+    nonisolated static func shouldProbeBlankSurfaceAfterOutput(_ data: Data, accessibilityText: String) -> Bool {
+        // Server-side PTY replay is a state replacement. The reset chunk and
+        // the following content chunk can both render before read_text has a
+        // stable result. Rebuilding the surface on either chunk can leave the
+        // replacement content behind in the previous surface generation.
+        if data.range(of: Data([0x1B, 0x63])) != nil {
+            return false
+        }
+        guard accessibilityText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+        return data.range(of: Data("\u{1B}[2J".utf8)) != nil
             || data.range(of: Data("\u{1B}[?1049h".utf8)) != nil
             || data.range(of: Data("\u{1B}[?1049l".utf8)) != nil
     }
@@ -1101,7 +1124,6 @@ public final class GhosttyTerminalSurfaceView: UIView {
         #if DEBUG
         cmuxDebugLog("ios.ghostty.blankSurfaceReplayRequest")
         #endif
-        delegate?.ghosttyTerminalSurfaceViewDidRequestSurfaceReset(self)
         delegate?.ghosttyTerminalSurfaceViewDidRequestPtyReplay(self)
         return true
     }
@@ -1186,6 +1208,15 @@ public final class GhosttyTerminalSurfaceView: UIView {
         #endif
         followsLiveOutput = true
         inputProxy.becomeFirstResponder()
+    }
+
+    public func requestInputFocus() {
+        guard window != nil else {
+            shouldFocusInputWhenAttached = true
+            return
+        }
+        shouldFocusInputWhenAttached = false
+        focusInput()
     }
 
     func updateHostPlatform(_ platform: CmxHostPlatform) {
@@ -2523,9 +2554,8 @@ struct CmxGhosttyTerminalView: UIViewRepresentable {
             self.terminalID = terminalID
             self.surfaceView = surfaceView
             surfaceView.updateHostPlatform(hostPlatform)
-            let needsFreshServerReplay = store.isConnected && (didChangeTerminal || didChangeSurface)
             if didChangeTerminal || didChangeSurface {
-                lastAppliedOutputID = needsFreshServerReplay ? store.latestOutputChunkID(for: terminalID) : 0
+                lastAppliedOutputID = 0
                 lastAppliedRenderSize = nil
                 visibleGridSize.wrappedValue = nil
                 // `resetForTerminalReuse` force-reports the visible grid. Keep
@@ -2533,6 +2563,7 @@ struct CmxGhosttyTerminalView: UIViewRepresentable {
                 // relaunches can publish their real 53x52 grid against the
                 // seeded demo tab and leave the live cmx tab pinned to 80x24.
                 surfaceView.resetForTerminalReuse()
+                surfaceView.requestInputFocus()
             }
             if didChangeTerminal || didChangeSurface || lastAppliedRenderSize != renderSize {
                 if let renderSize {
@@ -2550,10 +2581,6 @@ struct CmxGhosttyTerminalView: UIViewRepresentable {
                 surfaceView?.processOutput(chunk.data)
                 self.lastAppliedOutputID = max(self.lastAppliedOutputID, chunk.id)
             }
-            if needsFreshServerReplay {
-                store.requestPtyReplay(terminalID: terminalID)
-            }
-
             let outputChunks = store.outputChunks(for: terminalID)
             var pendingOutput = Data()
             for chunk in outputChunks where chunk.id > lastAppliedOutputID {
@@ -2562,6 +2589,9 @@ struct CmxGhosttyTerminalView: UIViewRepresentable {
             }
             if !pendingOutput.isEmpty {
                 surfaceView.processOutput(pendingOutput)
+            }
+            if store.isConnected, didChangeTerminal || didChangeSurface {
+                store.requestPtyReplay(terminalID: terminalID)
             }
         }
 
@@ -2577,7 +2607,6 @@ struct CmxGhosttyTerminalView: UIViewRepresentable {
                 terminalID: terminalID,
                 size: CmxTerminalSize(cols: size.columns, rows: size.rows)
             )
-            _ = surfaceView.requestServerReplayIfBlank()
         }
 
         func ghosttyTerminalSurfaceView(

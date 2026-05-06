@@ -390,6 +390,8 @@ echo "iPhone reload: $IPHONE_STATUS"
 if [ "$OTHER_IOS_STATUS" != "unavailable" ]; then
     echo "Other iOS device reload: $OTHER_IOS_STATUS"
 fi
-for DETAIL in "${DEVICE_RELOAD_DETAILS[@]}"; do
-    echo "$DETAIL"
-done
+if [ "${#DEVICE_RELOAD_DETAILS[@]}" -gt 0 ]; then
+    for DETAIL in "${DEVICE_RELOAD_DETAILS[@]}"; do
+        echo "$DETAIL"
+    done
+fi

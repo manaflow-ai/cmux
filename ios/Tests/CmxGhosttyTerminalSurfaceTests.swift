@@ -34,6 +34,39 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
         XCTAssertFalse(GhosttyTerminalSurfaceView.shouldForceScrollToActiveAreaForOutput(Data("ordinary pty output".utf8)))
     }
 
+    func testGhosttySurfaceDoesNotProbeBlankReplayAfterResetOnlyChunk() {
+        XCTAssertFalse(
+            GhosttyTerminalSurfaceView.shouldProbeBlankSurfaceAfterOutput(
+                Data([0x1B, 0x63]),
+                accessibilityText: ""
+            )
+        )
+        XCTAssertFalse(
+            GhosttyTerminalSurfaceView.shouldProbeBlankSurfaceAfterOutput(
+                Data("\u{1B}creplayed content\r\n".utf8),
+                accessibilityText: "replayed content\n"
+            )
+        )
+        XCTAssertFalse(
+            GhosttyTerminalSurfaceView.shouldProbeBlankSurfaceAfterOutput(
+                Data("live output\r\n".utf8),
+                accessibilityText: "live output\n"
+            )
+        )
+        XCTAssertTrue(
+            GhosttyTerminalSurfaceView.shouldProbeBlankSurfaceAfterOutput(
+                Data("\u{1B}[2J\u{1B}[H".utf8),
+                accessibilityText: ""
+            )
+        )
+        XCTAssertTrue(
+            GhosttyTerminalSurfaceView.shouldProbeBlankSurfaceAfterOutput(
+                Data("\u{1B}[?1049h\u{1B}[2J\u{1B}[H".utf8),
+                accessibilityText: ""
+            )
+        )
+    }
+
     func testGhosttySurfaceInitializesRealLibghosttyRenderer() throws {
         let (surfaceView, _) = try makeSurfaceView()
 
@@ -376,7 +409,7 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
         XCTAssertFalse(accessibilityValue.contains("stale-before-reset"))
     }
 
-    func testGhosttySurfaceBlankReplayRequestsSurfaceResetAndPtyReplay() async throws {
+    func testGhosttySurfaceBlankReplayRequestsPtyReplayWithoutSurfaceReset() async throws {
         let (surfaceView, delegate) = try makeSurfaceView()
         surfaceView.frame = CGRect(x: 0, y: 0, width: 390, height: 640)
         surfaceView.layoutIfNeeded()
@@ -390,11 +423,11 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
         surfaceView.processOutput(Data("\u{1B}[2J\u{1B}[H".utf8))
 
         await fulfillment(of: [processedExpectation], timeout: 5.0)
-        XCTAssertEqual(delegate.surfaceResetRequestCount, 1)
+        XCTAssertEqual(delegate.surfaceResetRequestCount, 0)
         XCTAssertEqual(delegate.ptyReplayRequestCount, 1)
     }
 
-    func testGhosttySurfaceBlankOutputRequestsReplayAfterRender() async throws {
+    func testGhosttySurfaceBlankOutputRequestsReplayWithoutSurfaceResetAfterRender() async throws {
         let (surfaceView, delegate) = try makeSurfaceView()
         surfaceView.frame = CGRect(x: 0, y: 0, width: 390, height: 640)
         surfaceView.layoutIfNeeded()
@@ -408,7 +441,7 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
         surfaceView.processOutput(Data("\u{1B}[?1049h\u{1B}[2J\u{1B}[H".utf8))
 
         await fulfillment(of: [processedExpectation], timeout: 5.0)
-        XCTAssertEqual(delegate.surfaceResetRequestCount, 1)
+        XCTAssertEqual(delegate.surfaceResetRequestCount, 0)
         XCTAssertEqual(delegate.ptyReplayRequestCount, 1)
     }
 
@@ -473,7 +506,7 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
         XCTAssertGreaterThan(maximum.rows, 10)
     }
 
-    func testConnectedSurfaceAttachSkipsCachedBacklogAndRequestsFreshReplay() async throws {
+    func testConnectedSurfaceAttachRendersCachedBacklogAndRequestsFreshReplay() async throws {
         let sessionFactory = SurfaceAttachRecordingTerminalSessionFactory()
         let store = CmxConnectionStore(
             terminalSessionFactory: sessionFactory,
@@ -517,8 +550,19 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
         surfaceView.frame = CGRect(x: 0, y: 0, width: 390, height: 640)
         surfaceView.layoutIfNeeded()
 
+        let cachedBacklogRendered = expectation(description: "cached backlog rendered")
+        cachedBacklogRendered.assertForOverFulfill = false
+        surfaceView.onOutputProcessedForTesting = {
+            let rendered = surfaceView.accessibilityRenderedTextForTesting() ?? ""
+            if rendered.contains("stale-before-attach") {
+                cachedBacklogRendered.fulfill()
+            }
+        }
+
         coordinator.apply(store: store, terminalID: 41, renderSize: nil, hostPlatform: .macOS, to: surfaceView)
 
+        await fulfillment(of: [cachedBacklogRendered], timeout: 5.0)
+        XCTAssertTrue((surfaceView.accessibilityRenderedTextForTesting() ?? "").contains("stale-before-attach"))
         XCTAssertEqual(session.requestedPtyReplayTerminalIDs.last, 41)
         XCTAssertFalse(session.requestedPtyReplayTerminalIDs.isEmpty)
         let freshReplayRendered = expectation(description: "fresh replay rendered")
@@ -537,7 +581,53 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
         await fulfillment(of: [freshReplayRendered], timeout: 5.0)
         let rendered = surfaceView.accessibilityRenderedTextForTesting() ?? ""
         XCTAssertTrue(rendered.contains("fresh-after-attach"))
-        XCTAssertFalse(rendered.contains("stale-before-attach"))
+    }
+
+    func testCoordinatorResizeDoesNotRequestSurfaceReset() throws {
+        let sessionFactory = SurfaceAttachRecordingTerminalSessionFactory()
+        let store = CmxConnectionStore(
+            terminalSessionFactory: sessionFactory,
+            startHiveDiscoveryOnInit: false,
+            launchTicket: nil,
+            launchAutoconnect: false
+        )
+        store.ticketText = """
+        {
+          "version": 1,
+          "alpn": "/cmux/cmx/3",
+          "endpoint": { "id": "endpoint-public-key", "addrs": [] },
+          "auth": { "mode": "direct" }
+        }
+        """
+        store.connect()
+        let session = sessionFactory.session
+        session.delegate?.terminalSession(session, didReceive: .welcome(serverVersion: "3", sessionID: "ios-test"))
+        session.delegate?.terminalSession(session, didReceive: .nativeSnapshot(Self.singleTabSnapshot(tabID: 41)))
+        store.terminalScreenDidAppear()
+
+        var visibleGridSize: TerminalGridSize?
+        var surfaceResetNonce = 0
+        let coordinator = CmxGhosttyTerminalView.Coordinator(
+            visibleGridSize: Binding(
+                get: { visibleGridSize },
+                set: { visibleGridSize = $0 }
+            ),
+            surfaceResetNonce: Binding(
+                get: { surfaceResetNonce },
+                set: { surfaceResetNonce = $0 }
+            )
+        )
+        let surfaceView = GhosttyTerminalSurfaceView(runtime: try GhosttyRuntime.shared(), delegate: coordinator)
+        surfaceViews.append(SurfaceViewTeardownHandle(surfaceView))
+
+        coordinator.apply(store: store, terminalID: 41, renderSize: nil, hostPlatform: .macOS, to: surfaceView)
+        coordinator.ghosttyTerminalSurfaceView(
+            surfaceView,
+            didResize: TerminalGridSize(columns: 30, rows: 25, pixelWidth: 900, pixelHeight: 1_200)
+        )
+
+        XCTAssertEqual(surfaceResetNonce, 0)
+        XCTAssertEqual(visibleGridSize, TerminalGridSize(columns: 30, rows: 25, pixelWidth: 900, pixelHeight: 1_200))
     }
 
     private func makeSurfaceView() throws -> (GhosttyTerminalSurfaceView, DelegateRecorder) {

@@ -157,6 +157,11 @@ final class CmxConnectionStore: ObservableObject {
         selectedTerminalID != Self.placeholderTerminalID && terminal(matching: selectedTerminalID) != nil
     }
 
+    var selectedTerminalOutputIsReady: Bool {
+        guard canRenderSelectedTerminal else { return false }
+        return !outputChunksByTerminalID[selectedTerminalID, default: []].isEmpty
+    }
+
     var statusText: String {
         if isConnecting {
             return String(localized: "status.connecting", defaultValue: "Connecting")
@@ -559,6 +564,7 @@ final class CmxConnectionStore: ObservableObject {
     func applyNativeSnapshot(_ snapshot: CmxNativeSnapshot) {
         let previousSelectedTerminalID = selectedTerminalID
         let previousSelectedRenderSize = renderSize(for: selectedTerminalID)
+        let previousActiveWorkspaceID = nativeSnapshot?.activeWorkspaceID
         nativeSnapshot = snapshot
         applyTerminalAppearance(from: snapshot, colorPreference: currentColorPreference)
         effectiveTerminalSizesByID = effectiveTerminalSizes(from: snapshot)
@@ -620,14 +626,18 @@ final class CmxConnectionStore: ObservableObject {
             "ios.connection.nativeSnapshot.applied workspace=\(selectedWorkspaceID) space=\(selectedSpaceID) terminal=\(selectedTerminalID)"
         )
         #endif
+        let didChangeActiveWorkspace = snapshot.activeWorkspaceID != previousActiveWorkspaceID
         let didChangeSelectedTerminal = selectedTerminalID != previousSelectedTerminalID
         let didChangeSelectedRenderSize = previousSelectedRenderSize != renderSize(for: selectedTerminalID)
-        if didChangeSelectedTerminal {
+        if didChangeActiveWorkspace {
+            clearCachedOutput(for: selectedTerminalID)
+        }
+        if didChangeSelectedTerminal || didChangeActiveWorkspace {
             lastReplayRequest = nil
         }
         guard terminalScreenVisible else { return }
-        syncNativeLayoutForVisibleTerminal(force: didChangeSelectedTerminal)
-        if didChangeSelectedTerminal || didChangeSelectedRenderSize || needsReplayAfterSessionStart {
+        syncNativeLayoutForVisibleTerminal(force: didChangeSelectedTerminal || didChangeActiveWorkspace)
+        if didChangeSelectedTerminal || didChangeActiveWorkspace || didChangeSelectedRenderSize || needsReplayAfterSessionStart {
             if requestPtyReplayForVisibleTerminal(force: true) {
                 needsReplayAfterSessionStart = false
             }

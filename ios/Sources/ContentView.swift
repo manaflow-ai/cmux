@@ -325,9 +325,9 @@ private struct TerminalDetailView: View {
                 )
 
                 VStack(spacing: 0) {
-                    if store.canRenderSelectedTerminal {
+                    if store.canRenderSelectedTerminal, store.selectedTerminalOutputIsReady {
                         TerminalPane(terminal: store.selectedTerminal)
-                            .id(store.selectedTerminal.id)
+                            .id(terminalSurfaceIdentity)
                             .frame(width: proxy.size.width, height: visibleHeight)
                     } else {
                         TerminalLoadingPane(
@@ -380,6 +380,10 @@ private struct TerminalDetailView: View {
         .onChange(of: colorScheme) { _, newValue in
             store.refreshTerminalAppearance(colorPreference: CmxTerminalColorPreference(colorScheme: newValue))
         }
+    }
+
+    private var terminalSurfaceIdentity: String {
+        "\(store.selectedWorkspaceID)-\(store.selectedSpaceID)-\(store.selectedTerminal.id)"
     }
 }
 
@@ -566,6 +570,10 @@ private struct TerminalPane: View {
     let terminal: CmxTerminal
     private let showsBoundsOverlay = CmxLaunchConfiguration.showsTerminalBoundsOverlay()
 
+    private var surfaceIdentity: String {
+        "\(store.selectedWorkspaceID)-\(store.selectedSpaceID)-\(terminal.id)-\(surfaceResetNonce)"
+    }
+
     var body: some View {
         GeometryReader { proxy in
             ZStack(alignment: .topLeading) {
@@ -578,7 +586,7 @@ private struct TerminalPane: View {
                     visibleGridSize: $visibleGridSize,
                     surfaceResetNonce: $surfaceResetNonce
                 )
-                    .id("\(terminal.id)-\(surfaceResetNonce)")
+                    .id(surfaceIdentity)
                     .frame(width: proxy.size.width, height: proxy.size.height)
                     .clipped()
 

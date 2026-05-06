@@ -827,6 +827,13 @@ final class CmxBridgeTicketTests: XCTestCase {
         )
         store.terminalScreenDidAppear()
         XCTAssertEqual(sessionFactory.session.requestedPtyReplayTerminalIDs, [41])
+        XCTAssertFalse(store.selectedTerminalOutputIsReady)
+        sessionFactory.session.delegate?.terminalSession(
+            sessionFactory.session,
+            didReceive: .ptyBytes(tabID: 41, data: Data("main workspace output\r\n".utf8))
+        )
+        XCTAssertFalse(store.outputChunks(for: 41).isEmpty)
+        XCTAssertTrue(store.selectedTerminalOutputIsReady)
 
         sessionFactory.session.clearRecordedLayouts()
         sessionFactory.session.clearRequestedPtyReplays()
@@ -878,6 +885,84 @@ final class CmxBridgeTicketTests: XCTestCase {
             CmxWireTerminalViewport(tabID: 42, cols: 80, rows: 24),
         ])
         XCTAssertEqual(sessionFactory.session.requestedPtyReplayTerminalIDs, [42])
+    }
+
+    @MainActor
+    func testActiveWorkspaceChangeRequestsReplayEvenWhenFocusedTerminalIDIsUnchanged() throws {
+        let sessionFactory = RecordingTerminalSessionFactory()
+        let store = CmxConnectionStore(
+            authSessionStore: MemoryStackAuthSessionStore(),
+            pairingSecretClient: RecordingPairingSecretClient(),
+            terminalSessionFactory: sessionFactory
+        )
+        store.ticketText = """
+        {
+          "version": 1,
+          "alpn": "/cmux/cmx/3",
+          "endpoint": { "id": "endpoint-public-key", "addrs": [] },
+          "auth": { "mode": "direct" }
+        }
+        """
+
+        func snapshot(activeWorkspaceID: UInt64, title: String) -> CmxNativeSnapshot {
+            CmxNativeSnapshot(
+                workspaces: [
+                    CmxNativeWorkspaceInfo(
+                        id: activeWorkspaceID,
+                        title: title,
+                        spaceCount: 1,
+                        tabCount: 1,
+                        terminalCount: 1,
+                        pinned: false,
+                        color: nil
+                    ),
+                ],
+                activeWorkspace: 0,
+                activeWorkspaceID: activeWorkspaceID,
+                spaces: [
+                    CmxNativeSpaceInfo(id: activeWorkspaceID + 10, title: "space-1", paneCount: 1, terminalCount: 1),
+                ],
+                activeSpace: 0,
+                activeSpaceID: activeWorkspaceID + 10,
+                panels: .leaf(
+                    panelID: activeWorkspaceID + 20,
+                    tabs: [
+                        CmxNativeTabInfo(id: 41, title: "shell", hasActivity: false, bellCount: 0),
+                    ],
+                    active: 0,
+                    activeTabID: 41
+                ),
+                focusedPanelID: activeWorkspaceID + 20,
+                focusedTabID: 41
+            )
+        }
+
+        store.connect()
+        sessionFactory.session.delegate?.terminalSession(
+            sessionFactory.session,
+            didReceive: .nativeSnapshot(snapshot(activeWorkspaceID: 11, title: "main"))
+        )
+        store.terminalScreenDidAppear()
+        XCTAssertEqual(sessionFactory.session.requestedPtyReplayTerminalIDs, [41])
+
+        sessionFactory.session.clearRecordedLayouts()
+        sessionFactory.session.clearRequestedPtyReplays()
+        sessionFactory.session.delegate?.terminalSession(
+            sessionFactory.session,
+            didReceive: .nativeSnapshot(snapshot(activeWorkspaceID: 12, title: "cycle-1"))
+        )
+
+        XCTAssertEqual(sessionFactory.session.sentLayouts.last, [
+            CmxWireTerminalViewport(tabID: 41, cols: 80, rows: 24),
+        ])
+        XCTAssertEqual(sessionFactory.session.requestedPtyReplayTerminalIDs, [41])
+        XCTAssertTrue(store.outputChunks(for: 41).isEmpty)
+        XCTAssertFalse(store.selectedTerminalOutputIsReady)
+        sessionFactory.session.delegate?.terminalSession(
+            sessionFactory.session,
+            didReceive: .ptyBytes(tabID: 41, data: Data("cycle workspace output\r\n".utf8))
+        )
+        XCTAssertTrue(store.selectedTerminalOutputIsReady)
     }
 
     @MainActor
