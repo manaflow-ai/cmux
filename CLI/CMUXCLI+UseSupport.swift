@@ -1,4 +1,5 @@
 import Foundation
+import CMUXRepoDetection
 
 nonisolated struct CmuxUseRepository: Equatable {
     let owner: String
@@ -187,7 +188,7 @@ nonisolated enum CmuxUseSupport {
     }
 
     static func generateManifest(in checkoutURL: URL, repository: CmuxUseRepository) -> CmuxUseManifest {
-        let package = packageJSON(in: checkoutURL)
+        let package = CMUXRepoDetection.packageJSON(in: checkoutURL)
         let packageName = (package?["name"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let displayName = packageName.flatMap(packageDisplayName) ?? repository.name
@@ -241,12 +242,12 @@ nonisolated enum CmuxUseSupport {
             }
         }
 
-        if let packageCommand = packageJSONLaunchCommand(in: checkoutURL) {
-            return packageCommand
+        if let packageCommand = CMUXRepoDetection.packageJSONLaunchCommand(in: checkoutURL) {
+            return CmuxUseLaunchCommand(command: packageCommand.command, source: packageCommand.source)
         }
 
-        if let makeCommand = makefileLaunchCommand(in: checkoutURL) {
-            return makeCommand
+        if let makeCommand = CMUXRepoDetection.makefileLaunchCommand(in: checkoutURL) {
+            return CmuxUseLaunchCommand(command: makeCommand.command, source: makeCommand.source)
         }
 
         return nil
@@ -364,7 +365,7 @@ nonisolated enum CmuxUseSupport {
 
         guard let scripts = package?["scripts"] as? [String: Any] else { return nil }
         for script in ["setup", "install", "postinstall"] where scripts[script] is String {
-            return "\(packageManagerCommand(in: checkoutURL)) run \(script)"
+            return "\(CMUXRepoDetection.packageManagerCommand(in: checkoutURL)) run \(script)"
         }
         return nil
     }
