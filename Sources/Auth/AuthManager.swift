@@ -31,10 +31,11 @@ private final class AuthPresentationContext: NSObject, ASWebAuthenticationPresen
     }
 }
 
-enum AuthManagerError: LocalizedError {
+enum AuthManagerError: LocalizedError, Equatable {
     case invalidCallback
     case missingAccessToken
     case missingRefreshToken
+    case signInSessionFailed
 
     var errorDescription: String? {
         switch self {
@@ -52,6 +53,11 @@ enum AuthManagerError: LocalizedError {
             return String(
                 localized: "settings.account.error.missingRefreshToken",
                 defaultValue: "Account refresh token is unavailable."
+            )
+        case .signInSessionFailed:
+            return String(
+                localized: "settings.account.error.signInSessionFailed",
+                defaultValue: "Sign-in didn't complete. Please try again."
             )
         }
     }
@@ -128,6 +134,7 @@ final class AuthManager: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var isRestoringSession = false
     @Published private(set) var didCompleteBrowserSignIn = false
+    @Published private(set) var lastSignInError: AuthManagerError?
     @Published var selectedTeamID: String? {
         didSet {
             guard selectedTeamID != oldValue else { return }
@@ -189,6 +196,7 @@ final class AuthManager: ObservableObject {
         loginPollTask?.cancel()
         webAuthSession?.cancel()
         webAuthSession = nil
+        lastSignInError = nil
         isLoading = true
 
         let signInURL = AuthEnvironment.signInURL()
@@ -206,6 +214,7 @@ final class AuthManager: ObservableObject {
                 }
                 if let error {
                     NSLog("auth.webauth failed: %@", "\(error)")
+                    self.recordSignInSessionError(error)
                     return
                 }
                 guard let callbackURL else { return }
@@ -223,8 +232,19 @@ final class AuthManager: ObservableObject {
             webAuthSession = session
         } else {
             NSLog("auth.webauth: session.start() returned false")
+            lastSignInError = .signInSessionFailed
             isLoading = false
         }
+    }
+
+    private func recordSignInSessionError(_ error: Error) {
+        // canceledLogin = explicit user cancel; surfacing an error there is
+        // hostile. Other codes (network, sandbox, etc.) surface to fix #3617.
+        if let asError = error as? ASWebAuthenticationSessionError,
+           asError.code == .canceledLogin {
+            return
+        }
+        lastSignInError = .signInSessionFailed
     }
 
     /// Starts the ASWebAuthenticationSession popup and awaits the user's
@@ -395,18 +415,25 @@ final class AuthManager: ObservableObject {
 
     func handleCallbackURL(_ url: URL) async throws {
         guard let payload = AuthCallbackRouter.callbackPayload(from: url) else {
+            lastSignInError = .invalidCallback
             throw AuthManagerError.invalidCallback
         }
 
         isLoading = true
         defer { isLoading = false }
 
-        await tokenStore.seed(
-            accessToken: payload.accessToken,
-            refreshToken: payload.refreshToken
-        )
-        try await refreshSession()
-        didCompleteBrowserSignIn = true
+        do {
+            await tokenStore.seed(
+                accessToken: payload.accessToken,
+                refreshToken: payload.refreshToken
+            )
+            try await refreshSession()
+            didCompleteBrowserSignIn = true
+            lastSignInError = nil
+        } catch {
+            lastSignInError = (error as? AuthManagerError) ?? .signInSessionFailed
+            throw error
+        }
     }
 
     func seedTokensFromCLI(refreshToken: String, accessToken: String?) async {

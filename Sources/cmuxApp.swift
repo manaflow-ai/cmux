@@ -7526,6 +7526,12 @@ private struct AuthSettingsRow: View {
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
                 }
+                if let errorMessage = errorText {
+                    Text(errorMessage)
+                        .font(.system(size: 11))
+                        .foregroundColor(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             Spacer(minLength: 12)
             if authManager.isLoading || authManager.isRestoringSession {
@@ -7565,6 +7571,10 @@ private struct AuthSettingsRow: View {
             localized: "settings.account.signedOut.subtitle",
             defaultValue: "Sign in with your cmux account to enable sync across devices."
         )
+    }
+
+    private var errorText: String? {
+        authManager.lastSignInError?.errorDescription
     }
 
     private var buttonTitle: String {

@@ -110152,6 +110152,35 @@
         }
       }
     },
+    "settings.account.error.signInSessionFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign-in didn't complete. Please try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインを完了できませんでした。もう一度お試しください。"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося завершити вхід. Спробуйте ще раз."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그인을 완료하지 못했습니다. 다시 시도해 주세요."
+          }
+        }
+      }
+    },
     "remote.state.connected.vmNoProxy": {
       "extractionState": "manual",
       "localizations": {
