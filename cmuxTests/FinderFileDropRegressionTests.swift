@@ -20,7 +20,7 @@ final class FinderFileDropRegressionTests: XCTestCase {
         return try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
     }
 
-    func testOverlayCapturesExternalFileDropsButNotInternalPreviewDrags() {
+    func testOverlayCapturesFileURLDropsIncludingLocalPaneDrags() {
         XCTAssertTrue(
             DragOverlayRoutingPolicy.shouldCaptureFileDropDestination(
                 pasteboardTypes: [.fileURL],
@@ -35,26 +35,26 @@ final class FinderFileDropRegressionTests: XCTestCase {
             )
         )
 
-        XCTAssertFalse(
+        XCTAssertTrue(
             DragOverlayRoutingPolicy.shouldCaptureFileDropDestination(
                 pasteboardTypes: [.fileURL, DragOverlayRoutingPolicy.filePreviewTransferType],
                 hasLocalDraggingSource: true
             ),
-            "Internal file-preview drags carry a dedicated cmux transfer type and should stay on pane/file-preview routing"
+            "Internal file-preview drags still need the shared pane drop destination so they can split or insert like Finder files"
         )
-        XCTAssertFalse(
+        XCTAssertTrue(
             DragOverlayRoutingPolicy.shouldCaptureFileDropDestination(
                 pasteboardTypes: [.fileURL, DragOverlayRoutingPolicy.bonsplitTabTransferType],
                 hasLocalDraggingSource: true
             ),
-            "Bonsplit tab drags can also advertise file URLs and must not be hijacked by the file-drop overlay"
+            "Bonsplit tab drags use the same pane drop destination while tab-bar hit testing still defers to Bonsplit"
         )
-        XCTAssertFalse(
+        XCTAssertTrue(
             DragOverlayRoutingPolicy.shouldCaptureFileDropDestination(
                 pasteboardTypes: [.fileURL],
                 hasLocalDraggingSource: true
             ),
-            "Unknown local file drags should stay off the root overlay unless they are proven external"
+            "File explorer drags are local file drags and must still reach the shared pane drop destination"
         )
     }
 
