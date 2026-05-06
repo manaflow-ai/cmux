@@ -3279,10 +3279,6 @@ struct ContentView: View {
             reconcileMountedWorkspaceIds()
         })
 
-        view = AnyView(view.onReceive(tabManager.$pendingBackgroundWorkspaceLoadIds) { _ in
-            reconcileMountedWorkspaceIds()
-        })
-
         // Prime background workspaces off-screen. Rendering them just to run a task
         // mounts every keepAllAlive tab view and can materialize hidden terminals.
         view = AnyView(view.task(id: pendingBackgroundWorkspaceLoadTaskKey) {
@@ -3860,6 +3856,7 @@ struct ContentView: View {
 
     private enum BackgroundWorkspacePrimePolicy {
         static let timeoutSeconds: TimeInterval = 2.0
+        static let maxTimeoutRetries = 3
     }
 
     private final class BackgroundWorkspacePrimeWaiter: @unchecked Sendable {
@@ -3898,11 +3895,11 @@ struct ContentView: View {
         }
     }
 
-    private func primeBackgroundWorkspaceIfNeeded(workspaceId: UUID) async {
+    private func primeBackgroundWorkspaceIfNeeded(workspaceId: UUID) async -> String {
         let shouldPrime = await MainActor.run {
             tabManager.pendingBackgroundWorkspaceLoadIds.contains(workspaceId)
         }
-        guard shouldPrime else { return }
+        guard shouldPrime else { return "already_cleared" }
 
 #if DEBUG
         let startedAt = ProcessInfo.processInfo.systemUptime
@@ -3929,6 +3926,7 @@ struct ContentView: View {
             "reason=\(completionReason) ms=\(String(format: "%.2f", elapsedMs))"
         )
 #endif
+        return completionReason
     }
 
     @MainActor
@@ -4050,12 +4048,20 @@ struct ContentView: View {
     }
 
     private func primePendingBackgroundWorkspaces() async {
+        var timeoutCounts: [UUID: Int] = [:]
         while !Task.isCancelled {
             let workspaceIds = await MainActor.run { tabManager.pendingBackgroundWorkspaceLoadIds.sorted { $0.uuidString < $1.uuidString } }
             guard !workspaceIds.isEmpty else { return }
             for workspaceId in workspaceIds {
                 guard !Task.isCancelled else { return }
-                await primeBackgroundWorkspaceIfNeeded(workspaceId: workspaceId)
+                let reason = await primeBackgroundWorkspaceIfNeeded(workspaceId: workspaceId)
+                guard reason == "timeout" else { timeoutCounts[workspaceId] = nil; continue }
+                let timeoutCount = (timeoutCounts[workspaceId] ?? 0) + 1
+                timeoutCounts[workspaceId] = timeoutCount
+                if timeoutCount >= BackgroundWorkspacePrimePolicy.maxTimeoutRetries {
+                    await MainActor.run { tabManager.completeBackgroundWorkspaceLoad(for: workspaceId) }
+                    timeoutCounts[workspaceId] = nil
+                }
             }
         }
     }
