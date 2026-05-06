@@ -193,6 +193,7 @@ final class AuthManager: ObservableObject {
 
         let signInURL = AuthEnvironment.signInURL()
         let callbackScheme = AuthEnvironment.callbackScheme
+        authLog("webauth: begin url=\(signInURL.absoluteString) scheme=\(callbackScheme)")
 
         let session = ASWebAuthenticationSession(
             url: signInURL,
@@ -205,13 +206,21 @@ final class AuthManager: ObservableObject {
                     self.webAuthSession = nil
                 }
                 if let error {
+                    let nsError = error as NSError
+                    self.authLog("webauth: callback error domain=\(nsError.domain) code=\(nsError.code) desc=\(nsError.localizedDescription)")
                     NSLog("auth.webauth failed: %@", "\(error)")
                     return
                 }
-                guard let callbackURL else { return }
+                guard let callbackURL else {
+                    self.authLog("webauth: callback returned without URL or error")
+                    return
+                }
+                self.authLog("webauth: callback url=\(callbackURL.absoluteString)")
                 do {
                     try await self.handleCallbackURL(callbackURL)
+                    self.authLog("webauth: handleCallbackURL ok")
                 } catch {
+                    self.authLog("webauth: handleCallbackURL threw \(error)")
                     NSLog("auth.webauth callback failed: %@", "\(error)")
                 }
             }
@@ -219,7 +228,9 @@ final class AuthManager: ObservableObject {
         session.presentationContextProvider = AuthPresentationContext.shared
         session.prefersEphemeralWebBrowserSession = false
 
-        if session.start() {
+        let started = session.start()
+        authLog("webauth: session.start() returned \(started)")
+        if started {
             webAuthSession = session
         } else {
             NSLog("auth.webauth: session.start() returned false")
