@@ -16101,9 +16101,6 @@ class TerminalController {
 
         scheduleSidebarMutation(target: target) { controller, tab in
             _ = tab.statusEntries.removeValue(forKey: key)
-            if tracksAgentPanel {
-                tab.clearAgentTerminal(key: key, panelId: agentPanelId)
-            }
             if tab.clearAgentPID(key: key, panelId: tracksAgentPanel ? agentPanelId : nil) != nil {
                 controller.refreshTrackedAgentPorts(for: tab)
             }
