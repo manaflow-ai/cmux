@@ -88,14 +88,13 @@ commands:
                   --max-time 300 \
                   --speed-time 120 \
                   --speed-limit 1024 \
-                  --retry 5 \
-                  --retry-delay 5 \
-                  --retry-all-errors \
                   "$url" -o "$output"; then
                   return 0
                 fi
                 rm -f "$output"
-                sleep $((attempt * 10))
+                if [ "$attempt" -lt 5 ]; then
+                  sleep $((attempt * 10))
+                fi
               done
 
               echo "Failed to download ${url}" >&2

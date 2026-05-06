@@ -13856,12 +13856,15 @@ struct CMUXCLI {
         case "prompt-submit":
             telemetry.breadcrumb("claude-hook.prompt-submit")
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
-            let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
+            guard let workspaceId = resolveOptionalWorkspaceIdForClaudeHook(
                 preferred: mappedSession?.workspaceId,
                 fallback: workspaceArg,
                 client: client
-            )
-            let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
+            ) else {
+                print("OK")
+                return
+            }
+            let surfaceId = resolveOptionalSurfaceIdForClaudeHook(
                 preferred: mappedSession?.surfaceId,
                 fallback: surfaceArg,
                 workspaceId: workspaceId,
@@ -13884,11 +13887,14 @@ struct CMUXCLI {
             var summary = summarizeClaudeHookNotification(parsedInput: parsedInput)
 
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
-            let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
+            guard let workspaceId = resolveOptionalWorkspaceIdForClaudeHook(
                 preferred: mappedSession?.workspaceId,
                 fallback: workspaceArg,
                 client: client
-            )
+            ) else {
+                print("OK")
+                return
+            }
             sendClaudeFeedTelemetry(workspaceId: workspaceId)
             if let mappedSession,
                let savedBody = mappedSession.lastBody, !savedBody.isEmpty,
@@ -13896,7 +13902,7 @@ struct CMUXCLI {
                 summary = (subtitle: mappedSession.lastSubtitle ?? summary.subtitle, body: savedBody)
             }
 
-            let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
+            let surfaceId = resolveOptionalSurfaceIdForClaudeHook(
                 preferred: mappedSession?.surfaceId,
                 fallback: surfaceArg,
                 workspaceId: workspaceId,
@@ -13913,7 +13919,7 @@ struct CMUXCLI {
                 try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
-                    surfaceId: surfaceId,
+                    surfaceId: surfaceId ?? mappedSession?.surfaceId ?? "",
                     cwd: parsedInput.cwd,
                     lastSubtitle: summary.subtitle,
                     lastBody: summary.body
@@ -13928,8 +13934,12 @@ struct CMUXCLI {
                 icon: "bell.fill",
                 color: "#4C8DFF"
             )
-            let response = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
-            print(response)
+            if let surfaceId {
+                let response = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
+                print(response)
+            } else {
+                print("OK")
+            }
 
         case "session-end":
             telemetry.breadcrumb("claude-hook.session-end")
@@ -13971,12 +13981,15 @@ struct CMUXCLI {
             // Clears "Needs input" status and notification when Claude resumes work
             // (e.g. after permission grant). Runs async so it doesn't block tool execution.
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
-            let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
+            guard let workspaceId = resolveOptionalWorkspaceIdForClaudeHook(
                 preferred: mappedSession?.workspaceId,
                 fallback: workspaceArg,
                 client: client
-            )
-            let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
+            ) else {
+                print("OK")
+                return
+            }
+            let surfaceId = resolveOptionalSurfaceIdForClaudeHook(
                 preferred: mappedSession?.surfaceId,
                 fallback: surfaceArg,
                 workspaceId: workspaceId,
@@ -14097,6 +14110,32 @@ struct CMUXCLI {
             return try resolveSurfaceIdForClaudeHook(fallback, workspaceId: workspaceId, client: client)
         }
         return try resolveSurfaceIdForClaudeHook(nil, workspaceId: workspaceId, client: client)
+    }
+
+    private func resolveOptionalWorkspaceIdForClaudeHook(
+        preferred: String?,
+        fallback: String?,
+        client: SocketClient
+    ) -> String? {
+        try? resolvePreferredWorkspaceIdForClaudeHook(
+            preferred: preferred,
+            fallback: fallback,
+            client: client
+        )
+    }
+
+    private func resolveOptionalSurfaceIdForClaudeHook(
+        preferred: String?,
+        fallback: String?,
+        workspaceId: String,
+        client: SocketClient
+    ) -> String? {
+        try? resolvePreferredSurfaceIdForClaudeHook(
+            preferred: preferred,
+            fallback: fallback,
+            workspaceId: workspaceId,
+            client: client
+        )
     }
 
     private func nonEmptyClaudeHookIdentifier(_ value: String?) -> String? {

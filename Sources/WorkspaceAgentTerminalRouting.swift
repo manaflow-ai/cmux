@@ -13,10 +13,14 @@ extension Workspace {
         guard !trimmedKey.isEmpty else { return }
 
         if let panelId {
-            guard var keys = agentStatusKeysByPanelId[panelId] else { return }
+            guard var keys = agentStatusKeysByPanelId[panelId] else {
+                clearRestoredAgentSnapshotForAgentRouting(panelId: panelId)
+                return
+            }
             keys.remove(trimmedKey)
             if keys.isEmpty {
                 agentStatusKeysByPanelId.removeValue(forKey: panelId)
+                clearRestoredAgentSnapshotForAgentRouting(panelId: panelId)
             } else {
                 agentStatusKeysByPanelId[panelId] = keys
             }
@@ -25,6 +29,11 @@ extension Workspace {
 
         for existingPanelId in Array(agentStatusKeysByPanelId.keys) {
             clearAgentTerminal(key: trimmedKey, panelId: existingPanelId)
+        }
+        for (existingPanelId, snapshot) in Array(restoredAgentSnapshotsByPanelId)
+            where restoredAgentSnapshot(snapshot, matchesStatusKey: trimmedKey)
+        {
+            clearRestoredAgentSnapshotForAgentRouting(panelId: existingPanelId)
         }
     }
 
@@ -61,5 +70,34 @@ extension Workspace {
             panelType: panelType,
             hostsAgent: terminalPanelHostsAgent(panelId: panelId)
         )
+    }
+
+    private func restoredAgentSnapshot(
+        _ snapshot: SessionRestorableAgentSnapshot,
+        matchesStatusKey key: String
+    ) -> Bool {
+        let baseKey = key.split(separator: ".", maxSplits: 1).first.map(String.init) ?? key
+        switch snapshot.kind {
+        case .claude:
+            return baseKey == "claude" || baseKey == "claude_code"
+        case .codex:
+            return baseKey == "codex"
+        case .cursor:
+            return baseKey == "cursor"
+        case .gemini:
+            return baseKey == "gemini"
+        case .opencode:
+            return baseKey == "opencode"
+        case .rovodev:
+            return baseKey == "rovodev"
+        case .copilot:
+            return baseKey == "copilot"
+        case .codebuddy:
+            return baseKey == "codebuddy"
+        case .factory:
+            return baseKey == "factory"
+        case .qoder:
+            return baseKey == "qoder"
+        }
     }
 }

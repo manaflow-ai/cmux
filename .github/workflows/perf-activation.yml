@@ -87,6 +87,7 @@ jobs:
             esac
             ZIG_DIR="/tmp/zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}"
             ZIG_URL="https://ziglang.org/download/${ZIG_REQUIRED}/zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}.tar.xz"
+            ZIG_MINISIGN_PUBLIC_KEY="RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U"
             download_zig_artifact() {
               local url="$1"
               local output="$2"
@@ -98,21 +99,25 @@ jobs:
                   --max-time 300 \
                   --speed-time 120 \
                   --speed-limit 1024 \
-                  --retry 5 \
-                  --retry-delay 5 \
-                  --retry-all-errors \
                   "$url" -o "$output"; then
                   return 0
                 fi
                 rm -f "$output"
-                sleep $((attempt * 10))
+                if [ "$attempt" -lt 5 ]; then
+                  sleep $((attempt * 10))
+                fi
               done
 
               echo "Failed to download ${url}" >&2
               return 1
             }
 
+            if ! command -v minisign >/dev/null 2>&1; then
+              brew install minisign
+            fi
             download_zig_artifact "$ZIG_URL" /tmp/zig.tar.xz
+            download_zig_artifact "${ZIG_URL}.minisig" /tmp/zig.tar.xz.minisig
+            minisign -Vm /tmp/zig.tar.xz -x /tmp/zig.tar.xz.minisig -P "$ZIG_MINISIGN_PUBLIC_KEY"
             tar xf /tmp/zig.tar.xz -C /tmp
             sudo mkdir -p /usr/local/bin /usr/local/lib
             sudo cp -f "${ZIG_DIR}/zig" /usr/local/bin/zig

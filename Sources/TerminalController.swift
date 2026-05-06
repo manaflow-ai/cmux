@@ -12678,10 +12678,10 @@ class TerminalController {
           clear_notifications [--tab=X]    - Clear notifications (all or per-tab)
           set_app_focus <active|inactive|clear> - Override app focus state
           simulate_app_active             - Trigger app active handler
-          set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] [--surface=Y] - Set a status entry
+          set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] [--panel=Y] - Set a status entry
           report_meta <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] - Set sidebar metadata entry
           report_meta_block <key> [--priority=N] [--tab=X] -- <markdown> - Set freeform sidebar markdown block
-          clear_status <key> [--tab=X] [--surface=Y] - Remove a status entry
+          clear_status <key> [--tab=X] [--panel=Y] - Remove a status entry
           clear_meta <key> [--tab=X] - Remove sidebar metadata entry
           clear_meta_block <key> [--tab=X] - Remove sidebar markdown block
           list_status [--tab=X]   - List all status entries
@@ -15914,6 +15914,7 @@ class TerminalController {
     ]
 
     private static func shouldTrackAgentStatusKey(_ key: String) -> Bool {
+        // Agent status/PID markers make panel-scoped file drops route to terminal input.
         if agentSidebarStatusKeys.contains(key) {
             return true
         }
@@ -15924,6 +15925,7 @@ class TerminalController {
     }
 
     private func agentTrackingPanelId(options: [String: String]) -> UUID? {
+        // --panel is canonical. --surface is a legacy alias for older agent hooks.
         guard let rawPanelId = normalizedOptionValue(options["panel"] ?? options["surface"]) else {
             return nil
         }
@@ -16109,12 +16111,12 @@ class TerminalController {
     }
 
     /// Register an agent PID for stale-session detection without setting a visible status entry.
-    /// Usage: set_agent_pid <key> <pid> [--tab=<id>] [--surface=<id>]
+    /// Usage: set_agent_pid <key> <pid> [--tab=<id>] [--panel=<id>]
     private func setAgentPID(_ args: String) -> String {
         let parsed = parseOptions(args)
         guard parsed.positional.count >= 2,
               let pid = Int32(parsed.positional[1]), pid > 0 else {
-            return "ERROR: Usage: set_agent_pid <key> <pid> [--tab=<id>] [--surface=<id>]"
+            return "ERROR: Usage: set_agent_pid <key> <pid> [--tab=<id>] [--panel=<id>]"
         }
         let key = parsed.positional[0]
         let targetResolution = parseSidebarMutationTabTarget(options: parsed.options)
@@ -16129,11 +16131,11 @@ class TerminalController {
         return "OK"
     }
 
-    /// Unregister an agent PID. Usage: clear_agent_pid <key> [--tab=<id>] [--surface=<id>]
+    /// Unregister an agent PID. Usage: clear_agent_pid <key> [--tab=<id>] [--panel=<id>]
     private func clearAgentPID(_ args: String) -> String {
         let parsed = parseOptions(args)
         guard let key = parsed.positional.first else {
-            return "ERROR: Usage: clear_agent_pid <key> [--tab=<id>] [--surface=<id>]"
+            return "ERROR: Usage: clear_agent_pid <key> [--tab=<id>] [--panel=<id>]"
         }
         let targetResolution = parseSidebarMutationTabTarget(options: parsed.options)
         guard let target = targetResolution.target else {
@@ -16182,7 +16184,7 @@ class TerminalController {
     private func setStatus(_ args: String) -> String {
         upsertSidebarMetadata(
             args,
-            missingError: "ERROR: Missing status key or value — usage: set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] [--surface=Y]"
+            missingError: "ERROR: Missing status key or value — usage: set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] [--panel=Y]"
         )
     }
 
@@ -16194,7 +16196,7 @@ class TerminalController {
     }
 
     private func clearStatus(_ args: String) -> String {
-        clearSidebarMetadata(args, usage: "clear_status <key> [--tab=X]")
+        clearSidebarMetadata(args, usage: "clear_status <key> [--tab=X] [--panel=Y]")
     }
 
     private func clearMeta(_ args: String) -> String {
