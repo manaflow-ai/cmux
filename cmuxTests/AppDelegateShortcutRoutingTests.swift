@@ -506,7 +506,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
 #if DEBUG
             XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: prefixEvent))
-            XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: conflictingSingleStrokeEvent))
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: conflictingSingleStrokeEvent))
 #else
             XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif

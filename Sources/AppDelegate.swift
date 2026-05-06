@@ -11059,6 +11059,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if activeConfiguredShortcutChordPrefixForCurrentEvent != nil,
+           shouldConsumeSingleStrokeShortcutAfterConfiguredChordMismatch(
+               event: event,
+               cmuxActions: configuredCmuxShortcutActions
+           ) {
+            return true
+        }
+
         // Primary UI shortcuts
         if matchConfiguredShortcut(event: event, action: .toggleSidebar) {
             _ = toggleSidebarInActiveMainWindow()
@@ -12428,6 +12436,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return matchShortcutStroke(event: event, stroke: shortcut.firstStroke)
     }
 
+    private func matchConfiguredSingleStrokeShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
+        guard !shortcut.isUnbound, !shortcut.hasChord else { return false }
+        return matchShortcutStroke(event: event, stroke: shortcut.firstStroke)
+    }
+
     private func matchConfiguredShortcut(event: NSEvent, action: KeyboardShortcutSettings.Action) -> Bool {
         if !action.shortcutContext.isAlwaysAvailable && !action.shortcutContext.isAvailable(shortcutEventFocusContext(event)) { return false }
         return matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: action))
@@ -12502,9 +12515,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         shortcuts: [StoredShortcut] = []
     ) -> Bool {
         var seen = Set<StoredShortcut>()
-        let configuredShortcuts = (actions ?? configuredShortcutChordActions).map {
-            KeyboardShortcutSettings.shortcut(for: $0)
-        } + shortcuts
+        let actionShortcuts: [StoredShortcut]
+        if let actions {
+            actionShortcuts = actions.map { KeyboardShortcutSettings.shortcut(for: $0) }
+        } else {
+            actionShortcuts = KeyboardShortcutSettings.Action.allCases.compactMap { action in
+                guard action != .showHideAllWindows else { return nil }
+                let shortcut = KeyboardShortcutSettings.shortcut(for: action)
+                return shortcut.hasChord ? shortcut : nil
+            }
+        }
+        let configuredShortcuts = actionShortcuts + shortcuts
         for shortcut in configuredShortcuts {
             guard seen.insert(shortcut).inserted else { continue }
             guard shortcut.hasChord else { continue }
@@ -12513,6 +12534,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     firstStroke: shortcut.firstStroke,
                     windowNumber: configuredShortcutChordWindowNumber(for: event)
                 )
+                return true
+            }
+        }
+        return false
+    }
+
+    private func shouldConsumeSingleStrokeShortcutAfterConfiguredChordMismatch(
+        event: NSEvent,
+        cmuxActions: [CmuxResolvedConfigAction]
+    ) -> Bool {
+        for action in KeyboardShortcutSettings.Action.allCases {
+            if !action.shortcutContext.isAlwaysAvailable && !action.shortcutContext.isAvailable(shortcutEventFocusContext(event)) {
+                continue
+            }
+            if matchConfiguredSingleStrokeShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: action)) {
+                return true
+            }
+        }
+        for action in cmuxActions {
+            guard let shortcut = action.shortcut else { continue }
+            if matchConfiguredSingleStrokeShortcut(event: event, shortcut: shortcut) {
                 return true
             }
         }
