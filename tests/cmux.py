@@ -134,10 +134,7 @@ def _variant_socket_candidates() -> List[str]:
         return [f"/tmp/cmux-staging-{slug}.sock"] if slug else ["/tmp/cmux-staging.sock"]
     if variant == "dev":
         if slug:
-            return [
-                f"/tmp/cmux-debug-{slug}.sock",
-                f"/tmp/cmux-{slug}.sock",
-            ]
+            return [f"/tmp/cmux-debug-{slug}.sock"]
         return ["/tmp/cmux-debug.sock"]
     return [_STABLE_SOCKET_PATH, _LEGACY_STABLE_SOCKET_PATH]
 
