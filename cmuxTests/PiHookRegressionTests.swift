@@ -517,6 +517,36 @@ final class PiHookRegressionTests: XCTestCase {
         } catch {
             return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
         }
+
+        // Drain stdout/stderr CONCURRENTLY with the child running. macOS pipe
+        // buffers are ~64 KB; if the child writes more than that to either
+        // stream before exiting, the write blocks (no reader is draining
+        // yet), waitUntilExit never returns, and we time out every run.
+        // Reading after waitUntilExit (the previous shape) was a latent
+        // deadlock waiting for any test that produced verbose output.
+        let group = DispatchGroup()
+        let queue = DispatchQueue(label: "cmux-pi-tests.runProcess.io", attributes: .concurrent)
+        let stdoutLock = NSLock()
+        let stderrLock = NSLock()
+        var stdoutData = Data()
+        var stderrData = Data()
+        group.enter()
+        queue.async {
+            defer { group.leave() }
+            let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+            stdoutLock.lock()
+            stdoutData = data
+            stdoutLock.unlock()
+        }
+        group.enter()
+        queue.async {
+            defer { group.leave() }
+            let data = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+            stderrLock.lock()
+            stderrData = data
+            stderrLock.unlock()
+        }
+
         let exitSignal = DispatchSemaphore(value: 0)
         DispatchQueue.global(qos: .userInitiated).async {
             process.waitUntilExit()
@@ -527,10 +557,22 @@ final class PiHookRegressionTests: XCTestCase {
             process.terminate()
             _ = exitSignal.wait(timeout: .now() + 1)
         }
+        // Wait for both reader tasks to drain the (now-closed) pipe ends and
+        // exit. terminate() above closes write ends, so readDataToEndOfFile
+        // returns promptly; this just synchronizes us with the readers.
+        group.wait()
+
+        stdoutLock.lock()
+        let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
+        stdoutLock.unlock()
+        stderrLock.lock()
+        let stderr = String(data: stderrData, encoding: .utf8) ?? ""
+        stderrLock.unlock()
+
         return ProcessRunResult(
             status: process.terminationStatus,
-            stdout: String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
-            stderr: String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
+            stdout: stdout,
+            stderr: stderr,
             timedOut: timedOut
         )
     }
