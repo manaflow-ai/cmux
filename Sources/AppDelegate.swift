@@ -7272,6 +7272,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .first
     }
 
+    @MainActor
     func preferredMainWindowForSettingsPresentation() -> NSWindow? {
         preferredMainWindowForVisibilityActivation()
     }
