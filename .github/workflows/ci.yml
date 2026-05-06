@@ -446,6 +446,7 @@ jobs:
           fi
 
           CMUX_ALLOW_UNTAGGED_CA_REGRESSION=1 \
+          CMUX_CA_ASSERT_HOLD_SECONDS=15 \
           CMUX_TAG="ci-ca-main-thread" \
           ./scripts/verify-main-thread-ca-transactions.sh "$APP"
 

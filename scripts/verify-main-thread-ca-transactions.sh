@@ -82,7 +82,7 @@ if [ "$socket_ready" -ne 1 ]; then
   exit 1
 fi
 
-if grep -E "CA_ASSERT_MAIN_THREAD_TRANSACTIONS|uncommitted CATransaction|implicit transaction wasn't created" "$LOG_PATH" >/dev/null 2>&1; then
+if grep -E "uncommitted CATransaction|implicit transaction wasn't created|CoreAnimation.*thread|CATransaction.*thread" "$LOG_PATH" >/dev/null 2>&1; then
   echo "FAIL: CoreAnimation reported a worker-thread transaction" >&2
   echo "--- app log tail ($LOG_PATH) ---" >&2
   tail -80 "$LOG_PATH" >&2 2>/dev/null || true
