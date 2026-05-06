@@ -2,7 +2,7 @@ import Darwin
 import Foundation
 
 @MainActor
-final class FilePreviewTextFileWatcher {
+final class FilePreviewFileWatcher {
     enum Event {
         case changed
         case movedOrDeleted
@@ -20,7 +20,7 @@ final class FilePreviewTextFileWatcher {
     init(url: URL, onEvent: @escaping @MainActor (Event) -> Void) {
         self.url = url
         self.onEvent = onEvent
-        self.queue = DispatchQueue(label: "com.cmux.file-preview-text-watch", qos: .utility)
+        self.queue = DispatchQueue(label: "com.cmux.file-preview-watch", qos: .utility)
     }
 
     deinit {
@@ -79,8 +79,13 @@ final class FilePreviewTextFileWatcher {
         guard !isClosed else { return }
         if flags.contains(.delete) || flags.contains(.rename) {
             stopFileWatcher()
-            onEvent(.movedOrDeleted)
-            start()
+            if FileManager.default.fileExists(atPath: url.path) {
+                onEvent(.reappeared)
+                startFileWatcher()
+            } else {
+                onEvent(.movedOrDeleted)
+                startDirectoryWatcher()
+            }
         } else {
             onEvent(.changed)
         }
