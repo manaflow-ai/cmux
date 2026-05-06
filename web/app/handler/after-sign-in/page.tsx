@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { stackServerApp } from "../../lib/stack";
 import { env } from "../../env";
 import { OpenNativeClient } from "./OpenNativeClient";
+import { isNativeReturnScheme, shouldEmitNativeHandoff } from "./native-handoff";
 
 export const dynamic = "force-dynamic";
 
@@ -112,9 +113,8 @@ export default async function AfterSignInPage({ searchParams: searchParamsPromis
   // available; otherwise the OpenNativeClient would launch cmux with an empty
   // auth payload, which would produce a spurious "not signed in" flash.
   if (
-    refreshToken &&
-    accessCookie &&
-    (nativeReturnTo?.startsWith(NATIVE_SCHEME) || nativeReturnTo?.startsWith("cmux-dev://"))
+    shouldEmitNativeHandoff({ refreshToken, accessToken }) &&
+    isNativeReturnScheme(nativeReturnTo)
   ) {
     const href = buildNativeHref(nativeReturnTo, refreshToken, accessCookie);
     if (href) return <OpenNativeClient href={href} />;
@@ -130,7 +130,7 @@ export default async function AfterSignInPage({ searchParams: searchParamsPromis
   }
 
   // Fallback: try native app only when we actually have tokens to hand off.
-  if (refreshToken && accessCookie) {
+  if (shouldEmitNativeHandoff({ refreshToken, accessToken })) {
     const fallback = buildNativeHref(null, refreshToken, accessCookie);
     if (fallback) return <OpenNativeClient href={fallback} />;
   }

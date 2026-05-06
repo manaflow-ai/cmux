@@ -11,5 +11,5 @@ export type NativeHandoffArgs = {
 };
 
 export function shouldEmitNativeHandoff(args: NativeHandoffArgs): boolean {
-  return Boolean(args.refreshToken);
+  return Boolean(args.refreshToken && args.accessToken && args.accessToken.length > 0);
 }
