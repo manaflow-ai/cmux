@@ -51,7 +51,7 @@ extension CmuxUseSupport {
             }
         }
 
-        if let packageCommand = packageJSONLaunchCommand(in: checkoutURL, package: package) {
+        if let packageCommand = CMUXRepoDetection.packageJSONLaunchCommand(in: checkoutURL, package: package) {
             return CmuxUseLaunchCommand(command: packageCommand.command, source: packageCommand.source)
         }
 
@@ -59,25 +59,6 @@ extension CmuxUseSupport {
             return CmuxUseLaunchCommand(command: makeCommand.command, source: makeCommand.source)
         }
 
-        return nil
-    }
-
-    private static func packageJSONLaunchCommand(
-        in checkoutURL: URL,
-        package providedPackage: [String: Any]?
-    ) -> CMUXDetectedLaunchCommand? {
-        guard let package = providedPackage ?? CMUXRepoDetection.packageJSON(in: checkoutURL),
-              let scripts = package["scripts"] as? [String: Any] else {
-            return nil
-        }
-
-        for script in ["use", "cmux", "start", "dev"] {
-            guard scripts[script] is String else { continue }
-            return CMUXDetectedLaunchCommand(
-                command: "\(CMUXRepoDetection.packageManagerCommand(in: checkoutURL)) run \(script)",
-                source: "package.json:scripts.\(script)"
-            )
-        }
         return nil
     }
 

@@ -12,7 +12,14 @@ public struct CMUXDetectedLaunchCommand: Equatable {
 
 public enum CMUXRepoDetection {
     public static func packageJSONLaunchCommand(in checkoutURL: URL) -> CMUXDetectedLaunchCommand? {
-        guard let package = packageJSON(in: checkoutURL),
+        packageJSONLaunchCommand(in: checkoutURL, package: nil)
+    }
+
+    public static func packageJSONLaunchCommand(
+        in checkoutURL: URL,
+        package providedPackage: [String: Any]?
+    ) -> CMUXDetectedLaunchCommand? {
+        guard let package = providedPackage ?? packageJSON(in: checkoutURL),
               let scripts = package["scripts"] as? [String: Any] else {
             return nil
         }
