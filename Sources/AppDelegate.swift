@@ -957,6 +957,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func application(_ application: NSApplication, open urls: [URL]) {
         let authCallbacks = urls.filter(AuthCallbackRouter.isAuthCallbackURL)
+        if !authCallbacks.isEmpty {
+            // macOS 14+ only grants activate() in response to a user event
+            // when the call fires synchronously inside the event handler.
+            // Once we hop to a Task {} the "user event context" is gone
+            // and cooperative activation refuses. Activate here first,
+            // then re-order windows after handleCallbackURL finishes.
+            focusAppForAuthCallback()
+        }
         for url in authCallbacks {
             Task { @MainActor in
                 do {
@@ -964,6 +972,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 } catch {
                     NSLog("auth.callback failed: %@", "\(error)")
                 }
+                self.raiseWindowsAfterAuthCallback()
             }
         }
 
@@ -6345,6 +6354,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if !didAttemptStartupSessionRestore {
             startupSessionSnapshot = nil
             didAttemptStartupSessionRestore = true
+        }
+    }
+
+    /// Synchronous, runs inside `application(_:open:)` so macOS 14+
+    /// cooperative activation still sees the user-event context.
+    private func focusAppForAuthCallback() {
+        NSApp.activate()
+        NSRunningApplication.current.activate(options: [.activateAllWindows])
+    }
+
+    /// Runs after `handleCallbackURL` completes. Re-orders windows so the
+    /// user's workspace windows keep their relative z-order and the
+    /// Settings window lands on top.
+    private func raiseWindowsAfterAuthCallback() {
+        NSApp.activate()
+        NSRunningApplication.current.activate(options: [.activateAllWindows])
+
+        let settingsWindow = SettingsWindowController.shared.window
+        let visible = NSApp.orderedWindows.filter { $0.isVisible }
+        let workspaceWindows = visible.reversed().filter { $0 !== settingsWindow }
+        for (idx, window) in workspaceWindows.enumerated() {
+            if idx == 0 {
+                window.makeKeyAndOrderFront(nil)
+            } else {
+                window.orderFrontRegardless()
+            }
+        }
+        if let settingsWindow, settingsWindow.isVisible {
+            settingsWindow.makeKeyAndOrderFront(nil)
         }
     }
 
