@@ -2,23 +2,23 @@
 import PackageDescription
 
 let package = Package(
-    name: "CMUXRovoDevIndex",
+    name: "CMUXAgentVault",
     platforms: [
         .macOS(.v13),
     ],
     products: [
         .library(
-            name: "CMUXRovoDevIndex",
-            targets: ["CMUXRovoDevIndex"]
+            name: "CMUXAgentVault",
+            targets: ["CMUXAgentVault"]
         ),
     ],
     targets: [
         .target(
-            name: "CMUXRovoDevIndex"
+            name: "CMUXAgentVault"
         ),
         .testTarget(
-            name: "CMUXRovoDevIndexTests",
-            dependencies: ["CMUXRovoDevIndex"]
+            name: "CMUXAgentVaultTests",
+            dependencies: ["CMUXAgentVault"]
         ),
     ]
 )
