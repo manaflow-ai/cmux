@@ -102,6 +102,26 @@
     "linkedinAction": "Follow us",
     "linkedinDesc": "Company news and engineering updates"
   },
+  "thanks": {
+    "metaTitle": "Thanks for downloading cmux",
+    "metaDescription": "Install cmux on your Mac in three steps. Join our Discord if you need help.",
+    "title": "Thanks for downloading cmux!",
+    "subtitle": "Follow these steps to get cmux running on your Mac.",
+    "downloadStarted": "Your download should begin automatically. Didn't work?",
+    "tryAgain": "Try downloading again.",
+    "otherDownloads": "Other downloads",
+    "step1": "Open cmux-macos.dmg from your Downloads folder.",
+    "step2": "Drag cmux into your Applications folder.",
+    "step3": "Launch cmux from Applications or your dock.",
+    "helpTitle": "Need a hand?",
+    "helpDescription": "If macOS blocks the app, the download stalls, or anything else trips you up, the fastest way to get unstuck is asking in Discord. The team and other users hang out there.",
+    "joinDiscord": "Join our Discord",
+    "reportIssue": "Report an issue",
+    "communityHeading": "Stay in the loop",
+    "discord": "Discord",
+    "github": "GitHub",
+    "twitter": "X / Twitter"
+  },
   "blog": {
     "title": "Blog",
     "layoutTitle": "cmux blog",
