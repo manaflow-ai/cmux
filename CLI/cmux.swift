@@ -14216,10 +14216,6 @@ struct CMUXCLI {
         _ = try client.send(command: "clear_status claude_code --tab=\(workspaceId)")
     }
 
-    private func isClaudeClearSessionStart(_ parsedInput: ClaudeHookParsedInput) -> Bool {
-        parsedInput.source?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "clear"
-    }
-
     private func resolvePreferredWorkspaceIdForClaudeHook(
         preferred: String?,
         fallback: String?,
