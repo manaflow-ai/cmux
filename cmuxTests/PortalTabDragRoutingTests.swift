@@ -168,15 +168,38 @@ final class PortalTabDragRoutingTests: XCTestCase {
         )
     }
 
-    func testTerminalPaneDropTargetIgnoresExternalFileImageAndBrowserDrags() {
+    func testTerminalPaneDropTargetCapturesFinderFilesButIgnoresBrowserPayloads() {
+        XCTAssertTrue(
+            TerminalPaneDropTargetView.shouldCaptureHitTesting(
+                pasteboardTypes: [.fileURL],
+                eventType: .leftMouseDragged
+            )
+        )
+        XCTAssertTrue(
+            TerminalPaneDropTargetView.shouldCaptureHitTesting(
+                pasteboardTypes: [.fileURL],
+                eventType: .leftMouseUp
+            )
+        )
+        XCTAssertTrue(
+            TerminalPaneDropTargetView.shouldCaptureHitTesting(
+                pasteboardTypes: [.fileURL, .png],
+                eventType: .leftMouseDragged
+            )
+        )
+        XCTAssertTrue(
+            TerminalPaneDropTargetView.shouldCaptureHitTesting(
+                pasteboardTypes: [DragOverlayRoutingPolicy.filePreviewTransferType, DragOverlayRoutingPolicy.bonsplitTabTransferType, .fileURL],
+                eventType: .leftMouseUp
+            )
+        )
+
         let externalPayloads: [[NSPasteboard.PasteboardType]] = [
-            [.fileURL],
             [.URL],
             [.png],
             [.tiff],
             [.html],
             [.string],
-            [.fileURL, .png],
         ]
 
         for pasteboardTypes in externalPayloads {
@@ -187,6 +210,42 @@ final class PortalTabDragRoutingTests: XCTestCase {
                 ),
                 "Terminal pane drop target should not capture external drag payload: \(pasteboardTypes)"
             )
+        }
+    }
+
+    func testPaneDropRoutingMapsFileDropsToSharedBonsplitDestinations() {
+        let paneId = PaneID()
+
+        if case let .insert(targetPane, targetIndex) = PaneDropRouting.filePreviewDestination(
+            targetPane: paneId,
+            zone: .center
+        ) {
+            XCTAssertEqual(targetPane, paneId)
+            XCTAssertNil(targetIndex)
+        } else {
+            XCTFail("Center drops should insert into the hovered pane")
+        }
+
+        if case let .split(targetPane, orientation, insertFirst) = PaneDropRouting.filePreviewDestination(
+            targetPane: paneId,
+            zone: .left
+        ) {
+            XCTAssertEqual(targetPane, paneId)
+            XCTAssertEqual(orientation, .horizontal)
+            XCTAssertTrue(insertFirst)
+        } else {
+            XCTFail("Left drops should use Bonsplit horizontal split routing")
+        }
+
+        if case let .split(targetPane, orientation, insertFirst) = PaneDropRouting.filePreviewDestination(
+            targetPane: paneId,
+            zone: .bottom
+        ) {
+            XCTAssertEqual(targetPane, paneId)
+            XCTAssertEqual(orientation, .vertical)
+            XCTAssertFalse(insertFirst)
+        } else {
+            XCTFail("Bottom drops should use Bonsplit vertical split routing")
         }
     }
 }

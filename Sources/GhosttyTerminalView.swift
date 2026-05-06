@@ -3777,16 +3777,16 @@ class GhosttyApp {
                 return false
             }
             // Route markdown file URLs into the cmux viewer when the toggle is
-            // on AND the link is local + has no anchor/query. Anything else
-            // (toggle off, hosted file URL, #fragment, ?query, non-markdown,
-            // remote workspace, unreadable file, split creation failure) falls
-            // through to the existing NSWorkspace path below so the default-off
-            // behavior and URL semantics are preserved.
+            // on AND the link is local. URL fragments/queries are stripped (the
+            // panel only needs the file path), so links emitted by tools like
+            // Claude Code (`foo.md#L42`) still route into the viewer. Anything
+            // else (toggle off, hosted file URL, non-markdown, remote workspace,
+            // unreadable file, split creation failure) falls through to the
+            // existing NSWorkspace path below so the default-off behavior and
+            // URL semantics are preserved.
             let fileURLHost = target.url.host
             if CmdClickMarkdownRouteSettings.isEnabled(),
                target.url.isFileURL,
-               target.url.fragment == nil,
-               target.url.query == nil,
                fileURLHost == nil || fileURLHost?.isEmpty == true || fileURLHost == "localhost",
                CmdClickMarkdownRouteSettings.isMarkdownPath(target.url.path) {
                 let fileURL = target.url
@@ -3799,10 +3799,57 @@ class GhosttyApp {
                           CmdClickMarkdownRouteSettings.shouldRoute(path: fileURL.path) else {
                         return false
                     }
-                    return workspace.openOrFocusMarkdownSplit(
-                        from: termSurface.id,
-                        filePath: fileURL.path
-                    ) != nil
+                    // Defer the split creation. Ghostty's Surface.openUrl holds
+                    // an internal os_unfair_lock when it dispatches into this
+                    // Swift handler; opening a new panel synchronously triggers
+                    // Surface.encodeKey on the focus path, which tries to
+                    // acquire the same lock and aborts (recursive os_unfair_lock
+                    // — see crash reports referenced in #3370).
+                    //
+                    // CAVEAT — timing-based mitigation: this works because the
+                    // Ghostty C side currently releases the surface lock within
+                    // the same runloop cycle that dispatches this callback,
+                    // which is an undocumented Ghostty implementation detail.
+                    // If a future Ghostty change moves the unlock to a later
+                    // tick, every Swift caller that re-enters Surface state
+                    // from inside performOnMain (not just this one) will
+                    // silently regress to the same crash. The structural fix
+                    // is to dispatch the OPEN_URL callback asynchronously from
+                    // C so the lock is always released before any Swift runs
+                    // — tracked in #3560. Until that lands, do NOT remove
+                    // this DispatchQueue.main.async.
+                    let preferredWorkspaceId = workspace.id
+                    let surfaceId = termSurface.id
+                    DispatchQueue.main.async {
+                        // Re-resolve workspace at dispatch time: tabs can move
+                        // between workspaces in the runloop gap, so the
+                        // captured value may be stale. Mirrors the deferred
+                        // browser path's pattern.
+                        let resolvedWorkspace = AppDelegate.shared?.workspaceContainingPanel(
+                            panelId: surfaceId,
+                            preferredWorkspaceId: preferredWorkspaceId
+                        )?.workspace ?? workspace
+                        // Re-apply the sync remote-surface gate; panel may have moved.
+                        guard !resolvedWorkspace.isRemoteTerminalSurface(surfaceId) else {
+                            NSWorkspace.shared.open(fileURL)
+                            return
+                        }
+                        // TOCTOU re-check: file may have been removed/renamed
+                        // since the synchronous gate. Fall through if so.
+                        guard CmdClickMarkdownRouteSettings.shouldRoute(path: fileURL.path) else {
+                            NSWorkspace.shared.open(fileURL)
+                            return
+                        }
+                        guard resolvedWorkspace.openOrFocusMarkdownSplit(
+                            from: surfaceId,
+                            filePath: fileURL.path
+                        ) == nil else { return }
+                        // Split creation failed (source pane gone between
+                        // commit and dispatch) — surface via system opener so
+                        // the click is not silently lost.
+                        NSWorkspace.shared.open(fileURL)
+                    }
+                    return true
                 }
                 if routed {
                     return true
@@ -5760,9 +5807,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         case reject
     }
 
-    private static let dropTypes: Set<NSPasteboard.PasteboardType> = [
+    private static let dropTypes: Set<NSPasteboard.PasteboardType> = PasteboardFileURLReader.fileURLPasteboardTypes.union([
         .string,
-        .fileURL,
         .URL,
         .png,
         .tiff,
@@ -5770,7 +5816,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         NSPasteboard.PasteboardType(UTType.gif.identifier),
         NSPasteboard.PasteboardType(UTType.heic.identifier),
         NSPasteboard.PasteboardType(UTType.heif.identifier)
-    ]
+    ])
     private static let tabTransferPasteboardType = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
     private static let sidebarTabReorderPasteboardType = NSPasteboard.PasteboardType("com.cmux.sidebar-tab-reorder")
 
@@ -7179,6 +7225,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 return false
             }
 
+            if !shouldRetryMainMenu { lastPerformKeyEvent = nil; keyDown(with: event); return true }
             if let lastPerformKeyEvent {
                 self.lastPerformKeyEvent = nil
                 if lastPerformKeyEvent == event.timestamp {
@@ -7187,8 +7234,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 }
             }
 
-            lastPerformKeyEvent = event.timestamp
-            return false
+            lastPerformKeyEvent = event.timestamp; return false
         }
 
         let finalEvent = NSEvent.keyEvent(
@@ -10878,6 +10924,14 @@ final class GhosttySurfaceScrollView: NSView {
         if context == nil {
             paneDropTargetView.draggingExited(nil)
         }
+    }
+
+    func paneDropTargetForDrop(at localPoint: NSPoint) -> TerminalPaneDropTargetView? {
+        guard bounds.contains(localPoint) else { return nil }
+        let pointInTarget = paneDropTargetView.convert(localPoint, from: self)
+        guard paneDropTargetView.bounds.contains(pointInTarget) else { return nil }
+        guard !paneDropTargetView.shouldDeferToPaneTabBar(at: pointInTarget) else { return nil }
+        return paneDropTargetView
     }
 
 #if DEBUG
