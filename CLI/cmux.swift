@@ -16410,7 +16410,12 @@ export default CMUXSessionRestore;
             do {
                 existing = try String(contentsOfFile: path, encoding: .utf8)
             } catch {
-                throw CLIError(message: "\(path) exists but could not be read (\(error.localizedDescription)); refusing to overwrite")
+                // Use String(describing:) over .localizedDescription: non-
+                // LocalizedError Foundation errors collapse the latter to a
+                // generic "The operation couldn’t be completed" string and
+                // hide the real cause (e.g. permission denied, encoding
+                // failure). Repo convention for CLI install error paths.
+                throw CLIError(message: "\(path) exists but could not be read (\(String(describing: error))); refusing to overwrite")
             }
         } else {
             existing = ""

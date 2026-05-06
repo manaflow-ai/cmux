@@ -157,6 +157,15 @@ final class PiHookRegressionTests: XCTestCase {
             result.status, 0,
             "Install must fail when the existing file can't be read; got stdout=\(result.stdout) stderr=\(result.stderr)"
         )
+        // Error message must surface the path and the underlying cause
+        // (uses String(describing: error), not .localizedDescription, so the
+        // real Foundation error — not a generic 'operation couldn't be
+        // completed' — reaches the user).
+        let combined = result.stdout + result.stderr
+        XCTAssertTrue(
+            combined.contains("exists but could not be read"),
+            "Expected a 'could not be read' message, got: \(combined)"
+        )
 
         // Bytes-level comparison: the foreign file must be byte-for-byte
         // unchanged after the failed install.
