@@ -1454,27 +1454,14 @@ struct MountedWorkspacePresentation: Equatable {
 enum MountedWorkspacePresentationPolicy {
     static func resolve(
         isSelectedWorkspace: Bool,
-        isRetiringWorkspace: Bool,
-        shouldPrimeInBackground: Bool
+        isRetiringWorkspace: Bool
     ) -> MountedWorkspacePresentation {
         let isRenderedVisible = isSelectedWorkspace || isRetiringWorkspace
-        let renderOpacity: Double = {
-            if isRenderedVisible {
-                return 1
-            }
-            if shouldPrimeInBackground {
-                // Keep the workspace mounted long enough to warm the terminal surface, but do
-                // not mark it panel-visible. Visible portal entries intentionally survive
-                // transient anchor loss during bonsplit drag/reparent churn.
-                return 0.001
-            }
-            return 0
-        }()
 
         return MountedWorkspacePresentation(
             isRenderedVisible: isRenderedVisible,
             isPanelVisible: isRenderedVisible,
-            renderOpacity: renderOpacity
+            renderOpacity: isRenderedVisible ? 1 : 0
         )
     }
 }
@@ -2611,11 +2598,9 @@ struct ContentView: View {
                 ForEach(mountedWorkspaces) { tab in
                     let isSelectedWorkspace = selectedWorkspaceId == tab.id
                     let isRetiringWorkspace = retiringWorkspaceId == tab.id
-                    let shouldPrimeInBackground = tabManager.pendingBackgroundWorkspaceLoadIds.contains(tab.id)
                     let presentation = MountedWorkspacePresentationPolicy.resolve(
                         isSelectedWorkspace: isSelectedWorkspace,
-                        isRetiringWorkspace: isRetiringWorkspace,
-                        shouldPrimeInBackground: shouldPrimeInBackground
+                        isRetiringWorkspace: isRetiringWorkspace
                     )
                     // Keep the retiring workspace visible during handoff, but never input-active.
                     // Allowing both selected+retiring workspaces to be input-active lets the
@@ -2643,9 +2628,6 @@ struct ContentView: View {
                     .allowsHitTesting(isSelectedWorkspace)
                     .accessibilityHidden(!presentation.isRenderedVisible)
                     .zIndex(isSelectedWorkspace ? 2 : (isRetiringWorkspace ? 1 : 0))
-                    .task(id: shouldPrimeInBackground ? tab.id : nil) {
-                        await primeBackgroundWorkspaceIfNeeded(workspaceId: tab.id)
-                    }
                 }
             }
             .opacity(sidebarSelectionState.selection == .tabs ? 1 : 0)
@@ -3328,6 +3310,12 @@ struct ContentView: View {
             reconcileMountedWorkspaceIds()
         })
 
+        // Prime background workspaces off-screen. Rendering them just to run a task
+        // mounts every keepAllAlive tab view and can materialize hidden terminals.
+        view = AnyView(view.task(id: pendingBackgroundWorkspaceLoadTaskKey) {
+            await primePendingBackgroundWorkspaces()
+        })
+
         view = AnyView(view.onReceive(tabManager.$debugPinnedWorkspaceLoadIds) { _ in
             reconcileMountedWorkspaceIds()
         })
@@ -3846,7 +3834,6 @@ struct ContentView: View {
         let effectiveSelectedId = selectedId ?? tabManager.selectedTabId
         let handoffPinnedIds = retiringWorkspaceId.map { Set([ $0 ]) } ?? []
         let pinnedIds = handoffPinnedIds
-            .union(tabManager.pendingBackgroundWorkspaceLoadIds)
             .union(tabManager.debugPinnedWorkspaceLoadIds)
         let isCycleHot = tabManager.isWorkspaceCycleHot
         let shouldKeepHandoffPair = isCycleHot && !handoffPinnedIds.isEmpty
@@ -3945,8 +3932,8 @@ struct ContentView: View {
             return .completed(reason: "workspace_removed")
         }
 
-        workspace.requestBackgroundTerminalSurfaceStartIfNeeded()
-        guard workspace.hasLoadedTerminalSurface() else {
+        workspace.requestBackgroundPrimeTerminalSurfaceStartIfNeeded()
+        guard workspace.hasLoadedBackgroundPrimeTerminalSurface() else {
             return .pending
         }
 
@@ -4059,6 +4046,25 @@ struct ContentView: View {
             Task { @MainActor in
                 evaluate()
             }
+        }
+    }
+
+    private var pendingBackgroundWorkspaceLoadTaskKey: [String] {
+        tabManager.pendingBackgroundWorkspaceLoadIds
+            .map(\.uuidString)
+            .sorted()
+    }
+
+    private func primePendingBackgroundWorkspaces() async {
+        let workspaceIds = await MainActor.run {
+            tabManager.pendingBackgroundWorkspaceLoadIds.sorted { lhs, rhs in
+                lhs.uuidString < rhs.uuidString
+            }
+        }
+
+        for workspaceId in workspaceIds {
+            guard !Task.isCancelled else { return }
+            await primeBackgroundWorkspaceIfNeeded(workspaceId: workspaceId)
         }
     }
 
