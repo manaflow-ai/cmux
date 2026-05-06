@@ -36,7 +36,7 @@ final class FilePreviewPDFThumbnailSidebarTests: XCTestCase {
         let scrollView = try XCTUnwrap(findScrollView(in: pdfView))
         let initialPage = pdfView.currentPage
         let initialOrigin = scrollView.contentView.bounds.origin
-        let downArrow = try XCTUnwrap(keyEvent(keyCode: UInt16(kVK_DownArrow)))
+        let downArrow = try XCTUnwrap(downArrowKeyEvent())
 
         XCTAssertTrue(window.makeFirstResponder(pdfView))
         XCTAssertTrue(pdfView.performKeyEquivalent(with: downArrow))
@@ -69,7 +69,7 @@ final class FilePreviewPDFThumbnailSidebarTests: XCTestCase {
 
         var navigationDeltas: [Int] = []
         thumbnailCollection.onPageNavigation = { navigationDeltas.append($0) }
-        let downArrow = try XCTUnwrap(keyEvent(keyCode: UInt16(kVK_DownArrow)))
+        let downArrow = try XCTUnwrap(downArrowKeyEvent())
 
         XCTAssertTrue(window.makeFirstResponder(pdfFocusOwner))
         XCTAssertFalse(thumbnailCollection.performKeyEquivalent(with: downArrow))
@@ -202,7 +202,7 @@ final class FilePreviewPDFThumbnailSidebarTests: XCTestCase {
         return nil
     }
 
-    private func keyEvent(keyCode: UInt16) -> NSEvent? {
+    private func downArrowKeyEvent() -> NSEvent? {
         let key = String(UnicodeScalar(NSDownArrowFunctionKey)!)
         return NSEvent.keyEvent(
             with: .keyDown,
@@ -214,7 +214,7 @@ final class FilePreviewPDFThumbnailSidebarTests: XCTestCase {
             characters: key,
             charactersIgnoringModifiers: key,
             isARepeat: false,
-            keyCode: keyCode
+            keyCode: UInt16(kVK_DownArrow)
         )
     }
 }

@@ -67,11 +67,11 @@ final class FilePreviewFileWatcher {
 
     private static func mergedEvent(_ current: Event?, _ next: Event) -> Event {
         guard let current else { return next }
-        if current == .movedOrDeleted || next == .movedOrDeleted {
-            return .movedOrDeleted
-        }
-        if current == .reappeared || next == .reappeared {
+        if next == .reappeared || current == .reappeared {
             return .reappeared
+        }
+        if next == .movedOrDeleted || current == .movedOrDeleted {
+            return .movedOrDeleted
         }
         return .changed
     }
@@ -140,8 +140,12 @@ final class FilePreviewFileWatcher {
             }
         }
         source.setCancelHandler { Darwin.close(fd) }
-        source.resume()
         directorySource = source
+        source.resume()
+
+        if FileManager.default.fileExists(atPath: url.path) {
+            handleDirectoryEvent()
+        }
     }
 
     private func stopDirectoryWatcher() {

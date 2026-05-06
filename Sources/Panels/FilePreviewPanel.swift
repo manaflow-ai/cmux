@@ -1964,6 +1964,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         }
         let sameURLReload = currentURL == url
         let viewportSnapshot = sameURLReload ? capturePDFViewportSnapshot(anchor: .top) : nil
+        let pageRotations = sameURLReload ? capturePDFPageRotations() : [:]
         currentURL = url
         currentRevision = revision
         titleLabel.stringValue = url.lastPathComponent
@@ -1991,9 +1992,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
             viewportSnapshot,
             preserveExistingDocument = sameURLReload
         ] in
-            let document = await Task.detached(priority: .userInitiated) {
-                PDFDocument(url: loadURL)
-            }.value
+            let document = await FilePreviewDocumentLoader.loadPDFDocument(at: loadURL)
             guard !Task.isCancelled,
                   let self,
                   self.currentURL == loadURL,
@@ -2002,6 +2001,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
                 document,
                 for: loadURL,
                 restoring: viewportSnapshot,
+                preservingPageRotations: pageRotations,
                 preserveExistingDocumentOnFailure: preserveExistingDocument
             )
         }
@@ -2011,11 +2011,15 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         _ document: PDFDocument?,
         for url: URL,
         restoring viewportSnapshot: FilePreviewPDFViewportSnapshot?,
+        preservingPageRotations pageRotations: [Int: Int],
         preserveExistingDocumentOnFailure: Bool
     ) {
         guard document != nil || !preserveExistingDocumentOnFailure || pdfView.document == nil else {
             updatePageControls(scrollThumbnailToVisible: false)
             return
+        }
+        if let document {
+            applyPDFPageRotations(pageRotations, to: document)
         }
         pdfView.document = document
         thumbnailView.setDocument(document)
@@ -2028,11 +2032,26 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         updateSidebarContent()
         applyPreferredSidebarWidthIfNeeded()
         updatePageControls(scrollThumbnailToVisible: false)
+        refreshPDFSmartFitWithoutViewportRestore()
         if let viewportSnapshot {
-            refreshPDFSmartFitWithoutViewportRestore()
             viewportSnapshot.restore(in: pdfView, scrollView: pdfScrollView())
-        } else {
-            refreshPDFSmartFitWithoutViewportRestore()
+        }
+    }
+
+    private func capturePDFPageRotations() -> [Int: Int] {
+        guard let document = pdfView.document else { return [:] }
+        var rotations: [Int: Int] = [:]
+        for pageIndex in 0..<document.pageCount {
+            guard let page = document.page(at: pageIndex) else { continue }
+            rotations[pageIndex] = page.rotation
+        }
+        return rotations
+    }
+
+    private func applyPDFPageRotations(_ rotations: [Int: Int], to document: PDFDocument) {
+        guard !rotations.isEmpty else { return }
+        for (pageIndex, rotation) in rotations where pageIndex >= 0 && pageIndex < document.pageCount {
+            document.page(at: pageIndex)?.rotation = rotation
         }
     }
 
@@ -3163,9 +3182,7 @@ private final class FilePreviewImageContainerView: NSView {
 
         imageLoadTask?.cancel()
         imageLoadTask = Task { [weak self, loadURL = url, loadRevision = revision] in
-            let image = await Task.detached(priority: .userInitiated) {
-                NSImage(contentsOf: loadURL)
-            }.value
+            let image = await FilePreviewDocumentLoader.loadImage(at: loadURL)
             guard !Task.isCancelled,
                   let self,
                   self.currentURL == loadURL,
