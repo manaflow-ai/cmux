@@ -3,7 +3,7 @@ import CoreGraphics
 import Foundation
 import OSLog
 
-private let workspaceCustomLayoutLogger = Logger(
+nonisolated private let workspaceCustomLayoutLogger = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
     category: "WorkspaceCustomLayout"
 )
