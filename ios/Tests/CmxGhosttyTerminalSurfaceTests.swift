@@ -103,6 +103,33 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
         XCTAssertTrue((surfaceView.accessibilityRenderedTextForTesting() ?? "").contains("coalesced-output"))
     }
 
+    func testGhosttySurfaceKeepsViewportPinnedToLiveOutput() async throws {
+        let (surfaceView, _) = try makeSurfaceView()
+        surfaceView.frame = CGRect(x: 0, y: 0, width: 390, height: 220)
+        surfaceView.layoutIfNeeded()
+        surfaceView.applyViewSize(cols: 30, rows: 8)
+
+        let bottomMarker = "LIVE_BOTTOM_AFTER_OUTPUT"
+        let renderedExpectation = expectation(description: "Ghostty viewport followed live output")
+        renderedExpectation.assertForOverFulfill = false
+        surfaceView.onOutputProcessedForTesting = {
+            let viewport = surfaceView.renderedTextForTesting(pointTag: GHOSTTY_POINT_VIEWPORT) ?? ""
+            if viewport.contains(bottomMarker) {
+                renderedExpectation.fulfill()
+            }
+        }
+
+        let history = (0..<40)
+            .map { "scrollback-line-\($0)" }
+            .joined(separator: "\r\n")
+        surfaceView.processOutput(Data((history + "\r\n").utf8))
+        surfaceView.processOutput(Data((bottomMarker + "\r\n").utf8))
+
+        await fulfillment(of: [renderedExpectation], timeout: 5.0)
+        let viewport = surfaceView.renderedTextForTesting(pointTag: GHOSTTY_POINT_VIEWPORT) ?? ""
+        XCTAssertTrue(viewport.contains(bottomMarker))
+    }
+
     func testGhosttySurfaceEmitsOutboundBytesForTypedText() async throws {
         let (surfaceView, delegate) = try makeSurfaceView()
 
@@ -191,6 +218,8 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
             "terminal.inputAccessory.down",
             "terminal.inputAccessory.left",
             "terminal.inputAccessory.right",
+            "terminal.inputAccessory.claude",
+            "terminal.inputAccessory.codex",
             "terminal.inputAccessory.home",
             "terminal.inputAccessory.end",
             "terminal.inputAccessory.pageUp",
@@ -234,23 +263,23 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
         await fulfillment(of: [appliedExpectation], timeout: 5.0)
     }
 
-    func testGhosttyPinchZoomCoalescesGeometrySyncUntilGestureEnd() async throws {
+    func testGhosttyPinchZoomAppliesWhileGestureIsStillChanging() async throws {
         let (surfaceView, delegate) = try makeSurfaceView()
-        let appliedExpectation = expectation(description: "Ghostty applied coalesced pinch zoom")
+        let appliedExpectation = expectation(description: "Ghostty applied live pinch zoom")
         surfaceView.onFontZoomAppliedForTesting = { fontSize in
-            if fontSize == 24 {
+            if fontSize == 18 {
                 appliedExpectation.fulfill()
             }
         }
         delegate.resizeCount = 0
 
-        surfaceView.simulatePinchZoomCycleForTesting(Array(repeating: .increase, count: 8))
-        surfaceView.simulatePinchZoomCycleForTesting([.decrease, .increase])
+        surfaceView.simulateLivePinchZoomStepForTesting([.increase])
+        surfaceView.simulateLivePinchZoomStepForTesting([.increase])
 
         await fulfillment(of: [appliedExpectation], timeout: 5.0)
         XCTAssertNotNil(delegate.lastSize)
-        XCTAssertEqual(delegate.resizeCount, 1)
-        XCTAssertEqual(surfaceView.fontSizeForTesting, 24)
+        XCTAssertGreaterThan(delegate.resizeCount, 0)
+        XCTAssertEqual(surfaceView.fontSizeForTesting, 18)
     }
 
     func testGhosttyPinchZoomStaysResponsiveAfterRepeatedRenderedZooms() async throws {

@@ -210,6 +210,33 @@ async fn connect_ws(ws_addr: SocketAddr) -> TestWs {
     panic!("ws connect failed for {url}: {last_error}");
 }
 
+async fn hello_native_libghostty(ws: &mut TestWs) {
+    send_client_msg(
+        ws,
+        &ClientMsg::HelloNative {
+            version: PROTOCOL_VERSION,
+            viewport: Viewport { cols: 80, rows: 24 },
+            token: Some("sekrit".into()),
+            terminal_renderer: NativeTerminalRenderer::Libghostty,
+        },
+    )
+    .await;
+    assert!(matches!(
+        recv_server_msg(ws).await,
+        ServerMsg::Welcome { .. }
+    ));
+}
+
+async fn send_native_layout(ws: &mut TestWs, tab_id: u64, cols: u16, rows: u16) {
+    send_client_msg(
+        ws,
+        &ClientMsg::NativeLayout {
+            terminals: vec![cmux_cli_protocol::NativeTerminalViewport { tab_id, cols, rows }],
+        },
+    )
+    .await;
+}
+
 #[derive(Debug)]
 struct NativeLeaf {
     panel_id: u64,
@@ -789,6 +816,106 @@ async fn websocket_native_libghostty_mode_broadcasts_pty_bytes_to_multiple_clien
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn websocket_native_can_set_workspace_pin_and_unread_without_switching() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("server.sock");
+    let (ws_listener, ws_addr) = bind_ws_listener().await;
+    let opts = ServerOptions {
+        socket_path: socket.clone(),
+        shell: "/bin/sh".into(),
+        cwd: Some(dir.path().to_path_buf()),
+        initial_viewport: (80, 24),
+        snapshot_path: None,
+        settings_path: None,
+        ws_bind: None,
+        auth_token: Some("sekrit".into()),
+    };
+    let server = tokio::spawn(async move {
+        let _ = run_with_websocket_listener(opts, HeartbeatConfig::default(), ws_listener).await;
+    });
+
+    let mut ws = connect_ws(ws_addr).await;
+    send_client_msg(
+        &mut ws,
+        &ClientMsg::HelloNative {
+            version: PROTOCOL_VERSION,
+            viewport: Viewport { cols: 80, rows: 24 },
+            token: Some("sekrit".into()),
+            terminal_renderer: NativeTerminalRenderer::Libghostty,
+        },
+    )
+    .await;
+    assert!(matches!(
+        recv_server_msg(&mut ws).await,
+        ServerMsg::Welcome { .. }
+    ));
+    let initial = recv_native_snapshot(&mut ws).await;
+    let workspace_id = initial.workspaces[0].id;
+
+    send_command(
+        &mut ws,
+        10,
+        Command::SetWorkspacePinned {
+            workspace_id,
+            pinned: true,
+        },
+    )
+    .await;
+    recv_command_ok(&mut ws, 10).await;
+    recv_native_snapshot_until(&mut ws, "workspace pinned", |snapshot| {
+        snapshot.workspaces[0].id == workspace_id && snapshot.workspaces[0].pinned
+    })
+    .await;
+
+    send_command(
+        &mut ws,
+        20,
+        Command::SetWorkspaceUnread {
+            workspace_id,
+            unread: true,
+        },
+    )
+    .await;
+    recv_command_ok(&mut ws, 20).await;
+    recv_native_snapshot_until(&mut ws, "workspace marked unread", |snapshot| {
+        snapshot.workspaces[0].id == workspace_id && snapshot.workspaces[0].has_activity
+    })
+    .await;
+
+    send_command(
+        &mut ws,
+        30,
+        Command::SetWorkspaceUnread {
+            workspace_id,
+            unread: false,
+        },
+    )
+    .await;
+    recv_command_ok(&mut ws, 30).await;
+    recv_native_snapshot_until(&mut ws, "workspace marked read", |snapshot| {
+        snapshot.workspaces[0].id == workspace_id && !snapshot.workspaces[0].has_activity
+    })
+    .await;
+
+    send_command(
+        &mut ws,
+        40,
+        Command::SetWorkspacePinned {
+            workspace_id,
+            pinned: false,
+        },
+    )
+    .await;
+    recv_command_ok(&mut ws, 40).await;
+    recv_native_snapshot_until(&mut ws, "workspace unpinned", |snapshot| {
+        snapshot.workspaces[0].id == workspace_id && !snapshot.workspaces[0].pinned
+    })
+    .await;
+
+    server.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn websocket_native_commands_update_workspace_space_and_pane_tree() {
     let dir = tempfile::tempdir().unwrap();
     let socket = dir.path().join("server.sock");
@@ -1018,8 +1145,6 @@ async fn websocket_native_smallest_visible_client_size_wins_until_detach() {
         let _ = run_with_websocket_listener(opts, HeartbeatConfig::default(), ws_listener).await;
     });
 
-    tokio::time::sleep(Duration::from_millis(100)).await;
-
     let mut wide = connect_ws(ws_addr).await;
     send_client_msg(
         &mut wide,
@@ -1114,6 +1239,382 @@ async fn websocket_native_smallest_visible_client_size_wins_until_detach() {
         tab_id,
         Duration::from_secs(5),
         "__cmux_after_detach__:60 180",
+    )
+    .await;
+
+    server.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn websocket_native_reconnects_cycle_five_workspaces_with_fresh_replay_and_resize() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("server.sock");
+    let (ws_listener, ws_addr) = bind_ws_listener().await;
+    let opts = ServerOptions {
+        socket_path: socket.clone(),
+        shell: "/bin/sh".into(),
+        cwd: Some(dir.path().to_path_buf()),
+        initial_viewport: (80, 24),
+        snapshot_path: None,
+        settings_path: None,
+        ws_bind: None,
+        auth_token: Some("sekrit".into()),
+    };
+    let server = tokio::spawn(async move {
+        let _ = run_with_websocket_listener(opts, HeartbeatConfig::default(), ws_listener).await;
+    });
+
+    let mut wide = connect_ws(ws_addr).await;
+    hello_native_libghostty(&mut wide).await;
+    let mut snapshot = recv_native_snapshot(&mut wide).await;
+    let mut tab_ids = vec![snapshot.focused_tab_id];
+    let mut markers = vec![String::from("__cmux_cycle_ws_0__")];
+    let mut command_id = 100;
+
+    for index in 0..5 {
+        if index > 0 {
+            send_command(
+                &mut wide,
+                command_id,
+                Command::NewWorkspace {
+                    title: Some(format!("cycle-{index}")),
+                    cwd: None,
+                },
+            )
+            .await;
+            recv_command_ok(&mut wide, command_id).await;
+            command_id += 1;
+            snapshot = recv_native_snapshot_until(
+                &mut wide,
+                "new workspace should become active",
+                |snapshot| {
+                    snapshot.workspaces.len() == index + 1
+                        && snapshot.active_workspace == index
+                        && snapshot.workspaces[index].title == format!("cycle-{index}")
+                },
+            )
+            .await;
+            tab_ids.push(snapshot.focused_tab_id);
+            markers.push(format!("__cmux_cycle_ws_{index}__"));
+        }
+
+        let tab_id = tab_ids[index];
+        send_native_layout(&mut wide, tab_id, 150, 50).await;
+        let command = format!("printf '\\033[2J\\033[H{}\\n'\n", markers[index]);
+        send_client_msg(
+            &mut wide,
+            &ClientMsg::NativeInput {
+                tab_id,
+                data: command.into_bytes(),
+            },
+        )
+        .await;
+        recv_pty_output_until_contains(&mut wide, tab_id, Duration::from_secs(5), &markers[index])
+            .await;
+    }
+
+    for pass in 0..2 {
+        for index in 0..5 {
+            send_command(&mut wide, command_id, Command::SelectWorkspace { index }).await;
+            recv_command_ok(&mut wide, command_id).await;
+            command_id += 1;
+            let selected = recv_native_snapshot_until(
+                &mut wide,
+                "selected workspace should become active",
+                |snapshot| snapshot.active_workspace == index,
+            )
+            .await;
+            let tab_id = selected.focused_tab_id;
+            assert_eq!(tab_id, tab_ids[index]);
+
+            let wide_cols = 150 - index as u16;
+            let wide_rows = 50 - pass as u16;
+            send_native_layout(&mut wide, tab_id, wide_cols, wide_rows).await;
+
+            let mut mobile = connect_ws(ws_addr).await;
+            hello_native_libghostty(&mut mobile).await;
+            let mobile_snapshot = recv_native_snapshot_until(
+                &mut mobile,
+                "reconnected mobile client should see the active workspace",
+                |snapshot| snapshot.active_workspace == index,
+            )
+            .await;
+            assert_eq!(mobile_snapshot.focused_tab_id, tab_id);
+
+            let mobile_cols = 66 + index as u16;
+            let mobile_rows = 18 + pass as u16;
+            send_native_layout(&mut mobile, tab_id, mobile_cols, mobile_rows).await;
+            recv_native_snapshot_until(
+                &mut wide,
+                "wide client should observe the joined mobile layout before detach",
+                |snapshot| {
+                    snapshot.attached_clients.len() == 2
+                        && snapshot.attached_clients.iter().any(|client| {
+                            client.terminals.iter().any(|terminal| {
+                                terminal.tab_id == tab_id
+                                    && terminal.cols == mobile_cols
+                                    && terminal.rows == mobile_rows
+                            })
+                        })
+                },
+            )
+            .await;
+            send_client_msg(&mut mobile, &ClientMsg::RequestPtyReplay { tab_id }).await;
+            recv_until_server_msg(&mut mobile, Duration::from_secs(3), |message| {
+                matches!(
+                    message,
+                    ServerMsg::PtyBytes {
+                        tab_id: got_tab_id,
+                        data,
+                    } if *got_tab_id == tab_id && data == b"\x1bc"
+                )
+            })
+            .await
+            .expect("expected requested replay to reset the mobile renderer");
+            recv_pty_output_until_contains(
+                &mut mobile,
+                tab_id,
+                Duration::from_secs(5),
+                &markers[index],
+            )
+            .await;
+
+            let mobile_size_marker = format!("__cmux_mobile_size_{pass}_{index}__:");
+            send_client_msg(
+                &mut mobile,
+                &ClientMsg::NativeInput {
+                    tab_id,
+                    data: format!("printf {mobile_size_marker}; stty size\n").into_bytes(),
+                },
+            )
+            .await;
+            recv_pty_output_until_contains(
+                &mut mobile,
+                tab_id,
+                Duration::from_secs(5),
+                &format!("{mobile_size_marker}{mobile_rows} {mobile_cols}"),
+            )
+            .await;
+
+            send_client_msg(&mut mobile, &ClientMsg::Detach).await;
+            assert!(
+                recv_bye_or_close(&mut mobile, Duration::from_secs(2)).await,
+                "mobile detach should remove its visible layout"
+            );
+            recv_native_snapshot_until(
+                &mut wide,
+                "remaining wide client should be the only attached layout after mobile detach",
+                |snapshot| {
+                    snapshot.attached_clients.len() == 1
+                        && snapshot.attached_clients[0]
+                            .terminals
+                            .iter()
+                            .any(|terminal| {
+                                terminal.tab_id == tab_id
+                                    && terminal.cols == wide_cols
+                                    && terminal.rows == wide_rows
+                            })
+                },
+            )
+            .await;
+
+            let wide_size_marker = format!("__cmux_wide_size_{pass}_{index}__:");
+            send_client_msg(
+                &mut wide,
+                &ClientMsg::NativeInput {
+                    tab_id,
+                    data: format!("printf {wide_size_marker}; stty size\n").into_bytes(),
+                },
+            )
+            .await;
+            recv_pty_output_until_contains(
+                &mut wide,
+                tab_id,
+                Duration::from_secs(5),
+                &format!("{wide_size_marker}{wide_rows} {wide_cols}"),
+            )
+            .await;
+        }
+    }
+
+    server.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn websocket_native_many_clients_share_one_terminal_and_clean_up() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("server.sock");
+    let (ws_listener, ws_addr) = bind_ws_listener().await;
+    let opts = ServerOptions {
+        socket_path: socket.clone(),
+        shell: "/bin/sh".into(),
+        cwd: Some(dir.path().to_path_buf()),
+        initial_viewport: (80, 24),
+        snapshot_path: None,
+        settings_path: None,
+        ws_bind: None,
+        auth_token: Some("sekrit".into()),
+    };
+    let server = tokio::spawn(async move {
+        let _ = run_with_websocket_listener(opts, HeartbeatConfig::default(), ws_listener).await;
+    });
+
+    let mut primary = connect_ws(ws_addr).await;
+    hello_native_libghostty(&mut primary).await;
+    let tab_id = recv_native_snapshot(&mut primary).await.focused_tab_id;
+    send_native_layout(&mut primary, tab_id, 120, 40).await;
+
+    let mut clients = Vec::new();
+    for _ in 0..24 {
+        let mut client = connect_ws(ws_addr).await;
+        hello_native_libghostty(&mut client).await;
+        let snapshot = recv_native_snapshot_until(
+            &mut client,
+            "new client should attach to the active terminal",
+            |snapshot| snapshot.focused_tab_id == tab_id,
+        )
+        .await;
+        assert_eq!(snapshot.active_workspace, 0);
+        send_native_layout(&mut client, tab_id, 120, 40).await;
+        clients.push(client);
+    }
+
+    let snapshot = recv_native_snapshot_with_client_count(&mut primary, 25).await;
+    assert_eq!(snapshot.attached_clients.len(), 25);
+    assert!(
+        snapshot
+            .attached_clients
+            .iter()
+            .all(|client| client.visible_terminal_count == 1
+                && client.terminals.len() == 1
+                && client.terminals[0].tab_id == tab_id),
+        "all native clients should report the same visible terminal"
+    );
+
+    let marker = "__cmux_many_clients_same_tab__";
+    send_client_msg(
+        &mut primary,
+        &ClientMsg::NativeInput {
+            tab_id,
+            data: format!("printf '\\033[2J\\033[H{marker}\\n'\n").into_bytes(),
+        },
+    )
+    .await;
+    recv_pty_output_until_contains(&mut primary, tab_id, Duration::from_secs(5), marker).await;
+    for client in &mut clients {
+        recv_pty_output_until_contains(client, tab_id, Duration::from_secs(5), marker).await;
+    }
+
+    for client in &mut clients {
+        send_client_msg(client, &ClientMsg::Detach).await;
+        assert!(recv_bye_or_close(client, Duration::from_secs(2)).await);
+    }
+    let snapshot = recv_native_snapshot_with_client_count(&mut primary, 1).await;
+    assert_eq!(snapshot.attached_clients.len(), 1);
+    assert_eq!(snapshot.attached_clients[0].terminals[0].tab_id, tab_id);
+
+    server.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn websocket_native_single_client_join_type_leave_preserves_state_and_resize() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("server.sock");
+    let (ws_listener, ws_addr) = bind_ws_listener().await;
+    let opts = ServerOptions {
+        socket_path: socket.clone(),
+        shell: "/bin/sh".into(),
+        cwd: Some(dir.path().to_path_buf()),
+        initial_viewport: (80, 24),
+        snapshot_path: None,
+        settings_path: None,
+        ws_bind: None,
+        auth_token: Some("sekrit".into()),
+    };
+    let server = tokio::spawn(async move {
+        let _ = run_with_websocket_listener(opts, HeartbeatConfig::default(), ws_listener).await;
+    });
+
+    let mut first = connect_ws(ws_addr).await;
+    hello_native_libghostty(&mut first).await;
+    let tab_id = recv_native_snapshot(&mut first).await.focused_tab_id;
+    send_native_layout(&mut first, tab_id, 132, 44).await;
+    let before_join = recv_native_snapshot_with_client_count(&mut first, 1).await;
+    assert_eq!(before_join.attached_clients[0].terminals[0].cols, 132);
+    assert_eq!(before_join.attached_clients[0].terminals[0].rows, 44);
+
+    send_client_msg(
+        &mut first,
+        &ClientMsg::NativeInput {
+            tab_id,
+            data: b"printf '\\033[2J\\033[HSINGLE_BEFORE_JOIN\\n'\n".to_vec(),
+        },
+    )
+    .await;
+    recv_pty_output_until_contains(
+        &mut first,
+        tab_id,
+        Duration::from_secs(5),
+        "SINGLE_BEFORE_JOIN",
+    )
+    .await;
+
+    let mut second = connect_ws(ws_addr).await;
+    hello_native_libghostty(&mut second).await;
+    let second_snapshot = recv_native_snapshot_until(
+        &mut second,
+        "second client should join the active terminal",
+        |snapshot| snapshot.focused_tab_id == tab_id,
+    )
+    .await;
+    assert_eq!(second_snapshot.active_workspace, 0);
+    send_native_layout(&mut second, tab_id, 81, 21).await;
+    send_client_msg(&mut second, &ClientMsg::RequestPtyReplay { tab_id }).await;
+    recv_pty_output_until_contains(
+        &mut second,
+        tab_id,
+        Duration::from_secs(5),
+        "SINGLE_BEFORE_JOIN",
+    )
+    .await;
+
+    let joined = recv_native_snapshot_with_client_count(&mut first, 2).await;
+    assert_eq!(joined.attached_clients.len(), 2);
+    send_client_msg(
+        &mut second,
+        &ClientMsg::NativeInput {
+            tab_id,
+            data: b"printf 'SINGLE_FROM_JOINER JOINED_SIZE:'; stty size\n".to_vec(),
+        },
+    )
+    .await;
+    recv_pty_output_until_contains(
+        &mut first,
+        tab_id,
+        Duration::from_secs(5),
+        "SINGLE_FROM_JOINER JOINED_SIZE:21 81",
+    )
+    .await;
+
+    send_client_msg(&mut second, &ClientMsg::Detach).await;
+    assert!(recv_bye_or_close(&mut second, Duration::from_secs(2)).await);
+    let after_leave = recv_native_snapshot_with_client_count(&mut first, 1).await;
+    assert_eq!(after_leave.attached_clients[0].terminals[0].cols, 132);
+    assert_eq!(after_leave.attached_clients[0].terminals[0].rows, 44);
+
+    send_client_msg(
+        &mut first,
+        &ClientMsg::NativeInput {
+            tab_id,
+            data: b"printf AFTER_LEAVE_SIZE:; stty size\n".to_vec(),
+        },
+    )
+    .await;
+    recv_pty_output_until_contains(
+        &mut first,
+        tab_id,
+        Duration::from_secs(5),
+        "AFTER_LEAVE_SIZE:44 132",
     )
     .await;
 
@@ -1371,7 +1872,7 @@ async fn websocket_native_visible_client_times_out_without_heartbeat() {
             version: PROTOCOL_VERSION,
             viewport: Viewport { cols: 80, rows: 24 },
             token: Some("sekrit".into()),
-            terminal_renderer: NativeTerminalRenderer::ServerGrid,
+            terminal_renderer: NativeTerminalRenderer::Libghostty,
         },
     )
     .await;

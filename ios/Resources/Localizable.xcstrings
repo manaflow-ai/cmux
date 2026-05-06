@@ -49,6 +49,42 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "切断" } }
       }
     },
+    "home.action.mark_read" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Read" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "既読" } }
+      }
+    },
+    "home.action.mark_unread" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Unread" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "未読" } }
+      }
+    },
+    "home.action.pin" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Pin" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ピン留め" } }
+      }
+    },
+    "home.action.unpin" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Unpin" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ピン留め解除" } }
+      }
+    },
+    "ios.terminal.inputAccessory.arrowNub" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Arrow keys" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "矢印キー" } }
+      }
+    },
+    "terminal.loading.title" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Loading terminal" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ターミナルを読み込み中" } }
+      }
+    },
     "demo.row.bridge_command" : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "$ cmux-iroh-bridge --socket $CMX_SOCKET_PATH" } },

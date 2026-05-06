@@ -2646,6 +2646,30 @@ impl Workspace {
     }
 }
 
+async fn workspace_activity_summary(ws: &Arc<Workspace>) -> (bool, u64) {
+    let spaces = ws.spaces.lock().await.clone();
+    let mut has_activity = false;
+    let mut bell_count = 0u64;
+    for space in spaces {
+        let tabs = space.tabs.lock().await.clone();
+        for tab in tabs {
+            has_activity |= tab.has_activity.load(Ordering::Relaxed);
+            bell_count = bell_count.saturating_add(tab.bell_count.load(Ordering::Relaxed));
+        }
+    }
+    (has_activity, bell_count)
+}
+
+async fn set_workspace_unread(ws: &Arc<Workspace>, unread: bool) {
+    let spaces = ws.spaces.lock().await.clone();
+    for space in spaces {
+        let tabs = space.tabs.lock().await.clone();
+        for tab in tabs {
+            tab.has_activity.store(unread, Ordering::Relaxed);
+        }
+    }
+}
+
 // ----------------------------- Window view -----------------------------
 
 #[derive(Debug, Clone)]
@@ -3096,6 +3120,7 @@ impl Daemon {
                 terminal_count += space.tabs.lock().await.len();
             }
             drop(spaces);
+            let (has_activity, bell_count) = workspace_activity_summary(w).await;
             let color = w.color.lock().await.clone();
             infos.push(WorkspaceInfo {
                 id: w.id,
@@ -3104,6 +3129,8 @@ impl Daemon {
                 tab_count: terminal_count,
                 terminal_count,
                 pinned: w.pinned.load(Ordering::Relaxed),
+                has_activity,
+                bell_count,
                 color,
             });
         }
@@ -3480,6 +3507,7 @@ impl Daemon {
                 terminal_count += space.tabs.lock().await.len();
             }
             drop(spaces);
+            let (has_activity, bell_count) = workspace_activity_summary(w).await;
             let color = w.color.lock().await.clone();
             infos.push(WorkspaceInfo {
                 id: w.id,
@@ -3488,6 +3516,8 @@ impl Daemon {
                 tab_count: terminal_count,
                 terminal_count,
                 pinned: w.pinned.load(Ordering::Relaxed),
+                has_activity,
+                bell_count,
                 color,
             });
         }
@@ -7700,6 +7730,36 @@ async fn run_window_command(
             daemon.wake_model();
             (ok_result(), None, true)
         }
+        Command::SetWorkspacePinned {
+            workspace_id,
+            pinned,
+        } => match daemon.workspace_by_id(workspace_id).await {
+            Some(ws) => {
+                ws.pinned.store(pinned, Ordering::Relaxed);
+                daemon.wake_model();
+                (ok_result(), None, true)
+            }
+            None => (
+                err_result(format!("workspace {workspace_id} not found")),
+                None,
+                false,
+            ),
+        },
+        Command::SetWorkspaceUnread {
+            workspace_id,
+            unread,
+        } => match daemon.workspace_by_id(workspace_id).await {
+            Some(ws) => {
+                set_workspace_unread(&ws, unread).await;
+                daemon.wake_model();
+                (ok_result(), None, true)
+            }
+            None => (
+                err_result(format!("workspace {workspace_id} not found")),
+                None,
+                false,
+            ),
+        },
         Command::MoveTab { from, to } => {
             let ws = match window.active_workspace(daemon).await {
                 Ok(ws) => ws,

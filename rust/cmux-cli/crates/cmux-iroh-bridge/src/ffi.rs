@@ -4,9 +4,10 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
+use tokio::io::AsyncWrite;
 use tokio::sync::mpsc;
 
-use crate::{BridgeRelayMode, connect_encoded_ticket};
+use crate::{BridgeRelayMode, connect_encoded_ticket, read_cmx_payload, write_cmx_payload};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 const SEND_TIMEOUT: Duration = Duration::from_secs(10);
@@ -164,7 +165,7 @@ async fn run_client_async(
     );
     tokio::pin!(connect);
 
-    let mut client = loop {
+    let client = loop {
         tokio::select! {
             connected = &mut connect => {
                 break connected.context("iroh connect timed out")??;
@@ -185,8 +186,24 @@ async fn run_client_async(
         }
     };
     emit_event(callback, user_data, CmxIrohClientEventKind::Connected, &[]);
+    let crate::BridgeClientConnection {
+        endpoint,
+        connection: _connection,
+        send,
+        mut recv,
+    } = client;
+    let (write_tx, mut write_rx) = mpsc::unbounded_channel::<Vec<u8>>();
+    let mut writer = tokio::spawn(async move {
+        let mut send = send;
+        while let Some(payload) = write_rx.recv().await {
+            write_client_payload(&mut send, &payload).await?;
+        }
+        Ok::<(), anyhow::Error>(())
+    });
     while let Some(payload) = pending_sends.pop_front() {
-        write_client_payload(&mut client, &payload).await?;
+        write_tx
+            .send(payload)
+            .map_err(|_| anyhow!("iroh writer stopped before pending send flushed"))?;
     }
 
     loop {
@@ -194,32 +211,48 @@ async fn run_client_async(
             command = commands.recv() => {
                 match command {
                     Some(CmxIrohClientCommand::Send(payload)) => {
-                        write_client_payload(&mut client, &payload).await?;
+                        write_tx
+                            .send(payload)
+                            .map_err(|_| anyhow!("iroh writer stopped"))?;
                     }
                     Some(CmxIrohClientCommand::Disconnect) | None => {
                         break;
                     }
                 }
             }
-            payload = client.read_payload() => {
+            payload = read_cmx_payload(&mut recv) => {
                 match payload.context("read cmx frame over iroh")? {
                     Some(payload) => emit_event(callback, user_data, CmxIrohClientEventKind::Message, &payload),
                     None => break,
                 }
             }
+            writer_result = &mut writer => {
+                writer_result
+                    .context("iroh writer task panicked")?
+                    .context("write cmx frame over iroh")?;
+                break;
+            }
         }
     }
 
-    client.endpoint.close().await;
+    drop(write_tx);
+    if !writer.is_finished() {
+        tokio::time::timeout(SEND_TIMEOUT, &mut writer)
+            .await
+            .context("wait for iroh writer to finish timed out")?
+            .context("iroh writer task panicked")?
+            .context("write cmx frame over iroh")?;
+    }
+    endpoint.close().await;
     emit_event(callback, user_data, CmxIrohClientEventKind::Closed, &[]);
     Ok(())
 }
 
-async fn write_client_payload(
-    client: &mut crate::BridgeClientConnection,
-    payload: &[u8],
-) -> Result<()> {
-    tokio::time::timeout(SEND_TIMEOUT, client.write_payload(payload))
+async fn write_client_payload<W>(writer: &mut W, payload: &[u8]) -> Result<()>
+where
+    W: AsyncWrite + Unpin,
+{
+    tokio::time::timeout(SEND_TIMEOUT, write_cmx_payload(writer, payload))
         .await
         .context("send cmx frame over iroh timed out")?
         .context("send cmx frame over iroh")

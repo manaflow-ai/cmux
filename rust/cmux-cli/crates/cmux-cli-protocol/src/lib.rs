@@ -340,6 +340,16 @@ pub enum Command {
     /// respawn their shell when the last tab exits, so the workspace
     /// survives `exit` / `C-d`.
     TogglePin,
+    /// Set a workspace's pinned state without making that workspace active.
+    SetWorkspacePinned {
+        workspace_id: u64,
+        pinned: bool,
+    },
+    /// Set or clear the unread/activity flag for every tab in a workspace.
+    SetWorkspaceUnread {
+        workspace_id: u64,
+        unread: bool,
+    },
     /// Set (or clear with `None`) the active workspace's color
     /// tint. Value is a `#RRGGBB` hex string, rejected if malformed.
     SetWorkspaceColor {
@@ -724,6 +734,12 @@ pub struct WorkspaceInfo {
     /// compat with older clients.
     #[serde(default)]
     pub pinned: bool,
+    /// True when any tab in this workspace has unseen activity.
+    #[serde(default)]
+    pub has_activity: bool,
+    /// Total bell count across tabs in this workspace.
+    #[serde(default)]
+    pub bell_count: u64,
     /// User-set color tint in `#RRGGBB` format. `None` = default.
     #[serde(default)]
     pub color: Option<String>,

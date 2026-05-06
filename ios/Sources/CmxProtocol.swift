@@ -35,7 +35,31 @@ struct CmxNativeWorkspaceInfo: Equatable, Sendable {
     var tabCount: Int
     var terminalCount: Int
     var pinned: Bool
+    var hasActivity: Bool
+    var bellCount: UInt64
     var color: String?
+
+    init(
+        id: UInt64,
+        title: String,
+        spaceCount: Int,
+        tabCount: Int,
+        terminalCount: Int,
+        pinned: Bool,
+        hasActivity: Bool = false,
+        bellCount: UInt64 = 0,
+        color: String?
+    ) {
+        self.id = id
+        self.title = title
+        self.spaceCount = spaceCount
+        self.tabCount = tabCount
+        self.terminalCount = terminalCount
+        self.pinned = pinned
+        self.hasActivity = hasActivity
+        self.bellCount = bellCount
+        self.color = color
+    }
 }
 
 struct CmxNativeSpaceInfo: Equatable, Sendable {
@@ -223,6 +247,8 @@ enum CmxClientCommand: Equatable, Sendable {
     case selectWorkspace(index: Int)
     case selectSpace(index: Int)
     case selectTabInPanel(panelID: UInt64, index: Int)
+    case setWorkspacePinned(workspaceID: UInt64, pinned: Bool)
+    case setWorkspaceUnread(workspaceID: UInt64, unread: Bool)
 }
 
 enum CmxServerMessage: Equatable, Sendable {
@@ -472,6 +498,22 @@ enum CmxWireCodec {
             writer.writeUInt(panelID)
             writer.writeString("index")
             writer.writeUInt(UInt64(index))
+        case .setWorkspacePinned(let workspaceID, let pinned):
+            writer.writeMapHeader(3)
+            writer.writeString("name")
+            writer.writeString("set-workspace-pinned")
+            writer.writeString("workspace_id")
+            writer.writeUInt(workspaceID)
+            writer.writeString("pinned")
+            writer.writeBool(pinned)
+        case .setWorkspaceUnread(let workspaceID, let unread):
+            writer.writeMapHeader(3)
+            writer.writeString("name")
+            writer.writeString("set-workspace-unread")
+            writer.writeString("workspace_id")
+            writer.writeUInt(workspaceID)
+            writer.writeString("unread")
+            writer.writeBool(unread)
         }
     }
 
@@ -611,6 +653,8 @@ enum CmxWireCodec {
             tabCount: try optionalInt(map, "tab_count", default: 0),
             terminalCount: try optionalInt(map, "terminal_count", default: 0),
             pinned: try optionalBool(map, "pinned", default: false),
+            hasActivity: try optionalBool(map, "has_activity", default: false),
+            bellCount: try optionalUInt(map, "bell_count", default: 0),
             color: try optionalString(map, "color")
         )
     }

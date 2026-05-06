@@ -58,6 +58,22 @@ final class CmxProtocolTests: XCTestCase {
         XCTAssertNotNil(payload.range(of: Data("index".utf8)))
     }
 
+    func testCommandEncodingSetsWorkspacePinnedAndUnreadState() throws {
+        let pinned = try CmxWireCodec.encode(
+            .command(id: 8, .setWorkspacePinned(workspaceID: 42, pinned: true))
+        )
+        let unread = try CmxWireCodec.encode(
+            .command(id: 9, .setWorkspaceUnread(workspaceID: 42, unread: false))
+        )
+
+        XCTAssertNotNil(pinned.range(of: Data("set-workspace-pinned".utf8)))
+        XCTAssertNotNil(pinned.range(of: Data("workspace_id".utf8)))
+        XCTAssertNotNil(pinned.range(of: Data("pinned".utf8)))
+        XCTAssertNotNil(unread.range(of: Data("set-workspace-unread".utf8)))
+        XCTAssertNotNil(unread.range(of: Data("workspace_id".utf8)))
+        XCTAssertNotNil(unread.range(of: Data("unread".utf8)))
+    }
+
     func testPingEncodingKeepsNativeWebSocketClientAlive() throws {
         let payload = try CmxWireCodec.encode(.ping)
 

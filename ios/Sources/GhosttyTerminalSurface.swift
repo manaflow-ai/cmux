@@ -81,6 +81,8 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable {
     case downArrow
     case leftArrow
     case rightArrow
+    case claude
+    case codex
     case home
     case end
     case pageUp
@@ -128,6 +130,10 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable {
             "←"
         case .rightArrow:
             "→"
+        case .claude:
+            "Claude"
+        case .codex:
+            "Codex"
         case .home:
             String(localized: "ios.terminal.inputAccessory.home", defaultValue: "Home")
         case .end:
@@ -169,6 +175,8 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable {
         case .downArrow: "terminal.inputAccessory.down"
         case .leftArrow: "terminal.inputAccessory.left"
         case .rightArrow: "terminal.inputAccessory.right"
+        case .claude: "terminal.inputAccessory.claude"
+        case .codex: "terminal.inputAccessory.codex"
         case .home: "terminal.inputAccessory.home"
         case .end: "terminal.inputAccessory.end"
         case .pageUp: "terminal.inputAccessory.pageUp"
@@ -250,6 +258,10 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable {
             Data([0x1B, 0x5B, 0x44])
         case .rightArrow:
             Data([0x1B, 0x5B, 0x43])
+        case .claude:
+            Data("claude\r".utf8)
+        case .codex:
+            Data("codex\r".utf8)
         case .home:
             Data([0x1B, 0x5B, 0x48])
         case .end:
@@ -815,6 +827,7 @@ public final class GhosttyTerminalSurfaceView: UIView {
     private static let minimumMobileFontSize: Float32 = 9
     private static let maximumMobileFontSize: Float32 = 30
     private static let mobileFontZoomStep: Float32 = 1
+    private static let pinchScaleStep: CGFloat = 0.10
     private static let blankReplayProbeInterval: CFTimeInterval = 1
     private static let maximumAccessibilityTranscriptCharacters = 8_192
     private nonisolated static let scrollToBottomAction = "scroll_to_bottom"
@@ -844,6 +857,7 @@ public final class GhosttyTerminalSurfaceView: UIView {
     private var pendingOutputBuffer = Data()
     private var outputFlushScheduled = false
     private var forcedGridSize: (cols: Int, rows: Int)?
+    private var followsLiveOutput = true
     private var accessibilityTranscript = ""
     #if DEBUG
     var onOutputProcessedForTesting: (() -> Void)?
@@ -863,15 +877,18 @@ public final class GhosttyTerminalSurfaceView: UIView {
         let textView = GhosttyInputTextView()
         textView.onText = { [weak self] text in
             guard let self else { return }
+            self.followsLiveOutput = true
             let normalized = text.replacingOccurrences(of: "\n", with: "\r")
             self.delegate?.ghosttyTerminalSurfaceView(self, didProduceInput: Data(normalized.utf8))
         }
         textView.onBackspace = { [weak self] in
             guard let self else { return }
+            self.followsLiveOutput = true
             self.delegate?.ghosttyTerminalSurfaceView(self, didProduceInput: Data([0x7f]))
         }
         textView.onEscapeSequence = { [weak self] data in
             guard let self else { return }
+            self.followsLiveOutput = true
             self.delegate?.ghosttyTerminalSurfaceView(self, didProduceInput: data)
         }
         textView.onZoom = { [weak self] direction in
@@ -978,7 +995,7 @@ public final class GhosttyTerminalSurfaceView: UIView {
         let surfaceBits = UInt(bitPattern: UnsafeRawPointer(surface))
         let gate = outputGate
         let accessibilityText = Self.accessibilityTranscriptText(from: payload)
-        let shouldScrollToActiveArea = Self.shouldForceScrollToActiveAreaForOutput(payload)
+        let shouldScrollToActiveArea = followsLiveOutput || Self.shouldForceScrollToActiveAreaForOutput(payload)
         outputQueue.async { [weak self] in
             guard gate.isCurrent(generation) else { return }
             guard let surface = UnsafeMutableRawPointer(bitPattern: surfaceBits) else { return }
@@ -1035,6 +1052,7 @@ public final class GhosttyTerminalSurfaceView: UIView {
         pendingOutputBuffer.removeAll(keepingCapacity: true)
         outputFlushScheduled = false
         clearAccessibilityTranscript()
+        followsLiveOutput = true
         let generation = outputGate.advance()
         var replay = Data("\u{1B}c".utf8)
         for chunk in replayChunks {
@@ -1056,6 +1074,7 @@ public final class GhosttyTerminalSurfaceView: UIView {
         pendingOutputBuffer.removeAll(keepingCapacity: true)
         outputFlushScheduled = false
         clearAccessibilityTranscript()
+        followsLiveOutput = true
         let generation = outputGate.advance()
         enqueueOutputPayload(
             Data("\u{1B}c".utf8),
@@ -1164,6 +1183,7 @@ public final class GhosttyTerminalSurfaceView: UIView {
         #if DEBUG
         cmuxDebugLog("ios.ghostty.focusInput")
         #endif
+        followsLiveOutput = true
         inputProxy.becomeFirstResponder()
     }
 
@@ -1199,11 +1219,19 @@ public final class GhosttyTerminalSurfaceView: UIView {
             let baseFontSize = pinchTargetFontSize ?? currentFontSize
             pinchTargetFontSize = nextMobileFontSize(from: baseFontSize, after: direction)
         }
-        if let target = pinchTargetFontSize,
-           target != currentFontSize {
-            _ = applyMobileFontSize(target, reportResize: true)
-        }
+        applyPendingPinchFontSizeIfNeeded()
         pinchTargetFontSize = nil
+    }
+
+    public func simulateLivePinchZoomStepForTesting(_ directions: [TerminalFontZoomDirection]) {
+        if pinchTargetFontSize == nil {
+            pinchTargetFontSize = currentFontSize
+        }
+        for direction in directions {
+            let baseFontSize = pinchTargetFontSize ?? currentFontSize
+            pinchTargetFontSize = nextMobileFontSize(from: baseFontSize, after: direction)
+        }
+        applyPendingPinchFontSizeIfNeeded()
     }
 
     #endif
@@ -1489,6 +1517,9 @@ public final class GhosttyTerminalSurfaceView: UIView {
     @objc private func handleScrollPan(_ gesture: UIPanGestureRecognizer) {
         guard let surface, gesture.state == .changed else { return }
         let translation = gesture.translation(in: self)
+        if abs(translation.y) > 0 {
+            followsLiveOutput = false
+        }
         ghostty_surface_mouse_scroll(surface, 0, Double(translation.y / 10), 0)
         gesture.setTranslation(.zero, in: self)
         needsDraw = true
@@ -1505,18 +1536,20 @@ public final class GhosttyTerminalSurfaceView: UIView {
             pinchTargetFontSize = currentFontSize
         case .changed:
             let delta = gesture.scale - pinchAccumulatedScale
-            guard abs(delta) >= 0.15 else { return }
+            guard abs(delta) >= Self.pinchScaleStep else { return }
+            let direction: TerminalFontZoomDirection = delta > 0 ? .increase : .decrease
+            let stepCount = max(1, Int(abs(delta) / Self.pinchScaleStep))
             let baseFontSize = pinchTargetFontSize ?? currentFontSize
-            pinchTargetFontSize = nextMobileFontSize(from: baseFontSize, after: delta > 0 ? .increase : .decrease)
+            pinchTargetFontSize = (0..<stepCount).reduce(baseFontSize) { fontSize, _ in
+                nextMobileFontSize(from: fontSize, after: direction)
+            }
             #if DEBUG
             cmuxDebugLog("ios.ghostty.pinch.changed target=\(pinchTargetFontSize ?? currentFontSize)")
             #endif
-            pinchAccumulatedScale = gesture.scale
+            pinchAccumulatedScale += CGFloat(stepCount) * Self.pinchScaleStep * (delta > 0 ? 1 : -1)
+            startDisplayLink()
         case .ended, .cancelled:
-            if let target = pinchTargetFontSize,
-               target != currentFontSize {
-                _ = applyMobileFontSize(target, reportResize: true)
-            }
+            applyPendingPinchFontSizeIfNeeded()
             #if DEBUG
             cmuxDebugLog("ios.ghostty.pinch.end font=\(currentFontSize)")
             #endif
@@ -1629,9 +1662,16 @@ public final class GhosttyTerminalSurfaceView: UIView {
     private func stopDisplayLinkIfIdle() {
         if !isApplyingFontSize,
            pendingFontSizeApplication == nil,
+           (pinchTargetFontSize == nil || pinchTargetFontSize == currentFontSize),
            !needsDraw {
             stopDisplayLink()
         }
+    }
+
+    private func applyPendingPinchFontSizeIfNeeded() {
+        guard let target = pinchTargetFontSize,
+              target != currentFontSize else { return }
+        _ = applyMobileFontSize(target, reportResize: true)
     }
 
     private func reportCurrentSurfaceGridSize(
@@ -1689,6 +1729,7 @@ public final class GhosttyTerminalSurfaceView: UIView {
             stopDisplayLink()
             return
         }
+        applyPendingPinchFontSizeIfNeeded()
         if needsDraw {
             needsDraw = false
             renderSurfaceNow(surface)
@@ -1770,6 +1811,7 @@ private final class GhosttyInputTextView: UITextView {
     private var lastCommandTapTime: Date?
     private var lastShiftTapTime: Date?
     private weak var accessoryStackView: UIStackView?
+    private weak var accessoryNubView: TerminalArrowNubView?
     private var commandAccessoryButton: UIButton?
     private var isMacRemote = false
 
@@ -1799,6 +1841,12 @@ private final class GhosttyInputTextView: UITextView {
         scrollView.showsVerticalScrollIndicator = false
         scrollView.alwaysBounceHorizontal = true
 
+        let nub = TerminalArrowNubView()
+        nub.translatesAutoresizingMaskIntoConstraints = false
+        nub.onArrowKey = { [weak self] data in
+            self?.onEscapeSequence?(data)
+        }
+
         let stack = UIStackView()
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.axis = .horizontal
@@ -1815,10 +1863,16 @@ private final class GhosttyInputTextView: UITextView {
         }
 
         scrollView.addSubview(stack)
+        container.addSubview(nub)
         container.addSubview(scrollView)
 
         NSLayoutConstraint.activate([
-            scrollView.leadingAnchor.constraint(equalTo: container.safeAreaLayoutGuide.leadingAnchor, constant: 12),
+            nub.leadingAnchor.constraint(equalTo: container.safeAreaLayoutGuide.leadingAnchor, constant: 12),
+            nub.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            nub.widthAnchor.constraint(equalToConstant: TerminalArrowNubView.size),
+            nub.heightAnchor.constraint(equalToConstant: TerminalArrowNubView.size),
+
+            scrollView.leadingAnchor.constraint(equalTo: nub.trailingAnchor, constant: 8),
             scrollView.trailingAnchor.constraint(equalTo: container.safeAreaLayoutGuide.trailingAnchor, constant: -12),
             scrollView.topAnchor.constraint(equalTo: container.topAnchor),
             scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
@@ -1831,6 +1885,7 @@ private final class GhosttyInputTextView: UITextView {
         ])
 
         accessoryStackView = stack
+        accessoryNubView = nub
         return container
     }()
 
@@ -1918,6 +1973,7 @@ private final class GhosttyInputTextView: UITextView {
     func updateThemeColors(background: UIColor, foreground: UIColor) {
         accessoryForeground = foreground
         terminalAccessoryToolbar.backgroundColor = background
+        accessoryNubView?.updateThemeColors(background: background, foreground: foreground)
         guard let stack = accessoryStackView else { return }
         for case let button as UIButton in stack.arrangedSubviews {
             button.setTitleColor(foreground, for: .normal)
@@ -2520,6 +2576,151 @@ struct CmxGhosttyTerminalView: UIViewRepresentable {
             guard self.surfaceView === surfaceView else { return }
             surfaceResetNonce.wrappedValue += 1
         }
+    }
+}
+
+private final class TerminalArrowNubView: UIView {
+    static let size: CGFloat = 34
+    var onArrowKey: ((Data) -> Void)?
+
+    private static let deadZone: CGFloat = 8
+    private static let repeatInterval: TimeInterval = 0.08
+    private let innerDot = UIView()
+    private var dragOrigin: CGPoint = .zero
+    private var repeatTimer: Timer?
+    private var lastDirection: Direction?
+    private let feedbackGenerator = UIImpactFeedbackGenerator(style: .light)
+
+    private enum Direction {
+        case up
+        case down
+        case left
+        case right
+
+        var escapeSequence: Data {
+            switch self {
+            case .up: Data([0x1B, 0x5B, 0x41])
+            case .down: Data([0x1B, 0x5B, 0x42])
+            case .right: Data([0x1B, 0x5B, 0x43])
+            case .left: Data([0x1B, 0x5B, 0x44])
+            }
+        }
+    }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        accessibilityIdentifier = "terminal.inputAccessory.arrowNub"
+        isAccessibilityElement = true
+        accessibilityLabel = String(localized: "ios.terminal.inputAccessory.arrowNub", defaultValue: "Arrow keys")
+        layer.cornerRadius = Self.size / 2
+
+        innerDot.layer.cornerRadius = 6
+        innerDot.frame = CGRect(x: 0, y: 0, width: 12, height: 12)
+        innerDot.layer.shadowOpacity = 0.24
+        innerDot.layer.shadowRadius = 3
+        innerDot.layer.shadowOffset = .zero
+        addSubview(innerDot)
+
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+        addGestureRecognizer(pan)
+        updateThemeColors(background: .black, foreground: .white)
+        feedbackGenerator.prepare()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    deinit {
+        stopRepeat()
+    }
+
+    override var intrinsicContentSize: CGSize {
+        CGSize(width: Self.size, height: Self.size)
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        if repeatTimer == nil {
+            innerDot.center = CGPoint(x: bounds.midX, y: bounds.midY)
+        }
+    }
+
+    func updateThemeColors(background: UIColor, foreground: UIColor) {
+        backgroundColor = foreground.withAlphaComponent(background.cmxIsDark ? 0.22 : 0.15)
+        layer.borderWidth = 1
+        layer.borderColor = foreground.withAlphaComponent(0.36).cgColor
+        innerDot.backgroundColor = foreground
+        innerDot.layer.shadowColor = foreground.cgColor
+    }
+
+    @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
+        let translation = gesture.translation(in: self)
+        switch gesture.state {
+        case .began:
+            dragOrigin = innerDot.center
+            feedbackGenerator.prepare()
+        case .changed:
+            let maxOffset = Self.size / 2 - 8
+            let clampedX = max(-maxOffset, min(maxOffset, translation.x))
+            let clampedY = max(-maxOffset, min(maxOffset, translation.y))
+            innerDot.center = CGPoint(x: dragOrigin.x + clampedX, y: dragOrigin.y + clampedY)
+
+            let direction = directionFrom(dx: translation.x, dy: translation.y)
+            if direction != lastDirection {
+                lastDirection = direction
+                stopRepeat()
+                if let direction {
+                    fireArrow(direction)
+                    startRepeat(direction)
+                }
+            }
+        case .ended, .cancelled, .failed:
+            stopRepeat()
+            lastDirection = nil
+            UIView.animate(withDuration: 0.15) {
+                self.innerDot.center = CGPoint(x: self.bounds.midX, y: self.bounds.midY)
+            }
+        default:
+            break
+        }
+    }
+
+    private func directionFrom(dx: CGFloat, dy: CGFloat) -> Direction? {
+        let distance = sqrt(dx * dx + dy * dy)
+        guard distance > Self.deadZone else { return nil }
+        if abs(dx) > abs(dy) {
+            return dx > 0 ? .right : .left
+        }
+        return dy > 0 ? .down : .up
+    }
+
+    private func fireArrow(_ direction: Direction) {
+        feedbackGenerator.impactOccurred()
+        onArrowKey?(direction.escapeSequence)
+    }
+
+    private func startRepeat(_ direction: Direction) {
+        repeatTimer = Timer.scheduledTimer(withTimeInterval: Self.repeatInterval, repeats: true) { [weak self] _ in
+            self?.fireArrow(direction)
+        }
+    }
+
+    private func stopRepeat() {
+        repeatTimer?.invalidate()
+        repeatTimer = nil
+    }
+}
+
+private extension UIColor {
+    var cmxIsDark: Bool {
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+        guard getRed(&red, green: &green, blue: &blue, alpha: &alpha) else { return true }
+        let luminance = (0.299 * red) + (0.587 * green) + (0.114 * blue)
+        return luminance < 0.55
     }
 }
 

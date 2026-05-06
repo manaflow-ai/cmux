@@ -63,6 +63,7 @@ final class CmxConnectionStore: ObservableObject {
     private var needsReplayAfterSessionStart = false
     private var terminalOutputSink: TerminalOutputSink?
     private var currentSessionID: String?
+    private var prefetchedWorkspaceIDs: Set<UInt64> = []
 
     private struct ReplayRequestKey: Equatable {
         var terminalID: UInt64
@@ -270,6 +271,7 @@ final class CmxConnectionStore: ObservableObject {
         lastReplayRequest = nil
         needsReplayAfterSessionStart = false
         currentSessionID = nil
+        prefetchedWorkspaceIDs = []
         latencyMilliseconds = nil
         isConnecting = false
         isConnected = false
@@ -288,6 +290,25 @@ final class CmxConnectionStore: ObservableObject {
         if requestPtyReplayForVisibleTerminal(force: true) {
             needsReplayAfterSessionStart = false
         }
+    }
+
+    func prefetch(workspace: CmxWorkspace) {
+        guard let terminalID = firstTerminalID(in: workspace) else { return }
+        guard prefetchedWorkspaceIDs.insert(workspace.id).inserted else { return }
+        guard outputChunksByTerminalID[terminalID, default: []].isEmpty else { return }
+        terminalSession?.requestPtyReplay(terminalID: terminalID)
+    }
+
+    func togglePinned(for workspace: CmxWorkspace) {
+        let nextPinned = !workspace.pinned
+        updateWorkspace(workspace.id) { $0.pinned = nextPinned }
+        terminalSession?.sendCommand(.setWorkspacePinned(workspaceID: workspace.id, pinned: nextPinned))
+    }
+
+    func toggleUnread(for workspace: CmxWorkspace) {
+        let nextUnread = !workspace.unread
+        updateWorkspace(workspace.id) { $0.unread = nextUnread }
+        terminalSession?.sendCommand(.setWorkspaceUnread(workspaceID: workspace.id, unread: nextUnread))
     }
 
     func select(workspaceID: UInt64) {
@@ -574,7 +595,7 @@ final class CmxConnectionStore: ObservableObject {
                     workspace.terminalCount
                 ),
                 lastActivity: now,
-                unread: false,
+                unread: workspace.hasActivity,
                 pinned: workspace.pinned,
                 spaces: spaces
             )
@@ -636,6 +657,11 @@ final class CmxConnectionStore: ObservableObject {
             ?? Self.placeholderTerminalID
     }
 
+    private func updateWorkspace(_ workspaceID: UInt64, mutate: (inout CmxWorkspace) -> Void) {
+        guard let index = workspaces.firstIndex(where: { $0.id == workspaceID }) else { return }
+        mutate(&workspaces[index])
+    }
+
     private func clearWorkspaceState() {
         nodes = []
         workspaces = []
@@ -646,6 +672,7 @@ final class CmxConnectionStore: ObservableObject {
         outputChunksByTerminalID = [:]
         cachedOutputByteCountByTerminalID = [:]
         nextOutputChunkID = 1
+        prefetchedWorkspaceIDs = []
     }
 
     func refreshTerminalAppearance(colorPreference: CmxTerminalColorPreference) {
@@ -775,6 +802,7 @@ final class CmxConnectionStore: ObservableObject {
         lastReplayRequest = nil
         needsReplayAfterSessionStart = true
         currentSessionID = nil
+        prefetchedWorkspaceIDs = []
         let session = try terminalSessionFactory.makeSession(
             rawTicket: rawTicket,
             ticket: parsed,

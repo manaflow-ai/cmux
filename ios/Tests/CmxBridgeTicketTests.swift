@@ -947,6 +947,168 @@ final class CmxBridgeTicketTests: XCTestCase {
     }
 
     @MainActor
+    func testRepeatedReconnectsCycleFiveWorkspacesWithFreshReplayAndCurrentLayout() throws {
+        let sessionFactory = ReconnectingRecordingTerminalSessionFactory()
+        let store = CmxConnectionStore(
+            authSessionStore: MemoryStackAuthSessionStore(),
+            pairingSecretClient: RecordingPairingSecretClient(),
+            terminalSessionFactory: sessionFactory
+        )
+        store.ticketText = """
+        {
+          "version": 1,
+          "alpn": "/cmux/cmx/3",
+          "endpoint": { "id": "endpoint-public-key", "addrs": [] },
+          "auth": { "mode": "direct" }
+        }
+        """
+        let workspaceIDs = (0..<5).map { UInt64(110 + $0) }
+        let spaceIDs = (0..<5).map { UInt64(210 + $0) }
+        let panelIDs = (0..<5).map { UInt64(310 + $0) }
+        let tabIDs = (0..<5).map { UInt64(410 + $0) }
+
+        func localSize(pass: Int, index: Int) -> CmxTerminalSize {
+            CmxTerminalSize(cols: 104 - index * 5 - pass, rows: 42 - index * 2 - pass)
+        }
+
+        func remoteSize(pass: Int, index: Int) -> CmxTerminalSize {
+            CmxTerminalSize(cols: 74 - index * 3 - pass, rows: 28 - index - pass)
+        }
+
+        func snapshot(active index: Int, pass: Int) -> CmxNativeSnapshot {
+            let remote = remoteSize(pass: pass, index: index)
+            return CmxNativeSnapshot(
+                workspaces: workspaceIDs.enumerated().map { offset, workspaceID in
+                    CmxNativeWorkspaceInfo(
+                        id: workspaceID,
+                        title: "cycle-\(offset)",
+                        spaceCount: 1,
+                        tabCount: 1,
+                        terminalCount: 1,
+                        pinned: false,
+                        color: nil
+                    )
+                },
+                activeWorkspace: index,
+                activeWorkspaceID: workspaceIDs[index],
+                spaces: [
+                    CmxNativeSpaceInfo(
+                        id: spaceIDs[index],
+                        title: "space-\(index)",
+                        paneCount: 1,
+                        terminalCount: 1
+                    ),
+                ],
+                activeSpace: 0,
+                activeSpaceID: spaceIDs[index],
+                panels: .leaf(
+                    panelID: panelIDs[index],
+                    tabs: [
+                        CmxNativeTabInfo(
+                            id: tabIDs[index],
+                            title: "shell-\(index)",
+                            hasActivity: false,
+                            bellCount: 0
+                        ),
+                    ],
+                    active: 0,
+                    activeTabID: tabIDs[index]
+                ),
+                focusedPanelID: panelIDs[index],
+                focusedTabID: tabIDs[index],
+                attachedClients: [
+                    CmxAttachedClientInfo(
+                        clientID: "cmuxtmux",
+                        kind: .tui,
+                        visibleTerminalCount: 1,
+                        updatedAtMilliseconds: UInt64(1_000 + pass * 10 + index),
+                        terminals: [
+                            CmxWireTerminalViewport(
+                                tabID: tabIDs[index],
+                                cols: UInt16(remote.cols),
+                                rows: UInt16(remote.rows)
+                            ),
+                        ],
+                        latencyMilliseconds: 3
+                    ),
+                ]
+            )
+        }
+
+        store.connect()
+        let firstSession = try XCTUnwrap(sessionFactory.latestSession)
+        firstSession.delegate?.terminalSession(
+            firstSession,
+            didReceive: .welcome(serverVersion: "test", sessionID: "ios-initial")
+        )
+        firstSession.delegate?.terminalSession(
+            firstSession,
+            didReceive: .nativeSnapshot(snapshot(active: 0, pass: 0))
+        )
+        store.terminalScreenDidAppear()
+
+        for pass in 0..<2 {
+            for index in 0..<workspaceIDs.count {
+                let workspace = try XCTUnwrap(
+                    store.workspaces.first(where: { $0.id == workspaceIDs[index] })
+                )
+                let activeBeforeReconnect = try XCTUnwrap(sessionFactory.latestSession)
+                activeBeforeReconnect.clearSentCommands()
+                store.select(workspace: workspace)
+                XCTAssertEqual(activeBeforeReconnect.sentCommands.last, .selectWorkspace(index: index))
+
+                store.disconnect()
+                store.connect()
+
+                let session = try XCTUnwrap(sessionFactory.latestSession)
+                XCTAssertFalse(session === activeBeforeReconnect)
+                session.delegate?.terminalSession(
+                    session,
+                    didReceive: .welcome(serverVersion: "test", sessionID: "ios-\(pass)-\(index)")
+                )
+                session.delegate?.terminalSession(
+                    session,
+                    didReceive: .nativeSnapshot(snapshot(active: index, pass: pass))
+                )
+
+                let tabID = tabIDs[index]
+                let local = localSize(pass: pass, index: index)
+                let remote = remoteSize(pass: pass, index: index)
+                store.updateTerminalSize(terminalID: tabID, size: local)
+
+                XCTAssertEqual(store.selectedWorkspaceID, workspaceIDs[index])
+                XCTAssertEqual(store.selectedSpaceID, spaceIDs[index])
+                XCTAssertEqual(store.selectedTerminalID, tabID)
+                XCTAssertEqual(store.terminalSize(for: tabID), local)
+                XCTAssertEqual(store.renderSize(for: tabID), remote)
+                XCTAssertEqual(
+                    session.sentLayouts.last,
+                    [
+                        CmxWireTerminalViewport(
+                            tabID: tabID,
+                            cols: UInt16(local.cols),
+                            rows: UInt16(local.rows)
+                        ),
+                    ]
+                )
+                XCTAssertTrue(
+                    session.requestedPtyReplayTerminalIDs.contains(tabID),
+                    "reconnect pass \(pass) workspace \(index) should request a fresh replay"
+                )
+
+                let marker = Data("fresh workspace \(index) pass \(pass)\r\n".utf8)
+                session.delegate?.terminalSession(
+                    session,
+                    didReceive: .ptyBytes(tabID: tabID, data: marker)
+                )
+                XCTAssertEqual(store.outputChunks(for: tabID).last?.data, marker)
+            }
+        }
+
+        XCTAssertEqual(sessionFactory.sessions.count, 11)
+    }
+
+    @MainActor
     func testNativeSnapshotUsesSmallestAttachedClientSizeOnlyForRendering() throws {
         let sessionFactory = RecordingTerminalSessionFactory()
         let store = CmxConnectionStore(
@@ -1684,6 +1846,26 @@ private final class RecordingTerminalSessionFactory: CmxTerminalSessionMaking {
 }
 
 @MainActor
+private final class ReconnectingRecordingTerminalSessionFactory: CmxTerminalSessionMaking {
+    private(set) var sessions: [RecordingTerminalSession] = []
+
+    var latestSession: RecordingTerminalSession? {
+        sessions.last
+    }
+
+    func makeSession(
+        rawTicket _: String,
+        ticket _: CmxBridgeTicket,
+        pairingSecret _: String?,
+        stackAuthSession _: CmxStackAuthSession?
+    ) throws -> any CmxTerminalSession {
+        let session = RecordingTerminalSession()
+        sessions.append(session)
+        return session
+    }
+}
+
+@MainActor
 private final class RecordingTerminalSession: CmxTerminalSession {
     weak var delegate: CmxTerminalSessionDelegate?
     private(set) var didStart = false
@@ -1733,5 +1915,9 @@ private final class RecordingTerminalSession: CmxTerminalSession {
 
     func clearRequestedPtyReplays() {
         requestedPtyReplayTerminalIDs = []
+    }
+
+    func clearSentCommands() {
+        sentCommands = []
     }
 }

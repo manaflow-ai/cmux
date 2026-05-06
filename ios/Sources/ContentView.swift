@@ -61,7 +61,10 @@ private struct WorkspaceListView: View {
                         node: row.node,
                         isSelected: row.isSelected,
                         navigationStyle: navigationStyle,
-                        selectWorkspace: { store.select(workspace: $0) }
+                        selectWorkspace: { store.select(workspace: $0) },
+                        togglePinned: { store.togglePinned(for: $0) },
+                        toggleUnread: { store.toggleUnread(for: $0) },
+                        prefetchWorkspace: { store.prefetch(workspace: $0) }
                     )
                     .listRowInsets(EdgeInsets(top: 7, leading: 16, bottom: 7, trailing: 12))
                 }
@@ -98,22 +101,56 @@ private struct WorkspaceNavigationRow: View {
     let isSelected: Bool
     let navigationStyle: WorkspaceNavigationStyle
     let selectWorkspace: (CmxWorkspace) -> Void
+    let togglePinned: (CmxWorkspace) -> Void
+    let toggleUnread: (CmxWorkspace) -> Void
+    let prefetchWorkspace: (CmxWorkspace) -> Void
 
     var body: some View {
-        switch navigationStyle {
-        case .push:
-            NavigationLink(value: WorkspaceNavigationRoute(workspaceID: workspace.id)) {
-                row
+        Group {
+            switch navigationStyle {
+            case .push:
+                NavigationLink(value: WorkspaceNavigationRoute(workspaceID: workspace.id)) {
+                    row
+                }
+            case .sidebar:
+                Button {
+                    selectWorkspace(workspace)
+                } label: {
+                    row
+                }
+                .buttonStyle(.plain)
             }
-            .accessibilityIdentifier("workspace.row.\(workspace.id)")
-        case .sidebar:
+        }
+        .accessibilityIdentifier("workspace.row.\(workspace.id)")
+        .onAppear {
+            prefetchWorkspace(workspace)
+        }
+        .swipeActions(edge: .leading, allowsFullSwipe: false) {
             Button {
-                selectWorkspace(workspace)
+                toggleUnread(workspace)
             } label: {
-                row
+                Label(
+                    workspace.unread
+                        ? String(localized: "home.action.mark_read", defaultValue: "Read")
+                        : String(localized: "home.action.mark_unread", defaultValue: "Unread"),
+                    systemImage: workspace.unread ? "message" : "message.badge"
+                )
             }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("workspace.row.\(workspace.id)")
+            .tint(.blue)
+            .accessibilityIdentifier("workspace.action.unread.\(workspace.id)")
+
+            Button {
+                togglePinned(workspace)
+            } label: {
+                Label(
+                    workspace.pinned
+                        ? String(localized: "home.action.unpin", defaultValue: "Unpin")
+                        : String(localized: "home.action.pin", defaultValue: "Pin"),
+                    systemImage: workspace.pinned ? "pin.slash.fill" : "pin.fill"
+                )
+            }
+            .tint(.orange)
+            .accessibilityIdentifier("workspace.action.pin.\(workspace.id)")
         }
     }
 
@@ -310,7 +347,10 @@ private struct TerminalDetailView: View {
                             .id(store.selectedTerminal.id)
                             .frame(width: proxy.size.width, height: visibleHeight)
                     } else {
-                        Color.clear
+                        TerminalLoadingPane(
+                            statusText: store.statusText,
+                            revision: store.terminalAppearanceRevision
+                        )
                             .frame(width: proxy.size.width, height: visibleHeight)
                     }
 
@@ -610,6 +650,27 @@ private struct TerminalPane: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(TerminalThemeChrome.background(revision: store.terminalAppearanceRevision))
+    }
+}
+
+private struct TerminalLoadingPane: View {
+    let statusText: String
+    let revision: Int
+
+    var body: some View {
+        VStack(spacing: 10) {
+            ProgressView()
+                .tint(TerminalThemeChrome.foreground(revision: revision))
+            Text(String(localized: "terminal.loading.title", defaultValue: "Loading terminal"))
+                .font(.callout.weight(.semibold))
+            Text(statusText)
+                .font(.caption.monospacedDigit())
+                .opacity(0.72)
+        }
+        .foregroundStyle(TerminalThemeChrome.foreground(revision: revision))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(TerminalThemeChrome.background(revision: revision))
+        .accessibilityIdentifier("terminal.loading")
     }
 }
 
