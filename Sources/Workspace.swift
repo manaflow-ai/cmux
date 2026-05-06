@@ -7259,13 +7259,13 @@ final class Workspace: Identifiable, ObservableObject {
     /// PIDs associated with agent status entries (e.g. claude_code), keyed by status key.
     /// Used for stale-session detection: if the PID is dead, the status entry is cleared.
     var agentPIDs: [String: pid_t] = [:]
-    private var agentStatusKeysByPanelId: [UUID: Set<String>] = [:]
+    var agentStatusKeysByPanelId: [UUID: Set<String>] = [:]
     private var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
 #if DEBUG
     private var debugSessionSnapshotScrollbackFallbackPanelIds: Set<UUID> = []
     private var debugSessionSnapshotSyntheticScrollbackByPanelId: [UUID: String] = [:]
 #endif
-    private var restoredAgentSnapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] = [:]
+    var restoredAgentSnapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] = [:]
     private var restoredAgentAutoResumePendingPanelIds: Set<UUID> = []
     private var invalidatedRestoredAgentFingerprintsByPanelId: [UUID: Int] = [:]
     private var pendingTerminalInputObserversByPanelId: [UUID: [WorkspacePendingTerminalInputObserver]] = [:]
@@ -8574,62 +8574,6 @@ final class Workspace: Identifiable, ObservableObject {
             "panel=\(panelId.uuidString.prefix(5)) from=\(previousState.rawValue) to=\(state.rawValue)"
         )
 #endif
-    }
-
-    func markAgentTerminal(panelId: UUID, key: String) {
-        guard panels[panelId]?.panelType == .terminal else { return }
-        let trimmedKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedKey.isEmpty else { return }
-        agentStatusKeysByPanelId[panelId, default: []].insert(trimmedKey)
-    }
-
-    func clearAgentTerminal(key: String, panelId: UUID? = nil) {
-        let trimmedKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedKey.isEmpty else { return }
-
-        if let panelId {
-            guard var keys = agentStatusKeysByPanelId[panelId] else { return }
-            keys.remove(trimmedKey)
-            if keys.isEmpty {
-                agentStatusKeysByPanelId.removeValue(forKey: panelId)
-            } else {
-                agentStatusKeysByPanelId[panelId] = keys
-            }
-            return
-        }
-
-        for existingPanelId in Array(agentStatusKeysByPanelId.keys) {
-            clearAgentTerminal(key: trimmedKey, panelId: existingPanelId)
-        }
-    }
-
-    func setAgentPID(key: String, pid: pid_t, panelId: UUID? = nil) {
-        agentPIDs[key] = pid
-        if let panelId {
-            markAgentTerminal(panelId: panelId, key: key)
-        }
-    }
-
-    @discardableResult
-    func clearAgentPID(key: String, panelId: UUID? = nil) -> pid_t? {
-        clearAgentTerminal(key: key, panelId: panelId)
-        return agentPIDs.removeValue(forKey: key)
-    }
-
-    func terminalPanelHostsAgent(panelId: UUID) -> Bool {
-        guard panels[panelId]?.panelType == .terminal else { return false }
-        if restoredAgentSnapshotsByPanelId[panelId] != nil {
-            return true
-        }
-        return agentStatusKeysByPanelId[panelId]?.isEmpty == false
-    }
-
-    func externalFileDropRouting(forPanelId panelId: UUID) -> PaneExternalFileDropRouting {
-        let panelType = panels[panelId]?.panelType ?? .terminal
-        return PaneDropRouting.externalFileDropRouting(
-            panelType: panelType,
-            hostsAgent: terminalPanelHostsAgent(panelId: panelId)
-        )
     }
 
     func panelNeedsConfirmClose(panelId: UUID, fallbackNeedsConfirmClose: Bool) -> Bool {
