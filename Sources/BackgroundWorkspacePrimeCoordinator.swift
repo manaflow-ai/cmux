@@ -13,6 +13,8 @@ final class BackgroundWorkspacePrimeCoordinator {
     }
 
     private nonisolated final class Waiter: @unchecked Sendable {
+        // Cancellation handlers cannot await an actor hop; this lock keeps continuation
+        // and cleanup state synchronous across task cancellation and readiness callbacks.
         private let lock = NSLock()
         private var continuation: CheckedContinuation<String, Never>?
         private var cleanupActions: [() -> Void] = []
@@ -45,8 +47,8 @@ final class BackgroundWorkspacePrimeCoordinator {
             addCleanup { NotificationCenter.default.removeObserver(observer) }
         }
 
-        func addTimeoutWorkItem(_ workItem: DispatchWorkItem) {
-            addCleanup { workItem.cancel() }
+        func addTask(_ task: Task<Void, Never>) {
+            addCleanup { task.cancel() }
         }
 
         func finish(reason: String) {
@@ -179,24 +181,24 @@ final class BackgroundWorkspacePrimeCoordinator {
                     tabManager: tabManager
                 )
 
-                let timeoutWorkItem = DispatchWorkItem { [weak self, weak waiter, weak tabManager] in
-                    guard let self, let waiter, let tabManager else { return }
-                    Task { @MainActor in
-                        if case .completed(let reason) = self.stepBackgroundWorkspacePrime(
-                            workspaceId: workspaceId,
-                            tabManager: tabManager
-                        ) {
-                            waiter.finish(reason: reason)
-                        } else {
-                            waiter.finish(reason: "timeout")
-                        }
+                let timeoutNanoseconds = UInt64(timeoutSeconds * 1_000_000_000)
+                let timeoutTask = Task { @MainActor [weak self, weak waiter, weak tabManager] in
+                    do {
+                        try await Task.sleep(nanoseconds: timeoutNanoseconds)
+                    } catch {
+                        return
+                    }
+                    guard !Task.isCancelled, let self, let waiter, let tabManager else { return }
+                    if case .completed(let reason) = self.stepBackgroundWorkspacePrime(
+                        workspaceId: workspaceId,
+                        tabManager: tabManager
+                    ) {
+                        waiter.finish(reason: reason)
+                    } else {
+                        waiter.finish(reason: "timeout")
                     }
                 }
-                waiter.addTimeoutWorkItem(timeoutWorkItem)
-                DispatchQueue.main.asyncAfter(
-                    deadline: .now() + timeoutSeconds,
-                    execute: timeoutWorkItem
-                )
+                waiter.addTask(timeoutTask)
 
                 evaluate(waiter: waiter, workspaceId: workspaceId, tabManager: tabManager)
             }
