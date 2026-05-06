@@ -80,14 +80,38 @@ commands:
             download_zig_file() {
               local url="$1"
               local output="$2"
-              curl -fSL \
-                --connect-timeout 20 \
-                --max-time 600 \
-                --retry 5 \
-                --retry-delay 5 \
-                --retry-all-errors \
-                "$url" \
-                -o "$output"
+              local attempt
+              local status=0
+
+              rm -f "$output"
+              for attempt in 1 2 3 4 5; do
+                echo "Downloading $url (attempt $attempt/5)"
+                if [[ -s "$output" ]]; then
+                  curl -fL \
+                    --connect-timeout 20 \
+                    --max-time 300 \
+                    --speed-limit 8192 \
+                    --speed-time 60 \
+                    --continue-at - \
+                    "$url" \
+                    -o "$output" && return 0
+                else
+                  curl -fL \
+                    --connect-timeout 20 \
+                    --max-time 300 \
+                    --speed-limit 8192 \
+                    --speed-time 60 \
+                    "$url" \
+                    -o "$output" && return 0
+                fi
+                status=$?
+                if [[ "$attempt" -eq 5 ]]; then
+                  break
+                fi
+                echo "Download failed with exit $status; retrying in $((attempt * 5))s"
+                sleep $((attempt * 5))
+              done
+              return "$status"
             }
 
             echo "Installing verified zig ${ZIG_REQUIRED} from tarball"
