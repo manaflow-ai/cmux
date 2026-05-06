@@ -1,4 +1,6 @@
+import AuthenticationServices
 import Foundation
+import OSLog
 
 enum AuthManagerError: LocalizedError, Equatable {
     case invalidCallback
@@ -52,10 +54,22 @@ enum AuthSignInError: Equatable {
 }
 
 extension AuthManager {
+    static var authLogger: Logger {
+        Logger(
+            subsystem: Bundle.main.bundleIdentifier ?? AuthKeychainServiceName.stableFallback,
+            category: "auth"
+        )
+    }
+
     static func signInError(from error: Error) -> AuthSignInError {
         if let authError = error as? AuthManagerError {
             return .authManager(authError)
         }
         return .message((error as NSError).localizedDescription)
+    }
+
+    static func shouldSuppressWebAuthError(_ error: NSError) -> Bool {
+        error.domain == ASWebAuthenticationSessionError.errorDomain
+            && error.code == ASWebAuthenticationSessionError.canceledLogin.rawValue
     }
 }

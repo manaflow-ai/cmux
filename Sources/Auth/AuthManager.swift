@@ -2,6 +2,7 @@ import AppKit
 import AuthenticationServices
 import CMUXAuthCore
 import Foundation
+import OSLog
 import StackAuth
 #if canImport(Security)
 import Security
@@ -181,8 +182,12 @@ final class AuthManager: ObservableObject {
                 }
                 if let error {
                     let nsError = error as NSError
+                    if Self.shouldSuppressWebAuthError(nsError) {
+                        Self.authLogger.debug("auth.webauth cancelled by user")
+                        return
+                    }
                     self.lastSignInError = .message(nsError.localizedDescription)
-                    NSLog("auth.webauth failed: %@ (%ld) %@", nsError.domain, nsError.code, nsError.localizedDescription)
+                    Self.authLogger.error("auth.webauth failed: domain=\(nsError.domain, privacy: .public) code=\(nsError.code, privacy: .public) description=\(nsError.localizedDescription, privacy: .private)")
                     return
                 }
                 guard let callbackURL else {
@@ -192,8 +197,7 @@ final class AuthManager: ObservableObject {
                 do {
                     try await self.handleCallbackURL(callbackURL)
                 } catch {
-                    self.lastSignInError = Self.signInError(from: error)
-                    NSLog("auth.webauth callback failed: %@", "\(error)")
+                    Self.authLogger.error("auth.webauth callback failed: \(String(describing: error), privacy: .private)")
                 }
             }
         }
@@ -202,7 +206,7 @@ final class AuthManager: ObservableObject {
 
         webAuthSession = session
         if !session.start() {
-            NSLog("auth.webauth: session.start() returned false")
+            Self.authLogger.error("auth.webauth session.start returned false")
             webAuthSession = nil
             lastSignInError = .message("")
             isLoading = false
