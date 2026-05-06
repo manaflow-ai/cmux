@@ -8456,9 +8456,11 @@ struct CMUXCLI {
               <agent> <event>    Internal hook entrypoint used by generated configs
               feed               Internal Feed decision bridge
 
-            OpenCode files:
+            Generated files:
               ~/.config/opencode/plugins/cmux-session.js
               ~/.config/opencode/plugins/cmux-feed.js
+              ~/.pi/agent/extensions/cmux-session.ts
+              See docs/agent-hooks.md for the full integration matrix.
 
             Examples:
               cmux hooks setup
