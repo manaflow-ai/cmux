@@ -7397,7 +7397,12 @@ struct SettingsView: View {
     }
 
     private func refreshDetectedImportBrowsers() {
-        detectedImportBrowsers = InstalledBrowserDetector.detectInstalledBrowsers()
+        Task.detached(priority: .utility) {
+            let browsers = InstalledBrowserDetector.detectInstalledBrowsers()
+            await MainActor.run {
+                self.detectedImportBrowsers = browsers
+            }
+        }
     }
 }
 

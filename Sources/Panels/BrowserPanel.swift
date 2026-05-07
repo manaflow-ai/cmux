@@ -7464,40 +7464,64 @@ enum InstalledBrowserDetector {
             if let output = String(data: data, encoding: .utf8) {
                 let lines = output.components(separatedBy: .newlines)
                 for line in lines {
-                    guard let range = line.range(of: "--user-data-dir=") else { continue }
+                    var execName: String
+                    if let flagRange = line.range(of: "--user-data-dir") {
+                        execName = String(line[..<flagRange.lowerBound])
+                    } else {
+                        continue
+                    }
                     
                     var matchedBundle: String?
-                    if line.contains("Google Chrome") {
+                    if execName.contains("Google Chrome") {
                         matchedBundle = "com.google.Chrome"
-                    } else if line.contains("Brave") {
+                    } else if execName.contains("Brave") {
                         matchedBundle = "com.brave.Browser"
-                    } else if line.contains("Chromium") {
+                    } else if execName.contains("Chromium") {
                         matchedBundle = "org.chromium.Chromium"
-                    } else if line.contains("Edge") {
+                    } else if execName.contains("Edge") {
                         matchedBundle = "com.microsoft.edgemac"
-                    } else if line.contains("Arc") {
+                    } else if execName.contains("Arc") {
                         matchedBundle = "company.thebrowser.Browser"
-                    } else if line.contains("Vivaldi") {
+                    } else if execName.contains("Vivaldi") {
                         matchedBundle = "com.vivaldi.Vivaldi"
                     }
                     
                     guard let bundle = matchedBundle else { continue }
                     
-                    let remainder = line[range.upperBound...]
                     var path = ""
-                    if remainder.hasPrefix("\"") {
-                        if let endQuote = remainder.dropFirst().firstIndex(of: "\"") {
-                            path = String(remainder.dropFirst()[..<endQuote])
-                        }
-                    } else if remainder.hasPrefix("'") {
-                        if let endQuote = remainder.dropFirst().firstIndex(of: "'") {
-                            path = String(remainder.dropFirst()[..<endQuote])
-                        }
-                    } else {
-                        if let nextFlag = remainder.range(of: " --") {
-                            path = String(remainder[..<nextFlag.lowerBound]).trimmingCharacters(in: .whitespaces)
+                    if let range = line.range(of: "--user-data-dir=") {
+                        let remainder = line[range.upperBound...]
+                        if remainder.hasPrefix("\"") {
+                            if let endQuote = remainder.dropFirst().firstIndex(of: "\"") {
+                                path = String(remainder.dropFirst()[..<endQuote])
+                            }
+                        } else if remainder.hasPrefix("'") {
+                            if let endQuote = remainder.dropFirst().firstIndex(of: "'") {
+                                path = String(remainder.dropFirst()[..<endQuote])
+                            }
                         } else {
-                            path = String(remainder).trimmingCharacters(in: .whitespaces)
+                            if let nextFlag = remainder.range(of: " --") {
+                                path = String(remainder[..<nextFlag.lowerBound]).trimmingCharacters(in: .whitespaces)
+                            } else {
+                                path = String(remainder).trimmingCharacters(in: .whitespaces)
+                            }
+                        }
+                    } else if let range = line.range(of: "--user-data-dir") {
+                        let remainder = line[range.upperBound...].trimmingCharacters(in: .whitespaces)
+                        if remainder.hasPrefix("\"") {
+                            if let endQuote = remainder.dropFirst().firstIndex(of: "\"") {
+                                path = String(remainder.dropFirst()[..<endQuote])
+                            }
+                        } else if remainder.hasPrefix("'") {
+                            if let endQuote = remainder.dropFirst().firstIndex(of: "'") {
+                                path = String(remainder.dropFirst()[..<endQuote])
+                            }
+                        } else {
+                            if let nextSpace = remainder.firstIndex(of: " ") {
+                                path = String(remainder[..<nextSpace])
+                            } else {
+                                path = String(remainder)
+                            }
                         }
                     }
                     
