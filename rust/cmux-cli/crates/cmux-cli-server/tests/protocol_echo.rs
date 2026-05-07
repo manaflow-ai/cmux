@@ -22,7 +22,7 @@ async fn shell_output_streams_over_socket() {
 
     let opts = ServerOptions {
         socket_path: socket.clone(),
-        shell: "/bin/cat".into(),
+        shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (80, 24),
         snapshot_path: None,
@@ -75,7 +75,7 @@ async fn shell_output_streams_over_socket() {
     let mut saw_bye = false;
 
     // Drive the process through the protocol input path.
-    let cmd = format!("{SENTINEL}\n");
+    let cmd = format!("printf '{SENTINEL}\\n'; exit\n");
     write_msg(
         &mut write_half,
         &ClientMsg::Input {
@@ -118,10 +118,6 @@ async fn shell_output_streams_over_socket() {
         "expected sentinel {SENTINEL} in stream; got:\n{joined}"
     );
 
-    write_msg(&mut write_half, &ClientMsg::Input { data: vec![0x04] })
-        .await
-        .expect("send eof");
-
     let bye_deadline = tokio::time::Instant::now() + Duration::from_secs(5);
     while tokio::time::Instant::now() < bye_deadline && !saw_bye {
         let remaining = bye_deadline.saturating_duration_since(tokio::time::Instant::now());
@@ -158,7 +154,7 @@ async fn shell_output_streams_over_grid_socket() {
 
     let opts = ServerOptions {
         socket_path: socket.clone(),
-        shell: "/bin/cat".into(),
+        shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (80, 24),
         snapshot_path: None,
@@ -204,7 +200,7 @@ async fn shell_output_streams_over_grid_socket() {
         .then_some(())
         .expect("expected Welcome");
 
-    let cmd = format!("{SENTINEL}\n");
+    let cmd = format!("printf '{SENTINEL}\\n'; exit\n");
     write_msg(
         &mut write_half,
         &ClientMsg::Input {
@@ -243,9 +239,6 @@ async fn shell_output_streams_over_grid_socket() {
         "expected sentinel {SENTINEL} in grid stream; got:\n{joined}"
     );
 
-    write_msg(&mut write_half, &ClientMsg::Input { data: vec![0x04] })
-        .await
-        .expect("send eof");
     timeout(Duration::from_secs(5), server_handle)
         .await
         .expect("server shutdown timeout")
