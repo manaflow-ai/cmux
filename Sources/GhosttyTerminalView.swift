@@ -7043,6 +7043,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var lastPerformKeyEvent: TimeInterval?
     private(set) var externalCommittedTextDepth = 0
     var numpadIMECommitDeduplicator = NumpadIMECommitDeduplicator()
+    private var imeSuppressedKeyUpKeyCodes: Set<UInt16> = []
     private struct SelectionSnapshot {
         let range: NSRange
         let string: String
@@ -7516,8 +7517,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         let accumulatedText = keyTextAccumulator ?? []
         if shouldSuppressGhosttyKeyForwardingAfterIMEHandling(
-            before: markedStateBefore, after: (markedText.string, markedSelectedRange), accumulatedText: accumulatedText
-        ) { return }
+            before: markedStateBefore,
+            after: (markedText.string, markedSelectedRange),
+            accumulatedText: accumulatedText,
+            event: translationEvent
+        ) {
+            imeSuppressedKeyUpKeyCodes.insert(event.keyCode)
+            return
+        }
 
         // Build the key event
         var keyEvent = ghostty_input_key_s()
@@ -7735,6 +7742,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
 
     override func keyUp(with event: NSEvent) {
+        if imeSuppressedKeyUpKeyCodes.remove(event.keyCode) != nil {
+            return
+        }
+
         guard let surface = ensureSurfaceReadyForInput() else {
             super.keyUp(with: event)
             return
