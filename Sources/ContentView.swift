@@ -8,6 +8,7 @@ import UniformTypeIdentifiers
 import WebKit
 
 private final class FileDropHintBadgeView: NSView {
+    private static let neutralBackgroundColor = NSColor.systemGray.withAlphaComponent(0.20)
     private let effectView: NSView
     private let label = NSTextField(labelWithString: "")
 
@@ -34,6 +35,7 @@ private final class FileDropHintBadgeView: NSView {
 
         effectView.translatesAutoresizingMaskIntoConstraints = false
         effectView.wantsLayer = true
+        effectView.layer?.backgroundColor = Self.neutralBackgroundColor.cgColor
         effectView.layer?.cornerRadius = 13
         effectView.layer?.masksToBounds = true
         configureNativeGlassIfNeeded(effectView)
@@ -100,7 +102,7 @@ private final class FileDropHintBadgeView: NSView {
 
         let tintSelector = NSSelectorFromString("setTintColor:")
         if view.responds(to: tintSelector) {
-            view.perform(tintSelector, with: NSColor.controlAccentColor.withAlphaComponent(0.22))
+            view.perform(tintSelector, with: Self.neutralBackgroundColor)
         }
 
         let cornerRadiusSelector = NSSelectorFromString("setCornerRadius:")
