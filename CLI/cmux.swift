@@ -1,5 +1,6 @@
 import Foundation
 import CMUXAgentLaunch
+import CoreFoundation
 import CryptoKit
 import Darwin
 #if canImport(LocalAuthentication)
@@ -1664,6 +1665,64 @@ final class SocketClient {
 
         throw CLIError(message: "v2 request failed")
     }
+
+    func streamV2(
+        method: String,
+        params: [String: Any] = [:],
+        onLine: (String) throws -> Void
+    ) throws {
+        guard socketFD >= 0 else { throw CLIError(message: "Not connected") }
+        let request: [String: Any] = [
+            "id": UUID().uuidString,
+            "method": method,
+            "params": params
+        ]
+        guard JSONSerialization.isValidJSONObject(request),
+              let requestData = try? JSONSerialization.data(withJSONObject: request, options: []),
+              let requestLine = String(data: requestData, encoding: .utf8) else {
+            throw CLIError(message: "Failed to encode v2 stream request")
+        }
+
+        try writeAll(
+            Data((requestLine + "\n").utf8),
+            timeoutMessage: "Stream request timed out",
+            failureMessage: "Failed to write stream request"
+        )
+
+        while true {
+            let line = try readStreamLine()
+            try onLine(line)
+        }
+    }
+
+    private func readStreamLine(maxBytes: Int = 4 * 1024 * 1024) throws -> String {
+        var data = Data()
+        try configureReceiveTimeout(45)
+        while data.count < maxBytes {
+            var byte: UInt8 = 0
+            let count = Darwin.read(socketFD, &byte, 1)
+            if count < 0 {
+                if errno == EINTR {
+                    continue
+                }
+                if errno == EAGAIN || errno == EWOULDBLOCK {
+                    throw CLIError(message: "Timed out waiting for event stream frame")
+                }
+                throw CLIError(message: "Event stream socket read error")
+            }
+            if count == 0 {
+                throw CLIError(message: "Event stream closed")
+            }
+            if byte == 0x0A {
+                guard let line = String(data: data, encoding: .utf8) else {
+                    throw CLIError(message: "Invalid UTF-8 event stream frame")
+                }
+                return line.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            data.append(byte)
+        }
+        throw CLIError(message: "Event stream frame exceeded \(maxBytes) bytes")
+    }
 }
 
 struct CLIProcessResult {
@@ -2307,6 +2366,15 @@ struct CMUXCLI {
             default:
                 throw CLIError(message: "Unknown feed subcommand: \(sub)")
             }
+        }
+
+        if command == "events" {
+            try runEventsCommand(
+                commandArgs: commandArgs,
+                socketPath: resolvedSocketPath,
+                explicitPassword: socketPasswordArg
+            )
+            return
         }
 
         let browserAvailabilityArgs = commandArgs.filter { $0 != "--json" }
@@ -3856,7 +3924,7 @@ struct CMUXCLI {
         return client
     }
 
-    private func authenticateClientIfNeeded(
+    func authenticateClientIfNeeded(
         _ client: SocketClient,
         explicitPassword: String?,
         socketPath: String
@@ -8343,6 +8411,27 @@ struct CMUXCLI {
             Usage: cmux capabilities
 
             Print server capabilities as JSON.
+            """
+        case "events":
+            return """
+            Usage: cmux events [options]
+
+            Stream cmux events as newline-delimited JSON.
+
+            Options:
+              --after <seq>          Replay retained events after this sequence
+              --cursor-file <path>   Read the starting sequence from a file and update it after each event
+              --name <event>         Filter by event name, repeatable
+              --category <name>      Filter by category, repeatable
+              --reconnect            Reconnect forever and resume from the last received sequence
+              --limit <n>            Exit after printing n event frames
+              --no-ack               Do not print the subscription ack frame
+              --no-heartbeat         Do not print heartbeat frames
+
+            Examples:
+              cmux events --category notification
+              cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect
+              cmux events --after 42 --name feed.item.received
             """
         case "auth":
             return """
@@ -20170,6 +20259,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           ping
           version
           capabilities
+          events [--after <seq>] [--cursor-file <path>] [--name <event>] [--category <category>] [--reconnect] [--limit <n>] [--no-ack] [--no-heartbeat]
           auth <status|login|logout>
           vm <new|ls|rm|exec|shell|ssh> [args...]    (alias: cloud)
           rpc <method> [json-params]
