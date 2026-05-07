@@ -10,7 +10,6 @@ enum PaneExternalFileDropRouting: Equatable {
 struct PaneFileDropHint: Equatable {
     enum Action: Equatable {
         case filePreview
-        case agentPrompt
         case terminalPath
     }
 
@@ -25,40 +24,20 @@ struct PaneFileDropHint: Equatable {
 
     var displayText: String {
         switch (currentAction, modifierPrompt, alternateAction) {
-        case (.filePreview, .holdShift, .agentPrompt):
-            return String(
-                localized: "terminal.fileDropHint.previewHoldShiftAgent",
-                defaultValue: "Drop to open in editor. Hold Shift to attach to prompt."
-            )
         case (.filePreview, .holdShift, .terminalPath):
             return String(
                 localized: "terminal.fileDropHint.previewHoldShiftTerminal",
                 defaultValue: "Drop to open in editor. Hold Shift to insert path."
-            )
-        case (.filePreview, .releaseShift, .agentPrompt):
-            return String(
-                localized: "terminal.fileDropHint.previewReleaseShiftAgent",
-                defaultValue: "Drop to open in editor. Release Shift to attach to prompt."
             )
         case (.filePreview, .releaseShift, .terminalPath):
             return String(
                 localized: "terminal.fileDropHint.previewReleaseShiftTerminal",
                 defaultValue: "Drop to open in editor. Release Shift to insert path."
             )
-        case (.agentPrompt, .holdShift, .filePreview):
-            return String(
-                localized: "terminal.fileDropHint.agentHoldShiftPreview",
-                defaultValue: "Drop to attach to prompt. Hold Shift to open in editor."
-            )
         case (.terminalPath, .holdShift, .filePreview):
             return String(
                 localized: "terminal.fileDropHint.terminalHoldShiftPreview",
                 defaultValue: "Drop to insert path. Hold Shift to open in editor."
-            )
-        case (.agentPrompt, .releaseShift, .filePreview):
-            return String(
-                localized: "terminal.fileDropHint.agentReleaseShiftPreview",
-                defaultValue: "Drop to attach to prompt. Release Shift to open in editor."
             )
         case (.terminalPath, .releaseShift, .filePreview):
             return String(

@@ -172,7 +172,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(session["surfaceId"] as? String, currentSurfaceId)
         XCTAssertTrue(
             state.commands.contains {
-                $0.contains("set_status codex Running")
+                $0.contains("set_status codex \"Running\"")
                     && $0.contains("--tab=\(currentWorkspaceId)")
                     && $0.contains("--surface=\"\(currentSurfaceId)\"")
             },

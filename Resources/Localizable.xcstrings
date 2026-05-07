@@ -105282,40 +105282,6 @@
         }
       }
     },
-    "terminal.fileDropHint.agentHoldShiftPreview": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Drop to attach to prompt. Hold Shift to open in editor."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ドロップするとプロンプトに添付します。Shift キーでエディタで開きます。"
-          }
-        }
-      }
-    },
-    "terminal.fileDropHint.agentReleaseShiftPreview": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Drop to attach to prompt. Release Shift to open in editor."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ドロップするとプロンプトに添付します。Shift キーを離すとエディタで開きます。"
-          }
-        }
-      }
-    },
     "terminal.fileDropHint.default": {
       "extractionState": "manual",
       "localizations": {
@@ -105333,23 +105299,6 @@
         }
       }
     },
-    "terminal.fileDropHint.previewHoldShiftAgent": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Drop to open in editor. Hold Shift to attach to prompt."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ドロップするとエディタで開きます。Shift キーでプロンプトに添付します。"
-          }
-        }
-      }
-    },
     "terminal.fileDropHint.previewHoldShiftTerminal": {
       "extractionState": "manual",
       "localizations": {
@@ -105363,23 +105312,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "ドロップするとエディタで開きます。Shift キーでパスを挿入します。"
-          }
-        }
-      }
-    },
-    "terminal.fileDropHint.previewReleaseShiftAgent": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Drop to open in editor. Release Shift to attach to prompt."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ドロップするとエディタで開きます。Shift キーを離すとプロンプトに添付します。"
           }
         }
       }
