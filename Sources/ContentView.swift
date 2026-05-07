@@ -3855,7 +3855,8 @@ struct ContentView: View {
     private var commandPaletteCommandListView: some View {
         let visibleResults = commandPaletteVisibleResults
         let selectedIndex = commandPaletteSelectedIndex(resultCount: visibleResults.count)
-        let commandPaletteListIdentity = "\(commandPaletteListScope.rawValue):\(commandPaletteQuery)"
+        let commandPaletteListIdentity = Self.commandPaletteListIdentity(for: commandPaletteQuery)
+        let shouldShowEmptyState = commandPaletteShouldShowEmptyState
         let commandPaletteListMaxHeight: CGFloat = 450
         let commandPaletteRowHeight: CGFloat = 24
         let commandPaletteEmptyStateHeight: CGFloat = 44
@@ -3880,11 +3881,11 @@ struct ContentView: View {
             Divider()
 
             ScrollView {
-                // Rebuild the full results container on scope/query transitions so
+                // Rebuild the full results container on scope transitions so
                 // stale switcher rows cannot linger above command-mode results.
                 VStack(spacing: 0) {
                     if visibleResults.isEmpty {
-                        if commandPaletteShouldShowEmptyState {
+                        if shouldShowEmptyState {
                             Text(commandPaletteEmptyStateText)
                                 .font(.system(size: 13, weight: .regular))
                                 .foregroundStyle(.secondary)
@@ -5059,6 +5060,10 @@ struct ContentView: View {
         hasVisibleResults && commandPaletteListScope(for: oldQuery) != commandPaletteListScope(for: newQuery)
     }
 
+    nonisolated static func commandPaletteListIdentity(for query: String) -> String {
+        commandPaletteListScope(for: query).rawValue
+    }
+
     private var commandPaletteSwitcherIncludesSurfaceEntries: Bool {
         Self.commandPaletteSwitcherIncludesSurfaceEntries(
             searchAllSurfaces: commandPaletteSearchAllSurfaces,
@@ -5410,9 +5415,7 @@ struct ContentView: View {
         visibleResultsScopeMatches: Bool,
         resolvedSearchScopeMatches: Bool,
         resolvedSearchFingerprintMatches: Bool,
-        resolvedResultsAreEmpty: Bool,
-        currentMatchingQuery: String,
-        resolvedMatchingQuery: String
+        resolvedResultsAreEmpty: Bool
     ) -> Bool {
         guard isSearchPending,
               visibleResultsScopeMatches,
@@ -5422,8 +5425,10 @@ struct ContentView: View {
             return false
         }
 
-        return currentMatchingQuery == resolvedMatchingQuery
-            || currentMatchingQuery.hasPrefix(resolvedMatchingQuery)
+        // The visible list is already empty at the call site. Keep the no-match
+        // message stable across any same-corpus pending query, including edits
+        // in the middle of the search text that are not prefix refinements.
+        return true
     }
 
     private func scheduleCommandPaletteResultsRefresh(
@@ -5506,14 +5511,16 @@ struct ContentView: View {
 
             await MainActor.run {
                 let currentScope = Self.commandPaletteListScope(for: commandPaletteQuery)
-                guard commandPaletteSearchRequestID == requestID,
-                      isCommandPalettePresented,
-                      currentScope == scope,
-                      Self.commandPaletteQueryForMatching(
-                          query: commandPaletteQuery,
-                          scope: currentScope
-                      ) == matchingQuery,
-                      cachedCommandPaletteFingerprint == fingerprint else {
+                let currentMatchingQuery = Self.commandPaletteQueryForMatching(
+                    query: commandPaletteQuery,
+                    scope: currentScope
+                )
+                let shouldApplyResults = commandPaletteSearchRequestID == requestID
+                    && isCommandPalettePresented
+                    && currentScope == scope
+                    && currentMatchingQuery == matchingQuery
+                    && cachedCommandPaletteFingerprint == fingerprint
+                guard shouldApplyResults else {
                     return
                 }
 
@@ -7952,9 +7959,7 @@ struct ContentView: View {
             visibleResultsScopeMatches: commandPaletteVisibleResultsScope == commandPaletteListScope,
             resolvedSearchScopeMatches: commandPaletteResolvedSearchScope == commandPaletteListScope,
             resolvedSearchFingerprintMatches: commandPaletteResolvedSearchFingerprint == commandPaletteVisibleResultsFingerprint,
-            resolvedResultsAreEmpty: cachedCommandPaletteResults.isEmpty,
-            currentMatchingQuery: commandPaletteQueryForMatching,
-            resolvedMatchingQuery: commandPaletteResolvedMatchingQuery
+            resolvedResultsAreEmpty: cachedCommandPaletteResults.isEmpty
         )
     }
 
