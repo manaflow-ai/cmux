@@ -105248,206 +105248,53 @@
         }
       }
     },
-    "settings.terminal.vault.claude": {
+    "settings.terminal.agentAutoResume": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show Claude Code Sessions"
+            "value": "Resume Agent Sessions on Reopen"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude Code セッションを表示"
+            "value": "再起動時にエージェントセッションを再開"
           }
         }
       }
     },
-    "settings.terminal.vault.claude.subtitleOff": {
+    "settings.terminal.agentAutoResume.subtitleOff": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude Code sessions are hidden from the Vault and skipped during scans."
+            "value": "When cmux reopens after quit, restored agent terminals stay idle until you resume them manually."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude Code のセッションを Vault から非表示にし、スキャン時にスキップします。"
+            "value": "cmux を終了後に再度開いたとき、復元されたエージェント端末は手動で再開するまで待機します。"
           }
         }
       }
     },
-    "settings.terminal.vault.claude.subtitleOn": {
+    "settings.terminal.agentAutoResume.subtitleOn": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude Code sessions appear in the Vault and are scanned for resume."
+            "value": "When cmux reopens after quit, restored agent terminals automatically run their resume command."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude Code のセッションを Vault に表示し、再開用にスキャンします。"
-          }
-        }
-      }
-    },
-    "settings.terminal.vault.codex": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Codex Sessions"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Codex セッションを表示"
-          }
-        }
-      }
-    },
-    "settings.terminal.vault.codex.subtitleOff": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Codex sessions are hidden from the Vault and skipped during scans."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Codex のセッションを Vault から非表示にし、スキャン時にスキップします。"
-          }
-        }
-      }
-    },
-    "settings.terminal.vault.codex.subtitleOn": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Codex sessions appear in the Vault and are scanned for resume."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Codex のセッションを Vault に表示し、再開用にスキャンします。"
-          }
-        }
-      }
-    },
-    "settings.terminal.vault.opencode": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show OpenCode Sessions"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "OpenCode セッションを表示"
-          }
-        }
-      }
-    },
-    "settings.terminal.vault.opencode.subtitleOff": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "OpenCode sessions are hidden from the Vault and skipped during scans."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "OpenCode のセッションを Vault から非表示にし、スキャン時にスキップします。"
-          }
-        }
-      }
-    },
-    "settings.terminal.vault.opencode.subtitleOn": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "OpenCode sessions appear in the Vault and are scanned for resume."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "OpenCode のセッションを Vault に表示し、再開用にスキャンします。"
-          }
-        }
-      }
-    },
-    "settings.terminal.vault.rovodev": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Rovo Dev Sessions"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rovo Dev セッションを表示"
-          }
-        }
-      }
-    },
-    "settings.terminal.vault.rovodev.subtitleOff": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rovo Dev sessions are hidden from the Vault and skipped during scans."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rovo Dev のセッションを Vault から非表示にし、スキャン時にスキップします。"
-          }
-        }
-      }
-    },
-    "settings.terminal.vault.rovodev.subtitleOn": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rovo Dev sessions appear in the Vault and are scanned for resume."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rovo Dev のセッションを Vault に表示し、再開用にスキャンします。"
+            "value": "cmux を終了後に再度開いたとき、復元されたエージェント端末で再開コマンドを自動実行します。"
           }
         }
       }

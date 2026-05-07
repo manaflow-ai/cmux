@@ -252,6 +252,51 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertFalse(shouldRestore)
     }
 
+    func testAgentSessionAutoResumeSettingsDefaultsKeyAndNotificationOnFlip() throws {
+        let suiteName = "cmux-agent-session-auto-resume-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertEqual(
+            AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey,
+            "terminal.autoResumeAgentSessions"
+        )
+        XCTAssertTrue(AgentSessionAutoResumeSettings.isEnabled(defaults: defaults))
+
+        let notificationCenter = NotificationCenter()
+        var notificationCount = 0
+        let observer = notificationCenter.addObserver(
+            forName: AgentSessionAutoResumeSettings.didChangeNotification,
+            object: nil,
+            queue: nil
+        ) { _ in
+            notificationCount += 1
+        }
+        defer { notificationCenter.removeObserver(observer) }
+
+        AgentSessionAutoResumeSettings.setEnabled(
+            false,
+            defaults: defaults,
+            notificationCenter: notificationCenter
+        )
+        XCTAssertFalse(AgentSessionAutoResumeSettings.isEnabled(defaults: defaults))
+        XCTAssertEqual(notificationCount, 1)
+
+        AgentSessionAutoResumeSettings.setEnabled(
+            false,
+            defaults: defaults,
+            notificationCenter: notificationCenter
+        )
+        XCTAssertEqual(notificationCount, 1)
+
+        AgentSessionAutoResumeSettings.reset(
+            defaults: defaults,
+            notificationCenter: notificationCenter
+        )
+        XCTAssertTrue(AgentSessionAutoResumeSettings.isEnabled(defaults: defaults))
+        XCTAssertEqual(notificationCount, 2)
+    }
+
     func testSidebarWidthSanitizationClampsToPolicyRange() {
         XCTAssertEqual(
             SessionPersistencePolicy.sanitizedSidebarWidth(-20),
@@ -1031,6 +1076,51 @@ final class SessionPersistenceTests: XCTestCase {
         restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .promptIdle)
         restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .commandRunning)
         let userCommandSnapshot = restored.sessionSnapshot(includeScrollback: false)
+        XCTAssertNil(userCommandSnapshot.panels.first?.terminal?.agent)
+    }
+
+    @MainActor
+    func testDisabledAgentAutoResumeDoesNotInjectStartupInputOnRestore() throws {
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        let sourceIndex = try makeRestorableAgentIndex(
+            workspaceId: source.id,
+            panelId: sourcePanelId,
+            sessionId: "codex-auto-resume-disabled-session",
+            arguments: [
+                "/usr/local/bin/codex",
+                "--model",
+                "gpt-5.4",
+            ]
+        )
+        let snapshot = source.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: sourceIndex
+        )
+
+        let restoredWithAutoResume = Workspace()
+        restoredWithAutoResume.restoreSessionSnapshot(snapshot, autoResumeAgentSessions: true)
+        let autoResumePanelId = try XCTUnwrap(restoredWithAutoResume.focusedPanelId)
+        let autoResumePanel = try XCTUnwrap(restoredWithAutoResume.terminalPanel(for: autoResumePanelId))
+        XCTAssertNotNil(autoResumePanel.surface.debugInitialInput())
+
+        let restoredWithoutAutoResume = Workspace()
+        restoredWithoutAutoResume.restoreSessionSnapshot(snapshot, autoResumeAgentSessions: false)
+        let disabledPanelId = try XCTUnwrap(restoredWithoutAutoResume.focusedPanelId)
+        let disabledPanel = try XCTUnwrap(restoredWithoutAutoResume.terminalPanel(for: disabledPanelId))
+        XCTAssertNil(disabledPanel.surface.debugInitialInput())
+        XCTAssertEqual(
+            restoredWithoutAutoResume.sessionSnapshot(includeScrollback: false)
+                .panels
+                .first?
+                .terminal?
+                .agent?
+                .sessionId,
+            "codex-auto-resume-disabled-session"
+        )
+
+        restoredWithoutAutoResume.updatePanelShellActivityState(panelId: disabledPanelId, state: .commandRunning)
+        let userCommandSnapshot = restoredWithoutAutoResume.sessionSnapshot(includeScrollback: false)
         XCTAssertNil(userCommandSnapshot.panels.first?.terminal?.agent)
     }
 

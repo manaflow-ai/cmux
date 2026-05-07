@@ -419,13 +419,10 @@ final class CmuxSettingsFileStore {
             logInvalid("terminal.showScrollBar", sourcePath: sourcePath)
         }
 
-        for agent in SessionAgent.allCases {
-            let jsonField = VaultAgentVisibilitySettings.jsonField(for: agent)
-            if let value = jsonBool(section[jsonField]) {
-                snapshot.managedUserDefaults[VaultAgentVisibilitySettings.key(for: agent)] = .bool(value)
-            } else if section.keys.contains(jsonField) {
-                logInvalid("terminal.\(jsonField)", sourcePath: sourcePath)
-            }
+        if let value = jsonBool(section["autoResumeAgentSessions"]) {
+            snapshot.managedUserDefaults[AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey] = .bool(value)
+        } else if section.keys.contains("autoResumeAgentSessions") {
+            logInvalid("terminal.autoResumeAgentSessions", sourcePath: sourcePath)
         }
     }
 
@@ -1053,7 +1050,8 @@ final class CmuxSettingsFileStore {
         let notificationCenter = notificationCenter
         let notifyScrollBar = defaultsKey == TerminalScrollBarSettings.showScrollBarKey
         var sideEffects = ManagedDefaultBatchSideEffects()
-        sideEffects.vaultAgentVisibilityDidChange = VaultAgentVisibilitySettings.isDefaultsKey(defaultsKey)
+        sideEffects.agentSessionAutoResumeDidChange =
+            defaultsKey == AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey
         let language = defaultsKey == LanguageSettings.languageKey ? AppLanguage(rawValue: UserDefaults.standard.string(forKey: defaultsKey) ?? "") ?? .system : nil
         let shouldApplyAppearance = defaultsKey == AppearanceSettings.appearanceModeKey
         let appearanceRawValue = shouldApplyAppearance ? UserDefaults.standard.string(forKey: defaultsKey) : nil
@@ -1081,10 +1079,10 @@ final class CmuxSettingsFileStore {
     }
 
     private func applyManagedDefaultBatchSideEffects(_ sideEffects: ManagedDefaultBatchSideEffects) {
-        guard sideEffects.vaultAgentVisibilityDidChange else { return }
+        guard sideEffects.agentSessionAutoResumeDidChange else { return }
         let notificationCenter = notificationCenter
         let apply = {
-            VaultAgentVisibilitySettings.notifyDidChange(notificationCenter: notificationCenter)
+            AgentSessionAutoResumeSettings.notifyDidChange(notificationCenter: notificationCenter)
         }
         if Thread.isMainThread {
             apply()
@@ -1227,10 +1225,7 @@ final class CmuxSettingsFileStore {
             [
                 "terminal": [
                     "showScrollBar": TerminalScrollBarSettings.defaultShowScrollBar,
-                    "vaultShowClaudeSessions": VaultAgentVisibilitySettings.defaultValue,
-                    "vaultShowCodexSessions": VaultAgentVisibilitySettings.defaultValue,
-                    "vaultShowOpenCodeSessions": VaultAgentVisibilitySettings.defaultValue,
-                    "vaultShowRovoDevSessions": VaultAgentVisibilitySettings.defaultValue,
+                    "autoResumeAgentSessions": AgentSessionAutoResumeSettings.defaultAutoResumeAgentSessions,
                 ],
             ],
             [
@@ -1365,10 +1360,11 @@ private struct ResolvedSettingsSnapshot {
 }
 
 private struct ManagedDefaultBatchSideEffects {
-    var vaultAgentVisibilityDidChange = false
+    var agentSessionAutoResumeDidChange = false
 
     mutating func merge(_ other: ManagedDefaultBatchSideEffects) {
-        vaultAgentVisibilityDidChange = vaultAgentVisibilityDidChange || other.vaultAgentVisibilityDidChange
+        agentSessionAutoResumeDidChange =
+            agentSessionAutoResumeDidChange || other.agentSessionAutoResumeDidChange
     }
 }
 

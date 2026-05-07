@@ -16,9 +16,9 @@ final class SettingsSearchIndexTests: XCTestCase {
         assertSearch("disable browser", contains: SettingsSearchIndex.settingID(for: .browser, idSuffix: "enable-browser"))
         assertSearch("http allowlist", contains: SettingsSearchIndex.settingID(for: .browser, idSuffix: "http-allowlist"))
         assertSearch("claude executable", contains: SettingsSearchIndex.settingID(for: .automation, idSuffix: "claude-path"))
-        assertSearch("vault", contains: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "vault-claude"))
-        assertSearch("claude sessions", contains: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "vault-claude"))
-        assertSearch("opencode resume", contains: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "vault-opencode"))
+        assertSearch("resume on reopen", contains: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "agent-auto-resume"))
+        assertSearch("claude sessions", contains: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "agent-auto-resume"))
+        assertSearch("opencode resume", contains: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "agent-auto-resume"))
         assertSearch("ctrl b", contains: SettingsSearchIndex.settingID(for: .keyboardShortcuts, idSuffix: "shortcut-chords"))
         assertSearch("split right", contains: SettingsSearchIndex.settingID(for: .keyboardShortcuts, idSuffix: "shortcuts"))
         assertSearch("factory defaults", contains: SettingsSearchIndex.settingID(for: .reset, idSuffix: "reset-all"))
@@ -31,10 +31,10 @@ final class SettingsSearchIndexTests: XCTestCase {
         )
     }
 
-    func testSettingsPathAnchorIncludesVaultAgentVisibility() {
+    func testSettingsPathAnchorIncludesAgentAutoResume() {
         XCTAssertEqual(
-            SettingsSearchIndex.anchorID(forSettingsPath: "terminal.vaultShowCodexSessions"),
-            SettingsSearchIndex.settingID(for: .terminal, idSuffix: "vault-codex")
+            SettingsSearchIndex.anchorID(forSettingsPath: "terminal.autoResumeAgentSessions"),
+            SettingsSearchIndex.settingID(for: .terminal, idSuffix: "agent-auto-resume")
         )
     }
 

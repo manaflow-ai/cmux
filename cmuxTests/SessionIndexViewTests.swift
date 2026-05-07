@@ -327,6 +327,23 @@ final class SessionIndexViewTests: XCTestCase {
     }
 }
 
+private extension SessionAgent {
+    var defaultSpecificsForTesting: AgentSpecifics {
+        switch self {
+        case .claude:
+            return .claude(model: nil, permissionMode: nil)
+        case .codex:
+            return .codex(model: nil, approvalPolicy: nil, sandboxMode: nil, effort: nil)
+        case .opencode:
+            return .opencode(providerModel: nil, agentName: nil)
+        case .rovodev:
+            return .rovodev
+        case .hermesAgent:
+            return .hermesAgent(source: nil, model: nil, hermesHome: nil)
+        }
+    }
+}
+
 private struct SessionPopoverHarness {
     let host: SectionPopoverHost
     let section: IndexSection

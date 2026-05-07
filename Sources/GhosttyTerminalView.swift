@@ -4395,6 +4395,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
         tmuxStartCommand
     }
 
+    func debugInitialInput() -> String? {
+        initialInput
+    }
+
     func debugPortalHostLease() -> (hostId: String?, paneId: UUID?, inWindow: Bool?, area: CGFloat?) {
         guard let activePortalHostLease else {
             return (nil, nil, nil, nil)
