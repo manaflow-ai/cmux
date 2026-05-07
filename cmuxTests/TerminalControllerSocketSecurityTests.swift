@@ -8,6 +8,94 @@ import Darwin
 @testable import cmux
 #endif
 
+final class CmuxCommandURLRequestTests: XCTestCase {
+    func testParsesCommandURLWithExplicitCWDAndTitle() throws {
+        var components = URLComponents()
+        components.scheme = "cmux"
+        components.host = "run"
+        components.queryItems = [
+            URLQueryItem(name: "command", value: "npm test -- --runInBand"),
+            URLQueryItem(name: "cwd", value: NSTemporaryDirectory()),
+            URLQueryItem(name: "title", value: "Tests")
+        ]
+        let url = try XCTUnwrap(components.url)
+
+        switch CmuxCommandURLRequest.parse(url) {
+        case .success(.some(let request)):
+            XCTAssertEqual(request.command, "npm test -- --runInBand")
+            XCTAssertEqual(request.workingDirectory, URL(fileURLWithPath: NSTemporaryDirectory()).standardizedFileURL.resolvingSymlinksInPath().path)
+            XCTAssertEqual(request.title, "Tests")
+        case .success(nil):
+            XCTFail("Expected command URL request")
+        case .failure(let error):
+            XCTFail("Unexpected parse error: \(error)")
+        }
+    }
+
+    func testIgnoresNonCommandURLs() throws {
+        let authURL = try XCTUnwrap(URL(string: "cmux://auth-callback?stack_refresh=abc&stack_access=def"))
+        let webURL = try XCTUnwrap(URL(string: "https://example.com/run?command=whoami"))
+
+        XCTAssertEqual(try parsedOptional(authURL), nil)
+        XCTAssertEqual(try parsedOptional(webURL), nil)
+    }
+
+    func testRejectsMissingCommand() throws {
+        let url = try XCTUnwrap(URL(string: "cmux://run?title=Missing"))
+
+        switch CmuxCommandURLRequest.parse(url) {
+        case .failure(.missingCommand):
+            break
+        default:
+            XCTFail("Expected missing command rejection")
+        }
+    }
+
+    func testRejectsHiddenControlCharacters() throws {
+        var components = URLComponents()
+        components.scheme = "cmux"
+        components.host = "run"
+        components.queryItems = [
+            URLQueryItem(name: "command", value: "echo ok\nrm -rf ~/Documents")
+        ]
+        let url = try XCTUnwrap(components.url)
+
+        switch CmuxCommandURLRequest.parse(url) {
+        case .failure(.commandContainsControlCharacters):
+            break
+        default:
+            XCTFail("Expected command control character rejection")
+        }
+    }
+
+    func testRejectsInvalidWorkingDirectory() throws {
+        var components = URLComponents()
+        components.scheme = "cmux"
+        components.host = "command"
+        components.queryItems = [
+            URLQueryItem(name: "cmd", value: "pwd"),
+            URLQueryItem(name: "cwd", value: "/definitely/not/a/cmux/url/test/path")
+        ]
+        let url = try XCTUnwrap(components.url)
+
+        switch CmuxCommandURLRequest.parse(url) {
+        case .failure(.workingDirectoryDoesNotExist):
+            break
+        default:
+            XCTFail("Expected missing working directory rejection")
+        }
+    }
+
+    private func parsedOptional(_ url: URL) throws -> CmuxCommandURLRequest? {
+        switch CmuxCommandURLRequest.parse(url) {
+        case .success(let request):
+            return request
+        case .failure(let error):
+            throw error
+        }
+    }
+}
+
 @MainActor
 final class TerminalControllerSocketSecurityTests: XCTestCase {
     private func makeSocketPath(_ name: String) -> String {

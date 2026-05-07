@@ -18618,6 +18618,312 @@
         }
       }
     },
+    "dialog.commandURL.blocked.ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        }
+      }
+    },
+    "dialog.commandURL.blocked.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Link Blocked"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux リンクをブロックしました"
+          }
+        }
+      }
+    },
+    "dialog.commandURL.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャンセル"
+          }
+        }
+      }
+    },
+    "dialog.commandURL.checkbox": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I understand this command can modify or delete my files."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このコマンドがファイルを変更または削除できることを理解しています。"
+          }
+        }
+      }
+    },
+    "dialog.commandURL.commandLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command that will run:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行されるコマンド:"
+          }
+        }
+      }
+    },
+    "dialog.commandURL.cwdLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Working directory: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作業ディレクトリ: %@"
+          }
+        }
+      }
+    },
+    "dialog.commandURL.error.commandContainsControlCharacters": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The command contains hidden control characters, so cmux refused to run it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンドに隠れた制御文字が含まれているため、cmux は実行を拒否しました。"
+          }
+        }
+      }
+    },
+    "dialog.commandURL.error.commandTooLong": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The command is too long. The maximum length is %lld characters."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンドが長すぎます。最大長は %lld 文字です。"
+          }
+        }
+      }
+    },
+    "dialog.commandURL.error.missingCommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The link did not include a command."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクにコマンドが含まれていません。"
+          }
+        }
+      }
+    },
+    "dialog.commandURL.error.titleContainsControlCharacters": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The workspace title contains hidden control characters, so cmux refused to use it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース名に隠れた制御文字が含まれているため、cmux は使用を拒否しました。"
+          }
+        }
+      }
+    },
+    "dialog.commandURL.error.titleTooLong": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The workspace title is too long. The maximum length is %lld characters."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース名が長すぎます。最大長は %lld 文字です。"
+          }
+        }
+      }
+    },
+    "dialog.commandURL.error.workingDirectoryContainsControlCharacters": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The working directory contains hidden control characters, so cmux refused to use it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作業ディレクトリに隠れた制御文字が含まれているため、cmux は使用を拒否しました。"
+          }
+        }
+      }
+    },
+    "dialog.commandURL.error.workingDirectoryDoesNotExist": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The working directory does not exist:\n\n%@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作業ディレクトリが存在しません:\n\n%@"
+          }
+        }
+      }
+    },
+    "dialog.commandURL.error.workingDirectoryIsNotDirectory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The working directory is not a folder:\n\n%@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作業ディレクトリがフォルダではありません:\n\n%@"
+          }
+        }
+      }
+    },
+    "dialog.commandURL.error.workingDirectoryTooLong": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The working directory path is too long. The maximum length is %lld characters."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作業ディレクトリのパスが長すぎます。最大長は %lld 文字です。"
+          }
+        }
+      }
+    },
+    "dialog.commandURL.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A cmux:// link is asking cmux to run a shell command in a new terminal. cmux cannot verify which website or app opened this link.\n\nThis command will run as your macOS user. It can read or change files, use local credentials, start network connections, install software, or delete data.\n\nOnly continue if you created this link or fully trust it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux:// リンクが、新しいターミナルでシェルコマンドを実行するよう cmux に要求しています。cmux は、このリンクを開いた Web サイトやアプリを確認できません。\n\nこのコマンドは macOS ユーザーとして実行されます。ファイルの読み取りや変更、ローカル認証情報の使用、ネットワーク接続、ソフトウェアのインストール、データの削除が可能です。\n\nこのリンクを自分で作成した場合、または完全に信頼している場合のみ続行してください。"
+          }
+        }
+      }
+    },
+    "dialog.commandURL.run": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run Command"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンドを実行"
+          }
+        }
+      }
+    },
+    "dialog.commandURL.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run a Command From an External Link?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "外部リンクからコマンドを実行しますか？"
+          }
+        }
+      }
+    },
     "dialog.cmuxConfig.confirmCommand.messageWithCommand": {
       "extractionState": "manual",
       "localizations": {

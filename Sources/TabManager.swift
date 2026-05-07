@@ -1054,8 +1054,18 @@ class TabManager: ObservableObject {
     private var uiTestCancellables = Set<AnyCancellable>()
 #endif
 
-    init(initialWorkingDirectory: String? = nil) {
-        addWorkspace(workingDirectory: initialWorkingDirectory)
+    init(
+        initialWorkspaceTitle: String? = nil,
+        initialWorkingDirectory: String? = nil,
+        initialTerminalInput: String? = nil,
+        autoWelcomeIfNeeded: Bool = true
+    ) {
+        addWorkspace(
+            title: initialWorkspaceTitle,
+            workingDirectory: initialWorkingDirectory,
+            initialTerminalInput: initialTerminalInput,
+            autoWelcomeIfNeeded: autoWelcomeIfNeeded
+        )
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidSetTitle,
             object: nil,

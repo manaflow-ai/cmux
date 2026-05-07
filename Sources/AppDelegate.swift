@@ -21,6 +21,137 @@ func cmuxJavaScriptStringLiteral(_ value: String?) -> String? {
     return String(arrayLiteral.dropFirst().dropLast())
 }
 
+enum CmuxCommandURLParseError: Error, Equatable {
+    case missingCommand
+    case commandTooLong(maxLength: Int)
+    case commandContainsControlCharacters
+    case titleTooLong(maxLength: Int)
+    case titleContainsControlCharacters
+    case workingDirectoryTooLong(maxLength: Int)
+    case workingDirectoryContainsControlCharacters
+    case workingDirectoryDoesNotExist(String)
+    case workingDirectoryIsNotDirectory(String)
+}
+
+struct CmuxCommandURLRequest: Equatable {
+    static let maxCommandLength = 4096
+    static let maxTitleLength = 160
+    static let maxWorkingDirectoryLength = 4096
+
+    let originalURL: URL
+    let command: String
+    let workingDirectory: String?
+    let title: String?
+
+    static func parse(_ url: URL, fileManager: FileManager = .default) -> Result<CmuxCommandURLRequest?, CmuxCommandURLParseError> {
+        guard isSupportedScheme(url.scheme) else {
+            return .success(nil)
+        }
+        guard commandTarget(from: url) else {
+            return .success(nil)
+        }
+
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return .failure(.missingCommand)
+        }
+
+        let queryItems = components.queryItems ?? []
+        let command = firstQueryValue(namedAnyOf: ["command", "cmd"], in: queryItems)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let command, !command.isEmpty else {
+            return .failure(.missingCommand)
+        }
+        guard command.count <= maxCommandLength else {
+            return .failure(.commandTooLong(maxLength: maxCommandLength))
+        }
+        guard !containsControlCharacter(command) else {
+            return .failure(.commandContainsControlCharacters)
+        }
+
+        let title = firstQueryValue(namedAnyOf: ["title", "name"], in: queryItems)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let title, !title.isEmpty {
+            guard title.count <= maxTitleLength else {
+                return .failure(.titleTooLong(maxLength: maxTitleLength))
+            }
+            guard !containsControlCharacter(title) else {
+                return .failure(.titleContainsControlCharacters)
+            }
+        }
+
+        let workingDirectory = firstQueryValue(namedAnyOf: ["cwd", "working_directory", "dir"], in: queryItems)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedWorkingDirectory: String?
+        if let workingDirectory, !workingDirectory.isEmpty {
+            guard workingDirectory.count <= maxWorkingDirectoryLength else {
+                return .failure(.workingDirectoryTooLong(maxLength: maxWorkingDirectoryLength))
+            }
+            guard !containsControlCharacter(workingDirectory) else {
+                return .failure(.workingDirectoryContainsControlCharacters)
+            }
+            let resolved = URL(fileURLWithPath: NSString(string: workingDirectory).expandingTildeInPath)
+                .standardizedFileURL
+                .resolvingSymlinksInPath()
+                .path
+            var isDirectory: ObjCBool = false
+            guard fileManager.fileExists(atPath: resolved, isDirectory: &isDirectory) else {
+                return .failure(.workingDirectoryDoesNotExist(resolved))
+            }
+            guard isDirectory.boolValue else {
+                return .failure(.workingDirectoryIsNotDirectory(resolved))
+            }
+            normalizedWorkingDirectory = resolved
+        } else {
+            normalizedWorkingDirectory = nil
+        }
+
+        return .success(
+            CmuxCommandURLRequest(
+                originalURL: url,
+                command: command,
+                workingDirectory: normalizedWorkingDirectory,
+                title: title?.isEmpty == false ? title : nil
+            )
+        )
+    }
+
+    private static func isSupportedScheme(_ scheme: String?) -> Bool {
+        guard let scheme = scheme?.lowercased() else { return false }
+        return scheme == "cmux" || scheme == "cmux-dev"
+    }
+
+    private static func commandTarget(from url: URL) -> Bool {
+        if let host = url.host?.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased(),
+           !host.isEmpty {
+            return host == "run" || host == "command"
+        }
+
+        let firstPathComponent = url.path
+            .split(separator: "/")
+            .first
+            .map { String($0).lowercased() }
+        return firstPathComponent == "run" || firstPathComponent == "command"
+    }
+
+    private static func firstQueryValue(namedAnyOf names: Set<String>, in queryItems: [URLQueryItem]) -> String? {
+        queryItems.first { names.contains($0.name.lowercased()) }?.value
+    }
+
+    private static func containsControlCharacter(_ value: String) -> Bool {
+        value.unicodeScalars.contains { scalar in
+            scalar.value < 0x20 || scalar.value == 0x7f
+        }
+    }
+}
+
+private final class CmuxCommandURLConfirmationGate: NSObject {
+    weak var runButton: NSButton?
+
+    @objc func checkboxChanged(_ sender: NSButton) {
+        runButton?.isEnabled = sender.state == .on
+    }
+}
+
 /// Caches `AXWindows` responses so repeated AX polls can reuse the same
 /// snapshot while the app window graph is unchanged. Only `.windows` is
 /// cached; `.children` and `.visibleChildren` fall through to AppKit so the
@@ -943,6 +1074,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 } catch {
                     NSLog("auth.callback failed: %@", "\(error)")
                 }
+            }
+        }
+
+        let nonAuthURLs = urls.filter { !AuthCallbackRouter.isAuthCallbackURL($0) }
+        for url in nonAuthURLs {
+            switch CmuxCommandURLRequest.parse(url) {
+            case .success(.some(let request)):
+                handleCmuxCommandURLRequest(request)
+            case .success(nil):
+                break
+            case .failure(let error):
+                showCmuxCommandURLParseError(error)
             }
         }
 
@@ -6350,6 +6493,242 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    private func handleCmuxCommandURLRequest(_ request: CmuxCommandURLRequest) {
+        prepareForExplicitOpenIntentAtStartup()
+        NSApp.activate(ignoringOtherApps: true)
+
+#if DEBUG
+        cmuxDebugLog("commandURL.prompt url=\(request.originalURL.absoluteString)")
+#endif
+
+        guard confirmCmuxCommandURLRequest(request) else {
+#if DEBUG
+            cmuxDebugLog("commandURL.cancelled")
+#endif
+            return
+        }
+
+        _ = openWorkspaceForCommandURLRequest(request)
+    }
+
+    @discardableResult
+    private func openWorkspaceForCommandURLRequest(_ request: CmuxCommandURLRequest) -> UUID? {
+        let initialInput = request.command + "\n"
+        if let context = preferredMainWindowContextForWorkspaceCreation(debugSource: "commandURL.open"),
+           let window = resolvedWindow(for: context) {
+            setActiveMainWindow(window)
+            bringToFront(window)
+            let workspace = context.tabManager.addWorkspace(
+                title: request.title,
+                workingDirectory: request.workingDirectory,
+                initialTerminalInput: initialInput,
+                select: true,
+                autoWelcomeIfNeeded: false
+            )
+#if DEBUG
+            cmuxDebugLog("commandURL.created workspace=\(workspace.id.uuidString.prefix(8))")
+#endif
+            return workspace.id
+        }
+
+        let windowId = createMainWindow(
+            initialWorkspaceTitle: request.title,
+            initialWorkingDirectory: request.workingDirectory,
+            initialTerminalInput: initialInput
+        )
+#if DEBUG
+        cmuxDebugLog("commandURL.createdWindow window=\(windowId.uuidString.prefix(8))")
+#endif
+        return tabManagerFor(windowId: windowId)?.selectedTabId
+    }
+
+    private func confirmCmuxCommandURLRequest(_ request: CmuxCommandURLRequest) -> Bool {
+        let alert = NSAlert()
+        alert.alertStyle = .critical
+        alert.messageText = String(
+            localized: "dialog.commandURL.title",
+            defaultValue: "Run a Command From an External Link?"
+        )
+        alert.informativeText = String(
+            localized: "dialog.commandURL.message",
+            defaultValue: "A cmux:// link is asking cmux to run a shell command in a new terminal. cmux cannot verify which website or app opened this link.\n\nThis command will run as your macOS user. It can read or change files, use local credentials, start network connections, install software, or delete data.\n\nOnly continue if you created this link or fully trust it."
+        )
+
+        let cancelTitle = String(localized: "dialog.commandURL.cancel", defaultValue: "Cancel")
+        let runTitle = String(localized: "dialog.commandURL.run", defaultValue: "Run Command")
+        alert.addButton(withTitle: cancelTitle)
+        alert.addButton(withTitle: runTitle)
+
+        let cancelButton = alert.buttons[0]
+        cancelButton.keyEquivalent = "\r"
+        if alert.buttons.count > 1 {
+            let runButton = alert.buttons[1]
+            runButton.keyEquivalent = ""
+            runButton.isEnabled = false
+            if #available(macOS 11.0, *) {
+                runButton.hasDestructiveAction = true
+            }
+        }
+
+        let gate = CmuxCommandURLConfirmationGate()
+        if alert.buttons.count > 1 {
+            gate.runButton = alert.buttons[1]
+        }
+        alert.accessoryView = cmuxCommandURLAccessoryView(request: request, gate: gate)
+
+        let response: NSApplication.ModalResponse = withExtendedLifetime(gate) {
+            alert.runModal()
+        }
+        return response == .alertSecondButtonReturn
+    }
+
+    private func cmuxCommandURLAccessoryView(
+        request: CmuxCommandURLRequest,
+        gate: CmuxCommandURLConfirmationGate
+    ) -> NSView {
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 8
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        let commandLabel = NSTextField(labelWithString: String(
+            localized: "dialog.commandURL.commandLabel",
+            defaultValue: "Command that will run:"
+        ))
+        commandLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
+
+        let commandScrollView = cmuxCommandURLTextPreview(request.command, height: 120)
+
+        stack.addArrangedSubview(commandLabel)
+        stack.addArrangedSubview(commandScrollView)
+
+        if let workingDirectory = request.workingDirectory {
+            let cwdLabel = NSTextField(labelWithString: String(
+                format: String(localized: "dialog.commandURL.cwdLabel", defaultValue: "Working directory: %@"),
+                workingDirectory
+            ))
+            cwdLabel.lineBreakMode = .byTruncatingMiddle
+            cwdLabel.maximumNumberOfLines = 1
+            stack.addArrangedSubview(cwdLabel)
+            NSLayoutConstraint.activate([
+                cwdLabel.widthAnchor.constraint(equalToConstant: 560)
+            ])
+        }
+
+        let checkbox = NSButton(
+            checkboxWithTitle: String(
+                localized: "dialog.commandURL.checkbox",
+                defaultValue: "I understand this command can modify or delete my files."
+            ),
+            target: gate,
+            action: #selector(CmuxCommandURLConfirmationGate.checkboxChanged(_:))
+        )
+        checkbox.lineBreakMode = .byWordWrapping
+        stack.addArrangedSubview(checkbox)
+
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 560, height: request.workingDirectory == nil ? 170 : 198))
+        container.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            stack.topAnchor.constraint(equalTo: container.topAnchor),
+            stack.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            commandScrollView.widthAnchor.constraint(equalTo: container.widthAnchor),
+            checkbox.widthAnchor.constraint(equalTo: container.widthAnchor)
+        ])
+        return container
+    }
+
+    private func cmuxCommandURLTextPreview(_ text: String, height: CGFloat) -> NSScrollView {
+        let textView = NSTextView(frame: .zero)
+        textView.string = text
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.drawsBackground = true
+        textView.backgroundColor = NSColor.textBackgroundColor
+        textView.textColor = NSColor.labelColor
+        textView.font = NSFont.monospacedSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
+        textView.textContainerInset = NSSize(width: 8, height: 8)
+        textView.isHorizontallyResizable = false
+        textView.isVerticallyResizable = true
+        textView.textContainer?.widthTracksTextView = true
+
+        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 560, height: height))
+        scrollView.borderType = .bezelBorder
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.documentView = textView
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            scrollView.heightAnchor.constraint(equalToConstant: height)
+        ])
+        return scrollView
+    }
+
+    private func showCmuxCommandURLParseError(_ error: CmuxCommandURLParseError) {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.alertStyle = .critical
+        alert.messageText = String(
+            localized: "dialog.commandURL.blocked.title",
+            defaultValue: "cmux Link Blocked"
+        )
+        alert.informativeText = cmuxCommandURLParseErrorMessage(error)
+        alert.addButton(withTitle: String(localized: "dialog.commandURL.blocked.ok", defaultValue: "OK"))
+        alert.runModal()
+    }
+
+    private func cmuxCommandURLParseErrorMessage(_ error: CmuxCommandURLParseError) -> String {
+        switch error {
+        case .missingCommand:
+            return String(
+                localized: "dialog.commandURL.error.missingCommand",
+                defaultValue: "The link did not include a command."
+            )
+        case .commandTooLong(let maxLength):
+            return String(
+                format: String(localized: "dialog.commandURL.error.commandTooLong", defaultValue: "The command is too long. The maximum length is %lld characters."),
+                maxLength
+            )
+        case .commandContainsControlCharacters:
+            return String(
+                localized: "dialog.commandURL.error.commandContainsControlCharacters",
+                defaultValue: "The command contains hidden control characters, so cmux refused to run it."
+            )
+        case .titleTooLong(let maxLength):
+            return String(
+                format: String(localized: "dialog.commandURL.error.titleTooLong", defaultValue: "The workspace title is too long. The maximum length is %lld characters."),
+                maxLength
+            )
+        case .titleContainsControlCharacters:
+            return String(
+                localized: "dialog.commandURL.error.titleContainsControlCharacters",
+                defaultValue: "The workspace title contains hidden control characters, so cmux refused to use it."
+            )
+        case .workingDirectoryTooLong(let maxLength):
+            return String(
+                format: String(localized: "dialog.commandURL.error.workingDirectoryTooLong", defaultValue: "The working directory path is too long. The maximum length is %lld characters."),
+                maxLength
+            )
+        case .workingDirectoryContainsControlCharacters:
+            return String(
+                localized: "dialog.commandURL.error.workingDirectoryContainsControlCharacters",
+                defaultValue: "The working directory contains hidden control characters, so cmux refused to use it."
+            )
+        case .workingDirectoryDoesNotExist(let path):
+            return String(
+                format: String(localized: "dialog.commandURL.error.workingDirectoryDoesNotExist", defaultValue: "The working directory does not exist:\n\n%@"),
+                path
+            )
+        case .workingDirectoryIsNotDirectory(let path):
+            return String(
+                format: String(localized: "dialog.commandURL.error.workingDirectoryIsNotDirectory", defaultValue: "The working directory is not a folder:\n\n%@"),
+                path
+            )
+        }
+    }
+
     private func externalOpenDirectories(from urls: [URL]) -> [String] {
         // LaunchServices can surface the running app bundle on relaunch; ignore self paths so
         // they do not get treated as explicit folder opens and suppress session restore.
@@ -6789,13 +7168,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func createMainWindow(
+        initialWorkspaceTitle: String? = nil,
         initialWorkingDirectory: String? = nil,
+        initialTerminalInput: String? = nil,
         sessionWindowSnapshot: SessionWindowSnapshot? = nil,
         shouldActivate: Bool = true,
         sourceWindow preferredSourceWindow: NSWindow? = nil
     ) -> UUID {
         let windowId = UUID()
-        let tabManager = TabManager(initialWorkingDirectory: initialWorkingDirectory)
+        let tabManager = TabManager(
+            initialWorkspaceTitle: initialWorkspaceTitle,
+            initialWorkingDirectory: initialWorkingDirectory,
+            initialTerminalInput: initialTerminalInput,
+            autoWelcomeIfNeeded: initialTerminalInput == nil
+        )
         if let tabManagerSnapshot = sessionWindowSnapshot?.tabManager {
             tabManager.restoreSessionSnapshot(tabManagerSnapshot)
         }
