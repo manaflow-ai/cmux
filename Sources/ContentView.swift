@@ -5995,9 +5995,7 @@ struct ContentView: View {
         visibleResultsScopeMatches: Bool,
         resolvedSearchScopeMatches: Bool,
         resolvedSearchFingerprintMatches: Bool,
-        resolvedResultsAreEmpty: Bool,
-        currentMatchingQuery: String,
-        resolvedMatchingQuery: String
+        resolvedResultsAreEmpty: Bool
     ) -> Bool {
         guard isSearchPending,
               visibleResultsScopeMatches,
@@ -8541,9 +8539,7 @@ struct ContentView: View {
             visibleResultsScopeMatches: commandPaletteVisibleResultsScope == commandPaletteListScope,
             resolvedSearchScopeMatches: commandPaletteResolvedSearchScope == commandPaletteListScope,
             resolvedSearchFingerprintMatches: commandPaletteResolvedSearchFingerprint == commandPaletteVisibleResultsFingerprint,
-            resolvedResultsAreEmpty: cachedCommandPaletteResults.isEmpty,
-            currentMatchingQuery: commandPaletteQueryForMatching,
-            resolvedMatchingQuery: commandPaletteResolvedMatchingQuery
+            resolvedResultsAreEmpty: cachedCommandPaletteResults.isEmpty
         )
     }
 

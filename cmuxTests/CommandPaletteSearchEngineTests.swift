@@ -492,9 +492,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 visibleResultsScopeMatches: true,
                 resolvedSearchScopeMatches: true,
                 resolvedSearchFingerprintMatches: true,
-                resolvedResultsAreEmpty: true,
-                currentMatchingQuery: "zzzzzzzz",
-                resolvedMatchingQuery: "zzzzzzzz"
+                resolvedResultsAreEmpty: true
             )
         )
     }
@@ -506,9 +504,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 visibleResultsScopeMatches: true,
                 resolvedSearchScopeMatches: true,
                 resolvedSearchFingerprintMatches: true,
-                resolvedResultsAreEmpty: true,
-                currentMatchingQuery: "zzzzzzzz",
-                resolvedMatchingQuery: "zzzzzzzz"
+                resolvedResultsAreEmpty: true
             )
         )
     }
@@ -520,9 +516,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 visibleResultsScopeMatches: true,
                 resolvedSearchScopeMatches: true,
                 resolvedSearchFingerprintMatches: true,
-                resolvedResultsAreEmpty: true,
-                currentMatchingQuery: "aXbY",
-                resolvedMatchingQuery: "aXbc"
+                resolvedResultsAreEmpty: true
             )
         )
     }
@@ -534,9 +528,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 visibleResultsScopeMatches: false,
                 resolvedSearchScopeMatches: true,
                 resolvedSearchFingerprintMatches: true,
-                resolvedResultsAreEmpty: true,
-                currentMatchingQuery: "zzzzzzzzz",
-                resolvedMatchingQuery: "zzzzzzzz"
+                resolvedResultsAreEmpty: true
             )
         )
         XCTAssertFalse(
@@ -545,9 +537,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 visibleResultsScopeMatches: true,
                 resolvedSearchScopeMatches: false,
                 resolvedSearchFingerprintMatches: true,
-                resolvedResultsAreEmpty: true,
-                currentMatchingQuery: "zzzzzzzzz",
-                resolvedMatchingQuery: "zzzzzzzz"
+                resolvedResultsAreEmpty: true
             )
         )
         XCTAssertFalse(
@@ -556,9 +546,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 visibleResultsScopeMatches: true,
                 resolvedSearchScopeMatches: true,
                 resolvedSearchFingerprintMatches: false,
-                resolvedResultsAreEmpty: true,
-                currentMatchingQuery: "zzzzzzzzz",
-                resolvedMatchingQuery: "zzzzzzzz"
+                resolvedResultsAreEmpty: true
             )
         )
         XCTAssertFalse(
@@ -567,9 +555,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 visibleResultsScopeMatches: true,
                 resolvedSearchScopeMatches: true,
                 resolvedSearchFingerprintMatches: true,
-                resolvedResultsAreEmpty: false,
-                currentMatchingQuery: "zzzzzzzzz",
-                resolvedMatchingQuery: "zzzzzzzz"
+                resolvedResultsAreEmpty: false
             )
         )
     }
