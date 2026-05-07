@@ -266,10 +266,8 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
                 let activeScopeKeys = Set(sampledProcesses.map { scopeCacheKey(from: $0) })
                 let sampledAtNanoseconds = cpuSampleClockNanoseconds()
                 var currentCPUSamples: [CmuxTopProcessScopeCacheKey: CmuxTopProcessCPUSample] = [:]
-                var processInfos: [CmuxTopProcessInfo] = []
-                var processCPUKeys: [CmuxTopProcessScopeCacheKey?] = []
-                processInfos.reserveCapacity(sampledProcesses.count)
-                processCPUKeys.reserveCapacity(sampledProcesses.count)
+                var processRecords: [(info: CmuxTopProcessInfo, cpuSampleKey: CmuxTopProcessScopeCacheKey?)] = []
+                processRecords.reserveCapacity(sampledProcesses.count)
                 for process in sampledProcesses {
                     guard let processRecord = processInfo(
                         from: process,
@@ -279,21 +277,20 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
                     ) else {
                         continue
                     }
-                    processInfos.append(processRecord.info)
-                    processCPUKeys.append(processRecord.cpuSampleKey)
+                    processRecords.append(processRecord)
                 }
                 let cpuPercentages = cpuPercentages(
                     for: currentCPUSamples,
                     activeKeys: activeScopeKeys,
                     sampledAtNanoseconds: sampledAtNanoseconds
                 )
-                for index in processInfos.indices {
-                    guard let key = processCPUKeys[index],
+                for index in processRecords.indices {
+                    guard let key = processRecords[index].cpuSampleKey,
                           let cpuPercent = cpuPercentages[key] else { continue }
-                    processInfos[index].cpuPercent = cpuPercent
+                    processRecords[index].info.cpuPercent = cpuPercent
                 }
                 pruneCMUXScopeCache(activeKeys: activeScopeKeys)
-                return processInfos
+                return processRecords.map(\.info)
             }
 
             guard errno == ENOMEM else {

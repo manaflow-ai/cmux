@@ -56,10 +56,10 @@ private nonisolated final class CmuxTopProcessCPUTracker: @unchecked Sendable {
 }
 
 private nonisolated let cmuxTopProcessCPUTracker = CmuxTopProcessCPUTracker()
-private nonisolated let cmuxTopAbsoluteTimeNanosecondsRatio: Double = {
+private nonisolated let cmuxTopAbsoluteTimeNanosecondsRatio: Double? = {
     var info = mach_timebase_info_data_t()
     guard mach_timebase_info(&info) == KERN_SUCCESS, info.denom > 0 else {
-        return 1
+        return nil
     }
     return Double(info.numer) / Double(info.denom)
 }()
@@ -107,7 +107,7 @@ nonisolated extension CmuxTopProcessSnapshot {
         let wallDeltaNanoseconds = current.sampledAtNanoseconds - previous.sampledAtNanoseconds
         guard wallDeltaNanoseconds > 0 else { return 0 }
 
-        let cpuNanoseconds = absoluteTimeNanoseconds(cpuDelta)
+        guard let cpuNanoseconds = absoluteTimeNanoseconds(cpuDelta) else { return 0 }
         let wallNanoseconds = Double(wallDeltaNanoseconds)
 
         return max(0, cpuNanoseconds / wallNanoseconds * 100.0)
@@ -118,7 +118,8 @@ nonisolated extension CmuxTopProcessSnapshot {
         return overflow ? UInt64.max : sum
     }
 
-    private static func absoluteTimeNanoseconds(_ ticks: UInt64) -> Double {
-        Double(ticks) * cmuxTopAbsoluteTimeNanosecondsRatio
+    private static func absoluteTimeNanoseconds(_ ticks: UInt64) -> Double? {
+        guard let ratio = cmuxTopAbsoluteTimeNanosecondsRatio else { return nil }
+        return Double(ticks) * ratio
     }
 }
