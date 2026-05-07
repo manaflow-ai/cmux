@@ -5181,7 +5181,6 @@ struct SettingsView: View {
     @State private var searchHighlightToken = 0
     @State private var searchHighlightStartedAt: Date?
     @State private var settingsNavigationGeneration = 0
-    @State private var pendingVisibleSectionUpdate: SettingsNavigationTarget?
     var onVisibleSectionChanged: ((SettingsNavigationTarget) -> Void)? = nil
 
     @AppStorage(LanguageSettings.languageKey) private var appLanguage = LanguageSettings.defaultLanguage.rawValue
@@ -7227,10 +7226,9 @@ struct SettingsView: View {
             }
         .coordinateSpace(name: SettingsSectionTracker.scrollCoordinateSpaceName)
         .onPreferenceChange(SettingsSectionTrackerKey.self) { entries in
-            computeVisibleSection(entries)
-        }
-        .onChange(of: pendingVisibleSectionUpdate) { _, newValue in
-            guard let target = newValue else { return }
+            // Pure-function pick so we never mutate `@State` from a render
+            // callback; the parent owns any state changes via the callback.
+            guard let target = SettingsSectionTracker.visibleTarget(from: entries) else { return }
             onVisibleSectionChanged?(target)
         }
         .toggleStyle(.switch)
@@ -7509,19 +7507,6 @@ struct SettingsView: View {
 
     private func refreshDetectedImportBrowsers() {
         detectedImportBrowsers = InstalledBrowserDetector.detectInstalledBrowsers()
-    }
-
-    private func computeVisibleSection(_ entries: [SettingsSectionTrackerEntry]) {
-        let headerThreshold: CGFloat = 32
-        let candidates = entries.filter { $0.minY <= headerThreshold }
-        let target: SettingsNavigationTarget?
-        if let chosen = candidates.max(by: { $0.minY < $1.minY }) {
-            target = chosen.target
-        } else {
-            target = entries.min(by: { $0.minY < $1.minY })?.target
-        }
-        guard let target, pendingVisibleSectionUpdate != target else { return }
-        pendingVisibleSectionUpdate = target
     }
 }
 
@@ -8201,6 +8186,15 @@ private struct SettingsRootView: View {
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var searchText = ""
     @State private var pendingNavigationTarget: SettingsNavigationTarget?
+    @State private var pendingLayoutPassesObserved = 0
+
+    /// Maximum number of preference-driven layout passes we'll wait for the
+    /// programmatic scroll to reach `pendingNavigationTarget` before lifting
+    /// the suppression flag unconditionally. Sized to comfortably cover a
+    /// standard SwiftUI scroll animation (~300–500 ms at 60 fps); after the
+    /// animation finishes there are no further layout passes, so the budget
+    /// is only consumed while scroll work is actually happening.
+    private static let pendingScrollSettleBudget = 60
 
     private var selectedSection: SettingsNavigationTarget {
         SettingsNavigationTarget(rawValue: selectedSectionRaw) ?? .account
@@ -8270,12 +8264,27 @@ private struct SettingsRootView: View {
 
     private func handleVisibleSectionChanged(_ target: SettingsNavigationTarget) {
         if let pending = pendingNavigationTarget {
-            // Exact match or we've scrolled past the pending section (the
-            // reported section precedes it in layout order, meaning the
-            // pending header is already above the viewport).
-            let allCases = SettingsNavigationTarget.allCases
-            if target == pending || allCases.firstIndex(of: target).map({ $0 >= allCases.firstIndex(of: pending)! }) == true {
+            // Programmatic scroll reached the requested section; resume sync.
+            if target == pending {
                 pendingNavigationTarget = nil
+                pendingLayoutPassesObserved = 0
+                return
+            }
+            // Greptile P1: terminal sections (e.g. `.reset`) whose header can
+            // never cross the visibility threshold — because there is not
+            // enough content below them to scroll the header upward — would
+            // leave `pendingNavigationTarget` set forever, permanently
+            // breaking the auto-sync feature for the rest of the session. We
+            // count the layout passes observed while pending and force-clear
+            // the suppression flag after a generous budget. Crucially, we
+            // keep the user's clicked sidebar selection intact (no call to
+            // `navigate`) so the highlight reflects the intent of their
+            // click rather than the section that happened to settle below
+            // the threshold.
+            pendingLayoutPassesObserved += 1
+            if pendingLayoutPassesObserved >= Self.pendingScrollSettleBudget {
+                pendingNavigationTarget = nil
+                pendingLayoutPassesObserved = 0
             }
             return
         }
@@ -8284,10 +8293,12 @@ private struct SettingsRootView: View {
     }
 
     private func beginProgrammaticScroll(to target: SettingsNavigationTarget) {
-        // .browserImport has no tracking header; map to .browser so the
-        // pending target clears when the browser section scrolls into view.
+        // `.browserImport` has no tracking header (it is a sub-section of
+        // `.browser`); map it so the pending target can be matched against
+        // a section that actually reports visibility.
         let trackedTarget: SettingsNavigationTarget = target == .browserImport ? .browser : target
         pendingNavigationTarget = trackedTarget
+        pendingLayoutPassesObserved = 0
     }
 
     private func selectSidebarEntry(_ entryID: String) {

@@ -113,6 +113,23 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
 
 enum SettingsSectionTracker {
     static let scrollCoordinateSpaceName = "cmux.settings.detail.scroll"
+
+    /// Header offset (relative to the named scroll coordinate space) below
+    /// which a section header is considered "above" the visible region. The
+    /// section with the largest minY <= this threshold is what the sidebar
+    /// should highlight.
+    static let visibilityThreshold: CGFloat = 32
+
+    /// Pure helper for picking the visible section from preference entries.
+    /// Kept here so call sites can invoke it without mutating any `@State`
+    /// in their `onPreferenceChange` callbacks.
+    static func visibleTarget(from entries: [SettingsSectionTrackerEntry]) -> SettingsNavigationTarget? {
+        let candidates = entries.filter { $0.minY <= visibilityThreshold }
+        if let chosen = candidates.max(by: { $0.minY < $1.minY }) {
+            return chosen.target
+        }
+        return entries.min(by: { $0.minY < $1.minY })?.target
+    }
 }
 
 struct SettingsSectionTrackerEntry: Equatable {
