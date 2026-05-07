@@ -7,7 +7,7 @@ nonisolated struct CmuxTopProcessCPUSample: Sendable {
     let sampledAtNanoseconds: UInt64
 }
 
-private struct CmuxTopProcessCPUTrackerState: Sendable {
+private nonisolated struct CmuxTopProcessCPUTrackerState: Sendable {
     var samples: [CmuxTopProcessScopeCacheKey: CmuxTopProcessCPUSample] = [:]
     var latestPrunedAtNanoseconds: UInt64 = 0
 }
