@@ -5815,6 +5815,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     ])
     private static let tabTransferPasteboardType = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
     private static let sidebarTabReorderPasteboardType = NSPasteboard.PasteboardType("com.cmux.sidebar-tab-reorder")
+    private static let rightOptionModifierFlag = NSEvent.ModifierFlags(rawValue: UInt(NX_DEVICERALTKEYMASK))
 
     private enum WordPathResolutionSource: String {
         case quicklook
@@ -5907,6 +5908,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     fileprivate private(set) var keyboardCopyModeActive = false
     private var wordPathHoverActive = false
     private var keyboardCopyModeConsumedKeyUps: Set<UInt16> = []
+    private var rightOptionModifierDown = false
+    private var rightOptionFallbackToggleArmed = true
     private var keyboardCopyModeInputState = TerminalKeyboardCopyModeInputState()
     private var keyboardCopyModeViewportRow: Int?
     /// Tracks whether the user has explicitly entered visual selection mode (v).
@@ -7026,6 +7029,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if result {
             desiredFocus = false
             terminalSurface?.recordExternalFocusState(false)
+            rightOptionModifierDown = false
+            rightOptionFallbackToggleArmed = true
         }
         if result, let surface = surface {
             let now = CACurrentMediaTime()
@@ -7070,6 +7075,37 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     func clearIMEPointForTesting() {
         imePointOverrideForTesting = nil
+    }
+
+    func debugSetRightOptionModifierDownForUITest(_ isDown: Bool) {
+        rightOptionModifierDown = isDown
+    }
+
+    func debugSetRightOptionFallbackToggleArmedForUITest(_ isArmed: Bool) {
+        rightOptionFallbackToggleArmed = isArmed
+    }
+
+    @discardableResult
+    func debugSimulateFlagsChangedForUITest(
+        keyCode: UInt16,
+        modifierFlags: NSEvent.ModifierFlags
+    ) -> Bool {
+        guard let window else { return false }
+        let timestamp = ProcessInfo.processInfo.systemUptime
+        guard let event = NSEvent.keyEvent(
+            with: .flagsChanged,
+            location: .zero,
+            modifierFlags: modifierFlags,
+            timestamp: timestamp,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "",
+            charactersIgnoringModifiers: "",
+            isARepeat: false,
+            keyCode: keyCode
+        ) else { return false }
+        flagsChanged(with: event)
+        return true
     }
 #endif
 
@@ -7382,7 +7418,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 )
                 ghosttySendMs = (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
                 #else
-                handled = ghostty_surface_key(surface, keyEvent)
+                handled = sendGhosttyKey(surface, keyEvent)
                 #endif
             } else {
                 #if DEBUG
@@ -7391,7 +7427,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 #endif
                 handled = text.withCString { ptr in
                     keyEvent.text = ptr
-                    return ghostty_surface_key(surface, keyEvent)
+                    return sendGhosttyKey(surface, keyEvent)
                 }
                 #if DEBUG
                 ghosttySendMs = (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
@@ -7420,27 +7456,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         // Translate mods to respect Ghostty config (e.g., macos-option-as-alt)
         let translationModsGhostty = ghostty_surface_key_translation_mods(surface, modsFromEvent(event))
-        var translationMods = event.modifierFlags
-        for flag in [NSEvent.ModifierFlags.shift, .control, .option, .command] {
-            let hasFlag: Bool
-            switch flag {
-            case .shift:
-                hasFlag = (translationModsGhostty.rawValue & GHOSTTY_MODS_SHIFT.rawValue) != 0
-            case .control:
-                hasFlag = (translationModsGhostty.rawValue & GHOSTTY_MODS_CTRL.rawValue) != 0
-            case .option:
-                hasFlag = (translationModsGhostty.rawValue & GHOSTTY_MODS_ALT.rawValue) != 0
-            case .command:
-                hasFlag = (translationModsGhostty.rawValue & GHOSTTY_MODS_SUPER.rawValue) != 0
-            default:
-                hasFlag = translationMods.contains(flag)
-            }
-            if hasFlag {
-                translationMods.insert(flag)
-            } else {
-                translationMods.remove(flag)
-            }
-        }
+        let translationMods = translatedModifierFlags(
+            from: translationModsGhostty,
+            fallback: event.modifierFlags
+        )
 
         let translationEvent: NSEvent
         if translationMods == event.modifierFlags {
@@ -7525,7 +7544,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         keyEvent.keycode = UInt32(event.keyCode)
         keyEvent.mods = modsFromEvent(event)
         // Control and Command never contribute to text translation
-        keyEvent.consumed_mods = consumedModsFromFlags(translationMods)
+        keyEvent.consumed_mods = consumedModsFromFlags(translationMods, sourceEvent: event)
         keyEvent.unshifted_codepoint = unshiftedCodepointFromEvent(event)
 
         // We're composing if we have preedit (the obvious case). But we're also
@@ -7586,7 +7605,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     )
                     ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
                     #else
-                    _ = ghostty_surface_key(surface, keyEvent)
+                    _ = sendGhosttyKey(surface, keyEvent)
                     #endif
                 }
             }
@@ -7607,7 +7626,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 )
                 ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
 #else
-                _ = ghostty_surface_key(surface, keyEvent)
+                _ = sendGhosttyKey(surface, keyEvent)
 #endif
             }
         } else {
@@ -7669,7 +7688,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     )
                     ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
                     #else
-                    _ = ghostty_surface_key(surface, keyEvent)
+                    _ = sendGhosttyKey(surface, keyEvent)
                     #endif
                 }
             } else {
@@ -7685,7 +7704,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 )
                 ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
                 #else
-                _ = ghostty_surface_key(surface, keyEvent)
+                _ = sendGhosttyKey(surface, keyEvent)
                 #endif
             }
         }
@@ -7765,6 +7784,47 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func flagsChanged(with event: NSEvent) {
+        let optionDown = event.modifierFlags.contains(.option)
+        let hasRightOptionBit = event.modifierFlags.contains(Self.rightOptionModifierFlag)
+        var inferredRightOptionDown = rightOptionModifierDown
+        var inferredFallbackToggleArmed = rightOptionFallbackToggleArmed
+
+        switch Int(event.keyCode) {
+        case Int(kVK_RightOption):
+            if hasRightOptionBit {
+                inferredRightOptionDown = true
+                inferredFallbackToggleArmed = true
+            } else if !optionDown {
+                inferredRightOptionDown = false
+                inferredFallbackToggleArmed = true
+            } else if inferredRightOptionDown {
+                // Right Option was previously inferred as down, but this event now
+                // reports generic Option without a right-side bit. Treat this as
+                // releasing Right Option while Left Option remains held.
+                inferredRightOptionDown = false
+                inferredFallbackToggleArmed = true
+            } else if inferredFallbackToggleArmed {
+                inferredRightOptionDown.toggle()
+                inferredFallbackToggleArmed = false
+            }
+        case Int(kVK_Option):
+            if hasRightOptionBit {
+                inferredRightOptionDown = true
+                inferredFallbackToggleArmed = true
+            } else if !optionDown {
+                inferredRightOptionDown = false
+                inferredFallbackToggleArmed = true
+            }
+        default:
+            if !optionDown {
+                inferredRightOptionDown = false
+                inferredFallbackToggleArmed = true
+            }
+        }
+
+        rightOptionModifierDown = inferredRightOptionDown
+        rightOptionFallbackToggleArmed = inferredFallbackToggleArmed
+
         guard let surface = surface else {
             super.flagsChanged(with: event)
             return
@@ -7854,14 +7914,25 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func modsFromEvent(_ event: NSEvent) -> ghostty_input_mods_e {
-        modsFromFlags(event.modifierFlags)
+        let flags = event.modifierFlags
+        var mods = modsFromFlags(flags).rawValue
+        if flags.contains(.option),
+           isRightOptionActive(event: event, flags: flags) {
+            mods |= GHOSTTY_MODS_ALT_RIGHT.rawValue
+        }
+        return ghostty_input_mods_e(rawValue: mods)
     }
 
     private func modsFromFlags(_ flags: NSEvent.ModifierFlags) -> ghostty_input_mods_e {
         var mods = GHOSTTY_MODS_NONE.rawValue
         if flags.contains(.shift) { mods |= GHOSTTY_MODS_SHIFT.rawValue }
         if flags.contains(.control) { mods |= GHOSTTY_MODS_CTRL.rawValue }
-        if flags.contains(.option) { mods |= GHOSTTY_MODS_ALT.rawValue }
+        if flags.contains(.option) {
+            mods |= GHOSTTY_MODS_ALT.rawValue
+        }
+        if flags.contains(Self.rightOptionModifierFlag) || rightOptionModifierDown {
+            mods |= GHOSTTY_MODS_ALT_RIGHT.rawValue
+        }
         if flags.contains(.command) { mods |= GHOSTTY_MODS_SUPER.rawValue }
         return ghostty_input_mods_e(rawValue: mods)
     }
@@ -7869,13 +7940,68 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// Consumed mods are modifiers that were used for text translation.
     /// Control and Command never contribute to text translation, so they
     /// should be excluded from consumed_mods.
-    private func consumedModsFromFlags(_ flags: NSEvent.ModifierFlags) -> ghostty_input_mods_e {
+    private func consumedModsFromFlags(
+        _ flags: NSEvent.ModifierFlags,
+        sourceEvent: NSEvent? = nil
+    ) -> ghostty_input_mods_e {
         var mods = GHOSTTY_MODS_NONE.rawValue
         // Only include Shift and Option as potentially consumed
         // Control and Command are never consumed for text translation
         if flags.contains(.shift) { mods |= GHOSTTY_MODS_SHIFT.rawValue }
-        if flags.contains(.option) { mods |= GHOSTTY_MODS_ALT.rawValue }
+        let rightOptionActive: Bool
+        if let sourceEvent {
+            rightOptionActive = isRightOptionActive(event: sourceEvent, flags: flags)
+        } else {
+            rightOptionActive = flags.contains(Self.rightOptionModifierFlag) || rightOptionModifierDown
+        }
+        if flags.contains(.option) {
+            mods |= GHOSTTY_MODS_ALT.rawValue
+        }
+        if rightOptionActive {
+            mods |= GHOSTTY_MODS_ALT_RIGHT.rawValue
+        }
         return ghostty_input_mods_e(rawValue: mods)
+    }
+
+    private func isRightOptionActive(event: NSEvent, flags: NSEvent.ModifierFlags) -> Bool {
+        if event.type == .keyUp,
+           Int(event.keyCode) == Int(kVK_RightOption),
+           !flags.contains(.option) {
+            return false
+        }
+        guard flags.contains(.option) else { return false }
+        if flags.contains(Self.rightOptionModifierFlag) { return true }
+        if Int(event.keyCode) == Int(kVK_RightOption) { return true }
+        if Int(event.keyCode) == Int(kVK_Option) { return false }
+        return rightOptionModifierDown
+    }
+
+    private func translatedModifierFlags(
+        from ghosttyMods: ghostty_input_mods_e,
+        fallback: NSEvent.ModifierFlags
+    ) -> NSEvent.ModifierFlags {
+        var flags = fallback
+
+        func set(_ appKitFlag: NSEvent.ModifierFlags, when ghosttyFlag: ghostty_input_mods_e) {
+            if (ghosttyMods.rawValue & ghosttyFlag.rawValue) != 0 {
+                flags.insert(appKitFlag)
+            } else {
+                flags.remove(appKitFlag)
+            }
+        }
+
+        set(.shift, when: GHOSTTY_MODS_SHIFT)
+        set(.control, when: GHOSTTY_MODS_CTRL)
+        set(.option, when: GHOSTTY_MODS_ALT)
+        set(.command, when: GHOSTTY_MODS_SUPER)
+
+        if (ghosttyMods.rawValue & GHOSTTY_MODS_ALT_RIGHT.rawValue) != 0 {
+            flags.insert(Self.rightOptionModifierFlag)
+        } else {
+            flags.remove(Self.rightOptionModifierFlag)
+        }
+
+        return flags
     }
 
     func beginFindEscapeSuppression() {
@@ -7967,29 +8093,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         // Translate mods to respect Ghostty config (e.g., macos-option-as-alt).
         let translationModsGhostty = ghostty_surface_key_translation_mods(surface, modsFromEvent(event))
-        var translationMods = event.modifierFlags
-        for flag in [NSEvent.ModifierFlags.shift, .control, .option, .command] {
-            let hasFlag: Bool
-            switch flag {
-            case .shift:
-                hasFlag = (translationModsGhostty.rawValue & GHOSTTY_MODS_SHIFT.rawValue) != 0
-            case .control:
-                hasFlag = (translationModsGhostty.rawValue & GHOSTTY_MODS_CTRL.rawValue) != 0
-            case .option:
-                hasFlag = (translationModsGhostty.rawValue & GHOSTTY_MODS_ALT.rawValue) != 0
-            case .command:
-                hasFlag = (translationModsGhostty.rawValue & GHOSTTY_MODS_SUPER.rawValue) != 0
-            default:
-                hasFlag = translationMods.contains(flag)
-            }
-            if hasFlag {
-                translationMods.insert(flag)
-            } else {
-                translationMods.remove(flag)
-            }
-        }
+        let translationMods = translatedModifierFlags(
+            from: translationModsGhostty,
+            fallback: event.modifierFlags
+        )
 
-        keyEvent.consumed_mods = consumedModsFromFlags(translationMods)
+        keyEvent.consumed_mods = consumedModsFromFlags(translationMods, sourceEvent: event)
         keyEvent.text = nil
         keyEvent.composing = false
         keyEvent.unshifted_codepoint = unshiftedCodepointFromEvent(event)
@@ -11210,6 +11319,25 @@ final class GhosttySurfaceScrollView: NSView {
 
     func debugHasKeyboardCopyModeIndicator() -> Bool {
         keyboardCopyModeBadgeContainerView.superview === self && !keyboardCopyModeBadgeContainerView.isHidden
+    }
+
+    func debugSetRightOptionModifierDownForUITest(_ isDown: Bool) {
+        surfaceView.debugSetRightOptionModifierDownForUITest(isDown)
+    }
+
+    func debugSetRightOptionFallbackToggleArmedForUITest(_ isArmed: Bool) {
+        surfaceView.debugSetRightOptionFallbackToggleArmedForUITest(isArmed)
+    }
+
+    @discardableResult
+    func debugSimulateFlagsChangedForUITest(
+        keyCode: UInt16,
+        modifierFlags: NSEvent.ModifierFlags
+    ) -> Bool {
+        surfaceView.debugSimulateFlagsChangedForUITest(
+            keyCode: keyCode,
+            modifierFlags: modifierFlags
+        )
     }
 
 #endif
