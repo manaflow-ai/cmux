@@ -1815,7 +1815,6 @@ class TabManager: ObservableObject {
             }
             if !keysToRemove.isEmpty {
                 for key in keysToRemove {
-                    tab.statusEntries.removeValue(forKey: key)
                     tab.clearAgentPID(key: key)
                 }
                 let remainingAgentPIDs = Set(tab.agentPIDs.values.compactMap { $0 > 0 ? Int($0) : nil })

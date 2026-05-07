@@ -89,7 +89,7 @@ final class TerminalNotificationQueueTests: XCTestCase {
 
         XCTAssertEqual(
             response,
-            "ERROR: Usage: notify_target_async <workspace_uuid> <surface_uuid> <title>|<subtitle>|<body>"
+            "ERROR: Usage: notify_target_async <workspace_uuid> [<surface_uuid>] <title>|<subtitle>|<body>"
         )
     }
 

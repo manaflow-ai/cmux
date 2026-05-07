@@ -276,16 +276,16 @@ final class FinderFileDropRegressionTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        XCTAssertEqual(TerminalFileDropSettings.defaultAction(defaults: defaults), .filePreview)
+        XCTAssertEqual(TerminalFileDropSettings.action(defaults: defaults), .filePreview)
 
         defaults.set(
             TerminalFileDropSettings.Action.terminal.rawValue,
             forKey: TerminalFileDropSettings.defaultActionKey
         )
-        XCTAssertEqual(TerminalFileDropSettings.defaultAction(defaults: defaults), .terminal)
+        XCTAssertEqual(TerminalFileDropSettings.action(defaults: defaults), .terminal)
 
         defaults.set("unknown", forKey: TerminalFileDropSettings.defaultActionKey)
-        XCTAssertEqual(TerminalFileDropSettings.defaultAction(defaults: defaults), .filePreview)
+        XCTAssertEqual(TerminalFileDropSettings.action(defaults: defaults), .filePreview)
     }
 
     func testAgentStatusKeysTrackAgentTerminalDropRouting() {

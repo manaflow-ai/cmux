@@ -142,13 +142,15 @@ enum CLISocketPathResolver {
 
     private static func canConnect(to path: String) -> Bool {
         guard isSocketFile(path) else { return false }
+        var addr = sockaddr_un()
+        let maxLength = MemoryLayout.size(ofValue: addr.sun_path)
+        guard path.utf8.count < maxLength else { return false }
+
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { return false }
         defer { Darwin.close(fd) }
 
-        var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
-        let maxLength = MemoryLayout.size(ofValue: addr.sun_path)
         path.withCString { ptr in
             withUnsafeMutablePointer(to: &addr.sun_path) { pathPtr in
                 let buf = UnsafeMutableRawPointer(pathPtr).assumingMemoryBound(to: CChar.self)

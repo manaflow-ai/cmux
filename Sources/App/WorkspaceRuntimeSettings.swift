@@ -149,7 +149,7 @@ enum TerminalFileDropSettings {
         Action(rawValue: rawValue ?? "") ?? defaultAction
     }
 
-    static func defaultAction(defaults: UserDefaults = .standard) -> Action {
+    static func action(defaults: UserDefaults = .standard) -> Action {
         action(for: defaults.string(forKey: defaultActionKey))
     }
 }

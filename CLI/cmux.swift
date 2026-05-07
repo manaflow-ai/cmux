@@ -13448,7 +13448,8 @@ struct CMUXCLI {
                 let response = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
                 print(response)
             } else {
-                print("OK")
+                let response = try sendV1Command("notify_target_async \(workspaceId) \(payload)", client: client)
+                print(response)
             }
 
         case "session-end":

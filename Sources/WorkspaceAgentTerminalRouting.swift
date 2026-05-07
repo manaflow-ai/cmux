@@ -81,7 +81,7 @@ extension Workspace {
         return PaneDropRouting.externalFileDropRouting(
             panelType: panelType,
             hostsAgent: terminalPanelHostsAgent(panelId: panelId),
-            defaultAction: TerminalFileDropSettings.defaultAction(defaults: defaults),
+            defaultAction: TerminalFileDropSettings.action(defaults: defaults),
             shiftKeyHeld: shiftKeyHeld
         )
     }
@@ -97,7 +97,7 @@ extension Workspace {
         return PaneDropRouting.externalFileDropHint(
             panelType: panelType,
             hostsAgent: terminalPanelHostsAgent(panelId: panelId),
-            defaultAction: TerminalFileDropSettings.defaultAction(defaults: defaults),
+            defaultAction: TerminalFileDropSettings.action(defaults: defaults),
             shiftKeyHeld: shiftKeyHeld
         )
     }

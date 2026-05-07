@@ -291,7 +291,7 @@ final class CLISocketSentryTelemetry {
             options.environment = "production-cli"
 #endif
             options.debug = false
-            options.sendDefaultPii = true
+            options.sendDefaultPii = false
             options.attachStacktrace = true
             options.tracesSampleRate = 0.0
             options.enableAppHangTracking = false

@@ -12698,7 +12698,7 @@ class TerminalController {
           notify <title>|<subtitle>|<body>   - Notify focused panel
           notify_surface <id|idx> <payload>  - Notify a specific surface
           notify_target <workspace_id> <surface_id> <payload> - Notify by workspace+surface
-          notify_target_async <workspace_uuid> <surface_uuid> <payload> - Queue notification by workspace+surface
+          notify_target_async <workspace_uuid> [<surface_uuid>] <payload> - Queue notification by workspace or workspace+surface
           list_notifications              - List all notifications
           clear_notifications [--tab=X] [--surface=Y] - Clear notifications (all, per-tab, or per-surface)
           set_app_focus <active|inactive|clear> - Override app focus state
@@ -14009,33 +14009,25 @@ class TerminalController {
 
     private func notifyTargetQueued(_ args: String) -> String {
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            return "ERROR: Usage: notify_target_async <workspace_uuid> <surface_uuid> <title>|<subtitle>|<body>"
-        }
+        guard !trimmed.isEmpty else { return "ERROR: Usage: notify_target_async <workspace_uuid> [<surface_uuid>] <title>|<subtitle>|<body>" }
 
-        let parts = trimmed.split(separator: " ", maxSplits: 2).map(String.init)
-        guard parts.count == 3 else {
-            return "ERROR: Usage: notify_target_async <workspace_uuid> <surface_uuid> <title>|<subtitle>|<body>"
-        }
-        guard let tabId = UUID(uuidString: parts[0]) else {
+        let head = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
+        guard head.count == 2 else { return "ERROR: Usage: notify_target_async <workspace_uuid> [<surface_uuid>] <title>|<subtitle>|<body>" }
+        guard let tabId = UUID(uuidString: head[0]) else {
             return "ERROR: notify_target_async requires workspace_uuid to be a UUID"
         }
-        guard let surfaceId = UUID(uuidString: parts[1]) else {
-            return "ERROR: notify_target_async requires surface_uuid to be a UUID"
+        let tail = head[1].trimmingCharacters(in: .whitespacesAndNewlines)
+        let tailParts = tail.split(separator: " ", maxSplits: 1).map(String.init)
+        var surfaceId: UUID?
+        var payload = tail
+        if let first = tailParts.first, let parsedSurfaceId = UUID(uuidString: first) {
+            guard tailParts.count == 2 else { return "ERROR: Usage: notify_target_async <workspace_uuid> [<surface_uuid>] <title>|<subtitle>|<body>" }
+            surfaceId = parsedSurfaceId
+            payload = tailParts[1].trimmingCharacters(in: .whitespacesAndNewlines)
         }
-
-        let payload = parts[2].trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !payload.isEmpty else {
-            return "ERROR: Usage: notify_target_async <workspace_uuid> <surface_uuid> <title>|<subtitle>|<body>"
-        }
+        guard !payload.isEmpty else { return "ERROR: Usage: notify_target_async <workspace_uuid> [<surface_uuid>] <title>|<subtitle>|<body>" }
         let (title, subtitle, body) = parseNotificationPayload(payload)
-        TerminalMutationBus.shared.enqueueNotification(
-            tabId: tabId,
-            surfaceId: surfaceId,
-            title: title,
-            subtitle: subtitle,
-            body: body
-        )
+        TerminalMutationBus.shared.enqueueNotification(tabId: tabId, surfaceId: surfaceId, title: title, subtitle: subtitle, body: body)
         return "OK"
     }
 
@@ -14059,15 +14051,24 @@ class TerminalController {
             return "OK"
         }
         let parsed = parseOptions(trimmed)
-        guard let tabOption = parsed.options["tab"],
-              !tabOption.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        let surfaceResolution = agentTrackingPanelTarget(options: parsed.options)
+        if let error = surfaceResolution.error { return error }
+        let hasTabOption = normalizedOptionValue(parsed.options["tab"]) != nil
+        let surfaceId = surfaceResolution.panelId
+        let target: SidebarMutationTabTarget
+        if hasTabOption {
+            let resolution = parseSidebarMutationTabTarget(options: parsed.options)
+            guard let resolvedTarget = resolution.target else {
+                return resolution.error ?? "ERROR: Tab not found"
+            }
+            target = resolvedTarget
+        } else if let surfaceId {
+            let workspaceId = v2MainSync { AppDelegate.shared?.locateSurface(surfaceId: surfaceId)?.workspaceId }
+            guard let workspaceId else { return "ERROR: Surface not found" }
+            target = .workspace(workspaceId)
+        } else {
             return "ERROR: Usage: clear_notifications [--tab=X] [--surface=Y]"
         }
-        let targetResolution = parseSidebarMutationTabTarget(options: parsed.options)
-        guard let target = targetResolution.target else {
-            return targetResolution.error ?? "ERROR: Tab not found"
-        }
-        let surfaceId = agentTrackingPanelId(options: parsed.options)
         if case .workspace(let tabId) = target {
             if let surfaceId {
                 TerminalMutationBus.shared.enqueueClearNotifications(forTabId: tabId, surfaceId: surfaceId)
@@ -15969,12 +15970,16 @@ class TerminalController {
         return agentSidebarStatusKeys.contains(String(baseKey))
     }
 
-    private func agentTrackingPanelId(options: [String: String]) -> UUID? {
+    private func agentTrackingPanelTarget(options: [String: String]) -> (panelId: UUID?, error: String?) {
         // --panel is canonical. --surface is a legacy alias for older agent hooks.
-        guard let rawPanelId = normalizedOptionValue(options["panel"] ?? options["surface"]) else {
-            return nil
+        let option = options["panel"].map { ("panel", $0) } ?? options["surface"].map { ("surface", $0) }
+        guard let option, let rawPanelId = normalizedOptionValue(option.1) else {
+            return (nil, nil)
         }
-        return UUID(uuidString: rawPanelId)
+        guard let panelId = UUID(uuidString: rawPanelId) else {
+            return (nil, "ERROR: Invalid --\(option.0) UUID '\(rawPanelId)'")
+        }
+        return (panelId, nil)
     }
 
     private func scheduleSidebarMutation(
@@ -16090,7 +16095,9 @@ class TerminalController {
             }
             return nil
         }()
-        let agentPanelId = agentTrackingPanelId(options: parsed.options)
+        let agentPanel = agentTrackingPanelTarget(options: parsed.options)
+        if let error = agentPanel.error { return error }
+        let agentPanelId = agentPanel.panelId
         let tracksAgentPanel = Self.shouldTrackAgentStatusKey(key)
 
         scheduleSidebarMutation(target: target) { controller, tab in
@@ -16143,7 +16150,9 @@ class TerminalController {
         guard let target = targetResolution.target else {
             return targetResolution.error ?? "ERROR: No tab selected"
         }
-        let agentPanelId = agentTrackingPanelId(options: parsed.options)
+        let agentPanel = agentTrackingPanelTarget(options: parsed.options)
+        if let error = agentPanel.error { return error }
+        let agentPanelId = agentPanel.panelId
         let tracksAgentPanel = Self.shouldTrackAgentStatusKey(key)
 
         scheduleSidebarMutation(target: target) { controller, tab in
@@ -16168,7 +16177,9 @@ class TerminalController {
         guard let target = targetResolution.target else {
             return targetResolution.error ?? "ERROR: No tab selected"
         }
-        let agentPanelId = agentTrackingPanelId(options: parsed.options)
+        let agentPanel = agentTrackingPanelTarget(options: parsed.options)
+        if let error = agentPanel.error { return error }
+        let agentPanelId = agentPanel.panelId
         let tracksAgentPanel = Self.shouldTrackAgentStatusKey(key)
         scheduleSidebarMutation(target: target) { controller, tab in
             tab.setAgentPID(key: key, pid: pid, panelId: tracksAgentPanel ? agentPanelId : nil)
@@ -16187,7 +16198,9 @@ class TerminalController {
         guard let target = targetResolution.target else {
             return targetResolution.error ?? "ERROR: No tab selected"
         }
-        let agentPanelId = agentTrackingPanelId(options: parsed.options)
+        let agentPanel = agentTrackingPanelTarget(options: parsed.options)
+        if let error = agentPanel.error { return error }
+        let agentPanelId = agentPanel.panelId
         let tracksAgentPanel = Self.shouldTrackAgentStatusKey(key)
         scheduleSidebarMutation(target: target) { controller, tab in
             tab.clearAgentPID(key: key, panelId: tracksAgentPanel ? agentPanelId : nil)
