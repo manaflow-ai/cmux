@@ -938,7 +938,7 @@ final class CmuxSettingsFileStore {
             let shouldTrackFileDefault = SidebarMatchTerminalBackgroundSettings.isSettingsFileDefaultKey(defaultsKey)
             if shouldTrackFileDefault, !SidebarMatchTerminalBackgroundSettings.shouldApplySettingsFileDefault(defaults: defaults) {
                 SidebarMatchTerminalBackgroundSettings.recordSettingsFileDefault(next, defaults: defaults)
-                return
+                return ManagedDefaultBatchSideEffects()
             }
             let current = defaults.object(forKey: defaultsKey) as? Bool
             if current != next {
