@@ -82,6 +82,8 @@ extension Workspace {
             return baseKey == "claude" || baseKey == "claude_code"
         case .codex:
             return baseKey == "codex"
+        case .pi:
+            return baseKey == "pi"
         case .cursor:
             return baseKey == "cursor"
         case .gemini:
