@@ -196,10 +196,9 @@ final class FeedCoordinator: @unchecked Sendable {
         notificationGenerations.removeValue(forKey: requestId)
         waiterLock.unlock()
 
-        let resolve: @Sendable () -> Void = { [requestId, decision] in
+        let resolve: @Sendable () -> Void = { [weak self, requestId, decision] in
             MainActor.assumeIsolated {
-                let store = FeedCoordinator.shared.store
-                guard let store else { return }
+                guard let store = self?.store else { return }
                 if let itemId = Self.findItemId(for: requestId, in: store.items) {
                     store.markResolved(itemId, decision: decision)
                 }
@@ -233,9 +232,9 @@ final class FeedCoordinator: @unchecked Sendable {
 
     private func expireTimedOutItem(_ itemId: UUID?) {
         guard let itemId else { return }
-        let expire: @Sendable () -> Void = { [itemId] in
+        let expire: @Sendable () -> Void = { [weak self, itemId] in
             MainActor.assumeIsolated {
-                FeedCoordinator.shared.store?.markExpired(itemId)
+                self?.store?.markExpired(itemId)
             }
         }
         if Thread.isMainThread {
@@ -278,9 +277,9 @@ extension FeedCoordinator {
     /// the observable state (only if called off-main).
     func snapshot(pendingOnly: Bool) -> [WorkstreamItem] {
         let slot = SnapshotSlot()
-        let body: @Sendable () -> Void = { [slot] in
+        let body: @Sendable () -> Void = { [self, slot] in
             MainActor.assumeIsolated {
-                guard let store = FeedCoordinator.shared.store else { return }
+                guard let store = self.store else { return }
                 slot.value = pendingOnly ? store.pending : store.items
             }
         }
