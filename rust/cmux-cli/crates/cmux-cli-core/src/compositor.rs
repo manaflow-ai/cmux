@@ -238,13 +238,13 @@ pub fn terminal_grid_snapshot(terminal: &Terminal<'_, '_>) -> anyhow::Result<Ter
     let mut cells = Vec::with_capacity(usize::from(cols) * usize::from(rows));
     let mut row_iter = RowIterator::new()?;
     let mut row_iteration = row_iter.update(&snapshot)?;
+    let mut cell_iter = CellIterator::new()?;
 
     let mut emitted_rows: u16 = 0;
     while row_iteration.next().is_some() {
         if emitted_rows >= rows {
             break;
         }
-        let mut cell_iter = CellIterator::new()?;
         let mut cell_iteration = cell_iter.update(&row_iteration)?;
         let mut emitted_cols: u16 = 0;
         while cell_iteration.next().is_some() {
@@ -425,13 +425,13 @@ pub fn paste_pane(
     let snapshot = render_state.update(terminal)?;
     let mut row_iter = RowIterator::new()?;
     let mut row_iteration = row_iter.update(&snapshot)?;
+    let mut cell_iter = CellIterator::new()?;
 
     let mut row_offset: u16 = 0;
     while row_iteration.next().is_some() {
         if row_offset >= rect.rows {
             break;
         }
-        let mut cell_iter = CellIterator::new()?;
         let mut cell_iteration = cell_iter.update(&row_iteration)?;
 
         let mut col_offset: u16 = 0;
@@ -482,6 +482,10 @@ pub fn paste_pane(
             } else {
                 grid_cell_width(wide, &grapheme)
             };
+            if width == 2 && col_offset == rect.cols.saturating_sub(1) {
+                col_offset += 1;
+                continue;
+            }
             frame.put(
                 rect.row + row_offset,
                 rect.col + col_offset,

@@ -3,6 +3,7 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
+use std::sync::OnceLock;
 
 use cmux_cli_core::probe;
 use cmux_cli_protocol::{
@@ -89,22 +90,42 @@ fn choose_resolved_ghostty_theme(
 }
 
 fn load_terminal_theme_from_ghostty() -> Option<NativeTerminalTheme> {
-    for binary in ghostty_binary_paths() {
-        let Ok(output) = ProcessCommand::new(&binary).arg("+show-config").output() else {
-            continue;
-        };
-        if !output.status.success() {
-            continue;
-        }
-        let Ok(stdout) = String::from_utf8(output.stdout) else {
-            continue;
-        };
-        let theme = parse_theme_from_config_text(&stdout);
-        if theme_has_any_color(&theme) {
-            return Some(theme);
-        }
-    }
-    None
+    let stdout = run_ghostty_show_config()?;
+    let theme = parse_theme_from_config_text(&stdout);
+    theme_has_any_color(&theme).then_some(theme)
+}
+
+fn run_ghostty_show_config() -> Option<String> {
+    static SHOW_CONFIG: OnceLock<Option<String>> = OnceLock::new();
+    SHOW_CONFIG
+        .get_or_init(|| {
+            for binary in ghostty_binary_paths() {
+                let Ok(output) = ProcessCommand::new(&binary).arg("+show-config").output() else {
+                    continue;
+                };
+                if !output.status.success() {
+                    continue;
+                }
+                let Ok(stdout) = String::from_utf8(output.stdout) else {
+                    continue;
+                };
+                return Some(stdout);
+            }
+            None
+        })
+        .clone()
+}
+
+fn load_terminal_font_from_ghostty() -> Option<NativeTerminalFont> {
+    let stdout = run_ghostty_show_config()?;
+    let font = parse_font_from_config_text(&stdout);
+    font_has_any_setting(&font).then_some(font)
+}
+
+fn load_terminal_cursor_from_ghostty() -> Option<NativeTerminalCursor> {
+    let stdout = run_ghostty_show_config()?;
+    let cursor = parse_cursor_from_config_text(&stdout);
+    cursor_has_any_setting(&cursor).then_some(cursor)
 }
 
 pub fn load_terminal_font() -> NativeTerminalFont {
@@ -139,44 +160,6 @@ pub fn load_terminal_cursor() -> NativeTerminalCursor {
 
 pub fn cursor_has_any_setting(cursor: &NativeTerminalCursor) -> bool {
     cursor.style.is_some() || cursor.blink.is_some()
-}
-
-fn load_terminal_font_from_ghostty() -> Option<NativeTerminalFont> {
-    for binary in ghostty_binary_paths() {
-        let Ok(output) = ProcessCommand::new(&binary).arg("+show-config").output() else {
-            continue;
-        };
-        if !output.status.success() {
-            continue;
-        }
-        let Ok(stdout) = String::from_utf8(output.stdout) else {
-            continue;
-        };
-        let font = parse_font_from_config_text(&stdout);
-        if font_has_any_setting(&font) {
-            return Some(font);
-        }
-    }
-    None
-}
-
-fn load_terminal_cursor_from_ghostty() -> Option<NativeTerminalCursor> {
-    for binary in ghostty_binary_paths() {
-        let Ok(output) = ProcessCommand::new(&binary).arg("+show-config").output() else {
-            continue;
-        };
-        if !output.status.success() {
-            continue;
-        }
-        let Ok(stdout) = String::from_utf8(output.stdout) else {
-            continue;
-        };
-        let cursor = parse_cursor_from_config_text(&stdout);
-        if cursor_has_any_setting(&cursor) {
-            return Some(cursor);
-        }
-    }
-    None
 }
 
 fn ghostty_binary_paths() -> Vec<PathBuf> {

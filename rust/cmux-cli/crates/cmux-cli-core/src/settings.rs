@@ -237,20 +237,14 @@ pub fn save(path: &Path, settings: &Settings) -> anyhow::Result<()> {
     }
     let json = serde_json::to_vec_pretty(settings)?;
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
-    let file_name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("settings.json");
-    let unique = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_nanos())
-        .unwrap_or_default();
-    let tmp = parent.join(format!(".{file_name}.tmp-{}-{unique}", std::process::id()));
-    std::fs::write(&tmp, json)?;
-    if let Err(err) = std::fs::rename(&tmp, path) {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(err.into());
-    }
+    let mut tmp = tempfile::Builder::new()
+        .prefix(".settings-")
+        .suffix(".json.tmp")
+        .tempfile_in(parent)?;
+    std::io::Write::write_all(&mut tmp, &json)?;
+    tmp.as_file().sync_all()?;
+    tmp.persist(path)
+        .map_err(|err| anyhow::anyhow!("persist settings {}: {}", path.display(), err.error))?;
     Ok(())
 }
 

@@ -13,6 +13,17 @@ use tokio::io::BufReader;
 use tokio::net::UnixStream;
 use tokio::time::timeout;
 
+fn snippet(value: &str, max: usize) -> &str {
+    if value.len() <= max {
+        return value;
+    }
+    let mut end = max;
+    while end > 0 && !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    &value[..end]
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn composed_frame_shows_sidebar_and_status() {
     let dir = tempfile::tempdir().unwrap();
@@ -98,22 +109,22 @@ async fn composed_frame_shows_sidebar_and_status() {
     assert!(
         frames_buf.contains("cmux"),
         "sidebar header missing from composite. snippet: {}",
-        &frames_buf[..frames_buf.len().min(800)]
+        snippet(&frames_buf, 800)
     );
     assert!(
         frames_buf.contains("[main"),
         "status bar missing workspace title. snippet: {}",
-        &frames_buf[..frames_buf.len().min(800)]
+        snippet(&frames_buf, 800)
     );
     assert!(
         frames_buf.contains("42ms"),
         "status bar missing client latency. snippet: {}",
-        &frames_buf[..frames_buf.len().min(800)]
+        snippet(&frames_buf, 800)
     );
     assert!(
         frames_buf.contains("CMX_CHROME_OK_22A"),
         "pane content missing from composite. snippet: {}",
-        &frames_buf[..frames_buf.len().min(800)]
+        snippet(&frames_buf, 800)
     );
     // Every composed frame starts with cursor-home (CSI H) so the
     // client's terminal is repositioned before painting cells. The old
@@ -127,12 +138,12 @@ async fn composed_frame_shows_sidebar_and_status() {
     assert!(
         frames_buf.contains("ws-nav"),
         "workspace hint missing from status bar; snippet: {}",
-        &frames_buf[..frames_buf.len().min(800)]
+        snippet(&frames_buf, 800)
     );
     assert!(
         frames_buf.contains("new-space"),
         "space hint missing from status bar; snippet: {}",
-        &frames_buf[..frames_buf.len().min(800)]
+        snippet(&frames_buf, 800)
     );
     // Zellij-style rounded-corner border around the pane area. The
     // top-left `╭` and bottom-right `╯` glyphs prove both corners

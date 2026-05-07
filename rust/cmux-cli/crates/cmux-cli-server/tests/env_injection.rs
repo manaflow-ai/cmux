@@ -84,7 +84,12 @@ async fn spawned_shell_sees_workspace_and_tab_env_vars() {
 
     // Give the shell time to start + resize after the initial attach;
     // the SIGWINCH from daemon.resize can race with the first Input.
-    let contents = wait_for_file(&env_dump, Duration::from_secs(15)).await;
+    let contents = wait_for_file(
+        &env_dump,
+        &["WS=", "TAB=", "CMX_WS=", "CMX_TAB="],
+        Duration::from_secs(15),
+    )
+    .await;
     let lines: Vec<&str> = contents.lines().collect();
     assert_env_line(&lines, "WS");
     assert_env_line(&lines, "TAB");
@@ -121,7 +126,7 @@ async fn spawned_shell_sees_workspace_and_tab_env_vars() {
     .await
     .unwrap();
 
-    let c2 = wait_for_file(&env_dump_tab2, Duration::from_secs(5)).await;
+    let c2 = wait_for_file(&env_dump_tab2, &["WS=", "TAB="], Duration::from_secs(5)).await;
     let l2: Vec<&str> = c2.lines().collect();
     let ws1 = env_value(&lines, "WS");
     let ws2 = env_value(&l2, "WS");
@@ -163,11 +168,15 @@ fn env_value<'a>(lines: &'a [&'a str], key: &str) -> &'a str {
         .unwrap_or("")
 }
 
-async fn wait_for_file(path: &std::path::Path, deadline: Duration) -> String {
+async fn wait_for_file(
+    path: &std::path::Path,
+    expected_keys: &[&str],
+    deadline: Duration,
+) -> String {
     let end = tokio::time::Instant::now() + deadline;
     loop {
         if let Ok(s) = std::fs::read_to_string(path)
-            && !s.trim().is_empty()
+            && expected_keys.iter().all(|key| s.contains(key))
         {
             return s;
         }

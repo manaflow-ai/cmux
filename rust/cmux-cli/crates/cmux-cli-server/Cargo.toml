@@ -20,11 +20,13 @@ notify = { workspace = true }
 portable-pty = { workspace = true }
 rmp-serde = { workspace = true }
 serde = { workspace = true }
-serde_json = "1"
+serde_json = { workspace = true }
 tempfile = "3"
 tokio = { workspace = true }
 tokio-tungstenite = { workspace = true }
 tracing = { workspace = true }
+unicode-segmentation = { workspace = true }
+unicode-width = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]

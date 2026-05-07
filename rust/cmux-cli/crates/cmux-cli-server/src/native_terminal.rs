@@ -54,7 +54,10 @@ pub(crate) fn terminal_default_colors_from_report(
         palette: (!report.palette.is_empty()).then(|| {
             let mut palette = default_terminal_color_palette();
             for (index, color) in &report.palette {
-                palette[usize::from(*index)] = terminal_rgb_to_ghostty(*color);
+                let index = usize::from(*index);
+                if index < palette.len() {
+                    palette[index] = terminal_rgb_to_ghostty(*color);
+                }
             }
             palette
         }),
@@ -428,7 +431,9 @@ fn default_terminal_color_palette() -> [RgbColor; 256] {
 }
 
 fn apply_palette_color(palette: &mut [RgbColor; 256], index: usize, value: Option<&str>) {
-    if let Some(color) = value.and_then(parse_hex_rgb) {
+    if let Some(color) = value.and_then(parse_hex_rgb)
+        && index < palette.len()
+    {
         palette[index] = color;
     }
 }

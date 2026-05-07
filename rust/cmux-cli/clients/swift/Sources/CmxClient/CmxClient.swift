@@ -59,6 +59,8 @@ public final class CmxSession: @unchecked Sendable {
         self.options = options
     }
 
+    deinit {}
+
     /// Connect, Hello, and start streaming frames.
     public func attach() async throws {
         throw CmxClientError.unimplemented(

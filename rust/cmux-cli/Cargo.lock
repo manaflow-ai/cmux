@@ -449,6 +449,8 @@ dependencies = [
  "tokio",
  "tokio-tungstenite",
  "tracing",
+ "unicode-segmentation",
+ "unicode-width",
  "uuid",
 ]
 

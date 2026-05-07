@@ -38,6 +38,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 iroh = "0.98.2"
 serde_json = "1"
 sha2 = "0.10"
+unicode-segmentation = "1"
 unicode-width = "0.2"
 
 [workspace.lints.rust]

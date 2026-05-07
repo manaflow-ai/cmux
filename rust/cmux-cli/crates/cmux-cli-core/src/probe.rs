@@ -5,15 +5,16 @@
 //! in an alternate screen, so regular stderr logging is not useful here.
 
 use std::collections::BTreeMap;
-use std::fs::OpenOptions;
+use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, OnceLock};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 static START: OnceLock<Instant> = OnceLock::new();
 static TRACE_PATH: OnceLock<Option<PathBuf>> = OnceLock::new();
+static TRACE_FILE: OnceLock<Mutex<Option<File>>> = OnceLock::new();
 static SEQ: AtomicU64 = AtomicU64::new(1);
 
 #[must_use]
@@ -43,6 +44,8 @@ pub fn mono_ms() -> u64 {
     START.get_or_init(Instant::now).elapsed().as_millis() as u64
 }
 
+/// Append one JSONL probe event. The trace file handle is cached after the
+/// first write so hot render paths do not open and close it for every frame.
 pub fn log_event(component: &str, name: &str, fields: &[(&str, String)]) {
     let Some(path) = trace_path() else {
         return;
@@ -60,6 +63,35 @@ pub fn log_event(component: &str, name: &str, fields: &[(&str, String)]) {
     }
     line.push_str("}\n");
 
+    write_trace_line(path, &line);
+}
+
+fn write_trace_line(path: &Path, line: &str) {
+    let cache = TRACE_FILE.get_or_init(|| Mutex::new(None));
+    let Ok(mut file) = cache.lock() else {
+        fallback_write_trace_line(path, line);
+        return;
+    };
+    if file.is_none() {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        match OpenOptions::new().create(true).append(true).open(path) {
+            Ok(opened) => *file = Some(opened),
+            Err(_) => {
+                fallback_write_trace_line(path, line);
+                return;
+            }
+        }
+    }
+    if let Some(opened) = file.as_mut()
+        && opened.write_all(line.as_bytes()).is_err()
+    {
+        *file = None;
+    }
+}
+
+fn fallback_write_trace_line(path: &Path, line: &str) {
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
@@ -210,7 +242,9 @@ fn contains_sgr(data: &[u8]) -> bool {
 }
 
 fn contains_osc_palette(data: &[u8]) -> bool {
-    data.windows(3).any(|w| w == b"\x1b]4" || w == b"\x1b]1")
+    [b"\x1b]4;".as_slice(), b"\x1b]10;", b"\x1b]11;"]
+        .iter()
+        .any(|prefix| data.windows(prefix.len()).any(|window| window == *prefix))
 }
 
 fn extract_sgr_sequences(data: &[u8], limit: usize) -> Vec<String> {

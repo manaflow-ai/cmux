@@ -12,10 +12,10 @@ pub fn dump_rows(terminal: &Terminal<'_, '_>) -> anyhow::Result<Vec<String>> {
 
     let mut row_iter = RowIterator::new()?;
     let mut row_iteration = row_iter.update(&snapshot)?;
+    let mut cell_iter = CellIterator::new()?;
 
     let mut out = Vec::new();
     while row_iteration.next().is_some() {
-        let mut cell_iter = CellIterator::new()?;
         let mut cell_iteration = cell_iter.update(&row_iteration)?;
 
         let mut row = String::new();

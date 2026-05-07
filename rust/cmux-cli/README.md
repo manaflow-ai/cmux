@@ -1,7 +1,8 @@
 # cmux-cli
 
 A tmux-style terminal multiplexer in Rust, built on
-[libghostty-vt](https://github.com/Uzaaft/libghostty-rs) for VT parsing.
+[manaflow-ai/libghostty-rs](https://github.com/manaflow-ai/libghostty-rs/tree/ccb738317b14fa1a07f93584746be582be4226d5)
+for VT parsing.
 
 cmux-cli is the CLI-native sibling to the macOS
 [cmux](https://github.com/manaflow-ai/cmux) app. Same concept model,

@@ -191,9 +191,13 @@ pub async fn attach(opts: AttachOptions) -> Result<()> {
         ],
     );
 
-    let welcome = read_msg::<_, ServerMsg>(&mut reader)
-        .await?
-        .ok_or_else(|| anyhow!("server closed before Welcome"))?;
+    let welcome = tokio::time::timeout(
+        Duration::from_secs(5),
+        read_msg::<_, ServerMsg>(&mut reader),
+    )
+    .await
+    .map_err(|_| anyhow!("timed out waiting for Welcome"))??
+    .ok_or_else(|| anyhow!("server closed before Welcome"))?;
     match welcome {
         ServerMsg::Welcome { .. } => {}
         ServerMsg::Error { message } => {
@@ -448,7 +452,7 @@ fn query_host_terminal_colors_raw() -> Option<TerminalColorReport> {
     if stdout.write_all(&query).is_err() || stdout.flush().is_err() {
         return None;
     }
-    let bytes = read_available_stdin_bytes(Duration::from_millis(120), true).ok()?;
+    let bytes = read_available_stdin_bytes(Duration::from_millis(120), trace_palette).ok()?;
     let colors = TerminalColorReport {
         foreground: parse_osc_color(&bytes, 10),
         background: parse_osc_color(&bytes, 11),

@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use cmux_cli_protocol::{ClientMsg, PROTOCOL_VERSION, ServerMsg, Viewport, read_msg, write_msg};
 use cmux_cli_server::{ServerOptions, run};
-use tokio::io::BufReader;
+use tokio::io::{AsyncRead, BufReader};
 use tokio::net::UnixStream;
 use tokio::time::timeout;
 
@@ -71,20 +71,18 @@ async fn ctrl_c_interrupts_foreground_process() {
     write_msg(
         &mut w,
         &ClientMsg::Input {
-            data: b"sleep 30\n".to_vec(),
+            data: b"printf CMX_SLEEP_STARTED_51F\\n; sleep 30\n".to_vec(),
         },
     )
     .await
     .unwrap();
-
-    // Give the shell a moment to actually exec `sleep`, then send Ctrl-C.
-    tokio::time::sleep(Duration::from_millis(250)).await;
+    let _ = read_pty_until(&mut r, "CMX_SLEEP_STARTED_51F", Duration::from_secs(5)).await;
     write_msg(&mut w, &ClientMsg::Input { data: vec![0x03] })
         .await
         .unwrap();
 
-    // Prove we're back at a prompt: echo a sentinel.
-    tokio::time::sleep(Duration::from_millis(250)).await;
+    // Prove we're back at a prompt: the echo only runs promptly if Ctrl-C
+    // interrupted the foreground sleep.
     write_msg(
         &mut w,
         &ClientMsg::Input {
@@ -119,4 +117,29 @@ async fn ctrl_c_interrupts_foreground_process() {
     .await
     .unwrap();
     let _ = timeout(Duration::from_secs(5), server).await;
+}
+
+async fn read_pty_until<R>(r: &mut R, needle: &str, deadline: Duration) -> String
+where
+    R: AsyncRead + Unpin,
+{
+    let mut buf = String::new();
+    let end = tokio::time::Instant::now() + deadline;
+    while tokio::time::Instant::now() < end && !buf.contains(needle) {
+        let remaining = end.saturating_duration_since(tokio::time::Instant::now());
+        match timeout(remaining, read_msg::<_, ServerMsg>(r)).await {
+            Ok(Ok(Some(ServerMsg::PtyBytes { data, .. }))) => {
+                buf.push_str(&String::from_utf8_lossy(&data));
+            }
+            Ok(Ok(Some(_))) => continue,
+            Ok(Ok(None)) => break,
+            Ok(Err(error)) => panic!("failed reading PTY bytes: {error}"),
+            Err(_) => break,
+        }
+    }
+    assert!(
+        buf.contains(needle),
+        "did not see {needle:?}. output:\n{buf}"
+    );
+    buf
 }

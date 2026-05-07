@@ -121,8 +121,8 @@ pub fn save(path: &Path, snap: &Snapshot) -> anyhow::Result<()> {
         .tempfile_in(parent)?;
     std::io::Write::write_all(&mut tmp, &json)?;
     tmp.as_file().sync_all()?;
-    let (_file, tmp_path) = tmp.keep()?;
-    std::fs::rename(tmp_path, path)?;
+    tmp.persist(path)
+        .map_err(|err| anyhow::anyhow!("persist snapshot {}: {}", path.display(), err.error))?;
     Ok(())
 }
 

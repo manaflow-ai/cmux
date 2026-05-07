@@ -27,6 +27,8 @@ use libghostty_vt::terminal::{
 };
 use libghostty_vt::{Terminal, TerminalOptions};
 use tokio::sync::{mpsc, oneshot};
+use unicode_segmentation::UnicodeSegmentation;
+use unicode_width::UnicodeWidthStr;
 
 use crate::{PtyOp, TerminalResponse, TerminalResponseSource};
 
@@ -629,12 +631,12 @@ impl RenderBroker {
                             if visible {
                                 let cx = terminal.cursor_x().unwrap_or(0);
                                 let cy = terminal.cursor_y().unwrap_or(0);
-                                let abs_col = (pane_rect.col as u32 + cx as u32)
-                                    .min(frame.cols as u32)
-                                    as u16;
-                                let abs_row = (pane_rect.row as u32 + cy as u32)
-                                    .min(frame.rows as u32)
-                                    as u16;
+                                let max_col = frame.cols.saturating_sub(1) as u32;
+                                let max_row = frame.rows.saturating_sub(1) as u32;
+                                let abs_col =
+                                    (pane_rect.col as u32 + cx as u32).min(max_col) as u16;
+                                let abs_row =
+                                    (pane_rect.row as u32 + cy as u32).min(max_row) as u16;
                                 let mut tail = Vec::new();
                                 tail.extend_from_slice(b"\x1b[?25h");
                                 tail.extend_from_slice(
@@ -1292,12 +1294,14 @@ fn paint_tab_bar(frame: &mut Frame, spec: &TabBarSpec) {
             " "
         };
         let label = format!("{marker} {}:{} ", pill.index, pill.title);
-        let len = label.chars().count().try_into().unwrap_or(u16::MAX);
+        let len = UnicodeWidthStr::width(label.as_str())
+            .try_into()
+            .unwrap_or(u16::MAX);
         if cursor >= max_col {
             break;
         }
         let visible_len = len.min(max_col.saturating_sub(cursor));
-        let text: String = label.chars().take(visible_len as usize).collect();
+        let text = truncate_to_display_width(&label, visible_len as usize);
         let (fg, bg) = match spec.style {
             TabBarStyle::Pill => {
                 if pill.active {
@@ -1329,7 +1333,21 @@ fn paint_tab_bar(frame: &mut Frame, spec: &TabBarSpec) {
 }
 
 fn pill_width(pill: &TabPill) -> usize {
-    format!("  {}:{} ", pill.index, pill.title).chars().count()
+    UnicodeWidthStr::width(format!("  {}:{} ", pill.index, pill.title).as_str())
+}
+
+fn truncate_to_display_width(text: &str, max_width: usize) -> String {
+    let mut out = String::new();
+    let mut width = 0usize;
+    for grapheme in text.graphemes(true) {
+        let next_width = UnicodeWidthStr::width(grapheme);
+        if width.saturating_add(next_width) > max_width {
+            break;
+        }
+        out.push_str(grapheme);
+        width = width.saturating_add(next_width);
+    }
+    out
 }
 
 fn visible_pill_range(
@@ -1500,7 +1518,7 @@ fn extract_line_selection(terminal: &Terminal<'_, '_>, sel: LineSelection, _pane
         cols: u16::MAX,
         rows: er.saturating_sub(sr).saturating_add(1),
     };
-    let rows = extract_rows_between(terminal, rect);
+    let rows = extract_cell_rows_between(terminal, rect);
     if rows.is_empty() {
         return String::new();
     }
@@ -1510,16 +1528,13 @@ fn extract_line_selection(terminal: &Terminal<'_, '_>, sel: LineSelection, _pane
     let mut out = String::new();
     for (i, row) in rows.iter().enumerate() {
         let row_str: String = if rows.len() == 1 {
-            row.chars()
-                .skip(sc as usize)
-                .take((ec as usize).saturating_sub(sc as usize) + 1)
-                .collect()
+            row_text_between_cells(row, sc as usize, Some(ec as usize))
         } else if i == 0 {
-            row.chars().skip(sc as usize).collect()
+            row_text_between_cells(row, sc as usize, None)
         } else if i + 1 == rows.len() {
-            row.chars().take(ec as usize + 1).collect()
+            row_text_between_cells(row, 0, Some(ec as usize))
         } else {
-            row.clone()
+            row.iter().filter_map(|cell| cell.as_deref()).collect()
         };
         if i > 0 {
             out.push('\n');
@@ -1527,6 +1542,19 @@ fn extract_line_selection(terminal: &Terminal<'_, '_>, sel: LineSelection, _pane
         out.push_str(row_str.trim_end());
     }
     out
+}
+
+fn row_text_between_cells(row: &[Option<String>], start: usize, end: Option<usize>) -> String {
+    let inclusive_end = end.unwrap_or_else(|| row.len().saturating_sub(1));
+    row.iter()
+        .enumerate()
+        .filter_map(|(index, cell)| {
+            (index >= start && index <= inclusive_end)
+                .then_some(cell.as_ref())
+                .flatten()
+        })
+        .map(String::as_str)
+        .collect()
 }
 
 fn scroll_to_viewport_offset(terminal: &mut Terminal<'_, '_>, target_offset: u64) -> u64 {
@@ -1707,7 +1735,21 @@ fn is_word_selection_char(ch: char) -> bool {
 }
 
 fn extract_rows_between(terminal: &Terminal<'_, '_>, rect: Rect) -> Vec<String> {
+    extract_cell_rows_between(terminal, rect)
+        .into_iter()
+        .map(|row| {
+            let mut line = String::new();
+            for cell in row.into_iter().flatten() {
+                line.push_str(&cell);
+            }
+            line
+        })
+        .collect()
+}
+
+fn extract_cell_rows_between(terminal: &Terminal<'_, '_>, rect: Rect) -> Vec<Vec<Option<String>>> {
     use libghostty_vt::render::{CellIterator, RenderState, RowIterator};
+    use libghostty_vt::screen::CellWide;
     let Ok(mut rs) = RenderState::new() else {
         return Vec::new();
     };
@@ -1721,7 +1763,7 @@ fn extract_rows_between(terminal: &Terminal<'_, '_>, rect: Rect) -> Vec<String> 
         return Vec::new();
     };
 
-    let mut lines: Vec<String> = Vec::new();
+    let mut lines: Vec<Vec<Option<String>>> = Vec::new();
     let mut row_idx: u16 = 0;
     let top = rect.row;
     let bot = rect.row.saturating_add(rect.rows);
@@ -1736,16 +1778,30 @@ fn extract_rows_between(terminal: &Terminal<'_, '_>, rect: Rect) -> Vec<String> 
             let Ok(mut cell_iter) = cell_it.update(&row_iter) else {
                 break;
             };
-            let mut line = String::new();
+            let mut line = Vec::new();
             while cell_iter.next().is_some() {
+                let wide = cell_iter
+                    .raw_cell()
+                    .and_then(|cell| cell.wide())
+                    .unwrap_or(CellWide::Narrow);
+                if matches!(wide, CellWide::SpacerTail) {
+                    line.push(None);
+                    continue;
+                }
                 if let Ok(graphemes) = cell_iter.graphemes() {
                     if graphemes.is_empty() {
-                        line.push(' ');
+                        line.push(Some(" ".to_string()));
                     } else {
+                        let mut cell = String::new();
                         for ch in graphemes {
                             if ch != '\0' {
-                                line.push(ch);
+                                cell.push(ch);
                             }
+                        }
+                        if cell.is_empty() {
+                            line.push(Some(" ".to_string()));
+                        } else {
+                            line.push(Some(cell));
                         }
                     }
                 }
