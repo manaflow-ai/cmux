@@ -9252,12 +9252,23 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         target: TerminalImageTransferTarget,
         localRootPath: String?
     ) {
-        performOnMain {
-            let target = terminalSurface?.resolvedImageTransferTarget() ?? .local
-            let localRootPath = target == .local
-                ? terminalSurface?.resolvedLocalPathInsertionRoot()
-                : nil
-            return (target, localRootPath)
+        if Thread.isMainThread {
+            return MainActor.assumeIsolated {
+                let target = terminalSurface?.resolvedImageTransferTarget() ?? .local
+                let localRootPath = target == .local
+                    ? terminalSurface?.resolvedLocalPathInsertionRoot()
+                    : nil
+                return (target, localRootPath)
+            }
+        }
+        return DispatchQueue.main.sync {
+            MainActor.assumeIsolated {
+                let target = terminalSurface?.resolvedImageTransferTarget() ?? .local
+                let localRootPath = target == .local
+                    ? terminalSurface?.resolvedLocalPathInsertionRoot()
+                    : nil
+                return (target, localRootPath)
+            }
         }
     }
 
