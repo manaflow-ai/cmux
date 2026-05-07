@@ -16,6 +16,8 @@ final class SettingsSearchIndexTests: XCTestCase {
         assertSearch("disable browser", contains: SettingsSearchIndex.settingID(for: .browser, idSuffix: "enable-browser"))
         assertSearch("http allowlist", contains: SettingsSearchIndex.settingID(for: .browser, idSuffix: "http-allowlist"))
         assertSearch("claude executable", contains: SettingsSearchIndex.settingID(for: .automation, idSuffix: "claude-path"))
+        assertSearch("ripgrep nix", contains: SettingsSearchIndex.settingID(for: .automation, idSuffix: "ripgrep-path"))
+        assertSearch("rg binary", contains: SettingsSearchIndex.settingID(for: .automation, idSuffix: "ripgrep-path"))
         assertSearch("resume on reopen", contains: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "agent-auto-resume"))
         assertSearch("claude sessions", contains: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "agent-auto-resume"))
         assertSearch("opencode resume", contains: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "agent-auto-resume"))
@@ -35,6 +37,13 @@ final class SettingsSearchIndexTests: XCTestCase {
         XCTAssertEqual(
             SettingsSearchIndex.anchorID(forSettingsPath: "terminal.autoResumeAgentSessions"),
             SettingsSearchIndex.settingID(for: .terminal, idSuffix: "agent-auto-resume")
+        )
+    }
+
+    func testSettingsPathAnchorIncludesRipgrepBinaryPath() {
+        XCTAssertEqual(
+            SettingsSearchIndex.anchorID(forSettingsPath: "automation.ripgrepBinaryPath"),
+            SettingsSearchIndex.settingID(for: .automation, idSuffix: "ripgrep-path")
         )
     }
 

@@ -76882,6 +76882,29 @@
             }
         }
     },
+    "settings.search.alias.setting.automation.ripgrep-path": {
+        "extractionState": "manual",
+        "localizations": {
+            "en": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "automation.ripgrepBinaryPath ripgrep rg binary executable path find search nix custom"
+                }
+            },
+            "ja": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "automation.ripgrepBinaryPath ripgrep rg binary executable path find search nix custom リップグレップ バイナリ 実行ファイル パス 検索 nix カスタム"
+                }
+            },
+            "ko": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "automation.ripgrepBinaryPath ripgrep rg binary executable path find search nix custom 리그렙 바이너리 실행파일 경로 검색 nix 사용자지정"
+                }
+            }
+        }
+    },
     "settings.search.alias.setting.automation.cursor": {
         "extractionState": "manual",
         "localizations": {

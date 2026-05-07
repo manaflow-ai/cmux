@@ -1210,7 +1210,7 @@ final class SessionIndexStore: ObservableObject {
     /// Re-resolves on each call so a change to `automation.ripgrepBinaryPath`
     /// takes effect without an app restart. nil when no rg binary is found —
     /// the search code falls back to the Foundation substring scan.
-    nonisolated private static var cachedRipgrepPath: String? {
+    nonisolated private static var resolvedRipgrepPath: String? {
         RipgrepResolver.resolve()
     }
 
@@ -1226,7 +1226,7 @@ final class SessionIndexStore: ObservableObject {
     nonisolated static func ripgrepMatchingPaths(
         needle: String, root: String, fileGlob: String
     ) async -> [URL]? {
-        guard let rg = cachedRipgrepPath else { return nil }
+        guard let rg = resolvedRipgrepPath else { return nil }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: rg)
         process.arguments = [

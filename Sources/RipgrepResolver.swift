@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Mirrors `ClaudeCodeIntegrationSettings.customClaudePath` for `rg`. Lets users
 /// on Nix / asdf / non-standard installs point cmux at their ripgrep directly,
@@ -13,6 +14,33 @@ enum RipgrepIntegrationSettings {
         return value.isEmpty ? nil : value
     }
 }
+
+private let ripgrepResolverLogger = Logger(
+    subsystem: "com.cmuxterm.app",
+    category: "RipgrepResolver"
+)
+
+/// Per-process dedupe so a stuck-misconfigured `automation.ripgrepBinaryPath`
+/// can't spam unified logging once per Find keystroke. Each unique invalid
+/// path is logged at most once per process launch.
+private final class InvalidPathLogTracker: @unchecked Sendable {
+    private let lock = NSLock()
+    private var loggedPaths: Set<String> = []
+
+    func recordIfFirstSeen(_ path: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return loggedPaths.insert(path).inserted
+    }
+
+    func reset() {
+        lock.lock()
+        defer { lock.unlock() }
+        loggedPaths.removeAll()
+    }
+}
+
+private let ripgrepInvalidPathTracker = InvalidPathLogTracker()
 
 /// Resolves the absolute path to `rg`, honoring `automation.ripgrepBinaryPath`
 /// first, then a fallback list of common install locations, then `$PATH`.
@@ -34,15 +62,6 @@ enum RipgrepResolver {
         ]
     }
 
-    /// Resolve the rg binary, or `nil` if none is found.
-    ///
-    /// - Parameters:
-    ///   - customPath: Override for `automation.ripgrepBinaryPath`. Defaults to
-    ///     the value persisted in standard `UserDefaults`. Pass `nil` explicitly
-    ///     to bypass the setting (used by tests).
-    ///   - commonPaths: Override for the hardcoded fallback list (used by tests).
-    ///   - environment: Override for the process environment (used by tests).
-    ///   - fileManager: Override for the file manager (used by tests).
     static func resolve(
         customPath: String? = RipgrepIntegrationSettings.customRipgrepPath(),
         commonPaths: [String] = RipgrepResolver.defaultCommonPaths(),
@@ -53,14 +72,14 @@ enum RipgrepResolver {
             if fileManager.isExecutableFile(atPath: customPath) {
                 return customPath
             }
-            // Configured but not executable. Log and fall through to the
-            // common paths so a stale/typo'd setting doesn't completely
-            // disable Find when a valid binary still exists in a default
-            // location.
-            NSLog(
-                "[RipgrepResolver] automation.ripgrepBinaryPath '%@' is not executable; falling back to common locations",
-                customPath
-            )
+            // Configured-but-not-executable falls through to the common paths
+            // so a stale/typo'd setting doesn't completely disable Find when a
+            // valid binary still exists in a default location.
+            if ripgrepInvalidPathTracker.recordIfFirstSeen(customPath) {
+                ripgrepResolverLogger.warning(
+                    "automation.ripgrepBinaryPath '\(customPath, privacy: .public)' is not executable; falling back to common locations"
+                )
+            }
         }
         for path in commonPaths where fileManager.isExecutableFile(atPath: path) {
             return path
@@ -74,5 +93,11 @@ enum RipgrepResolver {
             }
         }
         return nil
+    }
+
+    /// Reset the dedupe tracker. Tests use this to assert per-call logging
+    /// behavior; production callers don't need it.
+    static func resetInvalidPathLogTrackerForTesting() {
+        ripgrepInvalidPathTracker.reset()
     }
 }
