@@ -9280,10 +9280,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             textDelivery.send(text, to: terminalSurface)
             return true
         case .fileURLs(let fileURLs):
-            let plan = TerminalImageTransferPlanner.plan(
-                fileURLs: fileURLs,
-                target: resolvedImageTransferTarget()
-            )
+            let target = resolvedImageTransferTarget()
+            let rootPath = target == .local
+                ? MainActor.assumeIsolated { terminalSurface?.resolvedLocalPathInsertionRoot() }
+                : nil
+            let plan = TerminalImageTransferPlanner.plan(fileURLs: fileURLs, target: target, localRootPath: rootPath)
             return executeImageTransferPlan(plan, textDelivery: textDelivery, onCancel: onCancel)
         }
     }

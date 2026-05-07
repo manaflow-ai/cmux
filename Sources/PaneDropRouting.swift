@@ -77,7 +77,7 @@ struct PaneFileDropHint: Equatable {
 enum PaneDropRouting {
     static func externalFileDropRouting(
         panelType: PanelType,
-        hostsAgent: Bool,
+        hostsAgent _: Bool,
         defaultAction: TerminalFileDropSettings.Action,
         shiftKeyHeld: Bool
     ) -> PaneExternalFileDropRouting {
@@ -90,7 +90,7 @@ enum PaneDropRouting {
         case .filePreview:
             return .filePreview
         case .terminal:
-            return hostsAgent ? .agentPromptPaste : .terminalPaste
+            return .terminalPaste
         }
     }
 

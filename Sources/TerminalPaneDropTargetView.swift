@@ -59,6 +59,7 @@ final class PaneDropTargetView: NSView {
     private let dropHintView = NSVisualEffectView(frame: .zero)
     private let dropHintLabel = NSTextField(labelWithString: "")
     private var activeFileDropHint: PaneFileDropHint?
+    private var activeShiftKeyHeld: Bool?
 #if DEBUG
     private var lastHitTestSignature: String?
 #endif
@@ -203,7 +204,7 @@ final class PaneDropTargetView: NSView {
             return false
         }
 
-        let shiftKeyHeld = currentShiftKeyHeld()
+        let shiftKeyHeld = activeShiftKeyHeld ?? currentShiftKeyHeld()
         switch workspace.externalFileDropRouting(
             forPanelId: dropContext.panelId,
             shiftKeyHeld: shiftKeyHeld
@@ -213,7 +214,7 @@ final class PaneDropTargetView: NSView {
 #if DEBUG
             cmuxDebugLog(
                 "terminal.paneDrop.perform panel=\(dropContext.panelId.uuidString.prefix(5)) " +
-                "fileURLs=\(urls.count) route=agentPromptPaste " +
+                "fileURLs=\(urls.count) route=agentPromptPaste shift=\(shiftKeyHeld ? 1 : 0) " +
                 "pane=\(dropContext.paneId.id.uuidString.prefix(5)) handled=\(handled ? 1 : 0)"
             )
 #endif
@@ -223,7 +224,7 @@ final class PaneDropTargetView: NSView {
 #if DEBUG
             cmuxDebugLog(
                 "terminal.paneDrop.perform panel=\(dropContext.panelId.uuidString.prefix(5)) " +
-                "fileURLs=\(urls.count) route=terminalPaste " +
+                "fileURLs=\(urls.count) route=terminalPaste shift=\(shiftKeyHeld ? 1 : 0) " +
                 "pane=\(dropContext.paneId.id.uuidString.prefix(5)) handled=\(handled ? 1 : 0)"
             )
 #endif
@@ -243,7 +244,8 @@ final class PaneDropTargetView: NSView {
 #if DEBUG
         cmuxDebugLog(
             "terminal.paneDrop.perform panel=\(dropContext.panelId.uuidString.prefix(5)) " +
-            "fileURLs=\(urls.count) zone=\(zone) pane=\(dropContext.paneId.id.uuidString.prefix(5)) " +
+            "fileURLs=\(urls.count) route=filePreview shift=\(shiftKeyHeld ? 1 : 0) zone=\(zone) " +
+            "pane=\(dropContext.paneId.id.uuidString.prefix(5)) " +
             "handled=\(handled ? 1 : 0)"
         )
 #endif
@@ -286,6 +288,7 @@ final class PaneDropTargetView: NSView {
         }
 
         let shiftKeyHeld = currentShiftKeyHeld()
+        activeShiftKeyHeld = shiftKeyHeld
         let routing = workspace.externalFileDropRouting(
             forPanelId: dropContext.panelId,
             shiftKeyHeld: shiftKeyHeld
@@ -296,10 +299,7 @@ final class PaneDropTargetView: NSView {
         ))
 
         switch routing {
-        case .agentPromptPaste:
-            setActiveDropZone(nil)
-            return .copy
-        case .terminalPaste:
+        case .agentPromptPaste, .terminalPaste:
             setActiveDropZone(nil)
             return .copy
         case .filePreview:
@@ -431,6 +431,7 @@ final class PaneDropTargetView: NSView {
     }
 
     private func clearDragState(phase: String) {
+        activeShiftKeyHeld = nil
         guard activeZone != nil || activeFileDropHint != nil else { return }
         setActiveDropZone(nil)
         setActiveFileDropHint(nil)
@@ -444,9 +445,7 @@ final class PaneDropTargetView: NSView {
     }
 
     private func currentShiftKeyHeld() -> Bool {
-        NSEvent.modifierFlags
-            .intersection(.deviceIndependentFlagsMask)
-            .contains(.shift)
+        (NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags).intersection(.deviceIndependentFlagsMask).contains(.shift)
     }
 
 #if DEBUG

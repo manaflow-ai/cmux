@@ -105475,13 +105475,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Drops open a file-preview pane. Hold Shift to send paths to shells or attach images to agent prompts."
+            "value": "Drops open a file-preview pane. Hold Shift to send relative paths to terminals when possible."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ドロップするとファイルプレビューペインを開きます。Shift キーを押しながらドロップすると、シェルへパスを送信するか、エージェントのプロンプトへ画像を添付します。"
+            "value": "ドロップするとファイルプレビューペインを開きます。Shift キーを押しながらドロップすると、可能な場合は相対パスをターミナルへ送信します。"
           }
         }
       }
@@ -105492,13 +105492,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Drops send paths to shells or attach images to agent prompts. Hold Shift to open a file-preview pane."
+            "value": "Drops send relative paths to terminals when possible. Hold Shift to open a file-preview pane."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ドロップするとシェルへパスを送信するか、エージェントのプロンプトへ画像を添付します。Shift キーを押しながらドロップするとファイルプレビューペインを開きます。"
+            "value": "ドロップすると可能な場合は相対パスをターミナルへ送信します。Shift キーを押しながらドロップするとファイルプレビューペインを開きます。"
           }
         }
       }

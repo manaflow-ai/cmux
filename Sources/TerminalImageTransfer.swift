@@ -239,12 +239,16 @@ enum TerminalImageTransferPlanner {
         }
     }
 
-    static func plan(fileURLs: [URL], target: TerminalImageTransferTarget) -> TerminalImageTransferPlan {
+    static func plan(
+        fileURLs: [URL],
+        target: TerminalImageTransferTarget,
+        localRootPath: String? = nil
+    ) -> TerminalImageTransferPlan {
         guard !fileURLs.isEmpty else { return .reject }
 
         switch target {
         case .local:
-            return .insertText(insertedText(for: fileURLs))
+            return .insertText(insertedText(for: fileURLs, relativeToRootPath: localRootPath))
         case .remote(let remoteTarget):
             guard fileURLs.allSatisfy(isRemoteUploadableFileURL) else {
                 return .insertText(insertedText(for: fileURLs))
@@ -317,8 +321,43 @@ enum TerminalImageTransferPlanner {
             .joined(separator: " ")
     }
 
+    static func insertedText(forPathStrings paths: [String], relativeToRootPath rootPath: String?) -> String {
+        guard let rootPath else { return insertedText(forPathStrings: paths) }
+        return insertedText(forPathStrings: paths.map { relativePath(for: $0, rootPath: rootPath) })
+    }
+
+    static func relativePath(for path: String, rootPath: String) -> String {
+        guard !rootPath.isEmpty else { return path }
+        let normalizedPath = normalizedFileSystemPath(path)
+        let normalizedRootPath = normalizedFileSystemPath(rootPath)
+        if normalizedPath == normalizedRootPath { return "." }
+        let normalizedRoot = normalizedRootPath == "/" ? "/" : normalizedRootPath + "/"
+        if normalizedPath.hasPrefix(normalizedRoot) {
+            return String(normalizedPath.dropFirst(normalizedRoot.count))
+        }
+        return path
+    }
+
+    private static func insertedText(for fileURLs: [URL], relativeToRootPath rootPath: String?) -> String {
+        insertedText(forPathStrings: fileURLs.map(\.path), relativeToRootPath: rootPath)
+    }
+
     private static func insertedText(for fileURLs: [URL]) -> String {
-        insertedText(forPathStrings: fileURLs.map(\.path))
+        insertedText(for: fileURLs, relativeToRootPath: nil)
+    }
+
+    private static func normalizedFileSystemPath(_ path: String) -> String {
+        let path = pathWithoutTrailingSlashes(path)
+        guard path.hasPrefix("/") else { return path }
+        return pathWithoutTrailingSlashes(URL(fileURLWithPath: path).standardizedFileURL.path)
+    }
+
+    private static func pathWithoutTrailingSlashes(_ path: String) -> String {
+        var result = path
+        while result.count > 1 && result.hasSuffix("/") {
+            result.removeLast()
+        }
+        return result
     }
 
     private static func isRemoteUploadableFileURL(_ fileURL: URL) -> Bool {
@@ -431,5 +470,21 @@ extension TerminalSurface {
             return .remote(.detectedSSH(session))
         }
         return .local
+    }
+
+    @MainActor
+    func resolvedLocalPathInsertionRoot() -> String? {
+        guard let workspace = owningWorkspace() else { return nil }
+        if let dir = workspace.panelDirectories[id]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !dir.isEmpty {
+            return dir
+        }
+        if let dir = workspace.terminalPanel(for: id)?
+            .requestedWorkingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !dir.isEmpty {
+            return dir
+        }
+        let dir = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        return dir.isEmpty ? nil : dir
     }
 }

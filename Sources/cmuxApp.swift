@@ -5284,12 +5284,12 @@ struct SettingsView: View {
         case .filePreview:
             return String(
                 localized: "settings.terminal.fileDropDefaultAction.subtitlePreview",
-                defaultValue: "Drops open a file-preview pane. Hold Shift to send paths to shells or attach images to agent prompts."
+                defaultValue: "Drops open a file-preview pane. Hold Shift to send relative paths to terminals when possible."
             )
         case .terminal:
             return String(
                 localized: "settings.terminal.fileDropDefaultAction.subtitleTerminal",
-                defaultValue: "Drops send paths to shells or attach images to agent prompts. Hold Shift to open a file-preview pane."
+                defaultValue: "Drops send relative paths to terminals when possible. Hold Shift to open a file-preview pane."
             )
         }
     }
