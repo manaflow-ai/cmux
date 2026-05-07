@@ -75,7 +75,7 @@ const cleanupSummary = {
   userDeleteErrors: results.filter((result) => result.cleanup?.userDeleteError).length,
 };
 console.log(JSON.stringify({
-  ok: failures.length === 0,
+  ok: !interruptedSignal && failures.length === 0,
   target,
   project: project.projectName,
   provider,

@@ -227,7 +227,7 @@ The dev Postgres port is `CMUX_PORT + 10000`, so `CMUX_PORT=10180` maps to `loca
 
 E2B interactive paths require a cmuxd WebSocket PTY image. The backend writes only a hash of attach tokens to Postgres; raw tokens are returned once to the Mac client.
 
-Operational note: Freestyle is enabled and is the default provider in staging and production. The active snapshot is `sh-6ch5p9k23xrcx24056n8` (`freestyle-rpclease-20260502a`), which has passed WebSocket PTY, reusable daemon RPC lease, and browser proxy smoke. Keep E2B enabled as the rollback provider.
+Operational note: Freestyle is the intended default when `CMUX_VM_DEFAULT_PROVIDER=freestyle`. Before rollout or rollback, verify the deployed `CMUX_VM_DEFAULT_PROVIDER`, `CMUX_VM_FREESTYLE_ENABLED`, and `FREESTYLE_SANDBOX_SNAPSHOT` env values with `bun run cloud-vm:env:audit -- <target> --strict`, then confirm WebSocket PTY, reusable daemon RPC lease, and browser proxy health with `bun run cloud-vm:stress -- <target> --provider default`. Keep E2B enabled as the rollback provider.
 
 ## Usage, limits, and pricing
 
