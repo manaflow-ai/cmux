@@ -81,10 +81,10 @@ func shouldDispatchBrowserArrowViaFirstResponderKeyDown(
 ) -> Bool {
     guard firstResponderIsBrowser else { return false }
     guard !firstResponderHasMarkedText else { return false }
-    guard keyCode == 125 || keyCode == 126 else { return false }
+    guard (123...126).contains(keyCode) else { return false }
 
     // Keep this narrow to avoid stealing app/browser shortcuts that layer onto
-    // modified arrow keys. Plain up/down should always flow through keyDown so
+    // modified arrow keys. Plain arrows should always flow through keyDown so
     // web content such as Google Docs receives the event directly.
     let normalizedFlags = flags
         .intersection(.deviceIndependentFlagsMask)
