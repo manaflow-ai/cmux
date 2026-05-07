@@ -1714,7 +1714,6 @@ final class CommandPaletteOverlayPromotionPolicyTests: XCTestCase {
 // MARK: - palette.toggleSplitZoom regression coverage (cmux #3439)
 
 final class ToggleSplitZoomCommandContributionTests: XCTestCase {
-    private typealias Contribution = ContentView.CommandPaletteCommandContribution
     private typealias ContextSnapshot = ContentView.CommandPaletteContextSnapshot
     private typealias Keys = ContentView.CommandPaletteContextKeys
 
