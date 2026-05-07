@@ -286,17 +286,7 @@ final class FileSearchController {
     }
 
     private static func ripgrepExecutable() -> RipgrepExecutable? {
-        let fileManager = FileManager.default
-        for path in ["/opt/homebrew/bin/rg", "/usr/local/bin/rg", "/usr/bin/rg"] where fileManager.isExecutableFile(atPath: path) {
-            return RipgrepExecutable(url: URL(fileURLWithPath: path), prefixArguments: [])
-        }
-        let pathValue = ProcessInfo.processInfo.environment["PATH"] ?? ""
-        for directory in pathValue.split(separator: ":", omittingEmptySubsequences: true) {
-            let path = URL(fileURLWithPath: String(directory)).appendingPathComponent("rg").path
-            if fileManager.isExecutableFile(atPath: path) {
-                return RipgrepExecutable(url: URL(fileURLWithPath: path), prefixArguments: [])
-            }
-        }
-        return nil
+        guard let path = RipgrepResolver.resolve() else { return nil }
+        return RipgrepExecutable(url: URL(fileURLWithPath: path), prefixArguments: [])
     }
 }

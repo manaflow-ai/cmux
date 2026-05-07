@@ -59974,10 +59974,79 @@
             "value": "Çalışma alanı başına port sayısı."
           }
         },
-        "uk": {
+         "uk": {
           "stringUnit": {
             "state": "translated",
             "value": "Кількість портів на робочу область."
+          }
+        }
+      }
+    },
+    "settings.automation.ripgrep.customPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ripgrep Binary Path"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ripgrepバイナリパス"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ripgrep 바이너리 경로"
+          }
+        }
+      }
+    },
+    "settings.automation.ripgrep.customPath.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "e.g. /opt/homebrew/bin/rg"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "例: /opt/homebrew/bin/rg"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "예: /opt/homebrew/bin/rg"
+          }
+        }
+      }
+    },
+    "settings.automation.ripgrep.customPath.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom path to the rg (ripgrep) binary used by Find. Leave empty to auto-detect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Findが使うrg（ripgrep）バイナリのカスタムパス。空欄の場合は自動検出します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find가 사용하는 rg(ripgrep) 바이너리의 사용자 지정 경로입니다. 비워두면 자동 감지합니다."
           }
         }
       }

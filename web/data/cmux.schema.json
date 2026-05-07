@@ -595,6 +595,11 @@
           "default": "",
           "description": "Custom path to the claude binary."
         },
+        "ripgrepBinaryPath": {
+          "type": "string",
+          "default": "",
+          "description": "Custom path to the rg (ripgrep) binary used by Find. Leave empty to auto-detect from common install locations and PATH."
+        },
         "cursorIntegration": {
           "type": "boolean",
           "default": true,
