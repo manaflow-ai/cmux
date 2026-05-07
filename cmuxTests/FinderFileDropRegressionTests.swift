@@ -240,13 +240,11 @@ final class FinderFileDropRegressionTests: XCTestCase {
     func testPaneFileDropHintFrameCentersInTerminalDropTargetArea() {
         let bounds = CGRect(x: 0, y: 0, width: 800, height: 500)
         let labelSize = CGSize(width: 280, height: 16)
-
         let terminalPathFrame = PaneDropRouting.dropHintFrame(
             labelSize: labelSize,
             in: bounds,
             activeZone: nil
         )
-
         XCTAssertEqual(terminalPathFrame.midX, bounds.midX, accuracy: 0.5)
         XCTAssertEqual(
             terminalPathFrame.midY,
@@ -254,14 +252,12 @@ final class FinderFileDropRegressionTests: XCTestCase {
             accuracy: 0.5,
             "Terminal path insertion has no split target, so the hint should sit in the terminal center"
         )
-
         let leftZone = PaneDropRouting.overlayFrame(for: .left, in: bounds)
         let filePreviewFrame = PaneDropRouting.dropHintFrame(
             labelSize: labelSize,
             in: bounds,
             activeZone: .left
         )
-
         XCTAssertEqual(filePreviewFrame.midX, leftZone.midX, accuracy: 0.5)
         XCTAssertEqual(
             filePreviewFrame.midY,
@@ -327,6 +323,18 @@ final class FinderFileDropRegressionTests: XCTestCase {
         let acceptedSnapshot = workspace.sessionSnapshot(includeScrollback: false, restorableAgentIndex: index)
         XCTAssertEqual(acceptedSnapshot.panels.first?.terminal?.agent?.sessionId, "codex-routing-cleanup-session")
         XCTAssertEqual(workspace.externalFileDropRouting(forPanelId: panelId, shiftKeyHeld: true), .agentPromptPaste)
+    }
+
+    func testClearAgentPIDOwnsStatusAndTerminalRoutingCleanup() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let key = "codex"
+        workspace.statusEntries[key] = SidebarStatusEntry(key: key, value: "Running")
+        workspace.setAgentPID(key: key, pid: 1234, panelId: panelId)
+        XCTAssertEqual(workspace.externalFileDropRouting(forPanelId: panelId, shiftKeyHeld: true), .agentPromptPaste)
+        XCTAssertEqual(workspace.clearAgentPID(key: key), 1234)
+        XCTAssertTrue(workspace.statusEntries[key] == nil && workspace.agentPIDs[key] == nil)
+        XCTAssertEqual(workspace.externalFileDropRouting(forPanelId: panelId, shiftKeyHeld: true), .terminalPaste)
     }
 
     func testLocalTerminalDropCanInsertWorkspaceRelativePath() {

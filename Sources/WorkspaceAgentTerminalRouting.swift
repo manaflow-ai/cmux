@@ -59,6 +59,7 @@ extension Workspace {
         let trimmedKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedKey.isEmpty else { return nil }
         clearAgentTerminal(key: trimmedKey, panelId: panelId)
+        statusEntries.removeValue(forKey: trimmedKey)
         return agentPIDs.removeValue(forKey: trimmedKey)
     }
 
