@@ -24,16 +24,7 @@ enum AgentResumeCommandBuilder {
         registrationOverride: CmuxVaultAgentRegistration? = nil,
         includeWorkingDirectoryPrefix: Bool = true
     ) -> String? {
-        let customRegistration: CmuxVaultAgentRegistration?
-        if let registrationOverride {
-            customRegistration = registrationOverride
-        } else if let customID = kind.customAgentID {
-            customRegistration = CmuxVaultAgentRegistry.load(
-                workingDirectory: workingDirectory ?? launchCommand?.workingDirectory
-            ).registration(id: customID)
-        } else {
-            customRegistration = nil
-        }
+        let customRegistration = registrationOverride
         guard !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               let argv = resumeArguments(
                   kind: kind,
@@ -369,12 +360,15 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
     var sessionId: String
     var workingDirectory: String?
     var launchCommand: AgentLaunchCommandSnapshot?
+    var registration: CmuxVaultAgentRegistration? = nil
 
     var resumeCommand: String? {
-        kind.resumeCommand(
+        AgentResumeCommandBuilder.resumeShellCommand(
+            kind: kind,
             sessionId: sessionId,
             launchCommand: launchCommand,
-            workingDirectory: workingDirectory
+            workingDirectory: workingDirectory,
+            registrationOverride: registration
         )
     }
 
@@ -530,11 +524,15 @@ struct RestorableAgentSessionIndex: Sendable {
         let decoder = JSONDecoder()
         var resolved: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] = [:]
         let builtInKindIDs = Set(RestorableAgentKind.allCases.map(\.rawValue))
-        let hookKinds = RestorableAgentKind.allCases + registry.registrations.compactMap {
-            builtInKindIDs.contains($0.id) ? nil : .custom($0.id)
-        }
+        let hookKinds: [(kind: RestorableAgentKind, registration: CmuxVaultAgentRegistration?)] =
+            RestorableAgentKind.allCases.map { (kind: $0, registration: nil) }
+            + registry.registrations.compactMap { registration in
+                builtInKindIDs.contains(registration.id)
+                    ? nil
+                    : (kind: .custom(registration.id), registration: registration)
+            }
 
-        for kind in hookKinds {
+        for (kind, registration) in hookKinds {
             let fileURL = kind.hookStoreFileURL(homeDirectory: homeDirectory)
             guard fileManager.fileExists(atPath: fileURL.path),
                   let data = try? Data(contentsOf: fileURL),
@@ -554,7 +552,8 @@ struct RestorableAgentSessionIndex: Sendable {
                     kind: kind,
                     sessionId: normalizedSessionId,
                     workingDirectory: normalizedWorkingDirectory(record.cwd),
-                    launchCommand: record.launchCommand
+                    launchCommand: record.launchCommand,
+                    registration: registration
                 )
                 let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
                 if let existing = resolved[key], existing.updatedAt > record.updatedAt {

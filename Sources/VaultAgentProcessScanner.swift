@@ -62,7 +62,8 @@ extension RestorableAgentSessionIndex {
                     environment: observed.environment,
                     capturedAt: capturedAt,
                     source: "process"
-                )
+                ),
+                registration: registration
             )
             resolved[PanelKey(workspaceId: workspaceId, panelId: panelId)] = (snapshot: snapshot, updatedAt: capturedAt)
         }

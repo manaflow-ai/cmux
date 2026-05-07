@@ -301,7 +301,8 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
                             environment: ["PI_CODING_AGENT_SESSION_DIR": tempDir.path],
                             capturedAt: 1_777_777_777,
                             source: "process"
-                        )
+                        ),
+                        registration: CmuxVaultAgentRegistration.builtInPi
                     ),
                     tmuxStartCommand: nil
                 ),
