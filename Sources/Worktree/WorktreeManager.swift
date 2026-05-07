@@ -71,7 +71,11 @@ public enum WorktreeManager {
     // MARK: - Configuration
 
     /// Path to the `git` executable. Overridable for tests / sandbox builds.
-    public static var gitExecutablePath: String = "/usr/bin/git"
+    /// Write-once before the first `runGit` call; after that, reads are
+    /// concurrent-safe. `nonisolated(unsafe)` suppresses Swift 6's
+    /// global-mutable-state diagnostic — callers must not mutate this once
+    /// `WorktreeManager` has been used from any actor / `Task`.
+    public nonisolated(unsafe) static var gitExecutablePath: String = "/usr/bin/git"
 
     // MARK: - Public API
 
@@ -97,18 +101,25 @@ public enum WorktreeManager {
         branch: String,
         basedOn: String? = nil
     ) throws -> Record {
+        // Match git's CWD semantics: a relative `worktreePath` resolves
+        // against `repoPath` (because `git worktree add` runs with cwd =
+        // repoPath), not against the process's current directory. Using
+        // Foundation's process-CWD-based resolution for `fileExists` and the
+        // returned `Record.path` would target a different directory than the
+        // one git actually creates.
+        let resolvedWorktreePath = resolveAgainst(repoPath, path: worktreePath)
         // Pre-checks are a fast path for common errors. The catch block below
         // re-maps git's stderr to the same typed errors so a parallel agent
         // that creates the path/branch between the pre-check and `git worktree
         // add` (TOCTOU) still gets `worktreePathExists` / `branchAlreadyExists`
         // instead of an opaque `gitFailed`.
-        if FileManager.default.fileExists(atPath: worktreePath) {
-            throw Failure.worktreePathExists(path: worktreePath)
+        if FileManager.default.fileExists(atPath: resolvedWorktreePath) {
+            throw Failure.worktreePathExists(path: resolvedWorktreePath)
         }
         if branchExists(repoPath: repoPath, branch: branch) {
             throw Failure.branchAlreadyExists(branch: branch)
         }
-        var args: [String] = ["worktree", "add", "-b", branch, worktreePath]
+        var args: [String] = ["worktree", "add", "-b", branch, resolvedWorktreePath]
         if let basedOn { args.append(basedOn) }
         do {
             _ = try runGit(args: args, cwd: repoPath)
@@ -118,14 +129,14 @@ public enum WorktreeManager {
                 throw Failure.branchAlreadyExists(branch: branch)
             }
             if lower.contains("already exists") || lower.contains("not an empty directory") {
-                throw Failure.worktreePathExists(path: worktreePath)
+                throw Failure.worktreePathExists(path: resolvedWorktreePath)
             }
             throw Failure.gitFailed(args: failedArgs, stderr: stderr, exitCode: code)
         }
 
         return Record(
-            path: absolute(worktreePath),
-            head: try? runGit(args: ["rev-parse", "HEAD"], cwd: worktreePath)
+            path: resolvedWorktreePath,
+            head: try? runGit(args: ["rev-parse", "HEAD"], cwd: resolvedWorktreePath)
                 .trimmingCharacters(in: .whitespacesAndNewlines),
             branch: branch,
             isDetached: false,
@@ -296,9 +307,16 @@ public enum WorktreeManager {
         }
     }
 
-    private static func absolute(_ path: String) -> String {
-        let url = URL(fileURLWithPath: path).standardizedFileURL
-        return url.path
+    /// Resolve `path` to an absolute filesystem path. If `path` is already
+    /// absolute, it is standardized as-is. If relative, it is resolved
+    /// against `base` (a directory) — mirroring how `git -C <base>` resolves
+    /// relative paths in subcommand arguments.
+    private static func resolveAgainst(_ base: String, path: String) -> String {
+        if (path as NSString).isAbsolutePath {
+            return URL(fileURLWithPath: path).standardizedFileURL.path
+        }
+        let baseURL = URL(fileURLWithPath: base, isDirectory: true)
+        return baseURL.appendingPathComponent(path).standardizedFileURL.path
     }
 
     /// Run `git <args>` in `cwd`. Returns stdout on success; throws
