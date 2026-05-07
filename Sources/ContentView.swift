@@ -2656,6 +2656,10 @@ struct ContentView: View {
             terminalContentWithSidebarDropOverlay(appearance: appearance)
             rightSidebarPanelWithBackdrop(appearance: appearance)
         }
+        .transaction {
+            $0.animation = nil
+            $0.disablesAnimations = true
+        }
     }
 
     private var rightSidebarVisible: Bool {
@@ -3132,6 +3136,10 @@ struct ContentView: View {
                         sidebarPanelWithBackdrop(appearance: appearance)
                     }
                 }
+                .transaction {
+                    $0.animation = nil
+                    $0.disablesAnimations = true
+                }
             )
         } else {
             // Standard HStack mode for behindWindow blur
@@ -3141,6 +3149,10 @@ struct ContentView: View {
                         sidebarPanelWithBackdrop(appearance: appearance)
                     }
                     terminalContentWithRightSidebarPanel(appearance: appearance)
+                }
+                .transaction {
+                    $0.animation = nil
+                    $0.disablesAnimations = true
                 }
             )
         }
