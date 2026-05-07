@@ -5,9 +5,9 @@ extension CMUXCLI {
     private static let claudeNodeOptionsRestoreModule = """
     const hadOriginalNodeOptions = process.env.CMUX_ORIGINAL_NODE_OPTIONS_PRESENT === "1";
     if (hadOriginalNodeOptions) {
-        process.env.NODE_OPTIONS = process.env.CMUX_ORIGINAL_NODE_OPTIONS ?? "";
+      process.env.NODE_OPTIONS = process.env.CMUX_ORIGINAL_NODE_OPTIONS ?? "";
     } else {
-        delete process.env.NODE_OPTIONS;
+      delete process.env.NODE_OPTIONS;
     }
     delete process.env.CMUX_ORIGINAL_NODE_OPTIONS;
     delete process.env.CMUX_ORIGINAL_NODE_OPTIONS_PRESENT;
