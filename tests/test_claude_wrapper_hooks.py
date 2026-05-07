@@ -481,7 +481,7 @@ exit 0
             env["HOME"] = str(sandbox_home)
             if setup_env is not None:
                 env.update(setup_env(tmp))
-            env.update(inherited_env)
+            env.update({k: v for k, v in inherited_env.items() if k != "HOME"})
 
             proc = subprocess.run(
                 [str(wrapper), *argv],
