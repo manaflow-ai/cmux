@@ -331,9 +331,7 @@ async fn run_inner(
                         probe::log_event("server", "client_accept", &[]);
                         let daemon = daemon.clone();
                         task::spawn(async move {
-                            if let Err(e) =
-                                handle_client(daemon, stream, HeartbeatConfig::default()).await
-                            {
+                            if let Err(e) = handle_client(daemon, stream, heartbeat).await {
                                 tracing::warn!(error = ?e, "client handler error");
                             }
                         });

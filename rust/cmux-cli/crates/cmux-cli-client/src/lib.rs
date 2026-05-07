@@ -165,7 +165,10 @@ pub async fn attach(opts: AttachOptions) -> Result<()> {
     let mut reader = BufReader::new(read_half);
 
     let (cols, rows) = terminal::size().unwrap_or((80, 24));
-    let terminal_colors = query_host_terminal_colors();
+    let HostTerminalProbe {
+        colors: terminal_colors,
+        preserved_stdin,
+    } = query_host_terminal_colors();
     write_msg(
         &mut write_half,
         &ClientMsg::Hello {
@@ -249,7 +252,7 @@ pub async fn attach(opts: AttachOptions) -> Result<()> {
         )],
     );
 
-    let result = run_client_loop(reader, &mut write_half).await;
+    let result = run_client_loop(reader, &mut write_half, preserved_stdin).await;
 
     execute!(
         io::stdout(),
@@ -262,11 +265,20 @@ pub async fn attach(opts: AttachOptions) -> Result<()> {
     result
 }
 
-async fn run_client_loop<R, W>(reader: R, write_half: &mut W) -> Result<()>
+async fn run_client_loop<R, W>(reader: R, write_half: &mut W, initial_input: Vec<u8>) -> Result<()>
 where
     R: tokio::io::AsyncRead + Unpin + Send + 'static,
     W: tokio::io::AsyncWrite + Unpin,
 {
+    let replay_ok = write_preserved_initial_input(write_half, &initial_input)
+        .await
+        .is_ok();
+    if !replay_ok {
+        let _ = write_msg(write_half, &ClientMsg::Detach).await;
+        let _ = write_half.shutdown().await;
+        return Ok(());
+    }
+
     let (ev_tx, mut ev_rx) = mpsc::channel::<Event>(256);
     let event_reader = spawn_event_reader(ev_tx);
 
@@ -431,43 +443,87 @@ fn write_server_frame<W: Write>(stdout: &mut W, data: &[u8]) -> Result<()> {
     Ok(())
 }
 
-fn query_host_terminal_colors() -> Option<TerminalColorReport> {
+async fn write_preserved_initial_input<W>(write_half: &mut W, initial_input: &[u8]) -> Result<()>
+where
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    if initial_input.is_empty() {
+        return Ok(());
+    }
+    probe::log_event(
+        "client",
+        "replay_preserved_stdin",
+        &[("summary", probe::terminal_bytes_summary(initial_input))],
+    );
+    write_msg(
+        write_half,
+        &ClientMsg::Input {
+            data: initial_input.to_vec(),
+        },
+    )
+    .await?;
+    Ok(())
+}
+
+#[derive(Default)]
+struct HostTerminalProbe {
+    colors: Option<TerminalColorReport>,
+    preserved_stdin: Vec<u8>,
+}
+
+#[derive(Default)]
+struct HostTerminalProbeRead {
+    probe_bytes: Vec<u8>,
+    preserved_bytes: Vec<u8>,
+}
+
+fn query_host_terminal_colors() -> HostTerminalProbe {
     if terminal::enable_raw_mode().is_err() {
-        return None;
+        return HostTerminalProbe::default();
     }
     let result = query_host_terminal_colors_raw();
     let _ = terminal::disable_raw_mode();
     result
 }
 
-fn query_host_terminal_colors_raw() -> Option<TerminalColorReport> {
+fn query_host_terminal_colors_raw() -> HostTerminalProbe {
     let mut stdout = io::stdout();
     let query_palette = probe::color_enabled();
     let query = build_host_terminal_color_query(query_palette);
     if stdout.write_all(&query).is_err() || stdout.flush().is_err() {
-        return None;
+        return HostTerminalProbe::default();
     }
-    let bytes = read_available_stdin_bytes(Duration::from_millis(120), query_palette).ok()?;
+    let response =
+        read_available_stdin_bytes(Duration::from_millis(120), query_palette).unwrap_or_default();
+    let bytes = &response.probe_bytes;
     let colors = TerminalColorReport {
-        foreground: parse_osc_color(&bytes, 10),
-        background: parse_osc_color(&bytes, 11),
+        foreground: parse_osc_color(bytes, 10),
+        background: parse_osc_color(bytes, 11),
         palette: if query_palette {
             (0u8..=u8::MAX)
                 .filter_map(|index| {
-                    parse_osc_palette_color(&bytes, index).map(|color| (index, color))
+                    parse_osc_palette_color(bytes, index).map(|color| (index, color))
                 })
                 .collect::<BTreeMap<_, _>>()
         } else {
             BTreeMap::new()
         },
     };
-    if colors.foreground.is_none() && colors.background.is_none() && colors.palette.is_empty() {
-        return None;
+    let colors = if colors.foreground.is_none()
+        && colors.background.is_none()
+        && colors.palette.is_empty()
+    {
+        None
+    } else {
+        Some(colors)
+    };
+    if query_palette && let Some(colors) = &colors {
+        log_host_terminal_color_probe(bytes, colors);
     }
-    if query_palette {
-        log_host_terminal_color_probe(&bytes, &colors);
+    HostTerminalProbe {
+        colors,
+        preserved_stdin: response.preserved_bytes,
     }
-    Some(colors)
 }
 
 fn build_host_terminal_color_query(query_palette: bool) -> Vec<u8> {
@@ -482,7 +538,10 @@ fn build_host_terminal_color_query(query_palette: bool) -> Vec<u8> {
     query
 }
 
-fn read_available_stdin_bytes(timeout: Duration, trace_palette: bool) -> io::Result<Vec<u8>> {
+fn read_available_stdin_bytes(
+    timeout: Duration,
+    trace_palette: bool,
+) -> io::Result<HostTerminalProbeRead> {
     let stdin = io::stdin();
     let fd = stdin.as_raw_fd();
     // SAFETY: fcntl with F_GETFL does not dereference pointers and only reads
@@ -512,7 +571,7 @@ fn read_available_stdin_bytes_nonblocking(
     fd: i32,
     timeout: Duration,
     trace_palette: bool,
-) -> io::Result<Vec<u8>> {
+) -> io::Result<HostTerminalProbeRead> {
     let deadline = Instant::now() + timeout;
     let mut out = Vec::new();
     let mut tmp = [0_u8; 512];
@@ -539,13 +598,14 @@ fn read_available_stdin_bytes_nonblocking(
             let n = unsafe { libc::read(fd, tmp.as_mut_ptr().cast(), tmp.len()) };
             if n > 0 {
                 out.extend_from_slice(&tmp[..n as usize]);
-                if host_terminal_probe_complete(&out, trace_palette) {
-                    return Ok(out);
+                let split = split_host_terminal_probe_bytes(&out, trace_palette);
+                if host_terminal_probe_complete(&split.probe_bytes, trace_palette) {
+                    return Ok(split);
                 }
                 continue;
             }
             if n == 0 {
-                return Ok(out);
+                return Ok(split_host_terminal_probe_bytes(&out, trace_palette));
             }
             let err = io::Error::last_os_error();
             if err.kind() == io::ErrorKind::WouldBlock {
@@ -555,7 +615,76 @@ fn read_available_stdin_bytes_nonblocking(
         }
     }
 
-    Ok(out)
+    Ok(split_host_terminal_probe_bytes(&out, trace_palette))
+}
+
+fn split_host_terminal_probe_bytes(data: &[u8], query_palette: bool) -> HostTerminalProbeRead {
+    let mut split = HostTerminalProbeRead::default();
+    let mut index = 0;
+    while index < data.len() {
+        if !data[index..].starts_with(b"\x1b]") {
+            split.preserved_bytes.push(data[index]);
+            index += 1;
+            continue;
+        }
+
+        let Some(end) = osc_sequence_end(data, index) else {
+            if is_possible_expected_host_terminal_probe_reply(&data[index..], query_palette) {
+                split.probe_bytes.extend_from_slice(&data[index..]);
+            } else {
+                split.preserved_bytes.extend_from_slice(&data[index..]);
+            }
+            break;
+        };
+        let sequence = &data[index..end];
+        if is_expected_host_terminal_probe_reply(sequence, query_palette) {
+            split.probe_bytes.extend_from_slice(sequence);
+        } else {
+            split.preserved_bytes.extend_from_slice(sequence);
+        }
+        index = end;
+    }
+    split
+}
+
+fn osc_sequence_end(data: &[u8], start: usize) -> Option<usize> {
+    let mut index = start + 2;
+    while index < data.len() {
+        if data[index] == 0x07 {
+            return Some(index + 1);
+        }
+        if data[index..].starts_with(b"\x1b\\") {
+            return Some(index + 2);
+        }
+        index += 1;
+    }
+    None
+}
+
+fn is_expected_host_terminal_probe_reply(sequence: &[u8], query_palette: bool) -> bool {
+    sequence.starts_with(b"\x1b]10;rgb:")
+        || sequence.starts_with(b"\x1b]11;rgb:")
+        || (query_palette && sequence.starts_with(b"\x1b]4;") && sequence_has_palette_rgb(sequence))
+}
+
+fn is_possible_expected_host_terminal_probe_reply(sequence: &[u8], query_palette: bool) -> bool {
+    [b"\x1b]10;rgb:".as_slice(), b"\x1b]11;rgb:".as_slice()]
+        .iter()
+        .any(|prefix| prefix.starts_with(sequence) || sequence.starts_with(prefix))
+        || (query_palette
+            && (b"\x1b]4;".starts_with(sequence)
+                || sequence.starts_with(b"\x1b]4;")
+                || sequence.starts_with(b"\x1b]4")))
+}
+
+fn sequence_has_palette_rgb(sequence: &[u8]) -> bool {
+    let body = &sequence[b"\x1b]4;".len()..];
+    let Some(separator) = body.iter().position(|byte| *byte == b';') else {
+        return false;
+    };
+    separator > 0
+        && body[..separator].iter().all(u8::is_ascii_digit)
+        && body[separator + 1..].starts_with(b"rgb:")
 }
 
 fn host_terminal_probe_complete(data: &[u8], trace_palette: bool) -> bool {
@@ -609,8 +738,18 @@ fn parse_osc_rgb_response(data: &[u8], prefix: &str) -> Option<TerminalRgb> {
             (Some(bel), Some(st)) => bel.min(st),
             (Some(bel), None) => bel,
             (None, Some(st)) => st,
-            (None, None) => return None,
+            (None, None) => {
+                search = &search[start + 1..];
+                continue;
+            }
         };
+        if let Some(nested_start) = body[..end]
+            .windows(prefix.len())
+            .position(|window| window == prefix.as_bytes())
+        {
+            search = &body[nested_start..];
+            continue;
+        }
         if let Some(rgb) = parse_rgb_body(&body[..end]) {
             return Some(rgb);
         }
@@ -781,10 +920,12 @@ fn encode_key(key: KeyEvent) -> Option<Vec<u8>> {
 mod tests {
     use super::{
         build_host_terminal_color_query, encode_key, host_terminal_probe_complete, parse_osc_color,
-        parse_osc_palette_color, write_server_frame,
+        parse_osc_palette_color, split_host_terminal_probe_bytes, write_preserved_initial_input,
+        write_server_frame,
     };
-    use cmux_cli_protocol::TerminalRgb;
+    use cmux_cli_protocol::{ClientMsg, TerminalRgb, read_msg};
     use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
+    use tokio::io::BufReader;
 
     fn key(code: KeyCode, mods: KeyModifiers) -> KeyEvent {
         KeyEvent {
@@ -1006,6 +1147,20 @@ mod tests {
     }
 
     #[test]
+    fn parse_osc_color_skips_unterminated_prefix_before_valid_reply() {
+        let response = b"\x1b]10;rgb:dead/beef/nope\x1b]10;rgb:ff/ee/dd\x07";
+
+        assert_eq!(
+            parse_osc_color(response, 10),
+            Some(TerminalRgb {
+                r: 255,
+                g: 238,
+                b: 221,
+            })
+        );
+    }
+
+    #[test]
     fn parses_osc_color_reports_with_short_components() {
         let response = b"\x1b]10;rgb:ff/ee/dd\x1b\\noise\x1b]11;rgb:f/8/0\x07";
 
@@ -1054,6 +1209,58 @@ mod tests {
         let defaults = b"\x1b]10;rgb:ffff/ffff/ffff\x1b\\\x1b]11;rgb:0000/0000/0000\x1b\\";
         assert!(host_terminal_probe_complete(defaults, false));
         assert!(!host_terminal_probe_complete(defaults, true));
+    }
+
+    #[test]
+    fn host_probe_preserves_interleaved_stdin_bytes() {
+        let raw = b"\x1b]10;rgb:ff/ee/dd\x1b\\typed text\x1b[A\x1b]11;rgb:11/22/33\x07more";
+        let split = split_host_terminal_probe_bytes(raw, false);
+
+        assert_eq!(split.preserved_bytes, b"typed text\x1b[Amore");
+        assert_eq!(
+            parse_osc_color(&split.probe_bytes, 10),
+            Some(TerminalRgb {
+                r: 255,
+                g: 238,
+                b: 221,
+            })
+        );
+        assert_eq!(
+            parse_osc_color(&split.probe_bytes, 11),
+            Some(TerminalRgb {
+                r: 17,
+                g: 34,
+                b: 51,
+            })
+        );
+    }
+
+    #[test]
+    fn host_probe_preserves_palette_replies_when_not_queried() {
+        let raw = b"a\x1b]4;1;rgb:ffff/0000/0000\x07b";
+        let split = split_host_terminal_probe_bytes(raw, false);
+
+        assert!(split.probe_bytes.is_empty());
+        assert_eq!(split.preserved_bytes, raw);
+    }
+
+    #[tokio::test]
+    async fn preserved_probe_input_replays_as_client_input() {
+        let (mut client, server) = tokio::io::duplex(1024);
+
+        write_preserved_initial_input(&mut client, b"typed before attach")
+            .await
+            .expect("replay preserved input");
+
+        let mut reader = BufReader::new(server);
+        let msg = read_msg::<_, ClientMsg>(&mut reader)
+            .await
+            .expect("read client msg")
+            .expect("client msg");
+        match msg {
+            ClientMsg::Input { data } => assert_eq!(data, b"typed before attach"),
+            other => panic!("expected replayed input, got {other:?}"),
+        }
     }
 
     #[test]

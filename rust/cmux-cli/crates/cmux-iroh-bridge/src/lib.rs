@@ -29,6 +29,7 @@ use tokio::net::UnixStream;
 pub const CMUX_IROH_ALPN: &[u8] = b"/cmux/cmx/3";
 const MAX_AUTH_FRAME_BYTES: usize = 4096;
 const MAX_CMX_FRAME_BYTES: usize = 64 * 1024 * 1024;
+const PAIRING_AUTH_TIMEOUT: Duration = Duration::from_secs(30);
 const RELAY_ADDR_WAIT: Duration = Duration::from_secs(5);
 type HmacSha256 = Hmac<Sha256>;
 
@@ -479,7 +480,13 @@ async fn proxy_incoming(
     let (mut iroh_send, mut iroh_recv) = connection.accept_bi().await?;
     if let Some(pairing) = pairing.as_ref() {
         pairing.validate_not_expired()?;
-        complete_pairing_auth(&mut iroh_send, &mut iroh_recv, pairing).await?;
+        complete_pairing_auth_with_timeout(
+            &mut iroh_send,
+            &mut iroh_recv,
+            pairing,
+            PAIRING_AUTH_TIMEOUT,
+        )
+        .await?;
     }
 
     let mut cmx = UnixStream::connect(&socket_path)
@@ -692,6 +699,24 @@ where
         },
     )
     .await
+}
+
+async fn complete_pairing_auth_with_timeout<W, R>(
+    writer: &mut W,
+    reader: &mut R,
+    pairing: &BridgePairingOptions,
+    timeout_duration: Duration,
+) -> Result<()>
+where
+    W: AsyncWrite + Unpin,
+    R: AsyncRead + Unpin,
+{
+    tokio::time::timeout(
+        timeout_duration,
+        complete_pairing_auth(writer, reader, pairing),
+    )
+    .await
+    .map_err(|_| anyhow!("pairing auth timed out"))?
 }
 
 async fn complete_client_pairing_auth<W, R>(
@@ -1141,6 +1166,31 @@ mod tests {
             Err(error) => error,
         };
         assert!(error.to_string().contains("missing pairing secret"));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn pairing_auth_has_application_deadline() -> Result<()> {
+        let (_client, server_side) = tokio::io::duplex(64);
+        let (mut recv, mut send) = tokio::io::split(server_side);
+        let pairing = BridgePairingOptions {
+            pairing_id: "pairing-1".into(),
+            secret: "shared-secret-from-rivet".into(),
+            rivet_endpoint: "https://rivet.example.test".into(),
+            stack_project_id: "stack-project".into(),
+            expires_at_unix: future_expires_at(),
+        };
+
+        let error = complete_pairing_auth_with_timeout(
+            &mut send,
+            &mut recv,
+            &pairing,
+            Duration::from_millis(10),
+        )
+        .await
+        .expect_err("silent peer should time out");
+
+        assert!(error.to_string().contains("pairing auth timed out"));
         Ok(())
     }
 
