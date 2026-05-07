@@ -19,6 +19,8 @@ final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
         ])
     }
 
+    deinit {}
+
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
@@ -60,17 +62,16 @@ final class CmuxMainWindow: NSWindow {
 extension CmuxMainWindow {
     private static let defaultContentSize = NSSize(width: 1_000, height: 700)
 
+    /// Returns an unpositioned content rect clamped to the visible display; callers own final placement.
     static func defaultContentRect(styleMask: NSWindow.StyleMask) -> NSRect {
-        let contentRect = NSRect(origin: .zero, size: defaultContentSize)
+        let unpositionedContentRect = NSRect(origin: .zero, size: defaultContentSize)
         guard let visibleFrame = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame else {
-            return contentRect
+            return unpositionedContentRect
         }
 
-        let frameRect = NSWindow.frameRect(forContentRect: contentRect, styleMask: styleMask)
-        return NSWindow.contentRect(
-            forFrameRect: clampedFrame(frameRect, within: visibleFrame),
-            styleMask: styleMask
-        )
+        let frameRect = NSWindow.frameRect(forContentRect: unpositionedContentRect, styleMask: styleMask)
+        let clampedFrameRect = clampedFrame(frameRect, within: visibleFrame)
+        return NSWindow.contentRect(forFrameRect: clampedFrameRect, styleMask: styleMask)
     }
 
     private static func clampedFrame(_ frame: NSRect, within visibleFrame: NSRect) -> NSRect {
