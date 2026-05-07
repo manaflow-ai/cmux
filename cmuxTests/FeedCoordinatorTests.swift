@@ -23,18 +23,13 @@ final class FeedCoordinatorTests: XCTestCase {
     }
 
     func testNotificationSuppressedWhenReplyArrivesFast() async {
-        await MainActor.run {
-            FeedCoordinator.shared.install(store: WorkstreamStore(ringCapacity: 10))
-        }
-
         let notificationFired = DispatchSemaphore(value: 0)
-        FeedCoordinator.shared.notificationGraceDelay = 0.3
-        FeedCoordinator.shared.notificationPosterForTesting = { _, _ in
-            notificationFired.signal()
-        }
-        defer {
-            FeedCoordinator.shared.notificationPosterForTesting = nil
-            FeedCoordinator.shared.notificationGraceDelay = 0.5
+        let coordinator = FeedCoordinator(
+            notificationPoster: { _, _ in notificationFired.signal() },
+            notificationGraceDelay: 0.3
+        )
+        await MainActor.run {
+            coordinator.install(store: WorkstreamStore(ringCapacity: 10))
         }
 
         let event = WorkstreamEvent(
@@ -49,36 +44,27 @@ final class FeedCoordinatorTests: XCTestCase {
 
         let done = DispatchSemaphore(value: 0)
         DispatchQueue.global(qos: .userInitiated).async {
-            _ = FeedCoordinator.shared.ingestBlocking(event: event, waitTimeout: 5)
+            _ = coordinator.ingestBlocking(event: event, waitTimeout: 5)
             done.signal()
         }
 
-        // Reply well within the grace period — notification should be cancelled.
+        // Reply well within the grace period — notification should be suppressed.
         Thread.sleep(forTimeInterval: 0.05)
-        FeedCoordinator.shared.deliverReply(
-            requestId: "notif-suppress-request",
-            decision: .permission(.once)
-        )
+        coordinator.deliverReply(requestId: "notif-suppress-request", decision: .permission(.once))
 
         XCTAssertEqual(done.wait(timeout: .now() + 2), .success)
-        // Notification must NOT have fired.
         XCTAssertEqual(notificationFired.wait(timeout: .now() + 0.5), .timedOut,
             "notification should be suppressed when reply arrives before grace period")
     }
 
     func testNotificationFiresWhenNoReplyArrives() async {
-        await MainActor.run {
-            FeedCoordinator.shared.install(store: WorkstreamStore(ringCapacity: 10))
-        }
-
         let notificationFired = DispatchSemaphore(value: 0)
-        FeedCoordinator.shared.notificationGraceDelay = 0.1
-        FeedCoordinator.shared.notificationPosterForTesting = { _, _ in
-            notificationFired.signal()
-        }
-        defer {
-            FeedCoordinator.shared.notificationPosterForTesting = nil
-            FeedCoordinator.shared.notificationGraceDelay = 0.5
+        let coordinator = FeedCoordinator(
+            notificationPoster: { _, _ in notificationFired.signal() },
+            notificationGraceDelay: 0.1
+        )
+        await MainActor.run {
+            coordinator.install(store: WorkstreamStore(ringCapacity: 10))
         }
 
         let event = WorkstreamEvent(
@@ -92,7 +78,7 @@ final class FeedCoordinatorTests: XCTestCase {
         )
 
         DispatchQueue.global(qos: .userInitiated).async {
-            _ = FeedCoordinator.shared.ingestBlocking(event: event, waitTimeout: 2)
+            _ = coordinator.ingestBlocking(event: event, waitTimeout: 2)
         }
 
         // No reply — notification should fire after the grace period.
@@ -100,10 +86,7 @@ final class FeedCoordinatorTests: XCTestCase {
             "notification should fire when no reply arrives within grace period")
 
         // Clean up the pending waiter.
-        FeedCoordinator.shared.deliverReply(
-            requestId: "notif-fire-request",
-            decision: .permission(.once)
-        )
+        coordinator.deliverReply(requestId: "notif-fire-request", decision: .permission(.once))
     }
 
     func testBlockingIngestExpiresItemWhenHookTimesOut() async {

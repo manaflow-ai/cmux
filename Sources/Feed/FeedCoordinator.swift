@@ -25,14 +25,12 @@ final class FeedCoordinator: @unchecked Sendable {
     /// handler signals the semaphore after filling the slot.
     private let waiterLock = NSLock()
     private var waiters: [String: PendingWaiter] = [:]
-    private var pendingNotifications: [String: DispatchWorkItem] = [:]
+    /// Request IDs whose notification should be suppressed when the grace-period
+    /// timer fires — populated by deliverReply and the timeout-cleanup path.
+    private var suppressedNotificationIds: Set<String> = []
 
-    /// How long to wait before posting a native notification banner.
-    /// Overridden in tests to a small value so tests don't take 500 ms.
-    nonisolated(unsafe) var notificationGraceDelay: TimeInterval = 0.5
-
-    /// Overrides the notification posting function in unit tests.
-    nonisolated(unsafe) var notificationPosterForTesting: ((WorkstreamEvent, String) -> Void)?
+    private let notificationPoster: (WorkstreamEvent, String) -> Void
+    private let notificationGraceDelay: TimeInterval
 
     /// One kqueue-backed DispatchSource per distinct agent PID we've
     /// ever seen. The kernel fires `.exit` the instant the process
@@ -45,7 +43,19 @@ final class FeedCoordinator: @unchecked Sendable {
         label: "cmux.feed.pidWatcher", qos: .utility
     )
 
-    private init() {}
+    private init() {
+        self.notificationPoster = postFeedNotification
+        self.notificationGraceDelay = 0.5
+    }
+
+    /// For tests: inject a custom poster and/or a shorter grace delay.
+    init(
+        notificationPoster: @escaping (WorkstreamEvent, String) -> Void,
+        notificationGraceDelay: TimeInterval = 0.5
+    ) {
+        self.notificationPoster = notificationPoster
+        self.notificationGraceDelay = notificationGraceDelay
+    }
 
     /// Must be called once at app launch to install the store.
     @MainActor
@@ -94,11 +104,11 @@ final class FeedCoordinator: @unchecked Sendable {
         waitTimeout: TimeInterval
     ) -> IngestBlockingResult {
         guard let requestId = event.requestId, waitTimeout > 0 else {
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    FeedCoordinator.shared.store.ingest(event)
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated { [weak self] in
+                    self?.store.ingest(event)
                     if let ppid = event.ppid, ppid > 0 {
-                        FeedCoordinator.shared.armPidWatcher(ppid: ppid)
+                        self?.armPidWatcher(ppid: ppid)
                     }
                 }
             }
@@ -120,11 +130,11 @@ final class FeedCoordinator: @unchecked Sendable {
         // — no polling, no leaked cards when the agent is killed.
         let itemIdSlot = UnsafeItemIdSlot()
         DispatchQueue.main.sync {
-            MainActor.assumeIsolated {
-                FeedCoordinator.shared.store.ingest(event)
-                itemIdSlot.value = FeedCoordinator.shared.store.items.last?.id
+            MainActor.assumeIsolated { [self] in
+                self.store.ingest(event)
+                itemIdSlot.value = self.store.items.last?.id
                 if let ppid = event.ppid, ppid > 0 {
-                    FeedCoordinator.shared.armPidWatcher(ppid: ppid)
+                    self.armPidWatcher(ppid: ppid)
                 }
             }
         }
@@ -136,22 +146,22 @@ final class FeedCoordinator: @unchecked Sendable {
         // request (e.g. a PermissionRequest hook that returns "allow"
         // immediately) have a chance to call deliverReply and cancel the
         // work item before the notification ever fires.
-        let poster = notificationPosterForTesting ?? postFeedNotification
-        let delay = notificationGraceDelay
-        let notifyWork = DispatchWorkItem {
-            poster(event, requestId)
+        DispatchQueue.main.asyncAfter(deadline: .now() + notificationGraceDelay) { [weak self] in
+            guard let self else { return }
+            self.waiterLock.lock()
+            let suppressed = self.suppressedNotificationIds.remove(requestId) != nil
+            self.waiterLock.unlock()
+            if !suppressed {
+                self.notificationPoster(event, requestId)
+            }
         }
-        waiterLock.lock()
-        pendingNotifications[requestId] = notifyWork
-        waiterLock.unlock()
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: notifyWork)
 
         let deadline: DispatchTime = .now() + waitTimeout
         let waitResult = semaphore.wait(timeout: deadline)
 
         waiterLock.lock()
         let w = waiters.removeValue(forKey: requestId)
-        pendingNotifications.removeValue(forKey: requestId)
+        suppressedNotificationIds.insert(requestId)
         waiterLock.unlock()
 
         switch waitResult {
@@ -175,7 +185,7 @@ final class FeedCoordinator: @unchecked Sendable {
             waiter.decision = decision
             waiter.semaphore.signal()
         }
-        pendingNotifications.removeValue(forKey: requestId)?.cancel()
+        suppressedNotificationIds.insert(requestId)
         waiterLock.unlock()
 
         let resolve: @Sendable () -> Void = { [requestId, decision] in
