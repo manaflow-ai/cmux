@@ -52,14 +52,12 @@ public enum CmxClientError: Error, Equatable, Sendable {
 /// Handle to an attached cmx session. Real implementation will own a
 /// URLSession/NWConnection over AF_UNIX, a MessagePack encoder/decoder,
 /// and the per-tab libghostty-vt instances.
-public final class CmxSession: @unchecked Sendable {
+public actor CmxSession {
     private let options: CmxAttachOptions
 
     public init(options: CmxAttachOptions) {
         self.options = options
     }
-
-    deinit {}
 
     /// Connect, Hello, and start streaming frames.
     public func attach() async throws {
