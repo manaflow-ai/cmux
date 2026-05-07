@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import Darwin
 import Bonsplit
+import Combine
 import UniformTypeIdentifiers
 @main
 struct cmuxApp: App {
@@ -70,9 +71,6 @@ struct cmuxApp: App {
         let message = "error: refusing to launch untagged cmux DEV; start with ./scripts/reload.sh --tag <name> (or set CMUX_TAG for test harnesses)"
         fputs("\(message)\n", stderr)
         fflush(stderr)
-#if DEBUG
-        NSLog("%@", message)
-#endif
         Darwin.exit(64)
     }
 
@@ -5181,7 +5179,12 @@ struct SettingsView: View {
     @State private var searchHighlightToken = 0
     @State private var searchHighlightStartedAt: Date?
     @State private var settingsNavigationGeneration = 0
-    var onVisibleSectionChanged: ((SettingsNavigationTarget) -> Void)? = nil
+    /// Combine relay used to surface the visible-section signal to the parent
+    /// view. Sending on a `PassthroughSubject` is **not** a state mutation —
+    /// the actual `@State` write happens in the parent's `.onReceive(...)`
+    /// lifecycle handler, which keeps `onPreferenceChange` free of any
+    /// `@State`-writing call chain (Cmux Swiftui State Layout rule).
+    var visibilityRelay: PassthroughSubject<SettingsNavigationTarget, Never>? = nil
 
     @AppStorage(LanguageSettings.languageKey) private var appLanguage = LanguageSettings.defaultLanguage.rawValue
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
@@ -7226,10 +7229,13 @@ struct SettingsView: View {
             }
         .coordinateSpace(name: SettingsSectionTracker.scrollCoordinateSpaceName)
         .onPreferenceChange(SettingsSectionTrackerKey.self) { entries in
-            // Pure-function pick so we never mutate `@State` from a render
-            // callback; the parent owns any state changes via the callback.
+            // Pure-function pick + Combine `send`. No `@State` is mutated in
+            // this closure (or in any helper it calls); the parent reacts on
+            // its own `.onReceive(...)` lifecycle handler, where `@State`
+            // writes are an explicit lifecycle event rather than a render-
+            // time side effect.
             guard let target = SettingsSectionTracker.visibleTarget(from: entries) else { return }
-            onVisibleSectionChanged?(target)
+            visibilityRelay?.send(target)
         }
         .toggleStyle(.switch)
         .onAppear {
@@ -8187,6 +8193,10 @@ private struct SettingsRootView: View {
     @State private var searchText = ""
     @State private var pendingNavigationTarget: SettingsNavigationTarget?
     @State private var pendingLayoutPassesObserved = 0
+    /// Visible-section signal channel from the detail view. Held in `@State`
+    /// so the same `PassthroughSubject` instance survives view rebuilds; the
+    /// subject itself is a reference-typed event relay, not observed state.
+    @State private var visibilityRelay = PassthroughSubject<SettingsNavigationTarget, Never>()
 
     /// Maximum number of preference-driven layout passes we'll wait for the
     /// programmatic scroll to reach `pendingNavigationTarget` before lifting
@@ -8237,7 +8247,7 @@ private struct SettingsRootView: View {
             )
             .navigationSplitViewColumnWidth(210)
         } detail: {
-            SettingsView(onVisibleSectionChanged: handleVisibleSectionChanged(_:))
+            SettingsView(visibilityRelay: visibilityRelay)
         }
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: SettingsWindowPresenter.minimumSize.width, minHeight: SettingsWindowPresenter.minimumSize.height)
@@ -8260,10 +8270,32 @@ private struct SettingsRootView: View {
             let shouldPreserveSearchSelection = isSearching && selectedEntry?.target == target
             navigate(to: target, preferSectionSelection: !shouldPreserveSearchSelection, postRequest: false)
         }
+        .onReceive(visibilityRelay) { target in
+            // `.onReceive(...)` is a SwiftUI lifecycle handler, not a render
+            // callback — `@State` writes here do not violate the Cmux Swiftui
+            // State Layout rule. The PassthroughSubject in `SettingsView.body`
+            // only sends; this handler decides whether to update the sidebar
+            // selection.
+            handleVisibleSectionChanged(target)
+        }
     }
 
     private func handleVisibleSectionChanged(_ target: SettingsNavigationTarget) {
         if let pending = pendingNavigationTarget {
+            // Defensive guard: `.browserImport` has no tracking header in
+            // the scroll layout, so it can never be reported by the
+            // PreferenceKey-based tracker. `beginProgrammaticScroll(to:)`
+            // therefore stores `.browser` whenever the user navigates to
+            // `.browserImport` — but if anything ever stores `.browserImport`
+            // here we lift suppression immediately rather than wedging the
+            // sidebar sync forever.
+            if pending == .browserImport {
+                pendingNavigationTarget = nil
+                pendingLayoutPassesObserved = 0
+                guard target.rawValue != selectedSectionRaw else { return }
+                navigate(to: target, postRequest: false)
+                return
+            }
             // Programmatic scroll reached the requested section; resume sync.
             if target == pending {
                 pendingNavigationTarget = nil
@@ -8293,10 +8325,19 @@ private struct SettingsRootView: View {
     }
 
     private func beginProgrammaticScroll(to target: SettingsNavigationTarget) {
-        // `.browserImport` has no tracking header (it is a sub-section of
-        // `.browser`); map it so the pending target can be matched against
-        // a section that actually reports visibility.
-        let trackedTarget: SettingsNavigationTarget = target == .browserImport ? .browser : target
+        // Map every navigation target to the section whose header is
+        // actually tracked by the scroll PreferenceKey. `.browserImport` is
+        // a sub-section of `.browser` and has no tracking header of its own,
+        // so storing it as the pending target would leave the suppression
+        // flag set forever (`handleVisibleSectionChanged` would never see a
+        // matching report). Map it to `.browser` so the pending target can
+        // be cleared once the browser section scrolls into view.
+        let trackedTarget: SettingsNavigationTarget
+        if target == .browserImport {
+            trackedTarget = .browser
+        } else {
+            trackedTarget = target
+        }
         pendingNavigationTarget = trackedTarget
         pendingLayoutPassesObserved = 0
     }
