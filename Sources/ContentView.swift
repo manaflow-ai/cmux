@@ -6781,6 +6781,22 @@ struct ContentView: View {
         return snapshot
     }
 
+    static func toggleSplitZoomCommandContribution() -> CommandPaletteCommandContribution {
+        func constant(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
+            { _ in value }
+        }
+        return CommandPaletteCommandContribution(
+            commandId: "palette.toggleSplitZoom",
+            title: constant(String(localized: "command.toggleSplitZoom.title", defaultValue: "Toggle Pane Zoom")),
+            subtitle: constant(String(localized: "command.toggleSplitZoom.subtitle", defaultValue: "Terminal Layout")),
+            keywords: ["terminal", "pane", "split", "zoom", "maximize"],
+            when: { context in
+                context.bool(CommandPaletteContextKeys.panelIsTerminal) &&
+                context.bool(CommandPaletteContextKeys.workspaceHasSplits)
+            }
+        )
+    }
+
     private func commandPaletteCommandContributions() -> [CommandPaletteCommandContribution] {
         func constant(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
             { _ in value }
@@ -7633,18 +7649,7 @@ struct ContentView: View {
                 }
             )
         )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.toggleSplitZoom",
-                title: constant(String(localized: "command.toggleSplitZoom.title", defaultValue: "Toggle Pane Zoom")),
-                subtitle: constant(String(localized: "command.toggleSplitZoom.subtitle", defaultValue: "Terminal Layout")),
-                keywords: ["terminal", "pane", "split", "zoom", "maximize"],
-                when: { context in
-                    context.bool(CommandPaletteContextKeys.panelIsTerminal) &&
-                    context.bool(CommandPaletteContextKeys.workspaceHasSplits)
-                }
-            )
-        )
+        contributions.append(Self.toggleSplitZoomCommandContribution())
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.equalizeSplits",

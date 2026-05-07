@@ -1710,3 +1710,63 @@ final class CommandPaletteOverlayPromotionPolicyTests: XCTestCase {
         )
     }
 }
+
+// MARK: - palette.toggleSplitZoom regression coverage (cmux #3439)
+
+final class ToggleSplitZoomCommandContributionTests: XCTestCase {
+    private typealias Contribution = ContentView.CommandPaletteCommandContribution
+    private typealias ContextSnapshot = ContentView.CommandPaletteContextSnapshot
+    private typealias Keys = ContentView.CommandPaletteContextKeys
+
+    private func makeBrowserPaneContext() -> ContextSnapshot {
+        var snapshot = ContextSnapshot()
+        snapshot.setBool(Keys.hasFocusedPanel, true)
+        snapshot.setBool(Keys.panelIsBrowser, true)
+        snapshot.setBool(Keys.panelIsTerminal, false)
+        snapshot.setBool(Keys.workspaceHasSplits, true)
+        return snapshot
+    }
+
+    private func makeTerminalPaneContext() -> ContextSnapshot {
+        var snapshot = ContextSnapshot()
+        snapshot.setBool(Keys.hasFocusedPanel, true)
+        snapshot.setBool(Keys.panelIsBrowser, false)
+        snapshot.setBool(Keys.panelIsTerminal, true)
+        snapshot.setBool(Keys.workspaceHasSplits, true)
+        return snapshot
+    }
+
+    func testCommandIdentifiesAsToggleSplitZoom() {
+        let contribution = ContentView.toggleSplitZoomCommandContribution()
+        XCTAssertEqual(contribution.commandId, "palette.toggleSplitZoom")
+    }
+
+    func testWhenIsTrueForFocusedBrowserPaneInSplitWorkspace() {
+        let contribution = ContentView.toggleSplitZoomCommandContribution()
+        XCTAssertTrue(contribution.when(makeBrowserPaneContext()))
+    }
+
+    func testWhenIsTrueForFocusedTerminalPaneInSplitWorkspace() {
+        let contribution = ContentView.toggleSplitZoomCommandContribution()
+        XCTAssertTrue(contribution.when(makeTerminalPaneContext()))
+    }
+
+    func testWhenIsFalseWhenWorkspaceHasNoSplits() {
+        var snapshot = makeBrowserPaneContext()
+        snapshot.setBool(Keys.workspaceHasSplits, false)
+        let contribution = ContentView.toggleSplitZoomCommandContribution()
+        XCTAssertFalse(contribution.when(snapshot))
+
+        var terminalSnapshot = makeTerminalPaneContext()
+        terminalSnapshot.setBool(Keys.workspaceHasSplits, false)
+        XCTAssertFalse(contribution.when(terminalSnapshot))
+    }
+
+    func testWhenIsFalseWhenNoPanelHasFocus() {
+        var snapshot = ContextSnapshot()
+        snapshot.setBool(Keys.hasFocusedPanel, false)
+        snapshot.setBool(Keys.workspaceHasSplits, true)
+        let contribution = ContentView.toggleSplitZoomCommandContribution()
+        XCTAssertFalse(contribution.when(snapshot))
+    }
+}
