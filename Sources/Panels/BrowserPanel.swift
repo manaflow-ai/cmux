@@ -1798,6 +1798,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// Shared process pool for cookie sharing across all browser panels
     private static let sharedProcessPool = WKProcessPool()
+    private static var remoteWorkspaceWebsiteDataStores: [UUID: WKWebsiteDataStore] = [:]
 
     /// Popup windows owned by this panel (for lifecycle cleanup)
     private var popupControllers: [BrowserPopupWindowController] = []
@@ -2583,6 +2584,15 @@ final class BrowserPanel: Panel, ObservableObject {
         return webView
     }
 
+    private static func websiteDataStore(forRemoteWorkspace identifier: UUID) -> WKWebsiteDataStore {
+        if let existing = remoteWorkspaceWebsiteDataStores[identifier] {
+            return existing
+        }
+        let store = WKWebsiteDataStore(forIdentifier: identifier)
+        remoteWorkspaceWebsiteDataStores[identifier] = store
+        return store
+    }
+
     static func configureWebViewConfiguration(
         _ configuration: WKWebViewConfiguration,
         websiteDataStore: WKWebsiteDataStore,
@@ -2709,7 +2719,7 @@ final class BrowserPanel: Panel, ObservableObject {
         self.usesRemoteWorkspaceProxy = isRemoteWorkspace
         self.browserThemeMode = BrowserThemeSettings.mode()
         self.websiteDataStore = isRemoteWorkspace
-            ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? workspaceId)
+            ? Self.websiteDataStore(forRemoteWorkspace: remoteWebsiteDataStoreIdentifier ?? workspaceId)
             : BrowserProfileStore.shared.websiteDataStore(for: resolvedProfileID)
 
         let webView = Self.makeWebView(
@@ -2916,7 +2926,7 @@ final class BrowserPanel: Panel, ObservableObject {
         workspaceId = newWorkspaceId
         usesRemoteWorkspaceProxy = isRemoteWorkspace
         let targetStore = isRemoteWorkspace
-            ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? newWorkspaceId)
+            ? Self.websiteDataStore(forRemoteWorkspace: remoteWebsiteDataStoreIdentifier ?? newWorkspaceId)
             : BrowserProfileStore.shared.websiteDataStore(for: profileID)
         let needsStoreSwap = webView.configuration.websiteDataStore !== targetStore
         websiteDataStore = targetStore
@@ -3117,6 +3127,17 @@ final class BrowserPanel: Panel, ObservableObject {
 
             restoredBackHistoryStack = Self.sanitizedSessionHistoryURLs(newBack)
             restoredForwardHistoryStack = Array(Self.sanitizedSessionHistoryURLs(newForward).reversed())
+            restoredHistoryCurrentURL = liveCurrent
+            refreshNavigationAvailability()
+            return
+        }
+
+        let nativeBack = webView.backForwardList.backList.compactMap {
+            Self.serializableSessionHistoryURLString($0.url)
+        }
+        if nativeBack.isEmpty, let restoredCurrent {
+            restoredBackHistoryStack = Self.sanitizedSessionHistoryURLs(restoredBack + [restoredCurrent])
+            restoredForwardHistoryStack.removeAll(keepingCapacity: false)
             restoredHistoryCurrentURL = liveCurrent
             refreshNavigationAvailability()
             return
@@ -4540,6 +4561,11 @@ extension BrowserPanel {
         }
 
         prepareDeveloperToolsForRevealIfNeeded(inspector)
+        if inspector.cmuxCallBool(selector: isVisibleSelector) ?? false {
+            developerToolsDetachedOpenGraceDeadline = nil
+            developerToolsLastKnownVisibleAt = Date()
+            return true
+        }
 
         let showSelector = NSSelectorFromString("show")
         guard inspector.responds(to: showSelector) else { return false }
@@ -4681,7 +4707,9 @@ extension BrowserPanel {
             forceDeveloperToolsRefreshOnNextAttach = false
         }
 
-        if visible != targetVisible {
+        let visibleAfterTransition = inspector.cmuxCallBool(selector: isVisibleSelector) ?? visible
+        let resolvedExplicitShow = source == "show" && targetVisible && visibleAfterTransition
+        if visible != targetVisible, !resolvedExplicitShow {
             scheduleDeveloperToolsTransitionSettle(source: source)
         } else {
             developerToolsTransitionTargetVisible = nil
@@ -4748,6 +4776,18 @@ extension BrowserPanel {
         guard let visible = inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) else { return }
         if isDeveloperToolsTransitionInFlight {
             let targetVisible = pendingDeveloperToolsTransitionTargetVisible ?? developerToolsTransitionTargetVisible ?? visible
+            if targetVisible, !visible, !preserveVisibleIntent {
+                setPreferredDeveloperToolsVisible(false)
+                developerToolsDetachedOpenGraceDeadline = nil
+                developerToolsLastKnownVisibleAt = nil
+                forceDeveloperToolsRefreshOnNextAttach = false
+                pendingDeveloperToolsTransitionTargetVisible = nil
+                developerToolsTransitionTargetVisible = nil
+                developerToolsTransitionSettleWorkItem?.cancel()
+                developerToolsTransitionSettleWorkItem = nil
+                cancelDeveloperToolsRestoreRetry()
+                return
+            }
             setPreferredDeveloperToolsVisible(targetVisible)
             if targetVisible, visible {
                 developerToolsDetachedOpenGraceDeadline = nil
@@ -4847,7 +4887,10 @@ extension BrowserPanel {
             forceDeveloperToolsRefreshOnNextAttach = false
             return
         }
-        guard !isDeveloperToolsTransitionInFlight else { return }
+        if isDeveloperToolsTransitionInFlight {
+            let targetVisible = pendingDeveloperToolsTransitionTargetVisible ?? developerToolsTransitionTargetVisible
+            guard targetVisible == true else { return }
+        }
         guard let inspector = webView.cmuxInspectorObject() else {
             scheduleDeveloperToolsRestoreRetry()
             return
