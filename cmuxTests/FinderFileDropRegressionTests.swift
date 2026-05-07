@@ -58,25 +58,102 @@ final class FinderFileDropRegressionTests: XCTestCase {
         )
     }
 
-    func testPaneFileDropRoutingDistinguishesAgentTerminalsFromPlainShells() {
+    func testPaneFileDropRoutingDefaultsToPreviewAndUsesShiftForTerminalDrops() {
         XCTAssertEqual(
-            PaneDropRouting.externalFileDropRouting(panelType: .terminal, hostsAgent: true),
-            .agentPromptPaste,
-            "Agent terminals need an agent-prompt paste route so image drops become prompt attachments instead of literal path text"
-        )
-        XCTAssertEqual(
-            PaneDropRouting.externalFileDropRouting(panelType: .terminal, hostsAgent: false),
+            PaneDropRouting.externalFileDropRouting(
+                panelType: .terminal,
+                hostsAgent: true,
+                defaultAction: .filePreview,
+                shiftKeyHeld: false
+            ),
             .filePreview,
-            "Plain shell terminals should preserve pane file-preview drop routing"
+            "Plain Finder drops over terminal panes should open a file-preview pane by default"
         )
         XCTAssertEqual(
-            PaneDropRouting.externalFileDropRouting(panelType: .filePreview, hostsAgent: true),
+            PaneDropRouting.externalFileDropRouting(
+                panelType: .terminal,
+                hostsAgent: true,
+                defaultAction: .filePreview,
+                shiftKeyHeld: true
+            ),
+            .agentPromptPaste,
+            "Shift-dropping onto an agent terminal should attach images to the prompt instead of opening preview"
+        )
+        XCTAssertEqual(
+            PaneDropRouting.externalFileDropRouting(
+                panelType: .terminal,
+                hostsAgent: false,
+                defaultAction: .filePreview,
+                shiftKeyHeld: true
+            ),
+            .terminalPaste,
+            "Shift-dropping onto a plain shell terminal should use the terminal path insertion route"
+        )
+    }
+
+    func testPaneFileDropRoutingCanDefaultToTerminalAndUseShiftForPreview() {
+        XCTAssertEqual(
+            PaneDropRouting.externalFileDropRouting(
+                panelType: .terminal,
+                hostsAgent: true,
+                defaultAction: .terminal,
+                shiftKeyHeld: false
+            ),
+            .agentPromptPaste
+        )
+        XCTAssertEqual(
+            PaneDropRouting.externalFileDropRouting(
+                panelType: .terminal,
+                hostsAgent: false,
+                defaultAction: .terminal,
+                shiftKeyHeld: false
+            ),
+            .terminalPaste
+        )
+        XCTAssertEqual(
+            PaneDropRouting.externalFileDropRouting(
+                panelType: .terminal,
+                hostsAgent: true,
+                defaultAction: .terminal,
+                shiftKeyHeld: true
+            ),
             .filePreview
         )
         XCTAssertEqual(
-            PaneDropRouting.externalFileDropRouting(panelType: .markdown, hostsAgent: true),
+            PaneDropRouting.externalFileDropRouting(
+                panelType: .filePreview,
+                hostsAgent: true,
+                defaultAction: .terminal,
+                shiftKeyHeld: false
+            ),
             .filePreview
         )
+        XCTAssertEqual(
+            PaneDropRouting.externalFileDropRouting(
+                panelType: .markdown,
+                hostsAgent: true,
+                defaultAction: .terminal,
+                shiftKeyHeld: false
+            ),
+            .filePreview
+        )
+    }
+
+    func testTerminalFileDropSettingsDefaultToFilePreview() throws {
+        let suiteName = "cmux-file-drop-settings-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertEqual(TerminalFileDropSettings.defaultAction(defaults: defaults), .filePreview)
+
+        defaults.set(
+            TerminalFileDropSettings.Action.terminal.rawValue,
+            forKey: TerminalFileDropSettings.defaultActionKey
+        )
+        XCTAssertEqual(TerminalFileDropSettings.defaultAction(defaults: defaults), .terminal)
+
+        defaults.set("unknown", forKey: TerminalFileDropSettings.defaultActionKey)
+        XCTAssertEqual(TerminalFileDropSettings.defaultAction(defaults: defaults), .filePreview)
     }
 
     func testAgentStatusKeysTrackAgentTerminalDropRouting() {
