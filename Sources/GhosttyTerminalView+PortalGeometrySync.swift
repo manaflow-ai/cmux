@@ -18,7 +18,7 @@ extension GhosttyTerminalView {
         coordinator.lastSynchronizedHostGeometryRevision = geometryRevision
         let window = host.window
         let shouldUseImmediateVisibilitySync = PortalGeometrySyncUrgency
-            .shouldSynchronizeNextExternalGeometryChangeImmediately
+            .shouldSynchronizeNextExternalGeometryChangeImmediately(for: window)
         if shouldSynchronizePortalGeometryImmediately(
             hostInLiveResize: host.inLiveResize,
             windowInLiveResize: window?.inLiveResize == true,
@@ -26,7 +26,7 @@ extension GhosttyTerminalView {
         ) || shouldUseImmediateVisibilitySync {
             TerminalWindowPortalRegistry.synchronizeForAnchor(host)
             if shouldUseImmediateVisibilitySync {
-                PortalGeometrySyncUrgency.noteImmediateExternalGeometrySyncUsed()
+                PortalGeometrySyncUrgency.noteImmediateExternalGeometrySyncUsed(for: window)
             }
             return
         }

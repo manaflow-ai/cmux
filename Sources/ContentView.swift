@@ -2891,7 +2891,9 @@ struct ContentView: View {
     }
 
     private func synchronizeSidebarPortalGeometry() {
-        PortalGeometrySyncUrgency.requestImmediateExternalGeometrySyncForNextLayoutPass(); synchronizePortalGeometry(immediately: true)
+        PortalGeometrySyncUrgency.requestImmediateExternalGeometrySyncForNextLayoutPass(in: observedWindow)
+        synchronizePortalGeometry(immediately: true)
+        PortalGeometrySyncUrgency.clearImmediateExternalGeometrySyncIfUnconsumed(for: observedWindow)
     }
     private func refreshWindowChromeMetrics(for window: NSWindow) {
         // Keep native measurements around for minimal WindowGroup safe-area cancellation.

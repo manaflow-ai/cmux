@@ -64,6 +64,52 @@ final class SidebarWidthPolicyTests: XCTestCase {
     }
 }
 
+final class PortalGeometrySyncUrgencyTests: XCTestCase {
+    @MainActor
+    func testImmediateSyncRequestIsScopedToWindow() {
+        PortalGeometrySyncUrgency.resetForTesting()
+        defer { PortalGeometrySyncUrgency.resetForTesting() }
+
+        let requestedWindow = NSWindow()
+        let otherWindow = NSWindow()
+
+        PortalGeometrySyncUrgency.requestImmediateExternalGeometrySyncForNextLayoutPass(in: requestedWindow)
+
+        XCTAssertTrue(
+            PortalGeometrySyncUrgency.shouldSynchronizeNextExternalGeometryChangeImmediately(for: requestedWindow)
+        )
+        XCTAssertFalse(
+            PortalGeometrySyncUrgency.shouldSynchronizeNextExternalGeometryChangeImmediately(for: otherWindow)
+        )
+
+        PortalGeometrySyncUrgency.noteImmediateExternalGeometrySyncUsed(for: otherWindow)
+        XCTAssertTrue(
+            PortalGeometrySyncUrgency.shouldSynchronizeNextExternalGeometryChangeImmediately(for: requestedWindow)
+        )
+
+        PortalGeometrySyncUrgency.noteImmediateExternalGeometrySyncUsed(for: requestedWindow)
+        XCTAssertFalse(
+            PortalGeometrySyncUrgency.shouldSynchronizeNextExternalGeometryChangeImmediately(for: requestedWindow)
+        )
+    }
+
+    @MainActor
+    func testUnconsumedImmediateSyncRequestClearsOnNextMainActorTurn() async {
+        PortalGeometrySyncUrgency.resetForTesting()
+        defer { PortalGeometrySyncUrgency.resetForTesting() }
+
+        let window = NSWindow()
+        PortalGeometrySyncUrgency.requestImmediateExternalGeometrySyncForNextLayoutPass(in: window)
+        PortalGeometrySyncUrgency.clearImmediateExternalGeometrySyncIfUnconsumed(for: window)
+
+        await Task.yield()
+
+        XCTAssertFalse(
+            PortalGeometrySyncUrgency.shouldSynchronizeNextExternalGeometryChangeImmediately(for: window)
+        )
+    }
+}
+
 final class SidebarWorkspaceSelectionColorTests: XCTestCase {
     func testSelectedColoredWorkspaceUsesStandardSelectionBackgroundInLightAndDark() {
         for colorScheme in [ColorScheme.light, .dark] {

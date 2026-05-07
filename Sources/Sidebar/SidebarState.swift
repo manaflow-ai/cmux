@@ -1,18 +1,69 @@
 import Combine
 import CoreGraphics
-import Foundation
+import AppKit
 
 @MainActor
 enum PortalGeometrySyncUrgency {
-    private static var immediateExternalGeometrySyncRequested = false, immediateExternalGeometrySyncGeneration: UInt64 = 0
-    static var shouldSynchronizeNextExternalGeometryChangeImmediately: Bool { immediateExternalGeometrySyncRequested }
-    static func requestImmediateExternalGeometrySyncForNextLayoutPass() { immediateExternalGeometrySyncRequested = true; immediateExternalGeometrySyncGeneration &+= 1 }
-    static func noteImmediateExternalGeometrySyncUsed() {
-        let generation = immediateExternalGeometrySyncGeneration
-        Task { @MainActor in
-            if immediateExternalGeometrySyncGeneration == generation { immediateExternalGeometrySyncRequested = false }
+    private struct Request {
+        weak var window: NSWindow?
+        let windowID: ObjectIdentifier
+        let generation: UInt64
+
+        func matches(_ candidate: NSWindow?) -> Bool {
+            guard let window, let candidate else { return false }
+            return window === candidate && ObjectIdentifier(candidate) == windowID
         }
     }
+
+    private static var immediateExternalGeometrySyncRequest: Request?
+    private static var immediateExternalGeometrySyncGeneration: UInt64 = 0
+
+    static func shouldSynchronizeNextExternalGeometryChangeImmediately(for window: NSWindow?) -> Bool {
+        guard let request = immediateExternalGeometrySyncRequest else { return false }
+        if request.window == nil {
+            immediateExternalGeometrySyncRequest = nil
+            return false
+        }
+        return request.matches(window)
+    }
+
+    static func requestImmediateExternalGeometrySyncForNextLayoutPass(in window: NSWindow?) {
+        guard let window else {
+            immediateExternalGeometrySyncRequest = nil
+            return
+        }
+        immediateExternalGeometrySyncGeneration &+= 1
+        immediateExternalGeometrySyncRequest = Request(
+            window: window,
+            windowID: ObjectIdentifier(window),
+            generation: immediateExternalGeometrySyncGeneration
+        )
+    }
+
+    static func noteImmediateExternalGeometrySyncUsed(for window: NSWindow?) {
+        guard let request = immediateExternalGeometrySyncRequest,
+              request.matches(window) else { return }
+        immediateExternalGeometrySyncRequest = nil
+    }
+
+    static func clearImmediateExternalGeometrySyncIfUnconsumed(for window: NSWindow?) {
+        guard let request = immediateExternalGeometrySyncRequest,
+              request.matches(window) else { return }
+        let generation = request.generation
+        Task { @MainActor [weak window] in
+            guard let current = immediateExternalGeometrySyncRequest,
+                  current.generation == generation,
+                  current.matches(window) else { return }
+            immediateExternalGeometrySyncRequest = nil
+        }
+    }
+
+#if DEBUG
+    static func resetForTesting() {
+        immediateExternalGeometrySyncRequest = nil
+        immediateExternalGeometrySyncGeneration = 0
+    }
+#endif
 }
 
 final class SidebarState: ObservableObject {
