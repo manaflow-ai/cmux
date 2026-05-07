@@ -89,11 +89,13 @@ enum DragOverlayRoutingPolicy {
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
         eventType: NSEvent.EventType?
     ) -> Bool {
-        guard isFileDropRoutingEvent(eventType) || isPortalDragEvent(eventType) else { return false }
+        if hasFileURL(pasteboardTypes) {
+            return isFileDropRoutingEvent(eventType)
+        }
         return shouldPassThroughPortalHitTesting(
             pasteboardTypes: pasteboardTypes,
             eventType: eventType
-        ) || hasFileURL(pasteboardTypes)
+        )
     }
 
     static func isFileDropRoutingEvent(_ eventType: NSEvent.EventType?) -> Bool {
@@ -102,8 +104,7 @@ enum DragOverlayRoutingPolicy {
         case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged,
              .leftMouseUp, .rightMouseUp, .otherMouseUp,
              .mouseMoved, .mouseEntered, .mouseExited,
-             .cursorUpdate, .appKitDefined, .applicationDefined,
-             .systemDefined, .periodic:
+             .cursorUpdate:
             return true
         default:
             return false

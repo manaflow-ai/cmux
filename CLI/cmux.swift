@@ -13425,10 +13425,11 @@ struct CMUXCLI {
             let payload = notificationPayload(title: title, subtitle: summary.subtitle, body: summary.body)
 
             if let sessionId = parsedInput.sessionId {
+                let storedSurfaceId = surfaceId ?? mappedSession?.surfaceId ?? ""
                 try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
-                    surfaceId: surfaceId ?? "",
+                    surfaceId: storedSurfaceId,
                     cwd: parsedInput.cwd,
                     lastSubtitle: summary.subtitle,
                     lastBody: summary.body
