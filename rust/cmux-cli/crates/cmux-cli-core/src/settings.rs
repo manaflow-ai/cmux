@@ -218,11 +218,17 @@ impl Default for App {
 }
 
 /// Load settings from disk. Returns the default settings if the file is
-/// missing or unreadable; returns an error only if parsing fails (we want
-/// that visible to the user so they can fix their syntax).
+/// missing; returns an error for unreadable files or parse failures so the
+/// user can fix their config instead of silently running defaults.
 pub fn load(path: &Path) -> anyhow::Result<Settings> {
-    let Ok(bytes) = std::fs::read(path) else {
-        return Ok(Settings::default());
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(Settings::default());
+        }
+        Err(err) => {
+            return Err(anyhow::anyhow!("read {}: {err}", path.display()));
+        }
     };
     let settings: Settings = serde_json::from_slice(&bytes)
         .map_err(|e| anyhow::anyhow!("parse {}: {e}", path.display()))?;
@@ -372,10 +378,9 @@ pub fn parse_chord(s: &str, prefix: u8) -> Option<Vec<u8>> {
         let tok = tokens[0];
         // A bare single ASCII char is prefix-expanded so configs can keep
         // using "newTab": "c" and mean `C-b c`.
-        if tok.chars().count() == 1
-            && let Some(ch) = tok.chars().next()
+        if let Some(ch) = tok.chars().next()
+            && tok.chars().count() == 1
             && ch.is_ascii()
-            && !tok.starts_with("C-")
         {
             return Some(vec![prefix, ch as u8]);
         }
@@ -924,5 +929,25 @@ mod tests {
         save(&path, &s).unwrap();
         let loaded = load(&path).unwrap();
         assert_eq!(loaded.shortcuts.prefix, "C-a");
+    }
+
+    #[test]
+    fn settings_missing_file_uses_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let loaded = load(&dir.path().join("missing.json")).unwrap();
+        assert_eq!(
+            loaded.shortcuts.prefix,
+            Settings::default().shortcuts.prefix
+        );
+    }
+
+    #[test]
+    fn settings_read_error_surfaces() {
+        let dir = tempfile::tempdir().unwrap();
+        let err = load(dir.path()).unwrap_err().to_string();
+        assert!(
+            err.starts_with("read "),
+            "unexpected settings load error: {err}"
+        );
     }
 }

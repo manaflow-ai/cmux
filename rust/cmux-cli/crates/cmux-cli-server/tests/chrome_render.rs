@@ -164,7 +164,10 @@ async fn composed_frame_shows_sidebar_and_status() {
     )
     .await
     .unwrap();
-    let _ = timeout(Duration::from_secs(5), server).await;
+    let server_result = timeout(Duration::from_secs(5), server)
+        .await
+        .expect("server did not exit within 5s after shell exit");
+    server_result.expect("server task panicked");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

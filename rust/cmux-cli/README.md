@@ -25,7 +25,7 @@ Milestone-by-milestone from [`plans/task-cmx-bootstrap/architecture-overview.md`
 | M8 | Config file + keybind dispatch + notify hot reload | ✅ shipped |
 | M9 | WebSocket transport + bearer-token auth | ✅ shipped (TS UI: follow-up) |
 | M10 | Swift client for macOS cmux | scaffolded — wire contract documented |
-| M11 | Top-level README, CI, polish | this commit |
+| M11 | Top-level README, CI, polish | in progress |
 
 ## Installing (dev)
 
