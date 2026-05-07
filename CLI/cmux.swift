@@ -11777,18 +11777,18 @@ struct CMUXCLI {
         return root
     }
 
-    func writeShimIfChanged(_ script: String, to url: URL) throws {
+    func writeShimIfChanged(_ script: String, to url: URL, mode: Int = 0o755) throws {
         let normalized = script.trimmingCharacters(in: .whitespacesAndNewlines)
         let fileManager = FileManager.default
         let existing = try? String(contentsOf: url, encoding: .utf8)
         guard existing?.trimmingCharacters(in: .whitespacesAndNewlines) != normalized else {
-            try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+            try fileManager.setAttributes([.posixPermissions: mode], ofItemAtPath: url.path)
             return
         }
         let directoryURL = url.deletingLastPathComponent()
         let tempURL = directoryURL.appendingPathComponent(".\(url.lastPathComponent).\(UUID().uuidString).tmp")
         try script.write(to: tempURL, atomically: false, encoding: .utf8)
-        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: tempURL.path)
+        try fileManager.setAttributes([.posixPermissions: mode], ofItemAtPath: tempURL.path)
         do {
             if fileManager.fileExists(atPath: url.path) {
                 _ = try fileManager.replaceItemAt(url, withItemAt: tempURL)

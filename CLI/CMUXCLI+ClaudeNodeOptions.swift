@@ -51,8 +51,7 @@ extension CMUXCLI {
         )
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: root.path)
         let restoreModuleURL = root.appendingPathComponent("restore-node-options.cjs", isDirectory: false)
-        try writeShimIfChanged(Self.claudeNodeOptionsRestoreModule, to: restoreModuleURL)
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: restoreModuleURL.path)
+        try writeShimIfChanged(Self.claudeNodeOptionsRestoreModule, to: restoreModuleURL, mode: 0o600)
         return restoreModuleURL
     }
 
