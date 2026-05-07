@@ -4395,8 +4395,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
         tmuxStartCommand
     }
 
-    func debugInitialInput() -> String? {
-        initialInput
+    func debugInitialInputMetadata() -> (hasInitialInput: Bool, byteCount: Int) {
+        let byteCount = initialInput?.utf8.count ?? 0
+        return (byteCount > 0, byteCount)
     }
 
     func debugPortalHostLease() -> (hostId: String?, paneId: UUID?, inWindow: Bool?, area: CGFloat?) {

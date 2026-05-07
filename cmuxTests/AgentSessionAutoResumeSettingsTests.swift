@@ -80,14 +80,18 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         restoredWithAutoResume.restoreSessionSnapshot(snapshot)
         let autoResumePanelId = try XCTUnwrap(restoredWithAutoResume.focusedPanelId)
         let autoResumePanel = try XCTUnwrap(restoredWithAutoResume.terminalPanel(for: autoResumePanelId))
-        XCTAssertNotNil(autoResumePanel.surface.debugInitialInput())
+        let autoResumeInput = autoResumePanel.surface.debugInitialInputMetadata()
+        XCTAssertTrue(autoResumeInput.hasInitialInput)
+        XCTAssertGreaterThan(autoResumeInput.byteCount, 0)
 
         defaults.set(false, forKey: key)
         let restoredWithoutAutoResume = Workspace()
         restoredWithoutAutoResume.restoreSessionSnapshot(snapshot)
         let disabledPanelId = try XCTUnwrap(restoredWithoutAutoResume.focusedPanelId)
         let disabledPanel = try XCTUnwrap(restoredWithoutAutoResume.terminalPanel(for: disabledPanelId))
-        XCTAssertNil(disabledPanel.surface.debugInitialInput())
+        let disabledInput = disabledPanel.surface.debugInitialInputMetadata()
+        XCTAssertFalse(disabledInput.hasInitialInput)
+        XCTAssertEqual(disabledInput.byteCount, 0)
         XCTAssertEqual(
             restoredWithoutAutoResume.sessionSnapshot(includeScrollback: false)
                 .panels.first?.terminal?.agent?.sessionId,
