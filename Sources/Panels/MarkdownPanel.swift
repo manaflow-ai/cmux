@@ -36,7 +36,6 @@ final class MarkdownPanel: Panel, ObservableObject {
     private nonisolated(unsafe) var fileWatchSource: DispatchSourceFileSystemObject?
     private nonisolated(unsafe) var directoryWatchSource: DispatchSourceFileSystemObject?
     private var directoryWatchPath: String?
-    private var watcherRetryWorkItem: DispatchWorkItem?
     private var isClosed: Bool = false
     private let watchQueue = DispatchQueue(label: "com.cmux.markdown-file-watch", qos: .utility)
 
@@ -105,7 +104,6 @@ final class MarkdownPanel: Panel, ObservableObject {
         }
 
         stopDirectoryWatcher()
-        cancelWatcherRetry()
 
         let source = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: fd,
@@ -156,13 +154,10 @@ final class MarkdownPanel: Panel, ObservableObject {
             guard fd >= 0 else { continue }
 
             stopDirectoryWatcher()
-            cancelWatcherRetry()
 
             installDirectoryWatcher(fileDescriptor: fd, directoryPath: directoryPath)
             return
         }
-
-        scheduleWatcherRetry()
     }
 
     private func installDirectoryWatcher(fileDescriptor fd: Int32, directoryPath: String) {
@@ -225,23 +220,6 @@ final class MarkdownPanel: Panel, ObservableObject {
         return candidates
     }
 
-    private func scheduleWatcherRetry() {
-        guard watcherRetryWorkItem == nil else { return }
-        let workItem = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            self.watcherRetryWorkItem = nil
-            guard !self.isClosed else { return }
-            self.startFileWatcher()
-        }
-        watcherRetryWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: workItem)
-    }
-
-    private func cancelWatcherRetry() {
-        watcherRetryWorkItem?.cancel()
-        watcherRetryWorkItem = nil
-    }
-
     private func stopFileWatcher() {
         if let source = fileWatchSource {
             source.cancel()
@@ -260,13 +238,11 @@ final class MarkdownPanel: Panel, ObservableObject {
     private func stopWatching() {
         stopFileWatcher()
         stopDirectoryWatcher()
-        cancelWatcherRetry()
     }
 
     deinit {
         // DispatchSource cancel is safe from any thread.
         fileWatchSource?.cancel()
         directoryWatchSource?.cancel()
-        watcherRetryWorkItem?.cancel()
     }
 }

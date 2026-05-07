@@ -60,6 +60,6 @@ final class MarkdownViewerAssets {
 #if DEBUG
         NSLog("MarkdownViewerAssets: missing bundled asset \(name).\(ext)")
 #endif
-        return ""
+        preconditionFailure("Missing bundled markdown viewer asset \(name).\(ext)")
     }
 }
