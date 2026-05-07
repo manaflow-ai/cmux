@@ -92,6 +92,11 @@ nonisolated enum CmuxSettingsJSONPersistence {
                 defaultValue: TerminalScrollBarSettings.defaultShowScrollBar,
                 defaults: defaults
             )),
+            "terminal.autoResumeAgentSessions": .bool(boolValue(
+                AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey,
+                defaultValue: AgentSessionAutoResumeSettings.defaultAutoResumeAgentSessions,
+                defaults: defaults
+            )),
             "notifications.dockBadge": .bool(boolValue(
                 NotificationBadgeSettings.dockBadgeEnabledKey,
                 defaultValue: NotificationBadgeSettings.defaultDockBadgeEnabled,

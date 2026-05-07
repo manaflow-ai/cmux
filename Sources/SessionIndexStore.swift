@@ -12,6 +12,7 @@ enum SessionAgent: String, CaseIterable, Identifiable, Hashable, Codable, Sendab
     case codex
     case opencode
     case rovodev
+    case hermesAgent = "hermes-agent"
 
     var id: String { rawValue }
 }
@@ -82,6 +83,7 @@ enum AgentSpecifics: Hashable {
     case codex(model: String?, approvalPolicy: String?, sandboxMode: String?, effort: String?)
     case opencode(providerModel: String?, agentName: String?)
     case rovodev
+    case hermesAgent(source: String?, model: String?, hermesHome: String?)
 }
 
 struct SessionEntry: Identifiable, Hashable {
@@ -139,6 +141,13 @@ struct SessionEntry: Identifiable, Hashable {
             return parts.joined(separator: " ")
         case .rovodev:
             return "acli rovodev run --restore \(Self.shellQuote(sessionId))"
+        case let .hermesAgent(source, model, hermesHome):
+            return Self.hermesResumeCommand(
+                sessionId: sessionId,
+                source: source,
+                model: model,
+                hermesHome: hermesHome
+            )
         }
     }
 
@@ -179,7 +188,7 @@ struct SessionEntry: Identifiable, Hashable {
     }
 
     /// Single-quote a value for safe shell injection. Escapes embedded single quotes.
-    private static func shellQuote(_ value: String) -> String {
+    static func shellQuote(_ value: String) -> String {
         if value.range(of: "[^A-Za-z0-9_./:=+-]", options: .regularExpression) == nil {
             return value
         }
@@ -709,23 +718,7 @@ final class SessionIndexStore: ObservableObject {
         // Claude's `searchMaxFiles` cap still applies (currently 1500); if
         // anyone has more Claude sessions in a single cwd we'll bump it.
         let bigLimit = 10_000
-        async let c = Self.timedAgent(
-            needle: "", agent: .claude, cwdFilter: cwdFilter,
-            offset: 0, limit: bigLimit, errorBag: bag
-        )
-        async let x = Self.timedAgent(
-            needle: "", agent: .codex, cwdFilter: cwdFilter,
-            offset: 0, limit: bigLimit, errorBag: bag
-        )
-        async let o = Self.timedAgent(
-            needle: "", agent: .opencode, cwdFilter: cwdFilter,
-            offset: 0, limit: bigLimit, errorBag: bag
-        )
-        async let r = Self.timedAgent(
-            needle: "", agent: .rovodev, cwdFilter: cwdFilter,
-            offset: 0, limit: bigLimit, errorBag: bag
-        )
-        var merged = (await c) + (await x) + (await o) + (await r)
+        var merged = await Self.mergedAgentEntries(needle: "", cwdFilter: cwdFilter, limit: bigLimit, errorBag: bag)
         if Task.isCancelled {
             return DirectorySnapshot(cwd: key, entries: [], errors: [])
         }
@@ -793,11 +786,7 @@ final class SessionIndexStore: ObservableObject {
         // entries we did get. Errors get surfaced when the user actively
         // searches via the popover.
         let bag = ErrorBag()
-        async let claude = loadClaudeEntries(needle: "", cwdFilter: nil, offset: 0, limit: perAgentLimit)
-        async let codex = loadCodexEntries(needle: "", cwdFilter: nil, offset: 0, limit: perAgentLimit, errorBag: bag)
-        async let opencode = loadOpenCodeEntries(needle: "", cwdFilter: nil, offset: 0, limit: perAgentLimit, errorBag: bag)
-        async let rovodev = loadRovoDevEntries(needle: "", cwdFilter: nil, offset: 0, limit: perAgentLimit, errorBag: bag)
-        let combined = await claude + codex + opencode + rovodev
+        let combined = await mergedAgentEntries(needle: "", cwdFilter: nil, limit: perAgentLimit, errorBag: bag)
         return combined.sorted { $0.modified > $1.modified }
     }
 
@@ -1289,31 +1278,36 @@ final class SessionIndexStore: ObservableObject {
                 offset: offset, limit: limit, errorBag: bag
             )
         case .directory(let path):
-            let cwdFilter = (path?.isEmpty == false) ? path : nil
+            let noFolderScope = (path == nil) || ((path ?? "").isEmpty)
+            let cwdFilter = noFolderScope ? nil : path
             // Multi-agent merge: fetch the union of (offset+limit) per agent so the
             // merge-sort can produce a stable global ordering, then slice.
             let target = offset + limit
-            async let c = Self.timedAgent(
-                needle: needle, agent: .claude, cwdFilter: cwdFilter,
-                offset: 0, limit: target, errorBag: bag
-            )
-            async let x = Self.timedAgent(
-                needle: needle, agent: .codex, cwdFilter: cwdFilter,
-                offset: 0, limit: target, errorBag: bag
-            )
-            async let o = Self.timedAgent(
-                needle: needle, agent: .opencode, cwdFilter: cwdFilter,
-                offset: 0, limit: target, errorBag: bag
-            )
-            async let r = Self.timedAgent(
-                needle: needle, agent: .rovodev, cwdFilter: cwdFilter,
-                offset: 0, limit: target, errorBag: bag
-            )
-            let merged = (await c) + (await x) + (await o) + (await r)
+            var merged = await Self.mergedAgentEntries(needle: needle, cwdFilter: cwdFilter, limit: target, errorBag: bag)
+            if noFolderScope {
+                merged = merged.filter { ($0.cwd ?? "").isEmpty }
+            }
             let sorted = merged.sorted { $0.modified > $1.modified }
             entries = Array(sorted.dropFirst(offset).prefix(limit))
         }
         return SearchOutcome(entries: entries, errors: bag.snapshot())
+    }
+
+    nonisolated private static func mergedAgentEntries(
+        needle: String, cwdFilter: String?, limit: Int, errorBag: ErrorBag
+    ) async -> [SessionEntry] {
+        await withTaskGroup(of: [SessionEntry].self) { group in
+            for agent in SessionAgent.allCases {
+                group.addTask {
+                    await timedAgent(needle: needle, agent: agent, cwdFilter: cwdFilter, offset: 0, limit: limit, errorBag: errorBag)
+                }
+            }
+            var entries: [SessionEntry] = []
+            for await agentEntries in group {
+                entries += agentEntries
+            }
+            return entries
+        }
     }
 
     nonisolated private static func timedAgent(
@@ -1340,6 +1334,7 @@ final class SessionIndexStore: ObservableObject {
         case .codex: return await loadCodexEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
         case .opencode: return loadOpenCodeEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
         case .rovodev: return loadRovoDevEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
+        case .hermesAgent: return loadHermesAgentEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
         }
     }
 

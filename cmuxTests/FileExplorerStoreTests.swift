@@ -273,6 +273,49 @@ final class FileExplorerStoreTests: XCTestCase {
         XCTAssertNotNil(srcNode.children)
     }
 
+    // MARK: - Selection persistence
+
+    func testMultiSelectionKeepsAnchorAndSelectedPaths() {
+        let store = FileExplorerStore()
+        let readme = FileExplorerNode(name: "README.md", path: "/project/README.md", isDirectory: false)
+        let package = FileExplorerNode(name: "Package.swift", path: "/project/Package.swift", isDirectory: false)
+
+        store.select(nodes: [readme, package], anchor: package)
+
+        XCTAssertEqual(store.selectedPath, "/project/Package.swift")
+        XCTAssertEqual(store.selectedPaths, ["/project/README.md", "/project/Package.swift"])
+
+        store.select(node: readme)
+
+        XCTAssertEqual(store.selectedPath, "/project/README.md")
+        XCTAssertEqual(store.selectedPaths, ["/project/README.md"])
+
+        store.select(node: nil)
+
+        XCTAssertNil(store.selectedPath)
+        XCTAssertTrue(store.selectedPaths.isEmpty)
+    }
+
+    func testRestoredMultiSelectionScrollsToAnchorRow() {
+        let exactRows = IndexSet([2, 7, 11])
+
+        XCTAssertEqual(
+            FileExplorerSelectionRestoration.scrollRow(anchorRow: 7, exactRows: exactRows),
+            7
+        )
+        XCTAssertEqual(
+            FileExplorerSelectionRestoration.scrollRow(anchorRow: 4, exactRows: exactRows),
+            2
+        )
+        XCTAssertEqual(
+            FileExplorerSelectionRestoration.scrollRow(anchorRow: nil, exactRows: exactRows),
+            2
+        )
+        XCTAssertNil(
+            FileExplorerSelectionRestoration.scrollRow(anchorRow: nil, exactRows: [])
+        )
+    }
+
     // MARK: - Collapse/Expand
 
     func testCollapseRemovesFromExpandedPaths() {

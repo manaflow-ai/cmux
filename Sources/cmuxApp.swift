@@ -189,9 +189,14 @@ struct cmuxApp: App {
             MainWindowBootstrapView()
                 .cmuxAppearanceColorScheme(appearanceMode)
                 .onAppear {
-                    SettingsWindowPresenter.configure {
-                        openWindow(id: SettingsWindowPresenter.windowID)
-                    }
+                    SettingsWindowPresenter.configure(
+                        openWindow: {
+                            openWindow(id: SettingsWindowPresenter.windowID)
+                        },
+                        parentWindowProvider: {
+                            AppDelegate.shared?.preferredMainWindowForSettingsPresentation()
+                        }
+                    )
 #if DEBUG
                     if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1" {
                         UpdateLogStore.shared.append("ui test: cmuxApp onAppear")
@@ -2480,111 +2485,6 @@ private struct AcknowledgmentsView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding()
         }
-    }
-}
-
-
-@MainActor
-enum SettingsWindowPresenter {
-    static let windowID = "settings"
-    static let windowIdentifier = "cmux.settings"
-    static let minimumSize = NSSize(width: 820, height: 540)
-    private static let visibleAreaInset: CGFloat = 18
-
-    private static var openWindow: (@MainActor () -> Void)?
-    private static weak var settingsWindow: NSWindow?
-    private static var pendingNavigationTarget: SettingsNavigationTarget?
-    private static var shouldOpenWhenConfigured = false
-
-    static func configure(openWindow: @escaping @MainActor () -> Void) {
-        self.openWindow = openWindow
-        if shouldOpenWhenConfigured {
-            shouldOpenWhenConfigured = false
-            openWindow()
-        }
-    }
-
-    static func configure(window: NSWindow) {
-        settingsWindow = window
-        window.identifier = NSUserInterfaceItemIdentifier(windowIdentifier)
-        window.isRestorable = false
-        window.minSize = minimumSize
-        window.contentMinSize = minimumSize
-        clampToVisibleAreaIfNeeded(window)
-    }
-
-    static func show(navigationTarget: SettingsNavigationTarget? = nil) {
-#if DEBUG
-        cmuxDebugLog("settings.window.show path=swiftuiWindow")
-#endif
-        if let navigationTarget {
-            pendingNavigationTarget = navigationTarget
-        } else {
-            pendingNavigationTarget = nil
-        }
-
-        if let window = existingWindow() {
-            pendingNavigationTarget = nil
-            focus(window)
-            if let navigationTarget {
-                SettingsNavigationRequest.post(navigationTarget)
-            }
-            return
-        }
-
-        guard let openWindow else {
-            shouldOpenWhenConfigured = true
-            return
-        }
-        openWindow()
-    }
-
-    static func consumePendingNavigationTarget() -> SettingsNavigationTarget? {
-        let target = pendingNavigationTarget
-        pendingNavigationTarget = nil
-        return target
-    }
-
-    static func refocusIfVisible() {
-        guard let window = existingWindow() else { return }
-        focus(window)
-    }
-
-    private static func existingWindow() -> NSWindow? {
-        if let settingsWindow, settingsWindow.isVisible || settingsWindow.isMiniaturized {
-            return settingsWindow
-        }
-        return NSApp.windows.first {
-            $0.identifier?.rawValue == windowIdentifier && ($0.isVisible || $0.isMiniaturized)
-        }
-    }
-
-    private static func focus(_ window: NSWindow) {
-        if window.isMiniaturized {
-            window.deminiaturize(nil)
-        }
-        clampToVisibleAreaIfNeeded(window)
-        NSRunningApplication.current.activate(options: [.activateAllWindows])
-        window.makeKeyAndOrderFront(nil)
-        window.orderFrontRegardless()
-    }
-
-    private static func clampToVisibleAreaIfNeeded(_ window: NSWindow) {
-        guard let screen = window.screen ?? NSScreen.main else { return }
-        var frame = window.frame
-        let visibleFrame = screen.visibleFrame
-        let minX = visibleFrame.minX + visibleAreaInset
-        let minY = visibleFrame.minY + visibleAreaInset
-        let maxX = max(minX, visibleFrame.maxX - visibleAreaInset - frame.width)
-        let maxY = max(minY, visibleFrame.maxY - visibleAreaInset - frame.height)
-        let clampedOrigin = NSPoint(
-            x: min(max(frame.origin.x, minX), maxX),
-            y: min(max(frame.origin.y, minY), maxY)
-        )
-
-        guard clampedOrigin != frame.origin else { return }
-        frame.origin = clampedOrigin
-        window.setFrame(frame, display: true)
     }
 }
 
@@ -5238,6 +5138,8 @@ struct SettingsView: View {
     private var paneFirstClickFocusEnabled = PaneFirstClickFocusSettings.defaultEnabled
     @AppStorage(TerminalScrollBarSettings.showScrollBarKey)
     private var showTerminalScrollBar = TerminalScrollBarSettings.defaultShowScrollBar
+    @AppStorage(AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+    private var autoResumeAgentSessions = AgentSessionAutoResumeSettings.defaultAutoResumeAgentSessions
     @AppStorage(WorkspaceAutoReorderSettings.key) private var workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
     @AppStorage(IMessageModeSettings.key) private var iMessageMode = IMessageModeSettings.defaultValue
     @AppStorage(SidebarWorkspaceDetailSettings.hideAllDetailsKey)
@@ -5362,6 +5264,17 @@ struct SettingsView: View {
                 guard showTerminalScrollBar != newValue else { return }
                 showTerminalScrollBar = newValue
                 TerminalScrollBarSettings.notifyDidChange()
+            }
+        )
+    }
+
+    private var autoResumeAgentSessionsBinding: Binding<Bool> {
+        Binding(
+            get: { autoResumeAgentSessions },
+            set: { newValue in
+                guard autoResumeAgentSessions != newValue else { return }
+                autoResumeAgentSessions = newValue
+                AgentSessionAutoResumeSettings.notifyDidChange()
             }
         )
     }
@@ -6282,6 +6195,24 @@ struct SettingsView: View {
                                 .accessibilityIdentifier("SettingsTerminalScrollBarToggle")
                                 .accessibilityLabel(
                                     String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar")
+                                )
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("terminal.autoResumeAgentSessions"),
+                            String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen"),
+                            subtitle: autoResumeAgentSessions
+                                ? String(localized: "settings.terminal.agentAutoResume.subtitleOn", defaultValue: "When cmux reopens after quit, restored agent terminals automatically run their resume command.")
+                                : String(localized: "settings.terminal.agentAutoResume.subtitleOff", defaultValue: "When cmux reopens after quit, restored agent terminals stay idle until you resume them manually.")
+                        ) {
+                            Toggle("", isOn: autoResumeAgentSessionsBinding)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsTerminalAgentAutoResumeToggle")
+                                .accessibilityLabel(
+                                    String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen")
                                 )
                         }
                     }
@@ -7411,6 +7342,11 @@ struct SettingsView: View {
         showTerminalScrollBar = TerminalScrollBarSettings.defaultShowScrollBar
         if previousShowTerminalScrollBar != showTerminalScrollBar {
             TerminalScrollBarSettings.notifyDidChange()
+        }
+        let previousAutoResumeAgentSessions = autoResumeAgentSessions
+        autoResumeAgentSessions = AgentSessionAutoResumeSettings.defaultAutoResumeAgentSessions
+        if previousAutoResumeAgentSessions != autoResumeAgentSessions {
+            AgentSessionAutoResumeSettings.notifyDidChange()
         }
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
         iMessageMode = IMessageModeSettings.defaultValue
