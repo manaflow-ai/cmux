@@ -35,7 +35,7 @@ final class TerminalImageDropTextPreferenceTests: XCTestCase {
         XCTAssertEqual(
             plan,
             .insertText("https://example.test/image.png"),
-            "Shift terminal drops should use the dragged link/text flavor before materializing image bytes"
+            "Terminal drops should use the dragged link/text flavor before materializing image bytes"
         )
     }
 

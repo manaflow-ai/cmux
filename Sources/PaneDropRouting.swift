@@ -48,7 +48,7 @@ struct PaneFileDropHint: Equatable {
         default:
             return String(
                 localized: "terminal.fileDropHint.default",
-                defaultValue: "Drop file. Hold Shift to use the alternate action."
+                defaultValue: "Drop a file. Hold Shift to use the alternate action."
             )
         }
     }

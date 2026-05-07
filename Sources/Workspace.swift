@@ -7272,10 +7272,6 @@ final class Workspace: Identifiable, ObservableObject {
         restoredAgentAutoResumePendingPanelIds.remove(panelId)
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
     }
-    private func clearAgentRoutingState(panelId: UUID) {
-        agentStatusKeysByPanelId.removeValue(forKey: panelId)
-        clearRestoredAgentSnapshotForAgentRouting(panelId: panelId)
-    }
     private func sidebarObservationSignal<Value: Equatable>(
         _ publisher: Published<Value>.Publisher
     ) -> AnyPublisher<Void, Never> {

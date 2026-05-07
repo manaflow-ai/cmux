@@ -8,8 +8,6 @@ enum DragOverlayRoutingPolicy {
     static let sidebarTabReorderType = NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)
     static let externalContentDropTypes: Set<NSPasteboard.PasteboardType> =
         PasteboardFileURLReader.fileURLPasteboardTypes.union([
-            .URL,
-            .string,
             .png,
             .tiff,
             NSPasteboard.PasteboardType(UTType.jpeg.identifier),

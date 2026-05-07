@@ -409,6 +409,7 @@ enum SettingsSearchIndex {
         "sidebar.showProgress": settingID(for: .sidebarAppearance, idSuffix: "show-progress"),
         "sidebar.showCustomMetadata": settingID(for: .sidebarAppearance, idSuffix: "show-metadata"),
         "terminal.showScrollBar": settingID(for: .terminal, idSuffix: "scrollbar"),
+        "terminal.fileDropDefaultAction": settingID(for: .terminal, idSuffix: "file-drops"),
         "terminal.autoResumeAgentSessions": settingID(for: .terminal, idSuffix: "agent-auto-resume"),
         "workspaceColors.indicatorStyle": settingID(for: .workspaceColors, idSuffix: "indicator"),
         "workspaceColors.selectionColor": settingID(for: .workspaceColors, idSuffix: "selection"),

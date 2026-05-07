@@ -37,6 +37,12 @@ extension Workspace {
         }
     }
 
+    func clearAgentRoutingState(panelId: UUID) {
+        agentStatusKeysByPanelId[panelId]?.forEach { clearAgentPID(key: $0, panelId: panelId) }
+        agentStatusKeysByPanelId.removeValue(forKey: panelId)
+        clearRestoredAgentSnapshotForAgentRouting(panelId: panelId)
+    }
+
     private func clearRestoredAgentSnapshotForAgentRouting(panelId: UUID, matchingKey key: String) {
         guard let snapshot = restoredAgentSnapshotsByPanelId[panelId],
               restoredAgentSnapshot(snapshot, matchesStatusKey: key) else {
