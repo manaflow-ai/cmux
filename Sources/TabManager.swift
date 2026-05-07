@@ -5544,13 +5544,9 @@ class TabManager: ObservableObject {
         let orientationMatches = candidates.filter { $0.orientation == direction.splitOrientation }
         guard !orientationMatches.isEmpty else { return false }
 
-        guard let candidate = orientationMatches.first(where: {
+        let candidate = orientationMatches.first(where: {
             $0.paneInFirstChild == direction.requiresPaneInFirstChild
-        }) ?? orientationMatches.first(where: {
-            $0.paneInFirstChild != direction.requiresPaneInFirstChild
-        }) else {
-            return false
-        }
+        }) ?? orientationMatches[0]
 
         let delta = CGFloat(amount) / candidate.axisPixels
         let requested = candidate.dividerPosition + (direction.dividerDeltaSign * delta)

@@ -7502,15 +7502,8 @@ class TerminalController {
                 return
             }
 
-            guard let candidate = orientationMatches.first(where: { $0.paneInFirstChild == direction.requiresPaneInFirstChild })
-                ?? orientationMatches.first(where: { $0.paneInFirstChild != direction.requiresPaneInFirstChild }) else {
-                result = .err(
-                    code: "invalid_state",
-                    message: "Pane has no adjacent border in direction \(direction.rawValue)",
-                    data: ["pane_id": paneUUID.uuidString, "direction": direction.rawValue]
-                )
-                return
-            }
+            let candidate = orientationMatches.first(where: { $0.paneInFirstChild == direction.requiresPaneInFirstChild })
+                ?? orientationMatches[0]
 
             let delta = CGFloat(amount) / candidate.axisPixels
             let requested = candidate.dividerPosition + (direction.dividerDeltaSign * delta)
