@@ -1,7 +1,7 @@
 import Foundation
 import Darwin
 
-struct CmuxTopResourceSummary: Sendable {
+nonisolated struct CmuxTopResourceSummary: Sendable {
     var cpuPercent: Double = 0
     var residentBytes: Int64 = 0
     var virtualBytes: Int64 = 0
@@ -21,7 +21,7 @@ struct CmuxTopResourceSummary: Sendable {
     }
 }
 
-struct CmuxTopProcessInfo: Sendable {
+nonisolated struct CmuxTopProcessInfo: Sendable {
     let pid: Int
     let parentPID: Int
     let name: String
@@ -37,12 +37,12 @@ struct CmuxTopProcessInfo: Sendable {
     let threadCount: Int
 }
 
-struct CmuxTopProcessScope: Sendable {
+nonisolated struct CmuxTopProcessScope: Sendable {
     let workspaceID: UUID?
     let surfaceID: UUID?
 }
 
-final class CmuxTopProcessSnapshot: @unchecked Sendable {
+nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
     let sampledAt: Date
     private let includesProcessDetails: Bool
     private let processesByPID: [Int: CmuxTopProcessInfo]

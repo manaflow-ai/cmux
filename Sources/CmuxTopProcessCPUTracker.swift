@@ -12,7 +12,7 @@ private nonisolated struct CmuxTopProcessCPUTrackerState: Sendable {
     var latestPrunedAtNanoseconds: UInt64 = 0
 }
 
-private final class CmuxTopProcessCPUTracker: Sendable {
+private nonisolated final class CmuxTopProcessCPUTracker: @unchecked Sendable {
     private let state = OSAllocatedUnfairLock(initialState: CmuxTopProcessCPUTrackerState())
 
     // Snapshot capture is synchronous for the v2 socket path, so an actor would
@@ -55,8 +55,8 @@ private final class CmuxTopProcessCPUTracker: Sendable {
     }
 }
 
-private let cmuxTopProcessCPUTracker = CmuxTopProcessCPUTracker()
-private let cmuxTopAbsoluteTimeNanosecondsRatio: Double = {
+private nonisolated let cmuxTopProcessCPUTracker = CmuxTopProcessCPUTracker()
+private nonisolated let cmuxTopAbsoluteTimeNanosecondsRatio: Double = {
     var info = mach_timebase_info_data_t()
     guard mach_timebase_info(&info) == KERN_SUCCESS, info.denom > 0 else {
         return 1
@@ -64,7 +64,7 @@ private let cmuxTopAbsoluteTimeNanosecondsRatio: Double = {
     return Double(info.numer) / Double(info.denom)
 }()
 
-extension CmuxTopProcessSnapshot {
+nonisolated extension CmuxTopProcessSnapshot {
     static func cpuSampleClockNanoseconds() -> UInt64 {
         clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
     }

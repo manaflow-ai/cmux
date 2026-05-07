@@ -1,13 +1,14 @@
 import Foundation
 import Darwin
+import os
 
-struct CmuxTopProcessScopeCacheKey: Hashable {
+nonisolated struct CmuxTopProcessScopeCacheKey: Hashable {
     let pid: Int
     let startSeconds: Int
     let startMicroseconds: Int
 }
 
-private struct CmuxTopProcessScopeCacheValue {
+private nonisolated struct CmuxTopProcessScopeCacheValue {
     let scope: CmuxTopProcessScope
 }
 
@@ -15,10 +16,11 @@ private struct CmuxTopProcessScopeCacheValue {
 // both async task-manager sampling and sync v2 system.top socket handling. Keep
 // this tiny lock isolated to dictionary reads/writes; procargs/sysctl work must
 // happen outside the critical section.
-private let cmuxTopScopeCacheLock = NSLock()
-private var cmuxTopScopeCache: [CmuxTopProcessScopeCacheKey: CmuxTopProcessScopeCacheValue] = [:]
+private nonisolated let cmuxTopScopeCache = OSAllocatedUnfairLock(
+    initialState: [CmuxTopProcessScopeCacheKey: CmuxTopProcessScopeCacheValue]()
+)
 
-extension CmuxTopProcessSnapshot {
+nonisolated extension CmuxTopProcessSnapshot {
     static func scopeCacheKey(from kinfo: kinfo_proc) -> CmuxTopProcessScopeCacheKey {
         let startTime = kinfo.kp_proc.p_un.__p_starttime
         return CmuxTopProcessScopeCacheKey(
@@ -32,27 +34,24 @@ extension CmuxTopProcessSnapshot {
         for pid: Int,
         cacheKey: CmuxTopProcessScopeCacheKey
     ) -> CmuxTopProcessScope? {
-        cmuxTopScopeCacheLock.lock()
-        if let cached = cmuxTopScopeCache[cacheKey] {
-            cmuxTopScopeCacheLock.unlock()
+        if let cached = cmuxTopScopeCache.withLock({ cache in cache[cacheKey] }) {
             return cached.scope
         }
-        cmuxTopScopeCacheLock.unlock()
 
         guard let scope = cmuxScope(for: pid) else {
             return nil
         }
 
-        cmuxTopScopeCacheLock.lock()
-        cmuxTopScopeCache[cacheKey] = CmuxTopProcessScopeCacheValue(scope: scope)
-        cmuxTopScopeCacheLock.unlock()
+        cmuxTopScopeCache.withLock { cache in
+            cache[cacheKey] = CmuxTopProcessScopeCacheValue(scope: scope)
+        }
 
         return scope
     }
 
     static func pruneCMUXScopeCache(activeKeys: Set<CmuxTopProcessScopeCacheKey>) {
-        cmuxTopScopeCacheLock.lock()
-        cmuxTopScopeCache = cmuxTopScopeCache.filter { activeKeys.contains($0.key) }
-        cmuxTopScopeCacheLock.unlock()
+        cmuxTopScopeCache.withLock { cache in
+            cache = cache.filter { activeKeys.contains($0.key) }
+        }
     }
 }

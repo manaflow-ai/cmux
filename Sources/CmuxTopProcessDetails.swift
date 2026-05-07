@@ -3,9 +3,9 @@ import Foundation
 import ObjectiveC.runtime
 import WebKit
 
-private let cmuxTopPIDPathBufferSize = 4096
+private nonisolated let cmuxTopPIDPathBufferSize = 4096
 
-extension CmuxTopProcessSnapshot {
+nonisolated extension CmuxTopProcessSnapshot {
     static func taskInfo(for pid: Int) -> proc_taskinfo? {
         var info = proc_taskinfo()
         let expectedSize = MemoryLayout<proc_taskinfo>.stride
