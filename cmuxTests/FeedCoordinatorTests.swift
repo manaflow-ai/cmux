@@ -77,16 +77,19 @@ final class FeedCoordinatorTests: XCTestCase {
             requestId: "notif-fire-request"
         )
 
+        let done = DispatchSemaphore(value: 0)
         DispatchQueue.global(qos: .userInitiated).async {
             _ = coordinator.ingestBlocking(event: event, waitTimeout: 2)
+            done.signal()
         }
 
         // No reply — notification should fire after the grace period.
         XCTAssertEqual(notificationFired.wait(timeout: .now() + 1), .success,
             "notification should fire when no reply arrives within grace period")
 
-        // Clean up the pending waiter.
+        // Unblock ingestBlocking and wait for it to finish.
         coordinator.deliverReply(requestId: "notif-fire-request", decision: .permission(.once))
+        XCTAssertEqual(done.wait(timeout: .now() + 2), .success)
     }
 
     func testBlockingIngestExpiresItemWhenHookTimesOut() async {

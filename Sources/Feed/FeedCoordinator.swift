@@ -27,7 +27,12 @@ final class FeedCoordinator: @unchecked Sendable {
     private var waiters: [String: PendingWaiter] = [:]
     /// Request IDs whose notification should be suppressed when the grace-period
     /// timer fires — populated by deliverReply and the timeout-cleanup path.
-    private var suppressedNotificationIds: Set<String> = []
+    /// Generation counter per request ID. The asyncAfter closure captures its
+    /// generation at scheduling time and fires only when the entry still matches.
+    /// deliverReply and the timeout-cleanup path remove the entry to suppress the
+    /// notification. The dict is bounded: every entry is removed by whichever of
+    /// the three paths (timer, deliverReply, timeout) runs first.
+    private var notificationGenerations: [String: Int] = [:]
 
     private let notificationPoster: (WorkstreamEvent, String) -> Void
     private let notificationGraceDelay: TimeInterval
@@ -146,14 +151,17 @@ final class FeedCoordinator: @unchecked Sendable {
         // request (e.g. a PermissionRequest hook that returns "allow"
         // immediately) have a chance to call deliverReply and cancel the
         // work item before the notification ever fires.
+        waiterLock.lock()
+        let gen = (notificationGenerations[requestId] ?? 0) + 1
+        notificationGenerations[requestId] = gen
+        waiterLock.unlock()
         DispatchQueue.main.asyncAfter(deadline: .now() + notificationGraceDelay) { [weak self] in
             guard let self else { return }
             self.waiterLock.lock()
-            let suppressed = self.suppressedNotificationIds.remove(requestId) != nil
+            let shouldFire = self.notificationGenerations[requestId] == gen
+            if shouldFire { self.notificationGenerations.removeValue(forKey: requestId) }
             self.waiterLock.unlock()
-            if !suppressed {
-                self.notificationPoster(event, requestId)
-            }
+            if shouldFire { self.notificationPoster(event, requestId) }
         }
 
         let deadline: DispatchTime = .now() + waitTimeout
@@ -161,7 +169,7 @@ final class FeedCoordinator: @unchecked Sendable {
 
         waiterLock.lock()
         let w = waiters.removeValue(forKey: requestId)
-        suppressedNotificationIds.insert(requestId)
+        notificationGenerations.removeValue(forKey: requestId)
         waiterLock.unlock()
 
         switch waitResult {
@@ -185,7 +193,7 @@ final class FeedCoordinator: @unchecked Sendable {
             waiter.decision = decision
             waiter.semaphore.signal()
         }
-        suppressedNotificationIds.insert(requestId)
+        notificationGenerations.removeValue(forKey: requestId)
         waiterLock.unlock()
 
         let resolve: @Sendable () -> Void = { [requestId, decision] in
