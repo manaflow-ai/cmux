@@ -7504,16 +7504,12 @@ enum InstalledBrowserDetector {
                     guard !path.isEmpty else { continue }
                     
                     let url = URL(fileURLWithPath: path)
-                    if results[bundle] == nil {
-                        results[bundle] = []
-                    }
-                    if !results[bundle]!.contains(url) {
-                        results[bundle]!.append(url)
+                    if results[bundle]?.contains(url) != true {
+                        results[bundle, default: []].append(url)
                     }
                 }
             }
         } catch {
-            // Silently ignore
         }
         return results
     }
