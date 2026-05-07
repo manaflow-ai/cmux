@@ -433,19 +433,6 @@ final class MainWindowFocusController {
         )
     }
 
-    @discardableResult
-    func toggleRightSidebarOrTerminalFocus(
-        mode requestedMode: RightSidebarMode? = nil,
-        focusFirstItem: Bool = true
-    ) -> Bool {
-        switch focusToggleDestination() {
-        case .terminal:
-            return restoreFocusedPanelFocusFromRightSidebarIfNeeded(currentResponder: window?.firstResponder)
-        case .rightSidebar:
-            return focusRightSidebar(mode: requestedMode, focusFirstItem: focusFirstItem)
-        }
-    }
-
     func focusToggleDestination(currentResponder: NSResponder? = nil) -> MainWindowFocusToggleDestination {
         switch effectiveFocusOwner(currentResponder: currentResponder) {
         case .rightSidebar:

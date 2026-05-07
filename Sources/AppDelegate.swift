@@ -5839,42 +5839,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return result
     }
 
-    @discardableResult
-    func toggleRightSidebarKeyboardFocusInActiveMainWindow(preferredWindow: NSWindow? = nil) -> Bool {
-        let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow)
-
-        guard let context else {
-#if DEBUG
-            dlog(
-                "rs.focus.toggle.abort reason=noContext preferred={\(debugWindowToken(preferredWindow))} " +
-                "\(debugShortcutRouteSnapshot())"
-            )
-#endif
-            return false
-        }
-        let window = context.window ?? windowForMainWindowId(context.windowId)
-#if DEBUG
-        let beforeResponder = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-        dlog(
-            "rs.focus.toggle.begin preferred={\(debugWindowToken(preferredWindow))} " +
-            "context={\(debugContextToken(context))} targetWin={\(debugWindowToken(window))} " +
-            "fr=\(beforeResponder)"
-        )
-#endif
-        if let window {
-            mainWindowVisibilityController.focusForInWindowCommand(window, reason: .rightSidebarToggle)
-        }
-        let result = context.keyboardFocusCoordinator.toggleRightSidebarOrTerminalFocus()
-#if DEBUG
-        let afterResponder = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-        dlog(
-            "rs.focus.toggle.end result=\(result ? 1 : 0) " +
-            "targetWin={\(debugWindowToken(window))} fr=\(afterResponder)"
-        )
-#endif
-        return result
-    }
-
     func sidebarVisibility(windowId: UUID) -> Bool? {
         mainWindowContexts.values.first(where: { $0.windowId == windowId })?.sidebarState.isVisible
     }
