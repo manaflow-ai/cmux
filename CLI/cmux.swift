@@ -16395,7 +16395,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 _ = try? sendV1Command("set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketSurfaceOption(surfaceId))", client: client)
             }
             _ = try? clearNotifications(client: client, workspaceId: workspaceId, surfaceId: surfaceId)
-            _ = try sendV1Command("set_status \(def.statusKey) Running --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketSurfaceOption(surfaceId))", client: client)
+            _ = try sendV1Command("set_status \(def.statusKey) \(socketCommandQuote("Running")) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketSurfaceOption(surfaceId))", client: client)
             if def.name == "codex", !sessionId.isEmpty {
                 startCodexTranscriptMonitor(
                     sessionId: sessionId,
