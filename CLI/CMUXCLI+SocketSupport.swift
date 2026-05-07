@@ -38,7 +38,13 @@ extension CMUXCLI {
             let url = FileManager.default.temporaryDirectory
                 .appendingPathComponent("cmux-open-stderr-\(UUID().uuidString).log", isDirectory: false)
             _ = FileManager.default.createFile(atPath: url.path, contents: nil, attributes: nil)
-            let handle = try FileHandle(forWritingTo: url)
+            let handle: FileHandle
+            do {
+                handle = try FileHandle(forWritingTo: url)
+            } catch {
+                try? FileManager.default.removeItem(at: url)
+                throw error
+            }
             process.standardError = handle
             stderrURL = url
             stderrHandle = handle
