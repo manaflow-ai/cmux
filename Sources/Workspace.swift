@@ -737,7 +737,10 @@ extension Workspace {
                 restorableAgent: restorableAgent,
                 tmuxStartCommand: restoredTmuxStartCommand
             )
-            let restoredAgentResumeInput = restorableAgent?.resumeStartupInput()
+            let autoResumeAgentSessions = AgentSessionAutoResumeSettings.isEnabled()
+            let restoredAgentResumeInput = autoResumeAgentSessions
+                ? restorableAgent?.resumeStartupInput()
+                : nil
 #if DEBUG
             if let restorableAgent {
                 let sessionPreview = String(restorableAgent.sessionId.prefix(8))
@@ -747,6 +750,7 @@ extension Workspace {
                     "kind=\(restorableAgent.kind.rawValue) session=\(sessionPreview) " +
                     "hasLaunch=\(restorableAgent.launchCommand == nil ? 0 : 1) " +
                     "launchArgc=\(launchArgc) hasResume=\(restoredAgentResumeInput == nil ? 0 : 1) " +
+                    "autoResume=\(autoResumeAgentSessions ? 1 : 0) " +
                     "replayScrollback=\(shouldReplayScrollback ? 1 : 0)"
                 )
             }

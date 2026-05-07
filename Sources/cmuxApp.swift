@@ -5140,6 +5140,8 @@ struct SettingsView: View {
     private var showTerminalScrollBar = TerminalScrollBarSettings.defaultShowScrollBar
     @AppStorage(TerminalFileDropSettings.defaultActionKey)
     private var terminalFileDropDefaultAction = TerminalFileDropSettings.defaultAction.rawValue
+    @AppStorage(AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+    private var autoResumeAgentSessions = AgentSessionAutoResumeSettings.defaultAutoResumeAgentSessions
     @AppStorage(WorkspaceAutoReorderSettings.key) private var workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
     @AppStorage(IMessageModeSettings.key) private var iMessageMode = IMessageModeSettings.defaultValue
     @AppStorage(SidebarWorkspaceDetailSettings.hideAllDetailsKey)
@@ -5292,6 +5294,17 @@ struct SettingsView: View {
                 defaultValue: "Drops send relative paths to terminals when possible. Hold Shift to open a file-preview pane."
             )
         }
+    }
+
+    private var autoResumeAgentSessionsBinding: Binding<Bool> {
+        Binding(
+            get: { autoResumeAgentSessions },
+            set: { newValue in
+                guard autoResumeAgentSessions != newValue else { return }
+                autoResumeAgentSessions = newValue
+                AgentSessionAutoResumeSettings.notifyDidChange()
+            }
+        )
     }
 
     private var selectedSidebarActiveTabIndicatorStyle: SidebarActiveTabIndicatorStyle {
@@ -6230,6 +6243,24 @@ struct SettingsView: View {
                             .labelsHidden()
                             .pickerStyle(.menu)
                             .accessibilityIdentifier("SettingsTerminalFileDropActionPicker")
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("terminal.autoResumeAgentSessions"),
+                            String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen"),
+                            subtitle: autoResumeAgentSessions
+                                ? String(localized: "settings.terminal.agentAutoResume.subtitleOn", defaultValue: "When cmux reopens after quit, restored agent terminals automatically run their resume command.")
+                                : String(localized: "settings.terminal.agentAutoResume.subtitleOff", defaultValue: "When cmux reopens after quit, restored agent terminals stay idle until you resume them manually.")
+                        ) {
+                            Toggle("", isOn: autoResumeAgentSessionsBinding)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsTerminalAgentAutoResumeToggle")
+                                .accessibilityLabel(
+                                    String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen")
+                                )
                         }
                     }
 
@@ -7359,6 +7390,11 @@ struct SettingsView: View {
             TerminalScrollBarSettings.notifyDidChange()
         }
         terminalFileDropDefaultAction = TerminalFileDropSettings.defaultAction.rawValue
+        let previousAutoResumeAgentSessions = autoResumeAgentSessions
+        autoResumeAgentSessions = AgentSessionAutoResumeSettings.defaultAutoResumeAgentSessions
+        if previousAutoResumeAgentSessions != autoResumeAgentSessions {
+            AgentSessionAutoResumeSettings.notifyDidChange()
+        }
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
         iMessageMode = IMessageModeSettings.defaultValue
         sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails

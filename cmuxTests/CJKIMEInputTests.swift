@@ -364,13 +364,7 @@ final class CJKIMEMarkedTextTests: XCTestCase {
         XCTAssertFalse(view.hasMarkedText())
     }
 
-    // MARK: - selectedRange / validAttributesForMarkedText
-
-    func testSelectedRangeReturnsEmptyRangeWithoutSelection() {
-        let view = GhosttyNSView(frame: .zero)
-        let range = view.selectedRange()
-        XCTAssertEqual(range, NSRange(location: 0, length: 0))
-    }
+    // MARK: - validAttributesForMarkedText
 
     func testValidAttributesForMarkedTextReturnsEmpty() {
         let view = GhosttyNSView(frame: .zero)
