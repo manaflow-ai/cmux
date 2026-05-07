@@ -87,8 +87,7 @@
 			<string>Default</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>cmux</string>
-				<string>cmux-dev</string>
+				<string>$(CMUX_AUTH_CALLBACK_SCHEME)</string>
 			</array>
 		</dict>
 	</array>

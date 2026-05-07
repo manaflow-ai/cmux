@@ -8,120 +8,159 @@ import Darwin
 @testable import cmux
 #endif
 
-final class CmuxCommandURLRequestTests: XCTestCase {
-    func testParsesCommandURLWithExplicitCWDAndTitle() throws {
+final class CmuxSSHURLRequestTests: XCTestCase {
+    private var supportedScheme: String {
+        AuthEnvironment.callbackScheme
+    }
+
+    func testParsesSSHURLWithExplicitHostUserPortAndTitle() throws {
         var components = URLComponents()
-        components.scheme = "cmux"
-        components.host = "run"
+        components.scheme = supportedScheme
+        components.host = "ssh"
         components.queryItems = [
-            URLQueryItem(name: "command", value: "npm test -- --runInBand"),
-            URLQueryItem(name: "cwd", value: NSTemporaryDirectory()),
-            URLQueryItem(name: "title", value: "Tests")
+            URLQueryItem(name: "host", value: "dev.example.com"),
+            URLQueryItem(name: "user", value: "alice"),
+            URLQueryItem(name: "port", value: "2222"),
+            URLQueryItem(name: "title", value: "Dev SSH")
         ]
         let url = try XCTUnwrap(components.url)
 
-        switch CmuxCommandURLRequest.parse(url) {
+        switch CmuxSSHURLRequest.parse(url) {
         case .success(.some(let request)):
-            XCTAssertEqual(request.command, "npm test -- --runInBand")
-            XCTAssertEqual(request.workingDirectory, URL(fileURLWithPath: NSTemporaryDirectory()).standardizedFileURL.resolvingSymlinksInPath().path)
-            XCTAssertEqual(request.title, "Tests")
+            XCTAssertEqual(request.destination, "alice@dev.example.com")
+            XCTAssertEqual(request.port, 2222)
+            XCTAssertEqual(request.title, "Dev SSH")
+            XCTAssertEqual(request.commandLine, "/usr/bin/ssh -p 2222 alice@dev.example.com")
         case .success(nil):
-            XCTFail("Expected command URL request")
+            XCTFail("Expected SSH URL request")
         case .failure(let error):
             XCTFail("Unexpected parse error: \(error)")
         }
     }
 
-    func testIgnoresNonCommandURLs() throws {
-        let authURL = try XCTUnwrap(URL(string: "cmux://auth-callback?stack_refresh=abc&stack_access=def"))
-        let webURL = try XCTUnwrap(URL(string: "https://example.com/run?command=whoami"))
+    func testParsesSSHURLWithPathDestination() throws {
+        let url = try XCTUnwrap(URL(string: "\(supportedScheme)://ssh/alice@dev.example.com"))
+
+        switch CmuxSSHURLRequest.parse(url) {
+        case .success(.some(let request)):
+            XCTAssertEqual(request.destination, "alice@dev.example.com")
+            XCTAssertNil(request.port)
+        case .success(nil):
+            XCTFail("Expected SSH URL request")
+        case .failure(let error):
+            XCTFail("Unexpected parse error: \(error)")
+        }
+    }
+
+    func testIgnoresNonSSHURLs() throws {
+        let authURL = try XCTUnwrap(URL(string: "\(supportedScheme)://auth-callback?stack_refresh=abc&stack_access=def"))
+        let webURL = try XCTUnwrap(URL(string: "https://example.com/ssh?host=dev.example.com"))
 
         XCTAssertEqual(try parsedOptional(authURL), nil)
         XCTAssertEqual(try parsedOptional(webURL), nil)
     }
 
-    func testRejectsMissingCommand() throws {
-        let url = try XCTUnwrap(URL(string: "cmux://run?title=Missing"))
+    func testRejectsMissingDestination() throws {
+        let url = try XCTUnwrap(URL(string: "\(supportedScheme)://ssh?title=Missing"))
 
-        switch CmuxCommandURLRequest.parse(url) {
-        case .failure(.missingCommand):
+        switch CmuxSSHURLRequest.parse(url) {
+        case .failure(.missingDestination):
             break
         default:
-            XCTFail("Expected missing command rejection")
+            XCTFail("Expected missing destination rejection")
         }
     }
 
     func testRejectsHiddenControlCharacters() throws {
         var components = URLComponents()
-        components.scheme = "cmux"
-        components.host = "run"
+        components.scheme = supportedScheme
+        components.host = "ssh"
         components.queryItems = [
-            URLQueryItem(name: "command", value: "echo ok\nrm -rf ~/Documents")
+            URLQueryItem(name: "destination", value: "dev.example.com\nbad")
         ]
         let url = try XCTUnwrap(components.url)
 
-        switch CmuxCommandURLRequest.parse(url) {
-        case .failure(.commandContainsControlCharacters):
+        switch CmuxSSHURLRequest.parse(url) {
+        case .failure(.destinationContainsUnsafeCharacters):
             break
         default:
-            XCTFail("Expected command control character rejection")
+            XCTFail("Expected destination control character rejection")
         }
     }
 
-    func testRejectsLeadingControlCharactersInsteadOfTrimmingThem() throws {
+    func testTrimsWhitespaceAroundStructuredDestination() throws {
         var components = URLComponents()
-        components.scheme = "cmux"
-        components.host = "run"
+        components.scheme = supportedScheme
+        components.host = "ssh"
         components.queryItems = [
-            URLQueryItem(name: "command", value: "\necho ok")
+            URLQueryItem(name: "destination", value: "\ndev.example.com")
         ]
         let url = try XCTUnwrap(components.url)
 
-        switch CmuxCommandURLRequest.parse(url) {
-        case .failure(.commandContainsControlCharacters):
+        switch CmuxSSHURLRequest.parse(url) {
+        case .success(.some(let request)):
+            XCTAssertEqual(request.destination, "dev.example.com")
+        case .success(nil):
+            XCTFail("Expected SSH URL request")
+        case .failure(let error):
+            XCTFail("Whitespace around structured destination should be trimmed, saw \(error)")
+        }
+    }
+
+    func testRejectsDashPrefixedDestination() throws {
+        var components = URLComponents()
+        components.scheme = supportedScheme
+        components.host = "ssh"
+        components.queryItems = [
+            URLQueryItem(name: "destination", value: "-oProxyCommand=bad")
+        ]
+        let url = try XCTUnwrap(components.url)
+
+        switch CmuxSSHURLRequest.parse(url) {
+        case .failure(.destinationStartsWithDash):
             break
         default:
-            XCTFail("Expected leading control character rejection")
+            XCTFail("Expected dash-prefixed destination rejection")
         }
     }
 
     func testRejectsUnicodeFormatCharacters() throws {
         var components = URLComponents()
-        components.scheme = "cmux"
-        components.host = "run"
+        components.scheme = supportedScheme
+        components.host = "ssh"
         components.queryItems = [
-            URLQueryItem(name: "command", value: "echo safe\u{202E}bad")
+            URLQueryItem(name: "destination", value: "safe\u{202E}bad.example.com")
         ]
         let url = try XCTUnwrap(components.url)
 
-        switch CmuxCommandURLRequest.parse(url) {
-        case .failure(.commandContainsControlCharacters):
+        switch CmuxSSHURLRequest.parse(url) {
+        case .failure(.destinationContainsUnsafeCharacters):
             break
         default:
             XCTFail("Expected Unicode format character rejection")
         }
     }
 
-    func testRejectsInvalidWorkingDirectory() throws {
+    func testRejectsUnsupportedCommandParameter() throws {
         var components = URLComponents()
-        components.scheme = "cmux"
-        components.host = "command"
+        components.scheme = supportedScheme
+        components.host = "ssh"
         components.queryItems = [
-            URLQueryItem(name: "cmd", value: "pwd"),
-            URLQueryItem(name: "cwd", value: "/definitely/not/a/cmux/url/test/path")
+            URLQueryItem(name: "host", value: "dev.example.com"),
+            URLQueryItem(name: "command", value: "whoami")
         ]
         let url = try XCTUnwrap(components.url)
 
-        switch CmuxCommandURLRequest.parse(url) {
-        case .failure(.workingDirectoryDoesNotExist):
+        switch CmuxSSHURLRequest.parse(url) {
+        case .failure(.unsupportedParameter("command")):
             break
         default:
-            XCTFail("Expected missing working directory rejection")
+            XCTFail("Expected unsupported command parameter rejection")
         }
     }
 
-    private func parsedOptional(_ url: URL) throws -> CmuxCommandURLRequest? {
-        switch CmuxCommandURLRequest.parse(url) {
+    private func parsedOptional(_ url: URL) throws -> CmuxSSHURLRequest? {
+        switch CmuxSSHURLRequest.parse(url) {
         case .success(let request):
             return request
         case .failure(let error):

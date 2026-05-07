@@ -18618,7 +18618,7 @@
         }
       }
     },
-    "dialog.commandURL.blocked.ok": {
+    "dialog.sshURL.blocked.ok": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -18635,24 +18635,24 @@
         }
       }
     },
-    "dialog.commandURL.blocked.title": {
+    "dialog.sshURL.blocked.title": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Link Blocked"
+            "value": "cmux SSH Link Blocked"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux リンクをブロックしました"
+            "value": "cmux SSH リンクをブロックしました"
           }
         }
       }
     },
-    "dialog.commandURL.cancel": {
+    "dialog.sshURL.cancel": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -18669,109 +18669,126 @@
         }
       }
     },
-    "dialog.commandURL.checkbox": {
+    "dialog.sshURL.checkbox": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "I understand this command can modify or delete my files."
+            "value": "I trust this SSH target and want cmux to connect."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このコマンドがファイルを変更または削除できることを理解しています。"
+            "value": "この SSH 接続先を信頼し、cmux で接続することに同意します。"
           }
         }
       }
     },
-    "dialog.commandURL.commandLabel": {
+    "dialog.sshURL.commandLabel": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Command that will run:"
+            "value": "SSH command that will run:"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "実行されるコマンド:"
+            "value": "実行される SSH コマンド:"
           }
         }
       }
     },
-    "dialog.commandURL.cwdLabel": {
+    "dialog.sshURL.targetLabel": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Working directory: %@"
+            "value": "SSH target: %@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "作業ディレクトリ: %@"
+            "value": "SSH 接続先: %@"
           }
         }
       }
     },
-    "dialog.commandURL.error.commandContainsControlCharacters": {
+    "dialog.sshURL.error.destinationContainsUnsafeCharacters": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The command contains hidden control or formatting characters, so cmux refused to run it."
+            "value": "The SSH destination contains unsupported or hidden characters, so cmux refused to use it."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コマンドに隠れた制御文字または書式制御文字が含まれているため、cmux は実行を拒否しました。"
+            "value": "SSH 接続先に未対応の文字または隠れた文字が含まれているため、cmux は使用を拒否しました。"
           }
         }
       }
     },
-    "dialog.commandURL.error.commandTooLong": {
+    "dialog.sshURL.error.destinationTooLong": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The command is too long. The maximum length is %lld characters."
+            "value": "The SSH destination is too long. The maximum length is %lld characters."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コマンドが長すぎます。最大長は %lld 文字です。"
+            "value": "SSH 接続先が長すぎます。最大長は %lld 文字です。"
           }
         }
       }
     },
-    "dialog.commandURL.error.missingCommand": {
+    "dialog.sshURL.error.missingDestination": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The link did not include a command."
+            "value": "The link did not include an SSH destination."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "リンクにコマンドが含まれていません。"
+            "value": "リンクに SSH 接続先が含まれていません。"
           }
         }
       }
     },
-    "dialog.commandURL.error.titleContainsControlCharacters": {
+    "dialog.sshURL.error.multipleLinks": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only one SSH link can be opened at a time."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一度に開ける SSH リンクは 1 つだけです。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.error.titleContainsControlCharacters": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -18788,7 +18805,7 @@
         }
       }
     },
-    "dialog.commandURL.error.titleTooLong": {
+    "dialog.sshURL.error.titleTooLong": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -18805,121 +18822,121 @@
         }
       }
     },
-    "dialog.commandURL.error.workingDirectoryContainsControlCharacters": {
+    "dialog.sshURL.error.destinationStartsWithDash": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The working directory contains hidden control or formatting characters, so cmux refused to use it."
+            "value": "The SSH destination cannot start with a dash."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "作業ディレクトリに隠れた制御文字または書式制御文字が含まれているため、cmux は使用を拒否しました。"
+            "value": "SSH 接続先をダッシュで始めることはできません。"
           }
         }
       }
     },
-    "dialog.commandURL.error.workingDirectoryDoesNotExist": {
+    "dialog.sshURL.error.conflictingDestinationParameters": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The working directory does not exist:\n\n%@"
+            "value": "The link included conflicting SSH destination fields."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "作業ディレクトリが存在しません:\n\n%@"
+            "value": "リンクに競合する SSH 接続先フィールドが含まれています。"
           }
         }
       }
     },
-    "dialog.commandURL.error.workingDirectoryIsNotDirectory": {
+    "dialog.sshURL.error.unsupportedParameter": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The working directory is not a folder:\n\n%@"
+            "value": "The SSH link included an unsupported parameter: %@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "作業ディレクトリがフォルダではありません:\n\n%@"
+            "value": "SSH リンクに未対応のパラメータが含まれています: %@"
           }
         }
       }
     },
-    "dialog.commandURL.error.workingDirectoryTooLong": {
+    "dialog.sshURL.error.invalidPort": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The working directory path is too long. The maximum length is %lld characters."
+            "value": "The SSH port must be between 1 and 65535."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "作業ディレクトリのパスが長すぎます。最大長は %lld 文字です。"
+            "value": "SSH ポートは 1 から 65535 の範囲で指定してください。"
           }
         }
       }
     },
-    "dialog.commandURL.message": {
+    "dialog.sshURL.message": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A cmux:// link is asking cmux to run a shell command in a new terminal. cmux cannot verify which website or app opened this link.\n\nThis command will run as your macOS user. It can read or change files, use local credentials, start network connections, install software, or delete data.\n\nOnly continue if you created this link or fully trust it."
+            "value": "A cmux:// link is asking cmux to open an SSH connection in a new terminal window. cmux cannot verify which website or app opened this link.\n\nSSH may use your local SSH config, keys, and agent settings. Only continue if you trust this SSH target."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux:// リンクが、新しいターミナルでシェルコマンドを実行するよう cmux に要求しています。cmux は、このリンクを開いた Web サイトやアプリを確認できません。\n\nこのコマンドは macOS ユーザーとして実行されます。ファイルの読み取りや変更、ローカル認証情報の使用、ネットワーク接続、ソフトウェアのインストール、データの削除が可能です。\n\nこのリンクを自分で作成した場合、または完全に信頼している場合のみ続行してください。"
+            "value": "cmux:// リンクが、新しいターミナルウィンドウで SSH 接続を開くよう cmux に要求しています。cmux は、このリンクを開いた Web サイトやアプリを確認できません。\n\nSSH はローカルの SSH 設定、鍵、エージェント設定を使用する場合があります。この SSH 接続先を信頼している場合のみ続行してください。"
           }
         }
       }
     },
-    "dialog.commandURL.run": {
+    "dialog.sshURL.run": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Run Command"
+            "value": "Connect"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コマンドを実行"
+            "value": "接続"
           }
         }
       }
     },
-    "dialog.commandURL.title": {
+    "dialog.sshURL.title": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Run a Command From an External Link?"
+            "value": "Open an SSH Connection From an External Link?"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "外部リンクからコマンドを実行しますか？"
+            "value": "外部リンクから SSH 接続を開きますか？"
           }
         }
       }
