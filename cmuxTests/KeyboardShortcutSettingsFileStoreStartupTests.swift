@@ -192,22 +192,25 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         XCTAssertEqual(dockTileNotificationCount, 0)
     }
 
-    func testSettingsFileStoreParsesVaultAgentVisibilitySettings() throws {
+    func testSidebarMatchTerminalBackgroundUserDefaultSurvivesSettingsFileReapply() throws {
         let defaults = UserDefaults.standard
-        let previousValues: [String: Any?] = Dictionary(
-            uniqueKeysWithValues: VaultAgentVisibilitySettings.allDefaultsKeys.map {
-                ($0, defaults.object(forKey: $0))
-            }
-        )
+        let key = SidebarMatchTerminalBackgroundSettings.userDefaultsKey
+        let appliedDefaultKey = SidebarMatchTerminalBackgroundSettings.appliedSettingsFileDefaultKey
+        let previousValue = defaults.object(forKey: key)
+        let previousAppliedDefault = defaults.object(forKey: appliedDefaultKey)
         let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
         defer {
-            for (key, value) in previousValues {
-                if let value {
-                    defaults.set(value, forKey: key)
-                } else {
-                    defaults.removeObject(forKey: key)
-                }
+            if let previousValue {
+                defaults.set(previousValue, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
             }
+            if let previousAppliedDefault {
+                defaults.set(previousAppliedDefault, forKey: appliedDefaultKey)
+            } else {
+                defaults.removeObject(forKey: appliedDefaultKey)
+            }
+
             if let previousBackups {
                 defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
             } else {
@@ -215,52 +218,57 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
             }
         }
 
-        for key in VaultAgentVisibilitySettings.allDefaultsKeys {
-            defaults.removeObject(forKey: key)
-        }
+        defaults.removeObject(forKey: key)
+        defaults.removeObject(forKey: appliedDefaultKey)
         defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
 
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-        let configURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
         try writeSettingsFile(
             """
             {
-              "terminal": {
-                "vaultShowClaudeSessions": false,
-                "vaultShowCodexSessions": true,
-                "vaultShowOpenCodeSessions": false,
-                "vaultShowRovoDevSessions": true
+              "sidebarAppearance": {
+                "matchTerminalBackground": true
               }
             }
             """,
-            to: configURL
+            to: settingsFileURL
         )
 
         let notificationCenter = NotificationCenter()
-        var notificationCount = 0
-        let observer = notificationCenter.addObserver(
-            forName: VaultAgentVisibilitySettings.didChangeNotification,
-            object: nil,
-            queue: nil
-        ) { _ in
-            notificationCount += 1
-        }
-        defer { notificationCenter.removeObserver(observer) }
-
-        _ = KeyboardShortcutSettingsFileStore(
-            primaryPath: configURL.path,
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
             fallbackPath: nil,
             notificationCenter: notificationCenter,
-            startWatching: false
+            startWatching: true
         )
 
-        XCTAssertFalse(VaultAgentVisibilitySettings.isAgentEnabled(.claude))
-        XCTAssertTrue(VaultAgentVisibilitySettings.isAgentEnabled(.codex))
-        XCTAssertFalse(VaultAgentVisibilitySettings.isAgentEnabled(.opencode))
-        XCTAssertTrue(VaultAgentVisibilitySettings.isAgentEnabled(.rovodev))
-        XCTAssertEqual(notificationCount, 1)
+        XCTAssertEqual(defaults.object(forKey: key) as? Bool, true)
+
+        defaults.set(false, forKey: key)
+        try withExtendedLifetime(store) {
+            notificationCenter.post(name: UserDefaults.didChangeNotification, object: defaults)
+            XCTAssertEqual(defaults.object(forKey: key) as? Bool, false)
+
+            try writeSettingsFile(
+                """
+                {
+                  "sidebarAppearance": {
+                    "matchTerminalBackground": false
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+            store.reload()
+            XCTAssertEqual(defaults.object(forKey: key) as? Bool, false)
+
+            defaults.set(true, forKey: key)
+            notificationCenter.post(name: UserDefaults.didChangeNotification, object: defaults)
+            XCTAssertEqual(defaults.object(forKey: key) as? Bool, true)
+        }
     }
 
     private func makeTemporaryDirectory() throws -> URL {
