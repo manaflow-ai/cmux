@@ -106,7 +106,8 @@ final class SetStatusURLSchemeTests: XCTestCase {
     }
 
     // Negative gate: empty-scheme URLs (e.g. `://example.com`) are also rejected.
-    // Do NOT weaken — `URL(string:)` accepts these but they're meaningless to LaunchServices.
+    // Do NOT weaken — empirically `URL(string: "://example.com")?.scheme == ""`
+    // (NOT nil — Foundation accepts this and only the `!scheme.isEmpty` clause catches it).
     func testSetStatusRejectsURLWithEmptyScheme() throws {
         _ = try bindNewTabManager()
 
@@ -115,5 +116,22 @@ final class SetStatusURLSchemeTests: XCTestCase {
             response.hasPrefix("ERROR: Invalid metadata URL"),
             "Empty-scheme input should still be rejected; got: \(response)"
         )
+    }
+
+    // Contract: `--url=` (empty value) is treated as "URL not provided", NOT
+    // an error. The status entry is still created, just without a click target.
+    // This matches `normalizedOptionValue` behavior for every other flag and
+    // keeps `cmux set-status key value --url=""` as a safe way to clear the URL.
+    func testSetStatusEmptyURLValueIsTreatedAsNoURL() throws {
+        let (_, workspace) = try bindNewTabManager()
+
+        let response = sendSocketLine("set_status emptyurl ok --url=")
+        XCTAssertEqual(response, "OK", "Empty --url= should not error; got: \(response)")
+
+        drainMutations()
+
+        let entry = try XCTUnwrap(workspace.statusEntries["emptyurl"])
+        XCTAssertNil(entry.url, "Empty --url= should result in no stored URL")
+        XCTAssertEqual(entry.value, "ok")
     }
 }
