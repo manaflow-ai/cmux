@@ -13850,24 +13850,32 @@ private extension NSWindow {
         }
 
         if let ownerView = cmuxFieldEditorOwnerView(textView) {
-            return cmuxIsInsideCommandPaletteOverlay(ownerView)
+            guard let container = cmuxCommandPaletteOverlayAncestor(of: ownerView) else {
+                return false
+            }
+            return cmuxCommandPaletteOverlayIsPresented(container)
         }
 
         guard let container = cmuxCommandPaletteOverlayContainer(in: window) else {
             return false
         }
-        return !container.isHidden && container.alphaValue > 0.001
+
+        return cmuxCommandPaletteOverlayIsPresented(container)
     }
 
-    private static func cmuxIsInsideCommandPaletteOverlay(_ view: NSView) -> Bool {
+    private static func cmuxCommandPaletteOverlayAncestor(of view: NSView) -> NSView? {
         var current: NSView? = view
         while let candidate = current {
             if candidate.identifier == commandPaletteOverlayContainerIdentifier {
-                return true
+                return candidate
             }
             current = candidate.superview
         }
-        return false
+        return nil
+    }
+
+    private static func cmuxCommandPaletteOverlayIsPresented(_ container: NSView) -> Bool {
+        !container.isHidden && container.alphaValue > 0.001
     }
 
     private static func cmuxCommandPaletteOverlayContainer(in window: NSWindow) -> NSView? {
