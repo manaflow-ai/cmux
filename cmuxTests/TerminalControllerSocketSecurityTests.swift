@@ -142,8 +142,8 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
 #endif
     }
 
-    func testPiStatusTracksAgentTerminalDropRouting() throws {
-        let socketPath = makeSocketPath("pi-agent")
+    func testAgentStatusKeysTrackAgentTerminalDropRouting() throws {
+        let socketPath = makeSocketPath("agent-drop")
         let tabManager = TabManager()
         let workspace = tabManager.addWorkspace(select: true)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
@@ -155,27 +155,29 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         )
         try waitForSocket(at: socketPath)
 
-        XCTAssertEqual(
-            try sendCommands([
-                "set_status pi Running --tab=\(workspace.id.uuidString) --panel=\(panelId.uuidString)"
-            ], to: socketPath),
-            ["OK"]
-        )
+        for statusKey in ["pi", "hermes-agent"] {
+            XCTAssertEqual(
+                try sendCommands([
+                    "set_status \(statusKey) Running --tab=\(workspace.id.uuidString) --panel=\(panelId.uuidString)"
+                ], to: socketPath),
+                ["OK"]
+            )
 #if DEBUG
-        TerminalMutationBus.shared.drainForTesting()
+            TerminalMutationBus.shared.drainForTesting()
 #endif
-        XCTAssertEqual(workspace.externalFileDropRouting(forPanelId: panelId), .agentPromptPaste)
+            XCTAssertEqual(workspace.externalFileDropRouting(forPanelId: panelId), .agentPromptPaste)
 
-        XCTAssertEqual(
-            try sendCommands([
-                "clear_status pi --tab=\(workspace.id.uuidString) --panel=\(panelId.uuidString)"
-            ], to: socketPath),
-            ["OK"]
-        )
+            XCTAssertEqual(
+                try sendCommands([
+                    "clear_status \(statusKey) --tab=\(workspace.id.uuidString) --panel=\(panelId.uuidString)"
+                ], to: socketPath),
+                ["OK"]
+            )
 #if DEBUG
-        TerminalMutationBus.shared.drainForTesting()
+            TerminalMutationBus.shared.drainForTesting()
 #endif
-        XCTAssertEqual(workspace.externalFileDropRouting(forPanelId: panelId), .filePreview)
+            XCTAssertEqual(workspace.externalFileDropRouting(forPanelId: panelId), .filePreview)
+        }
     }
 
     func testRemoteStatusPayloadOmitsSensitiveSSHConfiguration() {

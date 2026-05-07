@@ -15908,6 +15908,7 @@ class TerminalController {
         "cursor",
         "factory",
         "gemini",
+        "hermes-agent",
         "opencode",
         "pi",
         "qoder",

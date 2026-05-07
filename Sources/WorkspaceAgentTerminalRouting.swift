@@ -92,6 +92,8 @@ extension Workspace {
             return baseKey == "opencode"
         case .rovodev:
             return baseKey == "rovodev"
+        case .hermesAgent:
+            return baseKey == "hermes-agent" || baseKey == "hermes"
         case .copilot:
             return baseKey == "copilot"
         case .codebuddy:
