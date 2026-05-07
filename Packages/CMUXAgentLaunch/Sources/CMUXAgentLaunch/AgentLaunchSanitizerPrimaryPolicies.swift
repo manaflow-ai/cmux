@@ -220,6 +220,10 @@ extension AgentLaunchSanitizer {
     static let ampPolicy = Policy(
         valueOptions: [
             "--effort",
+            // --label takes a value; listed here AND in droppedOptions so the
+            // sanitizer consumes the value too (otherwise it slips through as
+            // a positional). Same for -l.
+            "--label",
             "--log-file",
             "--log-level",
             "--mcp-config",
