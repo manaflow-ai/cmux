@@ -13,7 +13,7 @@ pub mod ffi;
 
 use std::io::{ErrorKind, IsTerminal, Write as _};
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow, bail};
 use base64::Engine;
@@ -131,6 +131,10 @@ impl BridgeTicket {
 
 impl BridgeTicketAuth {
     fn validate(&self) -> Result<()> {
+        self.validate_at(current_unix_secs()?)
+    }
+
+    fn validate_at(&self, now_unix: u64) -> Result<()> {
         match self {
             Self::Direct => Ok(()),
             Self::RivetStack {
@@ -150,6 +154,9 @@ impl BridgeTicketAuth {
                 }
                 if *expires_at_unix == 0 {
                     bail!("missing pairing expiration");
+                }
+                if *expires_at_unix <= now_unix {
+                    bail!("pairing ticket expired");
                 }
                 Ok(())
             }
@@ -191,6 +198,13 @@ impl BridgePairingOptions {
         }
         Ok(())
     }
+
+    fn validate_not_expired(&self) -> Result<()> {
+        if self.expires_at_unix <= current_unix_secs()? {
+            bail!("pairing ticket expired");
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -206,6 +220,13 @@ impl BridgeRelayMode {
             Self::Disabled => RelayMode::Disabled,
         }
     }
+}
+
+fn current_unix_secs() -> Result<u64> {
+    Ok(SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .context("system clock is before Unix epoch")?
+        .as_secs())
 }
 
 #[derive(Debug, Clone)]
@@ -457,6 +478,7 @@ async fn proxy_incoming(
         .await?;
     let (mut iroh_send, mut iroh_recv) = connection.accept_bi().await?;
     if let Some(pairing) = pairing.as_ref() {
+        pairing.validate_not_expired()?;
         complete_pairing_auth(&mut iroh_send, &mut iroh_recv, pairing).await?;
     }
 
@@ -777,6 +799,10 @@ mod tests {
     use tokio::net::UnixListener;
     use tokio::time::{Duration, Instant, sleep, timeout};
 
+    fn future_expires_at() -> u64 {
+        current_unix_secs().expect("current unix time") + 3600
+    }
+
     #[test]
     fn ticket_roundtrips_json() {
         let endpoint = EndpointAddr::new(iroh::SecretKey::generate().public());
@@ -786,7 +812,7 @@ mod tests {
                 pairing_id: "pairing-1".into(),
                 rivet_endpoint: "https://rivet.example.test".into(),
                 stack_project_id: "stack-project".into(),
-                expires_at_unix: 1_800_000_000,
+                expires_at_unix: future_expires_at(),
             },
         );
         let encoded = ticket.encode().expect("encode");
@@ -803,7 +829,7 @@ mod tests {
                 pairing_id: "pairing-1".into(),
                 rivet_endpoint: "https://rivet.example.test".into(),
                 stack_project_id: "stack-project".into(),
-                expires_at_unix: 1_800_000_000,
+                expires_at_unix: future_expires_at(),
             },
             Some(BridgeNodeInfo {
                 id: Some("node-mbp".into()),
@@ -862,12 +888,45 @@ mod tests {
                 pairing_id: String::new(),
                 rivet_endpoint: "https://rivet.example.test".into(),
                 stack_project_id: "stack-project".into(),
-                expires_at_unix: 1_800_000_000,
+                expires_at_unix: future_expires_at(),
             },
         );
         let encoded = ticket.encode().expect("encode");
         let error = BridgeTicket::decode(&encoded).expect_err("missing pairing id should fail");
         assert!(error.to_string().contains("missing Rivet pairing id"));
+    }
+
+    #[test]
+    fn ticket_rejects_expired_rivet_auth() {
+        let endpoint = EndpointAddr::new(iroh::SecretKey::generate().public());
+        let ticket = BridgeTicket::new(
+            endpoint,
+            BridgeTicketAuth::RivetStack {
+                pairing_id: "pairing-1".into(),
+                rivet_endpoint: "https://rivet.example.test".into(),
+                stack_project_id: "stack-project".into(),
+                expires_at_unix: current_unix_secs().expect("current unix time") - 1,
+            },
+        );
+        let encoded = ticket.encode().expect("encode");
+        let error = BridgeTicket::decode(&encoded).expect_err("expired ticket should fail");
+        assert!(error.to_string().contains("expired"));
+    }
+
+    #[test]
+    fn pairing_options_reject_expired_ticket_before_challenge() {
+        let pairing = BridgePairingOptions {
+            pairing_id: "pairing-1".into(),
+            secret: "shared-secret-from-rivet".into(),
+            rivet_endpoint: "https://rivet.example.test".into(),
+            stack_project_id: "stack-project".into(),
+            expires_at_unix: current_unix_secs().expect("current unix time") - 1,
+        };
+
+        let error = pairing
+            .validate_not_expired()
+            .expect_err("expired pairing should fail");
+        assert!(error.to_string().contains("expired"));
     }
 
     #[tokio::test]
@@ -954,7 +1013,7 @@ mod tests {
             secret: "shared-secret-from-rivet".into(),
             rivet_endpoint: "https://rivet.example.test".into(),
             stack_project_id: "stack-project".into(),
-            expires_at_unix: 1_800_000_000,
+            expires_at_unix: future_expires_at(),
         };
         let server = Endpoint::builder(presets::Minimal)
             .alpns(vec![CMUX_IROH_ALPN.to_vec()])
@@ -1015,7 +1074,7 @@ mod tests {
             secret: "shared-secret-from-rivet".into(),
             rivet_endpoint: "https://rivet.example.test".into(),
             stack_project_id: "stack-project".into(),
-            expires_at_unix: 1_800_000_000,
+            expires_at_unix: future_expires_at(),
         };
         let server = Endpoint::builder(presets::Minimal)
             .alpns(vec![CMUX_IROH_ALPN.to_vec()])
@@ -1067,7 +1126,7 @@ mod tests {
                 pairing_id: "pairing-1".into(),
                 rivet_endpoint: "https://rivet.example.test".into(),
                 stack_project_id: "stack-project".into(),
-                expires_at_unix: 1_800_000_000,
+                expires_at_unix: future_expires_at(),
             },
         );
 
@@ -1151,7 +1210,7 @@ mod tests {
             secret: "shared-secret-from-rivet".into(),
             rivet_endpoint: "https://rivet.example.test".into(),
             stack_project_id: "stack-project".into(),
-            expires_at_unix: 1_800_000_000,
+            expires_at_unix: future_expires_at(),
         };
         let server = Endpoint::builder(presets::Minimal)
             .alpns(vec![CMUX_IROH_ALPN.to_vec()])
@@ -1255,7 +1314,7 @@ mod tests {
             secret: "shared-secret-from-rivet".into(),
             rivet_endpoint: "https://rivet.example.test".into(),
             stack_project_id: "stack-project".into(),
-            expires_at_unix: 1_800_000_000,
+            expires_at_unix: future_expires_at(),
         };
         let iroh_server = Endpoint::builder(presets::Minimal)
             .alpns(vec![CMUX_IROH_ALPN.to_vec()])
