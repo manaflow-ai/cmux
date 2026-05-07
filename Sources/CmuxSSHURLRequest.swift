@@ -18,6 +18,9 @@ struct CmuxSSHURLRequest: Equatable {
     static let maxDestinationLength = 256
     static let maxTitleLength = 160
     static let supportedSchemes: Set<String> = ["cmux", "cmux-nightly", "cmux-dev"]
+    static var activeSupportedSchemes: Set<String> {
+        [AuthEnvironment.callbackScheme.lowercased()]
+    }
 
     let originalURL: URL
     let destination: String
@@ -53,8 +56,11 @@ struct CmuxSSHURLRequest: Equatable {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    static func parse(_ url: URL) -> Result<CmuxSSHURLRequest?, CmuxSSHURLParseError> {
-        guard isSupportedScheme(url.scheme) else {
+    static func parse(
+        _ url: URL,
+        supportedSchemes: Set<String> = activeSupportedSchemes
+    ) -> Result<CmuxSSHURLRequest?, CmuxSSHURLParseError> {
+        guard isSupportedScheme(url.scheme, supportedSchemes: supportedSchemes) else {
             return .success(nil)
         }
         guard sshTarget(from: url) else {
@@ -121,7 +127,7 @@ struct CmuxSSHURLRequest: Equatable {
         guard titleValue == nil || nameValue == nil else {
             return .failure(.conflictingDestinationParameters)
         }
-        let title = normalizedQueryValue(namedAnyOf: ["title", "name"], in: queryItems)
+        let title = titleValue ?? nameValue
         if let title {
             guard title.count <= maxTitleLength else {
                 return .failure(.titleTooLong(maxLength: maxTitleLength))
@@ -141,7 +147,7 @@ struct CmuxSSHURLRequest: Equatable {
         )
     }
 
-    private static func isSupportedScheme(_ scheme: String?) -> Bool {
+    private static func isSupportedScheme(_ scheme: String?, supportedSchemes: Set<String>) -> Bool {
         guard let scheme = scheme?.lowercased() else { return false }
         return supportedSchemes.contains(scheme)
     }

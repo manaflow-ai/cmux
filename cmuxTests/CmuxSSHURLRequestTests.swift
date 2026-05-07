@@ -49,7 +49,7 @@ final class CmuxSSHURLRequestTests: XCTestCase {
             ]
             let url = try XCTUnwrap(components.url)
 
-            switch CmuxSSHURLRequest.parse(url) {
+            switch CmuxSSHURLRequest.parse(url, supportedSchemes: CmuxSSHURLRequest.supportedSchemes) {
             case .success(.some(let request)):
                 XCTAssertEqual(request.destination, "dev.example.com")
             case .success(nil):
@@ -58,6 +58,21 @@ final class CmuxSSHURLRequestTests: XCTestCase {
                 XCTFail("Unexpected parse error for \(scheme): \(error)")
             }
         }
+    }
+
+    func testDefaultParserIgnoresOtherProductSchemes() throws {
+        let inactiveScheme = try XCTUnwrap(CmuxSSHURLRequest.supportedSchemes.first {
+            $0 != supportedScheme.lowercased()
+        })
+        var components = URLComponents()
+        components.scheme = inactiveScheme
+        components.host = "ssh"
+        components.queryItems = [
+            URLQueryItem(name: "host", value: "dev.example.com")
+        ]
+        let url = try XCTUnwrap(components.url)
+
+        XCTAssertEqual(try parsedOptional(url), nil)
     }
 
     func testRejectsSSHURLWithPathDestination() throws {
@@ -123,6 +138,28 @@ final class CmuxSSHURLRequestTests: XCTestCase {
             XCTFail("Expected SSH URL request")
         case .failure(let error):
             XCTFail("Whitespace around structured host should be trimmed, saw \(error)")
+        }
+    }
+
+    func testUsesNameWhenTitleIsBlank() throws {
+        var components = URLComponents()
+        components.scheme = supportedScheme
+        components.host = "ssh"
+        components.queryItems = [
+            URLQueryItem(name: "host", value: "dev.example.com"),
+            URLQueryItem(name: "title", value: " "),
+            URLQueryItem(name: "name", value: "Dev SSH")
+        ]
+        let url = try XCTUnwrap(components.url)
+
+        switch CmuxSSHURLRequest.parse(url) {
+        case .success(.some(let request)):
+            XCTAssertEqual(request.title, "Dev SSH")
+            XCTAssertEqual(request.cliArguments, ["ssh", "--name", "Dev SSH", "dev.example.com"])
+        case .success(nil):
+            XCTFail("Expected SSH URL request")
+        case .failure(let error):
+            XCTFail("Unexpected parse error: \(error)")
         }
     }
 

@@ -18760,13 +18760,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux action that will run after approval:"
+            "value": "Command preview:"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "承認後に実行される cmux アクション:"
+            "value": "コマンドのプレビュー:"
           }
         }
       }
