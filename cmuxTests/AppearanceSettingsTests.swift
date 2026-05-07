@@ -206,3 +206,78 @@ final class AppearanceSettingsTests: XCTestCase {
         }
     }
 }
+
+final class AppearanceSettingsThreadingTests: XCTestCase {
+    private final class LayoutTriggerView: NSView {
+        var onLayout: (() -> Void)?
+
+        override func layout() {
+            super.layout()
+            onLayout?()
+        }
+    }
+
+    func testRuntimeAppearanceApplyFromBackgroundDuringLayoutHopsToMainQueue() {
+        let suiteName = "AppearanceSettingsTests.BackgroundApply.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let layoutStarted = expectation(description: "main-thread layout started")
+        let backgroundApplyReturned = expectation(description: "background appearance apply returned")
+        let applicationAppearanceApplied = expectation(description: "application appearance applied on main")
+        let terminalThemeSynchronized = expectation(description: "terminal theme synchronized on main")
+        let backgroundQueue = DispatchQueue(label: "com.cmux.tests.appearance-background-apply")
+        let backgroundEntered = DispatchSemaphore(value: 0)
+
+        let environment = AppearanceSettings.LiveApplyEnvironment(
+            setApplicationAppearance: { _ in
+                dispatchPrecondition(condition: .onQueue(.main))
+                applicationAppearanceApplied.fulfill()
+            },
+            synchronizeTerminalThemeWithAppearance: { _, source in
+                dispatchPrecondition(condition: .onQueue(.main))
+                XCTAssertEqual(source, "cmuxConfig.applyManagedDefault")
+                terminalThemeSynchronized.fulfill()
+            },
+            systemAppearance: {
+                XCTFail("System mode should clear the runtime app override after launch")
+                return NSAppearance(named: .darkAqua)
+            }
+        )
+
+        DispatchQueue.main.async {
+            let root = LayoutTriggerView(frame: NSRect(x: 0, y: 0, width: 12, height: 12))
+            root.onLayout = {
+                layoutStarted.fulfill()
+                backgroundQueue.async {
+                    dispatchPrecondition(condition: .notOnQueue(.main))
+                    _ = AppearanceSettings.applyStoredMode(
+                        rawValue: AppearanceMode.system.rawValue,
+                        defaults: defaults,
+                        source: "cmuxConfig.applyManagedDefault",
+                        environment: environment
+                    )
+                    backgroundEntered.signal()
+                    backgroundApplyReturned.fulfill()
+                }
+                _ = backgroundEntered.wait(timeout: .now() + 2)
+            }
+
+            root.needsLayout = true
+            root.layoutSubtreeIfNeeded()
+        }
+
+        wait(
+            for: [
+                layoutStarted,
+                backgroundApplyReturned,
+                applicationAppearanceApplied,
+                terminalThemeSynchronized,
+            ],
+            timeout: 5
+        )
+    }
+}
