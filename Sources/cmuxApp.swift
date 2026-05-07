@@ -5841,7 +5841,7 @@ struct SettingsView: View {
                             ),
                             subtitle: String(
                                 localized: "settings.app.workspaceInheritWorkingDirectory.subtitle",
-                                defaultValue: "When on, new workspaces start in the previously focused workspace's directory. When off, they start in the Ghostty working-directory value."
+                                defaultValue: "When on, new workspaces start in the previously focused workspace's directory. When off, they start in the Ghostty working-directory value, or your home directory if that value is not set."
                             )
                         ) {
                             Toggle("", isOn: $workspaceInheritWorkingDirectory)

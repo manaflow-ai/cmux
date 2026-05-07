@@ -51969,19 +51969,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "When on, new workspaces start in the previously focused workspace's directory. When off, they start in the Ghostty working-directory value."
+            "value": "When on, new workspaces start in the previously focused workspace's directory. When off, they start in the Ghostty working-directory value, or your home directory if that value is not set."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "オンの場合、新しいワークスペースは直前にフォーカスされていたワークスペースのディレクトリで開始します。オフの場合は Ghostty の working-directory の値で開始します。"
+            "value": "オンの場合、新しいワークスペースは直前にフォーカスされていたワークスペースのディレクトリで開始します。オフの場合は Ghostty の working-directory の値、または未設定の場合はホームディレクトリで開始します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "켜져 있으면 새 작업 공간이 직전에 포커스된 작업 공간의 디렉터리에서 시작됩니다. 꺼져 있으면 Ghostty의 working-directory 값에서 시작됩니다."
+            "value": "켜져 있으면 새 작업 공간이 직전에 포커스된 작업 공간의 디렉터리에서 시작됩니다. 꺼져 있으면 Ghostty의 working-directory 값, 또는 해당 값이 설정되지 않은 경우 홈 디렉터리에서 시작됩니다."
           }
         }
       }
