@@ -16016,10 +16016,12 @@ class TerminalController {
 
         let parsedURL: URL?
         if let rawURL = normalizedOptionValue(parsed.options["url"] ?? parsed.options["link"]) {
+            // #3390: accept any non-empty scheme so LaunchServices can route obsidian://,
+            // vscode://, file://, mailto:, etc. Empty scheme still rejected to block typos.
             guard let candidate = URL(string: rawURL),
-                  let scheme = candidate.scheme?.lowercased(),
-                  scheme == "http" || scheme == "https" else {
-                return "ERROR: Invalid metadata URL '\(rawURL)' — expected http(s) URL"
+                  let scheme = candidate.scheme,
+                  !scheme.isEmpty else {
+                return "ERROR: Invalid metadata URL '\(rawURL)' — must include a scheme (e.g. https://, obsidian://, file://)"
             }
             parsedURL = candidate
         } else {
