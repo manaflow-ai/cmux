@@ -92,6 +92,28 @@ final class RipgrepResolverTests: XCTestCase {
         XCTAssertNil(resolved)
     }
 
+    func testResolveRejectsDirectoryWithExecuteBit() throws {
+        let directoryNamedRg = tempDirectory.appendingPathComponent("rg-dir-as-binary", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryNamedRg, withIntermediateDirectories: true)
+        XCTAssertTrue(
+            FileManager.default.isExecutableFile(atPath: directoryNamedRg.path),
+            "Sanity check: a freshly created directory has the search/execute bit set, so isExecutableFile returns true; the resolver must filter via fileExists(atPath:isDirectory:)"
+        )
+
+        let realBinary = try makeExecutableStub(named: "rg-real")
+        let resolved = RipgrepResolver.resolve(
+            customPath: directoryNamedRg.path,
+            commonPaths: [realBinary.path],
+            environment: [:]
+        )
+
+        XCTAssertEqual(
+            resolved,
+            realBinary.path,
+            "A directory at the configured path must be rejected so the resolver falls back to the real executable"
+        )
+    }
+
     func testDefaultCommonPathsIncludesNixDarwinProfilePaths() {
         let paths = RipgrepResolver.defaultCommonPaths(userName: "alice")
         XCTAssertTrue(

@@ -15,7 +15,11 @@ enum RipgrepIntegrationSettings {
     }
 }
 
-private let ripgrepResolverLogger = Logger(
+// `nonisolated` is required for file-scoped state under MainActor-by-default
+// isolation (project rule `.github/review-bot-rules/swift-logging.md`); without
+// it, `RipgrepResolver.resolve()` — which is nonisolated — would cross the
+// actor boundary on every read.
+nonisolated private let ripgrepResolverLogger = Logger(
     subsystem: "com.cmuxterm.app",
     category: "RipgrepResolver"
 )
@@ -40,7 +44,7 @@ private final class InvalidPathLogTracker: @unchecked Sendable {
     }
 }
 
-private let ripgrepInvalidPathTracker = InvalidPathLogTracker()
+nonisolated private let ripgrepInvalidPathTracker = InvalidPathLogTracker()
 
 /// Resolves the absolute path to `rg`, honoring `automation.ripgrepBinaryPath`
 /// first, then a fallback list of common install locations, then `$PATH`.
@@ -69,7 +73,7 @@ enum RipgrepResolver {
         fileManager: FileManager = .default
     ) -> String? {
         if let customPath {
-            if fileManager.isExecutableFile(atPath: customPath) {
+            if isExecutableRegularFile(atPath: customPath, fileManager: fileManager) {
                 return customPath
             }
             // Configured-but-not-executable falls through to the common paths
@@ -81,18 +85,36 @@ enum RipgrepResolver {
                 )
             }
         }
-        for path in commonPaths where fileManager.isExecutableFile(atPath: path) {
+        for path in commonPaths where isExecutableRegularFile(atPath: path, fileManager: fileManager) {
             return path
         }
         if let pathValue = environment["PATH"] {
             for directory in pathValue.split(separator: ":", omittingEmptySubsequences: true) {
                 let candidate = String(directory) + "/rg"
-                if fileManager.isExecutableFile(atPath: candidate) {
+                if isExecutableRegularFile(atPath: candidate, fileManager: fileManager) {
                     return candidate
                 }
             }
         }
         return nil
+    }
+
+    /// `FileManager.isExecutableFile(atPath:)` returns true for directories with
+    /// the search/execute bit set (it's `access(X_OK)` under the hood). A user
+    /// could plausibly point `automation.ripgrepBinaryPath` at a directory named
+    /// `rg/`, or have one of the common locations expand to a directory in some
+    /// future install layout. Filter those out so the resolver returns only real
+    /// executable files.
+    private static func isExecutableRegularFile(
+        atPath path: String,
+        fileManager: FileManager
+    ) -> Bool {
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory),
+              !isDirectory.boolValue else {
+            return false
+        }
+        return fileManager.isExecutableFile(atPath: path)
     }
 
     /// Reset the dedupe tracker. Tests use this to assert per-call logging
