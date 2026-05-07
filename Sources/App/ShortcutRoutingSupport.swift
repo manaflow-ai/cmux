@@ -92,6 +92,27 @@ func shouldDispatchBrowserArrowViaFirstResponderKeyDown(
     return normalizedFlags.isEmpty
 }
 
+func shouldDispatchCommandPaletteHorizontalArrowViaFirstResponderKeyDown(
+    keyCode: UInt16,
+    firstResponderIsCommandPaletteFieldEditor: Bool,
+    firstResponderHasMarkedText: Bool = false,
+    flags: NSEvent.ModifierFlags
+) -> Bool {
+    guard firstResponderIsCommandPaletteFieldEditor else { return false }
+    guard !firstResponderHasMarkedText else { return false }
+    guard keyCode == 123 || keyCode == 124 else { return false }
+
+    let normalizedFlags = flags
+        .intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function, .capsLock])
+    switch normalizedFlags {
+    case [], [.shift], [.option], [.option, .shift], [.command], [.command, .shift]:
+        return true
+    default:
+        return false
+    }
+}
+
 func shouldToggleMainWindowFullScreenForCommandControlFShortcut(
     flags: NSEvent.ModifierFlags,
     chars: String,

@@ -13726,6 +13726,7 @@ private var cmuxFirstResponderGuardHitViewContext: NSView?
 private var cmuxFirstResponderGuardContextWindowNumber: Int?
 private var cmuxBrowserReturnForwardingDepth = 0
 private var cmuxBrowserArrowForwardingDepth = 0
+private var cmuxCommandPaletteArrowForwardingDepth = 0
 private var cmuxWindowFirstResponderBypassDepth = 0
 private var cmuxFieldEditorOwningWebViewAssociationKey: UInt8 = 0
 
@@ -13841,6 +13842,49 @@ private extension AppDelegate {
 }
 
 private extension NSWindow {
+    static func cmuxCommandPaletteOwnsFieldEditor(_ textView: NSTextView?, in window: NSWindow) -> Bool {
+        guard let textView,
+              textView.isFieldEditor,
+              textView.window === window else {
+            return false
+        }
+
+        if let ownerView = cmuxFieldEditorOwnerView(textView),
+           cmuxIsInsideCommandPaletteOverlay(ownerView) {
+            return true
+        }
+
+        guard let container = cmuxCommandPaletteOverlayContainer(in: window) else {
+            return false
+        }
+        return !container.isHidden && container.alphaValue > 0.001
+    }
+
+    private static func cmuxIsInsideCommandPaletteOverlay(_ view: NSView) -> Bool {
+        var current: NSView? = view
+        while let candidate = current {
+            if candidate.identifier == commandPaletteOverlayContainerIdentifier {
+                return true
+            }
+            current = candidate.superview
+        }
+        return false
+    }
+
+    private static func cmuxCommandPaletteOverlayContainer(in window: NSWindow) -> NSView? {
+        guard let searchRoot = window.contentView?.superview ?? window.contentView else {
+            return nil
+        }
+        var stack: [NSView] = [searchRoot]
+        while let candidate = stack.popLast() {
+            if candidate.identifier == commandPaletteOverlayContainerIdentifier {
+                return candidate
+            }
+            stack.append(contentsOf: candidate.subviews)
+        }
+        return nil
+    }
+
     @objc func cmux_makeFirstResponder(_ responder: NSResponder?) -> Bool {
         if cmuxIsWindowFirstResponderBypassActive() {
 #if DEBUG
@@ -14155,6 +14199,10 @@ private extension NSWindow {
             Self.cmuxOwningWebView(for: $0, in: self, event: event)
         }
         let firstResponderHasMarkedText = browserResponderHasMarkedText(self.firstResponder)
+        let firstResponderIsCommandPaletteFieldEditor = Self.cmuxCommandPaletteOwnsFieldEditor(
+            self.firstResponder as? NSTextView,
+            in: self
+        )
         if ShortcutRecorderEventRouter.dispatchActiveRecordingEvent(event, preferredWindow: self) {
             return true
         }
@@ -14215,6 +14263,21 @@ private extension NSWindow {
 #endif
                 return true
             }
+        }
+
+        if shouldDispatchCommandPaletteHorizontalArrowViaFirstResponderKeyDown(
+            keyCode: event.keyCode,
+            firstResponderIsCommandPaletteFieldEditor: firstResponderIsCommandPaletteFieldEditor,
+            firstResponderHasMarkedText: firstResponderHasMarkedText,
+            flags: event.modifierFlags
+        ) {
+            if cmuxCommandPaletteArrowForwardingDepth > 0 {
+                return false
+            }
+            cmuxCommandPaletteArrowForwardingDepth += 1
+            defer { cmuxCommandPaletteArrowForwardingDepth = max(0, cmuxCommandPaletteArrowForwardingDepth - 1) }
+            self.firstResponder?.keyDown(with: event)
+            return true
         }
 
         // Web forms rely on Return/Enter flowing through keyDown. If the original
