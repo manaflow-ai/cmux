@@ -15706,7 +15706,7 @@ struct CMUXCLI {
     }
 
     private enum AgentHookAction {
-        case sessionStart, promptSubmit, stop, sessionEnd, noop
+        case sessionStart, promptSubmit, stop, sessionEnd, notification, noop
     }
 
     private static let subcommandActions: [String: AgentHookAction] = [
@@ -15717,6 +15717,7 @@ struct CMUXCLI {
         "shell-exec": .promptSubmit,
         "shell-done": .noop,
         "session-end": .sessionEnd,
+        "notification": .notification,
     ]
 
     // MARK: Agent definitions
@@ -15852,8 +15853,10 @@ struct CMUXCLI {
                 .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start"),
                 .init(agentEvent: "Stop", cmuxSubcommand: "stop"),
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
+                .init(agentEvent: "Notification", cmuxSubcommand: "notification"),
+                .init(agentEvent: "UserPromptSubmit", cmuxSubcommand: "prompt-submit"),
             ],
-            feedHookEvents: ["PreToolUse"]
+            feedHookEvents: ["PreToolUse", "PermissionRequest"]
         ),
     ]
 
@@ -17024,6 +17027,22 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 sendAgentFeedTelemetry(workspaceId: mapped.workspaceId)
                 _ = try? sendV1Command("clear_status \(def.statusKey) --tab=\(mapped.workspaceId)", client: client)
                 _ = try? sendV1Command("clear_agent_pid \(pidKey) --tab=\(mapped.workspaceId)", client: client)
+            }
+
+        case .notification:
+            let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
+            let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(preferred: workspaceArg, fallback: mapped?.workspaceId, client: client)
+            sendAgentFeedTelemetry(workspaceId: workspaceId)
+            // If the notification carries a meaningful title, rename the workspace/tab.
+            // Skip generic notification labels that aren't session titles.
+            let genericTitles: Set<String> = ["Agent Result", "Permission Request", "Notification"]
+            if let title = input.object?["title"] as? String,
+               !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               !genericTitles.contains(title.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                _ = try? client.sendV2(method: "workspace.rename", params: [
+                    "workspace_id": workspaceId,
+                    "title": title.trimmingCharacters(in: .whitespacesAndNewlines),
+                ])
             }
 
         case .noop:
@@ -19900,7 +19919,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
         print("cmux hooks \(isUninstall ? "uninstall" : "setup"): \(verb) agent hooks")
         if !isUninstall {
-            print("  (Claude Code hooks are injected automatically via the claude wrapper)")
+            print("  (Claude Code and Qoder hooks are injected automatically via their wrapper scripts)")
         }
         print("")
 
