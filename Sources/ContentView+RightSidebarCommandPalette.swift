@@ -23,6 +23,8 @@ extension ContentView {
             return .closeWindow
         case "palette.toggleSidebar":
             return .toggleSidebar
+        case "palette.toggleRightSidebar":
+            return .toggleFileExplorer
         case "palette.showNotifications":
             return .showNotifications
         case "palette.jumpUnread":

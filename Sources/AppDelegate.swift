@@ -5670,6 +5670,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return result
     }
 
+    /// VS Code-style 3-state right-sidebar shortcut.
+    /// - Hidden → open and focus.
+    /// - Visible, different mode → switch mode and focus.
+    /// - Visible, same mode (or no mode requested), terminal-focused → focus sidebar.
+    /// - Visible, same mode (or no mode requested), sidebar-focused → close.
+    @discardableResult
+    func handleRightSidebarShortcut(
+        mode requestedMode: RightSidebarMode? = nil,
+        focusFirstItem: Bool = true,
+        preferredWindow: NSWindow? = nil
+    ) -> Bool {
+        if let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow),
+           let state = context.fileExplorerState ?? fileExplorerState {
+            let coordinator = context.keyboardFocusCoordinator
+            let sidebarFocused = state.isVisible && coordinator.focusToggleDestination() == .terminal
+            let modeMatches = requestedMode == nil || state.mode == requestedMode
+            if sidebarFocused && modeMatches {
+                return toggleRightSidebarInActiveMainWindow(preferredWindow: preferredWindow)
+            }
+        }
+        return focusRightSidebarInActiveMainWindow(
+            mode: requestedMode,
+            focusFirstItem: focusFirstItem,
+            preferredWindow: preferredWindow
+        )
+    }
+
 #if DEBUG
     func debugRevealRightSidebarInActiveMainWindow(
         mode: RightSidebarMode,
@@ -10934,7 +10961,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if let mode = RightSidebarMode.modeShortcut(for: event),
            let rightSidebarWindow = mainWindowForShortcutEvent(event) ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
            shouldRouteRightSidebarModeShortcut(in: rightSidebarWindow) {
-            _ = focusRightSidebarInActiveMainWindow(
+            _ = handleRightSidebarShortcut(
                 mode: mode,
                 focusFirstItem: true,
                 preferredWindow: rightSidebarWindow
@@ -11120,7 +11147,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "\(debugShortcutRouteSnapshot(event: event))"
             )
 #endif
-            let result = toggleRightSidebarKeyboardFocusInActiveMainWindow(preferredWindow: preferredWindow)
+            let result = handleRightSidebarShortcut(preferredWindow: preferredWindow)
 #if DEBUG
             let afterResponder = preferredWindow?.firstResponder
                 ?? NSApp.keyWindow?.firstResponder
@@ -14156,7 +14183,7 @@ private extension NSWindow {
         }
         if let mode = RightSidebarMode.modeShortcut(for: event),
            AppDelegate.shared?.shouldRouteRightSidebarModeShortcut(in: self) == true {
-            _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+            _ = AppDelegate.shared?.handleRightSidebarShortcut(
                 mode: mode,
                 focusFirstItem: true,
                 preferredWindow: self

@@ -16,6 +16,7 @@ struct cmuxApp: App {
     private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(BrowserToolbarAccessorySpacingDebugSettings.key) private var browserToolbarAccessorySpacingRaw = BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
+    @AppStorage("fileExplorer.isVisible") private var rightSidebarVisible: Bool = false
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @Environment(\.openWindow) private var openWindow
 
@@ -645,12 +646,22 @@ struct cmuxApp: App {
             }
 
             splitCommandButton(title: String(localized: "menu.view.focusRightSidebar", defaultValue: "Focus Right Sidebar"), shortcut: menuShortcut(for: .focusRightSidebar)) {
-                if AppDelegate.shared?.toggleRightSidebarKeyboardFocusInActiveMainWindow() != true {
-                    if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
-                        preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
-                    ) != true {
-                        NSSound.beep()
-                    }
+                if AppDelegate.shared?.handleRightSidebarShortcut(
+                    preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+                ) != true {
+                    NSSound.beep()
+                }
+            }
+            splitCommandButton(
+                title: rightSidebarVisible
+                    ? String(localized: "menu.view.hideRightSidebar", defaultValue: "Hide Right Sidebar")
+                    : String(localized: "menu.view.showRightSidebar", defaultValue: "Show Right Sidebar"),
+                shortcut: menuShortcut(for: .toggleFileExplorer)
+            ) {
+                if AppDelegate.shared?.toggleRightSidebarInActiveMainWindow(
+                    preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+                ) != true {
+                    NSSound.beep()
                 }
             }
             Divider()

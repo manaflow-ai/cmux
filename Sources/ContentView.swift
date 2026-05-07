@@ -2002,6 +2002,7 @@ struct ContentView: View {
         static let workspaceHasUnread = "workspace.hasUnread"
         static let workspaceHasRead = "workspace.hasRead"
         static let sidebarMatchTerminalBackground = "sidebar.matchTerminalBackground"
+        static let rightSidebarVisible = "sidebar.rightVisible"
         static let hasFocusedPanel = "panel.hasFocus"
         static let panelName = "panel.name"
         static let panelIsBrowser = "panel.isBrowser"
@@ -6712,6 +6713,7 @@ struct ContentView: View {
         var snapshot = CommandPaletteContextSnapshot()
         snapshot.setBool(CommandPaletteContextKeys.workspaceMinimalModeEnabled, isMinimalMode)
         snapshot.setBool(CommandPaletteContextKeys.sidebarMatchTerminalBackground, sidebarMatchTerminalBackground)
+        snapshot.setBool(CommandPaletteContextKeys.rightSidebarVisible, fileExplorerState.isVisible)
         snapshot.setBool(CommandPaletteContextKeys.browserDisabled, BrowserAvailabilitySettings.isDisabled())
 
         if let workspace = tabManager.selectedWorkspace {
@@ -6976,6 +6978,18 @@ struct ContentView: View {
             )
         )
         contributions.append(contentsOf: Self.commandPaletteRightSidebarModeCommandContributions())
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.toggleRightSidebar",
+                title: { context in
+                    context.bool(CommandPaletteContextKeys.rightSidebarVisible)
+                        ? String(localized: "command.hideRightSidebar.title", defaultValue: "Hide Right Sidebar")
+                        : String(localized: "command.showRightSidebar.title", defaultValue: "Show Right Sidebar")
+                },
+                subtitle: constant(String(localized: "command.toggleSidebar.subtitle", defaultValue: "Layout")),
+                keywords: ["toggle", "right", "sidebar", "files", "find", "dock", "feed", "sessions", "layout", "hide", "close", "show"]
+            )
+        )
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.toggleMatchTerminalBackground",
@@ -7862,6 +7876,9 @@ struct ContentView: View {
             registry.register(commandId: Self.commandPaletteRightSidebarModeCommandID(mode)) {
                 handleCommandPaletteRightSidebarMode(mode, observedWindow: observedWindow)
             }
+        }
+        registry.register(commandId: "palette.toggleRightSidebar") {
+            _ = AppDelegate.shared?.toggleRightSidebarInActiveMainWindow()
         }
         registry.register(commandId: "palette.toggleMatchTerminalBackground") {
             sidebarMatchTerminalBackground.toggle()
