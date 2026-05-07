@@ -9253,11 +9253,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     fileprivate func handleAgentDroppedFileURLs(_ urls: [URL]) -> Bool {
-        executePreparedImageTransfer(
-            .fileURLs(urls),
-            textDelivery: .agentPromptPaste,
-            onCancel: {}
-        )
+        executePreparedImageTransfer(.fileURLs(urls), textDelivery: .agentPromptPaste, onCancel: {})
     }
 
     @discardableResult
@@ -11246,12 +11242,8 @@ final class GhosttySurfaceScrollView: NSView {
         return surfaceView.handleDroppedFileURLs(urls)
     }
 
-    /// Handle agent terminal file/URL drops as a bracketed paste so agent TUIs can attach images.
     func handleAgentDroppedURLs(_ urls: [URL]) -> Bool {
-        #if DEBUG
-        cmuxDebugLog("terminal.swiftUIDrop.agent surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") urls=\(urls.map(\.lastPathComponent))")
-        #endif
-        return surfaceView.handleAgentDroppedFileURLs(urls)
+        surfaceView.handleAgentDroppedFileURLs(urls)
     }
 
     func terminalViewForDrop(at point: NSPoint) -> GhosttyNSView? {
