@@ -76,8 +76,8 @@ final class FinderFileDropRegressionTests: XCTestCase {
                 defaultAction: .filePreview,
                 shiftKeyHeld: true
             ),
-            .agentPromptPaste,
-            "Shift-dropping onto an agent terminal should attach images to the prompt instead of opening preview"
+            .terminalPaste,
+            "Shift-dropping onto an agent terminal should insert the path into the terminal instead of opening preview"
         )
         XCTAssertEqual(
             PaneDropRouting.externalFileDropRouting(
@@ -99,7 +99,7 @@ final class FinderFileDropRegressionTests: XCTestCase {
                 defaultAction: .terminal,
                 shiftKeyHeld: false
             ),
-            .agentPromptPaste
+            .terminalPaste
         )
         XCTAssertEqual(
             PaneDropRouting.externalFileDropRouting(
@@ -150,7 +150,7 @@ final class FinderFileDropRegressionTests: XCTestCase {
             PaneFileDropHint(
                 currentAction: .filePreview,
                 modifierPrompt: .holdShift,
-                alternateAction: .agentPrompt
+                alternateAction: .terminalPath
             )
         )
         XCTAssertEqual(
@@ -174,7 +174,7 @@ final class FinderFileDropRegressionTests: XCTestCase {
                 shiftKeyHeld: false
             ),
             PaneFileDropHint(
-                currentAction: .agentPrompt,
+                currentAction: .terminalPath,
                 modifierPrompt: .holdShift,
                 alternateAction: .filePreview
             )
@@ -225,10 +225,10 @@ final class FinderFileDropRegressionTests: XCTestCase {
 
         _ = workspace.sessionSnapshot(includeScrollback: false, restorableAgentIndex: index)
         XCTAssertEqual(workspace.externalFileDropRouting(forPanelId: panelId), .filePreview)
-        XCTAssertEqual(workspace.externalFileDropRouting(forPanelId: panelId, shiftKeyHeld: true), .agentPromptPaste)
+        XCTAssertEqual(workspace.externalFileDropRouting(forPanelId: panelId, shiftKeyHeld: true), .terminalPaste)
 
         workspace.clearAgentTerminal(key: "pi", panelId: panelId)
-        XCTAssertEqual(workspace.externalFileDropRouting(forPanelId: panelId, shiftKeyHeld: true), .agentPromptPaste)
+        XCTAssertEqual(workspace.externalFileDropRouting(forPanelId: panelId, shiftKeyHeld: true), .terminalPaste)
 
         workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
         workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
@@ -244,7 +244,19 @@ final class FinderFileDropRegressionTests: XCTestCase {
 
         let acceptedSnapshot = workspace.sessionSnapshot(includeScrollback: false, restorableAgentIndex: index)
         XCTAssertEqual(acceptedSnapshot.panels.first?.terminal?.agent?.sessionId, "codex-routing-cleanup-session")
-        XCTAssertEqual(workspace.externalFileDropRouting(forPanelId: panelId, shiftKeyHeld: true), .agentPromptPaste)
+        XCTAssertEqual(workspace.externalFileDropRouting(forPanelId: panelId, shiftKeyHeld: true), .terminalPaste)
+    }
+
+    func testLocalTerminalDropCanInsertWorkspaceRelativePath() {
+        let plan = TerminalImageTransferPlanner.plan(
+            fileURLs: [
+                URL(fileURLWithPath: "/Users/example/project/Images/Screen Shot.png")
+            ],
+            target: .local,
+            localRootPath: "/Users/example/project"
+        )
+
+        XCTAssertEqual(plan, .insertText("Images/Screen\\ Shot.png"))
     }
 
     func testAgentPromptDropPasteUsesTextPastePathWithoutEmbeddingControlSequences() throws {
