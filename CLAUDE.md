@@ -50,6 +50,19 @@ App path:
 
 Never use `/tmp/cmux-<tag>/...` app links in chat output.
 
+When a user may need to attach to a cmux terminal, end the handoff with the
+directory and the shortest attach command that matches the current context.
+For this iOS/Rust terminal work, prefer the worktree-local helper so it uses
+this checkout's `cmx` binary:
+
+```bash
+cd ~/fun/cmuxterm-hq/worktrees/feat-ios-iroh-rust-daemon
+ios/scripts/attach-latest.sh <tag>
+```
+
+If the tag is unknown, use `ios/scripts/attach-latest.sh`. If a specific socket
+is the relevant context, use `ios/scripts/attach-latest.sh --socket <path>`.
+
 After making code changes, always use `reload.sh --tag` to build. **Never run bare `xcodebuild` or `open` an untagged `cmux DEV.app`.** Untagged builds share the default debug socket and bundle ID with other agents, causing conflicts and stealing focus.
 
 ```bash
@@ -73,6 +86,17 @@ When rebuilding cmuxd for release/bundling, always use ReleaseFast:
 ```bash
 cd cmuxd && zig build -Doptimize=ReleaseFast
 ```
+
+For Rust cmux terminal/iroh dogfood that is performance-sensitive, verify the
+optimized binaries too. The Rust workspace release profile uses fat LTO and
+single-codegen-unit optimization.
+
+```bash
+cd rust/cmux-cli && cargo build --release -p cmx -p cmux-iroh-bridge
+```
+
+The iOS static bridge build follows Xcode configuration: Debug uses a debug
+Rust staticlib, Release passes `--release` through `ios/scripts/build-iroh-bridge.sh`.
 
 `reload` = build the Debug app (tag required) and terminate any running app with the same tag. Pass `--launch` to also open the freshly-built app:
 
