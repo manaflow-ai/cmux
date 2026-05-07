@@ -117,6 +117,28 @@ final class FinderFileDropRegressionTests: XCTestCase {
         )
     }
 
+    func testShiftDropUsesModifierCapturedDuringDragWhenDropEventLosesFlags() {
+        let shiftKeyHeld = PaneDropRouting.effectiveShiftKeyHeld(
+            liveShiftKeyHeld: false,
+            cachedShiftKeyHeld: true
+        )
+
+        XCTAssertTrue(
+            shiftKeyHeld,
+            "Finder drops can lose live modifier flags by performDragOperation; keep the Shift state captured during draggingUpdated"
+        )
+        XCTAssertEqual(
+            PaneDropRouting.externalFileDropRouting(
+                panelType: .terminal,
+                hostsAgent: true,
+                defaultAction: .filePreview,
+                shiftKeyHeld: shiftKeyHeld
+            ),
+            .agentPromptPaste,
+            "Holding Shift over an agent terminal should use the text/link insertion path, not file preview"
+        )
+    }
+
     func testPaneFileDropRoutingCanDefaultToTerminalAndUseShiftForPreview() {
         XCTAssertEqual(
             PaneDropRouting.externalFileDropRouting(
@@ -212,6 +234,40 @@ final class FinderFileDropRegressionTests: XCTestCase {
                 defaultAction: .terminal,
                 shiftKeyHeld: false
             )
+        )
+    }
+
+    func testPaneFileDropHintFrameCentersInTerminalDropTargetArea() {
+        let bounds = CGRect(x: 0, y: 0, width: 800, height: 500)
+        let labelSize = CGSize(width: 280, height: 16)
+
+        let terminalPathFrame = PaneDropRouting.dropHintFrame(
+            labelSize: labelSize,
+            in: bounds,
+            activeZone: nil
+        )
+
+        XCTAssertEqual(terminalPathFrame.midX, bounds.midX, accuracy: 0.5)
+        XCTAssertEqual(
+            terminalPathFrame.midY,
+            bounds.midY,
+            accuracy: 0.5,
+            "Terminal path insertion has no split target, so the hint should sit in the terminal center"
+        )
+
+        let leftZone = PaneDropRouting.overlayFrame(for: .left, in: bounds)
+        let filePreviewFrame = PaneDropRouting.dropHintFrame(
+            labelSize: labelSize,
+            in: bounds,
+            activeZone: .left
+        )
+
+        XCTAssertEqual(filePreviewFrame.midX, leftZone.midX, accuracy: 0.5)
+        XCTAssertEqual(
+            filePreviewFrame.midY,
+            leftZone.midY,
+            accuracy: 0.5,
+            "File-preview split hints should sit in the center of the active drop target area"
         )
     }
 

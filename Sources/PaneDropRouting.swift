@@ -102,6 +102,13 @@ enum PaneDropRouting {
         )
     }
 
+    static func effectiveShiftKeyHeld(
+        liveShiftKeyHeld: Bool,
+        cachedShiftKeyHeld: Bool?
+    ) -> Bool {
+        liveShiftKeyHeld
+    }
+
     static func zone(for location: CGPoint, in size: CGSize) -> DropZone {
         let edgeRatio: CGFloat = 0.25
         let horizontalEdge = max(80, size.width * edgeRatio)
@@ -136,6 +143,21 @@ enum PaneDropRouting {
         case .bottom:
             return .split(targetPane: paneId, orientation: .vertical, insertFirst: false)
         }
+    }
+
+    static func dropHintFrame(
+        labelSize: CGSize,
+        in bounds: CGRect,
+        activeZone: DropZone?
+    ) -> CGRect {
+        _ = activeZone
+        let availableWidth = max(40, bounds.width - 24)
+        let maxWidth = min(availableWidth, 520)
+        let width = min(maxWidth, max(min(maxWidth, 220), labelSize.width + 28))
+        let height = max(32, labelSize.height + 16)
+        let x = bounds.minX + max(0, (bounds.width - width) / 2)
+        let y = max(bounds.minY + 8, bounds.maxY - height - 12)
+        return CGRect(x: x, y: y, width: width, height: height)
     }
 
     static func overlayFrame(for zone: DropZone, in bounds: CGRect) -> CGRect {
