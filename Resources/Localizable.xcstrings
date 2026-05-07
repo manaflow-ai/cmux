@@ -105282,6 +105282,159 @@
         }
       }
     },
+    "terminal.fileDropHint.agentHoldShiftPreview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drop to attach to prompt. Hold Shift to open in editor."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドロップするとプロンプトに添付します。Shift キーでエディタで開きます。"
+          }
+        }
+      }
+    },
+    "terminal.fileDropHint.agentReleaseShiftPreview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drop to attach to prompt. Release Shift to open in editor."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドロップするとプロンプトに添付します。Shift キーを離すとエディタで開きます。"
+          }
+        }
+      }
+    },
+    "terminal.fileDropHint.default": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drop file. Hold Shift to use the alternate action."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルをドロップします。Shift キーで別の操作を使います。"
+          }
+        }
+      }
+    },
+    "terminal.fileDropHint.previewHoldShiftAgent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drop to open in editor. Hold Shift to attach to prompt."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドロップするとエディタで開きます。Shift キーでプロンプトに添付します。"
+          }
+        }
+      }
+    },
+    "terminal.fileDropHint.previewHoldShiftTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drop to open in editor. Hold Shift to insert path."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドロップするとエディタで開きます。Shift キーでパスを挿入します。"
+          }
+        }
+      }
+    },
+    "terminal.fileDropHint.previewReleaseShiftAgent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drop to open in editor. Release Shift to attach to prompt."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドロップするとエディタで開きます。Shift キーを離すとプロンプトに添付します。"
+          }
+        }
+      }
+    },
+    "terminal.fileDropHint.previewReleaseShiftTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drop to open in editor. Release Shift to insert path."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドロップするとエディタで開きます。Shift キーを離すとパスを挿入します。"
+          }
+        }
+      }
+    },
+    "terminal.fileDropHint.terminalHoldShiftPreview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drop to insert path. Hold Shift to open in editor."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドロップするとパスを挿入します。Shift キーでエディタで開きます。"
+          }
+        }
+      }
+    },
+    "terminal.fileDropHint.terminalReleaseShiftPreview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drop to insert path. Release Shift to open in editor."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドロップするとパスを挿入します。Shift キーを離すとエディタで開きます。"
+          }
+        }
+      }
+    },
     "settings.terminal.fileDropDefaultAction": {
       "extractionState": "manual",
       "localizations": {

@@ -56,6 +56,9 @@ final class PaneDropTargetView: NSView {
     var dropContext: PaneDropContext?
     private var activeZone: DropZone?
     private let dropZoneOverlayView = NSView(frame: .zero)
+    private let dropHintView = NSVisualEffectView(frame: .zero)
+    private let dropHintLabel = NSTextField(labelWithString: "")
+    private var activeFileDropHint: PaneFileDropHint?
 #if DEBUG
     private var lastHitTestSignature: String?
 #endif
@@ -69,6 +72,7 @@ final class PaneDropTargetView: NSView {
             .fileURL,
         ])
         setupDropZoneOverlayView()
+        setupDropHintView()
     }
 
     @available(*, unavailable)
@@ -79,6 +83,7 @@ final class PaneDropTargetView: NSView {
     override func layout() {
         super.layout()
         updateStandaloneDropZoneOverlay()
+        updateDropHintFrame()
     }
 
     static func shouldCaptureHitTesting(
@@ -270,6 +275,7 @@ final class PaneDropTargetView: NSView {
                 context: dropContext,
                 workspace: workspace
             )
+            setActiveFileDropHint(nil)
             setActiveDropZone(zone)
             return .move
         }
@@ -280,15 +286,21 @@ final class PaneDropTargetView: NSView {
         }
 
         let shiftKeyHeld = currentShiftKeyHeld()
-        switch workspace.externalFileDropRouting(
+        let routing = workspace.externalFileDropRouting(
             forPanelId: dropContext.panelId,
             shiftKeyHeld: shiftKeyHeld
-        ) {
+        )
+        setActiveFileDropHint(workspace.externalFileDropHint(
+            forPanelId: dropContext.panelId,
+            shiftKeyHeld: shiftKeyHeld
+        ))
+
+        switch routing {
         case .agentPromptPaste:
-            clearDragState(phase: "\(phase).agentPromptPaste")
+            setActiveDropZone(nil)
             return .copy
         case .terminalPaste:
-            clearDragState(phase: "\(phase).terminalPaste")
+            setActiveDropZone(nil)
             return .copy
         case .filePreview:
             break
@@ -338,7 +350,36 @@ final class PaneDropTargetView: NSView {
         addSubview(dropZoneOverlayView)
     }
 
+    private func setupDropHintView() {
+        dropHintView.material = .hudWindow
+        dropHintView.blendingMode = .withinWindow
+        dropHintView.state = .active
+        dropHintView.wantsLayer = true
+        dropHintView.layer?.cornerRadius = 8
+        dropHintView.layer?.masksToBounds = true
+        dropHintView.layer?.borderWidth = 1
+        dropHintView.layer?.borderColor = NSColor.white.withAlphaComponent(0.18).cgColor
+        dropHintView.isHidden = true
+        dropHintView.autoresizingMask = []
+
+        dropHintLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        dropHintLabel.textColor = .white
+        dropHintLabel.alignment = .center
+        dropHintLabel.lineBreakMode = .byWordWrapping
+        dropHintLabel.maximumNumberOfLines = 2
+        dropHintLabel.translatesAutoresizingMaskIntoConstraints = false
+        dropHintView.addSubview(dropHintLabel)
+        NSLayoutConstraint.activate([
+            dropHintLabel.leadingAnchor.constraint(equalTo: dropHintView.leadingAnchor, constant: 14),
+            dropHintLabel.trailingAnchor.constraint(equalTo: dropHintView.trailingAnchor, constant: -14),
+            dropHintLabel.topAnchor.constraint(equalTo: dropHintView.topAnchor, constant: 8),
+            dropHintLabel.bottomAnchor.constraint(equalTo: dropHintView.bottomAnchor, constant: -8),
+        ])
+        addSubview(dropHintView, positioned: .above, relativeTo: nil)
+    }
+
     private func setActiveDropZone(_ zone: DropZone?) {
+        guard activeZone != zone else { return }
         activeZone = zone
         if let hostedView {
             hostedView.setDropZoneOverlay(zone: zone)
@@ -357,13 +398,46 @@ final class PaneDropTargetView: NSView {
         dropZoneOverlayView.isHidden = false
     }
 
+    private func setActiveFileDropHint(_ hint: PaneFileDropHint?) {
+        guard activeFileDropHint != hint else {
+            updateDropHintFrame()
+            return
+        }
+
+        activeFileDropHint = hint
+        guard let hint else {
+            dropHintView.isHidden = true
+            return
+        }
+
+        dropHintLabel.stringValue = hint.displayText
+        dropHintView.isHidden = false
+        updateDropHintFrame()
+    }
+
+    private func updateDropHintFrame() {
+        guard !dropHintView.isHidden else { return }
+
+        let availableWidth = max(40, bounds.width - 24)
+        let maxWidth = min(availableWidth, 520)
+        dropHintLabel.preferredMaxLayoutWidth = max(0, maxWidth - 28)
+
+        let labelSize = dropHintLabel.fittingSize
+        let width = min(maxWidth, max(min(maxWidth, 220), labelSize.width + 28))
+        let height = max(32, labelSize.height + 16)
+        let x = bounds.minX + max(0, (bounds.width - width) / 2)
+        let y = max(bounds.minY + 8, bounds.maxY - height - 12)
+        dropHintView.frame = NSRect(x: x, y: y, width: width, height: height)
+    }
+
     private func clearDragState(phase: String) {
-        guard activeZone != nil else { return }
+        guard activeZone != nil || activeFileDropHint != nil else { return }
         setActiveDropZone(nil)
+        setActiveFileDropHint(nil)
 #if DEBUG
         if let dropContext {
             cmuxDebugLog(
-                "terminal.paneDrop.\(phase) panel=\(dropContext.panelId.uuidString.prefix(5)) zone=none"
+                "terminal.paneDrop.\(phase) panel=\(dropContext.panelId.uuidString.prefix(5)) zone=none hint=none"
             )
         }
 #endif

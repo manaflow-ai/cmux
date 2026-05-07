@@ -7,6 +7,73 @@ enum PaneExternalFileDropRouting: Equatable {
     case filePreview
 }
 
+struct PaneFileDropHint: Equatable {
+    enum Action: Equatable {
+        case filePreview
+        case agentPrompt
+        case terminalPath
+    }
+
+    enum ModifierPrompt: Equatable {
+        case holdShift
+        case releaseShift
+    }
+
+    let currentAction: Action
+    let modifierPrompt: ModifierPrompt
+    let alternateAction: Action
+
+    var displayText: String {
+        switch (currentAction, modifierPrompt, alternateAction) {
+        case (.filePreview, .holdShift, .agentPrompt):
+            return String(
+                localized: "terminal.fileDropHint.previewHoldShiftAgent",
+                defaultValue: "Drop to open in editor. Hold Shift to attach to prompt."
+            )
+        case (.filePreview, .holdShift, .terminalPath):
+            return String(
+                localized: "terminal.fileDropHint.previewHoldShiftTerminal",
+                defaultValue: "Drop to open in editor. Hold Shift to insert path."
+            )
+        case (.filePreview, .releaseShift, .agentPrompt):
+            return String(
+                localized: "terminal.fileDropHint.previewReleaseShiftAgent",
+                defaultValue: "Drop to open in editor. Release Shift to attach to prompt."
+            )
+        case (.filePreview, .releaseShift, .terminalPath):
+            return String(
+                localized: "terminal.fileDropHint.previewReleaseShiftTerminal",
+                defaultValue: "Drop to open in editor. Release Shift to insert path."
+            )
+        case (.agentPrompt, .holdShift, .filePreview):
+            return String(
+                localized: "terminal.fileDropHint.agentHoldShiftPreview",
+                defaultValue: "Drop to attach to prompt. Hold Shift to open in editor."
+            )
+        case (.terminalPath, .holdShift, .filePreview):
+            return String(
+                localized: "terminal.fileDropHint.terminalHoldShiftPreview",
+                defaultValue: "Drop to insert path. Hold Shift to open in editor."
+            )
+        case (.agentPrompt, .releaseShift, .filePreview):
+            return String(
+                localized: "terminal.fileDropHint.agentReleaseShiftPreview",
+                defaultValue: "Drop to attach to prompt. Release Shift to open in editor."
+            )
+        case (.terminalPath, .releaseShift, .filePreview):
+            return String(
+                localized: "terminal.fileDropHint.terminalReleaseShiftPreview",
+                defaultValue: "Drop to insert path. Release Shift to open in editor."
+            )
+        default:
+            return String(
+                localized: "terminal.fileDropHint.default",
+                defaultValue: "Drop file. Hold Shift to use the alternate action."
+            )
+        }
+    }
+}
+
 enum PaneDropRouting {
     static func externalFileDropRouting(
         panelType: PanelType,
@@ -25,6 +92,35 @@ enum PaneDropRouting {
         case .terminal:
             return hostsAgent ? .agentPromptPaste : .terminalPaste
         }
+    }
+
+    static func externalFileDropHint(
+        panelType: PanelType,
+        hostsAgent: Bool,
+        defaultAction: TerminalFileDropSettings.Action,
+        shiftKeyHeld: Bool
+    ) -> PaneFileDropHint? {
+        guard panelType == .terminal else { return nil }
+
+        let current = hintAction(for: externalFileDropRouting(
+            panelType: panelType,
+            hostsAgent: hostsAgent,
+            defaultAction: defaultAction,
+            shiftKeyHeld: shiftKeyHeld
+        ))
+        let alternate = hintAction(for: externalFileDropRouting(
+            panelType: panelType,
+            hostsAgent: hostsAgent,
+            defaultAction: defaultAction,
+            shiftKeyHeld: !shiftKeyHeld
+        ))
+        guard current != alternate else { return nil }
+
+        return PaneFileDropHint(
+            currentAction: current,
+            modifierPrompt: shiftKeyHeld ? .releaseShift : .holdShift,
+            alternateAction: alternate
+        )
     }
 
     static func zone(for location: CGPoint, in size: CGSize) -> DropZone {
@@ -78,6 +174,17 @@ enum PaneDropRouting {
             return CGRect(x: bounds.minX + 8, y: midY + 4, width: max(0, bounds.width - 16), height: max(0, bounds.maxY - midY - 12))
         case .bottom:
             return CGRect(x: bounds.minX + 8, y: bounds.minY + 8, width: max(0, bounds.width - 16), height: max(0, midY - bounds.minY - 12))
+        }
+    }
+
+    private static func hintAction(for routing: PaneExternalFileDropRouting) -> PaneFileDropHint.Action {
+        switch routing {
+        case .agentPromptPaste:
+            return .agentPrompt
+        case .terminalPaste:
+            return .terminalPath
+        case .filePreview:
+            return .filePreview
         }
     }
 }

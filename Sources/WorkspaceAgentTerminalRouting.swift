@@ -86,6 +86,22 @@ extension Workspace {
         )
     }
 
+    func externalFileDropHint(
+        forPanelId panelId: UUID,
+        shiftKeyHeld: Bool = false,
+        defaults: UserDefaults = .standard
+    ) -> PaneFileDropHint? {
+        guard let panelType = panels[panelId]?.panelType else {
+            return nil
+        }
+        return PaneDropRouting.externalFileDropHint(
+            panelType: panelType,
+            hostsAgent: terminalPanelHostsAgent(panelId: panelId),
+            defaultAction: TerminalFileDropSettings.defaultAction(defaults: defaults),
+            shiftKeyHeld: shiftKeyHeld
+        )
+    }
+
     private func restoredAgentSnapshot(
         _ snapshot: SessionRestorableAgentSnapshot,
         matchesStatusKey key: String
