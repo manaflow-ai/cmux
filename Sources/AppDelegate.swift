@@ -13849,9 +13849,8 @@ private extension NSWindow {
             return false
         }
 
-        if let ownerView = cmuxFieldEditorOwnerView(textView),
-           cmuxIsInsideCommandPaletteOverlay(ownerView) {
-            return true
+        if let ownerView = cmuxFieldEditorOwnerView(textView) {
+            return cmuxIsInsideCommandPaletteOverlay(ownerView)
         }
 
         guard let container = cmuxCommandPaletteOverlayContainer(in: window) else {
