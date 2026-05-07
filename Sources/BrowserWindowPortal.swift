@@ -1373,7 +1373,7 @@ enum BrowserPaneDropRouting {
     }
 
     static func overlayFrame(for zone: DropZone, in size: CGSize, topChromeHeight: CGFloat = 0) -> CGRect {
-        PaneDropRouting.overlayFrame(for: zone, in: size, topChromeHeight: topChromeHeight)
+        PaneDropRouting.compactOverlayFrame(for: zone, in: size, topChromeHeight: topChromeHeight)
     }
 
     static func action(

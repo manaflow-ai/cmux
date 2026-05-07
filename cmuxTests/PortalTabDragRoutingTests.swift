@@ -273,4 +273,29 @@ final class PortalTabDragRoutingTests: XCTestCase {
             CGRect(x: 8, y: 8, width: 184, height: 38)
         )
     }
+
+    func testPaneDropRoutingKeepsCompactInlineOverlayFrames() {
+        let bounds = CGRect(x: 0, y: 0, width: 200, height: 100)
+
+        XCTAssertEqual(
+            PaneDropRouting.compactOverlayFrame(for: .center, in: bounds),
+            CGRect(x: 4, y: 4, width: 192, height: 92)
+        )
+        XCTAssertEqual(
+            PaneDropRouting.compactOverlayFrame(for: .left, in: bounds),
+            CGRect(x: 4, y: 4, width: 96, height: 92)
+        )
+        XCTAssertEqual(
+            PaneDropRouting.compactOverlayFrame(for: .right, in: bounds),
+            CGRect(x: 100, y: 4, width: 96, height: 92)
+        )
+        XCTAssertEqual(
+            PaneDropRouting.compactOverlayFrame(for: .top, in: bounds),
+            CGRect(x: 4, y: 50, width: 192, height: 46)
+        )
+        XCTAssertEqual(
+            PaneDropRouting.compactOverlayFrame(for: .bottom, in: bounds),
+            CGRect(x: 4, y: 4, width: 192, height: 46)
+        )
+    }
 }

@@ -116,10 +116,37 @@ enum PaneDropRouting {
             return CGRect(x: bounds.minX + 8, y: bounds.minY + 8, width: max(0, bounds.width - 16), height: max(0, midY - bounds.minY - 12))
         }
     }
+
+    static func compactOverlayFrame(for zone: DropZone, in size: CGSize, topChromeHeight: CGFloat = 0) -> CGRect {
+        compactOverlayFrame(
+            for: zone,
+            in: CGRect(origin: .zero, size: fullPaneSize(for: size, topChromeHeight: topChromeHeight))
+        )
+    }
+
+    static func compactOverlayFrame(for zone: DropZone, in bounds: CGRect) -> CGRect {
+        let padding: CGFloat = 4
+        let midX = bounds.midX
+        let midY = bounds.midY
+
+        switch zone {
+        case .center:
+            return bounds.insetBy(dx: padding, dy: padding)
+        case .left:
+            return CGRect(x: bounds.minX + padding, y: bounds.minY + padding, width: max(0, midX - bounds.minX - padding), height: max(0, bounds.height - padding * 2))
+        case .right:
+            return CGRect(x: midX, y: bounds.minY + padding, width: max(0, bounds.maxX - midX - padding), height: max(0, bounds.height - padding * 2))
+        case .top:
+            return CGRect(x: bounds.minX + padding, y: midY, width: max(0, bounds.width - padding * 2), height: max(0, bounds.maxY - midY - padding))
+        case .bottom:
+            return CGRect(x: bounds.minX + padding, y: bounds.minY + padding, width: max(0, bounds.width - padding * 2), height: max(0, midY - bounds.minY - padding))
+        }
+    }
 }
 
 typealias TerminalPaneDropRouting = PaneDropRouting
 
+@MainActor
 final class PaneDropZoneOverlayAnimator {
     private let overlayView: NSView
     private var displayedZone: DropZone?
@@ -170,11 +197,13 @@ final class PaneDropZoneOverlayAnimator {
                 context.timingFunction = CAMediaTimingFunction(name: .easeOut)
                 overlayView.animator().alphaValue = 0
             } completionHandler: { [weak self] in
-                guard let self else { return }
-                guard self.animationGeneration == generation else { return }
-                guard self.displayedZone == nil else { return }
-                self.overlayView.isHidden = true
-                self.overlayView.alphaValue = 1
+                Task { @MainActor in
+                    guard let self else { return }
+                    guard self.animationGeneration == generation else { return }
+                    guard self.displayedZone == nil else { return }
+                    self.overlayView.isHidden = true
+                    self.overlayView.alphaValue = 1
+                }
             }
             return
         }

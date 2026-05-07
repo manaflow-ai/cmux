@@ -10797,7 +10797,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func dropZoneOverlayFrame(for zone: DropZone, in size: CGSize) -> CGRect {
-        let localFrame = PaneDropRouting.overlayFrame(for: zone, in: size)
+        let localFrame = PaneDropRouting.compactOverlayFrame(for: zone, in: size)
 
         let container = dropZoneOverlayView.superview ?? superview
         guard let container, container !== self else { return localFrame }
