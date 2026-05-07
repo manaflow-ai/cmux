@@ -162,6 +162,9 @@ jobs:
           rustc --version
           cargo --version
 
+      - name: Install Zig
+        run: ../../scripts/install-zig-ci.sh 0.15.2
+
       - name: Run cmx bridge subcommand regressions
         run: |
           cargo test -p cmx --test subcommands bridge_subcommand_prints_help
