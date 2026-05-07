@@ -21,9 +21,12 @@ def make_executable(path: Path, content: str) -> None:
 
 
 def main() -> int:
-    bun = shutil.which("bun")
-    if bun is None:
-        print("SKIP: bun not found")
+    # Amp loads `.ts` plugins itself via Node, so use Node for the import
+    # check too. Requires Node 22.6+ for `--experimental-strip-types`
+    # (default in Node 24).
+    node = shutil.which("node")
+    if node is None:
+        print("SKIP: node not found")
         return 0
 
     try:
@@ -115,8 +118,10 @@ await handlers.get("session.start")({ thread: { id: "T-amp-session-test" } });
 await handlers.get("agent.start")({ prompt: "hello amp" });
 await handlers.get("agent.end")({ status: "done" });
 """
+        check_script = root / "check.mjs"
+        check_script.write_text(check_source, encoding="utf-8")
         check = subprocess.run(
-            [bun, "--eval", check_source],
+            [node, "--experimental-strip-types", "--no-warnings", str(check_script)],
             cwd=root,
             capture_output=True,
             text=True,
