@@ -315,6 +315,9 @@ exit 0
             env["CMUX_SOCKET_PATH"] = socket_path
             env["FAKE_AUTH_ENV_LOG"] = str(auth_env_log)
             env["FAKE_ARGS_LOG"] = str(args_log)
+            sandbox_home = tmp / "fake-home"
+            sandbox_home.mkdir(parents=True, exist_ok=True)
+            env["HOME"] = str(sandbox_home)
             if setup_env is not None:
                 env.update(setup_env(tmp))
             env.update(inherited_env)
