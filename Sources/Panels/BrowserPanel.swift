@@ -213,8 +213,8 @@ enum BrowserThemeSettings {
 
         return defaultMode
     }
-
     static func apply(_ mode: BrowserThemeMode, to webView: WKWebView) {
+        dispatchPrecondition(condition: .onQueue(.main))
         switch mode {
         case .system:
             webView.appearance = nil

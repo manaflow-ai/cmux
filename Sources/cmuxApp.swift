@@ -4421,6 +4421,7 @@ private struct StartupAppearanceDebugView: View {
     }
 
     private func applyAppearance(_ mode: StartupAppearancePreviewMode) {
+        dispatchPrecondition(condition: .onQueue(.main))
         switch mode {
         case .stored:
             switch AppearanceSettings.resolvedMode() {
@@ -4657,6 +4658,7 @@ enum AppIconSettings {
                     return NSImage(named: imageName)
                 },
                 setApplicationIconImage: { icon in
+                    dispatchPrecondition(condition: .onQueue(.main))
                     NSApplication.shared.applicationIconImage = icon
                 },
                 startAppearanceObservation: {
@@ -4687,12 +4689,10 @@ enum AppIconSettings {
     }
 
     static func applyIcon(_ mode: AppIconMode, environment: Environment? = nil) {
+        guard Thread.isMainThread else { DispatchQueue.main.async { applyIcon(mode, environment: environment) }; return }
         let environment = environment ?? liveEnvironmentProvider()
-        // Tahoe can crash or wedge when app icon work runs during App.init(),
-        // so leave settings replay to update defaults only and let AppDelegate
-        // apply the resolved icon once didFinishLaunching begins.
+        // Avoid app icon work during App.init(); AppDelegate applies it after launch.
         guard environment.isApplicationFinishedLaunching() else { return }
-
         switch mode {
         case .automatic:
             environment.startAppearanceObservation()
@@ -4705,7 +4705,6 @@ enum AppIconSettings {
             guard let icon = environment.imageForMode(.dark) else { return }
             environment.setApplicationIconImage(icon)
         }
-
         environment.notifyDockTilePlugin()
     }
 
@@ -4767,6 +4766,7 @@ final class AppIconAppearanceObserver: NSObject {
                     NSImage(named: imageName)
                 },
                 setApplicationIconImage: { icon in
+                    dispatchPrecondition(condition: .onQueue(.main))
                     NSApplication.shared.applicationIconImage = icon
                 }
             )
@@ -4785,6 +4785,8 @@ final class AppIconAppearanceObserver: NSObject {
         super.init()
     }
     func startObserving() {
+        guard Thread.isMainThread else { DispatchQueue.main.async { [weak self] in self?.startObserving() }; return }
+        dispatchPrecondition(condition: .onQueue(.main))
         // Tahoe crashes if effectiveAppearance is touched during App.init(),
         // so defer the first automatic-icon apply until launch completes.
         if !environment.isApplicationFinishedLaunching() {
@@ -4802,6 +4804,8 @@ final class AppIconAppearanceObserver: NSObject {
     }
 
     func stopObserving() {
+        guard Thread.isMainThread else { DispatchQueue.main.async { [weak self] in self?.stopObserving() }; return }
+        dispatchPrecondition(condition: .onQueue(.main))
         observation?.invalidate()
         observation = nil
         lastAppliedImageName = nil
@@ -4818,12 +4822,14 @@ final class AppIconAppearanceObserver: NSObject {
     }
 
     private func cancelDeferredStart() {
+        dispatchPrecondition(condition: .onQueue(.main))
         hasDeferredStartPending = false
         guard let launchObserver else { return }
         environment.removeObserver(launchObserver)
         self.launchObserver = nil
     }
     private func applyIconForCurrentAppearance() {
+        dispatchPrecondition(condition: .onQueue(.main))
         guard environment.isApplicationFinishedLaunching() else { return }
         guard let isDark = environment.currentAppearanceIsDark() else { return }
         let imageName = isDark ? "AppIconDark" : "AppIconLight"
