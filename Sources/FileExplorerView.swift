@@ -1486,6 +1486,7 @@ final class FileExplorerHeaderView: NSView {
     }
 
     private func applyHeaderState() {
+        assert(Thread.isMainThread, "AppKit image updates must run on the main thread")
         let config = NSImage.SymbolConfiguration(pointSize: 11, weight: .regular)
         if let quickSearchQuery {
             iconView.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)?
@@ -1580,11 +1581,10 @@ final class FileExplorerCellView: NSTableCellView {
     }
 
     func configure(with node: FileExplorerNode, gitStatus: GitFileStatus? = nil) {
+        assert(Thread.isMainThread, "AppKit image updates must run on the main thread")
         let style = FileExplorerStyle.current
-
         nameLabel.stringValue = node.name
         nameLabel.font = style.nameFont
-
         iconWidthConstraint.constant = style.iconSize
         iconHeightConstraint.constant = style.iconSize
         iconToTextConstraint.constant = style.iconToTextSpacing
