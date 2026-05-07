@@ -39,6 +39,74 @@ final class TerminalImageDropTextPreferenceTests: XCTestCase {
         )
     }
 
+    func testImageDropWithTemporaryFileAndSourceURLPrefersSourceURLForTerminalInsertion() throws {
+        let tempFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-test-image-\(UUID().uuidString)")
+            .appendingPathExtension("png")
+        try make1x1PNG(color: .systemGreen).write(to: tempFile)
+        defer { try? FileManager.default.removeItem(at: tempFile) }
+
+        let pasteboard = NSPasteboard(name: .init("cmux-test-image-file-url-drop-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.writeObjects([tempFile as NSURL])
+        pasteboard.setString("https://example.test/source-image.png", forType: .URL)
+
+        let plan = TerminalImageTransferPlanner.plan(
+            pasteboard: pasteboard,
+            mode: .drop,
+            target: .local
+        )
+
+        XCTAssertEqual(
+            plan,
+            .insertText("https://example.test/source-image.png"),
+            "Shift terminal drops should prefer a dragged source link over a temporary image file URL"
+        )
+    }
+
+    func testImageDropWithInlineImageAndTextPrefersTextForTerminalInsertion() throws {
+        let tempFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-test-image-\(UUID().uuidString)")
+            .appendingPathExtension("png")
+        try make1x1PNG(color: .systemOrange).write(to: tempFile)
+        defer { try? FileManager.default.removeItem(at: tempFile) }
+
+        let pasteboard = NSPasteboard(name: .init("cmux-test-image-text-drop-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.writeObjects([tempFile as NSURL])
+        pasteboard.setString("diagram caption", forType: .string)
+        pasteboard.setData(try make1x1PNG(color: .systemOrange), forType: .png)
+
+        let plan = TerminalImageTransferPlanner.plan(
+            pasteboard: pasteboard,
+            mode: .drop,
+            target: .local
+        )
+
+        XCTAssertEqual(
+            plan,
+            .insertText("diagram caption"),
+            "Shift terminal drops should prefer a dragged text flavor over a temporary image file URL"
+        )
+    }
+
+    func testDropUsesLastDragUpdatedShiftStateWhenDropEventFlagsDisagree() {
+        XCTAssertTrue(
+            PaneDropRouting.effectiveShiftKeyHeld(
+                liveShiftKeyHeld: false,
+                cachedShiftKeyHeld: true
+            ),
+            "AppKit can clear modifier flags on the final drop event, so a sampled Shift drag should still insert text"
+        )
+        XCTAssertFalse(
+            PaneDropRouting.effectiveShiftKeyHeld(
+                liveShiftKeyHeld: true,
+                cachedShiftKeyHeld: false
+            ),
+            "Releasing Shift during the drag should update the cached drag state and return to preview routing"
+        )
+    }
+
     func testImageDropPayloadsReachPaneRoutingForShiftPolicy() {
         let imageDropTypes: [NSPasteboard.PasteboardType] = [.URL, .png]
 

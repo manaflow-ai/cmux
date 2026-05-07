@@ -15973,8 +15973,11 @@ class TerminalController {
     private func agentTrackingPanelTarget(options: [String: String]) -> (panelId: UUID?, error: String?) {
         // --panel is canonical. --surface is a legacy alias for older agent hooks.
         let option = options["panel"].map { ("panel", $0) } ?? options["surface"].map { ("surface", $0) }
-        guard let option, let rawPanelId = normalizedOptionValue(option.1) else {
+        guard let option else {
             return (nil, nil)
+        }
+        guard let rawPanelId = normalizedOptionValue(option.1) else {
+            return (nil, "ERROR: Missing value for --\(option.0)")
         }
         guard let panelId = UUID(uuidString: rawPanelId) else {
             return (nil, "ERROR: Invalid --\(option.0) UUID '\(rawPanelId)'")
@@ -16156,9 +16159,12 @@ class TerminalController {
         let tracksAgentPanel = Self.shouldTrackAgentStatusKey(key)
 
         scheduleSidebarMutation(target: target) { controller, tab in
-            _ = tab.statusEntries.removeValue(forKey: key)
-            if tab.clearAgentPID(key: key, panelId: tracksAgentPanel ? agentPanelId : nil) != nil {
-                controller.refreshTrackedAgentPorts(for: tab)
+            if tracksAgentPanel {
+                if tab.clearAgentPID(key: key, panelId: agentPanelId) != nil {
+                    controller.refreshTrackedAgentPorts(for: tab)
+                }
+            } else {
+                _ = tab.statusEntries.removeValue(forKey: key)
             }
         }
         return "OK"

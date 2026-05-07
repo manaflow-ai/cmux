@@ -406,6 +406,10 @@ enum TerminalImageTransferPlanner {
     private static func prepareDrop(
         pasteboard: NSPasteboard
     ) -> TerminalImageTransferPreparedContent {
+        if let preferredText = DroppedTerminalTextPreference.preferredText(from: pasteboard, escapeURL: escapeForShell) {
+            return .insertText(preferredText)
+        }
+
         let fileURLs = fileURLs(from: pasteboard)
         if !fileURLs.isEmpty {
             return .fileURLs(fileURLs)

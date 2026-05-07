@@ -252,18 +252,17 @@ final class FinderFileDropRegressionTests: XCTestCase {
             accuracy: 0.5,
             "Terminal path insertion has no split target, so the hint should sit in the terminal center"
         )
-        let leftZone = PaneDropRouting.overlayFrame(for: .left, in: bounds)
         let filePreviewFrame = PaneDropRouting.dropHintFrame(
             labelSize: labelSize,
             in: bounds,
             activeZone: .left
         )
-        XCTAssertEqual(filePreviewFrame.midX, leftZone.midX, accuracy: 0.5)
+        XCTAssertEqual(filePreviewFrame.midX, bounds.midX, accuracy: 0.5)
         XCTAssertEqual(
             filePreviewFrame.midY,
-            leftZone.midY,
+            bounds.midY,
             accuracy: 0.5,
-            "File-preview split hints should sit in the center of the active drop target area"
+            "File-preview split hints should sit in the center of the terminal drop target area"
         )
     }
 

@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import UniformTypeIdentifiers
 
 enum PaneExternalFileDropRouting: Equatable {
     case agentPromptPaste
@@ -27,22 +28,22 @@ struct PaneFileDropHint: Equatable {
         case (.filePreview, .holdShift, .terminalPath):
             return String(
                 localized: "terminal.fileDropHint.previewHoldShiftTerminal",
-                defaultValue: "Drop to open in editor. Hold Shift to insert path."
+                defaultValue: "Drop to open in editor. Hold Shift to insert link or path."
             )
         case (.filePreview, .releaseShift, .terminalPath):
             return String(
                 localized: "terminal.fileDropHint.previewReleaseShiftTerminal",
-                defaultValue: "Drop to open in editor. Release Shift to insert path."
+                defaultValue: "Drop to open in editor. Release Shift to insert link or path."
             )
         case (.terminalPath, .holdShift, .filePreview):
             return String(
                 localized: "terminal.fileDropHint.terminalHoldShiftPreview",
-                defaultValue: "Drop to insert path. Hold Shift to open in editor."
+                defaultValue: "Drop to insert link or path. Hold Shift to open in editor."
             )
         case (.terminalPath, .releaseShift, .filePreview):
             return String(
                 localized: "terminal.fileDropHint.terminalReleaseShiftPreview",
-                defaultValue: "Drop to insert path. Release Shift to open in editor."
+                defaultValue: "Drop to insert link or path. Release Shift to open in editor."
             )
         default:
             return String(
@@ -106,7 +107,7 @@ enum PaneDropRouting {
         liveShiftKeyHeld: Bool,
         cachedShiftKeyHeld: Bool?
     ) -> Bool {
-        liveShiftKeyHeld || (cachedShiftKeyHeld ?? false)
+        cachedShiftKeyHeld ?? liveShiftKeyHeld
     }
 
     static func zone(for location: CGPoint, in size: CGSize) -> DropZone {
@@ -150,7 +151,7 @@ enum PaneDropRouting {
         in bounds: CGRect,
         activeZone: DropZone?
     ) -> CGRect {
-        let targetBounds = activeZone.map { overlayFrame(for: $0, in: bounds) } ?? bounds
+        let targetBounds = bounds
         let availableWidth = max(40, targetBounds.width - 24)
         let maxWidth = min(availableWidth, 520)
         let width = min(maxWidth, max(min(maxWidth, 220), labelSize.width + 28))
@@ -187,6 +188,42 @@ enum PaneDropRouting {
         case .filePreview:
             return .filePreview
         }
+    }
+}
+
+enum DroppedTerminalTextPreference {
+    static func preferredText(
+        from pasteboard: NSPasteboard,
+        escapeURL: (String) -> String
+    ) -> String? {
+        if let rawURL = pasteboard.string(forType: .URL), !rawURL.isEmpty,
+           URL(string: rawURL)?.isFileURL != true {
+            return escapeURL(rawURL)
+        }
+        if let string = pasteboard.string(forType: .string), !string.isEmpty,
+           shouldPreferPlainText(string, from: pasteboard) {
+            return string
+        }
+        return nil
+    }
+
+    private static func shouldPreferPlainText(_ string: String, from pasteboard: NSPasteboard) -> Bool {
+        if let url = URL(string: string), url.scheme != nil {
+            return !url.isFileURL
+        }
+
+        guard hasInlineImagePayload(pasteboard) else { return false }
+        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+        let filePaths = Set(PasteboardFileURLReader.fileURLs(from: pasteboard).map(\.path))
+        return !trimmed.isEmpty && !filePaths.contains(trimmed)
+    }
+
+    private static func hasInlineImagePayload(_ pasteboard: NSPasteboard) -> Bool {
+        pasteboard.types?.contains { type in
+            if type == .png || type == .tiff { return true }
+            guard let utType = UTType(type.rawValue) else { return false }
+            return utType.conforms(to: .image) && !PasteboardFileURLReader.fileURLPasteboardTypes.contains(type)
+        } ?? false
     }
 }
 

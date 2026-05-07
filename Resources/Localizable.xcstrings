@@ -105356,13 +105356,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Drop to open in editor. Hold Shift to insert path."
+            "value": "Drop to open in editor. Hold Shift to insert link or path."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ドロップするとエディタで開きます。Shift キーでパスを挿入します。"
+            "value": "ドロップするとエディタで開きます。Shift キーでリンクまたはパスを挿入します。"
           }
         }
       }
@@ -105373,13 +105373,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Drop to open in editor. Release Shift to insert path."
+            "value": "Drop to open in editor. Release Shift to insert link or path."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ドロップするとエディタで開きます。Shift キーを離すとパスを挿入します。"
+            "value": "ドロップするとエディタで開きます。Shift キーを離すとリンクまたはパスを挿入します。"
           }
         }
       }
@@ -105390,13 +105390,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Drop to insert path. Hold Shift to open in editor."
+            "value": "Drop to insert link or path. Hold Shift to open in editor."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ドロップするとパスを挿入します。Shift キーでエディタで開きます。"
+            "value": "ドロップするとリンクまたはパスを挿入します。Shift キーでエディタで開きます。"
           }
         }
       }
@@ -105407,13 +105407,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Drop to insert path. Release Shift to open in editor."
+            "value": "Drop to insert link or path. Release Shift to open in editor."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ドロップするとパスを挿入します。Shift キーを離すとエディタで開きます。"
+            "value": "ドロップするとリンクまたはパスを挿入します。Shift キーを離すとエディタで開きます。"
           }
         }
       }
@@ -105458,13 +105458,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Drops open a file-preview pane. Hold Shift to send relative paths to terminals when possible."
+            "value": "Drops open a file-preview pane. Hold Shift to send links, text, or relative paths to terminals when possible."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ドロップするとファイルプレビューペインを開きます。Shift キーを押しながらドロップすると、可能な場合は相対パスをターミナルへ送信します。"
+            "value": "ドロップするとファイルプレビューペインを開きます。Shift キーを押しながらドロップすると、可能な場合はリンク、テキスト、または相対パスをターミナルへ送信します。"
           }
         }
       }
@@ -105475,13 +105475,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Drops send relative paths to terminals when possible. Hold Shift to open a file-preview pane."
+            "value": "Drops send links, text, or relative paths to terminals when possible. Hold Shift to open a file-preview pane."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ドロップすると可能な場合は相対パスをターミナルへ送信します。Shift キーを押しながらドロップするとファイルプレビューペインを開きます。"
+            "value": "ドロップすると可能な場合はリンク、テキスト、または相対パスをターミナルへ送信します。Shift キーを押しながらドロップするとファイルプレビューペインを開きます。"
           }
         }
       }

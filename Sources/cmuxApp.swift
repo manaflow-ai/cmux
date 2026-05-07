@@ -5286,12 +5286,12 @@ struct SettingsView: View {
         case .filePreview:
             return String(
                 localized: "settings.terminal.fileDropDefaultAction.subtitlePreview",
-                defaultValue: "Drops open a file-preview pane. Hold Shift to send relative paths to terminals when possible."
+                defaultValue: "Drops open a file-preview pane. Hold Shift to send links, text, or relative paths to terminals when possible."
             )
         case .terminal:
             return String(
                 localized: "settings.terminal.fileDropDefaultAction.subtitleTerminal",
-                defaultValue: "Drops send relative paths to terminals when possible. Hold Shift to open a file-preview pane."
+                defaultValue: "Drops send links, text, or relative paths to terminals when possible. Hold Shift to open a file-preview pane."
             )
         }
     }
