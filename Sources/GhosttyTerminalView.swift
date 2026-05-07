@@ -9249,8 +9249,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     func handleDroppedFileURLsAsText(_ urls: [URL]) -> Bool {
         let text = TerminalImageTransferPlanner.insertedText(forFileURLs: urls)
-        guard !text.isEmpty else { return false }
-        terminalSurface?.sendText(text)
+        guard !text.isEmpty, let terminalSurface else { return false }
+        terminalSurface.sendText(text)
         return true
     }
 

@@ -211,10 +211,10 @@ enum TerminalImageTransferPlanner {
 
         switch target {
         case .local:
-            return .insertText(insertedText(for: fileURLs))
+            return .insertText(insertedText(forFileURLs: fileURLs))
         case .remote(let remoteTarget):
             guard fileURLs.allSatisfy(isRemoteUploadableFileURL) else {
-                return .insertText(insertedText(for: fileURLs))
+                return .insertText(insertedText(forFileURLs: fileURLs))
             }
             return .uploadFiles(fileURLs, remoteTarget)
         }
@@ -286,10 +286,6 @@ enum TerminalImageTransferPlanner {
 
     static func insertedText(forFileURLs fileURLs: [URL]) -> String {
         insertedText(forPathStrings: fileURLs.map(\.path))
-    }
-
-    private static func insertedText(for fileURLs: [URL]) -> String {
-        insertedText(forFileURLs: fileURLs)
     }
 
     private static func isRemoteUploadableFileURL(_ fileURL: URL) -> Bool {

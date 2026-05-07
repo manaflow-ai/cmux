@@ -10,15 +10,15 @@ enum FileExplorerTerminalPathInsertion {
     }
 
     static func relativePath(for path: String, rootPath: String) -> String {
-        guard !rootPath.isEmpty else { return path }
         let normalizedPath = normalizedFileSystemPath(path)
+        guard !rootPath.isEmpty else { return normalizedPath }
         let normalizedRootPath = normalizedFileSystemPath(rootPath)
         if normalizedPath == normalizedRootPath { return "." }
         let normalizedRoot = normalizedRootPath == "/" ? "/" : normalizedRootPath + "/"
         if normalizedPath.hasPrefix(normalizedRoot) {
             return String(normalizedPath.dropFirst(normalizedRoot.count))
         }
-        return path
+        return normalizedPath
     }
 
     private static func normalizedFileSystemPath(_ path: String) -> String {

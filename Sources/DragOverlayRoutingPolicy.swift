@@ -283,6 +283,7 @@ enum DragOverlayRoutingPolicy {
         hasFilePreviewTransfer(pasteboardTypes) ? .move : .copy
     }
 
+    @MainActor
     static var currentModifierFlags: NSEvent.ModifierFlags {
         mergedModifierFlags(
             appKitFlags: NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags,

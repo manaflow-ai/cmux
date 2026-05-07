@@ -381,6 +381,8 @@ enum SettingsSearchIndex {
         "app.minimalMode": settingID(for: .app, idSuffix: "minimal-mode"),
         "app.keepWorkspaceOpenWhenClosingLastSurface": settingID(for: .app, idSuffix: "keep-workspace-open"),
         "app.focusPaneOnFirstClick": settingID(for: .app, idSuffix: "focus-pane-first-click"),
+        "fileDrop.defaultBehavior": settingID(for: .app, idSuffix: "file-drops"),
+        "app.fileDropDefaultBehavior": settingID(for: .app, idSuffix: "file-drops"),
         "app.preferredEditor": settingID(for: .app, idSuffix: "preferred-editor"),
         "app.openMarkdownInCmuxViewer": settingID(for: .app, idSuffix: "markdown-viewer"),
         "app.reorderOnNotification": settingID(for: .app, idSuffix: "reorder-notification"),
