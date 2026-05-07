@@ -11068,7 +11068,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Primary UI shortcuts
         if matchConfiguredShortcut(event: event, action: .toggleSidebar) {
-            _ = toggleSidebarInActiveMainWindow(preferredWindow: preferredWindowForSidebarVisibilityShortcut(event: event))
+            enqueueLeftSidebarVisibilityShortcut(preferredWindow: preferredWindowForSidebarVisibilityShortcut(event: event))
             return true
         }
 

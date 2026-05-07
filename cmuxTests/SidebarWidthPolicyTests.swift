@@ -110,6 +110,58 @@ final class PortalGeometrySyncUrgencyTests: XCTestCase {
     }
 }
 
+@MainActor
+final class SidebarVisibilityShortcutTests: XCTestCase {
+    func testEnqueuedLeftSidebarVisibilityShortcutDefersAndTargetsPreferredWindow() async {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let firstWindowId = appDelegate.createMainWindow()
+        let secondWindowId = appDelegate.createMainWindow()
+
+        defer {
+            closeWindow(withId: firstWindowId)
+            closeWindow(withId: secondWindowId)
+        }
+
+        guard let firstManager = appDelegate.tabManagerFor(windowId: firstWindowId),
+              let secondWindow = window(withId: secondWindowId),
+              let firstVisibleBefore = appDelegate.sidebarVisibility(windowId: firstWindowId),
+              let secondVisibleBefore = appDelegate.sidebarVisibility(windowId: secondWindowId) else {
+            XCTFail("Expected both window contexts to exist")
+            return
+        }
+
+        appDelegate.tabManager = firstManager
+        appDelegate.enqueueLeftSidebarVisibilityShortcut(preferredWindow: secondWindow)
+
+        XCTAssertEqual(appDelegate.sidebarVisibility(windowId: firstWindowId), firstVisibleBefore)
+        XCTAssertEqual(appDelegate.sidebarVisibility(windowId: secondWindowId), secondVisibleBefore)
+
+        await Task.yield()
+
+        XCTAssertEqual(appDelegate.sidebarVisibility(windowId: firstWindowId), firstVisibleBefore)
+        XCTAssertEqual(
+            appDelegate.sidebarVisibility(windowId: secondWindowId),
+            !secondVisibleBefore,
+            "Queued left-sidebar shortcut should still route through the preferred window"
+        )
+    }
+
+    private func window(withId windowId: UUID) -> NSWindow? {
+        let identifier = "cmux.main.\(windowId.uuidString)"
+        return NSApp.windows.first(where: { $0.identifier?.rawValue == identifier })
+    }
+
+    private func closeWindow(withId windowId: UUID) {
+        guard let window = window(withId: windowId) else { return }
+        window.performClose(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+    }
+}
+
 final class SidebarWorkspaceSelectionColorTests: XCTestCase {
     func testSelectedColoredWorkspaceUsesStandardSelectionBackgroundInLightAndDark() {
         for colorScheme in [ColorScheme.light, .dark] {

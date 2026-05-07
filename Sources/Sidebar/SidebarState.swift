@@ -27,11 +27,7 @@ enum PortalGeometrySyncUrgency {
         return request.matches(window)
     }
 
-    static func requestImmediateExternalGeometrySyncForNextLayoutPass(in window: NSWindow?) {
-        guard let window else {
-            immediateExternalGeometrySyncRequest = nil
-            return
-        }
+    static func requestImmediateExternalGeometrySyncForNextLayoutPass(in window: NSWindow) {
         immediateExternalGeometrySyncGeneration &+= 1
         immediateExternalGeometrySyncRequest = Request(
             window: window,
