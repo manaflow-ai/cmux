@@ -400,6 +400,7 @@
 		F5320000A1B2C3D4E5F60718 /* HermesAgentIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5320001A1B2C3D4E5F60718 /* HermesAgentIndex.swift */; };
 		F5320002A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5320003A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift */; };
 		C34750010000000000000002 /* AppDelegate+SidebarVisibilityShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34750010000000000000001 /* AppDelegate+SidebarVisibilityShortcuts.swift */; };
+		C34750020000000000000002 /* GhosttyTerminalView+PortalGeometrySync.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34750020000000000000001 /* GhosttyTerminalView+PortalGeometrySync.swift */; };
 		F5300000A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5300001A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift */; };
 		F5300002A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5300003A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift */; };
 		F5310000A1B2C3D4E5F60718 /* RovoDevHookConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5310001A1B2C3D4E5F60718 /* RovoDevHookConfigTests.swift */; };
@@ -598,6 +599,7 @@
 		E30750000000000000000001 /* WorkspaceTabColorResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTabColorResolution.swift; sourceTree = "<group>"; };
 		A5001014 /* GhosttyConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyConfig.swift; sourceTree = "<group>"; };
 		A5001015 /* GhosttyTerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalView.swift; sourceTree = "<group>"; };
+		C34750020000000000000001 /* GhosttyTerminalView+PortalGeometrySync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyTerminalView+PortalGeometrySync.swift"; sourceTree = "<group>"; };
 		C13519000000000000000002 /* TerminalStartupEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalStartupEnvironment.swift; sourceTree = "<group>"; };
 		C13519000000000000000006 /* RestorableAgentTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentTypes.swift; sourceTree = "<group>"; };
 		D3284102A1B2C3D4E5F60718 /* GhosttyTextInputSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTextInputSupport.swift; sourceTree = "<group>"; };
@@ -1098,6 +1100,7 @@
 				E30760000000000000000001 /* TmuxWorkspacePaneOverlayView.swift */,
 				A5001014 /* GhosttyConfig.swift */,
 				A5001015 /* GhosttyTerminalView.swift */,
+				C34750020000000000000001 /* GhosttyTerminalView+PortalGeometrySync.swift */,
 				C13519000000000000000002 /* TerminalStartupEnvironment.swift */,
 				C13519000000000000000006 /* RestorableAgentTypes.swift */,
 				D3284102A1B2C3D4E5F60718 /* GhosttyTextInputSupport.swift */,
@@ -1702,6 +1705,7 @@
 				E30760000000000000000002 /* TmuxWorkspacePaneOverlayView.swift in Sources */,
 				A5001004 /* GhosttyConfig.swift in Sources */,
 				A5001005 /* GhosttyTerminalView.swift in Sources */,
+				C34750020000000000000002 /* GhosttyTerminalView+PortalGeometrySync.swift in Sources */,
 				C13519000000000000000001 /* TerminalStartupEnvironment.swift in Sources */,
 				C13519000000000000000005 /* RestorableAgentTypes.swift in Sources */,
 				D3284101A1B2C3D4E5F60718 /* GhosttyTextInputSupport.swift in Sources */,

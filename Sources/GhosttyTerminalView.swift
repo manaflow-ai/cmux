@@ -13022,7 +13022,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
     var onFocus: ((UUID) -> Void)? = nil
     var onTriggerFlash: (() -> Void)? = nil
 
-    private final class HostContainerView: NSView {
+    final class HostContainerView: NSView {
         private static var nextInstanceSerial: UInt64 = 0
 
         var onDidMoveToWindow: (() -> Void)?
@@ -13115,42 +13115,6 @@ struct GhosttyTerminalView: NSViewRepresentable {
         // already attached elsewhere, do not mutate visibility/active state here.
         if isBoundToCurrentHost { return true }
         return !hostedViewHasSuperview
-    }
-
-    static func shouldSynchronizePortalGeometryImmediately(
-        hostInLiveResize: Bool,
-        windowInLiveResize: Bool,
-        interactiveGeometryResizeActive: Bool
-    ) -> Bool {
-        hostInLiveResize || windowInLiveResize || interactiveGeometryResizeActive
-    }
-
-    private static func synchronizePortalGeometry(
-        for host: HostContainerView,
-        coordinator: Coordinator
-    ) {
-        let geometryRevision = host.geometryRevision
-        guard coordinator.lastSynchronizedHostGeometryRevision != geometryRevision else { return }
-        coordinator.lastSynchronizedHostGeometryRevision = geometryRevision
-        let window = host.window
-        let shouldUseImmediateVisibilitySync = PortalGeometrySyncUrgency
-            .shouldSynchronizeNextExternalGeometryChangeImmediately
-        if shouldSynchronizePortalGeometryImmediately(
-            hostInLiveResize: host.inLiveResize,
-            windowInLiveResize: window?.inLiveResize == true,
-            interactiveGeometryResizeActive: TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive
-        ) || shouldUseImmediateVisibilitySync {
-            TerminalWindowPortalRegistry.synchronizeForAnchor(host)
-            if shouldUseImmediateVisibilitySync {
-                PortalGeometrySyncUrgency.noteImmediateExternalGeometrySyncUsed()
-            }
-            return
-        }
-        // Avoid synchronizing the terminal portal while AppKit is still inside
-        // the current layout turn. Re-entrant syncs here can wedge window resize
-        // handling and leave the app spinning on the wait cursor.
-        guard let window else { return }
-        TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
     }
 
     func makeNSView(context: Context) -> NSView {
