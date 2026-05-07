@@ -963,6 +963,7 @@ class TabManager: ObservableObject {
             if !isNavigatingHistory, let selectedTabId {
                 recordTabInHistory(selectedTabId)
             }
+            publishCmuxWorkspaceSelectedChange(from: previousTabId)
 #if DEBUG
             let switchId = debugWorkspaceSwitchId
             let switchDtMs = debugWorkspaceSwitchStartTime > 0
@@ -2142,6 +2143,8 @@ class TabManager: ObservableObject {
                     newWorkspace.focusedTerminalPanel?.surface.requestBackgroundSurfaceStartIfNeeded()
                 }
             }
+            publishCmuxWorkspaceCreated(newWorkspace, selected: select)
+            publishCmuxInitialSurfaceCreated(newWorkspace, selected: select)
             if select {
 #if DEBUG
                 debugPrimeWorkspaceSwitchTrigger("create", to: newWorkspace.id)
@@ -4127,6 +4130,7 @@ class TabManager: ObservableObject {
                 selectedTabId = tabs[newIndex].id
             }
         }
+        publishCmuxWorkspaceClosed(workspace)
     }
 
     /// Detach a workspace from this window without closing its panels.
