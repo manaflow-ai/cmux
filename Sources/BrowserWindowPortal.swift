@@ -1534,7 +1534,18 @@ final class BrowserPaneDropTargetView: NSView {
                 canDropAsText: true
            ) {
             let urls = DragOverlayRoutingPolicy.fileURLs(from: sender.draggingPasteboard)
-            let handled = slotView?.handleDroppedFileURLsAsText(urls, at: location) ?? false
+            guard let workspace = AppDelegate.shared?.workspaceFor(tabId: dropContext.workspaceId) else {
+                return false
+            }
+            let handled = FileDropTextDropController.performPanelTextDrop(
+                workspace: workspace,
+                panelId: dropContext.panelId,
+                focusIntent: .browser(.webView),
+                window: window ?? slotView?.window,
+                insert: {
+                    slotView?.handleDroppedFileURLsAsText(urls, at: location) ?? false
+                }
+            )
 #if DEBUG
             cmuxDebugLog(
                 "browser.paneDrop.performAsText panel=\(dropContext.panelId.uuidString.prefix(5)) " +
@@ -1865,6 +1876,7 @@ final class WindowBrowserSlotView: NSView {
     }
 
     func paneDropTargetForDrop(at localPoint: NSPoint) -> BrowserPaneDropTargetView? {
+        guard paneDropTargetView.dropContext != nil else { return nil }
         guard bounds.contains(localPoint) else { return nil }
         let pointInTarget = paneDropTargetView.convert(localPoint, from: self)
         guard paneDropTargetView.bounds.contains(pointInTarget) else { return nil }

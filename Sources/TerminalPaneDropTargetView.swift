@@ -504,7 +504,15 @@ final class PaneDropTargetView: NSView {
         workspace: Workspace
     ) -> Bool {
         if let hostedView {
-            return hostedView.handleDroppedURLsAsText(urls)
+            return FileDropTextDropController.performPanelTextDrop(
+                workspace: workspace,
+                panelId: context.panelId,
+                focusIntent: .terminal(.surface),
+                window: window,
+                insert: {
+                    hostedView.handleDroppedURLsAsText(urls)
+                }
+            )
         }
 
         guard let tabId = workspace.bonsplitController.selectedTab(inPane: context.paneId)?.id,
@@ -513,10 +521,26 @@ final class PaneDropTargetView: NSView {
             return false
         }
         if let terminalPanel = panel as? TerminalPanel {
-            return terminalPanel.hostedView.handleDroppedURLsAsText(urls)
+            return FileDropTextDropController.performPanelTextDrop(
+                workspace: workspace,
+                panelId: panelId,
+                focusIntent: .terminal(.surface),
+                window: window ?? terminalPanel.hostedView.window,
+                insert: {
+                    terminalPanel.hostedView.handleDroppedURLsAsText(urls)
+                }
+            )
         }
         if let filePreviewPanel = panel as? FilePreviewPanel {
-            return filePreviewPanel.handleDroppedFileURLsAsText(urls)
+            return FileDropTextDropController.performPanelTextDrop(
+                workspace: workspace,
+                panelId: panelId,
+                focusIntent: .filePreview(.textEditor),
+                window: window,
+                insert: {
+                    filePreviewPanel.handleDroppedFileURLsAsText(urls)
+                }
+            )
         }
         return false
     }

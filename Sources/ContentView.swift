@@ -360,14 +360,25 @@ final class FileDropOverlayView: NSView {
         )
         if shouldRouteFileDropToTextDestination(sender) {
             preparedDragWebView = nil
+            if let paneDropTarget = activePaneDropTarget ?? paneDropTargetForTextDrop(at: sender.draggingLocation) {
+                let accepted = paneDropTarget.fileDropPrepareForDragOperation(sender)
+                preparedPaneDropTarget = accepted ? paneDropTarget : nil
+                return accepted
+            }
             preparedPaneDropTarget = nil
-            activePaneDropTarget = nil
+            if let webView = webViewUnderPoint(sender.draggingLocation) {
+                let accepted = webView.prepareForDragOperation(sender)
+                preparedDragWebView = accepted ? webView : nil
+                return accepted
+            }
             return textDropDestinationKindUnderPoint(sender.draggingLocation) != nil
         }
         let paneDropTarget = shouldCapture
             ? (activePaneDropTarget ?? paneDropTargetUnderPoint(sender.draggingLocation))
             : nil
-        let hasPaneTarget = paneDropTarget != nil || terminalUnderPoint(sender.draggingLocation) != nil
+        let terminal = paneDropTarget == nil ? terminalUnderPoint(sender.draggingLocation) : nil
+        let webView = paneDropTarget == nil && terminal == nil ? webViewUnderPoint(sender.draggingLocation) : nil
+        let hasPaneTarget = paneDropTarget != nil || terminal != nil || webView != nil
 #if DEBUG
         logDragRouteDecision(
             phase: "prepare",
@@ -390,6 +401,11 @@ final class FileDropOverlayView: NSView {
             return accepted
         }
         preparedPaneDropTarget = nil
+        if let webView {
+            let accepted = webView.prepareForDragOperation(sender)
+            preparedDragWebView = accepted ? webView : nil
+            return accepted
+        }
         return hasPaneTarget
     }
 
@@ -403,15 +419,32 @@ final class FileDropOverlayView: NSView {
         if shouldRouteFileDropToTextDestination(sender) {
             hintBadgeView.hide()
             preparedDragWebView = nil
-            preparedPaneDropTarget = nil
-            activePaneDropTarget = nil
+            if let paneDropTarget = preparedPaneDropTarget ?? activePaneDropTarget ?? paneDropTargetForTextDrop(at: sender.draggingLocation) {
+                let handled = paneDropTarget.fileDropPerformDragOperation(sender)
+                if !handled {
+                    preparedPaneDropTarget = nil
+                    activePaneDropTarget = nil
+                }
+                return handled
+            }
+            if let webView = preparedDragWebView ?? webViewUnderPoint(sender.draggingLocation) {
+                let handled = webView.performDragOperation(sender)
+                if !handled {
+                    preparedDragWebView = nil
+                    activeDragWebView = nil
+                }
+                return handled
+            }
             return performFileDropAsText(sender)
         }
         let paneDropTarget = shouldCapture
             ? (preparedPaneDropTarget ?? activePaneDropTarget ?? paneDropTargetUnderPoint(sender.draggingLocation))
             : nil
         let terminal = paneDropTarget == nil ? terminalUnderPoint(sender.draggingLocation) : nil
-        let hasPaneTarget = paneDropTarget != nil || terminal != nil
+        let webView = paneDropTarget == nil && terminal == nil
+            ? (preparedDragWebView ?? activeDragWebView ?? webViewUnderPoint(sender.draggingLocation))
+            : nil
+        let hasPaneTarget = paneDropTarget != nil || terminal != nil || webView != nil
 #if DEBUG
         logDragRouteDecision(
             phase: "perform",
@@ -438,6 +471,14 @@ final class FileDropOverlayView: NSView {
             return handled
         }
         preparedPaneDropTarget = nil
+        if let webView {
+            let handled = webView.performDragOperation(sender)
+            if !handled {
+                preparedDragWebView = nil
+                activeDragWebView = nil
+            }
+            return handled
+        }
         activeDragWebView = nil
         guard let terminal else { return false }
         return terminal.performDragOperation(sender)
@@ -452,7 +493,12 @@ final class FileDropOverlayView: NSView {
             activePaneDropTarget = nil
         }
         guard let sender else { return }
-        guard !shouldRouteFileDropToTextDestination(sender) else { return }
+        if shouldRouteFileDropToTextDestination(sender) {
+            if let webView = preparedDragWebView ?? activeDragWebView {
+                webView.concludeDragOperation(sender)
+            }
+            return
+        }
         guard DragOverlayRoutingPolicy.shouldCaptureFileDropDestination(
             pasteboardTypes: sender.draggingPasteboard.types,
             hasLocalDraggingSource: sender.draggingSource != nil
@@ -461,6 +507,10 @@ final class FileDropOverlayView: NSView {
         }
         if let paneDropTarget = preparedPaneDropTarget ?? activePaneDropTarget {
             paneDropTarget.fileDropConcludeDragOperation(sender)
+            return
+        }
+        if let webView = preparedDragWebView ?? activeDragWebView {
+            webView.concludeDragOperation(sender)
         }
     }
 
@@ -475,13 +525,35 @@ final class FileDropOverlayView: NSView {
         updateHintBadge(sender: sender, pasteboardTypes: types)
 
         if shouldRouteFileDropToTextDestination(sender) {
+            let paneDropTarget = paneDropTargetForTextDrop(at: loc)
+            if let prev = activePaneDropTarget {
+                if fileDropPaneTargetsAreIdentical(prev, paneDropTarget) {
+                    return prev.fileDropDraggingUpdated(sender)
+                }
+                prev.fileDropDraggingExited(sender)
+                activePaneDropTarget = nil
+            }
+            if let paneDropTarget {
+                if let prev = activeDragWebView {
+                    prev.draggingExited(sender)
+                    activeDragWebView = nil
+                }
+                activePaneDropTarget = paneDropTarget
+                return paneDropTarget.fileDropDraggingEntered(sender)
+            }
+            if let webView = webViewUnderPoint(loc) {
+                if activeDragWebView !== webView {
+                    if let prev = activeDragWebView {
+                        prev.draggingExited(sender)
+                    }
+                    activeDragWebView = webView
+                    return webView.draggingEntered(sender)
+                }
+                return webView.draggingUpdated(sender)
+            }
             if let prev = activeDragWebView {
                 prev.draggingExited(sender)
                 activeDragWebView = nil
-            }
-            if let prev = activePaneDropTarget {
-                prev.fileDropDraggingExited(sender)
-                activePaneDropTarget = nil
             }
             return textDropDestinationKindUnderPoint(loc) == nil
                 ? []
@@ -489,10 +561,13 @@ final class FileDropOverlayView: NSView {
         }
 
         let paneDropTarget = shouldCapture ? paneDropTargetUnderPoint(loc) : nil
+        let webView = shouldCapture && paneDropTarget == nil ? webViewUnderPoint(loc) : nil
 
         if let prev = activeDragWebView {
-            prev.draggingExited(sender)
-            activeDragWebView = nil
+            if prev !== webView {
+                prev.draggingExited(sender)
+                activeDragWebView = nil
+            }
         }
         if let prev = activePaneDropTarget,
            !fileDropPaneTargetsAreIdentical(prev, paneDropTarget) {
@@ -506,6 +581,14 @@ final class FileDropOverlayView: NSView {
                 return paneDropTarget.fileDropDraggingEntered(sender)
             }
             return paneDropTarget.fileDropDraggingUpdated(sender)
+        }
+
+        if let webView {
+            if activeDragWebView !== webView {
+                activeDragWebView = webView
+                return webView.draggingEntered(sender)
+            }
+            return webView.draggingUpdated(sender)
         }
 
         let hasPaneTarget = terminalUnderPoint(loc) != nil
@@ -606,7 +689,7 @@ final class FileDropOverlayView: NSView {
             return insert(text, into: webView, at: windowPoint)
         }
         if let terminal = terminalUnderPoint(windowPoint) {
-            return terminal.handleDroppedFileURLsAsText(urls)
+            return insert(urls, into: terminal)
         }
         return false
     }
@@ -650,6 +733,23 @@ final class FileDropOverlayView: NSView {
 
     private func insert(_ text: String, into webView: WKWebView, at windowPoint: NSPoint) -> Bool {
         FileDropTextInsertion.insert(text, into: webView, at: windowPoint)
+    }
+
+    private func insert(_ urls: [URL], into terminal: GhosttyNSView) -> Bool {
+        let handled = terminal.handleDroppedFileURLsAsText(urls)
+        guard handled,
+              let workspaceId = terminal.tabId,
+              let panelId = terminal.terminalSurface?.id,
+              let workspace = AppDelegate.shared?.workspaceFor(tabId: workspaceId) else {
+            return handled
+        }
+        FileDropTextDropController.focusPanelAfterSuccessfulTextDrop(
+            workspace: workspace,
+            panelId: panelId,
+            focusIntent: .terminal(.surface),
+            window: terminal.window
+        )
+        return true
     }
 
     /// Hit-tests the window to find a WKWebView (browser panel) under the cursor.
@@ -837,6 +937,14 @@ final class FileDropOverlayView: NSView {
             return terminalPaneTarget
         }
         return BrowserWindowPortalRegistry.browserPaneDropTargetAtWindowPoint(windowPoint, in: window)
+    }
+
+    private func paneDropTargetForTextDrop(at windowPoint: NSPoint) -> (any FileDropPaneTarget)? {
+        if let textView = editableTextViewUnderPoint(windowPoint),
+           !(textView is SavingTextView) {
+            return nil
+        }
+        return paneDropTargetUnderPoint(windowPoint)
     }
 
     private func inlinePaneDropTargetUnderPoint(_ windowPoint: NSPoint) -> PaneDropTargetView? {

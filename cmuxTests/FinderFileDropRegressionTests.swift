@@ -235,6 +235,60 @@ final class FinderFileDropRegressionTests: XCTestCase {
         )
     }
 
+    func testSuccessfulPanelTextDropFocusesDestinationPanel() {
+        let workspace = Workspace(title: "Tests")
+        guard let terminalId = workspace.focusedPanelId,
+              let browserPanel = workspace.newBrowserSplit(from: terminalId, orientation: .horizontal) else {
+            XCTFail("Expected workspace with terminal and browser split")
+            return
+        }
+
+        workspace.focusPanel(terminalId)
+        XCTAssertEqual(workspace.focusedPanelId, terminalId)
+
+        var didInsert = false
+        XCTAssertTrue(
+            FileDropTextDropController.performPanelTextDrop(
+                workspace: workspace,
+                panelId: browserPanel.id,
+                focusIntent: .browser(.webView),
+                window: nil,
+                insert: {
+                    didInsert = true
+                    return true
+                }
+            )
+        )
+
+        XCTAssertTrue(didInsert)
+        XCTAssertEqual(workspace.focusedPanelId, browserPanel.id)
+    }
+
+    func testFailedPanelTextDropDoesNotChangeFocusedPanel() {
+        let workspace = Workspace(title: "Tests")
+        guard let terminalId = workspace.focusedPanelId,
+              let browserPanel = workspace.newBrowserSplit(from: terminalId, orientation: .horizontal) else {
+            XCTFail("Expected workspace with terminal and browser split")
+            return
+        }
+
+        workspace.focusPanel(terminalId)
+
+        XCTAssertFalse(
+            FileDropTextDropController.performPanelTextDrop(
+                workspace: workspace,
+                panelId: browserPanel.id,
+                focusIntent: .browser(.webView),
+                window: nil,
+                insert: {
+                    false
+                }
+            )
+        )
+
+        XCTAssertEqual(workspace.focusedPanelId, terminalId)
+    }
+
     func testFilePreviewTransferRoutesToTextEvenWhenTargetPasteboardOmitsFileURLType() throws {
         let filePath = "/tmp/cmux drop/from image pane.png"
         let dragId = UUID()

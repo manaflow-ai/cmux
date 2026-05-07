@@ -203,6 +203,42 @@ enum FileDropTextInsertion {
     }
 }
 
+@MainActor
+enum FileDropTextDropController {
+    @discardableResult
+    static func performPanelTextDrop(
+        workspace: Workspace,
+        panelId: UUID,
+        focusIntent: PanelFocusIntent,
+        window: NSWindow?,
+        insert: () -> Bool
+    ) -> Bool {
+        guard insert() else { return false }
+        focusPanelAfterSuccessfulTextDrop(
+            workspace: workspace,
+            panelId: panelId,
+            focusIntent: focusIntent,
+            window: window
+        )
+        return true
+    }
+
+    static func focusPanelAfterSuccessfulTextDrop(
+        workspace: Workspace,
+        panelId: UUID,
+        focusIntent: PanelFocusIntent,
+        window: NSWindow?
+    ) {
+        AppDelegate.shared?.noteMainPanelKeyboardFocusIntent(
+            workspaceId: workspace.id,
+            panelId: panelId,
+            in: window
+        )
+        workspace.focusPanel(panelId, focusIntent: focusIntent)
+        _ = workspace.panels[panelId]?.restoreFocusIntent(focusIntent)
+    }
+}
+
 enum DragOverlayRoutingPolicy {
     static let bonsplitTabTransferType = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
     static let filePreviewTransferType = NSPasteboard.PasteboardType("com.cmux.filepreview.transfer")
