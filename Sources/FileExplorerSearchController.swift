@@ -27,7 +27,7 @@ enum FileSearchRipgrepParser {
         let columnNumber = (firstStart ?? 0) + 1
         return FileSearchResult(
             path: path,
-            relativePath: relativePath(for: path, rootPath: rootPath),
+            relativePath: FileExplorerTerminalPathInsertion.relativePath(for: path, rootPath: rootPath),
             lineNumber: lineNumber,
             columnNumber: columnNumber,
             preview: lineText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -43,18 +43,6 @@ enum FileSearchRipgrepParser {
             return nil
         }
         return String(decoding: data, as: UTF8.self)
-    }
-
-    private static func relativePath(for path: String, rootPath: String) -> String {
-        guard !rootPath.isEmpty else { return path }
-        let standardizedPath = URL(fileURLWithPath: path).standardizedFileURL.path
-        let standardizedRoot = URL(fileURLWithPath: rootPath).standardizedFileURL.path
-        guard standardizedPath.hasPrefix(standardizedRoot) else { return path }
-        var relative = String(standardizedPath.dropFirst(standardizedRoot.count))
-        if relative.hasPrefix("/") {
-            relative.removeFirst()
-        }
-        return relative.isEmpty ? (path as NSString).lastPathComponent : relative
     }
 }
 

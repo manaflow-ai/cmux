@@ -85922,6 +85922,40 @@
         }
       }
     },
+    "fileExplorer.contextMenu.insertPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Insert Path"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスを挿入"
+          }
+        }
+      }
+    },
+    "fileExplorer.contextMenu.insertRelativePath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Insert Relative Path"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "相対パスを挿入"
+          }
+        }
+      }
+    },
     "fileExplorer.contextMenu.openDefault": {
       "extractionState": "manual",
       "localizations": {
