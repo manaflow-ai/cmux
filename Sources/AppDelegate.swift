@@ -3416,9 +3416,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         sessionAutosaveTickInFlight = true
-        Task { @MainActor in
-            await self.finishSessionAutosaveTick(source: source)
-        }
+        Task { @MainActor in await self.finishSessionAutosaveTick(source: source) }
     }
 
     private func finishSessionAutosaveTick(source: String) async {
