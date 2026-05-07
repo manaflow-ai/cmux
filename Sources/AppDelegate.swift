@@ -968,7 +968,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 sshURLParseErrors.append(error)
             }
         }
-        if sshURLRequests.count > 1 {
+        if sshURLRequests.count + sshURLParseErrors.count > 1 {
             showCmuxSSHURLParseError(.multipleLinks)
         } else {
             for error in sshURLParseErrors {
