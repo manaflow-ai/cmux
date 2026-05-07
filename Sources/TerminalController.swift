@@ -3273,6 +3273,7 @@ class TerminalController {
                 )
             }
         }
+        v2AttachTopApplicationProcess(to: &windowNodes)
 
         let processSnapshot = await Task.detached(priority: .utility) {
             CmuxTopProcessSnapshot.capture(includeProcessDetails: includeProcesses)
@@ -3391,6 +3392,10 @@ class TerminalController {
                     )
                 )
             }
+        }
+
+        if workspaceFilter == nil {
+            v2AttachTopApplicationProcess(to: &windowNodes)
         }
 
         if let workspaceFilter, !workspaceFound {
