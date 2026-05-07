@@ -18924,6 +18924,23 @@
         }
       }
     },
+    "dialog.sshURL.error.conflictingTitleParameters": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The link included both title and name. Use only one workspace title field."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクに title と name の両方が含まれています。ワークスペース名のフィールドは 1 つだけ使用してください。"
+          }
+        }
+      }
+    },
     "dialog.sshURL.error.duplicateParameter": {
       "extractionState": "manual",
       "localizations": {

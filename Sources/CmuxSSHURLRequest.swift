@@ -9,6 +9,7 @@ enum CmuxSSHURLParseError: Error, Equatable {
     case titleContainsUnsafeCharacters
     case invalidPort
     case conflictingDestinationParameters
+    case conflictingTitleParameters
     case duplicateParameter(String)
     case unsupportedParameter(String)
     case multipleLinks
@@ -125,7 +126,7 @@ struct CmuxSSHURLRequest: Equatable {
         let titleValue = normalizedQueryValue(namedAnyOf: ["title"], in: queryItems)
         let nameValue = normalizedQueryValue(namedAnyOf: ["name"], in: queryItems)
         guard titleValue == nil || nameValue == nil else {
-            return .failure(.conflictingDestinationParameters)
+            return .failure(.conflictingTitleParameters)
         }
         let title = titleValue ?? nameValue
         if let title {

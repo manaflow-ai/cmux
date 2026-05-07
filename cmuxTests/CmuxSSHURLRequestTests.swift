@@ -163,6 +163,25 @@ final class CmuxSSHURLRequestTests: XCTestCase {
         }
     }
 
+    func testRejectsConflictingTitleAliases() throws {
+        var components = URLComponents()
+        components.scheme = supportedScheme
+        components.host = "ssh"
+        components.queryItems = [
+            URLQueryItem(name: "host", value: "dev.example.com"),
+            URLQueryItem(name: "title", value: "Title"),
+            URLQueryItem(name: "name", value: "Name")
+        ]
+        let url = try XCTUnwrap(components.url)
+
+        switch CmuxSSHURLRequest.parse(url) {
+        case .failure(.conflictingTitleParameters):
+            break
+        default:
+            XCTFail("Expected conflicting title parameter rejection")
+        }
+    }
+
     func testRejectsDashPrefixedDestination() throws {
         var components = URLComponents()
         components.scheme = supportedScheme

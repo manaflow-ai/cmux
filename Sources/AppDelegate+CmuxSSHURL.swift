@@ -364,6 +364,11 @@ extension AppDelegate {
                 localized: "dialog.sshURL.error.conflictingDestinationParameters",
                 defaultValue: "The link included conflicting SSH target fields."
             )
+        case .conflictingTitleParameters:
+            return String(
+                localized: "dialog.sshURL.error.conflictingTitleParameters",
+                defaultValue: "The link included both title and name. Use only one workspace title field."
+            )
         case .duplicateParameter(let parameter):
             return String(
                 format: String(localized: "dialog.sshURL.error.duplicateParameter", defaultValue: "The SSH link repeated a parameter: %@"),
