@@ -130,6 +130,22 @@ private final class CmuxSSHURLConfirmationGate: NSObject {
 }
 
 extension AppDelegate {
+    func deferInitialMainWindowBootstrapForExternalConfirmation() {
+        guard !didAttemptStartupSessionRestore, !didHandleExplicitOpenIntentAtStartup else { return }
+        shouldDeferInitialMainWindowBootstrapForExternalConfirmation = true
+    }
+
+    func resumeInitialMainWindowBootstrapAfterExternalConfirmation(debugSource: String) {
+        guard shouldDeferInitialMainWindowBootstrapForExternalConfirmation else { return }
+        shouldDeferInitialMainWindowBootstrapForExternalConfirmation = false
+        scheduleInitialMainWindowBootstrap(debugSource: debugSource)
+    }
+
+    func bootstrapInitialMainWindowAfterAcceptedExternalOpen(debugSource: String) {
+        shouldDeferInitialMainWindowBootstrapForExternalConfirmation = false
+        _ = bootstrapInitialMainWindowIfNeeded(debugSource: debugSource)
+    }
+
     func claimAuthCallbackURLSchemes() {
         // Pin the current build's callback scheme so auth and SSH deeplinks
         // route back to this app instead of an unrelated LaunchServices entry.
@@ -171,7 +187,9 @@ extension AppDelegate {
         cmuxDebugLog("sshURL.prompt target=\(target) destinationLength=\(request.destination.count) hasPort=\(request.port != nil)")
 #endif
 
+        deferInitialMainWindowBootstrapForExternalConfirmation()
         guard confirmCmuxSSHURLRequest(request) else {
+            resumeInitialMainWindowBootstrapAfterExternalConfirmation(debugSource: "sshURL.cancelled")
 #if DEBUG
             cmuxDebugLog("sshURL.cancelled")
 #endif
@@ -179,6 +197,7 @@ extension AppDelegate {
         }
 
         prepareForExplicitOpenIntentAtStartup()
+        bootstrapInitialMainWindowAfterAcceptedExternalOpen(debugSource: "sshURL.confirmed")
         NSApp.activate(ignoringOtherApps: true)
         _ = CmuxSSHURLProcessLauncher.shared.start(
             request: request,
