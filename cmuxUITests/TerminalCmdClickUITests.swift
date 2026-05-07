@@ -131,7 +131,8 @@ final class TerminalCmdClickUITests: XCTestCase {
             "Expected cmd-click to resolve the escaped-space path to the real file. result=\(result)"
         )
 
-        guard let openedPaths = waitForCapturedOpenPaths(timeout: 5.0) else {
+        let openedPaths = waitForCapturedOpenPaths(timeout: 5.0)
+        guard !openedPaths.isEmpty else {
             XCTFail("Expected cmd-click capture log after running the command harness. result=\(result)")
             return
         }
@@ -168,7 +169,8 @@ final class TerminalCmdClickUITests: XCTestCase {
             "Expected cmd-click to resolve the raw-space path to the real file. result=\(result)"
         )
 
-        guard let openedPaths = waitForCapturedOpenPaths(timeout: 5.0) else {
+        let openedPaths = waitForCapturedOpenPaths(timeout: 5.0)
+        guard !openedPaths.isEmpty else {
             XCTFail("Expected cmd-click capture log after running the raw-space command harness. result=\(result)")
             return
         }
@@ -206,7 +208,8 @@ final class TerminalCmdClickUITests: XCTestCase {
             "Expected OSC 8 cmd-click to route through Ghostty's open-url action. result=\(result)"
         )
 
-        guard let openedURLs = waitForCapturedOpenPaths(timeout: 5.0, path: openURLCapturePath) else {
+        let openedURLs = waitForCapturedOpenPaths(timeout: 5.0, path: openURLCapturePath)
+        guard !openedURLs.isEmpty else {
             XCTFail("Expected open capture after stationary OSC 8 cmd-click. result=\(result)")
             return
         }
@@ -251,7 +254,8 @@ final class TerminalCmdClickUITests: XCTestCase {
             )
         }
 
-        guard let openedPaths = waitForCapturedOpenPaths(timeout: 5.0) else {
+        let openedPaths = waitForCapturedOpenPaths(timeout: 5.0)
+        guard !openedPaths.isEmpty else {
             XCTFail("Expected cmd-click capture log after forcing a quicklook mismatch. result=\(result)")
             return
         }
@@ -306,7 +310,8 @@ final class TerminalCmdClickUITests: XCTestCase {
             )
         }
 
-        guard let openedPaths = waitForCapturedOpenPaths(timeout: 5.0) else {
+        let openedPaths = waitForCapturedOpenPaths(timeout: 5.0)
+        guard !openedPaths.isEmpty else {
             XCTFail("Expected cmd-click capture log after forcing a viewport mismatch. result=\(result)")
             return
         }
@@ -528,7 +533,8 @@ final class TerminalCmdClickUITests: XCTestCase {
             "Expected cmd-click to open the full spaced path, not a suffix token. result=\(result)"
         )
 
-        guard let openedPaths = waitForCapturedOpenPaths(timeout: 5.0) else {
+        let openedPaths = waitForCapturedOpenPaths(timeout: 5.0)
+        guard !openedPaths.isEmpty else {
             XCTFail("Expected open capture after cmd-clicking the spaced path. result=\(result)")
             return
         }
@@ -708,15 +714,15 @@ final class TerminalCmdClickUITests: XCTestCase {
         return app
     }
 
-    private func waitForCapturedOpenPaths(timeout: TimeInterval, path: String? = nil) -> [String]? {
-        var openedPaths: [String]?
+    private func waitForCapturedOpenPaths(timeout: TimeInterval, path: String? = nil) -> [String] {
+        var openedPaths: [String] = []
         let matched = waitForCondition(timeout: timeout) {
             let lines = self.loadCapturedOpenPaths(path: path)
             guard !lines.isEmpty else { return false }
             openedPaths = lines
             return true
         }
-        return matched ? openedPaths : nil
+        return matched ? openedPaths : []
     }
 
     private func loadCapturedOpenPaths(path: String? = nil) -> [String] {

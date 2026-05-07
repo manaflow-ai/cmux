@@ -52,7 +52,7 @@
 976	cmuxTests/OmnibarAndToolsTests.swift
 923	Sources/DockPanelView.swift
 908	cmuxTests/CommandPaletteSearchEngineTests.swift
-875	cmuxUITests/TerminalCmdClickUITests.swift
+881	cmuxUITests/TerminalCmdClickUITests.swift
 820	Sources/RestorableAgentSession.swift
 807	Sources/TerminalSSHSessionDetector.swift
 801	Sources/WorkspaceContentView.swift
