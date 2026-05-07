@@ -139,6 +139,56 @@ final class FinderFileDropRegressionTests: XCTestCase {
         )
     }
 
+    func testPaneFileDropHintMatchesConfiguredTerminalDropAction() {
+        XCTAssertEqual(
+            PaneDropRouting.externalFileDropHint(
+                panelType: .terminal,
+                hostsAgent: true,
+                defaultAction: .filePreview,
+                shiftKeyHeld: false
+            ),
+            PaneFileDropHint(
+                currentAction: .filePreview,
+                modifierPrompt: .holdShift,
+                alternateAction: .agentPrompt
+            )
+        )
+        XCTAssertEqual(
+            PaneDropRouting.externalFileDropHint(
+                panelType: .terminal,
+                hostsAgent: false,
+                defaultAction: .filePreview,
+                shiftKeyHeld: true
+            ),
+            PaneFileDropHint(
+                currentAction: .terminalPath,
+                modifierPrompt: .releaseShift,
+                alternateAction: .filePreview
+            )
+        )
+        XCTAssertEqual(
+            PaneDropRouting.externalFileDropHint(
+                panelType: .terminal,
+                hostsAgent: true,
+                defaultAction: .terminal,
+                shiftKeyHeld: false
+            ),
+            PaneFileDropHint(
+                currentAction: .agentPrompt,
+                modifierPrompt: .holdShift,
+                alternateAction: .filePreview
+            )
+        )
+        XCTAssertNil(
+            PaneDropRouting.externalFileDropHint(
+                panelType: .markdown,
+                hostsAgent: true,
+                defaultAction: .terminal,
+                shiftKeyHeld: false
+            )
+        )
+    }
+
     func testTerminalFileDropSettingsDefaultToFilePreview() throws {
         let suiteName = "cmux-file-drop-settings-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
