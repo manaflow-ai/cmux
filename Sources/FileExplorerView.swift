@@ -225,15 +225,11 @@ struct FileExplorerPanelView: NSViewRepresentable {
                   let outlineView = notification.object as? NSOutlineView else {
                 return
             }
-            guard outlineView.selectedRow >= 0,
-                  outlineView.selectedRow < outlineView.numberOfRows,
-                  let node = outlineView.item(atRow: outlineView.selectedRow) as? FileExplorerNode else {
-                store.select(node: nil)
-                return
-            }
-            store.select(node: node)
+            let nodes = outlineView.selectedRowIndexes.compactMap { outlineView.item(atRow: $0) as? FileExplorerNode }
+            guard !nodes.isEmpty else { store.select(node: nil); return }
+            let anchor = outlineView.selectedRow >= 0 ? outlineView.item(atRow: outlineView.selectedRow) as? FileExplorerNode : nil
+            store.select(nodes: nodes, anchor: anchor ?? nodes.first)
         }
-
         func outlineViewItemDidExpand(_ notification: Notification) {
             guard let node = notification.userInfo?["NSObject"] as? FileExplorerNode else { return }
             if !store.isExpanded(node) {
@@ -370,6 +366,12 @@ struct FileExplorerPanelView: NSViewRepresentable {
             fallbackToFirstVisible: Bool,
             scroll: Bool
         ) {
+            let exactRows = store.selectedPaths.reduce(into: IndexSet()) { if let resolution = selectionResolution(for: $1, in: outlineView), resolution.isExact { $0.insert(resolution.row) } }
+            if !exactRows.isEmpty {
+                withProgrammaticOutlineUpdate { outlineView.selectRowIndexes(exactRows, byExtendingSelection: false) }
+                let anchorRow = store.selectedPath.flatMap { selectionResolution(for: $0, in: outlineView)?.row }
+                if scroll, let row = FileExplorerSelectionRestoration.scrollRow(anchorRow: anchorRow, exactRows: exactRows) { outlineView.scrollRowToVisible(row) }; return
+            }
             if let selectedPath = store.selectedPath,
                let resolution = selectionResolution(for: selectedPath, in: outlineView) {
                 selectRow(
@@ -402,7 +404,6 @@ struct FileExplorerPanelView: NSViewRepresentable {
             let row: Int
             let isExact: Bool
         }
-
         private func selectionResolution(for path: String, in outlineView: NSOutlineView) -> SelectionResolution? {
             var bestAncestor: (row: Int, pathLength: Int)?
             for row in 0..<outlineView.numberOfRows {
@@ -525,6 +526,8 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 menu.addItem(.separator())
             }
 
+            menu.addFileExplorerInsertPathItems(target: self, representedObject: node, insertAction: #selector(contextMenuInsertPath(_:)), insertRelativeAction: #selector(contextMenuInsertRelativePath(_:)))
+
             let copyPathItem = NSMenuItem(
                 title: String(localized: "fileExplorer.contextMenu.copyPath", defaultValue: "Copy Path"),
                 action: #selector(contextMenuCopyPath(_:)),
@@ -562,14 +565,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
         @objc private func contextMenuCopyRelativePath(_ sender: NSMenuItem) {
             guard let node = sender.representedObject as? FileExplorerNode else { return }
-            let rootPath = store.rootPath
-            var relativePath = node.path
-            if relativePath.hasPrefix(rootPath) {
-                relativePath = String(relativePath.dropFirst(rootPath.count))
-                if relativePath.hasPrefix("/") {
-                    relativePath = String(relativePath.dropFirst())
-                }
-            }
+            let relativePath = FileExplorerTerminalPathInsertion.relativePath(for: node.path, rootPath: store.rootPath)
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(relativePath, forType: .string)
         }
@@ -587,12 +583,12 @@ final class FileExplorerContainerView: NSView {
     private let scrollView: NSScrollView
     private let outlineView: FileExplorerNSOutlineView
     private let searchScrollView: NSScrollView
-    private let searchResultsView: FileExplorerSearchResultsTableView
+    let searchResultsView: FileExplorerSearchResultsTableView
     private let emptyLabel: NSTextField
     private let loadingIndicator: NSProgressIndicator
     private let searchController: FileSearchController
     private var searchBarHeightConstraint: NSLayoutConstraint!
-    private var searchSnapshot = FileSearchSnapshot.empty
+    private(set) var searchSnapshot = FileSearchSnapshot.empty
     private var currentRootPath = ""
     private var currentProviderIsLocal = false
     private var currentContentRevision = 0
@@ -681,6 +677,7 @@ final class FileExplorerContainerView: NSView {
         outlineView.selectionHighlightStyle = .regular
         outlineView.rowSizeStyle = .default
         outlineView.indentationPerLevel = FileExplorerStyle.current.indentation
+        outlineView.allowsMultipleSelection = true
         outlineView.autoresizesOutlineColumn = true
         outlineView.floatsGroupRows = false
         outlineView.backgroundColor = .clear
@@ -724,6 +721,7 @@ final class FileExplorerContainerView: NSView {
         searchResultsView.selectionHighlightStyle = .regular
         searchResultsView.backgroundColor = .clear
         searchResultsView.rowHeight = 46
+        searchResultsView.allowsMultipleSelection = true
         searchResultsView.intercellSpacing = NSSize(width: 0, height: 0)
         searchResultsView.onCancel = { [weak self] in
             self?.closeSearchAndFocusOutline()
@@ -1207,7 +1205,7 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         let clickedRow = searchResultsView.clickedRow
         let row = clickedRow >= 0 ? clickedRow : searchResultsView.selectedRow
         guard row >= 0, row < searchSnapshot.results.count else { return }
-        if clickedRow >= 0 {
+        if clickedRow >= 0 && !searchResultsView.selectedRowIndexes.contains(clickedRow) {
             searchResultsView.selectRowIndexes(IndexSet(integer: clickedRow), byExtendingSelection: false)
         }
 
@@ -1239,6 +1237,8 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         menu.addItem(revealItem)
 
         menu.addItem(.separator())
+
+        menu.addFileExplorerInsertPathItems(target: self, representedObject: NSNumber(value: row), insertAction: #selector(contextMenuInsertSearchResultPath(_:)), insertRelativeAction: #selector(contextMenuInsertSearchResultRelativePath(_:)))
 
         let copyPathItem = NSMenuItem(
             title: String(localized: "fileExplorer.contextMenu.copyPath", defaultValue: "Copy Path"),
@@ -1310,7 +1310,7 @@ private final class FileExplorerSearchField: NSSearchField {
     }
 }
 
-private final class FileExplorerSearchResultsTableView: NSTableView {
+final class FileExplorerSearchResultsTableView: NSTableView {
     var onCancel: (() -> Void)?
     var onMoveSelection: ((Int) -> Void)?
     var onCommit: (() -> Void)?
@@ -1486,6 +1486,7 @@ final class FileExplorerHeaderView: NSView {
     }
 
     private func applyHeaderState() {
+        assert(Thread.isMainThread, "AppKit image updates must run on the main thread")
         let config = NSImage.SymbolConfiguration(pointSize: 11, weight: .regular)
         if let quickSearchQuery {
             iconView.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)?
@@ -1580,11 +1581,10 @@ final class FileExplorerCellView: NSTableCellView {
     }
 
     func configure(with node: FileExplorerNode, gitStatus: GitFileStatus? = nil) {
+        assert(Thread.isMainThread, "AppKit image updates must run on the main thread")
         let style = FileExplorerStyle.current
-
         nameLabel.stringValue = node.name
         nameLabel.font = style.nameFont
-
         iconWidthConstraint.constant = style.iconSize
         iconHeightConstraint.constant = style.iconSize
         iconToTextConstraint.constant = style.iconToTextSpacing

@@ -295,6 +295,11 @@
           "type": "boolean",
           "default": true,
           "description": "Show the right-edge terminal scroll bar when scrollback is available. cmux automatically suppresses it for alternate-screen style TUI surfaces."
+        },
+        "autoResumeAgentSessions": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically run agent resume commands for restored terminal sessions when cmux reopens after quit."
         }
       }
     },
@@ -490,6 +495,24 @@
           "additionalProperties": {
             "$ref": "#/$defs/colorHex"
           }
+        },
+        "paletteOverrides": {
+          "type": "object",
+          "description": "Legacy workspace color overrides for built-in palette names. Prefer workspaceColors.colors for new configs.",
+          "default": {},
+          "deprecated": true,
+          "additionalProperties": {
+            "$ref": "#/$defs/colorHex"
+          }
+        },
+        "customColors": {
+          "type": "array",
+          "description": "Legacy list of custom workspace colors. Prefer workspaceColors.colors for new configs.",
+          "default": [],
+          "deprecated": true,
+          "items": {
+            "$ref": "#/$defs/colorHex"
+          }
         }
       }
     },
@@ -571,6 +594,16 @@
           "type": "string",
           "default": "",
           "description": "Custom path to the claude binary."
+        },
+        "cursorIntegration": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable cmux integration hooks for Cursor."
+        },
+        "geminiIntegration": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable cmux integration hooks for Gemini."
         },
         "portBase": {
           "type": "integer",
