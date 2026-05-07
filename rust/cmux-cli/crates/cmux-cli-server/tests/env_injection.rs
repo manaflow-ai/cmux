@@ -13,7 +13,7 @@ use cmux_cli_protocol::{
     ClientMsg, Command, PROTOCOL_VERSION, ServerMsg, Viewport, read_msg, write_msg,
 };
 use cmux_cli_server::{ServerOptions, run};
-use tokio::io::BufReader;
+use tokio::io::{AsyncRead, BufReader};
 use tokio::net::UnixStream;
 use tokio::time::timeout;
 
@@ -57,18 +57,16 @@ async fn spawned_shell_sees_workspace_and_tab_env_vars() {
     )
     .await
     .unwrap();
-    // Drain server messages in a background task. The server keeps
-    // pushing frames; without a reader the macOS Unix-socket send
-    // buffer (~8KB) fills up and the server blocks mid-write.
+    read_pty_until_contains(&mut r, "sh-", Duration::from_secs(5)).await;
+
+    // Drain server messages in a background task. The server keeps pushing
+    // frames; without a reader the macOS Unix-socket send buffer (~8KB) fills
+    // up and the server blocks mid-write.
     let drain =
         tokio::spawn(
             async move { while let Ok(Some(_)) = read_msg::<_, ServerMsg>(&mut r).await {} },
         );
 
-    // Give the shell a moment to draw its first prompt before we
-    // send input. The PTY buffers input if the shell isn't reading
-    // yet, but some shells drop stdin if they haven't initialised.
-    tokio::time::sleep(Duration::from_millis(300)).await;
     let script = format!(
         "printf 'WS=%s\\nTAB=%s\\nCMX_WS=%s\\nCMX_TAB=%s\\n' \"$CMUX_WORKSPACE_ID\" \"$CMUX_TAB_ID\" \"$CMX_WORKSPACE_ID\" \"$CMX_TAB_ID\" > {}\n",
         env_dump.display(),
@@ -185,6 +183,31 @@ async fn wait_for_file(
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
+}
+
+async fn read_pty_until_contains<R>(r: &mut R, needle: &str, deadline: Duration) -> String
+where
+    R: AsyncRead + Unpin,
+{
+    let end = tokio::time::Instant::now() + deadline;
+    let mut out = String::new();
+    while tokio::time::Instant::now() < end && !out.contains(needle) {
+        let remaining = end.saturating_duration_since(tokio::time::Instant::now());
+        match timeout(remaining, read_msg::<_, ServerMsg>(r)).await {
+            Ok(Ok(Some(ServerMsg::PtyBytes { data, .. }))) => {
+                out.push_str(&String::from_utf8_lossy(&data));
+            }
+            Ok(Ok(Some(_))) => continue,
+            Ok(Ok(None)) => break,
+            Ok(Err(error)) => panic!("failed reading PTY bytes: {error}"),
+            Err(_) => break,
+        }
+    }
+    assert!(
+        out.contains(needle),
+        "did not see {needle:?}. output:\n{out}"
+    );
+    out
 }
 
 async fn wait_for_socket(socket: &std::path::Path) {

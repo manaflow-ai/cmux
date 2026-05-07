@@ -232,12 +232,12 @@ async fn overflowing_tab_bar_keeps_active_tab_visible() {
     assert!(
         frames.contains("10:term-10"),
         "active overflowed tab was not kept visible. snippet: {}",
-        &frames[..frames.len().min(800)]
+        snippet(&frames, 800)
     );
     assert!(
         frames.contains('…'),
         "overflow marker missing from crowded tab bar. snippet: {}",
-        &frames[..frames.len().min(800)]
+        snippet(&frames, 800)
     );
 
     server.abort();
@@ -325,12 +325,12 @@ async fn focused_split_pane_has_obvious_ring() {
     assert!(
         saw_focus_ring,
         "focused pane ring colour missing. snippet: {}",
-        &frames[..frames.len().min(800)]
+        snippet(&frames, 800)
     );
     assert!(
         saw_muted_border,
         "inactive pane muted border missing. snippet: {}",
-        &frames[..frames.len().min(800)]
+        snippet(&frames, 800)
     );
 
     server.abort();

@@ -116,7 +116,10 @@ async fn ctrl_c_interrupts_foreground_process() {
     )
     .await
     .unwrap();
-    let _ = timeout(Duration::from_secs(5), server).await;
+    let server_result = timeout(Duration::from_secs(5), server)
+        .await
+        .expect("server did not exit within 5s after shell exit");
+    server_result.expect("server task panicked");
 }
 
 async fn read_pty_until<R>(r: &mut R, needle: &str, deadline: Duration) -> String

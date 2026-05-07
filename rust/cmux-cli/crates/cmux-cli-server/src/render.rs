@@ -1350,6 +1350,10 @@ fn truncate_to_display_width(text: &str, max_width: usize) -> String {
     out
 }
 
+fn display_width(text: &str) -> usize {
+    text.graphemes(true).map(UnicodeWidthStr::width).sum()
+}
+
 fn visible_pill_range(
     pills: &[TabPill],
     active: usize,
@@ -1401,30 +1405,30 @@ fn paint_status(frame: &mut Frame, spec: &StatusSpec) {
     );
 
     frame.paint_text(row, 0, &spec.text, Some(STATUS_FG), Some(STATUS_BG));
-    let cursor = spec.text.chars().count().try_into().unwrap_or(u16::MAX);
+    let cursor = display_width(&spec.text).min(frame.cols as usize);
 
     let cols = frame.cols as usize;
-    let hint_budget = cols.saturating_sub(cursor as usize).saturating_sub(1);
+    let hint_budget = cols.saturating_sub(cursor).saturating_sub(1);
     if hint_budget == 0 || spec.hints.is_empty() {
         return;
     }
-    let hints: String = spec.hints.chars().take(hint_budget).collect();
-    let start_col = (cols - hints.chars().count()) as u16;
+    let hints = truncate_to_display_width(&spec.hints, hint_budget);
+    let hint_width = display_width(&hints);
+    let start_col = cols.saturating_sub(hint_width);
     if start_col > cursor {
-        frame.paint_text(row, start_col, &hints, Some(STATUS_FG), Some(STATUS_BG));
+        frame.paint_text(
+            row,
+            start_col.min(u16::MAX as usize) as u16,
+            &hints,
+            Some(STATUS_FG),
+            Some(STATUS_BG),
+        );
     }
 }
 
 fn pad_left(text: &str, width: usize) -> String {
-    let mut out = String::with_capacity(width);
-    let mut count = 0usize;
-    for ch in text.chars() {
-        if count >= width {
-            break;
-        }
-        out.push(ch);
-        count += 1;
-    }
+    let mut out = truncate_to_display_width(text, width);
+    let mut count = display_width(&out);
     while count < width {
         out.push(' ');
         count += 1;
@@ -1671,7 +1675,7 @@ fn word_selection_at(
         return None;
     }
 
-    let rows = extract_rows_between(
+    let rows = extract_cell_rows_between(
         terminal,
         Rect {
             col: 0,
@@ -1682,8 +1686,8 @@ fn word_selection_at(
     );
     scroll_to_viewport_offset(terminal, original_offset);
 
-    let line = rows.first()?;
-    word_range_in_line(line, col as usize).map(|(start, end)| LogicalLineSelection {
+    let row = rows.first()?;
+    word_range_in_cells(row, col as usize).map(|(start, end)| LogicalLineSelection {
         start_col: start.min(u16::MAX as usize) as u16,
         start_row: target_row,
         end_col: end.min(u16::MAX as usize) as u16,
@@ -1697,22 +1701,34 @@ enum WordSelectionClass {
     Punctuation,
 }
 
-fn word_range_in_line(line: &str, col: usize) -> Option<(usize, usize)> {
-    let chars: Vec<char> = line.chars().collect();
-    let ch = *chars.get(col)?;
-    let class = word_selection_class(ch)?;
+fn word_range_in_cells(row: &[Option<String>], col: usize) -> Option<(usize, usize)> {
+    if col >= row.len() {
+        return None;
+    }
+    let class = word_selection_class_at_cell(row, col)?;
 
     let mut start = col;
-    while start > 0 && word_selection_class(chars[start - 1]) == Some(class) {
+    while start > 0 && word_selection_class_at_cell(row, start - 1) == Some(class) {
         start -= 1;
     }
 
     let mut end = col;
-    while end + 1 < chars.len() && word_selection_class(chars[end + 1]) == Some(class) {
+    while end + 1 < row.len() && word_selection_class_at_cell(row, end + 1) == Some(class) {
         end += 1;
     }
 
     Some((start, end))
+}
+
+fn word_selection_class_at_cell(
+    row: &[Option<String>],
+    index: usize,
+) -> Option<WordSelectionClass> {
+    match row.get(index)? {
+        Some(cell) => cell.chars().next().and_then(word_selection_class),
+        None if index > 0 => word_selection_class_at_cell(row, index - 1),
+        None => None,
+    }
 }
 
 fn word_selection_class(ch: char) -> Option<WordSelectionClass> {
@@ -1732,19 +1748,6 @@ fn is_word_selection_char(ch: char) -> bool {
             ch,
             '_' | '-' | '.' | '/' | ':' | '@' | '~' | '%' | '+' | '?' | '&' | '=' | '#' | '$' | '!'
         )
-}
-
-fn extract_rows_between(terminal: &Terminal<'_, '_>, rect: Rect) -> Vec<String> {
-    extract_cell_rows_between(terminal, rect)
-        .into_iter()
-        .map(|row| {
-            let mut line = String::new();
-            for cell in row.into_iter().flatten() {
-                line.push_str(&cell);
-            }
-            line
-        })
-        .collect()
 }
 
 fn extract_cell_rows_between(terminal: &Terminal<'_, '_>, rect: Rect) -> Vec<Vec<Option<String>>> {
@@ -2013,6 +2016,27 @@ mod tests {
         assert_eq!(frame.cells[2][1].grapheme, "*");
         assert_eq!(frame.cells[2][2].grapheme, "●");
         assert_eq!(frame.cells[2][2].fg, StyleColor::Rgb(dot));
+    }
+
+    #[test]
+    fn pad_left_uses_display_width() {
+        let padded = pad_left("表", 3);
+
+        assert_eq!(display_width(&padded), 3);
+        assert_eq!(padded, "表 ");
+    }
+
+    #[test]
+    fn word_range_in_cells_treats_wide_tail_as_same_word() {
+        let row = vec![
+            Some(" ".to_string()),
+            Some("界".to_string()),
+            None,
+            Some(" ".to_string()),
+        ];
+
+        assert_eq!(word_range_in_cells(&row, 1), Some((1, 2)));
+        assert_eq!(word_range_in_cells(&row, 2), Some((1, 2)));
     }
 
     #[test]

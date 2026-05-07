@@ -121,7 +121,7 @@ fn tmux_preset_bindings() -> Vec<(&'static str, &'static str)> {
         ("closeWorkspace", "X"),
         // Terminals are pane-local and cmux-specific. Keep them first-class,
         // but on their own shortcut family so `c/n/p/0..9` remain spaces.
-        ("newTerminal", "t"),
+        ("newTerminal", "T"),
         ("nextTerminal", "]"),
         ("prevTerminal", "["),
         ("closeTerminal", "x"),
@@ -652,8 +652,9 @@ mod tests {
             bound(&t, b"\x14n"),
             Some(Command::NewSpace { .. })
         ));
-        // Ctrl-b t = new terminal in the focused pane.
-        assert!(matches!(bound(&t, b"\x02t"), Some(Command::NewTab)));
+        // Ctrl-b T = new terminal in the focused pane. Lowercase t remains
+        // available as a prefix for terminal stack selection.
+        assert!(matches!(bound(&t, b"\x02T"), Some(Command::NewTab)));
         // Numeric space-switch (tmux preset).
         assert!(matches!(
             bound(&t, b"\x020"),
@@ -662,6 +663,10 @@ mod tests {
         // Top-level Ctrl-t digit switches terminals in the focused pane.
         assert!(matches!(
             bound(&t, b"\x140"),
+            Some(Command::SelectTab { index: 0 })
+        ));
+        assert!(matches!(
+            bound(&t, b"\x02t0"),
             Some(Command::SelectTab { index: 0 })
         ));
         assert!(matches!(
@@ -855,6 +860,17 @@ mod tests {
         assert!(pass.is_empty());
         assert_eq!(cmds.len(), 1);
         assert!(matches!(cmds[0], Command::NewSpace { .. }));
+    }
+
+    #[test]
+    fn input_handler_selects_terminal_after_tmux_t_prefix() {
+        let t = compile(&Settings::default());
+        let mut h = InputHandler::new(t);
+        let (pass, cmds) = h.process(b"\x02t0");
+
+        assert!(pass.is_empty());
+        assert_eq!(cmds.len(), 1);
+        assert!(matches!(cmds[0], Command::SelectTab { index: 0 }));
     }
 
     #[test]

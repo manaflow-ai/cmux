@@ -35,8 +35,8 @@ Requires:
 - Zig 0.15.2 (libghostty-vt's `build.rs` shells out to it)
 
 ```sh
-git clone https://github.com/manaflow-ai/cmux-cli
-cd cmux-cli
+git clone https://github.com/manaflow-ai/cmux
+cd cmux/rust/cmux-cli
 cargo build --release
 cargo install --path crates/cmx
 ```
@@ -85,7 +85,7 @@ non-conflicting Zellij bindings:
 | `C-b (` / `C-b )` | previous / next workspace |
 | `C-b w`, `C-b b`, or `C-s w` | focus the workspace sidebar |
 | `C-b X` | close workspace |
-| `C-b t` | new terminal in the focused pane |
+| `C-b T` | new terminal in the focused pane |
 | `C-b [` / `C-b ]` | previous / next terminal in the focused pane |
 | `C-t 0`–`C-t 9` or `C-b t 0`–`C-b t 9` | select terminal by number in the focused pane |
 | `C-b x` | close active terminal |
