@@ -72,14 +72,15 @@ private final class FileDropHintBadgeView: NSView {
         nil
     }
 
-    func show(text: String, near _: NSPoint, in bounds: CGRect) {
+    func show(text: String, centeredIn targetBounds: CGRect, clippedTo bounds: CGRect) {
         label.stringValue = text
         let fitting = label.intrinsicContentSize
-        let width = min(max(140, fitting.width + 20), max(80, bounds.width - 16))
+        let maxWidth = max(80, min(bounds.width, targetBounds.width) - 16)
+        let width = min(max(140, fitting.width + 20), maxWidth)
         let height: CGFloat = 26
         let origin = CGPoint(
-            x: min(max(bounds.midX - width / 2, bounds.minX + 8), max(bounds.minX + 8, bounds.maxX - width - 8)),
-            y: min(max(bounds.midY - height / 2, bounds.minY + 8), max(bounds.minY + 8, bounds.maxY - height - 8))
+            x: min(max(targetBounds.midX - width / 2, bounds.minX + 8), max(bounds.minX + 8, bounds.maxX - width - 8)),
+            y: min(max(targetBounds.midY - height / 2, bounds.minY + 8), max(bounds.minY + 8, bounds.maxY - height - 8))
         )
         frame = CGRect(origin: origin, size: CGSize(width: width, height: height))
         if isHidden {
@@ -551,12 +552,12 @@ final class FileDropOverlayView: NSView {
             modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags,
             canDropAsText: kind != nil
         ), let kind,
-           let hintText = kind.hintText(for: alternateBehavior) else {
+           let hintText = kind.hintText(for: alternateBehavior),
+           let targetBounds = hintBadgeTargetBoundsUnderPoint(sender.draggingLocation) else {
             hintBadgeView.hide()
             return
         }
-        let point = convert(sender.draggingLocation, from: nil)
-        hintBadgeView.show(text: hintText, near: point, in: bounds)
+        hintBadgeView.show(text: hintText, centeredIn: targetBounds, clippedTo: bounds)
     }
 
     private func textDropDestinationKindUnderPoint(_ windowPoint: NSPoint) -> FileDropTextDestinationKind? {
@@ -568,6 +569,23 @@ final class FileDropOverlayView: NSView {
         }
         if terminalUnderPoint(windowPoint) != nil {
             return .terminal
+        }
+        return nil
+    }
+
+    private func hintBadgeTargetBoundsUnderPoint(_ windowPoint: NSPoint) -> CGRect? {
+        if let paneDropTarget = paneDropTargetUnderPoint(windowPoint),
+           let targetView = paneDropTarget as? NSView {
+            return convert(targetView.bounds, from: targetView)
+        }
+        if let terminal = terminalUnderPoint(windowPoint) {
+            return convert(terminal.bounds, from: terminal)
+        }
+        if let webView = webViewUnderPoint(windowPoint) {
+            return convert(webView.bounds, from: webView)
+        }
+        if let textView = editableTextViewUnderPoint(windowPoint) {
+            return convert(textView.visibleRect, from: textView)
         }
         return nil
     }
