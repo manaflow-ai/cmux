@@ -7241,7 +7241,6 @@ final class Workspace: Identifiable, ObservableObject {
     /// explaining that ssh ended (instead of the user seeing an unexplained local prompt
     /// that looks identical to a healthy workspace).
     private var pendingReplacementBannerRemoteTarget: String?
-
     private static let remoteErrorStatusKey = "remote.error"
     private static let remotePortConflictStatusKey = "remote.port_conflicts"
     private static let remoteNotificationCooldown: TimeInterval = 5 * 60
@@ -7274,7 +7273,6 @@ final class Workspace: Identifiable, ObservableObject {
         restoredAgentAutoResumePendingPanelIds.remove(panelId)
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
     }
-
     private func sidebarObservationSignal<Value: Equatable>(
         _ publisher: Published<Value>.Publisher
     ) -> AnyPublisher<Void, Never> {
@@ -7284,7 +7282,6 @@ final class Workspace: Identifiable, ObservableObject {
             .map { _ in () }
             .eraseToAnyPublisher()
     }
-
     lazy var sidebarImmediateObservationPublisher: AnyPublisher<Void, Never> = {
         let publishers: [AnyPublisher<Void, Never>] = [
             sidebarObservationSignal($title),
