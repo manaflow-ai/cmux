@@ -50,6 +50,7 @@ const NATIVE_GRID_FRAME_MS: u64 = 16;
 const PTY_REPLAY_MAX_BYTES: usize = 4 * 1024 * 1024;
 const LIBGHOSTTY_PTY_REPLAY_RESET: &[u8] = b"\x1bc";
 const CLIENT_VIEW_STALE_TIMEOUT_MS: u64 = 15_000;
+const WEBSOCKET_HELLO_TIMEOUT: Duration = Duration::from_secs(5);
 
 fn flash_is_on(deadline_ms: u64, now_ms: u64) -> bool {
     if deadline_ms <= now_ms {
@@ -5632,8 +5633,7 @@ async fn run_session(
     heartbeat: HeartbeatConfig,
 ) -> Result<()> {
     let websocket_session = session.is_websocket();
-    let hello = session
-        .recv()
+    let hello = read_initial_hello(&mut session, websocket_session)
         .await?
         .ok_or_else(|| anyhow!("client disconnected before Hello"))?;
     let (native, version, viewport, token, terminal_renderer) = match hello {
@@ -6475,6 +6475,20 @@ async fn refresh_native_snapshot_for_renderer(
         send_visible_native_pty_replay(session, daemon, window, pty_mux, replayed_tabs).await?;
     }
     Ok(())
+}
+
+async fn read_initial_hello(
+    session: &mut Session,
+    websocket_session: bool,
+) -> Result<Option<ClientMsg>> {
+    if websocket_session {
+        tokio::time::timeout(WEBSOCKET_HELLO_TIMEOUT, session.recv())
+            .await
+            .map_err(|_| anyhow!("websocket client timed out before Hello"))?
+            .map_err(Into::into)
+    } else {
+        session.recv().await.map_err(Into::into)
+    }
 }
 
 async fn send_native_snapshot(

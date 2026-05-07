@@ -354,6 +354,37 @@ async fn websocket_attach_with_token_works() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn websocket_without_hello_is_closed_by_deadline() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("server.sock");
+    let (ws_listener, ws_addr) = bind_ws_listener().await;
+    let opts = ServerOptions {
+        socket_path: socket,
+        shell: "/bin/sh".into(),
+        cwd: Some(dir.path().to_path_buf()),
+        initial_viewport: (80, 24),
+        snapshot_path: None,
+        settings_path: None,
+        ws_bind: None,
+        auth_token: Some("sekrit".into()),
+    };
+    let server = tokio::spawn(async move {
+        let _ = run_with_websocket_listener(opts, HeartbeatConfig::default(), ws_listener).await;
+    });
+
+    let mut ws = connect_ws(ws_addr).await;
+    let next = timeout(Duration::from_secs(6), ws.next())
+        .await
+        .expect("websocket client without Hello should be closed by server");
+    match next {
+        None | Some(Ok(Message::Close(_))) | Some(Err(_)) => {}
+        Some(Ok(other)) => panic!("expected close after missing Hello timeout, got {other:?}"),
+    }
+
+    server.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn websocket_native_mode_streams_structured_state_and_terminal_grid() {
     let dir = tempfile::tempdir().unwrap();
     let socket = dir.path().join("server.sock");
