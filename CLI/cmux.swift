@@ -8446,7 +8446,7 @@ struct CMUXCLI {
             agent. Claude Code hooks are injected automatically by the cmux Claude wrapper.
 
             Agents:
-              codex, opencode, pi, cursor, gemini, rovodev (alias: rovo), copilot, codebuddy, factory, qoder
+              codex, opencode, pi, cursor, gemini, rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder
 
             Hook targets:
               setup              Install hooks for all supported agents on PATH
@@ -15699,7 +15699,7 @@ struct CMUXCLI {
     // MARK: - Generic agent hook system
 
     /// Configuration for a hook-based agent integration.
-    private struct AgentHookDef {
+    struct AgentHookDef {
         let name: String            // CLI name: "cursor", "gemini", etc.
         let displayName: String     // Human-readable: "Cursor", "Gemini"
         let statusKey: String       // Key for set_status: "cursor", "gemini"
@@ -15725,6 +15725,7 @@ struct CMUXCLI {
             case flat       // Cursor: {"hooks": {"event": [{"command": "..."}]}, "version": 1}
             case nested(timeoutMs: Int)  // Codex/Gemini: nested with type/command/timeout
             case rovoDevYAML
+            case hermesAgentYAML
         }
 
         struct HookEvent {
@@ -15859,6 +15860,22 @@ struct CMUXCLI {
             aliases: ["rovo"]
         ),
         AgentHookDef(
+            name: "hermes-agent", displayName: "Hermes Agent", statusKey: "hermes-agent",
+            configDir: ".hermes", configFile: "config.yaml", configDirEnvOverride: "HERMES_HOME",
+            binaryName: "hermes",
+            sessionStoreSuffix: "hermes-agent", disableEnvVar: "CMUX_HERMES_AGENT_HOOKS_DISABLED",
+            hookMarker: "cmux hooks hermes-agent", format: .hermesAgentYAML,
+            events: [
+                .init(agentEvent: "on_session_start", cmuxSubcommand: "session-start"),
+                .init(agentEvent: "pre_llm_call", cmuxSubcommand: "prompt-submit"),
+                .init(agentEvent: "post_llm_call", cmuxSubcommand: "agent-response"),
+                .init(agentEvent: "on_session_end", cmuxSubcommand: "session-end"),
+                .init(agentEvent: "on_session_finalize", cmuxSubcommand: "session-end"),
+                .init(agentEvent: "on_session_reset", cmuxSubcommand: "session-start"),
+            ],
+            feedHookEvents: ["pre_tool_call", "post_tool_call", "pre_approval_request", "post_approval_response"]
+        ),
+        AgentHookDef(
             name: "copilot", displayName: "Copilot", statusKey: "copilot",
             configDir: ".copilot", configFile: "config.json", configDirEnvOverride: "COPILOT_HOME",
             sessionStoreSuffix: "copilot", disableEnvVar: "CMUX_COPILOT_HOOKS_DISABLED",
@@ -15925,8 +15942,7 @@ struct CMUXCLI {
     }
 
     // MARK: Generic hook install/uninstall
-
-    private func hookCommand(for def: AgentHookDef, event: AgentHookDef.HookEvent) -> String {
+    func hookCommand(for def: AgentHookDef, event: AgentHookDef.HookEvent) -> String {
         "[ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && command -v cmux >/dev/null 2>&1 && cmux hooks \(def.name) \(event.cmuxSubcommand) || echo '{}'"
     }
 
@@ -15934,7 +15950,7 @@ struct CMUXCLI {
     /// inside the shell is applied via the agent's `timeout` field in the
     /// nested hook config (see `buildHooksDict`); the shell command
     /// itself just dispatches.
-    private func feedHookCommand(for def: AgentHookDef, agentEvent: String) -> String {
+    func feedHookCommand(for def: AgentHookDef, agentEvent: String) -> String {
         "[ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && command -v cmux >/dev/null 2>&1 && cmux hooks feed --source \(def.name) --event \(agentEvent) || echo '{}'"
     }
 
@@ -15963,7 +15979,7 @@ struct CMUXCLI {
                     "hooks": [["type": "command", "command": cmd, "timeout": timeoutMs] as [String: Any]]
                 ] as [String: Any])
                 result[event.agentEvent] = groups
-            case .rovoDevYAML:
+            case .rovoDevYAML, .hermesAgentYAML:
                 break
             }
         }
@@ -15984,7 +16000,7 @@ struct CMUXCLI {
                     "hooks": [["type": "command", "command": feedCmd, "timeout": feedTimeoutMs] as [String: Any]]
                 ] as [String: Any])
                 result[agentEvent] = groups
-            case .rovoDevYAML:
+            case .rovoDevYAML, .hermesAgentYAML:
                 break
             }
         }
@@ -16522,7 +16538,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             throw CLIError(message: "\(configDir) exists but is not a directory. Move it aside before installing \(def.displayName) hooks.")
         }
 
-        let oldString = try readRovoDevConfig(filePath: filePath, displayName: def.displayName)
+        let oldString = try readAgentHookConfig(filePath: filePath, displayName: def.displayName)
         let newString = try rovoDevHooksContent(existing: oldString, def: def, shouldInstall: true)
         if oldString == newString {
             print("\(def.displayName) hooks already up to date at \(filePath)")
@@ -16554,7 +16570,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             print("No \(def.configFile) found at \(filePath)")
             return
         }
-        let oldString = try readRovoDevConfig(filePath: filePath, displayName: def.displayName)
+        let oldString = try readAgentHookConfig(filePath: filePath, displayName: def.displayName)
         let newString = try rovoDevHooksContent(existing: oldString, def: def, shouldInstall: false)
         guard oldString != newString else {
             print("Removed 0 cmux hook(s) from \(filePath)")
@@ -16564,7 +16580,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         print("Removed Rovo Dev cmux hooks from \(filePath)")
     }
 
-    private func readRovoDevConfig(filePath: String, displayName: String) throws -> String {
+    func readAgentHookConfig(filePath: String, displayName: String) throws -> String {
         let fm = FileManager.default
         guard fm.fileExists(atPath: filePath) else { return "" }
         do {
@@ -16602,6 +16618,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
         if def.name == "rovodev" {
             try installRovoDevHooks(def)
+            return
+        }
+        if def.name == "hermes-agent" {
+            try installHermesAgentHooks(def)
             return
         }
 
@@ -16661,7 +16681,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     rewrittenGroups.append(group)
                 }
                 hooks[event] = rewrittenGroups.isEmpty ? nil : rewrittenGroups
-            case .rovoDevYAML:
+            case .rovoDevYAML, .hermesAgentYAML:
                 break
             }
         }
@@ -16677,7 +16697,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 var groups = hooks[event] as? [[String: Any]] ?? []
                 if let newGroups = value as? [[String: Any]] { groups.append(contentsOf: newGroups) }
                 hooks[event] = groups
-            case .rovoDevYAML:
+            case .rovoDevYAML, .hermesAgentYAML:
                 break
             }
         }
@@ -16779,6 +16799,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             try uninstallRovoDevHooks(def)
             return
         }
+        if def.name == "hermes-agent" {
+            try uninstallHermesAgentHooks(def)
+            return
+        }
 
         let fm = FileManager.default
         let configDir = def.resolvedConfigDir()
@@ -16821,7 +16845,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     rewrittenGroups.append(group)
                 }
                 hooks[event] = rewrittenGroups.isEmpty ? nil : rewrittenGroups
-            case .rovoDevYAML:
+            case .rovoDevYAML, .hermesAgentYAML:
                 break
             }
         }
@@ -19191,6 +19215,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             case "cursor":   envKey = "CMUX_CURSOR_PID"
             case "gemini":   envKey = "CMUX_GEMINI_PID"
             case "rovodev":  envKey = "CMUX_ROVODEV_PID"
+            case "hermes-agent": envKey = "CMUX_HERMES_AGENT_PID"
             case "copilot":  envKey = "CMUX_COPILOT_PID"
             default:         envKey = ""
             }
@@ -19334,6 +19359,32 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
         }
 
+        if source == "hermes-agent" {
+            switch event {
+            case "pre_tool_call":
+                if Self.sideEffectingTools.contains(toolName) {
+                    return ("PermissionRequest", true)
+                }
+                return ("PreToolUse", false)
+            case "post_tool_call":
+                return ("PostToolUse", false)
+            case "pre_approval_request":
+                return ("Notification", false)
+            case "post_approval_response":
+                return ("Notification", false)
+            case "pre_llm_call":
+                return ("UserPromptSubmit", false)
+            case "post_llm_call":
+                return ("Stop", false)
+            case "on_session_start", "on_session_reset":
+                return ("SessionStart", false)
+            case "on_session_end", "on_session_finalize":
+                return ("SessionEnd", false)
+            default:
+                return ("PreToolUse", false)
+            }
+        }
+
         switch event {
         case "PreToolUse", "beforeShellExecution":
             if source == "codex" { return ("PreToolUse", false) }
@@ -19385,6 +19436,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         "NotebookEdit",
         "apply_patch",   // Codex
         "shell",         // Codex / other agents
+        "terminal",      // Hermes Agent
     ]
 
     private static let skipInterviewAndPlanAnswer = "Skip interview and plan immediately"
@@ -19473,6 +19525,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return out
         }
 
+        func hermesAgentBlock(_ message: String) -> String {
+            encode(["action": "block", "message": message])
+        }
+
         switch kind {
         case "permission":
             let mode = decision["mode"] as? String ?? "deny"
@@ -19500,6 +19556,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     ))
                 }
                 return encode(permissionRequestHookDecision(behavior: "allow"))
+            }
+            if source == "hermes-agent" {
+                if mode == "deny" {
+                    return hermesAgentBlock("User denied permission via cmux Feed.")
+                }
+                return "{}"
             }
             if mode == "deny" {
                 return encode(nonClaudePreToolDecision(
@@ -19552,6 +19614,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     updatedInput: jsonDictionary(from: toolInput),
                     updatedPermissions: updatedPermissions
                 ))
+            }
+            if source == "hermes-agent" {
+                if let feedback, !feedback.isEmpty {
+                    return hermesAgentBlock("User rejected the plan via cmux Feed and wants this change: \(feedback)")
+                }
+                if mode == "deny" {
+                    return hermesAgentBlock("User rejected the plan via cmux Feed.")
+                }
+                return "{}"
             }
             if let feedback, !feedback.isEmpty {
                 let reason = "User rejected the plan via cmux Feed and wants this change: \(feedback)"
@@ -19606,6 +19677,17 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     reason: message,
                     additionalContext: message
                 ))
+            }
+            if source == "hermes-agent" {
+                let body: String
+                if selections.isEmpty {
+                    body = "The user submitted an empty answer."
+                } else if selections.count == 1 {
+                    body = "The user answered: \(selections[0])"
+                } else {
+                    body = "The user answered: \(selections.joined(separator: ", "))"
+                }
+                return encode(["context": body])
             }
             if source == "claude" {
                 let updatedInput = claudeAskUserQuestionInput(

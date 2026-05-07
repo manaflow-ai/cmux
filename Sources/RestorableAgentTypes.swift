@@ -8,6 +8,7 @@ enum RestorableAgentKind: String, Codable, CaseIterable, Sendable {
     case gemini
     case opencode
     case rovodev
+    case hermesAgent = "hermes-agent"
     case copilot
     case codebuddy
     case factory
