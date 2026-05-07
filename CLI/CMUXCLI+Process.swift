@@ -1,5 +1,5 @@
-import Foundation
 import Darwin
+import Foundation
 
 struct CLIProcessResult {
     let status: Int32
