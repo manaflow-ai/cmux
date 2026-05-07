@@ -733,7 +733,7 @@ final class WindowBrowserHostViewTests: XCTestCase {
                 eventType: .leftMouseDragged
             )
         )
-        XCTAssertFalse(
+        XCTAssertTrue(
             DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
                 pasteboardTypes: [.fileURL],
                 eventType: .mouseMoved

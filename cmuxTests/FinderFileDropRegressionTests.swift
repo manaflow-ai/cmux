@@ -58,6 +58,32 @@ final class FinderFileDropRegressionTests: XCTestCase {
         )
     }
 
+    func testFinderFileDropHitTestingUsesAppKitDragMoveEvents() {
+        let pasteboardTypes: [NSPasteboard.PasteboardType] = [.fileURL]
+
+        XCTAssertTrue(
+            DragOverlayRoutingPolicy.shouldCaptureFileDropOverlay(
+                pasteboardTypes: pasteboardTypes,
+                eventType: .mouseMoved
+            ),
+            "Finder drags can arrive as mouseMoved events, so the window overlay still has to capture them"
+        )
+        XCTAssertTrue(
+            DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
+                pasteboardTypes: pasteboardTypes,
+                eventType: .mouseMoved
+            ),
+            "Portal-hosted terminals must let mouseMoved Finder drags reach the pane drop target"
+        )
+        XCTAssertTrue(
+            PaneDropTargetView.shouldCaptureHitTesting(
+                pasteboardTypes: pasteboardTypes,
+                eventType: .mouseMoved
+            ),
+            "The pane drop target owns Shift-aware terminal-vs-preview routing even when AppKit reports mouseMoved"
+        )
+    }
+
     func testPaneFileDropRoutingDefaultsToPreviewAndUsesShiftForTerminalDrops() {
         XCTAssertEqual(
             PaneDropRouting.externalFileDropRouting(
