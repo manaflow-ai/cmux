@@ -154,8 +154,16 @@ fi
 REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
 
 ensure_node_options_restore_module() {
-    local guard_dir="${TMPDIR:-/tmp}"
-    guard_dir="${guard_dir%/}/cmux-claude-node-options"
+    # cmux #3463: keep this dir under $HOME so it survives macOS $TMPDIR cleanup.
+    # When $HOME is somehow unset we fall back to the historical $TMPDIR location
+    # rather than failing the whole wrapper.
+    local guard_dir
+    if [[ -n "${HOME:-}" ]]; then
+        guard_dir="${HOME%/}/.claude/cmux/cmux-claude-node-options"
+    else
+        guard_dir="${TMPDIR:-/tmp}"
+        guard_dir="${guard_dir%/}/cmux-claude-node-options"
+    fi
     local guard_path="$guard_dir/restore-node-options.cjs"
     mkdir -p "$guard_dir" || return 1
     local temp_path
