@@ -151,6 +151,10 @@ enum AgentResumeCommandBuilder {
                 option: "--session",
                 sessionId: sessionId
             )
+        case .amp:
+            let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "amp")
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "amp", args: original.tail) else { return nil }
+            return [original.executable, "threads", "continue"] + preserved + [sessionId]
         case .cursor:
             return resumeWithOption(
                 kind: "cursor",

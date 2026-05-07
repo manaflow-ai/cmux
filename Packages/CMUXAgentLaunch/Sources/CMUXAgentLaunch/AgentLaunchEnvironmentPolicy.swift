@@ -25,6 +25,11 @@ public enum ClaudeConfigDirectoryPath {
 
 public enum AgentLaunchEnvironmentPolicy {
     private static let safeEnvironmentKeys: Set<String> = [
+        "AMP_API_KEY",
+        "AMP_LOG_FILE",
+        "AMP_LOG_LEVEL",
+        "AMP_SETTINGS_FILE",
+        "AMP_URL",
         "ANTHROPIC_BASE_URL",
         "ANTHROPIC_MODEL",
         "CLAUDE_CONFIG_DIR",

@@ -4,6 +4,7 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
     case claude
     case codex
     case pi
+    case amp
     case cursor
     case gemini
     case opencode
@@ -20,6 +21,7 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         .codex,
         // Pi is registry-owned so the built-in Vault registration can be
         // overridden by project config while direct .pi values still encode.
+        .amp,
         .cursor,
         .gemini,
         .opencode,
@@ -37,6 +39,7 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         case "claude": self = .claude
         case "codex": self = .codex
         case "pi": self = .pi
+        case "amp": self = .amp
         case "cursor": self = .cursor
         case "gemini": self = .gemini
         case "opencode": self = .opencode
@@ -57,6 +60,7 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         case .claude: return "claude"
         case .codex: return "codex"
         case .pi: return "pi"
+        case .amp: return "amp"
         case .cursor: return "cursor"
         case .gemini: return "gemini"
         case .opencode: return "opencode"

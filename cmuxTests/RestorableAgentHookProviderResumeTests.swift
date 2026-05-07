@@ -219,6 +219,29 @@ extension SocketListenerAcceptPolicyTests {
                 workingDirectory: "/tmp/pi repo", environment: ["PI_CODING_AGENT_DIR": "/tmp/pi home", "OPENAI_API_KEY": "secret"], capturedAt: 123, source: "process"
             )
         )
+        let amp = SessionRestorableAgentSnapshot(
+            kind: .amp,
+            sessionId: "T-019e032c-c31a-77a9-ad87-8298ec47029f",
+            workingDirectory: "/tmp/amp repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "amp",
+                executablePath: "/Users/example/.local/bin/amp",
+                arguments: [
+                    "/Users/example/.local/bin/amp",
+                    "threads",
+                    "continue",
+                    "T-old-thread",
+                    "--mode",
+                    "smart",
+                    "--effort",
+                    "high"
+                ],
+                workingDirectory: "/tmp/amp repo",
+                environment: ["AMP_API_KEY": "secret", "OPENAI_API_KEY": "secret"],
+                capturedAt: 123,
+                source: "process"
+            )
+        )
 
         XCTAssertEqual(
             cursor.resumeCommand,
@@ -241,6 +264,10 @@ extension SocketListenerAcceptPolicyTests {
             "cd '/tmp/qoder repo' && 'env' 'QODER_CONFIG_DIR=/tmp/qoder config' '/Users/example/.npm/bin/qodercli' '--resume' 'qoder-session-123' '--model' 'gemini-2.5-pro' '--permission-mode' 'plan' '--workspace' '/tmp/qoder repo'"
         )
         XCTAssertEqual(pi.resumeCommand, "cd '/tmp/pi repo' && 'env' 'PI_CODING_AGENT_DIR=/tmp/pi home' '/Users/example/.bun/bin/pi' '--session' 'pi-session-123' '--model' 'anthropic/claude-sonnet-4-5' '--thinking' 'high'")
+        XCTAssertEqual(
+            amp.resumeCommand,
+            "cd '/tmp/amp repo' && 'env' 'AMP_API_KEY=secret' '/Users/example/.local/bin/amp' 'threads' 'continue' '--mode' 'smart' '--effort' 'high' 'T-019e032c-c31a-77a9-ad87-8298ec47029f'"
+        )
     }
 
     func testAgentLaunchSanitizerMatchesGeminiAndRovoResumePolicies() {

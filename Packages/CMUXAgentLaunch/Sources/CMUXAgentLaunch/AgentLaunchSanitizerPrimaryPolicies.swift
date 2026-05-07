@@ -217,6 +217,50 @@ extension AgentLaunchSanitizer {
         ]
     )
 
+    static let ampPolicy = Policy(
+        valueOptions: [
+            "--effort",
+            "--log-file",
+            "--log-level",
+            "--mcp-config",
+            "--mode",
+            "--settings-file",
+            "--visibility",
+            "-l",
+            "-m"
+        ],
+        nonRestorableCommands: [
+            "login",
+            "logout",
+            "mcp",
+            "permissions",
+            "permission",
+            "review",
+            "skill",
+            "skills",
+            "tool",
+            "tools",
+            "update",
+            "up",
+            "usage",
+            "version"
+        ],
+        droppedOptions: [
+            "--archive",
+            "--label",
+            "--stream-json",
+            "--stream-json-input",
+            "--stream-json-thinking",
+            "-l"
+        ],
+        rejectOptions: [
+            "--execute",
+            "--print",
+            "-V",
+            "-x"
+        ]
+    )
+
     static let geminiPolicy = Policy(
         valueOptions: [
             "--model",

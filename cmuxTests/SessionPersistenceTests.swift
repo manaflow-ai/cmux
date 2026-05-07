@@ -1358,6 +1358,8 @@ final class SessionPersistenceTests: XCTestCase {
                 resolvedEnvironment = ["CODEX_HOME": "/tmp/codex"]
             case .pi:
                 resolvedEnvironment = ["PI_CODING_AGENT_DIR": "/tmp/pi"]
+            case .amp:
+                resolvedEnvironment = ["AMP_API_KEY": "test-key"]
             case .cursor, .rovodev, .factory, .custom:
                 resolvedEnvironment = [:]
             case .gemini:
