@@ -563,6 +563,16 @@ final class FilePreviewPanel: Panel, ObservableObject {
         focusCoordinator.register(root: textView, primaryResponder: textView, intent: .textEditor)
     }
 
+    func handleDroppedFileURLsAsText(_ urls: [URL]) -> Bool {
+        guard previewMode == .text, let textView else { return false }
+        let text = TerminalImageTransferPlanner.insertedText(forFileURLs: urls)
+        guard !text.isEmpty else { return false }
+        textView.window?.makeFirstResponder(textView)
+        textView.insertText(text, replacementRange: textView.selectedRange())
+        updateTextContent(textView.string)
+        return true
+    }
+
     func retryPendingFocus() {
         focusCoordinator.fulfillPendingFocusIfNeeded()
     }

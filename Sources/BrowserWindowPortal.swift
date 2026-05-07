@@ -1368,70 +1368,12 @@ enum BrowserPaneDropAction: Equatable {
 }
 
 enum BrowserPaneDropRouting {
-    private static let padding: CGFloat = 4
-
-    private static func fullPaneSize(for slotSize: CGSize, topChromeHeight: CGFloat) -> CGSize {
-        CGSize(width: slotSize.width, height: slotSize.height + max(0, topChromeHeight))
-    }
-
     static func zone(for location: CGPoint, in size: CGSize, topChromeHeight: CGFloat = 0) -> DropZone {
-        let fullPaneSize = fullPaneSize(for: size, topChromeHeight: topChromeHeight)
-        let edgeRatio: CGFloat = 0.25
-        let horizontalEdge = max(80, fullPaneSize.width * edgeRatio)
-        let verticalEdge = max(80, fullPaneSize.height * edgeRatio)
-
-        if location.x < horizontalEdge {
-            return .left
-        } else if location.x > fullPaneSize.width - horizontalEdge {
-            return .right
-        } else if location.y > fullPaneSize.height - verticalEdge {
-            return .top
-        } else if location.y < verticalEdge {
-            return .bottom
-        } else {
-            return .center
-        }
+        PaneDropRouting.zone(for: location, in: size, topChromeHeight: topChromeHeight)
     }
 
     static func overlayFrame(for zone: DropZone, in size: CGSize, topChromeHeight: CGFloat = 0) -> CGRect {
-        let fullPaneSize = fullPaneSize(for: size, topChromeHeight: topChromeHeight)
-        switch zone {
-        case .center:
-            return CGRect(
-                x: padding,
-                y: padding,
-                width: fullPaneSize.width - padding * 2,
-                height: fullPaneSize.height - padding * 2
-            )
-        case .left:
-            return CGRect(
-                x: padding,
-                y: padding,
-                width: fullPaneSize.width / 2 - padding,
-                height: fullPaneSize.height - padding * 2
-            )
-        case .right:
-            return CGRect(
-                x: fullPaneSize.width / 2,
-                y: padding,
-                width: fullPaneSize.width / 2 - padding,
-                height: fullPaneSize.height - padding * 2
-            )
-        case .top:
-            return CGRect(
-                x: padding,
-                y: fullPaneSize.height / 2,
-                width: fullPaneSize.width - padding * 2,
-                height: fullPaneSize.height / 2 - padding
-            )
-        case .bottom:
-            return CGRect(
-                x: padding,
-                y: padding,
-                width: fullPaneSize.width - padding * 2,
-                height: fullPaneSize.height / 2 - padding
-            )
-        }
+        PaneDropRouting.overlayFrame(for: zone, in: size, topChromeHeight: topChromeHeight)
     }
 
     static func action(
@@ -1469,18 +1411,7 @@ enum BrowserPaneDropRouting {
         target: BrowserPaneDropContext,
         zone: DropZone
     ) -> BonsplitController.ExternalTabDropRequest.Destination {
-        switch zone {
-        case .center:
-            return .insert(targetPane: target.paneId, targetIndex: nil)
-        case .left:
-            return .split(targetPane: target.paneId, orientation: .horizontal, insertFirst: true)
-        case .right:
-            return .split(targetPane: target.paneId, orientation: .horizontal, insertFirst: false)
-        case .top:
-            return .split(targetPane: target.paneId, orientation: .vertical, insertFirst: true)
-        case .bottom:
-            return .split(targetPane: target.paneId, orientation: .vertical, insertFirst: false)
-        }
+        PaneDropRouting.filePreviewDestination(targetPane: target.paneId, zone: zone)
     }
 }
 
@@ -1496,10 +1427,10 @@ final class BrowserPaneDropTargetView: NSView {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        registerForDraggedTypes([
+        registerForDraggedTypes(Array(Set([
             DragOverlayRoutingPolicy.filePreviewTransferType,
-            DragOverlayRoutingPolicy.bonsplitTabTransferType
-        ])
+            DragOverlayRoutingPolicy.bonsplitTabTransferType,
+        ]).union(PasteboardFileURLReader.fileURLPasteboardTypes)))
     }
 
     @available(*, unavailable)
@@ -1511,7 +1442,19 @@ final class BrowserPaneDropTargetView: NSView {
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
         eventType: NSEvent.EventType?
     ) -> Bool {
-        guard DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboardTypes) else { return false }
+        let hasFileURL = DragOverlayRoutingPolicy.hasFileURL(pasteboardTypes)
+        let fileDropBehavior = DragOverlayRoutingPolicy.resolvedFileDropBehavior(
+            pasteboardTypes: pasteboardTypes,
+            modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags,
+            canDropAsText: true
+        )
+        let fileDropWantsPreview = fileDropBehavior == .preview
+        let shouldCaptureFileDrop = fileDropBehavior != nil
+        let hasFilePreviewTransfer = DragOverlayRoutingPolicy.hasFilePreviewTransfer(pasteboardTypes)
+        let hasBonsplitTransfer = DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboardTypes)
+        let shouldCaptureFilePreviewTransfer = hasFilePreviewTransfer && (!hasFileURL || fileDropWantsPreview)
+        let shouldCaptureBonsplitTransfer = hasBonsplitTransfer && !hasFilePreviewTransfer
+        guard shouldCaptureBonsplitTransfer || shouldCaptureFilePreviewTransfer || shouldCaptureFileDrop else { return false }
         guard let eventType else { return false }
 
         switch eventType {
@@ -1522,6 +1465,9 @@ final class BrowserPaneDropTargetView: NSView {
              .leftMouseDragged,
              .rightMouseDragged,
              .otherMouseDragged,
+             .leftMouseUp,
+             .rightMouseUp,
+             .otherMouseUp,
              .appKitDefined,
              .applicationDefined,
              .systemDefined,
@@ -1567,11 +1513,9 @@ final class BrowserPaneDropTargetView: NSView {
             clearDragState(phase: "perform.clear")
         }
 
-        guard let dropContext,
-              let transfer = BrowserPaneDragTransfer.decode(from: sender.draggingPasteboard),
-              transfer.isFromCurrentProcess else {
+        guard let dropContext else {
 #if DEBUG
-            cmuxDebugLog("browser.paneDrop.perform allowed=0 reason=missingTransfer")
+            cmuxDebugLog("browser.paneDrop.perform allowed=0 reason=missingContext")
 #endif
             return false
         }
@@ -1583,77 +1527,122 @@ final class BrowserPaneDropTargetView: NSView {
             topChromeHeight: slotView?.effectivePaneTopChromeHeight() ?? 0
         )
 
-        if transfer.isFilePreview {
-            guard let entry = FilePreviewDragRegistry.shared.consume(id: transfer.tabId),
-                  let workspace = AppDelegate.shared?.workspaceFor(tabId: dropContext.workspaceId) else {
-#if DEBUG
-                cmuxDebugLog(
-                    "browser.paneDrop.perform allowed=0 panel=\(dropContext.panelId.uuidString.prefix(5)) " +
-                    "reason=missingFilePreviewEntry tab=\(transfer.tabId.uuidString.prefix(5))"
-                )
-#endif
-                return false
-            }
-            let handled = workspace.handleFilePreviewDrop(
-                entry: entry,
-                destination: BrowserPaneDropRouting.filePreviewDestination(
-                    target: dropContext,
-                    zone: zone
-                )
-            )
+        if DragOverlayRoutingPolicy.hasFileURL(sender.draggingPasteboard.types),
+           DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
+                pasteboardTypes: sender.draggingPasteboard.types,
+                modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags,
+                canDropAsText: true
+           ) {
+            let urls = DragOverlayRoutingPolicy.fileURLs(from: sender.draggingPasteboard)
+            let handled = slotView?.handleDroppedFileURLsAsText(urls, at: location) ?? false
 #if DEBUG
             cmuxDebugLog(
-                "browser.paneDrop.perform panel=\(dropContext.panelId.uuidString.prefix(5)) " +
-                "tab=\(transfer.tabId.uuidString.prefix(5)) zone=\(zone) filePreview=1 handled=\(handled ? 1 : 0)"
+                "browser.paneDrop.performAsText panel=\(dropContext.panelId.uuidString.prefix(5)) " +
+                "fileURLs=\(urls.count) handled=\(handled ? 1 : 0)"
             )
 #endif
             return handled
         }
 
-        guard let action = BrowserPaneDropRouting.action(
-            for: transfer,
-            target: dropContext,
-            zone: zone
-        ) else {
+        if let transfer = BrowserPaneDragTransfer.decode(from: sender.draggingPasteboard),
+           transfer.isFromCurrentProcess {
+            if transfer.isFilePreview {
+                guard let entry = FilePreviewDragRegistry.shared.consume(id: transfer.tabId),
+                      let workspace = AppDelegate.shared?.workspaceFor(tabId: dropContext.workspaceId) else {
+#if DEBUG
+                    cmuxDebugLog(
+                        "browser.paneDrop.perform allowed=0 panel=\(dropContext.panelId.uuidString.prefix(5)) " +
+                        "reason=missingFilePreviewEntry tab=\(transfer.tabId.uuidString.prefix(5))"
+                    )
+#endif
+                    return false
+                }
+                let handled = workspace.handleFilePreviewDrop(
+                    entry: entry,
+                    destination: BrowserPaneDropRouting.filePreviewDestination(
+                        target: dropContext,
+                        zone: zone
+                    )
+                )
+#if DEBUG
+                cmuxDebugLog(
+                    "browser.paneDrop.perform panel=\(dropContext.panelId.uuidString.prefix(5)) " +
+                    "tab=\(transfer.tabId.uuidString.prefix(5)) zone=\(zone) filePreview=1 handled=\(handled ? 1 : 0)"
+                )
+#endif
+                return handled
+            }
+
+            guard let action = BrowserPaneDropRouting.action(
+                for: transfer,
+                target: dropContext,
+                zone: zone
+            ) else {
+#if DEBUG
+                cmuxDebugLog(
+                    "browser.paneDrop.perform allowed=0 panel=\(dropContext.panelId.uuidString.prefix(5)) " +
+                    "reason=noAction zone=\(zone)"
+                )
+#endif
+                return false
+            }
+
+            switch action {
+            case .noOp:
+#if DEBUG
+                cmuxDebugLog(
+                    "browser.paneDrop.perform allowed=1 panel=\(dropContext.panelId.uuidString.prefix(5)) " +
+                    "tab=\(transfer.tabId.uuidString.prefix(5)) action=noop"
+                )
+#endif
+                return true
+            case .move(let tabId, let workspaceId, let targetPane, let splitTarget):
+                let moved = AppDelegate.shared?.moveBonsplitTab(
+                    tabId: tabId,
+                    toWorkspace: workspaceId,
+                    targetPane: targetPane,
+                    splitTarget: splitTarget.map { ($0.orientation, $0.insertFirst) },
+                    focus: true,
+                    focusWindow: true
+                ) ?? false
+#if DEBUG
+                let splitLabel = splitTarget.map {
+                    "\($0.orientation.rawValue):\($0.insertFirst ? 1 : 0)"
+                } ?? "none"
+                cmuxDebugLog(
+                    "browser.paneDrop.perform panel=\(dropContext.panelId.uuidString.prefix(5)) " +
+                    "tab=\(tabId.uuidString.prefix(5)) zone=\(zone) pane=\(targetPane.id.uuidString.prefix(5)) " +
+                    "split=\(splitLabel) moved=\(moved ? 1 : 0)"
+                )
+#endif
+                return moved
+            }
+        }
+
+        let urls = DragOverlayRoutingPolicy.fileURLs(from: sender.draggingPasteboard)
+        guard !urls.isEmpty,
+              let workspace = AppDelegate.shared?.workspaceFor(tabId: dropContext.workspaceId) else {
 #if DEBUG
             cmuxDebugLog(
-                "browser.paneDrop.perform allowed=0 panel=\(dropContext.panelId.uuidString.prefix(5)) " +
-                "reason=noAction zone=\(zone)"
+                "browser.paneDrop.perform allowed=0 panel=\(dropContext.panelId.uuidString.prefix(5)) reason=missingTransferAndFiles"
             )
 #endif
             return false
         }
-
-        switch action {
-        case .noOp:
-#if DEBUG
-            cmuxDebugLog(
-                "browser.paneDrop.perform allowed=1 panel=\(dropContext.panelId.uuidString.prefix(5)) " +
-                "tab=\(transfer.tabId.uuidString.prefix(5)) action=noop"
+        let handled = workspace.handleExternalFileDrop(BonsplitController.ExternalFileDropRequest(
+            urls: urls,
+            destination: PaneDropRouting.filePreviewDestination(
+                targetPane: dropContext.paneId,
+                zone: zone
             )
-#endif
-            return true
-        case .move(let tabId, let workspaceId, let targetPane, let splitTarget):
-            let moved = AppDelegate.shared?.moveBonsplitTab(
-                tabId: tabId,
-                toWorkspace: workspaceId,
-                targetPane: targetPane,
-                splitTarget: splitTarget.map { ($0.orientation, $0.insertFirst) },
-                focus: true,
-                focusWindow: true
-            ) ?? false
+        ))
 #if DEBUG
-            let splitLabel = splitTarget.map {
-                "\($0.orientation.rawValue):\($0.insertFirst ? 1 : 0)"
-            } ?? "none"
-            cmuxDebugLog(
-                "browser.paneDrop.perform panel=\(dropContext.panelId.uuidString.prefix(5)) " +
-                "tab=\(tabId.uuidString.prefix(5)) zone=\(zone) pane=\(targetPane.id.uuidString.prefix(5)) " +
-                "split=\(splitLabel) moved=\(moved ? 1 : 0)"
-            )
+        cmuxDebugLog(
+            "browser.paneDrop.perform panel=\(dropContext.panelId.uuidString.prefix(5)) " +
+            "fileURLs=\(urls.count) zone=\(zone) handled=\(handled ? 1 : 0)"
+        )
 #endif
-            return moved
-        }
+        return handled
     }
 
     private func updateDragState(_ sender: any NSDraggingInfo, phase: String) -> NSDragOperation {
@@ -1663,10 +1652,7 @@ final class BrowserPaneDropTargetView: NSView {
             return []
         }
 
-        guard let dropContext,
-              let transfer = BrowserPaneDragTransfer.decode(from: sender.draggingPasteboard),
-              transfer.isFromCurrentProcess,
-              (!transfer.isFilePreview || FilePreviewDragRegistry.shared.contains(id: transfer.tabId)) else {
+        guard let dropContext else {
             clearDragState(phase: "\(phase).reject")
             return []
         }
@@ -1676,15 +1662,46 @@ final class BrowserPaneDropTargetView: NSView {
             in: bounds.size,
             topChromeHeight: slotView?.effectivePaneTopChromeHeight() ?? 0
         )
+
+        if DragOverlayRoutingPolicy.hasFileURL(sender.draggingPasteboard.types),
+           DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
+                pasteboardTypes: sender.draggingPasteboard.types,
+                modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags,
+                canDropAsText: true
+           ) {
+            clearDragState(phase: "\(phase).text")
+            return .copy
+        }
+
+        if let transfer = BrowserPaneDragTransfer.decode(from: sender.draggingPasteboard) {
+            guard transfer.isFromCurrentProcess,
+                  (!transfer.isFilePreview || FilePreviewDragRegistry.shared.contains(id: transfer.tabId)) else {
+                clearDragState(phase: "\(phase).reject")
+                return []
+            }
+            activeZone = zone
+            slotView?.setPortalDragDropZone(zone)
+#if DEBUG
+            cmuxDebugLog(
+                "browser.paneDrop.\(phase) panel=\(dropContext.panelId.uuidString.prefix(5)) " +
+                "tab=\(transfer.tabId.uuidString.prefix(5)) zone=\(zone)"
+            )
+#endif
+            return .move
+        }
+
+        guard DragOverlayRoutingPolicy.hasFileURL(sender.draggingPasteboard.types) else {
+            clearDragState(phase: "\(phase).reject")
+            return []
+        }
         activeZone = zone
         slotView?.setPortalDragDropZone(zone)
 #if DEBUG
         cmuxDebugLog(
-            "browser.paneDrop.\(phase) panel=\(dropContext.panelId.uuidString.prefix(5)) " +
-            "tab=\(transfer.tabId.uuidString.prefix(5)) zone=\(zone)"
+            "browser.paneDrop.\(phase) panel=\(dropContext.panelId.uuidString.prefix(5)) fileURL=1 zone=\(zone)"
         )
 #endif
-        return .move
+        return .copy
     }
 
     func shouldDeferToPaneTabBar(at point: NSPoint) -> Bool {
@@ -1714,11 +1731,13 @@ final class BrowserPaneDropTargetView: NSView {
         eventType: NSEvent.EventType?
     ) {
         let hasTransferType = DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboardTypes)
-        guard hasTransferType || capture else { return }
+        let hasFileURL = DragOverlayRoutingPolicy.hasFileURL(pasteboardTypes)
+        guard hasTransferType || hasFileURL || capture else { return }
 
         let signature = [
             capture ? "1" : "0",
             hasTransferType ? "1" : "0",
+            hasFileURL ? "1" : "0",
             String(describing: dropContext != nil),
             eventType.map { String($0.rawValue) } ?? "nil",
         ].joined(separator: "|")
@@ -1728,7 +1747,7 @@ final class BrowserPaneDropTargetView: NSView {
         let types = pasteboardTypes?.map(\.rawValue).joined(separator: ",") ?? "-"
         cmuxDebugLog(
             "browser.paneDrop.hitTest capture=\(capture ? 1 : 0) " +
-            "hasTransfer=\(hasTransferType ? 1 : 0) context=\(dropContext != nil ? 1 : 0) " +
+            "hasTransfer=\(hasTransferType ? 1 : 0) hasFileURL=\(hasFileURL ? 1 : 0) context=\(dropContext != nil ? 1 : 0) " +
             "event=\(eventType.map { String($0.rawValue) } ?? "nil") types=\(types)"
         )
     }
@@ -1843,6 +1862,22 @@ final class WindowBrowserSlotView: NSView {
 
     func setPaneDropContext(_ context: BrowserPaneDropContext?) {
         paneDropTargetView.dropContext = context
+    }
+
+    func paneDropTargetForDrop(at localPoint: NSPoint) -> BrowserPaneDropTargetView? {
+        guard bounds.contains(localPoint) else { return nil }
+        let pointInTarget = paneDropTargetView.convert(localPoint, from: self)
+        guard paneDropTargetView.bounds.contains(pointInTarget) else { return nil }
+        guard !paneDropTargetView.shouldDeferToPaneTabBar(at: pointInTarget) else { return nil }
+        return paneDropTargetView
+    }
+
+    func handleDroppedFileURLsAsText(_ urls: [URL], at localPoint: NSPoint) -> Bool {
+        guard let hostedWebView, !urls.isEmpty else { return false }
+        let text = TerminalImageTransferPlanner.insertedText(forFileURLs: urls)
+        guard !text.isEmpty else { return false }
+        let windowPoint = convert(localPoint, to: nil)
+        return FileDropTextInsertion.insert(text, into: hostedWebView, at: windowPoint)
     }
 
     func setPaneTopChromeHeight(_ height: CGFloat) {
@@ -4069,6 +4104,19 @@ final class WindowBrowserPortal: NSObject {
         }
         return nil
     }
+
+    func browserPaneDropTargetAtWindowPoint(_ windowPoint: NSPoint) -> BrowserPaneDropTargetView? {
+        guard ensureInstalled() else { return nil }
+        let point = hostView.convert(windowPoint, from: nil)
+        for subview in hostView.subviews.reversed() {
+            guard let container = subview as? WindowBrowserSlotView else { continue }
+            guard !container.isHidden else { continue }
+            guard container.frame.contains(point) else { continue }
+            let pointInContainer = container.convert(point, from: hostView)
+            return container.paneDropTargetForDrop(at: pointInContainer)
+        }
+        return nil
+    }
 }
 
 @MainActor
@@ -4280,6 +4328,15 @@ enum BrowserWindowPortalRegistry {
         let windowId = ObjectIdentifier(window)
         guard let portal = portalsByWindowId[windowId] else { return nil }
         return portal.webViewAtWindowPoint(windowPoint)
+    }
+
+    static func browserPaneDropTargetAtWindowPoint(
+        _ windowPoint: NSPoint,
+        in window: NSWindow
+    ) -> BrowserPaneDropTargetView? {
+        let windowId = ObjectIdentifier(window)
+        guard let portal = portalsByWindowId[windowId] else { return nil }
+        return portal.browserPaneDropTargetAtWindowPoint(windowPoint)
     }
 
     static func refresh(webView: WKWebView, reason: String) {

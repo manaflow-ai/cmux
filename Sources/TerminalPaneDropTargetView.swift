@@ -52,16 +52,21 @@ struct PaneDragTransfer: Equatable {
 typealias TerminalPaneDragTransfer = PaneDragTransfer
 
 enum PaneDropRouting {
-    static func zone(for location: CGPoint, in size: CGSize) -> DropZone {
+    private static func fullPaneSize(for size: CGSize, topChromeHeight: CGFloat) -> CGSize {
+        CGSize(width: size.width, height: size.height + max(0, topChromeHeight))
+    }
+
+    static func zone(for location: CGPoint, in size: CGSize, topChromeHeight: CGFloat = 0) -> DropZone {
+        let fullPaneSize = fullPaneSize(for: size, topChromeHeight: topChromeHeight)
         let edgeRatio: CGFloat = 0.25
-        let horizontalEdge = max(80, size.width * edgeRatio)
-        let verticalEdge = max(80, size.height * edgeRatio)
+        let horizontalEdge = max(80, fullPaneSize.width * edgeRatio)
+        let verticalEdge = max(80, fullPaneSize.height * edgeRatio)
 
         if location.x < horizontalEdge {
             return .left
-        } else if location.x > size.width - horizontalEdge {
+        } else if location.x > fullPaneSize.width - horizontalEdge {
             return .right
-        } else if location.y > size.height - verticalEdge {
+        } else if location.y > fullPaneSize.height - verticalEdge {
             return .top
         } else if location.y < verticalEdge {
             return .bottom
@@ -88,32 +93,154 @@ enum PaneDropRouting {
         }
     }
 
+    static func overlayFrame(for zone: DropZone, in size: CGSize, topChromeHeight: CGFloat = 0) -> CGRect {
+        overlayFrame(
+            for: zone,
+            in: CGRect(origin: .zero, size: fullPaneSize(for: size, topChromeHeight: topChromeHeight))
+        )
+    }
+
     static func overlayFrame(for zone: DropZone, in bounds: CGRect) -> CGRect {
+        let padding: CGFloat = 4
         let midX = bounds.midX
         let midY = bounds.midY
 
         switch zone {
         case .center:
-            return bounds.insetBy(dx: 10, dy: 10)
+            return bounds.insetBy(dx: padding, dy: padding)
         case .left:
-            return CGRect(x: bounds.minX + 8, y: bounds.minY + 8, width: max(0, midX - bounds.minX - 12), height: max(0, bounds.height - 16))
+            return CGRect(x: bounds.minX + padding, y: bounds.minY + padding, width: max(0, midX - bounds.minX - padding), height: max(0, bounds.height - padding * 2))
         case .right:
-            return CGRect(x: midX + 4, y: bounds.minY + 8, width: max(0, bounds.maxX - midX - 12), height: max(0, bounds.height - 16))
+            return CGRect(x: midX, y: bounds.minY + padding, width: max(0, bounds.maxX - midX - padding), height: max(0, bounds.height - padding * 2))
         case .top:
-            return CGRect(x: bounds.minX + 8, y: midY + 4, width: max(0, bounds.width - 16), height: max(0, bounds.maxY - midY - 12))
+            return CGRect(x: bounds.minX + padding, y: midY, width: max(0, bounds.width - padding * 2), height: max(0, bounds.maxY - midY - padding))
         case .bottom:
-            return CGRect(x: bounds.minX + 8, y: bounds.minY + 8, width: max(0, bounds.width - 16), height: max(0, midY - bounds.minY - 12))
+            return CGRect(x: bounds.minX + padding, y: bounds.minY + padding, width: max(0, bounds.width - padding * 2), height: max(0, midY - bounds.minY - padding))
         }
     }
 }
 
 typealias TerminalPaneDropRouting = PaneDropRouting
 
+final class PaneDropZoneOverlayAnimator {
+    private let overlayView: NSView
+    private var displayedZone: DropZone?
+    private var animationGeneration: UInt64 = 0
+
+    init(overlayView: NSView) {
+        self.overlayView = overlayView
+        Self.applyStyle(to: overlayView)
+    }
+
+    static func applyStyle(to view: NSView) {
+        view.wantsLayer = true
+        view.layer?.backgroundColor = cmuxAccentNSColor().withAlphaComponent(0.25).cgColor
+        view.layer?.borderColor = cmuxAccentNSColor().cgColor
+        view.layer?.borderWidth = 2
+        view.layer?.cornerRadius = 8
+        view.isHidden = true
+    }
+
+    func hideImmediately() {
+        displayedZone = nil
+        animationGeneration &+= 1
+        overlayView.layer?.removeAllAnimations()
+        overlayView.isHidden = true
+        overlayView.alphaValue = 1
+    }
+
+    func setZone(
+        _ zone: DropZone?,
+        frameForZone: (DropZone) -> CGRect,
+        ensureAttached: () -> Void,
+        bringToFront: () -> Void
+    ) {
+        let previousZone = displayedZone
+        displayedZone = zone
+
+        guard let zone else {
+            guard !overlayView.isHidden else { return }
+            animationGeneration &+= 1
+            let generation = animationGeneration
+            overlayView.layer?.removeAllAnimations()
+            bringToFront()
+
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.14
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                overlayView.animator().alphaValue = 0
+            } completionHandler: { [weak self] in
+                guard let self else { return }
+                guard self.animationGeneration == generation else { return }
+                guard self.displayedZone == nil else { return }
+                self.overlayView.isHidden = true
+                self.overlayView.alphaValue = 1
+            }
+            return
+        }
+
+        ensureAttached()
+        let targetFrame = frameForZone(zone)
+        let needsFrameUpdate = !Self.rectApproximatelyEqual(overlayView.frame, targetFrame)
+        let zoneChanged = previousZone != zone
+
+        if !overlayView.isHidden && !needsFrameUpdate && !zoneChanged {
+            bringToFront()
+            return
+        }
+
+        animationGeneration &+= 1
+        overlayView.layer?.removeAllAnimations()
+
+        if overlayView.isHidden {
+            applyFrame(targetFrame)
+            overlayView.alphaValue = 0
+            overlayView.isHidden = false
+            bringToFront()
+
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.18
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                overlayView.animator().alphaValue = 1
+            }
+            return
+        }
+
+        bringToFront()
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.18
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            if needsFrameUpdate {
+                overlayView.animator().frame = targetFrame
+            }
+            if overlayView.alphaValue < 1 {
+                overlayView.animator().alphaValue = 1
+            }
+        }
+    }
+
+    private func applyFrame(_ frame: CGRect) {
+        guard !Self.rectApproximatelyEqual(overlayView.frame, frame) else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        overlayView.frame = frame
+        CATransaction.commit()
+    }
+
+    private static func rectApproximatelyEqual(_ lhs: CGRect, _ rhs: CGRect, epsilon: CGFloat = 0.5) -> Bool {
+        abs(lhs.origin.x - rhs.origin.x) <= epsilon &&
+            abs(lhs.origin.y - rhs.origin.y) <= epsilon &&
+            abs(lhs.size.width - rhs.size.width) <= epsilon &&
+            abs(lhs.size.height - rhs.size.height) <= epsilon
+    }
+}
+
 final class PaneDropTargetView: NSView {
     weak var hostedView: GhosttySurfaceScrollView?
     var dropContext: PaneDropContext?
     private var activeZone: DropZone?
     private let dropZoneOverlayView = NSView(frame: .zero)
+    private lazy var dropZoneOverlayAnimator = PaneDropZoneOverlayAnimator(overlayView: dropZoneOverlayView)
 #if DEBUG
     private var lastHitTestSignature: String?
 #endif
@@ -122,10 +249,9 @@ final class PaneDropTargetView: NSView {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        registerForDraggedTypes([
+        registerForDraggedTypes(Array(Set([
             DragOverlayRoutingPolicy.bonsplitTabTransferType,
-            .fileURL,
-        ])
+        ]).union(PasteboardFileURLReader.fileURLPasteboardTypes)))
         setupDropZoneOverlayView()
     }
 
@@ -222,9 +348,11 @@ final class PaneDropTargetView: NSView {
             return false
         }
 
+        let textDestinationKind = fileDropTextDestinationKind(context: dropContext, workspace: workspace)
         if DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
             pasteboardTypes: sender.draggingPasteboard.types,
-            modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags
+            modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags,
+            canDropAsText: textDestinationKind != nil
         ) {
             let urls = DragOverlayRoutingPolicy.fileURLs(from: sender.draggingPasteboard)
             guard !urls.isEmpty else { return false }
@@ -300,14 +428,16 @@ final class PaneDropTargetView: NSView {
             return []
         }
 
+        let textDestinationKind = fileDropTextDestinationKind(context: dropContext, workspace: workspace)
         if DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
             pasteboardTypes: sender.draggingPasteboard.types,
-            modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags
+            modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags,
+            canDropAsText: textDestinationKind != nil
         ) {
             clearDragState(phase: "\(phase).text")
 #if DEBUG
             cmuxDebugLog(
-                "terminal.paneDrop.\(phase) panel=\(dropContext.panelId.uuidString.prefix(5)) fileURL=1 textDestination=1"
+                "terminal.paneDrop.\(phase) panel=\(dropContext.panelId.uuidString.prefix(5)) fileURL=1 textDestination=\(String(describing: textDestinationKind))"
             )
 #endif
             return .copy
@@ -379,10 +509,46 @@ final class PaneDropTargetView: NSView {
 
         guard let tabId = workspace.bonsplitController.selectedTab(inPane: context.paneId)?.id,
               let panelId = workspace.panelIdFromSurfaceId(tabId),
-              let panel = workspace.panels[panelId] as? TerminalPanel else {
+              let panel = workspace.panels[panelId] else {
             return false
         }
-        return panel.hostedView.handleDroppedURLsAsText(urls)
+        if let terminalPanel = panel as? TerminalPanel {
+            return terminalPanel.hostedView.handleDroppedURLsAsText(urls)
+        }
+        if let filePreviewPanel = panel as? FilePreviewPanel {
+            return filePreviewPanel.handleDroppedFileURLsAsText(urls)
+        }
+        return false
+    }
+
+    private func fileDropTextDestinationKind(
+        context: PaneDropContext,
+        workspace: Workspace
+    ) -> FileDropTextDestinationKind? {
+        if hostedView != nil {
+            return .terminal
+        }
+
+        guard let tabId = workspace.bonsplitController.selectedTab(inPane: context.paneId)?.id,
+              let panelId = workspace.panelIdFromSurfaceId(tabId),
+              let panel = workspace.panels[panelId] else {
+            return nil
+        }
+
+        switch panel.panelType {
+        case .terminal:
+            return .terminal
+        case .browser:
+            return .editor
+        case .filePreview:
+            guard let filePreviewPanel = panel as? FilePreviewPanel,
+                  filePreviewPanel.previewMode == .text else {
+                return nil
+            }
+            return .editor
+        case .markdown:
+            return nil
+        }
     }
 
     func shouldDeferToPaneTabBar(at point: NSPoint) -> Bool {
@@ -393,12 +559,7 @@ final class PaneDropTargetView: NSView {
     }
 
     private func setupDropZoneOverlayView() {
-        dropZoneOverlayView.wantsLayer = true
-        dropZoneOverlayView.layer?.backgroundColor = cmuxAccentNSColor().withAlphaComponent(0.25).cgColor
-        dropZoneOverlayView.layer?.borderColor = cmuxAccentNSColor().cgColor
-        dropZoneOverlayView.layer?.borderWidth = 2
-        dropZoneOverlayView.layer?.cornerRadius = 8
-        dropZoneOverlayView.isHidden = true
+        _ = dropZoneOverlayAnimator
         dropZoneOverlayView.autoresizingMask = []
         addSubview(dropZoneOverlayView)
     }
@@ -414,12 +575,30 @@ final class PaneDropTargetView: NSView {
     }
 
     private func updateStandaloneDropZoneOverlay() {
-        guard hostedView == nil, let activeZone else {
-            dropZoneOverlayView.isHidden = true
+        guard hostedView == nil else {
+            dropZoneOverlayAnimator.hideImmediately()
             return
         }
-        dropZoneOverlayView.frame = PaneDropRouting.overlayFrame(for: activeZone, in: bounds)
-        dropZoneOverlayView.isHidden = false
+        dropZoneOverlayAnimator.setZone(
+            activeZone,
+            frameForZone: { [weak self] zone in
+                guard let self else { return .zero }
+                return PaneDropRouting.overlayFrame(for: zone, in: self.bounds)
+            },
+            ensureAttached: { [weak self] in
+                guard let self else { return }
+                if self.dropZoneOverlayView.superview !== self {
+                    self.dropZoneOverlayView.removeFromSuperview()
+                    self.addSubview(self.dropZoneOverlayView)
+                }
+            },
+            bringToFront: { [weak self] in
+                guard let self else { return }
+                guard self.dropZoneOverlayView.superview === self,
+                      self.subviews.last !== self.dropZoneOverlayView else { return }
+                self.addSubview(self.dropZoneOverlayView, positioned: .above, relativeTo: nil)
+            }
+        )
     }
 
     private func clearDragState(phase: String) {

@@ -128,6 +128,43 @@ final class FinderFileDropRegressionTests: XCTestCase {
         )
     }
 
+    func testNonTextDestinationsAlwaysUsePreviewRouting() {
+        XCTAssertEqual(
+            DragOverlayRoutingPolicy.resolvedFileDropBehavior(
+                pasteboardTypes: [.fileURL],
+                modifierFlags: [],
+                canDropAsText: false,
+                defaultBehavior: .text
+            ),
+            .preview
+        )
+        XCTAssertEqual(
+            DragOverlayRoutingPolicy.resolvedFileDropBehavior(
+                pasteboardTypes: [.fileURL],
+                modifierFlags: .shift,
+                canDropAsText: false,
+                defaultBehavior: .text
+            ),
+            .preview
+        )
+        XCTAssertFalse(
+            DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
+                pasteboardTypes: [.fileURL],
+                modifierFlags: [],
+                canDropAsText: false,
+                defaultBehavior: .text
+            )
+        )
+        XCTAssertNil(
+            DragOverlayRoutingPolicy.alternateFileDropBehaviorForShiftHint(
+                pasteboardTypes: [.fileURL],
+                modifierFlags: [],
+                canDropAsText: false,
+                defaultBehavior: .text
+            )
+        )
+    }
+
     func testGlobalModifierFlagsContributeShiftWhenWindowIsInactive() {
         let flags = DragOverlayRoutingPolicy.mergedModifierFlags(
             appKitFlags: [],

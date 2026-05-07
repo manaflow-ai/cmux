@@ -63,7 +63,7 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
                 eventType: .leftMouseDown
             )
         )
-        XCTAssertFalse(
+        XCTAssertTrue(
             BrowserPaneDropTargetView.shouldCaptureHitTesting(
                 pasteboardTypes: [.fileURL],
                 eventType: .cursorUpdate
@@ -71,13 +71,11 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
         )
 
         let externalPayloads: [[NSPasteboard.PasteboardType]] = [
-            [.fileURL],
             [.URL],
             [.png],
             [.tiff],
             [.html],
             [.string],
-            [.fileURL, .png],
         ]
 
         for pasteboardTypes in externalPayloads {
@@ -89,6 +87,13 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
                 "Browser pane drop target should not capture external drag payload: \(pasteboardTypes)"
             )
         }
+
+        XCTAssertTrue(
+            BrowserPaneDropTargetView.shouldCaptureHitTesting(
+                pasteboardTypes: [.fileURL, .png],
+                eventType: .cursorUpdate
+            )
+        )
     }
 
     func testCenterDropOnSamePaneIsNoOp() {
