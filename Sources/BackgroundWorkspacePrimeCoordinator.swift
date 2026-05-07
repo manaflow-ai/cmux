@@ -90,7 +90,6 @@ final class BackgroundWorkspacePrimeCoordinator {
 
     deinit {
         // Explicit for the required_deinit lint; per-prime resources live on Waiter.
-        timeoutCounts.removeAll()
     }
 
     func taskKey(for tabManager: TabManager) -> [String] {

@@ -15143,6 +15143,7 @@ struct CMUXCLI {
 
     private static let codexMonitorLeaseDirectoryName = "codex-monitor-leases"
     private static let codexMonitorLeaseMaxAgeSeconds: TimeInterval = 4 * 60 * 60
+    private static let codexMonitorRetiredLeaseMaxAgeSeconds: TimeInterval = 2 * 60
     private static let codexMonitorOwnerCheckIntervalSeconds: TimeInterval = 60
     private static let codexMonitorOwnerCheckTimeoutSeconds: TimeInterval = 1
 
@@ -15243,7 +15244,9 @@ struct CMUXCLI {
         let fileManager = FileManager.default
         let directory = codexMonitorLeaseDirectory(env: env)
         guard fileManager.fileExists(atPath: directory.path) else { return }
-        let cutoff = Date().timeIntervalSince1970 - Self.codexMonitorLeaseMaxAgeSeconds
+        let now = Date().timeIntervalSince1970
+        let activeLeaseCutoff = now - Self.codexMonitorLeaseMaxAgeSeconds
+        let retiredLeaseCutoff = now - Self.codexMonitorRetiredLeaseMaxAgeSeconds
         let urls = try fileManager.contentsOfDirectory(
             at: directory,
             includingPropertiesForKeys: nil,
@@ -15253,7 +15256,9 @@ struct CMUXCLI {
             guard let record = readCodexMonitorLease(path: url.path) else {
                 continue
             }
-            if record.createdAt < cutoff || (record.retiredAt ?? .infinity) < cutoff {
+            let activeLeaseExpired = record.createdAt < activeLeaseCutoff
+            let retiredLeaseExpired = record.retiredAt.map { $0 < retiredLeaseCutoff } ?? false
+            if activeLeaseExpired || retiredLeaseExpired {
                 try? fileManager.removeItem(at: url)
             }
         }
@@ -15261,7 +15266,9 @@ struct CMUXCLI {
 
     private func isCodexMonitorLeaseRetired(path: String?) -> Bool {
         guard let path, !path.isEmpty else { return false }
-        guard let record = readCodexMonitorLease(path: path) else { return false }
+        guard let record = readCodexMonitorLease(path: path) else {
+            return !FileManager.default.fileExists(atPath: path)
+        }
         return record.retiredAt != nil
     }
 
