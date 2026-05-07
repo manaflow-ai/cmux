@@ -8,10 +8,10 @@ Greptile is configured to publish a GitHub status check and inline findings. Cod
 
 Current rules:
 
+- `runtime-no-hacky-sleeps.md`
 - `swift-actor-isolation.md`
 - `swift-architectural-rethink.md`
 - `swift-blocking-runtime.md`
-- `runtime-no-hacky-sleeps.md`
 - `swift-concurrency-modernization.md`
 - `swift-concurrent-annotation.md`
 - `swift-file-package-boundaries.md`
