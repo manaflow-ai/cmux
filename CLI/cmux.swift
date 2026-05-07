@@ -8439,7 +8439,7 @@ struct CMUXCLI {
             agent. Claude Code hooks are injected automatically by the cmux Claude wrapper.
 
             Agents:
-              codex, opencode, pi, cursor, gemini, rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder
+              codex, opencode, pi, amp, cursor, gemini, rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder
 
             Hook targets:
               setup              Install hooks for all supported agents on PATH
@@ -8453,6 +8453,7 @@ struct CMUXCLI {
               ~/.config/opencode/plugins/cmux-session.js
               ~/.config/opencode/plugins/cmux-feed.js
               ~/.pi/agent/extensions/cmux-session.ts
+              ~/.config/amp/plugins/cmux-session.ts
               See docs/agent-hooks.md for the full integration matrix.
 
             Examples:
@@ -15750,6 +15751,13 @@ struct CMUXCLI {
             events: []
         ),
         AgentHookDef(
+            name: "amp", displayName: "Amp", statusKey: "amp",
+            configDir: ".config/amp", configFile: "plugins/cmux-session.ts",
+            sessionStoreSuffix: "amp", disableEnvVar: "CMUX_AMP_HOOKS_DISABLED",
+            hookMarker: "cmux hooks amp", format: .flat,
+            events: []
+        ),
+        AgentHookDef(
             name: "cursor", displayName: "Cursor", statusKey: "cursor",
             configDir: ".cursor", configFile: "hooks.json", binaryName: "cursor-agent",
             sessionStoreSuffix: "cursor", disableEnvVar: "CMUX_CURSOR_HOOKS_DISABLED",
@@ -16453,6 +16461,217 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         print("Removed Pi cmux extension from \(extensionURL.path)")
     }
 
+    private static let ampExtensionMarker = "cmux-amp-session-extension-marker"
+    private static let ampExtensionFilename = "cmux-session.ts"
+    private static let ampExtensionSource = #"""
+// cmux-amp-session-extension-marker v1
+// Bridges Amp session lifecycle events into cmux's restorable session store.
+// Installed by `cmux hooks amp install` or `cmux hooks setup`.
+// DO NOT EDIT MANUALLY. cmux upgrades this file in place.
+// @i-know-the-amp-plugin-api-is-wip-and-very-experimental-right-now
+
+import { spawnSync } from "node:child_process";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import type {
+  PluginAPI,
+  AgentEndEvent,
+  AgentStartEvent,
+  SessionStartEvent,
+} from "@ampcode/plugin";
+
+function firstString(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim().length > 0) return value.trim();
+  }
+  return null;
+}
+
+function resolveExecutable(name: string): string {
+  const pathEnv = process.env.PATH || "";
+  for (const dir of pathEnv.split(path.delimiter)) {
+    if (!dir) continue;
+    const candidate = path.join(dir, name);
+    try {
+      fs.accessSync(candidate, fs.constants.X_OK);
+      return candidate;
+    } catch (_) {}
+  }
+  return name;
+}
+
+function looksLikeAmpExecutable(value: string): boolean {
+  return path.basename(value).toLowerCase() === "amp";
+}
+
+function looksLikeAmpScript(value: string): boolean {
+  const normalized = value.replaceAll("\\", "/");
+  const base = path.basename(normalized).toLowerCase();
+  return (
+    normalized.includes("/@ampcode/") ||
+    (base === "cli.js" && normalized.includes("amp"))
+  );
+}
+
+function normalizedLaunchArgv(): string[] {
+  const raw = Array.isArray(process.argv) ? process.argv.map((value) => String(value)) : [];
+  if (raw.length === 0) return [resolveExecutable("amp")];
+  if (looksLikeAmpExecutable(raw[0])) return raw;
+  if (raw.length > 1 && looksLikeAmpScript(raw[1])) {
+    return [resolveExecutable("amp"), ...raw.slice(2)];
+  }
+  return [resolveExecutable("amp"), ...raw.slice(1)];
+}
+
+function base64NulSeparated(values: string[]): string {
+  const bytes: Buffer[] = [];
+  for (const value of values) {
+    bytes.push(Buffer.from(String(value), "utf8"));
+    bytes.push(Buffer.from([0]));
+  }
+  return Buffer.concat(bytes).toString("base64");
+}
+
+function hookEnvironment(cwd: string): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  if (!env.CMUX_AGENT_LAUNCH_ARGV_B64) {
+    const argv = normalizedLaunchArgv();
+    env.CMUX_AGENT_LAUNCH_KIND = "amp";
+    env.CMUX_AGENT_LAUNCH_EXECUTABLE = argv[0] || resolveExecutable("amp");
+    env.CMUX_AGENT_LAUNCH_ARGV_B64 = base64NulSeparated(argv);
+    env.CMUX_AGENT_LAUNCH_CWD = cwd || process.cwd();
+  }
+  return env;
+}
+
+function eventName(subcommand: string): string {
+  switch (subcommand) {
+    case "session-start":
+      return "SessionStart";
+    case "prompt-submit":
+      return "UserPromptSubmit";
+    case "stop":
+      return "Stop";
+    default:
+      return subcommand;
+  }
+}
+
+function sendHook(
+  subcommand: string,
+  sessionId: string,
+  cwd: string,
+  extra: Record<string, unknown> = {}
+): void {
+  if (process.env.CMUX_AMP_HOOKS_DISABLED === "1") return;
+  if (!process.env.CMUX_SURFACE_ID) return;
+  if (!sessionId) return;
+
+  const payload: Record<string, unknown> = {
+    session_id: sessionId,
+    cwd,
+    hook_event_name: eventName(subcommand),
+    event: eventName(subcommand),
+    ...extra,
+  };
+  const cmux = process.env.CMUX_AMP_CMUX_BIN || "cmux";
+  try {
+    spawnSync(cmux, ["hooks", "amp", subcommand], {
+      input: JSON.stringify(payload),
+      encoding: "utf8",
+      env: hookEnvironment(cwd),
+      stdio: ["pipe", "ignore", "ignore"],
+      timeout: 5000,
+    });
+  } catch (_) {}
+}
+
+export default function (amp: PluginAPI) {
+  // Amp's per-event payloads don't always include the thread id, so we capture
+  // it on session.start (the first event after launch) and reuse it for
+  // subsequent prompt/stop hooks. Workspace cwd comes from PWD which Amp
+  // inherits from cmux's pane env.
+  let lastSessionId: string | null = null;
+  let lastCwd: string | null = null;
+
+  const cwdFromEnv = (): string =>
+    firstString(process.env.PWD, process.cwd()) || process.cwd();
+
+  amp.on("session.start", async (event: SessionStartEvent) => {
+    const sessionId = firstString(event.thread?.id);
+    if (!sessionId) return;
+    lastSessionId = sessionId;
+    lastCwd = cwdFromEnv();
+    sendHook("session-start", sessionId, lastCwd);
+  });
+
+  amp.on("agent.start", async (_event: AgentStartEvent) => {
+    if (!lastSessionId) return;
+    sendHook("prompt-submit", lastSessionId, lastCwd ?? cwdFromEnv());
+  });
+
+  amp.on("agent.end", async (_event: AgentEndEvent) => {
+    if (!lastSessionId) return;
+    sendHook("stop", lastSessionId, lastCwd ?? cwdFromEnv());
+  });
+}
+"""#
+
+    private func ampExtensionURL(for def: AgentHookDef) -> URL {
+        URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true)
+            .appendingPathComponent("plugins", isDirectory: true)
+            .appendingPathComponent(Self.ampExtensionFilename, isDirectory: false)
+    }
+
+    private func installAmpExtensionHooks(_ def: AgentHookDef) throws {
+        let extensionURL = ampExtensionURL(for: def)
+        let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
+            || ProcessInfo.processInfo.arguments.contains("-y")
+        let existing = (try? String(contentsOf: extensionURL, encoding: .utf8)) ?? ""
+        if existing == Self.ampExtensionSource {
+            print("Amp hooks already up to date at \(extensionURL.path)")
+            return
+        }
+        if !existing.isEmpty, !existing.contains(Self.ampExtensionMarker) {
+            throw CLIError(message: "\(extensionURL.path) exists and is not a cmux plugin; leaving it alone")
+        }
+        if !skipConfirm {
+            Self.printInstallPreview(
+                path: extensionURL.path,
+                oldContent: existing,
+                newContent: Self.ampExtensionSource,
+                fallbackContent: Self.ampExtensionSource
+            )
+            print("\nProceed? [y/N] ", terminator: "")
+            guard readLine()?.lowercased().hasPrefix("y") == true else {
+                print("Aborted.")
+                return
+            }
+        }
+        try FileManager.default.createDirectory(
+            at: extensionURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Self.ampExtensionSource.write(to: extensionURL, atomically: true, encoding: .utf8)
+        print("Amp hooks installed at \(extensionURL.path)")
+    }
+
+    private func uninstallAmpExtensionHooks(_ def: AgentHookDef) throws {
+        let extensionURL = ampExtensionURL(for: def)
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: extensionURL.path) else {
+            print("No Amp cmux plugin found at \(extensionURL.path)")
+            return
+        }
+        let existing = (try? String(contentsOf: extensionURL, encoding: .utf8)) ?? ""
+        guard existing.contains(Self.ampExtensionMarker) else {
+            print("Refusing to remove \(extensionURL.path): missing cmux marker")
+            return
+        }
+        try fm.removeItem(at: extensionURL)
+        print("Removed Amp cmux plugin from \(extensionURL.path)")
+    }
+
     private func installRovoDevHooks(_ def: AgentHookDef) throws {
         let fm = FileManager.default
         let configDir = def.resolvedConfigDir()
@@ -16543,6 +16762,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
         if def.name == "pi" {
             try installPiExtensionHooks(def)
+            return
+        }
+        if def.name == "amp" {
+            try installAmpExtensionHooks(def)
             return
         }
         if def.name == "rovodev" {
@@ -16722,6 +16945,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
         if def.name == "pi" {
             try uninstallPiExtensionHooks(def)
+            return
+        }
+        if def.name == "amp" {
+            try uninstallAmpExtensionHooks(def)
             return
         }
         if def.name == "rovodev" {
@@ -19911,7 +20138,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         for def in Self.agentDefs {
             if let agentFilterDef, agentFilterDef.name != def.name { continue }
             let configDir = def.resolvedConfigDir()
-            let canUseMissingConfigDir = def.name == "opencode" || def.name == "pi" || (!isUninstall && def.name == "rovodev")
+            let canUseMissingConfigDir = def.name == "opencode" || def.name == "pi" || def.name == "amp" || (!isUninstall && def.name == "rovodev")
             if !canUseMissingConfigDir, !fm.fileExists(atPath: configDir) {
                 print("  \(def.name): skipped (config dir not found)")
                 skipped += 1
