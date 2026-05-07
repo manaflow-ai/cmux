@@ -14079,97 +14079,6 @@ struct CMUXCLI {
         }
     }
 
-    private func socketSurfaceOption(_ surfaceId: String?) -> String {
-        guard let surfaceId = nonEmptyClaudeHookIdentifier(surfaceId) else {
-            return ""
-        }
-        return " --surface=\(surfaceId)"
-    }
-
-    private func setClaudeStatus(
-        client: SocketClient,
-        workspaceId: String,
-        surfaceId: String? = nil,
-        value: String,
-        icon: String,
-        color: String,
-        pid: Int? = nil
-    ) throws {
-        var cmd = "set_status claude_code \(value) --icon=\(icon) --color=\(color) --tab=\(workspaceId)"
-        if let pid {
-            cmd += " --pid=\(pid)"
-        }
-        cmd += socketSurfaceOption(surfaceId)
-        _ = try client.send(command: cmd)
-    }
-
-    private func clearClaudeStatus(client: SocketClient, workspaceId: String, surfaceId: String? = nil) throws {
-        _ = try client.send(command: "clear_status claude_code --tab=\(workspaceId)\(socketSurfaceOption(surfaceId))")
-    }
-
-    private func resolvePreferredWorkspaceIdForClaudeHook(
-        preferred: String?,
-        fallback: String?,
-        client: SocketClient
-    ) throws -> String {
-        if let preferred = nonEmptyClaudeHookIdentifier(preferred) {
-            return try resolveWorkspaceIdForClaudeHook(preferred, client: client)
-        }
-        if let fallback = nonEmptyClaudeHookIdentifier(fallback) {
-            return try resolveWorkspaceIdForClaudeHook(fallback, client: client)
-        }
-        return try resolveWorkspaceIdForClaudeHook(nil, client: client)
-    }
-
-    private func resolvePreferredSurfaceIdForClaudeHook(
-        preferred: String?,
-        fallback: String?,
-        workspaceId: String,
-        client: SocketClient
-    ) throws -> String {
-        if let preferred = nonEmptyClaudeHookIdentifier(preferred) {
-            return try resolveSurfaceIdForClaudeHook(preferred, workspaceId: workspaceId, client: client)
-        }
-        if let fallback = nonEmptyClaudeHookIdentifier(fallback) {
-            return try resolveSurfaceIdForClaudeHook(fallback, workspaceId: workspaceId, client: client)
-        }
-        return try resolveSurfaceIdForClaudeHook(nil, workspaceId: workspaceId, client: client)
-    }
-
-    private func resolveOptionalWorkspaceIdForClaudeHook(
-        preferred: String?,
-        fallback: String?,
-        client: SocketClient
-    ) -> String? {
-        try? resolvePreferredWorkspaceIdForClaudeHook(
-            preferred: preferred,
-            fallback: fallback,
-            client: client
-        )
-    }
-
-    private func resolveOptionalSurfaceIdForClaudeHook(
-        preferred: String?,
-        fallback: String?,
-        workspaceId: String,
-        client: SocketClient
-    ) -> String? {
-        try? resolvePreferredSurfaceIdForClaudeHook(
-            preferred: preferred,
-            fallback: fallback,
-            workspaceId: workspaceId,
-            client: client
-        )
-    }
-
-    private func nonEmptyClaudeHookIdentifier(_ value: String?) -> String? {
-        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !trimmed.isEmpty else {
-            return nil
-        }
-        return trimmed
-    }
-
     private func shouldIgnoreClaudeHookTeardownError(_ error: Error) -> Bool {
         let message = String(describing: error).lowercased()
         let benignFragments = [
@@ -14276,11 +14185,11 @@ struct CMUXCLI {
         return name.isEmpty ? String(path.suffix(30)) : name
     }
 
-    private func resolveWorkspaceIdForClaudeHook(_ raw: String?, client: SocketClient) throws -> String {
+    func resolveWorkspaceIdForClaudeHook(_ raw: String?, client: SocketClient) throws -> String {
         try resolveWorkspaceIdAllowingFallback(raw, client: client)
     }
 
-    private func resolveSurfaceIdForClaudeHook(
+    func resolveSurfaceIdForClaudeHook(
         _ raw: String?,
         workspaceId: String,
         client: SocketClient

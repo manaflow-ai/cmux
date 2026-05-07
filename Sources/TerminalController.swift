@@ -15915,7 +15915,7 @@ class TerminalController {
         "rovodev",
     ]
 
-    private static func shouldTrackAgentStatusKey(_ key: String) -> Bool {
+    static func shouldTrackAgentStatusKey(_ key: String) -> Bool {
         // Agent status/PID markers make panel-scoped file drops route to terminal input.
         if agentSidebarStatusKeys.contains(key) {
             return true

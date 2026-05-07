@@ -142,44 +142,6 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
 #endif
     }
 
-    func testAgentStatusKeysTrackAgentTerminalDropRouting() throws {
-        let socketPath = makeSocketPath("agent-drop")
-        let tabManager = TabManager()
-        let workspace = tabManager.addWorkspace(select: true)
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
-
-        TerminalController.shared.start(
-            tabManager: tabManager,
-            socketPath: socketPath,
-            accessMode: .allowAll
-        )
-        try waitForSocket(at: socketPath)
-
-        for statusKey in ["pi", "hermes-agent"] {
-            XCTAssertEqual(
-                try sendCommands([
-                    "set_status \(statusKey) Running --tab=\(workspace.id.uuidString) --panel=\(panelId.uuidString)"
-                ], to: socketPath),
-                ["OK"]
-            )
-#if DEBUG
-            TerminalMutationBus.shared.drainForTesting()
-#endif
-            XCTAssertEqual(workspace.externalFileDropRouting(forPanelId: panelId), .agentPromptPaste)
-
-            XCTAssertEqual(
-                try sendCommands([
-                    "clear_status \(statusKey) --tab=\(workspace.id.uuidString) --panel=\(panelId.uuidString)"
-                ], to: socketPath),
-                ["OK"]
-            )
-#if DEBUG
-            TerminalMutationBus.shared.drainForTesting()
-#endif
-            XCTAssertEqual(workspace.externalFileDropRouting(forPanelId: panelId), .filePreview)
-        }
-    }
-
     func testRemoteStatusPayloadOmitsSensitiveSSHConfiguration() {
         let tabManager = TabManager()
         let workspace = tabManager.addWorkspace(select: false, eagerLoadTerminal: false)

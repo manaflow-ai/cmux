@@ -79,6 +79,43 @@ final class FinderFileDropRegressionTests: XCTestCase {
         )
     }
 
+    func testAgentStatusKeysTrackAgentTerminalDropRouting() {
+        XCTAssertTrue(TerminalController.shouldTrackAgentStatusKey("pi"))
+        XCTAssertTrue(TerminalController.shouldTrackAgentStatusKey("pi.session"))
+        XCTAssertTrue(TerminalController.shouldTrackAgentStatusKey("hermes-agent"))
+        XCTAssertTrue(TerminalController.shouldTrackAgentStatusKey("hermes-agent.session"))
+        XCTAssertFalse(TerminalController.shouldTrackAgentStatusKey("plain_shell"))
+    }
+
+    func testAgentRoutingSnapshotCleanupClearsInvalidationFingerprint() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let index = try makeCodexRestorableAgentIndex(
+            workspaceId: workspace.id,
+            panelId: panelId,
+            sessionId: "codex-routing-cleanup-session"
+        )
+
+        _ = workspace.sessionSnapshot(includeScrollback: false, restorableAgentIndex: index)
+        XCTAssertEqual(workspace.externalFileDropRouting(forPanelId: panelId), .agentPromptPaste)
+
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
+        XCTAssertNil(
+            workspace.sessionSnapshot(
+                includeScrollback: false,
+                restorableAgentIndex: index
+            ).panels.first?.terminal?.agent
+        )
+
+        workspace.clearRestoredAgentSnapshotForAgentRouting(panelId: panelId)
+        XCTAssertEqual(workspace.externalFileDropRouting(forPanelId: panelId), .filePreview)
+
+        let acceptedSnapshot = workspace.sessionSnapshot(includeScrollback: false, restorableAgentIndex: index)
+        XCTAssertEqual(acceptedSnapshot.panels.first?.terminal?.agent?.sessionId, "codex-routing-cleanup-session")
+        XCTAssertEqual(workspace.externalFileDropRouting(forPanelId: panelId), .agentPromptPaste)
+    }
+
     func testAgentPromptDropPasteUsesTextPastePathWithoutEmbeddingControlSequences() throws {
         let fileURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("agent dropped \(UUID().uuidString)")
@@ -115,5 +152,46 @@ final class FinderFileDropRegressionTests: XCTestCase {
         }
 
         XCTAssertEqual(text, TerminalImageTransferPlanner.escapeForShell(fileURL.path))
+    }
+
+    private func makeCodexRestorableAgentIndex(
+        workspaceId: UUID,
+        panelId: UUID,
+        sessionId: String
+    ) throws -> RestorableAgentSessionIndex {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-hook-store-\(UUID().uuidString)", isDirectory: true)
+        let storeURL = RestorableAgentKind.codex.hookStoreFileURL(homeDirectory: home.path)
+        try FileManager.default.createDirectory(
+            at: storeURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let now = Date().timeIntervalSince1970
+        let jsonObject: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": workspaceId.uuidString,
+                    "surfaceId": panelId.uuidString,
+                    "cwd": "/tmp/repo",
+                    "updatedAt": now,
+                    "launchCommand": [
+                        "launcher": "codex",
+                        "executablePath": "/usr/local/bin/codex",
+                        "arguments": ["/usr/local/bin/codex", "--model", "gpt-5.4"],
+                        "workingDirectory": "/tmp/repo",
+                        "environment": ["CODEX_HOME": "/tmp/codex"],
+                        "capturedAt": now,
+                        "source": "process",
+                    ],
+                ],
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: jsonObject, options: [.prettyPrinted])
+        try data.write(to: storeURL, options: .atomic)
+        return RestorableAgentSessionIndex.load(homeDirectory: home.path)
     }
 }
