@@ -1738,7 +1738,8 @@ private final class FilePreviewPDFThumbnailItemView: NSView {
     }
 
     func configure(image: NSImage?, pageNumber: String) {
-        assert(Thread.isMainThread, "AppKit image updates must run on the main thread"); imageView.image = image
+        assert(Thread.isMainThread, "AppKit image updates must run on the main thread")
+        imageView.image = image
         pageLabel.stringValue = pageNumber
     }
 
@@ -3033,7 +3034,8 @@ private final class FilePreviewImageContainerView: NSView {
     }
 
     func setURL(_ url: URL) {
-        assert(Thread.isMainThread, "AppKit image updates must run on the main thread"); guard currentURL != url else { return }
+        assert(Thread.isMainThread, "AppKit image updates must run on the main thread")
+        guard currentURL != url else { return }
         currentURL = url
         documentView.imageView.image = nil
         imageSize = normalizedSize(.zero)
@@ -3054,7 +3056,8 @@ private final class FilePreviewImageContainerView: NSView {
     }
 
     private func applyLoadedImage(_ image: NSImage?) {
-        assert(Thread.isMainThread, "AppKit image updates must run on the main thread"); documentView.imageView.image = image
+        assert(Thread.isMainThread, "AppKit image updates must run on the main thread")
+        documentView.imageView.image = image
         imageSize = normalizedSize(image?.size ?? .zero)
         isFitMode = true
         rotationDegrees = 0
@@ -3561,7 +3564,8 @@ private final class FilePreviewMagnifyingImageView: NSImageView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        assert(Thread.isMainThread, "AppKit image updates must run on the main thread"); guard let image, rotationDegrees != 0 else {
+        assert(Thread.isMainThread, "AppKit image updates must run on the main thread")
+        guard let image, rotationDegrees != 0 else {
             super.draw(dirtyRect)
             return
         }
