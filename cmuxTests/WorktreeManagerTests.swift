@@ -240,6 +240,36 @@ final class WorktreeManagerTests: XCTestCase {
         XCTAssertEqual(parent, headSha)
     }
 
+    /// Regression for PR #3415 review (P2, cubic): pre-fix `add()` ran
+    /// `fileExists(atPath:)` and `absolute(...)` on the raw `worktreePath`,
+    /// resolving relative paths against the process CWD. But `git worktree
+    /// add` runs with cwd = `repoPath`, so relative paths must resolve
+    /// against `repoPath` to match git. Without the fix, the pre-check could
+    /// pass (or fail) on a different directory than the one git creates,
+    /// and the returned `Record.path` would point at the wrong place.
+    func testAddResolvesRelativeWorktreePathAgainstRepoPath() throws {
+        guard gitAvailable() else { throw XCTSkip("git not available on this runner") }
+        let repo = try makeTempRepo()
+        let parent = repo.deletingLastPathComponent()
+        let expected = parent.appendingPathComponent("wt-relative")
+        // `..` is relative to repoPath, not the test's CWD.
+        let relativeArg = "../wt-relative"
+
+        let record = try WorktreeManager.add(
+            repoPath: repo.path,
+            worktreePath: relativeArg,
+            branch: "feat/relative"
+        )
+
+        let realExpected = (expected.path as NSString).resolvingSymlinksInPath
+        let realRecord = (record.path as NSString).resolvingSymlinksInPath
+        XCTAssertEqual(realRecord, realExpected, "Record.path must be resolved against repoPath")
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: expected.path),
+            "git worktree add must create the directory at the resolved-against-repo path"
+        )
+    }
+
     /// Regression for PR #3415 review (P1, Greptile): pre-fix code swallowed
     /// `git stash create` failures via `try?` and fell back to HEAD, masking
     /// real errors (locked index, corrupted store, broken worktree). After the
