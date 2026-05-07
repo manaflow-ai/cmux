@@ -5138,6 +5138,8 @@ struct SettingsView: View {
     private var paneFirstClickFocusEnabled = PaneFirstClickFocusSettings.defaultEnabled
     @AppStorage(TerminalScrollBarSettings.showScrollBarKey)
     private var showTerminalScrollBar = TerminalScrollBarSettings.defaultShowScrollBar
+    @AppStorage(TerminalFileDropSettings.defaultActionKey)
+    private var terminalFileDropDefaultAction = TerminalFileDropSettings.defaultAction.rawValue
     @AppStorage(WorkspaceAutoReorderSettings.key) private var workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
     @AppStorage(IMessageModeSettings.key) private var iMessageMode = IMessageModeSettings.defaultValue
     @AppStorage(SidebarWorkspaceDetailSettings.hideAllDetailsKey)
@@ -5264,6 +5266,32 @@ struct SettingsView: View {
                 TerminalScrollBarSettings.notifyDidChange()
             }
         )
+    }
+
+    private var selectedTerminalFileDropAction: TerminalFileDropSettings.Action {
+        TerminalFileDropSettings.action(for: terminalFileDropDefaultAction)
+    }
+
+    private var terminalFileDropActionSelection: Binding<String> {
+        Binding(
+            get: { selectedTerminalFileDropAction.rawValue },
+            set: { terminalFileDropDefaultAction = TerminalFileDropSettings.action(for: $0).rawValue }
+        )
+    }
+
+    private var terminalFileDropActionSubtitle: String {
+        switch selectedTerminalFileDropAction {
+        case .filePreview:
+            return String(
+                localized: "settings.terminal.fileDropDefaultAction.subtitlePreview",
+                defaultValue: "Drops open a file-preview pane. Hold Shift to send paths to shells or attach images to agent prompts."
+            )
+        case .terminal:
+            return String(
+                localized: "settings.terminal.fileDropDefaultAction.subtitleTerminal",
+                defaultValue: "Drops send paths to shells or attach images to agent prompts. Hold Shift to open a file-preview pane."
+            )
+        }
     }
 
     private var selectedSidebarActiveTabIndicatorStyle: SidebarActiveTabIndicatorStyle {
@@ -6183,6 +6211,25 @@ struct SettingsView: View {
                                 .accessibilityLabel(
                                     String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar")
                                 )
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .settingsOnly,
+                            String(localized: "settings.terminal.fileDropDefaultAction", defaultValue: "Terminal File Drops"),
+                            subtitle: terminalFileDropActionSubtitle,
+                            controlWidth: pickerColumnWidth,
+                            searchAnchorID: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "file-drops")
+                        ) {
+                            Picker("", selection: terminalFileDropActionSelection) {
+                                ForEach(TerminalFileDropSettings.Action.allCases) { action in
+                                    Text(action.displayName).tag(action.rawValue)
+                                }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
+                            .accessibilityIdentifier("SettingsTerminalFileDropActionPicker")
                         }
                     }
 
@@ -7311,6 +7358,7 @@ struct SettingsView: View {
         if previousShowTerminalScrollBar != showTerminalScrollBar {
             TerminalScrollBarSettings.notifyDidChange()
         }
+        terminalFileDropDefaultAction = TerminalFileDropSettings.defaultAction.rawValue
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
         iMessageMode = IMessageModeSettings.defaultValue
         sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails

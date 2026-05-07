@@ -11,11 +11,6 @@ struct PaneDropContext: Equatable {
 
 typealias TerminalPaneDropContext = PaneDropContext
 
-enum PaneExternalFileDropRouting: Equatable {
-    case agentPromptPaste
-    case filePreview
-}
-
 struct PaneDragTransfer: Equatable {
     let tabId: UUID
     let sourcePaneId: UUID
@@ -55,74 +50,6 @@ struct PaneDragTransfer: Equatable {
 }
 
 typealias TerminalPaneDragTransfer = PaneDragTransfer
-
-enum PaneDropRouting {
-    static func externalFileDropRouting(
-        panelType: PanelType,
-        hostsAgent: Bool
-    ) -> PaneExternalFileDropRouting {
-        guard panelType == .terminal, hostsAgent else {
-            return .filePreview
-        }
-        return .agentPromptPaste
-    }
-
-    static func zone(for location: CGPoint, in size: CGSize) -> DropZone {
-        let edgeRatio: CGFloat = 0.25
-        let horizontalEdge = max(80, size.width * edgeRatio)
-        let verticalEdge = max(80, size.height * edgeRatio)
-
-        if location.x < horizontalEdge {
-            return .left
-        } else if location.x > size.width - horizontalEdge {
-            return .right
-        } else if location.y > size.height - verticalEdge {
-            return .top
-        } else if location.y < verticalEdge {
-            return .bottom
-        } else {
-            return .center
-        }
-    }
-
-    static func filePreviewDestination(
-        targetPane paneId: PaneID,
-        zone: DropZone
-    ) -> BonsplitController.ExternalTabDropRequest.Destination {
-        switch zone {
-        case .center:
-            return .insert(targetPane: paneId, targetIndex: nil)
-        case .left:
-            return .split(targetPane: paneId, orientation: .horizontal, insertFirst: true)
-        case .right:
-            return .split(targetPane: paneId, orientation: .horizontal, insertFirst: false)
-        case .top:
-            return .split(targetPane: paneId, orientation: .vertical, insertFirst: true)
-        case .bottom:
-            return .split(targetPane: paneId, orientation: .vertical, insertFirst: false)
-        }
-    }
-
-    static func overlayFrame(for zone: DropZone, in bounds: CGRect) -> CGRect {
-        let midX = bounds.midX
-        let midY = bounds.midY
-
-        switch zone {
-        case .center:
-            return bounds.insetBy(dx: 10, dy: 10)
-        case .left:
-            return CGRect(x: bounds.minX + 8, y: bounds.minY + 8, width: max(0, midX - bounds.minX - 12), height: max(0, bounds.height - 16))
-        case .right:
-            return CGRect(x: midX + 4, y: bounds.minY + 8, width: max(0, bounds.maxX - midX - 12), height: max(0, bounds.height - 16))
-        case .top:
-            return CGRect(x: bounds.minX + 8, y: midY + 4, width: max(0, bounds.width - 16), height: max(0, bounds.maxY - midY - 12))
-        case .bottom:
-            return CGRect(x: bounds.minX + 8, y: bounds.minY + 8, width: max(0, bounds.width - 16), height: max(0, midY - bounds.minY - 12))
-        }
-    }
-}
-
-typealias TerminalPaneDropRouting = PaneDropRouting
 
 final class PaneDropTargetView: NSView {
     weak var hostedView: GhosttySurfaceScrollView?
@@ -271,13 +198,27 @@ final class PaneDropTargetView: NSView {
             return false
         }
 
-        switch workspace.externalFileDropRouting(forPanelId: dropContext.panelId) {
+        let shiftKeyHeld = currentShiftKeyHeld()
+        switch workspace.externalFileDropRouting(
+            forPanelId: dropContext.panelId,
+            shiftKeyHeld: shiftKeyHeld
+        ) {
         case .agentPromptPaste:
             let handled = hostedView?.handleAgentDroppedURLs(urls) ?? false
 #if DEBUG
             cmuxDebugLog(
                 "terminal.paneDrop.perform panel=\(dropContext.panelId.uuidString.prefix(5)) " +
                 "fileURLs=\(urls.count) route=agentPromptPaste " +
+                "pane=\(dropContext.paneId.id.uuidString.prefix(5)) handled=\(handled ? 1 : 0)"
+            )
+#endif
+            return handled
+        case .terminalPaste:
+            let handled = hostedView?.handleDroppedURLs(urls) ?? false
+#if DEBUG
+            cmuxDebugLog(
+                "terminal.paneDrop.perform panel=\(dropContext.panelId.uuidString.prefix(5)) " +
+                "fileURLs=\(urls.count) route=terminalPaste " +
                 "pane=\(dropContext.paneId.id.uuidString.prefix(5)) handled=\(handled ? 1 : 0)"
             )
 #endif
@@ -338,9 +279,16 @@ final class PaneDropTargetView: NSView {
             return []
         }
 
-        switch workspace.externalFileDropRouting(forPanelId: dropContext.panelId) {
+        let shiftKeyHeld = currentShiftKeyHeld()
+        switch workspace.externalFileDropRouting(
+            forPanelId: dropContext.panelId,
+            shiftKeyHeld: shiftKeyHeld
+        ) {
         case .agentPromptPaste:
             clearDragState(phase: "\(phase).agentPromptPaste")
+            return .copy
+        case .terminalPaste:
+            clearDragState(phase: "\(phase).terminalPaste")
             return .copy
         case .filePreview:
             break
@@ -419,6 +367,12 @@ final class PaneDropTargetView: NSView {
             )
         }
 #endif
+    }
+
+    private func currentShiftKeyHeld() -> Bool {
+        NSEvent.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .contains(.shift)
     }
 
 #if DEBUG

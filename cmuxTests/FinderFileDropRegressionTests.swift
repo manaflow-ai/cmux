@@ -174,10 +174,11 @@ final class FinderFileDropRegressionTests: XCTestCase {
         )
 
         _ = workspace.sessionSnapshot(includeScrollback: false, restorableAgentIndex: index)
-        XCTAssertEqual(workspace.externalFileDropRouting(forPanelId: panelId), .agentPromptPaste)
+        XCTAssertEqual(workspace.externalFileDropRouting(forPanelId: panelId), .filePreview)
+        XCTAssertEqual(workspace.externalFileDropRouting(forPanelId: panelId, shiftKeyHeld: true), .agentPromptPaste)
 
         workspace.clearAgentTerminal(key: "pi", panelId: panelId)
-        XCTAssertEqual(workspace.externalFileDropRouting(forPanelId: panelId), .agentPromptPaste)
+        XCTAssertEqual(workspace.externalFileDropRouting(forPanelId: panelId, shiftKeyHeld: true), .agentPromptPaste)
 
         workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
         workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
@@ -193,7 +194,7 @@ final class FinderFileDropRegressionTests: XCTestCase {
 
         let acceptedSnapshot = workspace.sessionSnapshot(includeScrollback: false, restorableAgentIndex: index)
         XCTAssertEqual(acceptedSnapshot.panels.first?.terminal?.agent?.sessionId, "codex-routing-cleanup-session")
-        XCTAssertEqual(workspace.externalFileDropRouting(forPanelId: panelId), .agentPromptPaste)
+        XCTAssertEqual(workspace.externalFileDropRouting(forPanelId: panelId, shiftKeyHeld: true), .agentPromptPaste)
     }
 
     func testAgentPromptDropPasteUsesTextPastePathWithoutEmbeddingControlSequences() throws {

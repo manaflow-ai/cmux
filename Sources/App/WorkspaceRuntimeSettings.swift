@@ -109,6 +109,51 @@ enum TerminalScrollBarSettings {
     }
 }
 
+enum TerminalFileDropSettings {
+    static let defaultActionKey = "terminal.fileDropDefaultAction"
+
+    enum Action: String, CaseIterable, Identifiable {
+        case filePreview
+        case terminal
+
+        var id: Self { self }
+
+        var inverted: Self {
+            switch self {
+            case .filePreview:
+                return .terminal
+            case .terminal:
+                return .filePreview
+            }
+        }
+
+        var displayName: String {
+            switch self {
+            case .filePreview:
+                return String(
+                    localized: "settings.terminal.fileDropDefaultAction.preview",
+                    defaultValue: "Open Preview Pane"
+                )
+            case .terminal:
+                return String(
+                    localized: "settings.terminal.fileDropDefaultAction.terminal",
+                    defaultValue: "Send to Terminal"
+                )
+            }
+        }
+    }
+
+    static let defaultAction: Action = .filePreview
+
+    static func action(for rawValue: String?) -> Action {
+        Action(rawValue: rawValue ?? "") ?? defaultAction
+    }
+
+    static func defaultAction(defaults: UserDefaults = .standard) -> Action {
+        action(for: defaults.string(forKey: defaultActionKey))
+    }
+}
+
 enum RightSidebarBetaFeatureSettings {
     static let feedEnabledKey = "rightSidebar.beta.feed.enabled"
     static let dockEnabledKey = "rightSidebar.beta.dock.enabled"

@@ -70,13 +70,19 @@ extension Workspace {
         return agentStatusKeysByPanelId[panelId]?.isEmpty == false
     }
 
-    func externalFileDropRouting(forPanelId panelId: UUID) -> PaneExternalFileDropRouting {
+    func externalFileDropRouting(
+        forPanelId panelId: UUID,
+        shiftKeyHeld: Bool = false,
+        defaults: UserDefaults = .standard
+    ) -> PaneExternalFileDropRouting {
         guard let panelType = panels[panelId]?.panelType else {
             return .filePreview
         }
         return PaneDropRouting.externalFileDropRouting(
             panelType: panelType,
-            hostsAgent: terminalPanelHostsAgent(panelId: panelId)
+            hostsAgent: terminalPanelHostsAgent(panelId: panelId),
+            defaultAction: TerminalFileDropSettings.defaultAction(defaults: defaults),
+            shiftKeyHeld: shiftKeyHeld
         )
     }
 

@@ -105282,6 +105282,91 @@
         }
       }
     },
+    "settings.terminal.fileDropDefaultAction": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal File Drops"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルへのファイルドロップ"
+          }
+        }
+      }
+    },
+    "settings.terminal.fileDropDefaultAction.preview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Preview Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビューペインを開く"
+          }
+        }
+      }
+    },
+    "settings.terminal.fileDropDefaultAction.subtitlePreview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drops open a file-preview pane. Hold Shift to send paths to shells or attach images to agent prompts."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドロップするとファイルプレビューペインを開きます。Shift キーを押しながらドロップすると、シェルへパスを送信するか、エージェントのプロンプトへ画像を添付します。"
+          }
+        }
+      }
+    },
+    "settings.terminal.fileDropDefaultAction.subtitleTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drops send paths to shells or attach images to agent prompts. Hold Shift to open a file-preview pane."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドロップするとシェルへパスを送信するか、エージェントのプロンプトへ画像を添付します。Shift キーを押しながらドロップするとファイルプレビューペインを開きます。"
+          }
+        }
+      }
+    },
+    "settings.terminal.fileDropDefaultAction.terminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send to Terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルへ送信"
+          }
+        }
+      }
+    },
     "settings.app.openMarkdownInCmuxViewer": {
       "extractionState": "manual",
       "localizations": {
