@@ -1798,7 +1798,7 @@ final class TabManagerResizeSplitsTests: XCTestCase {
         )
     }
 
-    func testResizeSplitReturnsFalseWhenPaneHasNoBorderInDirection() {
+    func testResizeSplitFallsBackToOppositeDividerWhenLeftPaneHasNoLeftEdge() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
               let leftPanelId = workspace.focusedPanelId,
@@ -1807,21 +1807,143 @@ final class TabManagerResizeSplitsTests: XCTestCase {
             return
         }
 
-        guard let split = splitNodes(in: workspace.bonsplitController.treeSnapshot()).first else {
+        guard let split = splitNodes(in: workspace.bonsplitController.treeSnapshot()).first,
+              let splitId = UUID(uuidString: split.id) else {
             XCTFail("Expected a split node in tree snapshot")
             return
         }
 
-        XCTAssertFalse(
+        XCTAssertTrue(
+            workspace.bonsplitController.setDividerPosition(0.5, forSplit: splitId),
+            "Expected to seed divider position"
+        )
+
+        XCTAssertTrue(
             manager.resizeSplit(tabId: workspace.id, surfaceId: leftPanelId, direction: .left, amount: 120),
-            "Expected resizeSplit to fail when the pane has no adjacent border in that direction"
+            "Expected resizeSplit to fall back when the left pane has no left edge"
         )
 
         guard let updatedSplit = splitNodes(in: workspace.bonsplitController.treeSnapshot()).first else {
             XCTFail("Expected updated split node in tree snapshot")
             return
         }
-        XCTAssertEqual(updatedSplit.dividerPosition, split.dividerPosition, accuracy: 0.000_1)
+
+        XCTAssertLessThan(
+            updatedSplit.dividerPosition,
+            0.5,
+            "Expected fallback to move the right edge of the left pane leftward (shrinking width)"
+        )
+    }
+
+    func testResizeSplitFallsBackToOppositeDividerWhenRightPaneHasNoRightEdge() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let leftPanelId = workspace.focusedPanelId,
+              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
+            XCTFail("Expected split setup to succeed")
+            return
+        }
+
+        guard let split = splitNodes(in: workspace.bonsplitController.treeSnapshot()).first,
+              let splitId = UUID(uuidString: split.id) else {
+            XCTFail("Expected a split node in tree snapshot")
+            return
+        }
+
+        XCTAssertTrue(
+            workspace.bonsplitController.setDividerPosition(0.5, forSplit: splitId),
+            "Expected to seed divider position"
+        )
+
+        XCTAssertTrue(
+            manager.resizeSplit(tabId: workspace.id, surfaceId: rightPanel.id, direction: .right, amount: 120),
+            "Expected resizeSplit to fall back when the right pane has no right edge"
+        )
+
+        guard let updatedSplit = splitNodes(in: workspace.bonsplitController.treeSnapshot()).first else {
+            XCTFail("Expected updated split node in tree snapshot")
+            return
+        }
+
+        XCTAssertGreaterThan(
+            updatedSplit.dividerPosition,
+            0.5,
+            "Expected fallback to move the left edge of the right pane rightward (shrinking width)"
+        )
+    }
+
+    func testResizeSplitFallsBackToOppositeDividerWhenTopPaneHasNoTopEdge() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let topPanelId = workspace.focusedPanelId,
+              workspace.newTerminalSplit(from: topPanelId, orientation: .vertical) != nil else {
+            XCTFail("Expected split setup to succeed")
+            return
+        }
+
+        guard let split = splitNodes(in: workspace.bonsplitController.treeSnapshot()).first,
+              let splitId = UUID(uuidString: split.id) else {
+            XCTFail("Expected a split node in tree snapshot")
+            return
+        }
+
+        XCTAssertTrue(
+            workspace.bonsplitController.setDividerPosition(0.5, forSplit: splitId),
+            "Expected to seed divider position"
+        )
+
+        XCTAssertTrue(
+            manager.resizeSplit(tabId: workspace.id, surfaceId: topPanelId, direction: .up, amount: 120),
+            "Expected resizeSplit to fall back when the top pane has no top edge"
+        )
+
+        guard let updatedSplit = splitNodes(in: workspace.bonsplitController.treeSnapshot()).first else {
+            XCTFail("Expected updated split node in tree snapshot")
+            return
+        }
+
+        XCTAssertLessThan(
+            updatedSplit.dividerPosition,
+            0.5,
+            "Expected fallback to move the bottom edge of the top pane upward (shrinking height)"
+        )
+    }
+
+    func testResizeSplitFallsBackToOppositeDividerWhenBottomPaneHasNoBottomEdge() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let topPanelId = workspace.focusedPanelId,
+              let bottomPanel = workspace.newTerminalSplit(from: topPanelId, orientation: .vertical) else {
+            XCTFail("Expected split setup to succeed")
+            return
+        }
+
+        guard let split = splitNodes(in: workspace.bonsplitController.treeSnapshot()).first,
+              let splitId = UUID(uuidString: split.id) else {
+            XCTFail("Expected a split node in tree snapshot")
+            return
+        }
+
+        XCTAssertTrue(
+            workspace.bonsplitController.setDividerPosition(0.5, forSplit: splitId),
+            "Expected to seed divider position"
+        )
+
+        XCTAssertTrue(
+            manager.resizeSplit(tabId: workspace.id, surfaceId: bottomPanel.id, direction: .down, amount: 120),
+            "Expected resizeSplit to fall back when the bottom pane has no bottom edge"
+        )
+
+        guard let updatedSplit = splitNodes(in: workspace.bonsplitController.treeSnapshot()).first else {
+            XCTFail("Expected updated split node in tree snapshot")
+            return
+        }
+
+        XCTAssertGreaterThan(
+            updatedSplit.dividerPosition,
+            0.5,
+            "Expected fallback to move the top edge of the bottom pane downward (shrinking height)"
+        )
     }
 
     func testResizeSplitClampsDividerPositionAtUpperBound() {
