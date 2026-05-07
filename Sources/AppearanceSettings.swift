@@ -36,9 +36,11 @@ enum AppearanceSettings {
         static var live: LiveApplyEnvironment {
             LiveApplyEnvironment(
                 setApplicationAppearance: { appearance in
+                    dispatchPrecondition(condition: .onQueue(.main))
                     NSApplication.shared.appearance = appearance
                 },
                 synchronizeTerminalThemeWithAppearance: { appearance, source in
+                    dispatchPrecondition(condition: .onQueue(.main))
                     GhosttyApp.shared.synchronizeThemeWithAppearance(appearance, source: source)
                 },
                 systemAppearance: {
@@ -164,14 +166,25 @@ enum AppearanceSettings {
         environment: LiveApplyEnvironment = .live
     ) -> AppearanceMode {
         let normalized = Self.mode(for: mode.rawValue)
-        let appearance = applicationAppearance(
-            for: normalized,
-            duringLaunch: duringLaunch,
-            environment: environment
-        )
-        environment.setApplicationAppearance(appearance)
-        if synchronizeTerminalTheme {
-            environment.synchronizeTerminalThemeWithAppearance(appearance, source)
+        let applySideEffects = {
+            dispatchPrecondition(condition: .onQueue(.main))
+            let appearance = applicationAppearance(
+                for: normalized,
+                duringLaunch: duringLaunch,
+                environment: environment
+            )
+            environment.setApplicationAppearance(appearance)
+            if synchronizeTerminalTheme {
+                environment.synchronizeTerminalThemeWithAppearance(appearance, source)
+            }
+        }
+
+        if Thread.isMainThread {
+            applySideEffects()
+        } else {
+            DispatchQueue.main.async {
+                applySideEffects()
+            }
         }
         return normalized
     }

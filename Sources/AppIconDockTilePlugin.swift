@@ -40,6 +40,7 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
     }
 
     func setDockTile(_ dockTile: NSDockTile?) {
+        dispatchPrecondition(condition: .onQueue(.main))
         if let iconChangeObserver {
             DistributedNotificationCenter.default().removeObserver(iconChangeObserver)
             self.iconChangeObserver = nil
@@ -53,7 +54,7 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
         iconChangeObserver = DistributedNotificationCenter.default().addObserver(
             forName: cmuxAppIconDidChangeNotification,
             object: nil,
-            queue: nil
+            queue: .main
         ) { [weak self] _ in
             guard let self else { return }
             self.updateDockTile(dockTile)
@@ -91,6 +92,7 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
     }
 
     private func updateDockTile(_ dockTile: NSDockTile) {
+        dispatchPrecondition(condition: .onQueue(.main))
         let mode = DockTileAppIconMode(defaultsValue: appDefaults?.string(forKey: cmuxAppIconModeKey))
         let isDarkAppearance = NSApp?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         guard let appBundleURL else {
@@ -137,20 +139,18 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
 
 private extension NSDockTile {
     func showDefaultAppIcon() {
-        DispatchQueue.main.async {
-            self.contentView = nil
-            self.display()
-        }
+        dispatchPrecondition(condition: .onQueue(.main))
+        contentView = nil
+        display()
     }
 
     func showIcon(_ newIcon: NSImage) {
-        DispatchQueue.main.async {
-            let iconView = NSImageView(frame: CGRect(origin: .zero, size: self.size))
-            iconView.wantsLayer = true
-            iconView.image = newIcon
-            self.contentView = iconView
-            self.display()
-        }
+        dispatchPrecondition(condition: .onQueue(.main))
+        let iconView = NSImageView(frame: CGRect(origin: .zero, size: size))
+        iconView.wantsLayer = true
+        iconView.image = newIcon
+        contentView = iconView
+        display()
     }
 }
 

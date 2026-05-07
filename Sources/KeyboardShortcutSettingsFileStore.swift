@@ -1096,6 +1096,7 @@ final class CmuxSettingsFileStore {
         let appearanceRawValue = shouldApplyAppearance ? UserDefaults.standard.string(forKey: defaultsKey) : nil
         let appIconMode = defaultsKey == AppIconSettings.modeKey ? AppIconSettings.resolvedMode() : nil
         let apply = {
+            dispatchPrecondition(condition: .onQueue(.main))
             if notifyScrollBar {
                 TerminalScrollBarSettings.notifyDidChange(notificationCenter: notificationCenter)
             }

@@ -1442,8 +1442,8 @@ final class TerminalNotificationStore: ObservableObject {
         focusedReadIndicatorByTabId.removeAll()
     }
 #endif
-
     private func refreshDockBadge() {
+        dispatchPrecondition(condition: .onQueue(.main))
         let label = Self.dockBadgeLabel(
             unreadCount: unreadCount,
             isEnabled: NotificationBadgeSettings.isDockBadgeEnabled(),
