@@ -54,6 +54,9 @@ jobs:
       - name: Validate CircleCI auto approval
         run: python3 tests/test_circleci_auto_approve.py
 
+      - name: Validate bash integration emits no spurious 'Done' job notifications
+        run: python3 tests/test_bash_integration_no_done_notifications.py
+
       # Paused: stale-base merge races (two PRs each fitting the budget can
       # overshoot when merged back-to-back without rebasing). CodeRabbit and
       # Greptile already flag large-file growth on PRs. Re-enable by uncommenting
