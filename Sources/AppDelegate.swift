@@ -11100,7 +11100,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .toggleFileExplorer) {
-            _ = toggleRightSidebarInActiveMainWindow(preferredWindow: preferredWindowForSidebarVisibilityShortcut(event: event))
+            enqueueRightSidebarVisibilityShortcut(preferredWindow: preferredWindowForSidebarVisibilityShortcut(event: event))
             return true
         }
 
