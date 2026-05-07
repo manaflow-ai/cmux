@@ -1,4 +1,5 @@
 import CoreFoundation
+import Darwin
 import Foundation
 
 struct EventStreamLimitReached: Error {}
