@@ -15909,6 +15909,7 @@ class TerminalController {
         "factory",
         "gemini",
         "opencode",
+        "pi",
         "qoder",
         "rovodev",
     ]

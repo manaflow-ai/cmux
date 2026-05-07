@@ -1148,6 +1148,50 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testAgentRoutingSnapshotCleanupClearsInvalidationFingerprint() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let index = try makeRestorableAgentIndex(
+            workspaceId: workspace.id,
+            panelId: panelId,
+            sessionId: "codex-routing-cleanup-session",
+            arguments: [
+                "/usr/local/bin/codex",
+                "--model",
+                "gpt-5.4",
+            ]
+        )
+
+        _ = workspace.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: index
+        )
+        XCTAssertEqual(workspace.externalFileDropRouting(forPanelId: panelId), .agentPromptPaste)
+
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
+        XCTAssertNil(
+            workspace.sessionSnapshot(
+                includeScrollback: false,
+                restorableAgentIndex: index
+            ).panels.first?.terminal?.agent
+        )
+
+        workspace.clearRestoredAgentSnapshotForAgentRouting(panelId: panelId)
+        XCTAssertEqual(workspace.externalFileDropRouting(forPanelId: panelId), .filePreview)
+
+        let acceptedSnapshot = workspace.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: index
+        )
+        XCTAssertEqual(
+            acceptedSnapshot.panels.first?.terminal?.agent?.sessionId,
+            "codex-routing-cleanup-session"
+        )
+        XCTAssertEqual(workspace.externalFileDropRouting(forPanelId: panelId), .agentPromptPaste)
+    }
+
+    @MainActor
     func testUserCommandInvalidatesStaleRestoredAgentForAllProviders() throws {
         let scenarios: [(kind: RestorableAgentKind, arguments: [String])] = [
             (

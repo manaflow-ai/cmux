@@ -7269,7 +7269,11 @@ final class Workspace: Identifiable, ObservableObject {
     private var restoredAgentAutoResumePendingPanelIds: Set<UUID> = []
     private var invalidatedRestoredAgentFingerprintsByPanelId: [UUID: Int] = [:]
     private var pendingTerminalInputObserversByPanelId: [UUID: [WorkspacePendingTerminalInputObserver]] = [:]
-    func clearRestoredAgentSnapshotForAgentRouting(panelId: UUID) { restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId); restoredAgentAutoResumePendingPanelIds.remove(panelId) }
+    func clearRestoredAgentSnapshotForAgentRouting(panelId: UUID) {
+        restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
+        restoredAgentAutoResumePendingPanelIds.remove(panelId)
+        invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
+    }
 
     private func sidebarObservationSignal<Value: Equatable>(
         _ publisher: Published<Value>.Publisher

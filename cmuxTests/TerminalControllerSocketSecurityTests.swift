@@ -142,6 +142,42 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
 #endif
     }
 
+    func testPiStatusTracksAgentTerminalDropRouting() throws {
+        let socketPath = makeSocketPath("pi-agent")
+        let tabManager = TabManager()
+        let workspace = tabManager.addWorkspace(select: true)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        XCTAssertEqual(
+            try sendCommands([
+                "set_status pi Running --tab=\(workspace.id.uuidString) --panel=\(panelId.uuidString)"
+            ], to: socketPath),
+            ["OK"]
+        )
+#if DEBUG
+        TerminalMutationBus.shared.drainForTesting()
+#endif
+        XCTAssertEqual(workspace.externalFileDropRouting(forPanelId: panelId), .agentPromptPaste)
+
+        XCTAssertEqual(
+            try sendCommands([
+                "clear_status pi --tab=\(workspace.id.uuidString) --panel=\(panelId.uuidString)"
+            ], to: socketPath),
+            ["OK"]
+        )
+#if DEBUG
+        TerminalMutationBus.shared.drainForTesting()
+#endif
+        XCTAssertEqual(workspace.externalFileDropRouting(forPanelId: panelId), .filePreview)
+    }
+
     func testRemoteStatusPayloadOmitsSensitiveSSHConfiguration() {
         let tabManager = TabManager()
         let workspace = tabManager.addWorkspace(select: false, eagerLoadTerminal: false)
