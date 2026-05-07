@@ -60,6 +60,18 @@ enum WorkspaceAutoReorderSettings {
     }
 }
 
+enum WorkspaceInheritWorkingDirectorySettings {
+    static let key = "workspaceInheritWorkingDirectory"
+    static let defaultValue = true
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: key) == nil {
+            return defaultValue
+        }
+        return defaults.bool(forKey: key)
+    }
+}
+
 enum LastSurfaceCloseShortcutSettings {
     static let key = "closeWorkspaceOnLastSurfaceShortcut"
     // Keep the legacy stored meaning so existing values still map to the same
@@ -3779,6 +3791,19 @@ class TabManager: ObservableObject {
     func preferredWorkingDirectoryForNewTab(
         workspace: Workspace?
     ) -> String? {
+        // When inherit is disabled, prefer the user's Ghostty `working-directory`
+        // value, falling back to home. Returning nil here would let Ghostty
+        // inherit the cmux process cwd (typically `/` for launchd-launched apps),
+        // which is not what users expect when they explicitly opt out of inherit.
+        guard WorkspaceInheritWorkingDirectorySettings.isEnabled() else {
+            if let configured = GhosttyConfig.load().workingDirectory?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !configured.isEmpty,
+               configured.lowercased() != "inherit" {
+                return configured
+            }
+            return FileManager.default.homeDirectoryForCurrentUser.path
+        }
         guard let workspace else {
             return nil
         }

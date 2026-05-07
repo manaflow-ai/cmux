@@ -51932,15 +51932,61 @@
             "value": "Yeni Çalışma Alanı Konumu"
           }
         },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Розташування нової робочої області"
-          }
-        }
-      }
-    },
-    "settings.app.settingsFile.openButton": {
+         "uk": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Розташування нової робочої області"
+           }
+         }
+       }
+     },
+     "settings.app.workspaceInheritWorkingDirectory": {
+       "extractionState": "manual",
+       "localizations": {
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Inherit Working Directory in New Workspaces"
+           }
+         },
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "新規ワークスペースで作業ディレクトリを継承"
+           }
+         },
+         "ko": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "새 작업 공간에서 작업 디렉터리 상속"
+           }
+         }
+       }
+     },
+     "settings.app.workspaceInheritWorkingDirectory.subtitle": {
+       "extractionState": "manual",
+       "localizations": {
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "When on, new workspaces start in the previously focused workspace's directory. When off, they start in the Ghostty working-directory value."
+           }
+         },
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "オンの場合、新しいワークスペースは直前にフォーカスされていたワークスペースのディレクトリで開始します。オフの場合は Ghostty の working-directory の値で開始します。"
+           }
+         },
+         "ko": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "켜져 있으면 새 작업 공간이 직전에 포커스된 작업 공간의 디렉터리에서 시작됩니다. 꺼져 있으면 Ghostty의 working-directory 값에서 시작됩니다."
+           }
+         }
+       }
+     },
+     "settings.app.settingsFile.openButton": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -71930,6 +71976,29 @@
                 "stringUnit": {
                     "state": "translated",
                     "value": "app.newWorkspacePlacement new tab insert position order top bottom end програма загальні параметри поведінка док рядок меню статус бічна панель робочий простір вкладка кольори палітра значок вибрано підсвічування індикатор активний крапка нова Робоча область • %@ Розташування нової робочої області В кінці На початку"
+                }
+            }
+        }
+    },
+    "settings.search.alias.setting.app.workspace-inherit-cwd": {
+        "extractionState": "manual",
+        "localizations": {
+            "en": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.workspaceInheritWorkingDirectory inherit working directory cwd new workspace ghostty fallback pwd"
+                }
+            },
+            "ja": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.workspaceInheritWorkingDirectory inherit working directory cwd new workspace ghostty fallback pwd ワークスペース 作業ディレクトリ 継承 新規 フォールバック"
+                }
+            },
+            "ko": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.workspaceInheritWorkingDirectory inherit working directory cwd new workspace ghostty fallback pwd 작업 공간 작업 디렉터리 상속 새 워크스페이스 폴백"
                 }
             }
         }
