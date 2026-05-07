@@ -44,10 +44,14 @@ extension CMUXCLI {
         client: SocketClient
     ) throws -> String {
         if let preferred = nonEmptyClaudeHookIdentifier(preferred) {
-            return try resolveWorkspaceIdForClaudeHook(preferred, client: client)
+            if let resolved = try? resolveWorkspaceIdForClaudeHook(preferred, client: client) {
+                return resolved
+            }
         }
         if let fallback = nonEmptyClaudeHookIdentifier(fallback) {
-            return try resolveWorkspaceIdForClaudeHook(fallback, client: client)
+            if let resolved = try? resolveWorkspaceIdForClaudeHook(fallback, client: client) {
+                return resolved
+            }
         }
         return try resolveWorkspaceIdForClaudeHook(nil, client: client)
     }
@@ -59,10 +63,14 @@ extension CMUXCLI {
         client: SocketClient
     ) throws -> String {
         if let preferred = nonEmptyClaudeHookIdentifier(preferred) {
-            return try resolveSurfaceIdForClaudeHook(preferred, workspaceId: workspaceId, client: client)
+            if let resolved = try? resolveSurfaceIdForClaudeHook(preferred, workspaceId: workspaceId, client: client) {
+                return resolved
+            }
         }
         if let fallback = nonEmptyClaudeHookIdentifier(fallback) {
-            return try resolveSurfaceIdForClaudeHook(fallback, workspaceId: workspaceId, client: client)
+            if let resolved = try? resolveSurfaceIdForClaudeHook(fallback, workspaceId: workspaceId, client: client) {
+                return resolved
+            }
         }
         return try resolveSurfaceIdForClaudeHook(nil, workspaceId: workspaceId, client: client)
     }

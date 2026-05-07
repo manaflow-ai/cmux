@@ -15184,7 +15184,7 @@ struct CMUXCLI {
             let payload = "Codex|\(sanitizeNotificationField(summary.subtitle))|\(sanitizeNotificationField(summary.body))"
             _ = try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
         }
-        _ = try? sendV1Command("set_status codex \(summary.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketSurfaceOption(surfaceId))", client: client)
+        _ = try? sendV1Command("set_status codex \(socketCommandQuote(summary.statusValue)) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketSurfaceOption(surfaceId))", client: client)
     }
 
     private func waitForCodexTranscriptChange(path: String?, timeout: TimeInterval) {
@@ -16986,10 +16986,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 let payload = notificationPayload(title: def.displayName, subtitle: subtitle, body: body)
                 _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
                 if let codexFailure {
-                    _ = try? sendV1Command("set_status \(def.statusKey) \(codexFailure.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketSurfaceOption(surfaceId))", client: client)
+                    _ = try? sendV1Command("set_status \(def.statusKey) \(socketCommandQuote(codexFailure.statusValue)) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketSurfaceOption(surfaceId))", client: client)
                 } else {
                     let idleStatus = String(localized: "agent.codex.status.idle", defaultValue: "Idle")
-                    _ = try? sendV1Command("set_status \(def.statusKey) \(idleStatus) --icon=pause.circle.fill --color=#8E8E93 --tab=\(workspaceId)\(socketSurfaceOption(surfaceId))", client: client)
+                    _ = try? sendV1Command("set_status \(def.statusKey) \(socketCommandQuote(idleStatus)) --icon=pause.circle.fill --color=#8E8E93 --tab=\(workspaceId)\(socketSurfaceOption(surfaceId))", client: client)
                 }
             } catch {
                 if shouldIgnoreClaudeHookTeardownError(error) {

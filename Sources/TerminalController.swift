@@ -16150,8 +16150,9 @@ class TerminalController {
             return targetResolution.error ?? "ERROR: No tab selected"
         }
         let agentPanelId = agentTrackingPanelId(options: parsed.options)
+        let tracksAgentPanel = Self.shouldTrackAgentStatusKey(key)
         scheduleSidebarMutation(target: target) { controller, tab in
-            tab.clearAgentPID(key: key, panelId: agentPanelId)
+            tab.clearAgentPID(key: key, panelId: tracksAgentPanel ? agentPanelId : nil)
             controller.refreshTrackedAgentPorts(for: tab)
         }
         return "OK"
