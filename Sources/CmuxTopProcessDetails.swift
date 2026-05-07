@@ -2,6 +2,7 @@ import ObjectiveC.runtime
 import WebKit
 
 enum CmuxWebContentProcessIdentifier {
+    @MainActor
     static func pid(for webView: WKWebView) -> Int? {
         let selector = NSSelectorFromString("_webProcessIdentifier")
         guard let method = class_getInstanceMethod(WKWebView.self, selector) else {

@@ -38,7 +38,7 @@ nonisolated extension CmuxTopProcessSnapshot {
             return cached.scope
         }
 
-        guard let scope = cmuxScope(for: pid) else {
+        guard let scope = cmuxScope(for: pid, expectedCacheKey: cacheKey) else {
             return nil
         }
 
@@ -55,8 +55,14 @@ nonisolated extension CmuxTopProcessSnapshot {
         }
     }
 
-    static func cmuxScope(for pid: Int) -> CmuxTopProcessScope? {
-        guard pid > 0, pid <= Int(Int32.max) else { return nil }
+    private static func cmuxScope(
+        for pid: Int,
+        expectedCacheKey: CmuxTopProcessScopeCacheKey
+    ) -> CmuxTopProcessScope? {
+        guard let currentProcess = kinfoProc(for: pid),
+              scopeCacheKey(from: currentProcess) == expectedCacheKey else {
+            return nil
+        }
 
         var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, Int32(pid)]
         var size: size_t = 0
@@ -70,6 +76,10 @@ nonisolated extension CmuxTopProcessSnapshot {
             sysctl(&mib, u_int(mib.count), rawBuffer.baseAddress, &size, nil, 0) == 0
         }
         guard success else { return nil }
+        guard let currentProcess = kinfoProc(for: pid),
+              scopeCacheKey(from: currentProcess) == expectedCacheKey else {
+            return nil
+        }
 
         return cmuxScope(fromKernProcArgs: Array(buffer.prefix(Int(size))))
     }
@@ -145,5 +155,20 @@ nonisolated extension CmuxTopProcessSnapshot {
         while index < bytes.count, bytes[index] == 0 {
             index += 1
         }
+    }
+
+    private static func kinfoProc(for pid: Int) -> kinfo_proc? {
+        guard pid > 0, pid <= Int(Int32.max) else { return nil }
+
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, Int32(pid)]
+        var process = kinfo_proc()
+        var length = MemoryLayout<kinfo_proc>.stride
+        let result = sysctl(&mib, u_int(mib.count), &process, &length, nil, 0)
+        guard result == 0,
+              length >= MemoryLayout<kinfo_proc>.stride,
+              process.kp_proc.p_pid == pid_t(pid) else {
+            return nil
+        }
+        return process
     }
 }
