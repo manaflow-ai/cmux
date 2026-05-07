@@ -12383,6 +12383,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         handleCustomShortcut(event: event)
     }
 
+    func debugRefreshConfiguredShortcutChordActionsForTesting() {
+        refreshConfiguredShortcutChordActions()
+        clearConfiguredShortcutChordState()
+    }
+
     // Debug/test hook: mirrors local monitor routing (keyDown + keyUp lifecycle).
     func debugHandleShortcutMonitorEvent(event: NSEvent) -> Bool {
         if event.type == .systemDefined {

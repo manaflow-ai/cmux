@@ -74,6 +74,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
+        _ = NSApplication.shared
+        if let applicationDelegate = NSApp.delegate as? AppDelegate {
+            AppDelegate.shared = applicationDelegate
+        }
         // Prevent a single hanging test from consuming the entire CI timeout budget.
         executionTimeAllowance = 30
         actionsWithPersistedShortcut = Set(
@@ -88,6 +92,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
         originalSettingsFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(prefix: "cmux-shortcut-routing")
         KeyboardShortcutSettings.resetAll()
+        AppDelegate.shared?.debugRefreshConfiguredShortcutChordActionsForTesting()
     }
 
     override func tearDown() {
@@ -5461,8 +5466,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             } else {
                 KeyboardShortcutSettings.resetShortcut(for: action)
             }
+            AppDelegate.shared?.debugRefreshConfiguredShortcutChordActionsForTesting()
         }
         KeyboardShortcutSettings.setShortcut(shortcut ?? action.defaultShortcut, for: action)
+        AppDelegate.shared?.debugRefreshConfiguredShortcutChordActionsForTesting()
         body()
     }
 
