@@ -419,6 +419,17 @@ enum FileExplorerError: LocalizedError {
     }
 }
 
+// MARK: - Selection Restoration
+
+enum FileExplorerSelectionRestoration {
+    static func scrollRow(anchorRow: Int?, exactRows: IndexSet) -> Int? {
+        if let anchorRow, exactRows.contains(anchorRow) {
+            return anchorRow
+        }
+        return exactRows.first
+    }
+}
+
 // MARK: - Store
 
 /// All access must happen on the main thread. Properties are not marked @MainActor

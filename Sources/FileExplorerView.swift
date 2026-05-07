@@ -369,7 +369,8 @@ struct FileExplorerPanelView: NSViewRepresentable {
             let exactRows = store.selectedPaths.reduce(into: IndexSet()) { if let resolution = selectionResolution(for: $1, in: outlineView), resolution.isExact { $0.insert(resolution.row) } }
             if !exactRows.isEmpty {
                 withProgrammaticOutlineUpdate { outlineView.selectRowIndexes(exactRows, byExtendingSelection: false) }
-                if scroll, let row = exactRows.first { outlineView.scrollRowToVisible(row) }; return
+                let anchorRow = store.selectedPath.flatMap { selectionResolution(for: $0, in: outlineView)?.row }
+                if scroll, let row = FileExplorerSelectionRestoration.scrollRow(anchorRow: anchorRow, exactRows: exactRows) { outlineView.scrollRowToVisible(row) }; return
             }
             if let selectedPath = store.selectedPath,
                let resolution = selectionResolution(for: selectedPath, in: outlineView) {
@@ -403,7 +404,6 @@ struct FileExplorerPanelView: NSViewRepresentable {
             let row: Int
             let isExact: Bool
         }
-
         private func selectionResolution(for path: String, in outlineView: NSOutlineView) -> SelectionResolution? {
             var bestAncestor: (row: Int, pathLength: Int)?
             for row in 0..<outlineView.numberOfRows {

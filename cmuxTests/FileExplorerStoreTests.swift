@@ -296,6 +296,26 @@ final class FileExplorerStoreTests: XCTestCase {
         XCTAssertTrue(store.selectedPaths.isEmpty)
     }
 
+    func testRestoredMultiSelectionScrollsToAnchorRow() {
+        let exactRows = IndexSet([2, 7, 11])
+
+        XCTAssertEqual(
+            FileExplorerSelectionRestoration.scrollRow(anchorRow: 7, exactRows: exactRows),
+            7
+        )
+        XCTAssertEqual(
+            FileExplorerSelectionRestoration.scrollRow(anchorRow: 4, exactRows: exactRows),
+            2
+        )
+        XCTAssertEqual(
+            FileExplorerSelectionRestoration.scrollRow(anchorRow: nil, exactRows: exactRows),
+            2
+        )
+        XCTAssertNil(
+            FileExplorerSelectionRestoration.scrollRow(anchorRow: nil, exactRows: [])
+        )
+    }
+
     // MARK: - Collapse/Expand
 
     func testCollapseRemovesFromExpandedPaths() {
