@@ -18,7 +18,7 @@
     {
       "path": ".github/review-bot-rules/runtime-no-hacky-sleeps.md",
       "description": "Source-of-truth cmux review rule for fixed sleeps, delays, and polling used as runtime synchronization.",
-      "scope": ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx", "**/*.mjs", "**/*.cjs", "**/*.sh", "**/*.zsh"]
+      "scope": ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx", "**/*.mjs", "**/*.cjs", "**/*.sh", "**/*.zsh", "!**/*.test.*", "!**/*.spec.*", "!**/*.cy.*", "!**/__tests__/**", "!**/tests/**", "!tests/**"]
     },
     {
       "path": ".github/review-bot-rules/swift-concurrency-modernization.md",

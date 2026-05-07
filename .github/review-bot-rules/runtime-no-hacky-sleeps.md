@@ -1,10 +1,12 @@
 # Runtime No Hacky Sleeps
 
+Scope: TypeScript, JavaScript, shell, and non-Swift runtime scripts. Swift timing and blocking primitives are covered by `swift-blocking-runtime.md`.
+
 Flag fixed delays used as synchronization in production application or runtime code.
 
 Report a failure when the diff introduces or materially expands any of these in non-test code:
 
-- `sleep`, `usleep`, `Thread.sleep`, `Task.sleep`, `DispatchQueue.asyncAfter`, `setTimeout`, `setInterval`, shell `sleep`, timers, polling loops, or fixed backoff used to make lifecycle, focus, rendering, socket, process, filesystem, network, or shared-state readiness appear reliable.
+- `sleep`, `usleep`, shell `sleep`, `setTimeout`, `setInterval`, timers, polling loops, or fixed backoff used to make lifecycle, focus, rendering, socket, process, filesystem, network, or shared-state readiness appear reliable.
 - Delay comments or names such as "give it time", "settle", "wait a bit", "wait for readiness", or "avoid race" without a real event from the owner that knows readiness.
 - Retrying, teardown, startup, keepalive, debounce, or handoff logic that depends on elapsed wall-clock time instead of a cancellation-aware scheduler, callback, notification, file descriptor or process event, async sequence, state transition, or explicit completion point.
 
