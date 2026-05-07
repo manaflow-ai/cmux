@@ -7,7 +7,7 @@ import Foundation
 /// and Foundation primitives, so callers may invoke them from any actor or
 /// thread, and a future module-level default actor isolation setting will
 /// not silently bind them to the main actor.
-enum SSHFileExplorerPathResolver {
+public enum SSHFileExplorerPathResolver {
     /// Derives the conventional remote home directory from the SSH
     /// `<user>@<host>` destination string.
     ///
@@ -27,7 +27,7 @@ enum SSHFileExplorerPathResolver {
     ///     "noatsign"              -> ""   (no user portion is reliable)
     ///     "@host"                 -> ""
     ///     "user@"                 -> ""   (no host = malformed)
-    nonisolated static func remoteHomePath(from destination: String?) -> String {
+    public nonisolated static func remoteHomePath(from destination: String?) -> String {
         guard let raw = destination?.trimmingCharacters(in: .whitespacesAndNewlines),
               !raw.isEmpty else {
             return ""
@@ -54,7 +54,7 @@ enum SSHFileExplorerPathResolver {
     /// In every other case we return the workspace directory unchanged so we
     /// don't accidentally redirect a user who is intentionally rooted at an
     /// already-remote-style path (`/home/...`, `/root`, `/etc`, `/`, etc.).
-    nonisolated static func effectiveRootPath(
+    public nonisolated static func effectiveRootPath(
         workspaceDirectory: String,
         remoteHomePath: String
     ) -> String {
@@ -74,7 +74,7 @@ enum SSHFileExplorerPathResolver {
     /// canonical macOS spelling is `/Users` / `/Volumes` (capital), and the
     /// remote side is compared exactly even when the local APFS volume is
     /// case-insensitive.
-    nonisolated static func isMacLocalPath(_ path: String) -> Bool {
+    public nonisolated static func isMacLocalPath(_ path: String) -> Bool {
         path.hasPrefix("/Users/") || path.hasPrefix("/Volumes/")
     }
 }

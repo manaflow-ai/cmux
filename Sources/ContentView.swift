@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CMUXSSHPathResolving
 import Combine
 import ImageIO
 import SwiftUI
