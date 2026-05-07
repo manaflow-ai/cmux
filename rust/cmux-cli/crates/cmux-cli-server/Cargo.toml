@@ -1,0 +1,38 @@
+[package]
+name = "cmux-cli-server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "cmx server: PTY host + Unix socket / WebSocket listener."
+
+[dependencies]
+cmux-cli-core = { path = "../cmux-cli-core" }
+cmux-cli-protocol = { path = "../cmux-cli-protocol" }
+libghostty-vt = { workspace = true }
+anyhow = { workspace = true }
+arc-swap = { workspace = true }
+base64 = { workspace = true }
+futures-util = { workspace = true }
+notify = { workspace = true }
+portable-pty = { workspace = true }
+rmp-serde = { workspace = true }
+serde = { workspace = true }
+serde_json = "1"
+tokio = { workspace = true }
+tokio-tungstenite = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+serde = { workspace = true }
+rmp-serde = { workspace = true }
+futures-util = { workspace = true }
+tokio-tungstenite = { workspace = true }
+base64 = { workspace = true }
+tempfile = "3"
+
+[lints]
+workspace = true

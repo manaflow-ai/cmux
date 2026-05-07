@@ -1,0 +1,64 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2024"
+rust-version = "1.94"
+license = "MIT"
+repository = "https://github.com/manaflow-ai/cmux-cli"
+authors = ["Lawrence Chen <lawrence@manaflow.ai>"]
+
+[workspace.dependencies]
+libghostty-vt = { git = "https://github.com/manaflow-ai/libghostty-rs.git", rev = "ccb738317b14fa1a07f93584746be582be4226d5" }
+libghostty-vt-sys = { git = "https://github.com/manaflow-ai/libghostty-rs.git", rev = "ccb738317b14fa1a07f93584746be582be4226d5" }
+portable-pty = "0.8"
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["codec"] }
+futures = "0.3"
+crossterm = "0.28"
+serde = { version = "1", features = ["derive"] }
+serde_bytes = "0.11"
+rmp-serde = "1"
+thiserror = "2"
+anyhow = "1"
+clap = { version = "4", features = ["derive", "env"] }
+uuid = { version = "1", features = ["v4"] }
+libc = "0.2"
+base64 = "0.22"
+getrandom = "0.3"
+hmac = "0.12"
+notify = "6"
+arc-swap = "1"
+tokio-tungstenite = "0.24"
+futures-util = "0.3"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+iroh = "0.98.2"
+serde_json = "1"
+sha2 = "0.10"
+unicode-width = "0.2"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "warn"
+
+[workspace.lints.clippy]
+uninlined_format_args = "warn"
+
+# Aggressive release profile. Trades build time for runtime perf + smaller
+# binaries. Fat LTO across the whole workspace, single codegen unit so
+# inlining can cross module boundaries, symbol stripping, no debug info.
+# Panic stays on unwind so a tokio task panic doesn't take down the server.
+[profile.release]
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
+debug = false
+incremental = false
+
+# Build scripts (including libghostty-vt-sys's zig-invoking build.rs) don't
+# need to be optimized themselves — speeds up a cold --release build.
+[profile.release.build-override]
+opt-level = 0
+codegen-units = 16

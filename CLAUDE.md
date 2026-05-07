@@ -109,6 +109,17 @@ This creates an isolated app with its own name, bundle ID, socket, and derived d
 
 Before launching a new tagged run, clean up any older tags you started in this session (quit old tagged app + remove its `/tmp` socket/derived data).
 
+## cmx attach handoff
+
+When Rust cmx or iOS terminal-sync work is involved, end useful handoffs with the directory and shortest attach command for the active context. Prefer the optimized binary after running a release build:
+
+```bash
+cd <worktree>
+CMX_SOCKET_PATH=/tmp/cmx-ios-<tag>.sock rust/cmux-cli/target/release/cmx attach
+```
+
+If the live socket tag is unknown, inspect the current tagged runtime or helper script output first instead of hardcoding an old tag.
+
 ## Cloud VM secrets
 
 Cloud VM build, test, and local dev scripts use provider secrets from `~/.secrets/cmux.env`.

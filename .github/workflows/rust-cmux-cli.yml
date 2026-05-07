@@ -1,0 +1,69 @@
+name: Rust cmux-cli
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/rust-cmux-cli.yml"
+      - "rust/cmux-cli/**"
+      - "scripts/tui-terminal-bounds-check.sh"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/rust-cmux-cli.yml"
+      - "rust/cmux-cli/**"
+      - "scripts/tui-terminal-bounds-check.sh"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust-cmux-cli:
+    name: fmt, clippy, test, release build
+    runs-on: macos-15
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: rust/cmux-cli
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Rust
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt clippy
+          rustup default stable
+
+      - name: Install zig
+        run: ../../scripts/install-zig-ci.sh 0.15.2
+
+      - name: Cache cargo
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust/cmux-cli/target
+          key: rust-cmux-cli-${{ runner.os }}-${{ hashFiles('rust/cmux-cli/Cargo.lock') }}
+          restore-keys: |
+            rust-cmux-cli-${{ runner.os }}-
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run clippy
+        run: cargo clippy --all-targets --workspace -- -D warnings
+
+      - name: Run tests
+        run: cargo test --workspace
+
+      - name: Build release binaries
+        run: cargo build --release -p cmx -p cmux-iroh-bridge
