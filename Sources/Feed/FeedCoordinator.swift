@@ -132,16 +132,26 @@ final class FeedCoordinator: @unchecked Sendable {
         // If this is a blocking actionable event and the app window isn't
         // focused, post a native notification banner with inline action
         // buttons so the user can respond without switching windows.
+        // Delay by the grace period so that hooks that auto-resolve the
+        // request (e.g. a PermissionRequest hook that returns "allow"
+        // immediately) have a chance to call deliverReply and cancel the
+        // work item before the notification ever fires.
         let poster = notificationPosterForTesting ?? postFeedNotification
-        DispatchQueue.main.async {
+        let delay = notificationGraceDelay
+        let notifyWork = DispatchWorkItem {
             poster(event, requestId)
         }
+        waiterLock.lock()
+        pendingNotifications[requestId] = notifyWork
+        waiterLock.unlock()
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: notifyWork)
 
         let deadline: DispatchTime = .now() + waitTimeout
         let waitResult = semaphore.wait(timeout: deadline)
 
         waiterLock.lock()
         let w = waiters.removeValue(forKey: requestId)
+        pendingNotifications.removeValue(forKey: requestId)
         waiterLock.unlock()
 
         switch waitResult {
@@ -165,6 +175,7 @@ final class FeedCoordinator: @unchecked Sendable {
             waiter.decision = decision
             waiter.semaphore.signal()
         }
+        pendingNotifications.removeValue(forKey: requestId)?.cancel()
         waiterLock.unlock()
 
         let resolve: @Sendable () -> Void = { [requestId, decision] in
