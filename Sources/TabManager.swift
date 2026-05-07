@@ -3799,7 +3799,7 @@ class TabManager: ObservableObject {
         // `GhosttyConfig` stores the raw string so we resolve keywords here.
         guard WorkspaceInheritWorkingDirectorySettings.isEnabled() else {
             let home = FileManager.default.homeDirectoryForCurrentUser.path
-            let configured = GhosttyConfig.load().workingDirectory?
+            let configured = GhosttyApp.shared.userGhosttyWorkingDirectory?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             switch configured?.lowercased() {
             case nil, "", "home", "inherit":

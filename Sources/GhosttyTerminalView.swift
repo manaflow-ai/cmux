@@ -1447,6 +1447,7 @@ class GhosttyApp {
     private(set) var defaultSelectionBackground: NSColor = GhosttyApp.fallbackAppearanceConfig.selectionBackground
     private(set) var defaultSelectionForeground: NSColor = GhosttyApp.fallbackAppearanceConfig.selectionForeground
     private(set) var usesHostLayerBackground = false
+    private(set) var userGhosttyWorkingDirectory: String?
     private(set) var userGhosttyShellIntegrationMode: String = "detect"
     private static func resolveBackgroundLogURL(
         environment: [String: String] = ProcessInfo.processInfo.environment
@@ -2031,12 +2032,21 @@ class GhosttyApp {
         )
         // Save the user's preference before we force it to none.
         userGhosttyShellIntegrationMode = "detect"
+        userGhosttyWorkingDirectory = nil
         do {
             var value: UnsafePointer<Int8>?
             let key = "shell-integration"
             if ghostty_config_get(config, &value, key, UInt(key.lengthOfBytes(using: .utf8))),
                let value {
                 userGhosttyShellIntegrationMode = String(cString: value)
+            }
+        }
+        do {
+            var value: UnsafePointer<Int8>?
+            let key = "working-directory"
+            if ghostty_config_get(config, &value, key, UInt(key.lengthOfBytes(using: .utf8))),
+               let value {
+                userGhosttyWorkingDirectory = String(cString: value)
             }
         }
 
