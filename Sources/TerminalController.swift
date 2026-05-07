@@ -7502,7 +7502,8 @@ class TerminalController {
                 return
             }
 
-            guard let candidate = orientationMatches.first(where: { $0.paneInFirstChild == direction.requiresPaneInFirstChild }) else {
+            guard let candidate = orientationMatches.first(where: { $0.paneInFirstChild == direction.requiresPaneInFirstChild })
+                ?? orientationMatches.first(where: { $0.paneInFirstChild != direction.requiresPaneInFirstChild }) else {
                 result = .err(
                     code: "invalid_state",
                     message: "Pane has no adjacent border in direction \(direction.rawValue)",

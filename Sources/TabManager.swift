@@ -5546,6 +5546,8 @@ class TabManager: ObservableObject {
 
         guard let candidate = orientationMatches.first(where: {
             $0.paneInFirstChild == direction.requiresPaneInFirstChild
+        }) ?? orientationMatches.first(where: {
+            $0.paneInFirstChild != direction.requiresPaneInFirstChild
         }) else {
             return false
         }
