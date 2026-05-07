@@ -270,11 +270,11 @@ final class PaneDropTargetView: NSView {
         eventType: NSEvent.EventType?
     ) -> Bool {
         let hasTabTransfer = DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboardTypes)
-        let hasFileURL = DragOverlayRoutingPolicy.hasFileURL(pasteboardTypes)
-        guard hasTabTransfer || hasFileURL else { return false }
+        let hasFileDropPayload = DragOverlayRoutingPolicy.hasFileDropPayload(pasteboardTypes)
+        guard hasTabTransfer || hasFileDropPayload else { return false }
         guard let eventType else { return false }
 
-        if hasFileURL, !hasTabTransfer {
+        if hasFileDropPayload, !hasTabTransfer {
             switch eventType {
             case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged,
                  .leftMouseUp, .rightMouseUp, .otherMouseUp:
@@ -437,10 +437,10 @@ final class PaneDropTargetView: NSView {
             clearDragState(phase: "\(phase).text")
 #if DEBUG
             cmuxDebugLog(
-                "terminal.paneDrop.\(phase) panel=\(dropContext.panelId.uuidString.prefix(5)) fileURL=1 textDestination=\(String(describing: textDestinationKind))"
+                "terminal.paneDrop.\(phase) panel=\(dropContext.panelId.uuidString.prefix(5)) fileDrop=1 textDestination=\(String(describing: textDestinationKind))"
             )
 #endif
-            return .copy
+            return DragOverlayRoutingPolicy.textDropOperation(pasteboardTypes: sender.draggingPasteboard.types)
         }
 
         if let transfer = PaneDragTransfer.decode(from: sender.draggingPasteboard),
@@ -620,13 +620,13 @@ final class PaneDropTargetView: NSView {
         eventType: NSEvent.EventType?
     ) {
         let hasTransferType = DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboardTypes)
-        let hasFileURL = DragOverlayRoutingPolicy.hasFileURL(pasteboardTypes)
-        guard hasTransferType || hasFileURL || capture else { return }
+        let hasFileDropPayload = DragOverlayRoutingPolicy.hasFileDropPayload(pasteboardTypes)
+        guard hasTransferType || hasFileDropPayload || capture else { return }
 
         let signature = [
             capture ? "1" : "0",
             hasTransferType ? "1" : "0",
-            hasFileURL ? "1" : "0",
+            hasFileDropPayload ? "1" : "0",
             String(describing: dropContext != nil),
             eventType.map { String($0.rawValue) } ?? "nil",
         ].joined(separator: "|")
@@ -636,7 +636,7 @@ final class PaneDropTargetView: NSView {
         let types = pasteboardTypes?.map(\.rawValue).joined(separator: ",") ?? "-"
         cmuxDebugLog(
             "terminal.paneDrop.hitTest capture=\(capture ? 1 : 0) " +
-            "hasTransfer=\(hasTransferType ? 1 : 0) hasFileURL=\(hasFileURL ? 1 : 0) " +
+            "hasTransfer=\(hasTransferType ? 1 : 0) hasFileDrop=\(hasFileDropPayload ? 1 : 0) " +
             "context=\(dropContext != nil ? 1 : 0) " +
             "event=\(eventType.map { String($0.rawValue) } ?? "nil") types=\(types)"
         )

@@ -235,6 +235,52 @@ final class FinderFileDropRegressionTests: XCTestCase {
         )
     }
 
+    func testFilePreviewTransferRoutesToTextEvenWhenTargetPasteboardOmitsFileURLType() throws {
+        let filePath = "/tmp/cmux drop/from image pane.png"
+        let dragId = UUID()
+        _ = FilePreviewDragRegistry.shared.register(
+            FilePreviewDragEntry(filePath: filePath, displayTitle: "from image pane.png"),
+            id: dragId
+        )
+        defer { FilePreviewDragRegistry.shared.discard(id: dragId) }
+
+        let transferData = try JSONSerialization.data(withJSONObject: [
+            "tab": [
+                "id": dragId.uuidString,
+                "title": "from image pane.png",
+                "hasCustomTitle": false,
+                "icon": NSNull(),
+                "iconImageData": NSNull(),
+                "kind": "filePreview",
+                "isDirty": false,
+                "showsNotificationBadge": false,
+                "isLoading": false,
+                "isPinned": false,
+            ],
+            "sourcePaneId": UUID().uuidString,
+            "sourceProcessId": Int(ProcessInfo.processInfo.processIdentifier),
+        ])
+        let pasteboard = NSPasteboard(name: .init("cmux-test-file-preview-transfer-drop-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.setData(transferData, forType: DragOverlayRoutingPolicy.filePreviewTransferType)
+        pasteboard.setData(transferData, forType: DragOverlayRoutingPolicy.bonsplitTabTransferType)
+
+        XCTAssertFalse(DragOverlayRoutingPolicy.hasFileURL(pasteboard.types))
+        XCTAssertTrue(DragOverlayRoutingPolicy.hasFileDropPayload(pasteboard.types))
+        XCTAssertTrue(
+            DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
+                pasteboardTypes: pasteboard.types,
+                modifierFlags: [],
+                defaultBehavior: .text
+            )
+        )
+        XCTAssertEqual(DragOverlayRoutingPolicy.textDropOperation(pasteboardTypes: pasteboard.types), .move)
+        XCTAssertEqual(
+            DragOverlayRoutingPolicy.fileURLs(from: pasteboard).map(\.path),
+            [URL(fileURLWithPath: filePath).standardizedFileURL.path]
+        )
+    }
+
     func testFileExplorerRelativePathInsertionUsesWorkspaceRelativePaths() {
         let rootPath = "/Users/example/project"
         let paths = [

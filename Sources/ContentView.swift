@@ -483,7 +483,9 @@ final class FileDropOverlayView: NSView {
                 prev.fileDropDraggingExited(sender)
                 activePaneDropTarget = nil
             }
-            return textDropDestinationKindUnderPoint(loc) == nil ? [] : .copy
+            return textDropDestinationKindUnderPoint(loc) == nil
+                ? []
+                : DragOverlayRoutingPolicy.textDropOperation(pasteboardTypes: types)
         }
 
         let paneDropTarget = shouldCapture ? paneDropTargetUnderPoint(loc) : nil
@@ -722,7 +724,7 @@ final class FileDropOverlayView: NSView {
 
     private func hasRelevantDragTypes(_ types: [NSPasteboard.PasteboardType]?) -> Bool {
         guard let types else { return false }
-        return DragOverlayRoutingPolicy.hasFileURL(types)
+        return DragOverlayRoutingPolicy.hasFileDropPayload(types)
             || types.contains(DragOverlayRoutingPolicy.bonsplitTabTransferType)
             || types.contains(DragOverlayRoutingPolicy.sidebarTabReorderType)
     }

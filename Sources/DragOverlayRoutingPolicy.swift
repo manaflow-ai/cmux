@@ -227,8 +227,24 @@ enum DragOverlayRoutingPolicy {
         PasteboardFileURLReader.hasFileURLType(pasteboardTypes ?? [])
     }
 
+    static func hasFileDropPayload(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
+        hasFileURL(pasteboardTypes) || hasFilePreviewTransfer(pasteboardTypes)
+    }
+
     static func fileURLs(from pasteboard: NSPasteboard) -> [URL] {
-        PasteboardFileURLReader.fileURLs(from: pasteboard)
+        let fileURLs = PasteboardFileURLReader.fileURLs(from: pasteboard)
+        if !fileURLs.isEmpty {
+            return fileURLs
+        }
+        guard let dragId = FilePreviewDragPasteboardWriter.dragID(from: pasteboard),
+              let entry = FilePreviewDragRegistry.shared.entry(id: dragId) else {
+            return []
+        }
+        return [URL(fileURLWithPath: entry.filePath).standardizedFileURL]
+    }
+
+    static func textDropOperation(pasteboardTypes: [NSPasteboard.PasteboardType]?) -> NSDragOperation {
+        hasFilePreviewTransfer(pasteboardTypes) ? .move : .copy
     }
 
     static var currentModifierFlags: NSEvent.ModifierFlags {
@@ -270,7 +286,7 @@ enum DragOverlayRoutingPolicy {
         canDropAsText: Bool = true,
         defaultBehavior: FileDropDefaultBehavior = FileDropBehaviorSettings.behavior()
     ) -> FileDropResolvedBehavior? {
-        guard hasFileURL(pasteboardTypes) else { return nil }
+        guard hasFileDropPayload(pasteboardTypes) else { return nil }
         guard canDropAsText else { return .preview }
         let behavior = defaultBehavior.resolvedBehavior
         return modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.shift)
@@ -298,7 +314,7 @@ enum DragOverlayRoutingPolicy {
         canDropAsText: Bool = true,
         defaultBehavior: FileDropDefaultBehavior = FileDropBehaviorSettings.behavior()
     ) -> FileDropResolvedBehavior? {
-        guard hasFileURL(pasteboardTypes) else { return nil }
+        guard hasFileDropPayload(pasteboardTypes) else { return nil }
         guard canDropAsText else { return nil }
         guard !modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.shift) else { return nil }
         return defaultBehavior.resolvedBehavior.inverted
@@ -310,7 +326,7 @@ enum DragOverlayRoutingPolicy {
     ) -> Bool {
         // The window overlay delegates Finder/sidebar files to pane-level Bonsplit targets.
         _ = hasLocalDraggingSource
-        guard hasFileURL(pasteboardTypes) else { return false }
+        guard hasFileDropPayload(pasteboardTypes) else { return false }
         return true
     }
 

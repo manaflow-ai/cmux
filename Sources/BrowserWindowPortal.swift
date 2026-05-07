@@ -1527,7 +1527,7 @@ final class BrowserPaneDropTargetView: NSView {
             topChromeHeight: slotView?.effectivePaneTopChromeHeight() ?? 0
         )
 
-        if DragOverlayRoutingPolicy.hasFileURL(sender.draggingPasteboard.types),
+        if DragOverlayRoutingPolicy.hasFileDropPayload(sender.draggingPasteboard.types),
            DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
                 pasteboardTypes: sender.draggingPasteboard.types,
                 modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags,
@@ -1663,14 +1663,14 @@ final class BrowserPaneDropTargetView: NSView {
             topChromeHeight: slotView?.effectivePaneTopChromeHeight() ?? 0
         )
 
-        if DragOverlayRoutingPolicy.hasFileURL(sender.draggingPasteboard.types),
+        if DragOverlayRoutingPolicy.hasFileDropPayload(sender.draggingPasteboard.types),
            DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
                 pasteboardTypes: sender.draggingPasteboard.types,
                 modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags,
                 canDropAsText: true
            ) {
             clearDragState(phase: "\(phase).text")
-            return .copy
+            return DragOverlayRoutingPolicy.textDropOperation(pasteboardTypes: sender.draggingPasteboard.types)
         }
 
         if let transfer = BrowserPaneDragTransfer.decode(from: sender.draggingPasteboard) {
