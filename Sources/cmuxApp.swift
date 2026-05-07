@@ -5138,6 +5138,8 @@ struct SettingsView: View {
     private var paneFirstClickFocusEnabled = PaneFirstClickFocusSettings.defaultEnabled
     @AppStorage(TerminalScrollBarSettings.showScrollBarKey)
     private var showTerminalScrollBar = TerminalScrollBarSettings.defaultShowScrollBar
+    @AppStorage(FileDropBehaviorSettings.defaultBehaviorKey)
+    private var fileDropDefaultBehavior = FileDropBehaviorSettings.defaultBehavior.rawValue
     @AppStorage(WorkspaceAutoReorderSettings.key) private var workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
     @AppStorage(IMessageModeSettings.key) private var iMessageMode = IMessageModeSettings.defaultValue
     @AppStorage(SidebarWorkspaceDetailSettings.hideAllDetailsKey)
@@ -5262,6 +5264,19 @@ struct SettingsView: View {
                 guard showTerminalScrollBar != newValue else { return }
                 showTerminalScrollBar = newValue
                 TerminalScrollBarSettings.notifyDidChange()
+            }
+        )
+    }
+
+    private var selectedFileDropDefaultBehavior: FileDropDefaultBehavior {
+        FileDropBehaviorSettings.behavior(for: fileDropDefaultBehavior)
+    }
+
+    private var fileDropDefaultBehaviorSelection: Binding<String> {
+        Binding(
+            get: { selectedFileDropDefaultBehavior.rawValue },
+            set: { newValue in
+                fileDropDefaultBehavior = FileDropBehaviorSettings.behavior(for: newValue).rawValue
             }
         )
     }
@@ -5843,6 +5858,21 @@ struct SettingsView: View {
                                     String(localized: "settings.app.paneFirstClickFocus", defaultValue: "Focus Pane on First Click")
                                 )
                         }
+
+                        SettingsCardDivider()
+
+                        SettingsPickerRow(
+                            configurationReview: .settingsOnly,
+                            String(localized: "settings.app.fileDrop.defaultBehavior", defaultValue: "File Drops"),
+                            subtitle: selectedFileDropDefaultBehavior.settingsSubtitle,
+                            controlWidth: pickerColumnWidth,
+                            selection: fileDropDefaultBehaviorSelection
+                        ) {
+                            ForEach(FileDropDefaultBehavior.allCases) { behavior in
+                                Text(behavior.displayName).tag(behavior.rawValue)
+                            }
+                        }
+                        .settingsSearchAnchor(SettingsSearchIndex.settingID(for: .app, idSuffix: "file-drops"))
 
                         SettingsCardDivider()
 
@@ -7311,6 +7341,7 @@ struct SettingsView: View {
         if previousShowTerminalScrollBar != showTerminalScrollBar {
             TerminalScrollBarSettings.notifyDidChange()
         }
+        fileDropDefaultBehavior = FileDropBehaviorSettings.defaultBehavior.rawValue
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
         iMessageMode = IMessageModeSettings.defaultValue
         sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails

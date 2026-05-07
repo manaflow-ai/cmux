@@ -58,11 +58,12 @@ final class FinderFileDropRegressionTests: XCTestCase {
         )
     }
 
-    func testShiftFileDropRoutesToTextDestinationForAnyFileURLPayload() {
+    func testDefaultFileDropRoutesToTextDestinationForAnyFileURLPayload() {
         XCTAssertTrue(
             DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
                 pasteboardTypes: [.fileURL],
-                modifierFlags: .shift
+                modifierFlags: [],
+                defaultBehavior: .text
             )
         )
         XCTAssertTrue(
@@ -72,28 +73,68 @@ final class FinderFileDropRegressionTests: XCTestCase {
                     DragOverlayRoutingPolicy.filePreviewTransferType,
                     DragOverlayRoutingPolicy.bonsplitTabTransferType
                 ],
-                modifierFlags: [.shift, .command]
+                modifierFlags: .command,
+                defaultBehavior: .text
             ),
-            "Internal file-preview drags carry file URLs too, so Shift should convert them to path text instead of moving/opening the preview tab"
+            "Internal file-preview drags carry file URLs too, so the default text behavior should insert path text instead of moving/opening the preview tab"
         )
         XCTAssertFalse(
             DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
                 pasteboardTypes: [.fileURL],
-                modifierFlags: []
+                modifierFlags: .shift,
+                defaultBehavior: .text
+            )
+        )
+
+        XCTAssertEqual(
+            DragOverlayRoutingPolicy.alternateFileDropBehaviorForShiftHint(
+                pasteboardTypes: [.fileURL],
+                modifierFlags: [],
+                defaultBehavior: .text
+            ),
+            .preview
+        )
+        XCTAssertNil(
+            DragOverlayRoutingPolicy.alternateFileDropBehaviorForShiftHint(
+                pasteboardTypes: [.fileURL],
+                modifierFlags: .shift,
+                defaultBehavior: .text
+            )
+        )
+    }
+
+    func testPreviewDefaultMakesShiftRouteFileDropToTextDestination() {
+        XCTAssertFalse(
+            DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
+                pasteboardTypes: [.fileURL],
+                modifierFlags: [],
+                defaultBehavior: .preview
             )
         )
         XCTAssertTrue(
-            DragOverlayRoutingPolicy.shouldShowTextDropHint(
+            DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
                 pasteboardTypes: [.fileURL],
-                modifierFlags: []
+                modifierFlags: .shift,
+                defaultBehavior: .preview
             )
         )
-        XCTAssertFalse(
-            DragOverlayRoutingPolicy.shouldShowTextDropHint(
+        XCTAssertEqual(
+            DragOverlayRoutingPolicy.alternateFileDropBehaviorForShiftHint(
                 pasteboardTypes: [.fileURL],
-                modifierFlags: .shift
-            )
+                modifierFlags: [],
+                defaultBehavior: .preview
+            ),
+            .text
         )
+    }
+
+    func testGlobalModifierFlagsContributeShiftWhenWindowIsInactive() {
+        let flags = DragOverlayRoutingPolicy.mergedModifierFlags(
+            appKitFlags: [],
+            cgEventFlags: .maskShift
+        )
+
+        XCTAssertTrue(flags.intersection(.deviceIndependentFlagsMask).contains(.shift))
     }
 
     func testLegacyFinderFilenameDropPlanInsertsEscapedLocalPath() throws {

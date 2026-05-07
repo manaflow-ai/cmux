@@ -24,7 +24,26 @@ enum FileExplorerTerminalPathInsertion {
     private static func normalizedFileSystemPath(_ path: String) -> String {
         let path = pathWithoutTrailingSlashes(path)
         guard path.hasPrefix("/") else { return path }
-        return pathWithoutTrailingSlashes(URL(fileURLWithPath: path).standardizedFileURL.path)
+        return macOSDisplayPath(
+            pathWithoutTrailingSlashes(URL(fileURLWithPath: path).standardizedFileURL.path)
+        )
+    }
+
+    private static func macOSDisplayPath(_ path: String) -> String {
+        let rewrites = [
+            (privatePath: "/private/tmp", displayPath: "/tmp"),
+            (privatePath: "/private/var", displayPath: "/var"),
+            (privatePath: "/private/etc", displayPath: "/etc"),
+        ]
+        for rewrite in rewrites {
+            if path == rewrite.privatePath {
+                return rewrite.displayPath
+            }
+            if path.hasPrefix(rewrite.privatePath + "/") {
+                return rewrite.displayPath + String(path.dropFirst(rewrite.privatePath.count))
+            }
+        }
+        return path
     }
 
     private static func pathWithoutTrailingSlashes(_ path: String) -> String {

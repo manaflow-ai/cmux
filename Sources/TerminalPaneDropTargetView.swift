@@ -305,9 +305,6 @@ final class PaneDropTargetView: NSView {
             modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags
         ) {
             clearDragState(phase: "\(phase).text")
-            guard !DragOverlayRoutingPolicy.fileURLs(from: sender.draggingPasteboard).isEmpty else {
-                return []
-            }
 #if DEBUG
             cmuxDebugLog(
                 "terminal.paneDrop.\(phase) panel=\(dropContext.panelId.uuidString.prefix(5)) fileURL=1 textDestination=1"
@@ -334,7 +331,7 @@ final class PaneDropTargetView: NSView {
             return .move
         }
 
-        guard !DragOverlayRoutingPolicy.fileURLs(from: sender.draggingPasteboard).isEmpty else {
+        guard DragOverlayRoutingPolicy.hasFileURL(sender.draggingPasteboard.types) else {
             clearDragState(phase: "\(phase).reject")
             return []
         }

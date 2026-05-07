@@ -25,6 +25,7 @@ private final class FileDropHintBadgeView: NSView {
         }
 
         super.init(frame: frameRect)
+        frame.size = CGSize(width: 140, height: 26)
 
         wantsLayer = true
         layer?.backgroundColor = NSColor.clear.cgColor
@@ -41,6 +42,7 @@ private final class FileDropHintBadgeView: NSView {
         label.translatesAutoresizingMaskIntoConstraints = false
         label.font = .systemFont(ofSize: 12, weight: .medium)
         label.textColor = .labelColor
+        label.alignment = .center
         label.lineBreakMode = .byClipping
         label.maximumNumberOfLines = 1
         label.setContentCompressionResistancePriority(.required, for: .horizontal)
@@ -111,21 +113,30 @@ private final class FileDropHintBadgeView: NSView {
     }
 }
 
-private enum FileDropTextDestinationKind {
+private enum FileDropTextDestinationKind: Equatable {
     case terminal
     case editor
 
-    var hintText: String {
-        switch self {
-        case .terminal:
+    func hintText(for alternateBehavior: FileDropResolvedBehavior) -> String? {
+        switch alternateBehavior {
+        case .text:
+            switch self {
+            case .terminal:
+                return String(
+                    localized: "fileDrop.holdShiftDropIntoTerminal",
+                    defaultValue: "Hold Shift to drop into terminal"
+                )
+            case .editor:
+                return String(
+                    localized: "fileDrop.holdShiftDropIntoEditor",
+                    defaultValue: "Hold Shift to drop into editor"
+                )
+            }
+        case .preview:
+            guard self == .terminal else { return nil }
             return String(
-                localized: "fileDrop.holdShiftDropIntoTerminal",
-                defaultValue: "Hold Shift to drop into terminal"
-            )
-        case .editor:
-            return String(
-                localized: "fileDrop.holdShiftDropIntoEditor",
-                defaultValue: "Hold Shift to drop into editor"
+                localized: "fileDrop.holdShiftOpenAsSplit",
+                defaultValue: "Hold Shift to open as split"
             )
         }
     }
@@ -545,15 +556,16 @@ final class FileDropOverlayView: NSView {
         sender: any NSDraggingInfo,
         pasteboardTypes: [NSPasteboard.PasteboardType]?
     ) {
-        guard DragOverlayRoutingPolicy.shouldShowTextDropHint(
+        guard let alternateBehavior = DragOverlayRoutingPolicy.alternateFileDropBehaviorForShiftHint(
             pasteboardTypes: pasteboardTypes,
             modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags
-        ), let kind = textDropDestinationKindUnderPoint(sender.draggingLocation) else {
+        ), let kind = textDropDestinationKindUnderPoint(sender.draggingLocation),
+           let hintText = kind.hintText(for: alternateBehavior) else {
             hintBadgeView.hide()
             return
         }
         let point = convert(sender.draggingLocation, from: nil)
-        hintBadgeView.show(text: kind.hintText, near: point, in: bounds)
+        hintBadgeView.show(text: hintText, near: point, in: bounds)
     }
 
     private func textDropDestinationKindUnderPoint(_ windowPoint: NSPoint) -> FileDropTextDestinationKind? {
