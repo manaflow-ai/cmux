@@ -1908,9 +1908,22 @@ class TerminalController {
                 let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmed.isEmpty else { continue }
 
+                if isEventsStreamRequest(trimmed) {
+                    if let response = authResponseIfNeeded(for: trimmed, authenticated: &authenticated) {
+                        guard writeSocketResponse(response, to: socket) else {
+                            return
+                        }
+                        continue
+                    }
+                    handleEventsStreamRequest(trimmed, socket: socket)
+                    return
+                }
+
                 let result = processSocketLine(trimmed, authenticated: authenticated)
                 authenticated = result.authenticated
-                guard writeSocketResponse(result.response, to: socket) else {
+                let didWriteResponse = writeSocketResponse(result.response, to: socket)
+                publishSocketEvents(command: trimmed, response: result.response)
+                guard didWriteResponse else {
                     return
                 }
             }
@@ -2811,6 +2824,7 @@ class TerminalController {
             "system.identify",
             "system.tree",
             "system.top",
+            "events.stream",
             "auth.login",
             "auth.status",
             "auth.begin_sign_in",
@@ -8083,11 +8097,17 @@ class TerminalController {
             )
         }
 
+        CmuxEventBus.shared.publishWorkstreamEvent(event, phase: "received")
         v2ApplyPromptSubmitSideEffects(for: event)
 
         let result = FeedCoordinator.shared.ingestBlocking(
             event: event,
             waitTimeout: waitTimeout
+        )
+        CmuxEventBus.shared.publishWorkstreamEvent(
+            event,
+            phase: "completed",
+            result: FeedSocketEncoding.payload(for: result)
         )
         return .ok(FeedSocketEncoding.payload(for: result))
     }
