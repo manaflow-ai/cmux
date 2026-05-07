@@ -16,6 +16,7 @@ fileprivate enum TerminalSocketMutation {
     case deliverNotification(QueuedTerminalNotification)
     case clearAllNotifications
     case clearNotificationsForTab(UUID)
+    case clearNotificationsForSurface(tabId: UUID, surfaceId: UUID?)
     case perform(@MainActor () -> Void)
 }
 
@@ -68,6 +69,12 @@ final class TerminalMutationBus: @unchecked Sendable {
         }
     }
 
+    nonisolated func enqueueClearNotifications(forTabId tabId: UUID, surfaceId: UUID?) {
+        enqueueClear(.clearNotificationsForSurface(tabId: tabId, surfaceId: surfaceId)) { notification in
+            notification.key.tabId == tabId && notification.key.surfaceId == surfaceId
+        }
+    }
+
     nonisolated func enqueueMainActorMutation(_ mutation: @escaping @MainActor () -> Void) {
         enqueueBarrierMutation(.perform(mutation))
     }
@@ -83,6 +90,12 @@ final class TerminalMutationBus: @unchecked Sendable {
     nonisolated func discardPendingNotifications(forTabId tabId: UUID, through boundary: UInt64) {
         discardPendingNotifications { notification, generation in
             notification.key.tabId == tabId && generation <= boundary
+        }
+    }
+
+    nonisolated func discardPendingNotifications(forTabId tabId: UUID, surfaceId: UUID?, through boundary: UInt64) {
+        discardPendingNotifications { notification, generation in
+            notification.key.tabId == tabId && notification.key.surfaceId == surfaceId && generation <= boundary
         }
     }
 
@@ -287,6 +300,12 @@ final class TerminalMutationBus: @unchecked Sendable {
             case .clearNotificationsForTab(let tabId):
                 TerminalNotificationStore.shared.clearNotifications(
                     forTabId: tabId,
+                    discardQueuedNotifications: false
+                )
+            case .clearNotificationsForSurface(let tabId, let surfaceId):
+                TerminalNotificationStore.shared.clearNotifications(
+                    forTabId: tabId,
+                    surfaceId: surfaceId,
                     discardQueuedNotifications: false
                 )
             case .perform(let mutation):

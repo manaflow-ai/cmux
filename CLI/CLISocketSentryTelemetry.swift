@@ -19,6 +19,8 @@ final class CLISocketSentryTelemetry {
     private let disabledByEnv: Bool
     private var pendingBreadcrumbs: [PendingBreadcrumb] = []
 
+    deinit {}
+
 #if canImport(Sentry)
     private static let startupLock = NSLock()
     private static var started = false
@@ -209,17 +211,15 @@ final class CLISocketSentryTelemetry {
 
     private func socketDiagnostics() -> [String: Any] {
         var context: [String: Any] = [
-            "cwd": FileManager.default.currentDirectoryPath,
-            "uid": Int(getuid()),
-            "euid": Int(geteuid())
+            "has_cwd": !FileManager.default.currentDirectoryPath.isEmpty,
+            "has_env_socket_path": !(envSocketPath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
         ]
 
         var st = stat()
         if lstat(socketPath, &st) == 0 {
             context["socket_exists"] = true
             context["socket_mode"] = String(format: "%o", Int(st.st_mode & 0o7777))
-            context["socket_owner_uid"] = Int(st.st_uid)
-            context["socket_owner_gid"] = Int(st.st_gid)
+            context["socket_owned_by_current_user"] = Int(st.st_uid) == Int(geteuid())
             context["socket_file_type"] = Self.fileTypeDescription(mode: st.st_mode)
         } else {
             let code = errno
@@ -229,10 +229,9 @@ final class CLISocketSentryTelemetry {
         }
 
         let tmpSockets = Self.discoverSockets(in: "/tmp", limit: 10)
-        if !tmpSockets.isEmpty {
-            context["tmp_cmux_sockets"] = tmpSockets
-        }
         let taggedSockets = tmpSockets.filter { $0 != CLISocketPathResolver.legacyDefaultSocketPath }
+        context["tmp_cmux_socket_count"] = tmpSockets.count
+        context["tagged_tmp_cmux_socket_count"] = taggedSockets.count
         if CLISocketPathResolver.isImplicitDefaultPath(socketPath),
            (envSocketPath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
            !taggedSockets.isEmpty {

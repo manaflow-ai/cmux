@@ -38,6 +38,11 @@ extension CMUXCLI {
         _ = try client.send(command: cmd)
     }
 
+    func clearNotifications(client: SocketClient, workspaceId: String, surfaceId: String? = nil) throws {
+        let cmd = "clear_notifications --tab=\(socketCommandQuote(workspaceId))\(socketSurfaceOption(surfaceId))"
+        _ = try client.send(command: cmd)
+    }
+
     func resolvePreferredWorkspaceIdForClaudeHook(
         preferred: String?,
         fallback: String?,
