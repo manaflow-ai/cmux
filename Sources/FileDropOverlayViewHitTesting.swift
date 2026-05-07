@@ -217,8 +217,12 @@ extension FileDropOverlayView {
         let handled = terminal.handleDroppedFileURLsAsText(urls)
         guard handled,
               let workspaceId = terminal.tabId,
-              let panelId = terminal.terminalSurface?.id,
-              let workspace = AppDelegate.shared?.workspaceFor(tabId: workspaceId) else {
+              let terminalSurfaceId = terminal.terminalSurface?.id,
+              let workspace = AppDelegate.shared?.workspaceFor(tabId: workspaceId),
+              let panelId = FileDropTextDropController.panelIdForTerminalDropFocus(
+                terminalSurfaceId: terminalSurfaceId,
+                workspace: workspace
+              ) else {
             return handled
         }
         FileDropTextDropController.focusPanelAfterSuccessfulTextDrop(

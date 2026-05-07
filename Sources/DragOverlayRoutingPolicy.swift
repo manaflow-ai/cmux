@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import Foundation
 
 enum FileDropResolvedBehavior: Equatable {
@@ -98,6 +99,16 @@ enum FileDropBehaviorSettings {
 
 @MainActor
 enum FileDropTextDropController {
+    static func panelIdForTerminalDropFocus(
+        terminalSurfaceId: UUID,
+        workspace: Workspace
+    ) -> UUID? {
+        if workspace.panels[terminalSurfaceId] != nil {
+            return terminalSurfaceId
+        }
+        return workspace.panelIdFromSurfaceId(TabID(uuid: terminalSurfaceId))
+    }
+
     @discardableResult
     static func performPanelTextDrop(
         workspace: Workspace,

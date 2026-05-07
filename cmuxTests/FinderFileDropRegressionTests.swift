@@ -264,6 +264,23 @@ final class FinderFileDropRegressionTests: XCTestCase {
         XCTAssertEqual(workspace.focusedPanelId, browserPanel.id)
     }
 
+    func testTerminalTextDropFocusResolvesGhosttySurfaceIdToPanelId() {
+        let workspace = Workspace(title: "Tests")
+        guard let terminalId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: terminalId) else {
+            XCTFail("Expected workspace with terminal panel")
+            return
+        }
+
+        XCTAssertEqual(
+            FileDropTextDropController.panelIdForTerminalDropFocus(
+                terminalSurfaceId: terminalPanel.surface.id,
+                workspace: workspace
+            ),
+            terminalId
+        )
+    }
+
     func testFailedPanelTextDropDoesNotChangeFocusedPanel() {
         let workspace = Workspace(title: "Tests")
         guard let terminalId = workspace.focusedPanelId,
