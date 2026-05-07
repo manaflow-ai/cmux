@@ -232,10 +232,7 @@ extension Workspace {
         )
     }
 
-    func restoreSessionSnapshot(
-        _ snapshot: SessionWorkspaceSnapshot,
-        autoResumeAgentSessions: Bool = AgentSessionAutoResumeSettings.isEnabled()
-    ) {
+    func restoreSessionSnapshot(_ snapshot: SessionWorkspaceSnapshot) {
         restoredTerminalScrollbackByPanelId.removeAll(keepingCapacity: false)
 #if DEBUG
         debugSessionSnapshotScrollbackFallbackPanelIds.removeAll(keepingCapacity: false)
@@ -259,8 +256,7 @@ extension Workspace {
                 entry.paneId,
                 snapshot: entry.snapshot,
                 panelSnapshotsById: panelSnapshotsById,
-                oldToNewPanelIds: &oldToNewPanelIds,
-                autoResumeAgentSessions: autoResumeAgentSessions
+                oldToNewPanelIds: &oldToNewPanelIds
             )
         }
 
@@ -678,8 +674,7 @@ extension Workspace {
         _ paneId: PaneID,
         snapshot: SessionPaneLayoutSnapshot,
         panelSnapshotsById: [UUID: SessionPanelSnapshot],
-        oldToNewPanelIds: inout [UUID: UUID],
-        autoResumeAgentSessions: Bool
+        oldToNewPanelIds: inout [UUID: UUID]
     ) {
         let existingPanelIds = bonsplitController
             .tabs(inPane: paneId)
@@ -689,11 +684,7 @@ extension Workspace {
         var createdPanelIds: [UUID] = []
         for oldPanelId in desiredOldPanelIds {
             guard let panelSnapshot = panelSnapshotsById[oldPanelId] else { continue }
-            guard let createdPanelId = createPanel(
-                from: panelSnapshot,
-                inPane: paneId,
-                autoResumeAgentSessions: autoResumeAgentSessions
-            ) else { continue }
+            guard let createdPanelId = createPanel(from: panelSnapshot, inPane: paneId) else { continue }
             createdPanelIds.append(createdPanelId)
             oldToNewPanelIds[oldPanelId] = createdPanelId
         }
@@ -722,11 +713,7 @@ extension Workspace {
         }
     }
 
-    private func createPanel(
-        from snapshot: SessionPanelSnapshot,
-        inPane paneId: PaneID,
-        autoResumeAgentSessions: Bool
-    ) -> UUID? {
+    private func createPanel(from snapshot: SessionPanelSnapshot, inPane paneId: PaneID) -> UUID? {
         switch snapshot.type {
         case .terminal:
             let workingDirectory =
@@ -749,6 +736,7 @@ extension Workspace {
                 restorableAgent: restorableAgent,
                 tmuxStartCommand: restoredTmuxStartCommand
             )
+            let autoResumeAgentSessions = AgentSessionAutoResumeSettings.isEnabled()
             let restoredAgentResumeInput = autoResumeAgentSessions
                 ? restorableAgent?.resumeStartupInput()
                 : nil

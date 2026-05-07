@@ -51,6 +51,7 @@
 		E3309A09 /* AppDelegateEqualizeSplitsShortcutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3309A0A /* AppDelegateEqualizeSplitsShortcutTests.swift */; };
 		E3309A0B /* KeyboardShortcutSettingsEqualizeSplitsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3309A0C /* KeyboardShortcutSettingsEqualizeSplitsTests.swift */; };
 		A17110000000000000000001 /* KeyboardShortcutSpaceKeyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17110000000000000000002 /* KeyboardShortcutSpaceKeyTests.swift */; };
+		D3610B010000000000000001 /* AgentSessionAutoResumeSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3610B010000000000000002 /* AgentSessionAutoResumeSettingsTests.swift */; };
 		C0DEF0A40000000000000001 /* CmuxConfigContextMenuTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0A40000000000000002 /* CmuxConfigContextMenuTests.swift */; };
 		D0B10000A1B2C3D4E5F60001 /* TerminalPaneDropTargetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10001A1B2C3D4E5F60001 /* TerminalPaneDropTargetView.swift */; };
 		D0B10002A1B2C3D4E5F60001 /* BonsplitTabBarPassThrough.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10003A1B2C3D4E5F60001 /* BonsplitTabBarPassThrough.swift */; };
@@ -506,6 +507,7 @@
 		C34670040000000000000002 /* KeyboardShortcutTestSettingsIsolation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutTestSettingsIsolation.swift; sourceTree = "<group>"; };
 		E3309A0C /* KeyboardShortcutSettingsEqualizeSplitsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSettingsEqualizeSplitsTests.swift; sourceTree = "<group>"; };
 		A17110000000000000000002 /* KeyboardShortcutSpaceKeyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSpaceKeyTests.swift; sourceTree = "<group>"; };
+		D3610B010000000000000002 /* AgentSessionAutoResumeSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionAutoResumeSettingsTests.swift; sourceTree = "<group>"; };
 		7E7E6EF344A568AC7FEE3715 /* cmuxUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = cmuxUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		818DBCD4AB69EB72573E8138 /* SidebarResizeUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarResizeUITests.swift; sourceTree = "<group>"; };
 		970226F3C99D0D937CD00539 /* BrowserConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserConfigTests.swift; sourceTree = "<group>"; };
@@ -1231,6 +1233,7 @@
 				F4200001A1B2C3D4E5F60718 /* WindowAppearanceSnapshotTests.swift */,
 					F4100001A1B2C3D4E5F60718 /* PortScannerTests.swift */,
 					F5000001A1B2C3D4E5F60718 /* SessionPersistenceTests.swift */,
+					D3610B010000000000000002 /* AgentSessionAutoResumeSettingsTests.swift */,
 					F5410001A1B2C3D4E5F60718 /* RestorableAgentHookProviderResumeTests.swift */,
 					F5410005A1B2C3D4E5F60718 /* RestorableAgentHookProviderHermesTests.swift */,
 					F5410003A1B2C3D4E5F60718 /* RestorableAgentNonInteractiveTests.swift */,
@@ -1857,6 +1860,7 @@
 				F4200000A1B2C3D4E5F60718 /* WindowAppearanceSnapshotTests.swift in Sources */,
 					F4100000A1B2C3D4E5F60718 /* PortScannerTests.swift in Sources */,
 					F5000000A1B2C3D4E5F60718 /* SessionPersistenceTests.swift in Sources */,
+					D3610B010000000000000001 /* AgentSessionAutoResumeSettingsTests.swift in Sources */,
 					F5410000A1B2C3D4E5F60718 /* RestorableAgentHookProviderResumeTests.swift in Sources */,
 					F5410004A1B2C3D4E5F60718 /* RestorableAgentHookProviderHermesTests.swift in Sources */,
 					F5410002A1B2C3D4E5F60718 /* RestorableAgentNonInteractiveTests.swift in Sources */,
