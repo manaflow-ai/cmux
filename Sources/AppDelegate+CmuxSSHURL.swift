@@ -155,7 +155,8 @@ extension AppDelegate {
         ) { _ in }
     }
 
-    func handleCmuxSSHURLs(from urls: [URL]) {
+    @discardableResult
+    func handleCmuxSSHURLs(from urls: [URL]) -> Bool {
         var sshURLRequests: [CmuxSSHURLRequest] = []
         var sshURLParseErrors: [CmuxSSHURLParseError] = []
         for url in urls {
@@ -168,7 +169,10 @@ extension AppDelegate {
                 sshURLParseErrors.append(error)
             }
         }
-        if sshURLRequests.count + sshURLParseErrors.count > 1 {
+        let sshURLIntentCount = sshURLRequests.count + sshURLParseErrors.count
+        guard sshURLIntentCount > 0 else { return false }
+
+        if urls.count > 1 || sshURLIntentCount > 1 {
             showCmuxSSHURLParseError(.multipleLinks)
         } else {
             for error in sshURLParseErrors {
@@ -178,6 +182,7 @@ extension AppDelegate {
                 handleCmuxSSHURLRequest(request)
             }
         }
+        return true
     }
 
     private func handleCmuxSSHURLRequest(_ request: CmuxSSHURLRequest) {

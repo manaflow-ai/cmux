@@ -936,6 +936,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
+        if handleCmuxSSHURLs(from: urls) {
+            return
+        }
+
         let authCallbacks = urls.filter(AuthCallbackRouter.isAuthCallbackURL)
         for url in authCallbacks {
             Task { @MainActor in
@@ -946,9 +950,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
             }
         }
-
-        let nonAuthURLs = urls.filter { !AuthCallbackRouter.isAuthCallbackURL($0) }
-        handleCmuxSSHURLs(from: nonAuthURLs)
 
         let fileURLs = externalOpenFileURLs(from: urls)
         let directories = externalOpenDirectories(from: urls.filter { externalOpenURLIsDirectory($0) })
