@@ -10041,6 +10041,12 @@ final class Workspace: Identifiable, ObservableObject {
     /// - Parameter focus: nil = focus only if the target pane is already focused (default UI behavior),
     ///                    true = force focus/selection of the new surface,
     ///                    false = never focus (used for internal placeholder repair paths).
+    /// - Parameter allowInitialInputWithRemoteStartupCommand: When true, `initialInput` is
+    ///   honored even if the workspace currently has a `remoteTerminalStartupCommand()`. The
+    ///   default (false) drops `initialInput` in that case as defense against accidentally
+    ///   typing local commands into a remote shell. The session-restore path opts in for
+    ///   panels saved as local (`!panelWasRemoteBacked`), since the per-panel snapshot has
+    ///   already established that `initialInput` is intended for this terminal.
     @discardableResult
     func newTerminalSurface(
         inPane paneId: PaneID,

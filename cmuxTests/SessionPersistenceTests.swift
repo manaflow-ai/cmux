@@ -133,6 +133,135 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testSessionSnapshotPreservesDetectedCommandForLocalTerminal() throws {
+        // Positive control for testSessionSnapshotSkipsDetectedCommandForRemoteTerminal:
+        // proves the suppression is gated on remote-backed status, not a global drop that
+        // would mask a regression in detectedCommand persistence for normal local panels.
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        SessionForegroundProcessCache.shared._testReplaceCache(["/dev/ttys001": "opencode"])
+        defer { SessionForegroundProcessCache.shared._testReplaceCache([:]) }
+
+        workspace.surfaceTTYNames[panelId] = "/dev/ttys001"
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let panelSnapshot = try XCTUnwrap(snapshot.panels.first { $0.id == panelId })
+
+        XCTAssertEqual(
+            panelSnapshot.terminal?.detectedCommand,
+            "opencode",
+            "local panel must preserve detectedCommand from foreground cache so the remote-skip case stays meaningful"
+        )
+        XCTAssertEqual(panelSnapshot.terminal?.isRemoteBacked, false)
+    }
+
+    @MainActor
+    func testRestoreRemoteBackedSnapshotSuppressesBothAutoRestoreSources() throws {
+        // End-to-end restore-time gate: a remote-backed snapshot with both an agent
+        // resume command and an allowlisted detectedCommand must restore with NO
+        // initialInput. Without the per-panel `panelWasRemoteBacked` gate in
+        // Workspace.createPanel(from:inPane:), one or both would silently get typed
+        // into the freshly-restored shell.
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64001,
+            relayID: "relay-test",
+            relayToken: String(repeating: "c", count: 64),
+            localSocketPath: "/tmp/cmux-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+
+        SessionForegroundProcessCache.shared._testReplaceCache(["/dev/ttys001": "opencode"])
+        defer { SessionForegroundProcessCache.shared._testReplaceCache([:]) }
+
+        source.configureRemoteConnection(configuration, autoConnect: false)
+        source.surfaceTTYNames[sourcePanelId] = "/dev/ttys001"
+
+        let agentIndex = try makeRestorableAgentIndex(
+            workspaceId: source.id,
+            panelId: sourcePanelId,
+            sessionId: "codex-remote-restore-session",
+            arguments: ["/usr/local/bin/codex", "--model", "gpt-5.4"]
+        )
+        let snapshot = source.sessionSnapshot(includeScrollback: false, restorableAgentIndex: agentIndex)
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+        let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
+
+        XCTAssertNil(
+            restoredPanel.surface.initialInput,
+            "remote-backed restore must suppress both agent resume input and detectedCommand"
+        )
+    }
+
+    @MainActor
+    func testRestoreLocalPanelInsideRemoteWorkspacePreservesInitialInput() throws {
+        // Regression test for CodeRabbit's MAJOR finding on PR #3237: a panel saved as
+        // local (panelWasRemoteBacked=false) inside a workspace whose remote config has
+        // been re-established before restore must NOT have its agent resume input
+        // silently dropped by `Workspace.newTerminalSurface`'s remote-startup guard.
+        //
+        // Real-world scenario: user opens local terminal -> runs opencode -> later
+        // configures the workspace as SSH -> quits cmux -> on relaunch, the app
+        // re-establishes the remote configuration BEFORE replaying the snapshot.
+        //
+        // Without the `allowInitialInputWithRemoteStartupCommand` opt-out plumbed in
+        // `createPanel(from:inPane:)`, `safeInitialInput` would unconditionally nil
+        // the agent resume command and the user would lose their resumable session.
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        let agentIndex = try makeRestorableAgentIndex(
+            kind: .codex,
+            workspaceId: source.id,
+            panelId: sourcePanelId,
+            sessionId: "codex-local-in-remote-session",
+            arguments: ["/usr/local/bin/codex", "--model", "gpt-5.4"]
+        )
+        // Snapshot is taken while workspace is local, so panel.isRemoteBacked == false
+        // and the snapshot carries the agent resume command.
+        let snapshot = source.sessionSnapshot(includeScrollback: false, restorableAgentIndex: agentIndex)
+
+        // Restore into a workspace that has had its remote configuration re-established
+        // first (mirrors AppDelegate's restore order).
+        let restored = Workspace()
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64001,
+            relayID: "relay-test",
+            relayToken: String(repeating: "c", count: 64),
+            localSocketPath: "/tmp/cmux-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+        restored.configureRemoteConnection(configuration, autoConnect: false)
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+        let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
+
+        XCTAssertNotNil(
+            restoredPanel.surface.initialInput,
+            "local-in-remote panel must preserve agent resume input on restore (regression for #3237 review)"
+        )
+        XCTAssertTrue(
+            restoredPanel.surface.initialInput?.contains("codex") == true,
+            "preserved input must be the agent resume command, not stale state"
+        )
+    }
+
+    @MainActor
     func testAllTerminalTTYNamesExcludesRemoteTerminals() throws {
         let workspace = Workspace()
         let panelId = try XCTUnwrap(workspace.focusedPanelId)

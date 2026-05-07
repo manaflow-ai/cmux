@@ -4662,3 +4662,61 @@ final class TerminalSurfaceNormalizedInitialInputTests: XCTestCase {
         XCTAssertEqual(TerminalSurface.normalizedInitialInput("npm run dev"), "npm run dev")
     }
 }
+
+// MARK: - TerminalSurface.resolveInitialInput
+//
+// Locks the contract between cmux's session-restore `initialInput` (which gets a single
+// trailing `\n` appended so the shell executes it) and Ghostty's raw-bytes
+// `baseConfig.initialInput` (which must reach ghostty BYTE-FOR-BYTE — see PR #2545).
+
+final class TerminalSurfaceResolveInitialInputTests: XCTestCase {
+    func testExplicitInputAppendsSingleNewline() {
+        XCTAssertEqual(
+            TerminalSurface.resolveInitialInput(explicit: "opencode", baseConfigInitialInput: nil),
+            "opencode\n"
+        )
+    }
+
+    func testExplicitInputTakesPrecedenceOverBaseConfig() {
+        XCTAssertEqual(
+            TerminalSurface.resolveInitialInput(explicit: "claude", baseConfigInitialInput: "ignored"),
+            "claude\n"
+        )
+    }
+
+    func testBaseConfigPreservedByteForByte() {
+        // Ghostty's startup-input contract: any `\n`, `\r`, or surrounding whitespace
+        // present in `baseConfig.initialInput` is intentional and must reach ghostty
+        // unchanged. Any future "normalization" here regresses Ghostty config compatibility.
+        let raw = "  multiline\nwith\rweird stuff\n"
+        XCTAssertEqual(
+            TerminalSurface.resolveInitialInput(explicit: nil, baseConfigInitialInput: raw),
+            raw
+        )
+    }
+
+    func testBaseConfigSurroundingWhitespacePreserved() {
+        let raw = "  spaces both ends  "
+        XCTAssertEqual(
+            TerminalSurface.resolveInitialInput(explicit: nil, baseConfigInitialInput: raw),
+            raw
+        )
+    }
+
+    func testBothNilReturnsNil() {
+        XCTAssertNil(TerminalSurface.resolveInitialInput(explicit: nil, baseConfigInitialInput: nil))
+    }
+
+    func testEmptyExplicitFallsThroughToBaseConfig() {
+        XCTAssertEqual(
+            TerminalSurface.resolveInitialInput(explicit: "", baseConfigInitialInput: "fallback"),
+            "fallback"
+        )
+    }
+
+    func testEmptyBaseConfigReturnsNil() {
+        XCTAssertNil(
+            TerminalSurface.resolveInitialInput(explicit: nil, baseConfigInitialInput: "")
+        )
+    }
+}
