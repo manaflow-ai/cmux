@@ -1,6 +1,8 @@
 import Foundation
 import Darwin
 
+private nonisolated let cmuxTopPIDPathBufferSize = 4096
+
 nonisolated struct CmuxTopResourceSummary: Sendable {
     var cpuPercent: Double = 0
     var residentBytes: Int64 = 0
@@ -347,98 +349,6 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         ), cpuSampleKey)
     }
 
-    static func cmuxScope(for pid: Int) -> CmuxTopProcessScope? {
-        guard pid > 0, pid <= Int(Int32.max) else { return nil }
-
-        var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, Int32(pid)]
-        var size: size_t = 0
-        guard sysctl(&mib, u_int(mib.count), nil, &size, nil, 0) == 0,
-              size > MemoryLayout<Int32>.size else {
-            return nil
-        }
-
-        var buffer = [UInt8](repeating: 0, count: size)
-        let success = buffer.withUnsafeMutableBytes { rawBuffer in
-            sysctl(&mib, u_int(mib.count), rawBuffer.baseAddress, &size, nil, 0) == 0
-        }
-        guard success else { return nil }
-
-        return cmuxScope(fromKernProcArgs: Array(buffer.prefix(Int(size))))
-    }
-
-    static func cmuxScope(fromKernProcArgs bytes: [UInt8]) -> CmuxTopProcessScope? {
-        guard bytes.count > MemoryLayout<Int32>.size else { return nil }
-
-        var argcRaw: Int32 = 0
-        withUnsafeMutableBytes(of: &argcRaw) { rawBuffer in
-            rawBuffer.copyBytes(from: bytes.prefix(MemoryLayout<Int32>.size))
-        }
-        let argc = Int(Int32(littleEndian: argcRaw))
-        guard argc > 0 else { return nil }
-
-        var index = MemoryLayout<Int32>.size
-        skipString(in: bytes, index: &index)
-        skipNulls(in: bytes, index: &index)
-
-        for _ in 0..<argc {
-            guard index < bytes.count else { return nil }
-            skipString(in: bytes, index: &index)
-            skipNulls(in: bytes, index: &index)
-        }
-
-        var workspaceID: UUID?
-        var surfaceID: UUID?
-        while index < bytes.count {
-            skipNulls(in: bytes, index: &index)
-            guard index < bytes.count else { break }
-
-            let start = index
-            skipString(in: bytes, index: &index)
-            guard start < index,
-                  let entry = String(bytes: bytes[start..<index], encoding: .utf8) else {
-                continue
-            }
-
-            if let value = value(inEnvironmentEntry: entry, forKey: "CMUX_WORKSPACE_ID") {
-                workspaceID = UUID(uuidString: value) ?? workspaceID
-            } else if workspaceID == nil,
-                      let value = value(inEnvironmentEntry: entry, forKey: "CMUX_TAB_ID") {
-                workspaceID = UUID(uuidString: value)
-            } else if let value = value(inEnvironmentEntry: entry, forKey: "CMUX_SURFACE_ID") {
-                surfaceID = UUID(uuidString: value) ?? surfaceID
-            } else if surfaceID == nil,
-                      let value = value(inEnvironmentEntry: entry, forKey: "CMUX_PANEL_ID") {
-                surfaceID = UUID(uuidString: value)
-            }
-
-            if workspaceID != nil, surfaceID != nil {
-                break
-            }
-        }
-
-        guard workspaceID != nil || surfaceID != nil else { return nil }
-        return CmuxTopProcessScope(workspaceID: workspaceID, surfaceID: surfaceID)
-    }
-
-    private static func value(inEnvironmentEntry entry: String, forKey key: String) -> String? {
-        let prefix = "\(key)="
-        guard entry.hasPrefix(prefix) else { return nil }
-        let value = String(entry.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
-        return value.isEmpty ? nil : value
-    }
-
-    private static func skipString(in bytes: [UInt8], index: inout Int) {
-        while index < bytes.count, bytes[index] != 0 {
-            index += 1
-        }
-    }
-
-    private static func skipNulls(in bytes: [UInt8], index: inout Int) {
-        while index < bytes.count, bytes[index] == 0 {
-            index += 1
-        }
-    }
-
     private static func deviceIdentifier(forTTYName ttyName: String) -> Int64? {
         let trimmed = ttyName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed != "not a tty" else {
@@ -464,5 +374,40 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             return Int64.max
         }
         return lhs + rhs
+    }
+
+    private static func taskInfo(for pid: Int) -> proc_taskinfo? {
+        var info = proc_taskinfo()
+        let expectedSize = MemoryLayout<proc_taskinfo>.stride
+        let size = proc_pidinfo(pid_t(pid), PROC_PIDTASKINFO, 0, &info, Int32(expectedSize))
+        return size == expectedSize ? info : nil
+    }
+
+    private static func processName(pid: Int, fallback: String) -> String {
+        var buffer = [CChar](repeating: 0, count: Int(MAXCOMLEN + 1))
+        let length = proc_name(pid_t(pid), &buffer, UInt32(buffer.count))
+        guard length > 0 else { return fallback }
+        let name = String(cString: buffer).trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? fallback : name
+    }
+
+    private static func processPath(pid: Int) -> String? {
+        var buffer = [CChar](repeating: 0, count: cmuxTopPIDPathBufferSize)
+        let length = proc_pidpath(pid_t(pid), &buffer, UInt32(buffer.count))
+        guard length > 0 else { return nil }
+        let path = String(cString: buffer).trimmingCharacters(in: .whitespacesAndNewlines)
+        return path.isEmpty ? nil : path
+    }
+
+    private static func fixedString<T>(_ value: T) -> String {
+        withUnsafeBytes(of: value) { rawBuffer in
+            let endIndex = rawBuffer.firstIndex(of: 0) ?? rawBuffer.endIndex
+            return String(decoding: rawBuffer[..<endIndex], as: UTF8.self)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+    }
+
+    private static func int64Clamped(_ value: UInt64) -> Int64 {
+        value > UInt64(Int64.max) ? Int64.max : Int64(value)
     }
 }

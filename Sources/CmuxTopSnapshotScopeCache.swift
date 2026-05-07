@@ -54,4 +54,96 @@ nonisolated extension CmuxTopProcessSnapshot {
             cache = cache.filter { activeKeys.contains($0.key) }
         }
     }
+
+    static func cmuxScope(for pid: Int) -> CmuxTopProcessScope? {
+        guard pid > 0, pid <= Int(Int32.max) else { return nil }
+
+        var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, Int32(pid)]
+        var size: size_t = 0
+        guard sysctl(&mib, u_int(mib.count), nil, &size, nil, 0) == 0,
+              size > MemoryLayout<Int32>.size else {
+            return nil
+        }
+
+        var buffer = [UInt8](repeating: 0, count: size)
+        let success = buffer.withUnsafeMutableBytes { rawBuffer in
+            sysctl(&mib, u_int(mib.count), rawBuffer.baseAddress, &size, nil, 0) == 0
+        }
+        guard success else { return nil }
+
+        return cmuxScope(fromKernProcArgs: Array(buffer.prefix(Int(size))))
+    }
+
+    static func cmuxScope(fromKernProcArgs bytes: [UInt8]) -> CmuxTopProcessScope? {
+        guard bytes.count > MemoryLayout<Int32>.size else { return nil }
+
+        var argcRaw: Int32 = 0
+        withUnsafeMutableBytes(of: &argcRaw) { rawBuffer in
+            rawBuffer.copyBytes(from: bytes.prefix(MemoryLayout<Int32>.size))
+        }
+        let argc = Int(Int32(littleEndian: argcRaw))
+        guard argc > 0 else { return nil }
+
+        var index = MemoryLayout<Int32>.size
+        skipString(in: bytes, index: &index)
+        skipNulls(in: bytes, index: &index)
+
+        for _ in 0..<argc {
+            guard index < bytes.count else { return nil }
+            skipString(in: bytes, index: &index)
+            skipNulls(in: bytes, index: &index)
+        }
+
+        var workspaceID: UUID?
+        var surfaceID: UUID?
+        while index < bytes.count {
+            skipNulls(in: bytes, index: &index)
+            guard index < bytes.count else { break }
+
+            let start = index
+            skipString(in: bytes, index: &index)
+            guard start < index,
+                  let entry = String(bytes: bytes[start..<index], encoding: .utf8) else {
+                continue
+            }
+
+            if let value = value(inEnvironmentEntry: entry, forKey: "CMUX_WORKSPACE_ID") {
+                workspaceID = UUID(uuidString: value) ?? workspaceID
+            } else if workspaceID == nil,
+                      let value = value(inEnvironmentEntry: entry, forKey: "CMUX_TAB_ID") {
+                workspaceID = UUID(uuidString: value)
+            } else if let value = value(inEnvironmentEntry: entry, forKey: "CMUX_SURFACE_ID") {
+                surfaceID = UUID(uuidString: value) ?? surfaceID
+            } else if surfaceID == nil,
+                      let value = value(inEnvironmentEntry: entry, forKey: "CMUX_PANEL_ID") {
+                surfaceID = UUID(uuidString: value)
+            }
+
+            if workspaceID != nil, surfaceID != nil {
+                break
+            }
+        }
+
+        guard workspaceID != nil || surfaceID != nil else { return nil }
+        return CmuxTopProcessScope(workspaceID: workspaceID, surfaceID: surfaceID)
+    }
+
+    private static func value(inEnvironmentEntry entry: String, forKey key: String) -> String? {
+        let prefix = "\(key)="
+        guard entry.hasPrefix(prefix) else { return nil }
+        let value = String(entry.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
+    }
+
+    private static func skipString(in bytes: [UInt8], index: inout Int) {
+        while index < bytes.count, bytes[index] != 0 {
+            index += 1
+        }
+    }
+
+    private static func skipNulls(in bytes: [UInt8], index: inout Int) {
+        while index < bytes.count, bytes[index] == 0 {
+            index += 1
+        }
+    }
 }
