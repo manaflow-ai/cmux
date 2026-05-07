@@ -7255,8 +7255,7 @@ final class Workspace: Identifiable, ObservableObject {
     }()
     nonisolated(unsafe) static var runSSHControlMasterCommandOverrideForTesting: (([String]) -> Void)?
     private var panelShellActivityStates: [UUID: PanelShellActivityState] = [:]
-    /// PIDs associated with agent status entries (e.g. claude_code), keyed by status key.
-    /// Used for stale-session detection: if the PID is dead, the status entry is cleared.
+    /// PIDs associated with agent status entries; dead PIDs clear stale statuses.
     var agentPIDs: [String: pid_t] = [:]
     var agentStatusKeysByPanelId: [UUID: Set<String>] = [:]
     private var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
