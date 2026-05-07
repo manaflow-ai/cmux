@@ -11,14 +11,20 @@ enum FileExplorerTerminalPathInsertion {
 
     static func relativePath(for path: String, rootPath: String) -> String {
         guard !rootPath.isEmpty else { return path }
-        let normalizedPath = pathWithoutTrailingSlashes(path)
-        let normalizedRootPath = pathWithoutTrailingSlashes(rootPath)
+        let normalizedPath = normalizedFileSystemPath(path)
+        let normalizedRootPath = normalizedFileSystemPath(rootPath)
         if normalizedPath == normalizedRootPath { return "." }
         let normalizedRoot = normalizedRootPath == "/" ? "/" : normalizedRootPath + "/"
         if normalizedPath.hasPrefix(normalizedRoot) {
             return String(normalizedPath.dropFirst(normalizedRoot.count))
         }
         return path
+    }
+
+    private static func normalizedFileSystemPath(_ path: String) -> String {
+        let path = pathWithoutTrailingSlashes(path)
+        guard path.hasPrefix("/") else { return path }
+        return pathWithoutTrailingSlashes(URL(fileURLWithPath: path).standardizedFileURL.path)
     }
 
     private static func pathWithoutTrailingSlashes(_ path: String) -> String {

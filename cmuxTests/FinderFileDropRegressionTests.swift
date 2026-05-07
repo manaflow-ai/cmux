@@ -134,5 +134,22 @@ final class FinderFileDropRegressionTests: XCTestCase {
             ),
             "/Users/example/project-backup/file.txt"
         )
+        XCTAssertEqual(
+            FileExplorerTerminalPathInsertion.relativePath(
+                for: "Sources/App.swift",
+                rootPath: rootPath
+            ),
+            "Sources/App.swift"
+        )
+    }
+
+    func testFileExplorerRelativePathInsertionStandardizesMacOSSymlinkedRoots() {
+        XCTAssertEqual(
+            FileExplorerTerminalPathInsertion.relativePath(
+                for: "/private/tmp/cmux-project/Sources/App.swift",
+                rootPath: "/tmp/cmux-project"
+            ),
+            "Sources/App.swift"
+        )
     }
 }
