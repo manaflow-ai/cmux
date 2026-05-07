@@ -77,7 +77,6 @@ enum CLISocketPathResolver {
     private static let fallbackSocketPath = "/tmp/cmux-debug.sock"
     private static let nightlySocketPath = "/tmp/cmux-nightly.sock"
     private static let stagingSocketPath = "/tmp/cmux-staging.sock"
-    private static let legacyLastSocketPathFile = SocketPathMarkerFiles.stableTmpPath
 
     static var defaultSocketPath: String {
         defaultSocketPath(bundleIdentifier: currentAppBundleIdentifier())
@@ -306,16 +305,11 @@ enum CLISocketPathResolver {
         bundleIdentifier: String?,
         environment: [String: String]
     ) -> [String] {
-        let variant = SocketPathMarkerFiles.variant(bundleIdentifier: bundleIdentifier, environment: environment)
-        var candidates: [String] = []
-        if let appSupportPath = stableSocketDirectoryURL()?
-            .appendingPathComponent(variant.appSupportFileName, isDirectory: false)
-            .path {
-            candidates.append(appSupportPath)
-        }
-        let tmpPath = variant == .stable ? legacyLastSocketPathFile : variant.tmpPath
-        candidates.append(tmpPath)
-        return dedupe(candidates)
+        SocketPathMarkerFiles.paths(
+            bundleIdentifier: bundleIdentifier,
+            environment: environment,
+            appSupportDirectory: stableSocketDirectoryURL()
+        )
     }
 
     static func currentAppBundleIdentifier() -> String? {
