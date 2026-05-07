@@ -26854,115 +26854,115 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminal Layout"
+            "value": "Pane Layout"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ターミナルレイアウト"
+            "value": "ペインレイアウト"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "终端布局"
+            "value": "面板布局"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "終端機版面"
+            "value": "面板版面"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "터미널 레이아웃"
+            "value": "패널 레이아웃"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminal-Layout"
+            "value": "Bereichslayout"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Disposición del terminal"
+            "value": "Disposición del panel"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Disposition du terminal"
+            "value": "Disposition du panneau"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Layout terminale"
+            "value": "Layout pannello"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminallayout"
+            "value": "Panellayout"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Układ terminala"
+            "value": "Układ panelu"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Макет терминала"
+            "value": "Макет панели"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Raspored terminala"
+            "value": "Raspored panela"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تخطيط الطرفية"
+            "value": "تخطيط اللوحة"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminaloppsett"
+            "value": "Paneloppsett"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Layout do Terminal"
+            "value": "Layout do Painel"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เค้าโครงเทอร์มินัล"
+            "value": "เค้าโครงบานหน้าต่าง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminal Düzeni"
+            "value": "Bölme Düzeni"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Макет терміналу"
+            "value": "Макет панелі"
           }
         }
       }
