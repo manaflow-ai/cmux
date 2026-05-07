@@ -115,8 +115,8 @@
     "step2Alt": "cmux icon being dragged into the Applications folder",
     "step3": "Launch cmux from Applications or your dock.",
     "step3Alt": "macOS dock with Finder, cmux, and Messages",
-    "helpTitle": "Need a hand?",
-    "helpDescription": "If macOS blocks the app, the download stalls, or anything else trips you up, please ask for help in Discord! The team and other users hang out there.",
+    "helpTitle": "Run into anything?",
+    "helpDescription": "Please let us know in Discord — the team and other users hang out there.",
     "joinDiscord": "Join our Discord",
     "reportIssue": "Report an issue"
   },
