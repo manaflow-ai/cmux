@@ -442,31 +442,44 @@ fn query_host_terminal_colors() -> Option<TerminalColorReport> {
 
 fn query_host_terminal_colors_raw() -> Option<TerminalColorReport> {
     let mut stdout = io::stdout();
-    let trace_palette = probe::color_enabled();
-    let mut query = Vec::from(&b"\x1b]10;?\x1b\\\x1b]11;?\x1b\\"[..]);
-    // iOS renders raw PTY bytes with libghostty, so palette-indexed prompt
-    // colors must use the same palette as the attached TUI terminal.
-    for index in 0u8..=u8::MAX {
-        query.extend_from_slice(format!("\x1b]4;{index};?\x1b\\").as_bytes());
-    }
+    let query_palette = probe::color_enabled();
+    let query = build_host_terminal_color_query(query_palette);
     if stdout.write_all(&query).is_err() || stdout.flush().is_err() {
         return None;
     }
-    let bytes = read_available_stdin_bytes(Duration::from_millis(120), trace_palette).ok()?;
+    let bytes = read_available_stdin_bytes(Duration::from_millis(120), query_palette).ok()?;
     let colors = TerminalColorReport {
         foreground: parse_osc_color(&bytes, 10),
         background: parse_osc_color(&bytes, 11),
-        palette: (0u8..=u8::MAX)
-            .filter_map(|index| parse_osc_palette_color(&bytes, index).map(|color| (index, color)))
-            .collect::<BTreeMap<_, _>>(),
+        palette: if query_palette {
+            (0u8..=u8::MAX)
+                .filter_map(|index| {
+                    parse_osc_palette_color(&bytes, index).map(|color| (index, color))
+                })
+                .collect::<BTreeMap<_, _>>()
+        } else {
+            BTreeMap::new()
+        },
     };
     if colors.foreground.is_none() && colors.background.is_none() && colors.palette.is_empty() {
         return None;
     }
-    if trace_palette {
+    if query_palette {
         log_host_terminal_color_probe(&bytes, &colors);
     }
     Some(colors)
+}
+
+fn build_host_terminal_color_query(query_palette: bool) -> Vec<u8> {
+    let mut query = Vec::from(&b"\x1b]10;?\x1b\\\x1b]11;?\x1b\\"[..]);
+    // Palette probing emits 256 terminal replies. Keep it opt-in so the
+    // normal attach path never leaves late OSC replies for the event reader.
+    if query_palette {
+        for index in 0u8..=u8::MAX {
+            query.extend_from_slice(format!("\x1b]4;{index};?\x1b\\").as_bytes());
+        }
+    }
+    query
 }
 
 fn read_available_stdin_bytes(timeout: Duration, trace_palette: bool) -> io::Result<Vec<u8>> {
@@ -767,8 +780,8 @@ fn encode_key(key: KeyEvent) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::{
-        encode_key, host_terminal_probe_complete, parse_osc_color, parse_osc_palette_color,
-        write_server_frame,
+        build_host_terminal_color_query, encode_key, host_terminal_probe_complete, parse_osc_color,
+        parse_osc_palette_color, write_server_frame,
     };
     use cmux_cli_protocol::TerminalRgb;
     use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
@@ -1041,5 +1054,30 @@ mod tests {
         let defaults = b"\x1b]10;rgb:ffff/ffff/ffff\x1b\\\x1b]11;rgb:0000/0000/0000\x1b\\";
         assert!(host_terminal_probe_complete(defaults, false));
         assert!(!host_terminal_probe_complete(defaults, true));
+    }
+
+    #[test]
+    fn default_host_color_query_does_not_request_palette() {
+        let query = build_host_terminal_color_query(false);
+
+        assert!(query.windows(b"\x1b]10;?".len()).any(|w| w == b"\x1b]10;?"));
+        assert!(query.windows(b"\x1b]11;?".len()).any(|w| w == b"\x1b]11;?"));
+        assert!(!query.windows(b"\x1b]4;".len()).any(|w| w == b"\x1b]4;"));
+    }
+
+    #[test]
+    fn trace_host_color_query_requests_full_palette() {
+        let query = build_host_terminal_color_query(true);
+
+        assert!(
+            query
+                .windows(b"\x1b]4;0;?".len())
+                .any(|w| w == b"\x1b]4;0;?")
+        );
+        assert!(
+            query
+                .windows(b"\x1b]4;255;?".len())
+                .any(|w| w == b"\x1b]4;255;?")
+        );
     }
 }
