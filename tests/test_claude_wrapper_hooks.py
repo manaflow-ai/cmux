@@ -476,6 +476,9 @@ exit 0
             env["FAKE_CMUX_PING_OK"] = "1" if socket_state == "live" else "0"
             if hooks_disabled:
                 env["CMUX_CLAUDE_HOOKS_DISABLED"] = "1"
+            sandbox_home = tmp / "fake-home"
+            sandbox_home.mkdir(parents=True, exist_ok=True)
+            env["HOME"] = str(sandbox_home)
             if setup_env is not None:
                 env.update(setup_env(tmp))
             env.update(inherited_env)
