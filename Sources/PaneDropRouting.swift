@@ -106,7 +106,7 @@ enum PaneDropRouting {
         liveShiftKeyHeld: Bool,
         cachedShiftKeyHeld: Bool?
     ) -> Bool {
-        liveShiftKeyHeld
+        liveShiftKeyHeld || (cachedShiftKeyHeld ?? false)
     }
 
     static func zone(for location: CGPoint, in size: CGSize) -> DropZone {
@@ -150,13 +150,13 @@ enum PaneDropRouting {
         in bounds: CGRect,
         activeZone: DropZone?
     ) -> CGRect {
-        _ = activeZone
-        let availableWidth = max(40, bounds.width - 24)
+        let targetBounds = activeZone.map { overlayFrame(for: $0, in: bounds) } ?? bounds
+        let availableWidth = max(40, targetBounds.width - 24)
         let maxWidth = min(availableWidth, 520)
         let width = min(maxWidth, max(min(maxWidth, 220), labelSize.width + 28))
         let height = max(32, labelSize.height + 16)
-        let x = bounds.minX + max(0, (bounds.width - width) / 2)
-        let y = max(bounds.minY + 8, bounds.maxY - height - 12)
+        let x = targetBounds.midX - width / 2
+        let y = targetBounds.midY - height / 2
         return CGRect(x: x, y: y, width: width, height: height)
     }
 

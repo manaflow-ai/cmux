@@ -198,7 +198,10 @@ final class PaneDropTargetView: NSView {
             return false
         }
 
-        let shiftKeyHeld = currentShiftKeyHeld()
+        let shiftKeyHeld = PaneDropRouting.effectiveShiftKeyHeld(
+            liveShiftKeyHeld: currentShiftKeyHeld(),
+            cachedShiftKeyHeld: activeShiftKeyHeld
+        )
         switch workspace.externalFileDropRouting(
             forPanelId: dropContext.panelId,
             shiftKeyHeld: shiftKeyHeld
@@ -287,22 +290,22 @@ final class PaneDropTargetView: NSView {
             forPanelId: dropContext.panelId,
             shiftKeyHeld: shiftKeyHeld
         )
-        setActiveFileDropHint(workspace.externalFileDropHint(
+        let hint = workspace.externalFileDropHint(
             forPanelId: dropContext.panelId,
             shiftKeyHeld: shiftKeyHeld
-        ))
+        )
 
         switch routing {
         case .agentPromptPaste, .terminalPaste:
             setActiveDropZone(nil)
+            setActiveFileDropHint(hint)
             return .copy
         case .filePreview:
-            break
+            let zone = fileDropZone(for: sender)
+            setActiveDropZone(zone)
+            setActiveFileDropHint(hint)
+            return .copy
         }
-
-        let zone = fileDropZone(for: sender)
-        setActiveDropZone(zone)
-        return .copy
     }
 
     private func fileDropZone(for sender: any NSDraggingInfo) -> DropZone {
@@ -381,6 +384,7 @@ final class PaneDropTargetView: NSView {
         } else {
             updateStandaloneDropZoneOverlay()
         }
+        updateDropHintFrame()
     }
 
     private func updateStandaloneDropZoneOverlay() {
@@ -412,16 +416,17 @@ final class PaneDropTargetView: NSView {
     private func updateDropHintFrame() {
         guard !dropHintView.isHidden else { return }
 
-        let availableWidth = max(40, bounds.width - 24)
+        let targetBounds = activeZone.map { PaneDropRouting.overlayFrame(for: $0, in: bounds) } ?? bounds
+        let availableWidth = max(40, targetBounds.width - 24)
         let maxWidth = min(availableWidth, 520)
         dropHintLabel.preferredMaxLayoutWidth = max(0, maxWidth - 28)
 
         let labelSize = dropHintLabel.fittingSize
-        let width = min(maxWidth, max(min(maxWidth, 220), labelSize.width + 28))
-        let height = max(32, labelSize.height + 16)
-        let x = bounds.minX + max(0, (bounds.width - width) / 2)
-        let y = max(bounds.minY + 8, bounds.maxY - height - 12)
-        dropHintView.frame = NSRect(x: x, y: y, width: width, height: height)
+        dropHintView.frame = PaneDropRouting.dropHintFrame(
+            labelSize: labelSize,
+            in: bounds,
+            activeZone: activeZone
+        )
     }
 
     private func clearDragState(phase: String) {
