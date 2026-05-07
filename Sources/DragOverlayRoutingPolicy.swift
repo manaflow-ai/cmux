@@ -1,6 +1,5 @@
 import AppKit
 import Foundation
-import WebKit
 
 enum FileDropResolvedBehavior: Equatable {
     case text
@@ -94,112 +93,6 @@ enum FileDropBehaviorSettings {
 
     static func behavior(defaults: UserDefaults = .standard) -> FileDropDefaultBehavior {
         behavior(for: defaults.string(forKey: defaultBehaviorKey))
-    }
-}
-
-enum FileDropTextInsertion {
-    static func insert(_ text: String, into webView: WKWebView, at windowPoint: NSPoint) -> Bool {
-        let webPoint = webView.convert(windowPoint, from: nil)
-        let domY = webView.isFlipped ? webPoint.y : (webView.bounds.height - webPoint.y)
-        guard let payload = jsonLiteral([
-            "x": Double(max(0, min(webPoint.x, webView.bounds.width))),
-            "y": Double(max(0, min(domY, webView.bounds.height))),
-            "text": text
-        ]) else {
-            return false
-        }
-
-        let script = """
-        (() => {
-          const payload = \(payload);
-          const textInputTypes = new Set(["", "email", "number", "password", "search", "tel", "text", "url"]);
-          const isTextInput = (element) => {
-            if (!element || element.disabled || element.readOnly) return false;
-            const tag = element.tagName;
-            if (tag === "TEXTAREA") return true;
-            if (tag !== "INPUT") return false;
-            return textInputTypes.has((element.getAttribute("type") || "text").toLowerCase());
-          };
-          const editableFrom = (element) => {
-            for (let node = element; node && node !== document; node = node.parentElement) {
-              if (isTextInput(node)) return node;
-              if (node.isContentEditable) return node;
-            }
-            return null;
-          };
-          const dispatchInput = (element, data) => {
-            try {
-              element.dispatchEvent(new InputEvent("input", {
-                bubbles: true,
-                composed: true,
-                inputType: "insertText",
-                data
-              }));
-            } catch (_) {
-              element.dispatchEvent(new Event("input", { bubbles: true }));
-            }
-          };
-          const pointElement = document.elementFromPoint(payload.x, payload.y);
-          const target = editableFrom(pointElement) || editableFrom(document.activeElement);
-          if (!target) return false;
-          target.focus({ preventScroll: true });
-          if (isTextInput(target)) {
-            const start = target.selectionStart ?? target.value.length;
-            const end = target.selectionEnd ?? start;
-            if (typeof target.setRangeText === "function") {
-              target.setRangeText(payload.text, start, end, "end");
-            } else {
-              target.value = target.value.slice(0, start) + payload.text + target.value.slice(end);
-              const caret = start + payload.text.length;
-              target.setSelectionRange?.(caret, caret);
-            }
-            dispatchInput(target, payload.text);
-            return true;
-          }
-
-          let range = null;
-          if (document.caretRangeFromPoint) {
-            range = document.caretRangeFromPoint(payload.x, payload.y);
-          } else if (document.caretPositionFromPoint) {
-            const position = document.caretPositionFromPoint(payload.x, payload.y);
-            if (position) {
-              range = document.createRange();
-              range.setStart(position.offsetNode, position.offset);
-            }
-          }
-          const selection = window.getSelection();
-          if (range) {
-            selection.removeAllRanges();
-            selection.addRange(range);
-          }
-          if (!selection.rangeCount) {
-            target.appendChild(document.createTextNode(payload.text));
-            dispatchInput(target, payload.text);
-            return true;
-          }
-          range = selection.getRangeAt(0);
-          range.deleteContents();
-          const node = document.createTextNode(payload.text);
-          range.insertNode(node);
-          range.setStartAfter(node);
-          range.setEndAfter(node);
-          selection.removeAllRanges();
-          selection.addRange(range);
-          dispatchInput(target, payload.text);
-          return true;
-        })();
-        """
-        webView.evaluateJavaScript(script)
-        return true
-    }
-
-    private static func jsonLiteral(_ object: [String: Any]) -> String? {
-        guard JSONSerialization.isValidJSONObject(object),
-              let data = try? JSONSerialization.data(withJSONObject: object, options: []),
-              let string = String(data: data, encoding: .utf8) else {
-            return nil
-        }
-        return string
     }
 }
 

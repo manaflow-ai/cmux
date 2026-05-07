@@ -1534,18 +1534,11 @@ final class WindowBrowserSlotView: NSView {
         return paneDropTargetView
     }
 
-    func canDropFileURLsAsText(at localPoint: NSPoint) -> Bool {
-        guard let hostedWebView else { return false }
+    func hostedWebViewForFileDrop(at localPoint: NSPoint) -> WKWebView? {
+        guard let hostedWebView else { return nil }
         let webPoint = hostedWebView.convert(localPoint, from: self)
-        return hostedWebView.bounds.contains(webPoint)
-    }
-
-    func handleDroppedFileURLsAsText(_ urls: [URL], at localPoint: NSPoint) -> Bool {
-        guard let hostedWebView, !urls.isEmpty else { return false }
-        let text = TerminalImageTransferPlanner.insertedText(forFileURLs: urls)
-        guard !text.isEmpty else { return false }
-        let windowPoint = convert(localPoint, to: nil)
-        return FileDropTextInsertion.insert(text, into: hostedWebView, at: windowPoint)
+        guard hostedWebView.bounds.contains(webPoint) else { return nil }
+        return hostedWebView
     }
 
     func setPaneTopChromeHeight(_ height: CGFloat) {

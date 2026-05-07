@@ -175,9 +175,6 @@ extension FileDropOverlayView {
         if let textView = editableTextViewUnderPoint(windowPoint) {
             return insert(text, into: textView)
         }
-        if let webView = webViewUnderPoint(windowPoint) {
-            return insert(text, into: webView, at: windowPoint)
-        }
         if let terminal = terminalUnderPoint(windowPoint) {
             return insert(urls, into: terminal)
         }
@@ -214,10 +211,6 @@ extension FileDropOverlayView {
         textView.window?.makeFirstResponder(textView)
         textView.insertText(text, replacementRange: textView.selectedRange())
         return true
-    }
-
-    private func insert(_ text: String, into webView: WKWebView, at windowPoint: NSPoint) -> Bool {
-        FileDropTextInsertion.insert(text, into: webView, at: windowPoint)
     }
 
     private func insert(_ urls: [URL], into terminal: GhosttyNSView) -> Bool {

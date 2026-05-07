@@ -1,11 +1,15 @@
 import AppKit
 import Bonsplit
 import Foundation
+import WebKit
 
 final class BrowserPaneDropTargetView: NSView {
     weak var slotView: WindowBrowserSlotView?
     var dropContext: BrowserPaneDropContext?
     private var activeZone: DropZone?
+    private weak var activeFileDropWebView: NSView?
+    private weak var preparedFileDropWebView: NSView?
+    private weak var performedFileDropWebView: NSView?
 #if DEBUG
     private var lastHitTestSignature: String?
 #endif
@@ -94,7 +98,34 @@ final class BrowserPaneDropTargetView: NSView {
     }
 
     override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+        exitActiveFileDropWebView(sender)
         clearDragState(phase: "exited")
+    }
+
+    override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        guard let dropContext else {
+#if DEBUG
+            cmuxDebugLog("browser.paneDrop.prepare allowed=0 reason=missingContext")
+#endif
+            return false
+        }
+
+        let location = convert(sender.draggingLocation, from: nil)
+        if shouldRouteFileDropToHostedWebView(sender, at: location) {
+            clearDragState(phase: "prepare.text")
+            let webView = activeFileDropWebView ?? slotView?.hostedWebViewForFileDrop(at: location)
+            let accepted = webView?.prepareForDragOperation(sender) ?? false
+            preparedFileDropWebView = accepted ? webView : nil
+#if DEBUG
+            cmuxDebugLog(
+                "browser.paneDrop.prepareAsWebView panel=\(dropContext.panelId.uuidString.prefix(5)) " +
+                "accepted=\(accepted ? 1 : 0)"
+            )
+#endif
+            return accepted
+        }
+
+        return true
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
@@ -110,36 +141,26 @@ final class BrowserPaneDropTargetView: NSView {
         }
 
         let location = convert(sender.draggingLocation, from: nil)
-        let canDropAsText = slotView?.canDropFileURLsAsText(at: location) ?? false
         let zone = BrowserPaneDropRouting.zone(
             for: location,
             in: bounds.size,
             topChromeHeight: slotView?.effectivePaneTopChromeHeight() ?? 0
         )
 
-        if DragOverlayRoutingPolicy.hasFileDropPayload(sender.draggingPasteboard.types),
-           DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
-                pasteboardTypes: sender.draggingPasteboard.types,
-                modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags,
-                canDropAsText: canDropAsText
-           ) {
-            let urls = DragOverlayRoutingPolicy.fileURLs(from: sender.draggingPasteboard)
-            guard let workspace = AppDelegate.shared?.workspaceFor(tabId: dropContext.workspaceId) else {
-                return false
+        if shouldRouteFileDropToHostedWebView(sender, at: location) {
+            let webView = preparedFileDropWebView ?? activeFileDropWebView ?? slotView?.hostedWebViewForFileDrop(at: location)
+            let handled = webView?.performDragOperation(sender) ?? false
+            if handled {
+                performedFileDropWebView = webView
+                focusBrowserPanelAfterSuccessfulFileDrop(context: dropContext)
+            } else {
+                preparedFileDropWebView = nil
+                performedFileDropWebView = nil
             }
-            let handled = FileDropTextDropController.performPanelTextDrop(
-                workspace: workspace,
-                panelId: dropContext.panelId,
-                focusIntent: .browser(.webView),
-                window: window ?? slotView?.window,
-                insert: {
-                    slotView?.handleDroppedFileURLsAsText(urls, at: location) ?? false
-                }
-            )
 #if DEBUG
             cmuxDebugLog(
-                "browser.paneDrop.performAsText panel=\(dropContext.panelId.uuidString.prefix(5)) " +
-                "fileURLs=\(urls.count) handled=\(handled ? 1 : 0)"
+                "browser.paneDrop.performAsWebView panel=\(dropContext.panelId.uuidString.prefix(5)) " +
+                "handled=\(handled ? 1 : 0)"
             )
 #endif
             return handled
@@ -246,34 +267,45 @@ final class BrowserPaneDropTargetView: NSView {
         return handled
     }
 
+    override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) {
+        defer {
+            exitActiveFileDropWebView(sender)
+            preparedFileDropWebView = nil
+            performedFileDropWebView = nil
+            clearDragState(phase: "conclude.clear")
+        }
+        guard let sender else { return }
+        if let webView = performedFileDropWebView ?? preparedFileDropWebView ?? activeFileDropWebView {
+            webView.concludeDragOperation(sender)
+        }
+    }
+
     private func updateDragState(_ sender: any NSDraggingInfo, phase: String) -> NSDragOperation {
         let location = convert(sender.draggingLocation, from: nil)
         if shouldDeferToPaneTabBar(at: location) {
+            exitActiveFileDropWebView(sender)
             clearDragState(phase: "\(phase).tabBar")
             return []
         }
 
         guard let dropContext else {
+            exitActiveFileDropWebView(sender)
             clearDragState(phase: "\(phase).reject")
             return []
         }
 
-        let canDropAsText = slotView?.canDropFileURLsAsText(at: location) ?? false
         let zone = BrowserPaneDropRouting.zone(
             for: location,
             in: bounds.size,
             topChromeHeight: slotView?.effectivePaneTopChromeHeight() ?? 0
         )
 
-        if DragOverlayRoutingPolicy.hasFileDropPayload(sender.draggingPasteboard.types),
-           DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
-                pasteboardTypes: sender.draggingPasteboard.types,
-                modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags,
-                canDropAsText: canDropAsText
-           ) {
+        if shouldRouteFileDropToHostedWebView(sender, at: location) {
             clearDragState(phase: "\(phase).text")
-            return DragOverlayRoutingPolicy.textDropOperation(pasteboardTypes: sender.draggingPasteboard.types)
+            return updateHostedWebViewDragState(sender, at: location)
         }
+
+        exitActiveFileDropWebView(sender)
 
         if let transfer = BrowserPaneDragTransfer.decode(from: sender.draggingPasteboard) {
             guard transfer.isFromCurrentProcess,
@@ -304,6 +336,45 @@ final class BrowserPaneDropTargetView: NSView {
         )
 #endif
         return .copy
+    }
+
+    private func shouldRouteFileDropToHostedWebView(_ sender: any NSDraggingInfo, at location: NSPoint) -> Bool {
+        let canDropIntoHostedWebView = slotView?.hostedWebViewForFileDrop(at: location) != nil
+        return DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
+            pasteboardTypes: sender.draggingPasteboard.types,
+            modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags,
+            canDropAsText: canDropIntoHostedWebView
+        )
+    }
+
+    private func updateHostedWebViewDragState(_ sender: any NSDraggingInfo, at location: NSPoint) -> NSDragOperation {
+        guard let webView = slotView?.hostedWebViewForFileDrop(at: location) else {
+            exitActiveFileDropWebView(sender)
+            return []
+        }
+        if activeFileDropWebView !== webView {
+            exitActiveFileDropWebView(sender)
+            activeFileDropWebView = webView
+            return webView.draggingEntered(sender)
+        }
+        return webView.draggingUpdated(sender)
+    }
+
+    private func exitActiveFileDropWebView(_ sender: (any NSDraggingInfo)?) {
+        if let webView = activeFileDropWebView {
+            webView.draggingExited(sender)
+            activeFileDropWebView = nil
+        }
+    }
+
+    private func focusBrowserPanelAfterSuccessfulFileDrop(context: BrowserPaneDropContext) {
+        guard let workspace = AppDelegate.shared?.workspaceFor(tabId: context.workspaceId) else { return }
+        FileDropTextDropController.focusPanelAfterSuccessfulTextDrop(
+            workspace: workspace,
+            panelId: context.panelId,
+            focusIntent: .browser(.webView),
+            window: window ?? slotView?.window
+        )
     }
 
     func shouldDeferToPaneTabBar(at point: NSPoint) -> Bool {
