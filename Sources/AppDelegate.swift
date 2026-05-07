@@ -684,6 +684,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     weak var fileExplorerState: FileExplorerState?
     weak var fullscreenControlsViewModel: TitlebarControlsViewModel?
     weak var sidebarSelectionState: SidebarSelectionState?
+    private var activeMainWindowId: UUID?
     var shortcutLayoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
     private var workspaceObserver: NSObjectProtocol?
     private var lifecycleSnapshotObservers: [NSObjectProtocol] = []
@@ -4856,7 +4857,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
         guard confirmCloseMainWindow(window) else { return true }
-        window.performClose(nil)
+        window.close()
         return true
     }
 
@@ -5053,6 +5054,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for key in removedKeys {
             mainWindowContexts.removeValue(forKey: key)
         }
+        if activeMainWindowId == removed.windowId {
+            activeMainWindowId = nil
+        }
         rememberRecoverableMainWindowRoute(windowId: removed.windowId, tabManager: removed.tabManager, window: removed.window)
         notifyMainWindowContextsDidChange()
         return removed
@@ -5064,6 +5068,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         for key in contextKeys {
             mainWindowContexts.removeValue(forKey: key)
+        }
+        if activeMainWindowId == context.windowId {
+            activeMainWindowId = nil
         }
         rememberRecoverableMainWindowRoute(windowId: context.windowId, tabManager: context.tabManager, window: context.window)
         notifyMainWindowContextsDidChange()
@@ -5217,6 +5224,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
+    private func mainWindowContext(forWindowId windowId: UUID?) -> MainWindowContext? {
+        guard let windowId else { return nil }
+        return mainWindowContexts.values.first { context in
+            context.windowId == windowId && resolvedWindow(for: context) != nil
+        }
+    }
+
+    private func activeMainWindowContext() -> MainWindowContext? {
+        mainWindowContext(forWindowId: activeMainWindowId)
+    }
+
     func activeTabManagerForCommands(preferredWindow: NSWindow? = nil) -> TabManager? {
         if let context = contextForMainWindow(preferredWindow) {
             return context.tabManager
@@ -5225,6 +5243,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return context.tabManager
         }
         if let context = contextForMainWindow(NSApp.mainWindow) {
+            return context.tabManager
+        }
+        if let context = activeMainWindowContext() {
             return context.tabManager
         }
         if let activeManager = tabManager,
@@ -5419,6 +5440,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if let context = contextForMainWindow(NSApp.mainWindow) {
             return context
         }
+        if let context = activeMainWindowContext() {
+            return context
+        }
         if let activeManager = tabManager,
            let activeContext = mainWindowContexts.values.first(where: { $0.tabManager === activeManager }) {
             return activeContext
@@ -5435,6 +5459,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return context
         }
         if let context = contextForMainWindow(NSApp.mainWindow) {
+            return context
+        }
+        if let context = activeMainWindowContext() {
             return context
         }
         if let activeManager = tabManager,
@@ -5484,6 +5511,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if let mainWindow = NSApp.mainWindow,
            let mainContext = contextForMainTerminalWindow(mainWindow),
            toggle(mainContext) {
+            return true
+        }
+        if let activeContext = activeMainWindowContext(),
+           toggle(activeContext) {
             return true
         }
         if let activeManager = tabManager,
@@ -5796,20 +5827,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "fr=\(beforeResponder)"
         )
 #endif
-        if let window {
-            mainWindowVisibilityController.focusForInWindowCommand(window, reason: .findShortcut)
-        }
-
         let target = context.keyboardFocusCoordinator.findShortcutTarget(
             currentResponder: window?.firstResponder
         )
+        if let window, target != .none {
+            mainWindowVisibilityController.focusForInWindowCommand(window, reason: .findShortcut)
+        }
         let result: Bool
         switch target {
         case .rightSidebarFileSearch:
             result = context.keyboardFocusCoordinator.focusFileSearch()
         case .mainPanelFind:
+            let canStartSearch = context.tabManager.selectedTerminalPanel != nil ||
+                context.tabManager.focusedBrowserPanel != nil
             context.tabManager.startSearch()
-            result = context.tabManager.isFindVisible
+            result = context.tabManager.isFindVisible || canStartSearch
         case .none:
             result = false
         }
@@ -6576,6 +6608,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 phase: "choose",
                 source: debugSource,
                 reason: "main_window",
+                event: event,
+                chosenContext: context
+            )
+            #endif
+            return context
+        }
+
+        if let context = activeMainWindowContext() {
+            #if DEBUG
+            logWorkspaceCreationRouting(
+                phase: "choose",
+                source: debugSource,
+                reason: "active_window_id",
                 event: event,
                 chosenContext: context
             )
@@ -11286,7 +11331,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .closeWindow) {
-            guard let targetWindow = event.window ?? NSApp.keyWindow ?? NSApp.mainWindow else {
+            guard let targetWindow = resolvedShortcutEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow else {
                 NSSound.beep()
                 return true
             }
@@ -13304,9 +13349,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             sidebarState = nil
             sidebarSelectionState = nil
             fileExplorerState = nil
+            activeMainWindowId = nil
             TerminalController.shared.setActiveTabManager(nil)
             return
         }
+        activeMainWindowId = context.windowId
         tabManager = context.tabManager
         sidebarState = context.sidebarState
         sidebarSelectionState = context.sidebarSelectionState

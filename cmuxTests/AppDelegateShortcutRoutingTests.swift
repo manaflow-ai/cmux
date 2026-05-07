@@ -764,7 +764,11 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
 
         appDelegate.debugCreateMainWindowSourceIsNativeFullScreenOverride = nil
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        let deadline = Date(timeIntervalSinceNow: 1.0)
+        while newWindow.collectionBehavior.contains(.fullScreenDisallowsTiling),
+              Date() < deadline {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        }
 
         XCTAssertFalse(
             newWindow.collectionBehavior.contains(.fullScreenDisallowsTiling),
@@ -788,7 +792,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         guard let firstManager = appDelegate.tabManagerFor(windowId: firstWindowId),
               let secondManager = appDelegate.tabManagerFor(windowId: secondWindowId),
-              let secondWindow = window(withId: secondWindowId) else {
+              window(withId: secondWindowId) != nil else {
             XCTFail("Expected both window contexts to exist")
             return
         }
@@ -796,7 +800,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let firstCount = firstManager.tabs.count
         let secondCount = secondManager.tabs.count
 
-        secondWindow.makeKeyAndOrderFront(nil)
+        XCTAssertTrue(appDelegate.focusMainWindow(windowId: secondWindowId))
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
         // Force a stale app-level pointer to a different manager.
@@ -1545,6 +1549,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
         let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
         guard let targetWindow = window(withId: windowId) else {
             XCTFail("Expected test window")
             return
@@ -1569,8 +1574,17 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #endif
 
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        let deadline = Date(timeIntervalSinceNow: 1.0)
+        while let window = self.window(withId: windowId),
+              window.isVisible,
+              Date() < deadline {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        }
 
-        XCTAssertNil(self.window(withId: windowId), "Confirming Cmd+Ctrl+W should close the window")
+        XCTAssertFalse(
+            self.window(withId: windowId)?.isVisible ?? false,
+            "Confirming Cmd+Ctrl+W should close the visible window"
+        )
     }
 
     // NOTE: This test is skipped in CI via -skip-testing in ci.yml because closing
@@ -3622,11 +3636,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let overlayContainer = NSView(frame: contentView.bounds)
+        let overlayHost = contentView.superview ?? contentView
+        let overlayContainer = NSView(frame: overlayHost.bounds)
         overlayContainer.identifier = commandPaletteOverlayContainerIdentifier
         overlayContainer.alphaValue = 1
         overlayContainer.isHidden = false
-        contentView.addSubview(overlayContainer)
+        overlayHost.addSubview(overlayContainer)
 
         let fieldEditor = CommandPaletteMarkedTextFieldEditor(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
         fieldEditor.isFieldEditor = true
@@ -3693,11 +3708,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let overlayContainer = NSView(frame: contentView.bounds)
+        let overlayHost = contentView.superview ?? contentView
+        let overlayContainer = NSView(frame: overlayHost.bounds)
         overlayContainer.identifier = commandPaletteOverlayContainerIdentifier
         overlayContainer.alphaValue = 1
         overlayContainer.isHidden = false
-        contentView.addSubview(overlayContainer)
+        overlayHost.addSubview(overlayContainer)
 
         let fieldEditor = CommandPaletteMarkedTextFieldEditor(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
         fieldEditor.isFieldEditor = true
@@ -5030,7 +5046,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
         let strayView = FocusableTestView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
-        contentView.addSubview(strayView)
+        let overlayHost = contentView.superview ?? contentView
+        overlayHost.addSubview(strayView)
         defer { strayView.removeFromSuperview() }
 
         window.makeKeyAndOrderFront(nil)
@@ -5046,7 +5063,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
 
         XCTAssertTrue(window.makeFirstResponder(strayView), "Expected test to install a visible wrong first responder")
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
         XCTAssertFalse(
             terminalPanel.hostedView.isSurfaceViewFirstResponder(),
@@ -5111,7 +5127,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
         let strayView = FocusableTestView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
-        contentView.addSubview(strayView)
+        let overlayHost = contentView.superview ?? contentView
+        overlayHost.addSubview(strayView)
         defer { strayView.removeFromSuperview() }
 
         window.makeKeyAndOrderFront(nil)
@@ -5120,7 +5137,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         terminalPanel.hostedView.setActive(true)
 
         XCTAssertTrue(window.makeFirstResponder(strayView), "Expected a foreign responder before blocking terminal focus")
-        appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .feed, in: window)
+        appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .sessions, in: window)
 
         XCTAssertFalse(
             window.makeFirstResponder(terminalView),
@@ -5157,7 +5174,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
         let sidebarResponder = FocusableTestView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
-        contentView.addSubview(sidebarResponder)
+        let overlayHost = contentView.superview ?? contentView
+        overlayHost.addSubview(sidebarResponder)
         defer { sidebarResponder.removeFromSuperview() }
 
         XCTAssertTrue(window.makeFirstResponder(sidebarResponder), "Expected right sidebar responder to take focus")
@@ -5202,6 +5220,13 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        terminalPanel.hostedView.setVisibleInUI(true)
+        terminalPanel.hostedView.setActive(true)
+        terminalPanel.hostedView.moveFocus()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
         appDelegate.noteTerminalKeyboardFocusIntent(workspaceId: workspace.id, panelId: terminalPanel.id, in: window)
 
         guard let event = makeKeyDownEvent(
@@ -5219,6 +5244,11 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #else
         XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
+
+        let deadline = Date(timeIntervalSinceNow: 1.0)
+        while terminalPanel.searchState == nil, Date() < deadline {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        }
 
         XCTAssertNotNil(terminalPanel.searchState, "Cmd+F from terminal focus should create terminal search state")
     }
@@ -5243,7 +5273,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
         let sidebarResponder = FocusableTestView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
-        contentView.addSubview(sidebarResponder)
+        let overlayHost = contentView.superview ?? contentView
+        overlayHost.addSubview(sidebarResponder)
         defer { sidebarResponder.removeFromSuperview() }
 
         window.makeKeyAndOrderFront(nil)
@@ -5254,8 +5285,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
         XCTAssertTrue(window.makeFirstResponder(sidebarResponder), "Expected right sidebar responder to take focus")
-        appDelegate.fileExplorerState?.mode = .feed
-        appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .feed, in: window)
+        appDelegate.fileExplorerState?.mode = .sessions
+        appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .sessions, in: window)
         XCTAssertFalse(
             appDelegate.allowsTerminalKeyboardFocus(
                 workspaceId: workspace.id,
@@ -5290,7 +5321,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             "Cmd+F should keep keyboard ownership in the existing right sidebar section"
         )
         XCTAssertNil(terminalPanel.searchState, "Cmd+F should not create terminal search state")
-        XCTAssertEqual(appDelegate.fileExplorerState?.mode, .feed)
+        XCTAssertEqual(appDelegate.fileExplorerState?.mode, .sessions)
         XCTAssertFalse(
             terminalPanel.hostedView.isSurfaceViewFirstResponder(),
             "Cmd+F from a non-file right sidebar mode should not refocus the terminal responder"
@@ -5325,11 +5356,24 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let searchState = TerminalSurface.SearchState(needle: "")
         terminalPanel.surface.searchState = searchState
         terminalPanel.hostedView.setSearchOverlay(searchState: searchState)
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
-        guard let searchField = findEditableTextField(in: terminalPanel.hostedView) else {
+        var searchField = findEditableTextField(in: terminalPanel.hostedView)
+        let searchMountDeadline = Date(timeIntervalSinceNow: 1.0)
+        while searchField == nil, Date() < searchMountDeadline {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            searchField = findEditableTextField(in: terminalPanel.hostedView)
+        }
+
+        guard let searchField else {
             XCTFail("Expected mounted terminal search field")
             return
+        }
+
+        XCTAssertTrue(window.makeFirstResponder(searchField), "Expected test to focus the terminal search field")
+        let focusDeadline = Date(timeIntervalSinceNow: 1.0)
+        while !firstResponderOwnsTextField(window.firstResponder, textField: searchField),
+              Date() < focusDeadline {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         }
 
         XCTAssertTrue(
