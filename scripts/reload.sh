@@ -605,6 +605,7 @@ fi
 # Build cmuxd and ghostty helper binaries (needed for both launch and no-launch).
 CMUXD_SRC="$PWD/cmuxd/zig-out/bin/cmuxd"
 GHOSTTY_HELPER_SRC="$PWD/ghostty/zig-out/bin/ghostty"
+RUST_CMX_SRC="$PWD/rust/cmux-cli/target/release/cmx"
 if [[ -d "$PWD/cmuxd" ]]; then
   (cd "$PWD/cmuxd" && zig build -Doptimize=ReleaseFast)
 fi
@@ -635,6 +636,15 @@ if [[ -x "$GHOSTTY_HELPER_SRC" ]]; then
   mkdir -p "$BIN_DIR"
   cp "$GHOSTTY_HELPER_SRC" "$BIN_DIR/ghostty"
   chmod +x "$BIN_DIR/ghostty"
+fi
+if [[ "${CMUX_SKIP_RUST_CMX_BUILD:-}" != "1" ]]; then
+  (cd "$PWD/rust/cmux-cli" && cargo build --release -p cmx >/dev/null)
+fi
+if [[ -x "$RUST_CMX_SRC" ]]; then
+  BIN_DIR="$APP_PATH/Contents/Resources/bin"
+  mkdir -p "$BIN_DIR"
+  cp "$RUST_CMX_SRC" "$BIN_DIR/cmx"
+  chmod +x "$BIN_DIR/cmx"
 fi
 if command -v xattr >/dev/null 2>&1; then
   xattr -cr "$APP_PATH" || true

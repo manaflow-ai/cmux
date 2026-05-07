@@ -1,6 +1,6 @@
 import Foundation
 
-struct CmxHiveDiscoverySnapshot: Equatable, Sendable {
+struct CmxHiveDiscoverySnapshot: Codable, Equatable, Sendable {
     let nodes: [CmxHiveNode]
     let workspaces: [CmxWorkspace]
 }
@@ -8,8 +8,29 @@ struct CmxHiveDiscoverySnapshot: Equatable, Sendable {
 protocol CmxHiveDiscoveryFetching {
     func fetchHive(
         endpoint: URL,
-        stackSession: CmxStackAuthSession
+        stackSession: CmxStackAuthSession,
+        teamID: String?
     ) async throws -> CmxHiveDiscoverySnapshot
+}
+
+struct CmxHiveTeamsSnapshot: Codable, Equatable, Sendable {
+    let teams: [CmxHiveTeam]
+    let defaultTeamID: String?
+    let selectedTeamID: String?
+}
+
+protocol CmxHiveControlFetching {
+    func fetchTeams(
+        endpoint: URL,
+        stackSession: CmxStackAuthSession
+    ) async throws -> CmxHiveTeamsSnapshot
+
+    func unlinkNode(
+        nodeID: String,
+        endpoint: URL,
+        stackSession: CmxStackAuthSession,
+        teamID: String?
+    ) async throws
 }
 
 struct CmxHiveDiscoveryClient: CmxHiveDiscoveryFetching {
@@ -21,7 +42,8 @@ struct CmxHiveDiscoveryClient: CmxHiveDiscoveryFetching {
 
     func fetchHive(
         endpoint: URL,
-        stackSession: CmxStackAuthSession
+        stackSession: CmxStackAuthSession,
+        teamID: String?
     ) async throws -> CmxHiveDiscoverySnapshot {
         guard ["http", "https"].contains(endpoint.scheme?.lowercased() ?? ""),
               endpoint.host != nil else {
@@ -29,6 +51,45 @@ struct CmxHiveDiscoveryClient: CmxHiveDiscoveryFetching {
         }
 
         var request = URLRequest(url: endpoint)
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("no-store", forHTTPHeaderField: "Cache-Control")
+        for (field, value) in stackSession.authorizationHeaders {
+            request.setValue(value, forHTTPHeaderField: field)
+        }
+        if let teamID = teamID?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty {
+            request.setValue(teamID, forHTTPHeaderField: "X-Cmux-Team-Id")
+        }
+
+        let (data, response) = try await urlSession.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw CmxHiveDiscoveryError.invalidResponse
+        }
+        guard httpResponse.statusCode == 200 else {
+            throw CmxHiveDiscoveryError.badStatus(httpResponse.statusCode)
+        }
+
+        do {
+            return try JSONDecoder().decode(CmxHiveDiscoveryWireSnapshot.self, from: data).snapshot()
+        } catch {
+            throw CmxHiveDiscoveryError.invalidResponse
+        }
+    }
+}
+
+struct CmxHiveControlClient: CmxHiveControlFetching {
+    private let urlSession: URLSession
+
+    init(urlSession: URLSession = .shared) {
+        self.urlSession = urlSession
+    }
+
+    func fetchTeams(
+        endpoint: URL,
+        stackSession: CmxStackAuthSession
+    ) async throws -> CmxHiveTeamsSnapshot {
+        let teamsEndpoint = try CmxHiveEndpointBuilder.endpoint(endpoint, appending: ["teams"])
+        var request = URLRequest(url: teamsEndpoint)
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("no-store", forHTTPHeaderField: "Cache-Control")
@@ -45,10 +106,51 @@ struct CmxHiveDiscoveryClient: CmxHiveDiscoveryFetching {
         }
 
         do {
-            return try JSONDecoder().decode(CmxHiveDiscoveryWireSnapshot.self, from: data).snapshot()
+            return try JSONDecoder().decode(CmxHiveTeamsWireSnapshot.self, from: data).snapshot
         } catch {
             throw CmxHiveDiscoveryError.invalidResponse
         }
+    }
+
+    func unlinkNode(
+        nodeID: String,
+        endpoint: URL,
+        stackSession: CmxStackAuthSession,
+        teamID: String?
+    ) async throws {
+        let nodeEndpoint = try CmxHiveEndpointBuilder.endpoint(endpoint, appending: ["nodes", nodeID])
+        var request = URLRequest(url: nodeEndpoint)
+        request.httpMethod = "DELETE"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("no-store", forHTTPHeaderField: "Cache-Control")
+        for (field, value) in stackSession.authorizationHeaders {
+            request.setValue(value, forHTTPHeaderField: field)
+        }
+        if let teamID = teamID?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty {
+            request.setValue(teamID, forHTTPHeaderField: "X-Cmux-Team-Id")
+        }
+
+        let (_, response) = try await urlSession.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw CmxHiveDiscoveryError.invalidResponse
+        }
+        guard httpResponse.statusCode == 200 else {
+            throw CmxHiveDiscoveryError.badStatus(httpResponse.statusCode)
+        }
+    }
+}
+
+private enum CmxHiveEndpointBuilder {
+    static func endpoint(_ endpoint: URL, appending pathComponents: [String]) throws -> URL {
+        guard ["http", "https"].contains(endpoint.scheme?.lowercased() ?? ""),
+              endpoint.host != nil else {
+            throw CmxHiveDiscoveryError.invalidEndpoint
+        }
+        var resolved = endpoint
+        for pathComponent in pathComponents {
+            resolved.appendPathComponent(pathComponent)
+        }
+        return resolved
     }
 }
 
@@ -89,21 +191,23 @@ private struct CmxHiveDiscoveryWireSnapshot: Decodable {
 
     func snapshot() -> CmxHiveDiscoverySnapshot {
         let decodedNodes = nodes.map(\.node)
-        let defaultNodeID = decodedNodes.count == 1 ? decodedNodes[0].id : nil
+        let defaultNodeID = nodes.count == 1 ? nodes[0].id.stableUInt64 : nil
+        let defaultNodeKey = nodes.count == 1 ? nodes[0].id.stableKey : nil
         var seenWorkspaceIDs = Set<UInt64>()
         var decodedWorkspaces: [CmxWorkspace] = []
 
         for node in nodes {
             let parentNodeID = node.id.stableUInt64
+            let parentNodeKey = node.id.stableKey
             for workspace in node.workspaces {
-                let model = workspace.workspace(parentNodeID: parentNodeID)
+                let model = workspace.workspace(parentNodeID: parentNodeID, parentNodeKey: parentNodeKey)
                 guard seenWorkspaceIDs.insert(model.id).inserted else { continue }
                 decodedWorkspaces.append(model)
             }
         }
 
         for workspace in workspaces {
-            let model = workspace.workspace(parentNodeID: defaultNodeID)
+            let model = workspace.workspace(parentNodeID: defaultNodeID, parentNodeKey: defaultNodeKey)
             guard seenWorkspaceIDs.insert(model.id).inserted else { continue }
             decodedWorkspaces.append(model)
         }
@@ -114,20 +218,29 @@ private struct CmxHiveDiscoveryWireSnapshot: Decodable {
 
 private struct CmxHiveDiscoveryWireNode: Decodable {
     let id: CmxHiveDiscoveryID
+    let rawID: String
     let name: String
     let subtitle: String?
     let kind: String?
     let isOnline: Bool
+    let restoreState: String?
+    let attachTicket: String?
+    let attachTicketExpiresAtUnix: UInt64?
     let workspaces: [CmxHiveDiscoveryWireWorkspace]
 
     var node: CmxHiveNode {
-        CmxHiveNode(
+        let restoreIsReady = restoreState?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != "restoring"
+            && restoreState?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != "starting"
+        return CmxHiveNode(
             id: id.stableUInt64,
+            rawID: rawID,
             name: name,
             subtitle: subtitle?.nonEmpty ?? String(localized: "node.connected.subtitle", defaultValue: "connected"),
             symbolName: CmxHiveNodeFactory.symbolName(for: kind),
             platform: CmxHostPlatform.infer(kind: kind, name: name, subtitle: subtitle),
-            isOnline: isOnline
+            isOnline: isOnline && restoreIsReady,
+            attachTicket: attachTicket?.nonEmpty,
+            attachTicketExpiresAtUnix: attachTicketExpiresAtUnix
         )
     }
 
@@ -138,18 +251,25 @@ private struct CmxHiveDiscoveryWireNode: Decodable {
         case kind
         case isOnline = "is_online"
         case online
+        case restoreState = "restore_state"
+        case attachTicket = "attach_ticket"
+        case attachTicketExpiresAtUnix = "attach_ticket_expires_at_unix"
         case workspaces
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(CmxHiveDiscoveryID.self, forKey: .id)
+        rawID = id.displayString
         name = try container.decode(String.self, forKey: .name)
         subtitle = try container.decodeIfPresent(String.self, forKey: .subtitle)
         kind = try container.decodeIfPresent(String.self, forKey: .kind)
         isOnline = try container.decodeIfPresent(Bool.self, forKey: .isOnline)
             ?? container.decodeIfPresent(Bool.self, forKey: .online)
             ?? false
+        restoreState = try container.decodeIfPresent(String.self, forKey: .restoreState)
+        attachTicket = try container.decodeIfPresent(String.self, forKey: .attachTicket)
+        attachTicketExpiresAtUnix = try container.decodeIfPresent(UInt64.self, forKey: .attachTicketExpiresAtUnix)
         workspaces = try container.decodeIfPresent([CmxHiveDiscoveryWireWorkspace].self, forKey: .workspaces) ?? []
     }
 }
@@ -157,6 +277,8 @@ private struct CmxHiveDiscoveryWireNode: Decodable {
 private struct CmxHiveDiscoveryWireWorkspace: Decodable {
     let id: CmxHiveDiscoveryID
     let nodeID: CmxHiveDiscoveryID?
+    let workspaceKey: CmxHiveDiscoveryID?
+    let localWorkspaceID: CmxHiveDiscoveryID?
     let title: String
     let preview: String?
     let lastActivity: Date?
@@ -167,11 +289,16 @@ private struct CmxHiveDiscoveryWireWorkspace: Decodable {
     private enum CodingKeys: String, CodingKey {
         case id
         case nodeID = "node_id"
+        case workspaceKey = "workspace_key"
+        case localWorkspaceID = "local_workspace_id"
         case title
         case preview
         case lastActivityUnix = "last_activity_unix"
         case lastActivityMs = "last_activity_ms"
         case lastActivityISO8601 = "last_activity"
+        case updatedAtUnix = "updated_at_unix"
+        case updatedAtMs = "updated_at_ms"
+        case updatedAtISO8601 = "updated_at"
         case unread
         case pinned
         case spaces
@@ -181,6 +308,8 @@ private struct CmxHiveDiscoveryWireWorkspace: Decodable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(CmxHiveDiscoveryID.self, forKey: .id)
         nodeID = try container.decodeIfPresent(CmxHiveDiscoveryID.self, forKey: .nodeID)
+        workspaceKey = try container.decodeIfPresent(CmxHiveDiscoveryID.self, forKey: .workspaceKey)
+        localWorkspaceID = try container.decodeIfPresent(CmxHiveDiscoveryID.self, forKey: .localWorkspaceID)
         title = try container.decode(String.self, forKey: .title)
         preview = try container.decodeIfPresent(String.self, forKey: .preview)
         unread = try container.decodeIfPresent(Bool.self, forKey: .unread) ?? false
@@ -193,17 +322,25 @@ private struct CmxHiveDiscoveryWireWorkspace: Decodable {
             lastActivity = Date(timeIntervalSince1970: milliseconds / 1_000)
         } else if let iso8601 = try container.decodeIfPresent(String.self, forKey: .lastActivityISO8601) {
             lastActivity = ISO8601DateFormatter().date(from: iso8601)
+        } else if let unix = try container.decodeIfPresent(Double.self, forKey: .updatedAtUnix) {
+            lastActivity = Date(timeIntervalSince1970: unix)
+        } else if let milliseconds = try container.decodeIfPresent(Double.self, forKey: .updatedAtMs) {
+            lastActivity = Date(timeIntervalSince1970: milliseconds / 1_000)
+        } else if let iso8601 = try container.decodeIfPresent(String.self, forKey: .updatedAtISO8601) {
+            lastActivity = ISO8601DateFormatter().date(from: iso8601)
         } else {
             lastActivity = nil
         }
     }
 
-    func workspace(parentNodeID: UInt64?) -> CmxWorkspace {
+    func workspace(parentNodeID: UInt64?, parentNodeKey: String?) -> CmxWorkspace {
         let resolvedNodeID = nodeID?.stableUInt64 ?? parentNodeID ?? 0
-        let resolvedSpaces = spaces.map(\.space)
+        let modelKey = workspaceModelKey(parentNodeKey: parentNodeKey)
+        let modelID = workspaceModelID(parentNodeKey: parentNodeKey)
+        let resolvedSpaces = spaces.map { $0.space(parentWorkspaceKey: modelKey) }
         let terminalCount = resolvedSpaces.reduce(0) { $0 + $1.terminals.count }
         return CmxWorkspace(
-            id: id.stableUInt64,
+            id: modelID,
             nodeID: resolvedNodeID,
             title: title,
             preview: preview?.nonEmpty ?? String(
@@ -214,8 +351,30 @@ private struct CmxHiveDiscoveryWireWorkspace: Decodable {
             lastActivity: lastActivity ?? Date(),
             unread: unread,
             pinned: pinned,
-            spaces: resolvedSpaces
+            spaces: resolvedSpaces,
+            localWorkspaceID: localWorkspaceID?.displayString.nonEmpty ?? id.displayString.nonEmpty
         )
+    }
+
+    private func workspaceModelID(parentNodeKey: String?) -> UInt64 {
+        if let workspaceKey {
+            return workspaceKey.stableUInt64
+        }
+        guard nodeID != nil || parentNodeKey != nil else {
+            return id.stableUInt64
+        }
+        return CmxStableID.uint64(for: workspaceModelKey(parentNodeKey: parentNodeKey))
+    }
+
+    private func workspaceModelKey(parentNodeKey: String?) -> String {
+        if let workspaceKey {
+            return workspaceKey.stableKey
+        }
+        let localKey = localWorkspaceID?.stableKey ?? id.stableKey
+        guard let nodeKey = nodeID?.stableKey ?? parentNodeKey else {
+            return localKey
+        }
+        return "\(nodeKey):\(localKey)"
     }
 }
 
@@ -224,8 +383,13 @@ private struct CmxHiveDiscoveryWireSpace: Decodable {
     let title: String
     let terminals: [CmxHiveDiscoveryWireTerminal]
 
-    var space: CmxSpace {
-        CmxSpace(id: id.stableUInt64, title: title, terminals: terminals.map(\.terminal))
+    func space(parentWorkspaceKey: String) -> CmxSpace {
+        let modelKey = "\(parentWorkspaceKey):space:\(id.stableKey)"
+        return CmxSpace(
+            id: CmxStableID.uint64(for: modelKey),
+            title: title,
+            terminals: terminals.map { $0.terminal(parentSpaceKey: modelKey) }
+        )
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -249,9 +413,9 @@ private struct CmxHiveDiscoveryWireTerminal: Decodable {
     let rows: Int
     let outputRows: [String]
 
-    var terminal: CmxTerminal {
+    func terminal(parentSpaceKey: String) -> CmxTerminal {
         CmxTerminal(
-            id: id.stableUInt64,
+            id: CmxStableID.uint64(for: "\(parentSpaceKey):terminal:\(id.stableKey)"),
             title: title,
             size: CmxTerminalSize(cols: max(1, cols), rows: max(1, rows)),
             rows: outputRows
@@ -296,6 +460,24 @@ private enum CmxHiveDiscoveryID: Decodable, Hashable {
         }
     }
 
+    var stableKey: String {
+        switch self {
+        case .number(let value):
+            return "n:\(value)"
+        case .string(let value):
+            return "s:\(value.trimmingCharacters(in: .whitespacesAndNewlines))"
+        }
+    }
+
+    var displayString: String {
+        switch self {
+        case .number(let value):
+            return "\(value)"
+        case .string(let value):
+            return value
+        }
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         if let value = try? container.decode(UInt64.self) {
@@ -303,6 +485,60 @@ private enum CmxHiveDiscoveryID: Decodable, Hashable {
             return
         }
         self = .string(try container.decode(String.self))
+    }
+}
+
+private struct CmxHiveTeamsWireSnapshot: Decodable {
+    let teams: [CmxHiveTeamWire]
+    let defaultTeamID: String?
+    let selectedTeamID: String?
+
+    var snapshot: CmxHiveTeamsSnapshot {
+        CmxHiveTeamsSnapshot(
+            teams: teams.map(\.team),
+            defaultTeamID: defaultTeamID?.nonEmpty,
+            selectedTeamID: selectedTeamID?.nonEmpty
+        )
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case teams
+        case defaultTeamID = "default_team_id"
+        case selectedTeamID = "selected_team_id"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        teams = try container.decodeIfPresent([CmxHiveTeamWire].self, forKey: .teams) ?? []
+        defaultTeamID = try container.decodeIfPresent(String.self, forKey: .defaultTeamID)
+        selectedTeamID = try container.decodeIfPresent(String.self, forKey: .selectedTeamID)
+    }
+}
+
+private struct CmxHiveTeamWire: Decodable {
+    let id: String
+    let displayName: String
+    let isPersonal: Bool
+
+    var team: CmxHiveTeam {
+        CmxHiveTeam(
+            id: id,
+            displayName: displayName.nonEmpty ?? id,
+            isPersonal: isPersonal
+        )
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case displayName = "display_name"
+        case isPersonal = "is_personal"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        displayName = try container.decodeIfPresent(String.self, forKey: .displayName) ?? id
+        isPersonal = try container.decodeIfPresent(Bool.self, forKey: .isPersonal) ?? false
     }
 }
 

@@ -823,7 +823,7 @@ private final class GhosttySurfaceOutputGate: @unchecked Sendable {
 
 @MainActor
 public final class GhosttyTerminalSurfaceView: UIView {
-    private static let defaultMobileFontSize: Float32 = 16
+    private static let defaultMobileFontSize: Float32 = 14
     private static let minimumMobileFontSize: Float32 = 9
     private static let maximumMobileFontSize: Float32 = 30
     private static let mobileFontZoomStep: Float32 = 1

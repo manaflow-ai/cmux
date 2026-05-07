@@ -148,6 +148,28 @@ jobs:
           bun test tests/drizzle-effect.test.ts
           bun test tests/vm-db-read-model.test.ts
 
+  rust-cmux-cli-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rust/cmux-cli
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Show Rust toolchain
+        run: |
+          rustc --version
+          cargo --version
+
+      - name: Run cmx bridge subcommand regressions
+        run: |
+          cargo test -p cmx --test subcommands bridge_subcommand_prints_help
+          cargo test -p cmx --test subcommands capabilities_lists_every_subcommand_and_is_json_parseable
+
+      - name: Run iroh bridge tests
+        run: cargo test -p cmux-iroh-bridge
+
   tests:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_warpbuild_macos }}
     runs-on: warp-macos-15-arm64-6x

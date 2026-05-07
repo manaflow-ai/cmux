@@ -651,13 +651,12 @@ fn spawn_event_reader(tx: mpsc::Sender<Event>) -> EventReaderHandle {
 }
 
 fn encode_mouse(m: MouseEvent) -> Option<ClientMsg> {
-    // Only the left-button drag-to-select flow is wired server-side today.
-    // Right / middle / modifier combos + wheel can land later; we still
-    // forward them so the server can add behaviour without a client bump.
     let kind = match m.kind {
         MouseEventKind::Down(MouseButton::Left) => MouseKind::Down,
         MouseEventKind::Drag(MouseButton::Left) => MouseKind::Drag,
         MouseEventKind::Up(MouseButton::Left) => MouseKind::Up,
+        MouseEventKind::Down(MouseButton::Right) => MouseKind::RightDown,
+        MouseEventKind::Up(MouseButton::Right) => MouseKind::RightUp,
         MouseEventKind::ScrollDown => MouseKind::Wheel { lines: 3 },
         MouseEventKind::ScrollUp => MouseKind::Wheel { lines: -3 },
         _ => return None,

@@ -8,15 +8,20 @@ final class CmxWorkspacePresentationTests: XCTestCase {
 
         XCTAssertTrue(store.workspaces.isEmpty)
         XCTAssertTrue(store.visibleWorkspaces(matching: "").isEmpty)
+        XCTAssertEqual(store.terminalDetailPresentation, .noWorkspaces)
     }
 
-    func testVisibleWorkspacesPreferPinnedThenRecent() {
+    func testVisibleWorkspacesSortsMostRecentAcrossMachinesRegardlessPinned() {
         let store = CmxConnectionStore()
         store.applyHiveDiscoverySnapshot(Self.presentationSnapshot())
+        store.workspaces[0].pinned = true
+        store.workspaces[0].lastActivity = Date(timeIntervalSince1970: 1_777_680_000)
+        store.workspaces[1].pinned = false
+        store.workspaces[1].lastActivity = Date(timeIntervalSince1970: 1_777_680_600)
 
         let workspaces = store.visibleWorkspaces(matching: "")
 
-        XCTAssertEqual(workspaces.map(\.title), ["main", "agent runs"])
+        XCTAssertEqual(workspaces.map(\.title), ["agent runs", "main"])
     }
 
     func testVisibleWorkspacesSearchesNodeAndPreviewText() {
@@ -25,6 +30,31 @@ final class CmxWorkspacePresentationTests: XCTestCase {
 
         XCTAssertEqual(store.visibleWorkspaces(matching: "standby").map(\.title), ["agent runs"])
         XCTAssertEqual(store.visibleWorkspaces(matching: "Ghostty").map(\.title), ["main"])
+    }
+
+    func testVisibleWorkspacesCanFilterAndHideUnavailableMachines() {
+        let store = CmxConnectionStore(
+            hiddenUnavailableNodeStore: MemoryHiddenUnavailableNodeStore(),
+            startHiveDiscoveryOnInit: false
+        )
+        let baseSnapshot = Self.presentationSnapshot()
+        var nodes = baseSnapshot.nodes
+        nodes[1].isOnline = false
+        let snapshot = CmxHiveDiscoverySnapshot(nodes: nodes, workspaces: baseSnapshot.workspaces)
+        store.applyHiveDiscoverySnapshot(snapshot)
+
+        XCTAssertEqual(store.visibleWorkspaces(matching: "", filter: .all).map(\.title), ["main", "agent runs"])
+        XCTAssertEqual(store.visibleWorkspaces(matching: "", filter: .online).map(\.title), ["main"])
+        XCTAssertEqual(store.visibleWorkspaces(matching: "", filter: .offline).map(\.title), ["agent runs"])
+
+        store.hideUnavailableWorkspaces(from: snapshot.nodes[1])
+
+        XCTAssertEqual(store.visibleWorkspaces(matching: "", filter: .all).map(\.title), ["main"])
+        XCTAssertEqual(store.visibleWorkspaces(matching: "", filter: .hiddenUnavailable).map(\.title), ["agent runs"])
+
+        store.showUnavailableWorkspaces(from: snapshot.nodes[1])
+
+        XCTAssertEqual(store.visibleWorkspaces(matching: "", filter: .all).map(\.title), ["main", "agent runs"])
     }
 
     func testNativeSnapshotPopulatesRustOwnedWorkspaceState() {
@@ -70,6 +100,7 @@ final class CmxWorkspacePresentationTests: XCTestCase {
         XCTAssertEqual(store.selectedSpace.terminals.map(\.id), [41, 42])
         XCTAssertEqual(store.selectedTerminal.title, "shell")
         XCTAssertTrue(store.canRenderSelectedTerminal)
+        XCTAssertEqual(store.terminalDetailPresentation, .loadingTerminal)
     }
 
     func testNativeSnapshotAllowsZeroValuedRustTabID() {
@@ -144,6 +175,59 @@ final class CmxWorkspacePresentationTests: XCTestCase {
         XCTAssertTrue(store.selectedSpace.terminals.isEmpty)
         XCTAssertEqual(store.selectedTerminal.title, "cmx")
         XCTAssertEqual(store.terminalSize(for: store.selectedTerminal.id), .phoneDefault)
+        XCTAssertEqual(store.terminalDetailPresentation, .noTerminal)
+    }
+
+    func testInactiveWorkspaceWithKnownTerminalsPresentsLoadingUntilNativeSnapshotActivatesIt() {
+        let store = CmxConnectionStore()
+
+        store.applyNativeSnapshot(
+            CmxNativeSnapshot(
+                workspaces: [
+                    CmxNativeWorkspaceInfo(
+                        id: 11,
+                        title: "main",
+                        spaceCount: 1,
+                        tabCount: 1,
+                        terminalCount: 1,
+                        pinned: false,
+                        color: nil
+                    ),
+                    CmxNativeWorkspaceInfo(
+                        id: 12,
+                        title: "agent runs",
+                        spaceCount: 1,
+                        tabCount: 1,
+                        terminalCount: 1,
+                        pinned: false,
+                        color: nil
+                    ),
+                ],
+                activeWorkspace: 0,
+                activeWorkspaceID: 11,
+                spaces: [
+                    CmxNativeSpaceInfo(id: 21, title: "space-1", paneCount: 1, terminalCount: 1),
+                ],
+                activeSpace: 0,
+                activeSpaceID: 21,
+                panels: .leaf(
+                    panelID: 31,
+                    tabs: [
+                        CmxNativeTabInfo(id: 41, title: "shell", hasActivity: false, bellCount: 0),
+                    ],
+                    active: 0,
+                    activeTabID: 41
+                ),
+                focusedPanelID: 31,
+                focusedTabID: 41
+            )
+        )
+
+        store.select(workspaceID: 12)
+
+        XCTAssertEqual(store.selectedWorkspace.title, "agent runs")
+        XCTAssertFalse(store.canRenderSelectedTerminal)
+        XCTAssertEqual(store.terminalDetailPresentation, .loadingTerminal)
     }
 
     func testEmptyNativeSnapshotDoesNotReplaceExistingWorkspaceList() {
@@ -182,6 +266,7 @@ final class CmxWorkspacePresentationTests: XCTestCase {
         )
         XCTAssertTrue(store.workspaces.isEmpty)
         XCTAssertTrue(store.isAwaitingInitialWorkspaceSnapshot)
+        XCTAssertEqual(store.terminalDetailPresentation, .loadingWorkspaces)
 
         sessionFactory.session.delegate?.terminalSession(
             sessionFactory.session,
@@ -189,6 +274,7 @@ final class CmxWorkspacePresentationTests: XCTestCase {
         )
         XCTAssertEqual(store.workspaces.map(\.title), ["main"])
         XCTAssertFalse(store.isAwaitingInitialWorkspaceSnapshot)
+        XCTAssertEqual(store.terminalDetailPresentation, .loadingTerminal)
     }
 
     private static func nativeSnapshot(title: String) -> CmxNativeSnapshot {
@@ -244,6 +330,7 @@ final class CmxWorkspacePresentationTests: XCTestCase {
             nodes: [
                 CmxHiveNode(
                     id: 1,
+                    rawID: "macbook",
                     name: "MacBook Pro",
                     subtitle: "local dev node",
                     symbolName: "laptopcomputer",
@@ -252,6 +339,7 @@ final class CmxWorkspacePresentationTests: XCTestCase {
                 ),
                 CmxHiveNode(
                     id: 2,
+                    rawID: "mac-mini",
                     name: "Mac mini",
                     subtitle: "hive standby",
                     symbolName: "macmini",
@@ -332,4 +420,16 @@ private final class WorkspacePresentationTerminalSession: CmxTerminalSession {
     func sendCommand(_: CmxClientCommand) {}
 
     func disconnect() {}
+}
+
+private final class MemoryHiddenUnavailableNodeStore: CmxHiddenUnavailableNodeStoring {
+    var nodeIDs: Set<UInt64> = []
+
+    func loadHiddenNodeIDs() throws -> Set<UInt64> {
+        nodeIDs
+    }
+
+    func saveHiddenNodeIDs(_ nodeIDs: Set<UInt64>) throws {
+        self.nodeIDs = nodeIDs
+    }
 }

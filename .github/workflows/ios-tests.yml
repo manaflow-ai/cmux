@@ -18,14 +18,11 @@ on:
         required: false
         default: false
         type: boolean
-      duration_seconds:
-        description: "Stress duration per simulator"
+      long_haul_smoke:
+        description: "Run the 30-second long-haul smoke instead of the one-hour test"
         required: false
-        default: "3600"
-      seed:
-        description: "Stable seed label for typed markers"
-        required: false
-        default: "ci"
+        default: false
+        type: boolean
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -181,18 +178,18 @@ jobs:
           echo "Using simulator: $SIMULATOR_NAME ($SIMULATOR_ID)"
 
       - name: Run long haul stress
-        env:
-          CMUX_IOS_RUN_LONG_HAUL_STRESS: "1"
-          CMUX_IOS_STRESS_DURATION_SECONDS: ${{ inputs.duration_seconds }}
-          CMUX_IOS_STRESS_SEED: ${{ inputs.seed }}-${{ github.run_id }}-${{ matrix.family }}
         run: |
           set -euo pipefail
           defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool false
+          TEST_ID="cmux-iosLongHaulUITests/CmxLongHaulStressUITests/testOneHourTerminalWorkspaceReconnectAndResizeStress"
+          if [ "${{ inputs.long_haul_smoke }}" = "true" ]; then
+            TEST_ID="cmux-iosLongHaulUITests/CmxLongHaulStressUITests/testThirtySecondTerminalWorkspaceReconnectAndResizeStressSmoke"
+          fi
           xcodebuild \
             -project ios/cmux-ios.xcodeproj \
-            -scheme cmux-ios \
+            -scheme cmux-ios-long-haul \
             -configuration Debug \
             -destination "platform=iOS Simulator,id=${{ steps.simulator.outputs.id }}" \
             -derivedDataPath build/ios-long-haul-${{ matrix.family }} \
-            -only-testing:cmux-iosUITests/CmxLongHaulStressUITests/testOneHourTerminalWorkspaceReconnectAndResizeStress \
+            -only-testing:"$TEST_ID" \
             test

@@ -12,6 +12,7 @@ import {
   createHiveState,
   getHivePairingSecret,
   hiveSnapshot,
+  unlinkHiveNode,
   upsertHiveNode,
   upsertHivePairing,
 } from "./state";
@@ -23,13 +24,22 @@ export const cmuxHive = actor({
   actions: {
     list(c, auth: HiveActorAuth): HiveSnapshot {
       assertActorAuth(auth);
-      return hiveSnapshot(c.state);
+      return hiveSnapshot(c.state, currentUnixSeconds());
     },
 
     upsertNode(c, auth: HiveActorAuth, input: unknown) {
       assertActorAuth(auth);
       const node = hiveNodeInputSchema.parse(input);
       return upsertHiveNode(c.state, node);
+    },
+
+    unlinkNode(c, auth: HiveActorAuth, nodeID: string) {
+      assertActorAuth(auth);
+      const trimmedNodeID = nodeID.trim();
+      if (!trimmedNodeID) {
+        throw new UserError("Missing node id", { code: "missing_node_id" });
+      }
+      return unlinkHiveNode(c.state, trimmedNodeID);
     },
 
     upsertPairing(c, auth: HiveActorAuth, input: unknown): HivePairingSummary {

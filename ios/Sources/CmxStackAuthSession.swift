@@ -69,7 +69,7 @@ enum CmxStackAuthCallback {
 
     private static func isSupportedCallbackURL(_ url: URL) -> Bool {
         guard let scheme = url.scheme?.lowercased() else { return false }
-        guard scheme == "cmux" || scheme.hasPrefix("cmux-dev") else { return false }
+        guard scheme == "cmux" || scheme == "cmux-nightly" || scheme.hasPrefix("cmux-dev") else { return false }
         return url.host == "auth-callback" || url.path == "/auth-callback"
     }
 

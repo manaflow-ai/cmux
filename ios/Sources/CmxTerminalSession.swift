@@ -3,12 +3,19 @@ import Foundation
 @MainActor
 protocol CmxTerminalSessionDelegate: AnyObject {
     func terminalSession(_ session: any CmxTerminalSession, didReceive message: CmxServerMessage)
+    func terminalSession(_ session: any CmxTerminalSession, didReceive messages: [CmxServerMessage])
     func terminalSession(_ session: any CmxTerminalSession, didUpdateLatencyMilliseconds latencyMilliseconds: UInt32)
     func terminalSession(_ session: any CmxTerminalSession, didFail error: Error)
     func terminalSessionDidClose(_ session: any CmxTerminalSession)
 }
 
 extension CmxTerminalSessionDelegate {
+    func terminalSession(_ session: any CmxTerminalSession, didReceive messages: [CmxServerMessage]) {
+        for message in messages {
+            terminalSession(session, didReceive: message)
+        }
+    }
+
     func terminalSession(_ session: any CmxTerminalSession, didUpdateLatencyMilliseconds latencyMilliseconds: UInt32) {}
 }
 

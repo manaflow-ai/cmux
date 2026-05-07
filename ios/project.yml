@@ -18,6 +18,13 @@ schemes:
       targets:
         - cmux-iosTests
         - cmux-iosUITests
+  cmux-ios-long-haul:
+    build:
+      targets:
+        cmux-ios: all
+    test:
+      targets:
+        - cmux-iosLongHaulUITests
 
 targets:
   cmux-ios:
@@ -158,6 +165,24 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.ios.uitests
         PRODUCT_NAME: cmux iOS UITests
+        GENERATE_INFOPLIST_FILE: "YES"
+        SWIFT_VERSION: "6.0"
+        SWIFT_STRICT_CONCURRENCY: complete
+        SWIFT_APPROACHABLE_CONCURRENCY: "YES"
+        DEVELOPMENT_TEAM: 7WLXT3NR37
+        TEST_TARGET_NAME: cmux-ios
+
+  cmux-iosLongHaulUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - LongHaulUITests
+    dependencies:
+      - target: cmux-ios
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.ios.longhauluitests
+        PRODUCT_NAME: cmux iOS Long Haul UITests
         GENERATE_INFOPLIST_FILE: "YES"
         SWIFT_VERSION: "6.0"
         SWIFT_STRICT_CONCURRENCY: complete

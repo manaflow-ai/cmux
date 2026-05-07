@@ -3,7 +3,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-CMX_BIN="$REPO_ROOT/rust/cmux-cli/target/debug/cmx"
+CMX_RUST_PROFILE="${CMX_RUST_PROFILE:-release}"
+CMX_BIN="$REPO_ROOT/rust/cmux-cli/target/$CMX_RUST_PROFILE/cmx"
 
 usage() {
     cat <<'EOF'
@@ -15,7 +16,7 @@ Usage:
   ios/scripts/attach-latest.sh --dry-run -- [cmx attach args...]
 
 Defaults to the newest /tmp/cmx-ios-*.sock and attaches with this worktree's
-rust/cmux-cli/target/debug/cmx binary.
+optimized rust/cmux-cli/target/release/cmx binary.
 
 Examples:
   ios/scripts/attach-latest.sh
@@ -138,7 +139,7 @@ fi
 
 if [ ! -x "$CMX_BIN" ]; then
     echo "error: cmx binary is missing: $CMX_BIN" >&2
-    echo "hint: cd $REPO_ROOT/rust/cmux-cli && cargo build -p cmx" >&2
+    echo "hint: cd $REPO_ROOT/rust/cmux-cli && cargo build --release -p cmx" >&2
     exit 1
 fi
 

@@ -2,32 +2,95 @@
 //! router. Pure coordinate math — no server spin-up required.
 
 use cmux_cli_core::layout::Rect;
-use cmux_cli_server::{chrome_layout, hit_test_sidebar, hit_test_tab_bar};
-
-#[test]
-fn sidebar_hit_rejects_header_and_spacer_rows() {
-    let (sidebar, _space_bar, _tb, _pane, _bb, _st) = chrome_layout((120, 24));
-    // The sidebar's first item row is 2 (row 0 = header, row 1 = spacer).
-    // Rows 0 and 1 never map to an item regardless of workspace count.
-    assert_eq!(hit_test_sidebar(5, 0, sidebar, 3), None);
-    assert_eq!(hit_test_sidebar(5, 1, sidebar, 3), None);
-}
+use cmux_cli_server::{SidebarHit, chrome_layout, hit_test_sidebar, hit_test_tab_bar};
 
 #[test]
 fn sidebar_hit_identifies_workspace_index() {
     let (sidebar, _space_bar, _tb, _pane, _bb, _st) = chrome_layout((120, 24));
-    assert_eq!(hit_test_sidebar(5, 2, sidebar, 3), Some(0));
-    assert_eq!(hit_test_sidebar(5, 3, sidebar, 3), Some(1));
-    assert_eq!(hit_test_sidebar(5, 4, sidebar, 3), Some(2));
-    // Row past the last workspace — no item to click.
-    assert_eq!(hit_test_sidebar(5, 5, sidebar, 3), None);
+    assert_eq!(
+        hit_test_sidebar(5, 0, sidebar, 3, 0),
+        Some(SidebarHit::Workspace(0))
+    );
+    assert_eq!(
+        hit_test_sidebar(5, 1, sidebar, 3, 0),
+        Some(SidebarHit::Workspace(0))
+    );
+    assert_eq!(
+        hit_test_sidebar(5, 2, sidebar, 3, 0),
+        Some(SidebarHit::Workspace(0))
+    );
+    assert_eq!(
+        hit_test_sidebar(5, 3, sidebar, 3, 0),
+        Some(SidebarHit::Workspace(1))
+    );
+    assert_eq!(
+        hit_test_sidebar(5, 4, sidebar, 3, 0),
+        Some(SidebarHit::Workspace(1))
+    );
+    assert_eq!(
+        hit_test_sidebar(5, 5, sidebar, 3, 0),
+        Some(SidebarHit::Workspace(1))
+    );
+    assert_eq!(
+        hit_test_sidebar(5, 6, sidebar, 3, 0),
+        Some(SidebarHit::Workspace(2))
+    );
+    assert_eq!(
+        hit_test_sidebar(5, 7, sidebar, 3, 0),
+        Some(SidebarHit::Workspace(2))
+    );
+    assert_eq!(
+        hit_test_sidebar(5, 8, sidebar, 3, 0),
+        Some(SidebarHit::Workspace(2))
+    );
+    assert_eq!(hit_test_sidebar(5, 9, sidebar, 3, 0), None);
+    assert_eq!(
+        hit_test_sidebar(5, 10, sidebar, 3, 0),
+        Some(SidebarHit::NewWorkspace)
+    );
+    assert_eq!(hit_test_sidebar(5, 11, sidebar, 3, 0), None);
+}
+
+#[test]
+fn sidebar_hit_uses_fixed_three_row_workspace_blocks() {
+    let (sidebar, _space_bar, _tb, _pane, _bb, _st) = chrome_layout((120, 24));
+    assert_eq!(
+        hit_test_sidebar(5, 2, sidebar, 3, 0),
+        Some(SidebarHit::Workspace(0))
+    );
+    assert_eq!(
+        hit_test_sidebar(5, 3, sidebar, 3, 0),
+        Some(SidebarHit::Workspace(1))
+    );
+}
+
+#[test]
+fn sidebar_hit_accounts_for_scroll_offset() {
+    let (sidebar, _space_bar, _tb, _pane, _bb, _st) = chrome_layout((120, 24));
+    assert_eq!(
+        hit_test_sidebar(5, 0, sidebar, 20, 2),
+        Some(SidebarHit::Workspace(2))
+    );
+    assert_eq!(
+        hit_test_sidebar(5, 2, sidebar, 20, 2),
+        Some(SidebarHit::Workspace(2))
+    );
+    assert_eq!(
+        hit_test_sidebar(5, 3, sidebar, 20, 2),
+        Some(SidebarHit::Workspace(3))
+    );
+    assert_eq!(hit_test_sidebar(5, sidebar.rows - 2, sidebar, 20, 2), None);
+    assert_eq!(
+        hit_test_sidebar(5, sidebar.rows - 1, sidebar, 20, 2),
+        Some(SidebarHit::NewWorkspace)
+    );
 }
 
 #[test]
 fn sidebar_hit_rejects_clicks_outside_sidebar_cols() {
     let (sidebar, _space_bar, _tb, _pane, _bb, _st) = chrome_layout((120, 24));
     // Column 20 is in the pane, not the sidebar (sidebar is 16 wide).
-    assert_eq!(hit_test_sidebar(20, 2, sidebar, 3), None);
+    assert_eq!(hit_test_sidebar(20, 2, sidebar, 3, 0), None);
 }
 
 #[test]
@@ -35,7 +98,7 @@ fn sidebar_hit_returns_none_when_sidebar_hidden() {
     // Narrow viewport hides the sidebar.
     let (sidebar, _space_bar, _tb, _pane, _bb, _st) = chrome_layout((40, 24));
     assert_eq!(sidebar.cols, 0);
-    assert_eq!(hit_test_sidebar(0, 2, sidebar, 3), None);
+    assert_eq!(hit_test_sidebar(0, 2, sidebar, 3, 0), None);
 }
 
 #[test]

@@ -3,6 +3,14 @@ import Network
 import OSLog
 import UIKit
 
+enum CmxTerminalDetailPresentation: Equatable {
+    case loadingWorkspaces
+    case noWorkspaces
+    case noTerminal
+    case loadingTerminal
+    case terminal
+}
+
 #if DEBUG
 nonisolated private let cmxConnectionLogger = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "dev.cmux.ios",
@@ -13,6 +21,119 @@ nonisolated private func cmuxDebugLog(_ message: String) {
     cmxConnectionLogger.debug("\(message, privacy: .public)")
 }
 #endif
+
+protocol CmxHiveTeamPreferenceStoring {
+    func loadSelectedTeamID() throws -> String?
+    func saveSelectedTeamID(_ teamID: String?) throws
+}
+
+struct CmxUserDefaultsHiveTeamPreferenceStore: CmxHiveTeamPreferenceStoring {
+    private let userDefaults: UserDefaults
+    private let key: String
+
+    init(
+        userDefaults: UserDefaults = .standard,
+        key: String = "dev.cmux.ios.hive.selected-team-id"
+    ) {
+        self.userDefaults = userDefaults
+        self.key = key
+    }
+
+    func loadSelectedTeamID() throws -> String? {
+        CmxStringNormalization.trimmedNonEmpty(userDefaults.string(forKey: key))
+    }
+
+    func saveSelectedTeamID(_ teamID: String?) throws {
+        if let teamID = CmxStringNormalization.trimmedNonEmpty(teamID) {
+            userDefaults.set(teamID, forKey: key)
+        } else {
+            userDefaults.removeObject(forKey: key)
+        }
+    }
+}
+
+protocol CmxHiddenUnavailableNodeStoring {
+    func loadHiddenNodeIDs() throws -> Set<UInt64>
+    func saveHiddenNodeIDs(_ nodeIDs: Set<UInt64>) throws
+}
+
+struct CmxUserDefaultsHiddenUnavailableNodeStore: CmxHiddenUnavailableNodeStoring {
+    private let userDefaults: UserDefaults
+    private let key: String
+
+    init(
+        userDefaults: UserDefaults = .standard,
+        key: String = "dev.cmux.ios.hive.hidden-unavailable-node-ids"
+    ) {
+        self.userDefaults = userDefaults
+        self.key = key
+    }
+
+    func loadHiddenNodeIDs() throws -> Set<UInt64> {
+        let values = userDefaults.stringArray(forKey: key) ?? []
+        return Set(values.compactMap(UInt64.init))
+    }
+
+    func saveHiddenNodeIDs(_ nodeIDs: Set<UInt64>) throws {
+        userDefaults.set(nodeIDs.map(String.init).sorted(), forKey: key)
+    }
+}
+
+struct CmxHiveDiscoveryCachePayload: Codable, Equatable, Sendable {
+    var teams: [CmxHiveTeam]
+    var defaultTeamID: String?
+    var selectedTeamID: String?
+    var nodes: [CmxHiveNode]
+    var workspaces: [CmxWorkspace]
+    var cachedAt: Date
+
+    var teamsSnapshot: CmxHiveTeamsSnapshot {
+        CmxHiveTeamsSnapshot(
+            teams: teams,
+            defaultTeamID: defaultTeamID,
+            selectedTeamID: selectedTeamID
+        )
+    }
+
+    var discoverySnapshot: CmxHiveDiscoverySnapshot {
+        CmxHiveDiscoverySnapshot(nodes: nodes, workspaces: workspaces)
+    }
+}
+
+protocol CmxHiveDiscoveryCacheStoring {
+    func load() throws -> CmxHiveDiscoveryCachePayload?
+    func save(_ payload: CmxHiveDiscoveryCachePayload) throws
+    func clear() throws
+}
+
+struct CmxUserDefaultsHiveDiscoveryCacheStore: CmxHiveDiscoveryCacheStoring {
+    private let userDefaults: UserDefaults
+    private let key: String
+    private let encoder = JSONEncoder()
+    private let decoder = JSONDecoder()
+
+    init(
+        userDefaults: UserDefaults = .standard,
+        key: String = "dev.cmux.ios.hive.discovery-cache"
+    ) {
+        self.userDefaults = userDefaults
+        self.key = key
+    }
+
+    func load() throws -> CmxHiveDiscoveryCachePayload? {
+        guard let data = userDefaults.data(forKey: key) else { return nil }
+        return try decoder.decode(CmxHiveDiscoveryCachePayload.self, from: data)
+    }
+
+    func save(_ payload: CmxHiveDiscoveryCachePayload) throws {
+        let data = try encoder.encode(payload)
+        userDefaults.set(data, forKey: key)
+    }
+
+    func clear() throws {
+        userDefaults.removeObject(forKey: key)
+    }
+}
 
 @MainActor
 final class CmxConnectionStore: ObservableObject {
@@ -29,6 +150,11 @@ final class CmxConnectionStore: ObservableObject {
     @Published private(set) var latencyMilliseconds: UInt32?
     @Published private(set) var stackAuthSession: CmxStackAuthSession?
     @Published private(set) var terminalAppearanceRevision = 0
+    @Published private(set) var hiveTeams: [CmxHiveTeam] = []
+    @Published private(set) var selectedHiveTeamID: String?
+    @Published private(set) var defaultHiveTeamID: String?
+    @Published private(set) var isLoadingHiveTeams = false
+    @Published private(set) var hiddenUnavailableNodeIDs: Set<UInt64> = []
     @Published var nodes: [CmxHiveNode] = []
     @Published var workspaces: [CmxWorkspace] = []
     @Published private(set) var nativeSnapshot: CmxNativeSnapshot?
@@ -44,6 +170,10 @@ final class CmxConnectionStore: ObservableObject {
     private let launchTicketStore: CmxLaunchTicketStateStore
     private let pairingSecretClient: CmxRivetPairingSecretFetching
     private let hiveDiscoveryClient: CmxHiveDiscoveryFetching
+    private let hiveControlClient: CmxHiveControlFetching
+    private let hiveTeamPreferenceStore: CmxHiveTeamPreferenceStoring
+    private let hiddenUnavailableNodeStore: CmxHiddenUnavailableNodeStoring
+    private let hiveDiscoveryCacheStore: CmxHiveDiscoveryCacheStoring
     private let hiveDiscoveryEndpoint: URL?
     private let terminalSessionFactory: any CmxTerminalSessionMaking
     private var terminalSession: (any CmxTerminalSession)?
@@ -62,8 +192,11 @@ final class CmxConnectionStore: ObservableObject {
     private var lastReplayRequest: ReplayRequestKey?
     private var needsReplayAfterSessionStart = false
     private var terminalOutputSink: TerminalOutputSink?
+    private var pendingSinkOutputByTerminalID: [UInt64: [CmxTerminalOutputChunk]] = [:]
+    private var sinkOutputFlushScheduled = false
     private var currentSessionID: String?
     private var prefetchedWorkspaceIDs: Set<UInt64> = []
+    private var pendingHiveAttachTarget: HiveAttachTarget?
 
     private struct ReplayRequestKey: Equatable {
         var terminalID: UInt64
@@ -76,11 +209,21 @@ final class CmxConnectionStore: ObservableObject {
         var receive: @MainActor (CmxTerminalOutputChunk) -> Void
     }
 
+    private struct HiveAttachTarget: Equatable {
+        var nodeRawID: String
+        var localWorkspaceID: String?
+        var title: String
+    }
+
     init(
         authSessionStore: CmxStackAuthSessionStore = CmxKeychainStackAuthSessionStore(),
         launchTicketStore: CmxLaunchTicketStateStore = CmxDisabledLaunchTicketStateStore(),
         pairingSecretClient: CmxRivetPairingSecretFetching = CmxRivetPairingSecretClient(),
         hiveDiscoveryClient: CmxHiveDiscoveryFetching = CmxHiveDiscoveryClient(),
+        hiveControlClient: CmxHiveControlFetching = CmxHiveControlClient(),
+        hiveTeamPreferenceStore: CmxHiveTeamPreferenceStoring = CmxUserDefaultsHiveTeamPreferenceStore(),
+        hiddenUnavailableNodeStore: CmxHiddenUnavailableNodeStoring = CmxUserDefaultsHiddenUnavailableNodeStore(),
+        hiveDiscoveryCacheStore: CmxHiveDiscoveryCacheStoring = CmxUserDefaultsHiveDiscoveryCacheStore(),
         hiveDiscoveryEndpoint: URL? = CmxLaunchConfiguration.hiveDiscoveryEndpoint(),
         terminalSessionFactory: any CmxTerminalSessionMaking = CmxDefaultTerminalSessionFactory(),
         startHiveDiscoveryOnInit: Bool = true,
@@ -91,9 +234,15 @@ final class CmxConnectionStore: ObservableObject {
         self.launchTicketStore = launchTicketStore
         self.pairingSecretClient = pairingSecretClient
         self.hiveDiscoveryClient = hiveDiscoveryClient
+        self.hiveControlClient = hiveControlClient
+        self.hiveTeamPreferenceStore = hiveTeamPreferenceStore
+        self.hiddenUnavailableNodeStore = hiddenUnavailableNodeStore
+        self.hiveDiscoveryCacheStore = hiveDiscoveryCacheStore
         self.hiveDiscoveryEndpoint = hiveDiscoveryEndpoint
         self.terminalSessionFactory = terminalSessionFactory
         stackAuthSession = try? authSessionStore.load()
+        selectedHiveTeamID = try? hiveTeamPreferenceStore.loadSelectedTeamID()
+        hiddenUnavailableNodeIDs = (try? hiddenUnavailableNodeStore.loadHiddenNodeIDs()) ?? []
         let explicitLaunchTicket = launchTicket.flatMap(Self.nonEmptyTicket)
         let storedLaunchState = explicitLaunchTicket == nil ? (try? launchTicketStore.load()) : nil
         let storedLaunchTicket = storedLaunchState.flatMap { Self.nonEmptyTicket($0.ticket) }
@@ -105,6 +254,8 @@ final class CmxConnectionStore: ObservableObject {
         if let ticket = resolvedLaunchTicket {
             ticketText = ticket
             clearWorkspaceState()
+        } else {
+            restoreCachedHiveDiscoveryIfAvailable()
         }
         seedTerminalOutput()
         startLifecycleObservers()
@@ -153,6 +304,10 @@ final class CmxConnectionStore: ObservableObject {
         node(for: selectedWorkspace).platform
     }
 
+    var effectiveHiveTeamID: String? {
+        selectedHiveTeamID ?? defaultHiveTeamID ?? hiveTeams.first(where: \.isPersonal)?.id ?? hiveTeams.first?.id
+    }
+
     var isAwaitingInitialWorkspaceSnapshot: Bool {
         workspaces.isEmpty
             && nativeSnapshot == nil
@@ -167,6 +322,22 @@ final class CmxConnectionStore: ObservableObject {
     var selectedTerminalOutputIsReady: Bool {
         guard canRenderSelectedTerminal else { return false }
         return !outputChunksByTerminalID[selectedTerminalID, default: []].isEmpty
+    }
+
+    var terminalDetailPresentation: CmxTerminalDetailPresentation {
+        if workspaces.isEmpty {
+            if isAwaitingInitialWorkspaceSnapshot {
+                return .loadingWorkspaces
+            }
+            return .noWorkspaces
+        }
+        if canRenderSelectedTerminal {
+            return selectedTerminalOutputIsReady ? .terminal : .loadingTerminal
+        }
+        if let nativeWorkspace = nativeSnapshot?.workspaces.first(where: { $0.id == selectedWorkspaceID }) {
+            return nativeWorkspace.terminalCount == 0 ? .noTerminal : .loadingTerminal
+        }
+        return isConnecting || isConnected ? .loadingTerminal : .noTerminal
     }
 
     var statusText: String {
@@ -260,6 +431,7 @@ final class CmxConnectionStore: ObservableObject {
         do {
             try authSessionStore.clear()
             try launchTicketStore.clear()
+            try hiveDiscoveryCacheStore.clear()
             stackAuthSession = nil
             hiveDiscoveryTask?.cancel()
             hiveDiscoveryTask = nil
@@ -277,6 +449,7 @@ final class CmxConnectionStore: ObservableObject {
         reconnectPending = false
         connectTask?.cancel()
         connectTask = nil
+        pendingHiveAttachTarget = nil
         terminalSession?.disconnect()
         terminalSession = nil
         lastSentNativeLayoutByTerminalID = [:]
@@ -295,6 +468,11 @@ final class CmxConnectionStore: ObservableObject {
             selectedSpaceID = firstSpace.id
         }
         selectedTerminalID = firstTerminalID(in: workspace) ?? Self.placeholderTerminalID
+        let node = node(for: workspace)
+        if shouldAttachToHiveWorkspace(workspace, node: node) {
+            attachToHiveWorkspace(workspace, node: node)
+            return
+        }
         if let index = workspaces.firstIndex(where: { $0.id == workspace.id }) {
             terminalSession?.sendCommand(.selectWorkspace(index: index))
         }
@@ -368,6 +546,7 @@ final class CmxConnectionStore: ObservableObject {
     func node(for workspace: CmxWorkspace) -> CmxHiveNode {
         nodes.first(where: { $0.id == workspace.nodeID }) ?? CmxHiveNode(
             id: 0,
+            rawID: "unknown",
             name: String(localized: "node.unknown.name", defaultValue: "Unknown Node"),
             subtitle: String(localized: "node.unknown.subtitle", defaultValue: "not discovered"),
             symbolName: "questionmark.circle",
@@ -380,16 +559,32 @@ final class CmxConnectionStore: ObservableObject {
         workspaces.filter { $0.nodeID == node.id }.count
     }
 
-    func visibleWorkspaces(matching query: String) -> [CmxWorkspace] {
+    func visibleWorkspaces(
+        matching query: String,
+        filter: CmxWorkspaceVisibilityFilter = .all
+    ) -> [CmxWorkspace] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let sorted = workspaces.sorted { lhs, rhs in
-            if lhs.pinned != rhs.pinned {
-                return lhs.pinned && !rhs.pinned
+            if lhs.lastActivity != rhs.lastActivity {
+                return lhs.lastActivity > rhs.lastActivity
             }
-            return lhs.lastActivity > rhs.lastActivity
+            return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
         }
-        guard !trimmed.isEmpty else { return sorted }
-        return sorted.filter { workspace in
+        let filtered = sorted.filter { workspace in
+            let node = node(for: workspace)
+            switch filter {
+            case .all:
+                return node.isOnline || !hiddenUnavailableNodeIDs.contains(node.id)
+            case .online:
+                return node.isOnline
+            case .offline:
+                return !node.isOnline && !hiddenUnavailableNodeIDs.contains(node.id)
+            case .hiddenUnavailable:
+                return !node.isOnline && hiddenUnavailableNodeIDs.contains(node.id)
+            }
+        }
+        guard !trimmed.isEmpty else { return filtered }
+        return filtered.filter { workspace in
             let node = node(for: workspace)
             return workspace.title.localizedCaseInsensitiveContains(trimmed)
                 || workspace.preview.localizedCaseInsensitiveContains(trimmed)
@@ -397,6 +592,84 @@ final class CmxConnectionStore: ObservableObject {
                 || node.subtitle.localizedCaseInsensitiveContains(trimmed)
                 || workspace.spaces.contains { $0.title.localizedCaseInsensitiveContains(trimmed) }
         }
+    }
+
+    private func shouldAttachToHiveWorkspace(_: CmxWorkspace, node: CmxHiveNode) -> Bool {
+        guard node.isOnline else { return false }
+        guard node.attachTicket?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            return false
+        }
+        if let expiresAtUnix = node.attachTicketExpiresAtUnix,
+           Date().timeIntervalSince1970 >= TimeInterval(expiresAtUnix) {
+            return false
+        }
+        if let ticketNodeID = ticket?.node?.id,
+           ticketNodeID == node.rawID,
+           terminalSession != nil {
+            return false
+        }
+        return true
+    }
+
+    private func attachToHiveWorkspace(_ workspace: CmxWorkspace, node: CmxHiveNode) {
+        guard let attachTicket = node.attachTicket?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !attachTicket.isEmpty else { return }
+        pendingHiveAttachTarget = HiveAttachTarget(
+            nodeRawID: node.rawID,
+            localWorkspaceID: workspace.localWorkspaceID,
+            title: workspace.title
+        )
+        ticketText = attachTicket
+        connect()
+    }
+
+    func selectHiveTeam(id: String?) {
+        let trimmedTeamID = CmxStringNormalization.trimmedNonEmpty(id)
+        selectedHiveTeamID = trimmedTeamID
+        do {
+            try hiveTeamPreferenceStore.saveSelectedTeamID(trimmedTeamID)
+        } catch {
+            errorText = error.localizedDescription
+        }
+        refreshHiveDiscoveryIfPossible()
+    }
+
+    func hideUnavailableWorkspaces(from node: CmxHiveNode) {
+        guard !node.isOnline else { return }
+        hiddenUnavailableNodeIDs.insert(node.id)
+        saveHiddenUnavailableNodeIDs()
+    }
+
+    func showUnavailableWorkspaces(from node: CmxHiveNode) {
+        hiddenUnavailableNodeIDs.remove(node.id)
+        saveHiddenUnavailableNodeIDs()
+    }
+
+    func showAllHiddenUnavailableWorkspaces() {
+        hiddenUnavailableNodeIDs = []
+        saveHiddenUnavailableNodeIDs()
+    }
+
+    @discardableResult
+    func unlinkHiveNode(_ node: CmxHiveNode) -> Task<Void, Never>? {
+        guard let hiveDiscoveryEndpoint,
+              let stackAuthSession else { return nil }
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await hiveControlClient.unlinkNode(
+                    nodeID: node.rawID,
+                    endpoint: hiveDiscoveryEndpoint,
+                    stackSession: stackAuthSession,
+                    teamID: effectiveHiveTeamID
+                )
+                removeHiveNodeLocally(node)
+                errorText = nil
+            } catch {
+                errorText = error.localizedDescription
+            }
+        }
+        return task
     }
 
     func terminalSize(for terminalID: UInt64) -> CmxTerminalSize {
@@ -427,12 +700,14 @@ final class CmxConnectionStore: ObservableObject {
         terminalID: UInt64,
         receive: @escaping @MainActor (CmxTerminalOutputChunk) -> Void
     ) {
+        pendingSinkOutputByTerminalID[terminalID] = nil
         terminalOutputSink = TerminalOutputSink(terminalID: terminalID, receive: receive)
     }
 
     func unregisterOutputSink(terminalID: UInt64) {
         guard terminalOutputSink?.terminalID == terminalID else { return }
         terminalOutputSink = nil
+        pendingSinkOutputByTerminalID[terminalID] = nil
     }
 
     func updateTerminalSize(terminalID: UInt64, size: CmxTerminalSize) {
@@ -493,15 +768,31 @@ final class CmxConnectionStore: ObservableObject {
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
             do {
+                isLoadingHiveTeams = true
+                do {
+                    let teamsSnapshot = try await hiveControlClient.fetchTeams(
+                        endpoint: hiveDiscoveryEndpoint,
+                        stackSession: stackAuthSession
+                    )
+                    applyHiveTeamsSnapshot(teamsSnapshot)
+                    isLoadingHiveTeams = false
+                } catch {
+                    isLoadingHiveTeams = false
+                    #if DEBUG
+                    cmuxDebugLog("ios.connection.hiveTeams.failed error=\(error.localizedDescription)")
+                    #endif
+                }
                 let snapshot = try await hiveDiscoveryClient.fetchHive(
                     endpoint: hiveDiscoveryEndpoint,
-                    stackSession: stackAuthSession
+                    stackSession: stackAuthSession,
+                    teamID: effectiveHiveTeamID
                 )
                 applyHiveDiscoverySnapshot(snapshot)
                 errorText = nil
             } catch is CancellationError {
                 return
             } catch {
+                isLoadingHiveTeams = false
                 errorText = error.localizedDescription
             }
             isDiscoveringHive = false
@@ -535,8 +826,47 @@ final class CmxConnectionStore: ObservableObject {
         cachedOutputByteCountByTerminalID[terminalID, default: 0] += data.count
         trimCachedOutput(for: terminalID)
         terminalOutputRevision += 1
-        if terminalOutputSink?.terminalID == terminalID {
-            terminalOutputSink?.receive(chunk)
+        enqueueSinkOutput(chunk, terminalID: terminalID)
+    }
+
+    private func enqueueSinkOutput(_ chunk: CmxTerminalOutputChunk, terminalID: UInt64) {
+        guard terminalOutputSink?.terminalID == terminalID else { return }
+        pendingSinkOutputByTerminalID[terminalID, default: []].append(chunk)
+        guard !sinkOutputFlushScheduled else { return }
+        sinkOutputFlushScheduled = true
+        Task { @MainActor [weak self] in
+            await Task.yield()
+            self?.flushSinkOutput()
+        }
+    }
+
+    private func flushSinkOutput() {
+        sinkOutputFlushScheduled = false
+        guard let terminalOutputSink else {
+            pendingSinkOutputByTerminalID.removeAll(keepingCapacity: true)
+            return
+        }
+        let terminalID = terminalOutputSink.terminalID
+        guard let chunks = pendingSinkOutputByTerminalID.removeValue(forKey: terminalID),
+              !chunks.isEmpty else {
+            pendingSinkOutputByTerminalID = pendingSinkOutputByTerminalID.filter { $0.key == terminalID }
+            return
+        }
+        var data = Data()
+        data.reserveCapacity(chunks.reduce(0) { $0 + $1.data.count })
+        for chunk in chunks {
+            data.append(chunk.data)
+        }
+        terminalOutputSink.receive(
+            CmxTerminalOutputChunk(id: chunks.last?.id ?? 0, data: data)
+        )
+        pendingSinkOutputByTerminalID = pendingSinkOutputByTerminalID.filter { $0.key == terminalID }
+        if pendingSinkOutputByTerminalID[terminalID]?.isEmpty == false {
+            sinkOutputFlushScheduled = true
+            Task { @MainActor [weak self] in
+                await Task.yield()
+                self?.flushSinkOutput()
+            }
         }
     }
 
@@ -566,6 +896,28 @@ final class CmxConnectionStore: ObservableObject {
         }
         outputChunksByTerminalID[terminalID] = chunks
         cachedOutputByteCountByTerminalID[terminalID] = max(0, cachedBytes)
+    }
+
+    private func pendingNativeWorkspaceSelection(in snapshot: CmxNativeSnapshot) -> (workspaceID: UInt64, index: Int)? {
+        guard let pendingHiveAttachTarget else { return nil }
+        if let localWorkspaceID = pendingHiveAttachTarget.localWorkspaceID {
+            let trimmedLocalID = localWorkspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
+            var candidateIDs: [UInt64] = []
+            if let numericID = UInt64(trimmedLocalID), numericID != 0 {
+                candidateIDs.append(numericID)
+            }
+            if !trimmedLocalID.isEmpty {
+                candidateIDs.append(CmxStableID.uint64(for: "\(pendingHiveAttachTarget.nodeRawID):\(trimmedLocalID)"))
+                candidateIDs.append(CmxStableID.uint64(for: trimmedLocalID))
+            }
+            if let index = snapshot.workspaces.firstIndex(where: { candidateIDs.contains($0.id) }) {
+                return (snapshot.workspaces[index].id, index)
+            }
+        }
+        if let index = snapshot.workspaces.firstIndex(where: { $0.title == pendingHiveAttachTarget.title }) {
+            return (snapshot.workspaces[index].id, index)
+        }
+        return nil
     }
 
     func applyNativeSnapshot(_ snapshot: CmxNativeSnapshot) {
@@ -619,7 +971,8 @@ final class CmxConnectionStore: ObservableObject {
                 lastActivity: now,
                 unread: workspace.hasActivity,
                 pinned: workspace.pinned,
-                spaces: spaces
+                spaces: spaces,
+                localWorkspaceID: String(workspace.id)
             )
         }
         if workspaces.isEmpty {
@@ -627,7 +980,13 @@ final class CmxConnectionStore: ObservableObject {
             cachedOutputByteCountByTerminalID = [:]
             nextOutputChunkID = 1
         }
-        selectedWorkspaceID = workspaces.first(where: { $0.id == snapshot.activeWorkspaceID })?.id
+        let pendingWorkspaceSelection = pendingNativeWorkspaceSelection(in: snapshot)
+        if let pendingWorkspaceSelection {
+            terminalSession?.sendCommand(.selectWorkspace(index: pendingWorkspaceSelection.index))
+            pendingHiveAttachTarget = nil
+        }
+        selectedWorkspaceID = pendingWorkspaceSelection?.workspaceID
+            ?? workspaces.first(where: { $0.id == snapshot.activeWorkspaceID })?.id
             ?? workspaces.first?.id
             ?? 0
         let selectedWorkspace = selectedWorkspace
@@ -669,7 +1028,9 @@ final class CmxConnectionStore: ObservableObject {
         cachedOutputByteCountByTerminalID = [:]
         nextOutputChunkID = 1
         seedTerminalOutput()
-        selectedWorkspaceID = workspaces.first(where: { $0.id == selectedWorkspaceID })?.id
+        let sortedVisibleWorkspaces = visibleWorkspaces(matching: "")
+        selectedWorkspaceID = sortedVisibleWorkspaces.first(where: { $0.id == selectedWorkspaceID })?.id
+            ?? sortedVisibleWorkspaces.first?.id
             ?? workspaces.first?.id
             ?? 0
         let selectedWorkspace = selectedWorkspace
@@ -681,11 +1042,73 @@ final class CmxConnectionStore: ObservableObject {
             .first(where: { $0.id == selectedTerminalID })?.id
             ?? firstTerminalID(in: selectedWorkspace)
             ?? Self.placeholderTerminalID
+        saveHiveDiscoveryCache()
+    }
+
+    func applyHiveTeamsSnapshot(_ snapshot: CmxHiveTeamsSnapshot) {
+        hiveTeams = snapshot.teams
+        defaultHiveTeamID = snapshot.defaultTeamID
+        if let selectedHiveTeamID,
+           !snapshot.teams.contains(where: { $0.id == selectedHiveTeamID }) {
+            self.selectedHiveTeamID = nil
+            try? hiveTeamPreferenceStore.saveSelectedTeamID(nil)
+        }
+        saveHiveDiscoveryCache()
+    }
+
+    private func restoreCachedHiveDiscoveryIfAvailable() {
+        guard let cached = try? hiveDiscoveryCacheStore.load() else { return }
+        hiveTeams = cached.teams
+        defaultHiveTeamID = cached.defaultTeamID
+        if selectedHiveTeamID == nil {
+            selectedHiveTeamID = cached.selectedTeamID
+        }
+        nodes = cached.nodes
+        workspaces = cached.workspaces
+        let sortedVisibleWorkspaces = visibleWorkspaces(matching: "")
+        selectedWorkspaceID = sortedVisibleWorkspaces.first?.id ?? workspaces.first?.id ?? 0
+        let selectedWorkspace = selectedWorkspace
+        selectedSpaceID = selectedWorkspace.spaces.first?.id ?? 0
+        selectedTerminalID = firstTerminalID(in: selectedWorkspace) ?? Self.placeholderTerminalID
+    }
+
+    private func saveHiveDiscoveryCache() {
+        guard !isConnecting, !isConnected else { return }
+        let payload = CmxHiveDiscoveryCachePayload(
+            teams: hiveTeams,
+            defaultTeamID: defaultHiveTeamID,
+            selectedTeamID: selectedHiveTeamID,
+            nodes: nodes,
+            workspaces: workspaces,
+            cachedAt: Date()
+        )
+        try? hiveDiscoveryCacheStore.save(payload)
     }
 
     private func updateWorkspace(_ workspaceID: UInt64, mutate: (inout CmxWorkspace) -> Void) {
         guard let index = workspaces.firstIndex(where: { $0.id == workspaceID }) else { return }
         mutate(&workspaces[index])
+    }
+
+    private func removeHiveNodeLocally(_ node: CmxHiveNode) {
+        nodes.removeAll { $0.id == node.id }
+        workspaces.removeAll { $0.nodeID == node.id }
+        hiddenUnavailableNodeIDs.remove(node.id)
+        saveHiddenUnavailableNodeIDs()
+        selectedWorkspaceID = workspaces.first(where: { $0.id == selectedWorkspaceID })?.id
+            ?? workspaces.first?.id
+            ?? 0
+        let selectedWorkspace = selectedWorkspace
+        selectedSpaceID = selectedWorkspace.spaces.first?.id ?? 0
+        selectedTerminalID = firstTerminalID(in: selectedWorkspace) ?? Self.placeholderTerminalID
+    }
+
+    private func saveHiddenUnavailableNodeIDs() {
+        do {
+            try hiddenUnavailableNodeStore.saveHiddenNodeIDs(hiddenUnavailableNodeIDs)
+        } catch {
+            errorText = error.localizedDescription
+        }
     }
 
     private func clearWorkspaceState() {
@@ -700,6 +1123,7 @@ final class CmxConnectionStore: ObservableObject {
         cachedOutputByteCountByTerminalID = [:]
         nextOutputChunkID = 1
         prefetchedWorkspaceIDs = []
+        pendingHiveAttachTarget = nil
     }
 
     func refreshTerminalAppearance(colorPreference: CmxTerminalColorPreference) {
@@ -933,6 +1357,7 @@ final class CmxConnectionStore: ObservableObject {
                 Task { @MainActor in
                     self?.appIsActive = true
                     self?.didUseImmediateReconnectForCurrentLoss = false
+                    self?.refreshHiveDiscoveryIfPossible()
                     self?.refreshConnectionForLifecycleSignal()
                 }
             }
@@ -957,6 +1382,7 @@ final class CmxConnectionStore: ObservableObject {
                 self.hasUsableNetworkPath = path.status == .satisfied
                 if self.hasUsableNetworkPath, !wasUsable {
                     self.didUseImmediateReconnectForCurrentLoss = false
+                    self.refreshHiveDiscoveryIfPossible()
                     self.refreshConnectionForLifecycleSignal()
                 }
             }
@@ -991,6 +1417,46 @@ final class CmxConnectionStore: ObservableObject {
 extension CmxConnectionStore: CmxTerminalSessionDelegate {
     func terminalSession(_ session: any CmxTerminalSession, didReceive message: CmxServerMessage) {
         guard session === terminalSession else { return }
+        processTerminalSessionMessages([message])
+    }
+
+    func terminalSession(_ session: any CmxTerminalSession, didReceive messages: [CmxServerMessage]) {
+        guard session === terminalSession else { return }
+        processTerminalSessionMessages(messages)
+    }
+
+    private func processTerminalSessionMessages(_ messages: [CmxServerMessage]) {
+        var pendingPtyTabID: UInt64?
+        var pendingPtyData = Data()
+
+        func flushPendingPtyBytes() {
+            guard let tabID = pendingPtyTabID else { return }
+            #if DEBUG
+            cmuxDebugLog("ios.connection.ptyBytes tab=\(tabID) bytes=\(pendingPtyData.count)")
+            #endif
+            appendOutput(pendingPtyData, terminalID: tabID)
+            pendingPtyTabID = nil
+            pendingPtyData.removeAll(keepingCapacity: true)
+        }
+
+        for message in messages {
+            if case .ptyBytes(let tabID, let data) = message {
+                if pendingPtyTabID == tabID {
+                    pendingPtyData.append(data)
+                } else {
+                    flushPendingPtyBytes()
+                    pendingPtyTabID = tabID
+                    pendingPtyData = data
+                }
+                continue
+            }
+            flushPendingPtyBytes()
+            processTerminalSessionControlMessage(message)
+        }
+        flushPendingPtyBytes()
+    }
+
+    private func processTerminalSessionControlMessage(_ message: CmxServerMessage) {
         switch message {
         case .welcome(_, let sessionID):
             currentSessionID = sessionID
@@ -1002,11 +1468,8 @@ extension CmxConnectionStore: CmxTerminalSessionDelegate {
             errorText = nil
             reconnectPending = false
             didUseImmediateReconnectForCurrentLoss = false
-        case .ptyBytes(let tabID, let data):
-            #if DEBUG
-            cmuxDebugLog("ios.connection.ptyBytes tab=\(tabID) bytes=\(data.count)")
-            #endif
-            appendOutput(data, terminalID: tabID)
+        case .ptyBytes:
+            break
         case .hostControl, .commandReply:
             break
         case .nativeSnapshot(let snapshot):
@@ -1075,5 +1538,13 @@ enum CmxConnectionError: LocalizedError {
         case .missingStackAuthSession:
             String(localized: "ticket.error.stack_auth_required", defaultValue: "Sign in with Stack Auth before using this Rivet pairing ticket.")
         }
+    }
+}
+
+private enum CmxStringNormalization {
+    static func trimmedNonEmpty(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }

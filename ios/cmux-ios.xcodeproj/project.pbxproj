@@ -23,6 +23,7 @@
 		6AB7A10AC70BC7A211F4BA25 /* CmxGhosttyTerminalSurfaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA700DAAB5080FB8C0F49011 /* CmxGhosttyTerminalSurfaceTests.swift */; };
 		6F690A4EFBB9693BFFA77F64 /* CmxBridgeTicket.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6B883D20F5E53B38079E582 /* CmxBridgeTicket.swift */; };
 		79761B08A1BFAB4EC092CE21 /* CmxMobileModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B2EF5DAE490DB7EA55F4735 /* CmxMobileModels.swift */; };
+		886902B7DC6223EF64777313 /* CmxUITestingLongHaulDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C19247781636B76F31D55E80 /* CmxUITestingLongHaulDriver.swift */; };
 		8BDDF4D2E3FDC3536A819744 /* CmxLaunchConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CAC0519CCDE0B798949BDDB /* CmxLaunchConfiguration.swift */; };
 		9919666CBAC0B860BDF328C3 /* CmxHiveDiscoveryClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = C72B6DC1AA9FA2A324DF330E /* CmxHiveDiscoveryClient.swift */; };
 		9A08A168FB76F15214E7FEFD /* CmxPairingAuthTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BB7530110ACCA8D612E4AB8 /* CmxPairingAuthTests.swift */; };
@@ -30,8 +31,8 @@
 		A32908040CE9FB578983C804 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE3612A4F23C4449FD140F98 /* ContentView.swift */; };
 		A7D6541FE3FA191AA64861E3 /* CmxProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 685CD3EEF504FEA2717D45F7 /* CmxProtocol.swift */; };
 		BF322D7B349910F850E291C9 /* CmxRivetPairingSecretClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1FAC02225FC5A6C2FDD551C /* CmxRivetPairingSecretClientTests.swift */; };
+		C4B703A4522B98E994FB28FF /* CmxLongHaulStressUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E3EB7D1B37AC752B4356E8E /* CmxLongHaulStressUITests.swift */; };
 		D3F2A03E42E52E641B1CA93A /* CMuxMobileApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFC7AC464694127DEE49809B /* CMuxMobileApp.swift */; };
-		EC621C144C6528CD24666BFE /* CmxLongHaulStressUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74D1221F8F5FE9FBA16FABE5 /* CmxLongHaulStressUITests.swift */; };
 		EDB4A6D4E42890DB83501905 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 6D04796B335A4EF9472F3C7B /* Localizable.xcstrings */; };
 		F1C5D5B20D7D55EFE3D7C52C /* CmxHiveDiscoveryClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F947D53965AE6472FB23E312 /* CmxHiveDiscoveryClientTests.swift */; };
 		F45797CFDE33664098894AC8 /* CmxPairingAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA00BE7804F5E833C3AC6783 /* CmxPairingAuth.swift */; };
@@ -39,6 +40,13 @@
 
 /* Begin PBXContainerItemProxy section */
 		061E0D962DBC05C1B66D6255 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = AF18EE9FF7249C69BF1E5F0B /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 99304A97A842A899820EFF4F;
+			remoteInfo = "cmux-ios";
+		};
+		2B4DF81497E5F517BC353DF2 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = AF18EE9FF7249C69BF1E5F0B /* Project object */;
 			proxyType = 1;
@@ -55,6 +63,8 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		273630163DB1B54AD7643B8C /* cmux-iosLongHaulUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = "cmux-iosLongHaulUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		2E3EB7D1B37AC752B4356E8E /* CmxLongHaulStressUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmxLongHaulStressUITests.swift; sourceTree = "<group>"; };
 		2ECCE021F8FE9EE036403391 /* Ghostty-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Ghostty-Bridging-Header.h"; sourceTree = "<group>"; };
 		37514174EEBB8853B706B2E2 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		4D8F13F64F19D531154478F4 /* CmxTerminalLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmxTerminalLayoutTests.swift; sourceTree = "<group>"; };
@@ -63,7 +73,6 @@
 		685CD3EEF504FEA2717D45F7 /* CmxProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmxProtocol.swift; sourceTree = "<group>"; };
 		691EA0F245F35CA8C73A9257 /* CmxRivetPairingSecretClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmxRivetPairingSecretClient.swift; sourceTree = "<group>"; };
 		6D04796B335A4EF9472F3C7B /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
-		74D1221F8F5FE9FBA16FABE5 /* CmxLongHaulStressUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmxLongHaulStressUITests.swift; sourceTree = "<group>"; };
 		77FFE84700313DC35DB6D615 /* CmxTerminalSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmxTerminalSession.swift; sourceTree = "<group>"; };
 		7CAC0519CCDE0B798949BDDB /* CmxLaunchConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmxLaunchConfiguration.swift; sourceTree = "<group>"; };
 		859F1700DA659FFBA5CD133F /* GhosttyTerminalSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalSurface.swift; sourceTree = "<group>"; };
@@ -76,6 +85,7 @@
 		A89154ADDA444FB97AB5CC34 /* CmxWorkspacePresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmxWorkspacePresentationTests.swift; sourceTree = "<group>"; };
 		B1FAC02225FC5A6C2FDD551C /* CmxRivetPairingSecretClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmxRivetPairingSecretClientTests.swift; sourceTree = "<group>"; };
 		B975565759E7C0C6E7BE51A0 /* cmux-iosUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = "cmux-iosUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		C19247781636B76F31D55E80 /* CmxUITestingLongHaulDriver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmxUITestingLongHaulDriver.swift; sourceTree = "<group>"; };
 		C72B6DC1AA9FA2A324DF330E /* CmxHiveDiscoveryClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmxHiveDiscoveryClient.swift; sourceTree = "<group>"; };
 		CA00BE7804F5E833C3AC6783 /* CmxPairingAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmxPairingAuth.swift; sourceTree = "<group>"; };
 		D7012AB519D0E628DFC5968B /* CmxBridgeTicketTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmxBridgeTicketTests.swift; sourceTree = "<group>"; };
@@ -95,7 +105,6 @@
 			isa = PBXGroup;
 			children = (
 				9A8303106AA8EC9E7A5598BD /* CmxGhosttyTypingUITests.swift */,
-				74D1221F8F5FE9FBA16FABE5 /* CmxLongHaulStressUITests.swift */,
 			);
 			path = UITests;
 			sourceTree = "<group>";
@@ -104,10 +113,19 @@
 			isa = PBXGroup;
 			children = (
 				91936956B766E0A2568ED536 /* cmux-ios.app */,
+				273630163DB1B54AD7643B8C /* cmux-iosLongHaulUITests.xctest */,
 				FB67C68FFDF06831F14D14FC /* cmux-iosTests.xctest */,
 				B975565759E7C0C6E7BE51A0 /* cmux-iosUITests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		79BF7DB1D647E0C55F54EE23 /* LongHaulUITests */ = {
+			isa = PBXGroup;
+			children = (
+				2E3EB7D1B37AC752B4356E8E /* CmxLongHaulStressUITests.swift */,
+			);
+			path = LongHaulUITests;
 			sourceTree = "<group>";
 		};
 		8E4D10D9824E701A68B20356 /* Resources */ = {
@@ -122,6 +140,7 @@
 			isa = PBXGroup;
 			children = (
 				37514174EEBB8853B706B2E2 /* Assets.xcassets */,
+				79BF7DB1D647E0C55F54EE23 /* LongHaulUITests */,
 				8E4D10D9824E701A68B20356 /* Resources */,
 				D0872FBF2FB3B9DD37160EAB /* Sources */,
 				B9390461D5C7F4E12AE2FD79 /* Tests */,
@@ -162,6 +181,7 @@
 				E8A01489CC17D9CC711CEC7E /* CmxStackAuthSession.swift */,
 				77FFE84700313DC35DB6D615 /* CmxTerminalSession.swift */,
 				FCED848EA33479300552F2EB /* CmxUITestingEchoTerminalSession.swift */,
+				C19247781636B76F31D55E80 /* CmxUITestingLongHaulDriver.swift */,
 				8B65BE12CE77CE29F82E2587 /* CmxWebSocketTerminalSession.swift */,
 				DE3612A4F23C4449FD140F98 /* ContentView.swift */,
 				2ECCE021F8FE9EE036403391 /* Ghostty-Bridging-Header.h */,
@@ -209,6 +229,24 @@
 			productReference = FB67C68FFDF06831F14D14FC /* cmux-iosTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		940FC03297883505DCB8FD17 /* cmux-iosLongHaulUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 4DEC7C49E99F41F527BDFA0E /* Build configuration list for PBXNativeTarget "cmux-iosLongHaulUITests" */;
+			buildPhases = (
+				5BFB9EADDFD2C9AF664B3D85 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				1A9C2FD70A503909BBF50EE6 /* PBXTargetDependency */,
+			);
+			name = "cmux-iosLongHaulUITests";
+			packageProductDependencies = (
+			);
+			productName = "cmux-iosLongHaulUITests";
+			productReference = 273630163DB1B54AD7643B8C /* cmux-iosLongHaulUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 		99304A97A842A899820EFF4F /* cmux-ios */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = C39FBE7C5C70F32382365CEF /* Build configuration list for PBXNativeTarget "cmux-ios" */;
@@ -244,6 +282,10 @@
 					82756BBE77711C7E6711B3DF = {
 						DevelopmentTeam = 7WLXT3NR37;
 					};
+					940FC03297883505DCB8FD17 = {
+						DevelopmentTeam = 7WLXT3NR37;
+						TestTargetID = 99304A97A842A899820EFF4F;
+					};
 					99304A97A842A899820EFF4F = {
 						DevelopmentTeam = 7WLXT3NR37;
 						ProvisioningStyle = Automatic;
@@ -266,6 +308,7 @@
 			projectRoot = "";
 			targets = (
 				99304A97A842A899820EFF4F /* cmux-ios */,
+				940FC03297883505DCB8FD17 /* cmux-iosLongHaulUITests */,
 				82756BBE77711C7E6711B3DF /* cmux-iosTests */,
 				33B1017F8B6F0E885E5D8592 /* cmux-iosUITests */,
 			);
@@ -307,6 +350,14 @@
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		5BFB9EADDFD2C9AF664B3D85 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C4B703A4522B98E994FB28FF /* CmxLongHaulStressUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		7F5549295ABA816E549B690B /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -339,6 +390,7 @@
 				9B770097C6D5A32792C2E67E /* CmxStackAuthSession.swift in Sources */,
 				0FB19788AF39638EB29EED98 /* CmxTerminalSession.swift in Sources */,
 				5323E7FE93FFF3B24C3CC3F0 /* CmxUITestingEchoTerminalSession.swift in Sources */,
+				886902B7DC6223EF64777313 /* CmxUITestingLongHaulDriver.swift in Sources */,
 				4B2571AC80A3529521892410 /* CmxWebSocketTerminalSession.swift in Sources */,
 				A32908040CE9FB578983C804 /* ContentView.swift in Sources */,
 				4C61AB29D974E25C10FB3DB6 /* GhosttyTerminalSurface.swift in Sources */,
@@ -350,13 +402,17 @@
 			buildActionMask = 2147483647;
 			files = (
 				0E73C32ADAE25C3F408EE640 /* CmxGhosttyTypingUITests.swift in Sources */,
-				EC621C144C6528CD24666BFE /* CmxLongHaulStressUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		1A9C2FD70A503909BBF50EE6 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 99304A97A842A899820EFF4F /* cmux-ios */;
+			targetProxy = 2B4DF81497E5F517BC353DF2 /* PBXContainerItemProxy */;
+		};
 		C9578E61F759F667FF4C060F /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 99304A97A842A899820EFF4F /* cmux-ios */;
@@ -654,6 +710,50 @@
 			};
 			name = Debug;
 		};
+		D69E5B39B4C5CF91179D09A1 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				DEVELOPMENT_TEAM = 7WLXT3NR37;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.cmux.ios.longhauluitests;
+				PRODUCT_NAME = "cmux iOS Long Haul UITests";
+				SDKROOT = iphoneos;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = "cmux-ios";
+			};
+			name = Release;
+		};
+		EF08E3103301146EB004A406 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				DEVELOPMENT_TEAM = 7WLXT3NR37;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.cmux.ios.longhauluitests;
+				PRODUCT_NAME = "cmux iOS Long Haul UITests";
+				SDKROOT = iphoneos;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = "cmux-ios";
+			};
+			name = Debug;
+		};
 		FBE49986B53F254F52C0F7AF /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -767,6 +867,15 @@
 			buildConfigurations = (
 				74E4B654A66EB076A7353906 /* Debug */,
 				1FBC2B88C4B8D3AE4E4CC7B1 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		4DEC7C49E99F41F527BDFA0E /* Build configuration list for PBXNativeTarget "cmux-iosLongHaulUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				EF08E3103301146EB004A406 /* Debug */,
+				D69E5B39B4C5CF91179D09A1 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

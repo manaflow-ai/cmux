@@ -74,6 +74,25 @@ enum AuthEnvironment {
         return canonicalizedLoopbackURL(URL(string: defaultVMAPIOrigin)!)
     }
 
+    /// Base URL for the cmux Hive workspace discovery API (`/api/hive`).
+    ///
+    /// Debug builds intentionally follow the local cmux web dev server unless
+    /// explicitly overridden, so tagged/dev app builds talk to the matching
+    /// developer Rivet/Web stack instead of production.
+    static var hiveAPIBaseURL: URL {
+        if let overridden = ProcessInfo.processInfo.environment["CMUX_HIVE_API_BASE_URL"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !overridden.isEmpty,
+           let url = URL(string: overridden) {
+            return canonicalizedLoopbackURL(url)
+        }
+        if let override = devOverride(key: "CMUX_HIVE_API_BASE_URL"),
+           let url = URL(string: override) {
+            return canonicalizedLoopbackURL(url)
+        }
+        return vmAPIBaseURL
+    }
+
     /// Look up `key=value` in `~/.cmux-dev.env` for the DEBUG build. Returns nil in Release.
     /// Kept tiny on purpose — this is a "drop a file, restart the app, it picks up" override,
     /// not a real config system.

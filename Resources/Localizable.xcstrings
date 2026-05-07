@@ -2,6 +2,13 @@
   "sourceLanguage": "en",
   "version": "1.0",
   "strings": {
+    "hive.node.platform.macos": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "macOS" } }, "ja": { "stringUnit": { "state": "translated", "value": "macOS" } } } },
+    "hive.workspace.mainSpace": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "main" } }, "ja": { "stringUnit": { "state": "translated", "value": "main" } } } },
+    "node.connected.name": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "cmx node" } }, "ja": { "stringUnit": { "state": "translated", "value": "cmx ノード" } } } },
+    "settings.account.hiveTeam.personal": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Personal" } }, "ja": { "stringUnit": { "state": "translated", "value": "個人" } } } },
+    "settings.account.hiveTeam.subtitle": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Personal by default. Choose a team to share this Mac's workspaces with teammates." } }, "ja": { "stringUnit": { "state": "translated", "value": "既定では個人用です。この Mac のワークスペースをチームメイトと共有するチームを選択します。" } } } },
+    "settings.account.hiveTeam.title": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Workspace Team" } }, "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースチーム" } } } },
+    "workspace.placeholder.title": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Workspace" } }, "ja": { "stringUnit": { "state": "translated", "value": "ワークスペース" } } } },
     "detail.mode": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Mode" } }, "ja": { "stringUnit": { "state": "translated", "value": "モード" } } } },
     "detail.primaryAction": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Open Related File" } }, "ja": { "stringUnit": { "state": "translated", "value": "関連ファイルを開く" } } } },
     "detail.secondaryAction": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Restore Defaults" } }, "ja": { "stringUnit": { "state": "translated", "value": "デフォルトに戻す" } } } },

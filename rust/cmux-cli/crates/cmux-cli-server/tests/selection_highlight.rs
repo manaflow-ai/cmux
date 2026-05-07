@@ -18,6 +18,7 @@ use tokio::time::timeout;
 /// track it (better: expose a constant, but this keeps the test self-
 /// contained and easy to read).
 const SEL_BG_SGR: &str = "\x1b[48;2;55;70;95m";
+const SIDEBAR_SELECTED_BG_SGR: &str = "\x1b[48;2;64;64;64m";
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn dragged_selection_paints_pane_cells_blue() {
@@ -478,7 +479,7 @@ async fn selection_is_clipped_to_pane_not_sidebar() {
     .unwrap();
 
     // In the repaint, the selection SGR should appear at least once
-    // (pane cells) AND the sidebar's own bg (24;26;30) should still be
+    // (pane cells) AND the sidebar's selected-row bg should still be
     // present — meaning sidebar cells weren't repainted as selection.
     let mut ok = false;
     let end = tokio::time::Instant::now() + Duration::from_secs(5);
@@ -488,14 +489,14 @@ async fn selection_is_clipped_to_pane_not_sidebar() {
             timeout(remaining, read_msg::<_, ServerMsg>(&mut r)).await
         {
             let s = String::from_utf8_lossy(&data);
-            if s.contains(SEL_BG_SGR) && s.contains("\x1b[48;2;24;26;30m") {
+            if s.contains(SEL_BG_SGR) && s.contains(SIDEBAR_SELECTED_BG_SGR) {
                 ok = true;
             }
         }
     }
     assert!(
         ok,
-        "expected both selection SGR and sidebar SGR in same frame after cross-boundary drag"
+        "expected both selection SGR and sidebar selected-row SGR in same frame after cross-boundary drag"
     );
 
     write_msg(

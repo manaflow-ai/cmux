@@ -6,7 +6,8 @@
 use std::time::Duration;
 
 use cmux_cli_protocol::{
-    ClientMsg, Command, MouseKind, PROTOCOL_VERSION, ServerMsg, Viewport, read_msg, write_msg,
+    ClientMsg, Command, CommandData, CommandResult, MouseKind, PROTOCOL_VERSION, ServerMsg,
+    Viewport, WorkspaceInfo, read_msg, write_msg,
 };
 use cmux_cli_server::{ServerOptions, run};
 use tokio::io::BufReader;
@@ -139,9 +140,9 @@ async fn clicking_sidebar_row_switches_active_workspace() {
     .await;
     expect_active_workspace(&mut r, 1).await;
 
-    // Click workspace index 0 in the sidebar. Item rows start at row 2;
-    // workspace index 0 sits on row 2. Any col < 16 is in the sidebar.
-    send_click(&mut w, 3, 2).await;
+    // Click workspace index 0 in the sidebar. Row 0 is its single top
+    // padding row and row 1 is its title row.
+    send_click(&mut w, 3, 0).await;
     let evt = read_until::<ServerMsg, _>(&mut r, |m| {
         matches!(m, ServerMsg::ActiveWorkspaceChanged { index: 0, .. })
     })
@@ -163,10 +164,175 @@ async fn clicking_sidebar_row_switches_active_workspace() {
     let _ = server.await;
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn clicking_sidebar_new_button_creates_workspace() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("server.sock");
+    let opts = ServerOptions {
+        socket_path: socket.clone(),
+        shell: "/bin/sh".into(),
+        cwd: Some(dir.path().to_path_buf()),
+        initial_viewport: (120, 24),
+        snapshot_path: None,
+        settings_path: None,
+        ws_bind: None,
+        auth_token: None,
+    };
+    let server = tokio::spawn(async move {
+        let _ = run(opts).await;
+    });
+    wait_for_socket(&socket).await;
+
+    let stream = UnixStream::connect(&socket).await.unwrap();
+    let (read_half, mut w) = stream.into_split();
+    let mut r = BufReader::new(read_half);
+    write_msg(
+        &mut w,
+        &ClientMsg::Hello {
+            version: PROTOCOL_VERSION,
+            viewport: Viewport {
+                cols: 120,
+                rows: 24,
+            },
+            token: None,
+        },
+    )
+    .await
+    .unwrap();
+    expect_welcome(&mut r).await;
+    expect_active_workspace(&mut r, 0).await;
+
+    // With one workspace visible, [new] sits after its
+    // top-padding/title/bottom-padding block plus one spacer row.
+    send_click(&mut w, 3, 4).await;
+    let evt = read_until::<ServerMsg, _>(&mut r, |m| {
+        matches!(m, ServerMsg::ActiveWorkspaceChanged { index: 1, .. })
+    })
+    .await;
+    match evt {
+        ServerMsg::ActiveWorkspaceChanged { index, .. } => assert_eq!(index, 1),
+        _ => unreachable!(),
+    }
+
+    write_msg(
+        &mut w,
+        &ClientMsg::Input {
+            data: b"exit\n".to_vec(),
+        },
+    )
+    .await
+    .unwrap();
+    server.abort();
+    let _ = server.await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn right_click_sidebar_context_menu_pins_and_closes_workspace() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("server.sock");
+    let opts = ServerOptions {
+        socket_path: socket.clone(),
+        shell: "/bin/sh".into(),
+        cwd: Some(dir.path().to_path_buf()),
+        initial_viewport: (120, 24),
+        snapshot_path: None,
+        settings_path: None,
+        ws_bind: None,
+        auth_token: None,
+    };
+    let server = tokio::spawn(async move {
+        let _ = run(opts).await;
+    });
+    wait_for_socket(&socket).await;
+
+    let stream = UnixStream::connect(&socket).await.unwrap();
+    let (read_half, mut w) = stream.into_split();
+    let mut r = BufReader::new(read_half);
+    write_msg(
+        &mut w,
+        &ClientMsg::Hello {
+            version: PROTOCOL_VERSION,
+            viewport: Viewport {
+                cols: 120,
+                rows: 24,
+            },
+            token: None,
+        },
+    )
+    .await
+    .unwrap();
+    expect_welcome(&mut r).await;
+    expect_active_workspace(&mut r, 0).await;
+
+    send_cmd(
+        &mut w,
+        1,
+        Command::NewWorkspace {
+            title: Some("work".into()),
+            cwd: None,
+        },
+    )
+    .await;
+    expect_active_workspace(&mut r, 1).await;
+
+    send_right_click(&mut w, 3, 1).await;
+    send_click(&mut w, 2, 1).await;
+    let workspaces = request_workspace_list(&mut w, &mut r, 2).await;
+    assert!(workspaces[0].pinned);
+
+    send_right_click(&mut w, 3, 4).await;
+    send_click(&mut w, 2, 5).await;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    let mut list_id = 3;
+    loop {
+        let workspaces = request_workspace_list(&mut w, &mut r, list_id).await;
+        list_id += 1;
+        if workspaces.len() == 1 {
+            assert_eq!(workspaces[0].title, "main");
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "workspace was not closed: {workspaces:?}"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    server.abort();
+    let _ = server.await;
+}
+
 async fn send_cmd<W: tokio::io::AsyncWrite + Unpin>(w: &mut W, id: u32, cmd: Command) {
     write_msg(w, &ClientMsg::Command { id, command: cmd })
         .await
         .unwrap();
+}
+
+async fn request_workspace_list<W, R>(w: &mut W, r: &mut R, id: u32) -> Vec<WorkspaceInfo>
+where
+    W: tokio::io::AsyncWrite + Unpin,
+    R: tokio::io::AsyncRead + Unpin,
+{
+    send_cmd(w, id, Command::ListWorkspaces).await;
+    let evt = read_until::<ServerMsg, _>(
+        r,
+        |m| matches!(m, ServerMsg::CommandReply { id: reply_id, .. } if *reply_id == id),
+    )
+    .await;
+    match evt {
+        ServerMsg::CommandReply {
+            result:
+                CommandResult::Ok {
+                    data:
+                        Some(CommandData::WorkspaceList {
+                            workspaces,
+                            active: _,
+                        }),
+                },
+            ..
+        } => workspaces,
+        other => panic!("unexpected workspace-list reply: {other:?}"),
+    }
 }
 
 async fn send_click<W: tokio::io::AsyncWrite + Unpin>(w: &mut W, col: u16, row: u16) {
@@ -188,6 +354,29 @@ async fn send_click<W: tokio::io::AsyncWrite + Unpin>(w: &mut W, col: u16, row: 
             col,
             row,
             event: MouseKind::Up,
+        },
+    )
+    .await
+    .unwrap();
+}
+
+async fn send_right_click<W: tokio::io::AsyncWrite + Unpin>(w: &mut W, col: u16, row: u16) {
+    write_msg(
+        w,
+        &ClientMsg::Mouse {
+            col,
+            row,
+            event: MouseKind::RightDown,
+        },
+    )
+    .await
+    .unwrap();
+    write_msg(
+        w,
+        &ClientMsg::Mouse {
+            col,
+            row,
+            event: MouseKind::RightUp,
         },
     )
     .await

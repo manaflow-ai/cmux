@@ -15,6 +15,9 @@ export type AuthedUser = {
 
 export type AuthedTeam = {
   id: string;
+  displayName: string | null;
+  slug: string | null;
+  isPersonal: boolean;
   billingPlanId: string | null;
 };
 
@@ -78,6 +81,9 @@ async function authedUserFromStackUser(user: StackUserLike): Promise<AuthedUser>
     selectedTeamId: selectedTeam?.id ?? null,
     teams: teams.map((team) => ({
       id: team.id,
+      displayName: team.displayName,
+      slug: team.slug,
+      isPersonal: team.isPersonal,
       billingPlanId: planIdFromMetadata(team.clientReadOnlyMetadata),
     })),
     teamIds,
@@ -97,6 +103,9 @@ type StackUserLike = {
 
 type TeamLike = {
   readonly id: string;
+  readonly displayName: string | null;
+  readonly slug: string | null;
+  readonly isPersonal: boolean;
   readonly clientReadOnlyMetadata?: unknown;
 };
 
@@ -106,8 +115,21 @@ function teamLike(value: unknown): TeamLike | null {
   if (typeof id !== "string" || !id) return null;
   return {
     id,
+    displayName: stringProp(value, "displayName") ?? stringProp(value, "display_name"),
+    slug: stringProp(value, "slug"),
+    isPersonal: booleanProp(value, "isPersonal") ?? booleanProp(value, "is_personal") ?? false,
     clientReadOnlyMetadata: (value as { clientReadOnlyMetadata?: unknown }).clientReadOnlyMetadata,
   };
+}
+
+function stringProp(value: object, key: string): string | null {
+  const raw = (value as Record<string, unknown>)[key];
+  return typeof raw === "string" && raw.trim() ? raw.trim() : null;
+}
+
+function booleanProp(value: object, key: string): boolean | null {
+  const raw = (value as Record<string, unknown>)[key];
+  return typeof raw === "boolean" ? raw : null;
 }
 
 function planIdFromMetadata(metadata: unknown): string | null {

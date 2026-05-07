@@ -1,15 +1,24 @@
 import Foundation
 
-struct CmxHiveNode: Identifiable, Equatable, Sendable {
+struct CmxHiveNode: Identifiable, Equatable, Codable, Sendable {
     let id: UInt64
+    var rawID: String
     var name: String
     var subtitle: String
     var symbolName: String
     var platform: CmxHostPlatform
     var isOnline: Bool
+    var attachTicket: String? = nil
+    var attachTicketExpiresAtUnix: UInt64? = nil
 }
 
-enum CmxHostPlatform: String, Equatable, Sendable {
+struct CmxHiveTeam: Identifiable, Equatable, Codable, Sendable {
+    let id: String
+    var displayName: String
+    var isPersonal: Bool
+}
+
+enum CmxHostPlatform: String, Equatable, Codable, Sendable {
     case macOS = "macos"
     case linux
     case unknown
@@ -42,6 +51,39 @@ enum CmxHostPlatform: String, Equatable, Sendable {
     }
 }
 
+enum CmxWorkspaceVisibilityFilter: String, CaseIterable, Equatable, Sendable {
+    case all
+    case online
+    case offline
+    case hiddenUnavailable
+
+    var localizedTitle: String {
+        switch self {
+        case .all:
+            return String(localized: "home.filter.all", defaultValue: "All")
+        case .online:
+            return String(localized: "home.filter.online", defaultValue: "Online")
+        case .offline:
+            return String(localized: "home.filter.offline", defaultValue: "Offline")
+        case .hiddenUnavailable:
+            return String(localized: "home.filter.hidden_unavailable", defaultValue: "Hidden")
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .all:
+            return "tray.full"
+        case .online:
+            return "checkmark.circle"
+        case .offline:
+            return "wifi.slash"
+        case .hiddenUnavailable:
+            return "eye.slash"
+        }
+    }
+}
+
 enum CmxStableID {
     static func uint64(for value: String) -> UInt64 {
         let bytes = value.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty ?? "cmx-node"
@@ -66,11 +108,14 @@ enum CmxHiveNodeFactory {
             ?? String(localized: "node.connected.subtitle", defaultValue: "connected")
         return CmxHiveNode(
             id: stableNodeID(for: nodeKey),
+            rawID: nodeKey,
             name: name,
             subtitle: subtitle,
             symbolName: symbolName(for: ticket.node?.kind),
             platform: CmxHostPlatform.infer(kind: ticket.node?.kind, name: name, subtitle: subtitle),
-            isOnline: true
+            isOnline: true,
+            attachTicket: nil,
+            attachTicketExpiresAtUnix: nil
         )
     }
 
@@ -100,7 +145,7 @@ private extension String {
     }
 }
 
-struct CmxWorkspace: Identifiable, Equatable, Sendable {
+struct CmxWorkspace: Identifiable, Equatable, Codable, Sendable {
     let id: UInt64
     var nodeID: UInt64
     var title: String
@@ -109,22 +154,23 @@ struct CmxWorkspace: Identifiable, Equatable, Sendable {
     var unread: Bool
     var pinned: Bool
     var spaces: [CmxSpace]
+    var localWorkspaceID: String? = nil
 }
 
-struct CmxSpace: Identifiable, Equatable, Sendable {
+struct CmxSpace: Identifiable, Equatable, Codable, Sendable {
     let id: UInt64
     var title: String
     var terminals: [CmxTerminal]
 }
 
-struct CmxTerminal: Identifiable, Equatable, Sendable {
+struct CmxTerminal: Identifiable, Equatable, Codable, Sendable {
     let id: UInt64
     var title: String
     var size: CmxTerminalSize
     var rows: [String]
 }
 
-struct CmxTerminalSize: Equatable, Sendable {
+struct CmxTerminalSize: Equatable, Codable, Sendable {
     var cols: Int
     var rows: Int
 
@@ -142,6 +188,7 @@ enum CmxDemoState {
     static let nodes: [CmxHiveNode] = [
         CmxHiveNode(
             id: 1,
+            rawID: "demo-macbook",
             name: String(localized: "demo.node.macbook", defaultValue: "MacBook Pro"),
             subtitle: String(localized: "demo.node.macbook.subtitle", defaultValue: "local dev node"),
             symbolName: "laptopcomputer",
@@ -150,6 +197,7 @@ enum CmxDemoState {
         ),
         CmxHiveNode(
             id: 2,
+            rawID: "demo-mac-mini",
             name: String(localized: "demo.node.mac_mini", defaultValue: "Mac mini"),
             subtitle: String(localized: "demo.node.mac_mini.subtitle", defaultValue: "hive standby"),
             symbolName: "macmini",
@@ -180,7 +228,7 @@ enum CmxDemoState {
                                 String(localized: "demo.row.cwd", defaultValue: "lawrence in ~/fun/cmux-cli"),
                                 String(localized: "demo.row.list_workspaces", defaultValue: "$ cmx list-workspaces"),
                                 String(localized: "demo.row.workspace_output", defaultValue: "0  main   spaces 2   terminals 3"),
-                                String(localized: "demo.row.bridge_command", defaultValue: "$ cmux-iroh-bridge --socket $CMX_SOCKET_PATH"),
+                                String(localized: "demo.row.bridge_command", defaultValue: "$ cmux bridge --socket $CMX_SOCKET_PATH"),
                                 String(localized: "demo.row.bridge_ticket", defaultValue: "{\"version\":1,\"alpn\":\"/cmux/cmx/3\",...}"),
                             ]
                         ),
@@ -195,7 +243,7 @@ enum CmxDemoState {
                             title: String(localized: "demo.terminal.bridge", defaultValue: "bridge"),
                             size: .phoneDefault,
                             rows: [
-                                String(localized: "demo.row.iroh_ready", defaultValue: "iroh endpoint ready"),
+                                String(localized: "demo.row.iroh_ready", defaultValue: "cmux connection ready"),
                                 String(localized: "demo.row.snapshot_attached", defaultValue: "native snapshot stream attached"),
                                 String(localized: "demo.row.grid_flowing", defaultValue: "terminal grid snapshots flowing over QUIC"),
                             ]

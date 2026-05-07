@@ -33,22 +33,22 @@ pub fn load_terminal_theme() -> Option<NativeTerminalThemeSet> {
     // prefer the explicit files we load when they declare a theme.
     let theme = resolve_terminal_theme_from_config(&config, &theme_dirs());
     if theme.is_some() {
-        if probe::color_enabled() {
-            if let Some(theme) = &theme {
-                probe::log_event(
-                    "ghostty_theme",
-                    "terminal_theme_resolved",
-                    &[
-                        ("source", "config".to_string()),
-                        (
-                            "selection",
-                            theme_selection_summary(config.selection.as_ref()),
-                        ),
-                        ("config_paths", existing_paths_summary(config_paths())),
-                        ("theme", terminal_theme_set_summary(theme)),
-                    ],
-                );
-            }
+        if probe::color_enabled()
+            && let Some(theme) = &theme
+        {
+            probe::log_event(
+                "ghostty_theme",
+                "terminal_theme_resolved",
+                &[
+                    ("source", "config".to_string()),
+                    (
+                        "selection",
+                        theme_selection_summary(config.selection.as_ref()),
+                    ),
+                    ("config_paths", existing_paths_summary(config_paths())),
+                    ("theme", terminal_theme_set_summary(theme)),
+                ],
+            );
         }
         return theme;
     }
@@ -82,12 +82,9 @@ fn choose_resolved_ghostty_theme(
     if config_theme.is_some() {
         return config_theme;
     }
-    show_config_theme.map(|theme| {
-        let theme_set = NativeTerminalThemeSet {
-            default: Some(theme),
-            ..NativeTerminalThemeSet::default()
-        };
-        theme_set
+    show_config_theme.map(|theme| NativeTerminalThemeSet {
+        default: Some(theme),
+        ..NativeTerminalThemeSet::default()
     })
 }
 
@@ -533,10 +530,8 @@ fn parse_config_file_value(value: &str) -> ConfigFileValue {
     if value.is_empty() {
         return ConfigFileValue::Clear;
     }
-    if !was_quoted {
-        if let Some(optional) = value.strip_prefix('?') {
-            value = optional.to_string();
-        }
+    if !was_quoted && let Some(optional) = value.strip_prefix('?') {
+        value = optional.to_string();
     }
     ConfigFileValue::Include(expand_tilde(&value))
 }

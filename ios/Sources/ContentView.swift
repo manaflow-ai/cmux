@@ -29,16 +29,53 @@ struct ContentView: View {
 private struct WorkspaceListView: View {
     @EnvironmentObject private var store: CmxConnectionStore
     @State private var searchText = ""
+    @State private var visibilityFilter = CmxWorkspaceVisibilityFilter.all
+    @State private var listScope = WorkspaceListScope.recent
+    @State private var isShowingSettings = false
     let navigationStyle: WorkspaceNavigationStyle
+
+    private var scopedWorkspaces: [CmxWorkspace] {
+        let workspaces = store.visibleWorkspaces(matching: searchText, filter: visibilityFilter)
+        switch listScope {
+        case .recent, .groupedByNode:
+            return workspaces
+        case .node(let nodeID):
+            return workspaces.filter { $0.nodeID == nodeID }
+        }
+    }
 
     private var rows: [WorkspaceListRowSnapshot] {
         let selectedWorkspaceID = store.selectedWorkspaceID
-        return store.visibleWorkspaces(matching: searchText).map { workspace in
-            WorkspaceListRowSnapshot(
+        return scopedWorkspaces.map { workspace in
+            let node = store.node(for: workspace)
+            return WorkspaceListRowSnapshot(
                 workspace: workspace,
-                node: store.node(for: workspace),
+                node: node,
+                isHiddenUnavailable: store.hiddenUnavailableNodeIDs.contains(node.id),
                 isSelected: navigationStyle == .sidebar && workspace.id == selectedWorkspaceID
             )
+        }
+    }
+
+    private var groupedSections: [WorkspaceNodeSectionSnapshot] {
+        let grouped = Dictionary(grouping: rows, by: { $0.node.id })
+        return grouped.compactMap { _, rows in
+            guard let first = rows.first else { return nil }
+            return WorkspaceNodeSectionSnapshot(
+                node: first.node,
+                rows: rows.sorted { lhs, rhs in
+                    if lhs.workspace.lastActivity != rhs.workspace.lastActivity {
+                        return lhs.workspace.lastActivity > rhs.workspace.lastActivity
+                    }
+                    return lhs.workspace.title.localizedCaseInsensitiveCompare(rhs.workspace.title) == .orderedAscending
+                }
+            )
+        }
+        .sorted { lhs, rhs in
+            if lhs.latestActivity != rhs.latestActivity {
+                return lhs.latestActivity > rhs.latestActivity
+            }
+            return lhs.node.name.localizedCaseInsensitiveCompare(rhs.node.name) == .orderedAscending
         }
     }
 
@@ -58,31 +95,159 @@ private struct WorkspaceListView: View {
                     .listRowSeparator(.hidden)
                     .listRowInsets(EdgeInsets(top: 18, leading: 16, bottom: 18, trailing: 16))
             } else {
-                ForEach(rows) { row in
-                    WorkspaceNavigationRow(
-                        workspace: row.workspace,
-                        node: row.node,
-                        isSelected: row.isSelected,
-                        navigationStyle: navigationStyle,
-                        selectWorkspace: { store.select(workspace: $0) },
-                        togglePinned: { store.togglePinned(for: $0) },
-                        toggleUnread: { store.toggleUnread(for: $0) },
-                        prefetchWorkspace: { store.prefetch(workspace: $0) }
-                    )
-                    .listRowInsets(EdgeInsets(top: 7, leading: 16, bottom: 7, trailing: 12))
-                    .listRowBackground(WorkspaceListSelectionBackground(isSelected: row.isSelected))
+                if listScope == .groupedByNode {
+                    ForEach(groupedSections) { section in
+                        Section {
+                            ForEach(section.rows) { row in
+                                workspaceRow(row)
+                            }
+                        } header: {
+                            WorkspaceNodeSectionHeader(node: section.node, count: section.rows.count)
+                        }
+                    }
+                } else {
+                    ForEach(rows) { row in
+                        workspaceRow(row)
+                    }
                 }
             }
         }
         .listStyle(.plain)
-        .navigationTitle(String(localized: "nav.workspaces", defaultValue: "Workspaces"))
-        .navigationBarTitleDisplayMode(.large)
+        .refreshable {
+            await store.refreshHiveDiscoveryIfPossible()?.value
+        }
+        .toolbar {
+            if navigationStyle == .push {
+                ToolbarItem(placement: .principal) {
+                    Text(String(localized: "nav.workspaces", defaultValue: "Workspaces"))
+                        .font(.headline.weight(.semibold))
+                }
+            }
+
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                WorkspaceFilterMenu(
+                    filter: $visibilityFilter,
+                    scope: $listScope,
+                    nodes: store.nodes
+                )
+                Button {
+                    isShowingSettings = true
+                } label: {
+                    Image(systemName: "gearshape")
+                }
+                .accessibilityLabel(String(localized: "home.settings", defaultValue: "Settings"))
+            }
+        }
+        .sheet(isPresented: $isShowingSettings) {
+            WorkspaceSettingsView()
+        }
+    }
+
+    @ViewBuilder
+    private func workspaceRow(_ row: WorkspaceListRowSnapshot) -> some View {
+        WorkspaceNavigationRow(
+            workspace: row.workspace,
+            node: row.node,
+            isHiddenUnavailable: row.isHiddenUnavailable,
+            isSelected: row.isSelected,
+            navigationStyle: navigationStyle,
+            selectWorkspace: { store.select(workspace: $0) },
+            togglePinned: { store.togglePinned(for: $0) },
+            toggleUnread: { store.toggleUnread(for: $0) },
+            hideUnavailableNode: { store.hideUnavailableWorkspaces(from: $0) },
+            showUnavailableNode: { store.showUnavailableWorkspaces(from: $0) },
+            prefetchWorkspace: { store.prefetch(workspace: $0) }
+        )
+        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 12))
+    }
+}
+
+private struct WorkspaceSettingsView: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var store: CmxConnectionStore
+
+    private var teamSelection: Binding<String> {
+        Binding(
+            get: { store.effectiveHiveTeamID ?? "" },
+            set: { store.selectHiveTeam(id: $0) }
+        )
+    }
+
+    private var unavailableNodes: [CmxHiveNode] {
+        store.nodes
+            .filter { !$0.isOnline }
+            .sorted { lhs, rhs in
+                lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+            }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    if store.hiveTeams.isEmpty {
+                        Text(String(localized: "settings.team.unavailable", defaultValue: "Sign in to load workspace teams."))
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Picker(
+                            String(localized: "settings.team.picker", defaultValue: "Workspace Team"),
+                            selection: teamSelection
+                        ) {
+                            ForEach(store.hiveTeams) { team in
+                                Text(team.displayName).tag(team.id)
+                            }
+                        }
+                    }
+                } header: {
+                    Text(String(localized: "settings.team.section", defaultValue: "Team"))
+                }
+
+                Section {
+                    if unavailableNodes.isEmpty {
+                        Text(String(localized: "settings.nodes.none_unavailable", defaultValue: "No unavailable machines."))
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(unavailableNodes) { node in
+                            HStack(spacing: 12) {
+                                Image(systemName: node.symbolName)
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 24)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(node.name)
+                                    Text(node.subtitle)
+                                        .font(.footnote)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Button(role: .destructive) {
+                                    store.unlinkHiveNode(node)
+                                } label: {
+                                    Text(String(localized: "settings.nodes.unlink", defaultValue: "Unlink"))
+                                }
+                            }
+                        }
+                    }
+                } header: {
+                    Text(String(localized: "settings.nodes.section", defaultValue: "Machines"))
+                }
+            }
+                .navigationTitle(String(localized: "home.settings", defaultValue: "Settings"))
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(String(localized: "common.done", defaultValue: "Done")) {
+                            dismiss()
+                        }
+                    }
+                }
+        }
     }
 }
 
 private struct WorkspaceListRowSnapshot: Identifiable {
     let workspace: CmxWorkspace
     let node: CmxHiveNode
+    let isHiddenUnavailable: Bool
     let isSelected: Bool
 
     var id: UInt64 {
@@ -90,20 +255,23 @@ private struct WorkspaceListRowSnapshot: Identifiable {
     }
 }
 
-private struct WorkspaceListSelectionBackground: View {
-    let isSelected: Bool
+private struct WorkspaceNodeSectionSnapshot: Identifiable {
+    let node: CmxHiveNode
+    let rows: [WorkspaceListRowSnapshot]
 
-    var body: some View {
-        if isSelected {
-            ZStack(alignment: .leading) {
-                Color.accentColor.opacity(0.18)
-                Color.accentColor
-                    .frame(width: 4)
-            }
-        } else {
-            Color.clear
-        }
+    var id: UInt64 {
+        node.id
     }
+
+    var latestActivity: Date {
+        rows.map(\.workspace.lastActivity).max() ?? .distantPast
+    }
+}
+
+private enum WorkspaceListScope: Equatable {
+    case recent
+    case groupedByNode
+    case node(UInt64)
 }
 
 private enum WorkspaceNavigationStyle {
@@ -118,11 +286,14 @@ private struct WorkspaceNavigationRoute: Hashable {
 private struct WorkspaceNavigationRow: View {
     let workspace: CmxWorkspace
     let node: CmxHiveNode
+    let isHiddenUnavailable: Bool
     let isSelected: Bool
     let navigationStyle: WorkspaceNavigationStyle
     let selectWorkspace: (CmxWorkspace) -> Void
     let togglePinned: (CmxWorkspace) -> Void
     let toggleUnread: (CmxWorkspace) -> Void
+    let hideUnavailableNode: (CmxHiveNode) -> Void
+    let showUnavailableNode: (CmxHiveNode) -> Void
     let prefetchWorkspace: (CmxWorkspace) -> Void
 
     var body: some View {
@@ -132,6 +303,7 @@ private struct WorkspaceNavigationRow: View {
                 NavigationLink(value: WorkspaceNavigationRoute(workspaceID: workspace.id)) {
                     row
                 }
+                .disabled(!node.isOnline)
             case .sidebar:
                 Button {
                     selectWorkspace(workspace)
@@ -139,12 +311,16 @@ private struct WorkspaceNavigationRow: View {
                     row
                 }
                 .buttonStyle(.plain)
+                .disabled(!node.isOnline)
             }
         }
         .accessibilityIdentifier("workspace.row.\(workspace.id)")
         .onAppear {
-            prefetchWorkspace(workspace)
+            if node.isOnline {
+                prefetchWorkspace(workspace)
+            }
         }
+        .opacity(node.isOnline ? 1 : 0.52)
         .swipeActions(edge: .leading, allowsFullSwipe: false) {
             Button {
                 toggleUnread(workspace)
@@ -156,7 +332,7 @@ private struct WorkspaceNavigationRow: View {
                     systemImage: workspace.unread ? "message" : "message.badge"
                 )
             }
-            .tint(.blue)
+            .tint(.accentColor)
             .accessibilityIdentifier("workspace.action.unread.\(workspace.id)")
 
             Button {
@@ -172,6 +348,26 @@ private struct WorkspaceNavigationRow: View {
             .tint(.orange)
             .accessibilityIdentifier("workspace.action.pin.\(workspace.id)")
         }
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            if !node.isOnline {
+                Button {
+                    if isHiddenUnavailable {
+                        showUnavailableNode(node)
+                    } else {
+                        hideUnavailableNode(node)
+                    }
+                } label: {
+                    Label(
+                        isHiddenUnavailable
+                            ? String(localized: "home.action.show_unavailable", defaultValue: "Show")
+                            : String(localized: "home.action.hide_unavailable", defaultValue: "Hide"),
+                        systemImage: isHiddenUnavailable ? "eye" : "eye.slash"
+                    )
+                }
+                .tint(.gray)
+                .accessibilityIdentifier("workspace.action.hide_unavailable.\(workspace.id)")
+            }
+        }
     }
 
     private var row: some View {
@@ -183,6 +379,104 @@ private struct WorkspaceNavigationRow: View {
     }
 }
 
+private struct WorkspaceFilterMenu: View {
+    @Binding var filter: CmxWorkspaceVisibilityFilter
+    @Binding var scope: WorkspaceListScope
+    let nodes: [CmxHiveNode]
+
+    var body: some View {
+        Menu {
+            Section {
+                ForEach(CmxWorkspaceVisibilityFilter.allCases, id: \.self) { option in
+                    Button {
+                        filter = option
+                    } label: {
+                        Label(option.localizedTitle, systemImage: filter == option ? "checkmark" : option.symbolName)
+                    }
+                }
+            } header: {
+                Text(String(localized: "home.filter.availability", defaultValue: "Availability"))
+            }
+
+            Section {
+                Button {
+                    scope = .recent
+                } label: {
+                    Label(
+                        String(localized: "home.filter.scope.recent", defaultValue: "Recent"),
+                        systemImage: scope == .recent ? "checkmark" : "clock"
+                    )
+                }
+                Button {
+                    scope = .groupedByNode
+                } label: {
+                    Label(
+                        String(localized: "home.filter.scope.grouped", defaultValue: "Group by Mac"),
+                        systemImage: scope == .groupedByNode ? "checkmark" : "rectangle.3.group"
+                    )
+                }
+            } header: {
+                Text(String(localized: "home.filter.view", defaultValue: "View"))
+            }
+
+            if !nodes.isEmpty {
+                Section {
+                    ForEach(nodes) { node in
+                        Button {
+                            scope = .node(node.id)
+                        } label: {
+                            Label(
+                                node.name,
+                                systemImage: scope == .node(node.id) ? "checkmark" : node.symbolName
+                            )
+                        }
+                    }
+                } header: {
+                    Text(String(localized: "home.filter.machines", defaultValue: "Machines"))
+                }
+            }
+        } label: {
+            Image(systemName: menuSymbolName)
+        }
+        .accessibilityLabel(String(localized: "home.filter.button", defaultValue: "Filter Workspaces"))
+    }
+
+    private var menuSymbolName: String {
+        switch scope {
+        case .recent:
+            return filter == .all ? "line.3.horizontal.decrease.circle" : filter.symbolName
+        case .groupedByNode:
+            return "rectangle.3.group"
+        case .node:
+            return "desktopcomputer"
+        }
+    }
+}
+
+private struct WorkspaceNodeSectionHeader: View {
+    let node: CmxHiveNode
+    let count: Int
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: node.symbolName)
+                .foregroundStyle(.secondary)
+            Text(node.name)
+                .font(.caption.weight(.semibold))
+            Spacer()
+            Text(
+                String(
+                    format: String(localized: "home.filter.machine_count", defaultValue: "%d"),
+                    count
+                )
+            )
+            .font(.caption2.monospacedDigit())
+            .foregroundStyle(.secondary)
+        }
+        .textCase(nil)
+    }
+}
+
 private struct WorkspaceSearchField: View {
     @Binding var text: String
 
@@ -191,7 +485,7 @@ private struct WorkspaceSearchField: View {
             Image(systemName: "magnifyingglass")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.secondary)
-            TextField(String(localized: "home.search.prompt", defaultValue: "Search workspaces"), text: $text)
+            TextField(String(localized: "home.search.prompt", defaultValue: "Search"), text: $text)
                 .textFieldStyle(.plain)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
@@ -214,12 +508,6 @@ private struct WorkspaceConversationRow: View {
                 Circle()
                     .fill(avatarGradient)
                     .frame(width: 48, height: 48)
-                    .overlay {
-                        if isSelected {
-                            Circle()
-                                .stroke(Color.accentColor, lineWidth: 3)
-                        }
-                    }
 
                 Image(systemName: node.symbolName)
                     .font(.headline)
@@ -227,9 +515,9 @@ private struct WorkspaceConversationRow: View {
 
                 if workspace.unread {
                     Circle()
-                        .fill(Color.blue)
+                        .fill(Color.accentColor)
                         .frame(width: 11, height: 11)
-                        .overlay(Circle().stroke(Color.white, lineWidth: 2))
+                        .overlay(Circle().stroke(Color(.systemBackground), lineWidth: 2))
                         .offset(x: 2, y: 2)
                 }
             }
@@ -239,40 +527,34 @@ private struct WorkspaceConversationRow: View {
                     if workspace.pinned {
                         Image(systemName: "pin.fill")
                             .font(.caption2)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(secondaryForeground)
                     }
 
                     Text(workspace.title)
                         .font(.headline)
-                        .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
+                        .foregroundStyle(primaryForeground)
                         .lineLimit(1)
-
-                    if isSelected {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(Color.accentColor)
-                    }
 
                     Spacer(minLength: 10)
 
                     Text(relativeTimestamp)
                         .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(secondaryForeground)
                         .lineLimit(1)
                 }
 
                 Text(workspace.preview)
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(secondaryForeground)
                     .lineLimit(1)
 
                 HStack(spacing: 6) {
                     Circle()
-                        .fill(node.isOnline ? Color.green : Color.orange)
+                        .fill(statusIndicatorColor)
                         .frame(width: 7, height: 7)
                     Text(node.name)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(secondaryForeground)
                         .lineLimit(1)
 
                     Text(
@@ -283,36 +565,34 @@ private struct WorkspaceConversationRow: View {
                         )
                     )
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(secondaryForeground)
                     .lineLimit(1)
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, isSelected ? 8 : 4)
-        .padding(.horizontal, isSelected ? 10 : 0)
+        .padding(.vertical, 8)
+        .padding(.horizontal, 10)
         .background {
             if isSelected {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(Color.accentColor.opacity(0.2))
-            }
-        }
-        .overlay(alignment: .leading) {
-            if isSelected {
-                RoundedRectangle(cornerRadius: 2, style: .continuous)
-                    .fill(Color.accentColor)
-                    .frame(width: 4)
-                    .padding(.vertical, 8)
-            }
-        }
-        .overlay {
-            if isSelected {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(Color.accentColor.opacity(0.45), lineWidth: 1)
+                    .fill(WorkspaceConversationSelectionStyle.background)
             }
         }
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
+    }
+
+    private var primaryForeground: Color {
+        isSelected ? WorkspaceConversationSelectionStyle.primaryForeground : Color.primary
+    }
+
+    private var secondaryForeground: Color {
+        isSelected ? WorkspaceConversationSelectionStyle.secondaryForeground : Color.secondary
+    }
+
+    private var statusIndicatorColor: Color {
+        return node.isOnline ? Color.green : Color.orange
     }
 
     private var avatarGradient: LinearGradient {
@@ -340,6 +620,12 @@ private struct WorkspaceConversationRow: View {
     }
 }
 
+private enum WorkspaceConversationSelectionStyle {
+    static let background = Color.accentColor
+    static let primaryForeground = Color.white
+    static let secondaryForeground = Color.white.opacity(0.82)
+}
+
 private struct EmptyWorkspaceSearch: View {
     let isSearching: Bool
     let isLoading: Bool
@@ -364,19 +650,19 @@ private struct EmptyWorkspaceSearch: View {
 
     private var title: String {
         if isLoading {
-            return String(localized: "home.workspaces.loading.title", defaultValue: "Loading Workspaces")
+            return String(localized: "home.workspaces.loading.title", defaultValue: "Loading Sessions")
         }
-        return String(localized: "home.search.empty.title", defaultValue: "No Workspaces")
+        return String(localized: "home.search.empty.title", defaultValue: "No Sessions")
     }
 
     private var bodyText: String {
         if isLoading {
-            return String(localized: "home.workspaces.loading.body", defaultValue: "Waiting for cmux to send the workspace list.")
+            return String(localized: "home.workspaces.loading.body", defaultValue: "Waiting for cmux to send the list.")
         }
         if isSearching {
-            return String(localized: "home.search.empty.body", defaultValue: "No matching workspace is available on your signed-in nodes.")
+            return String(localized: "home.search.empty.body", defaultValue: "No matching session is available on your signed-in nodes.")
         }
-        return String(localized: "home.workspaces.empty.body", defaultValue: "No connected cmux workspace is available.")
+        return String(localized: "home.workspaces.empty.body", defaultValue: "No connected cmux session is available.")
     }
 }
 
@@ -394,16 +680,50 @@ private struct TerminalDetailView: View {
                 )
 
                 VStack(spacing: 0) {
-                    if store.canRenderSelectedTerminal, store.selectedTerminalOutputIsReady {
+                    switch store.terminalDetailPresentation {
+                    case .terminal:
                         TerminalPane(terminal: store.selectedTerminal)
                             .id(terminalSurfaceIdentity)
                             .frame(width: proxy.size.width, height: visibleHeight)
-                    } else {
+                    case .loadingTerminal:
                         TerminalLoadingPane(
                             statusText: store.statusText,
                             revision: store.terminalAppearanceRevision
                         )
-                            .frame(width: proxy.size.width, height: visibleHeight)
+                        .frame(width: proxy.size.width, height: visibleHeight)
+                    case .loadingWorkspaces:
+                        TerminalLoadingPane(
+                            title: String(
+                                localized: "home.workspaces.loading.title",
+                                defaultValue: "Loading Sessions"
+                            ),
+                            statusText: String(
+                                localized: "home.workspaces.loading.body",
+                                defaultValue: "Waiting for cmux to send the list."
+                            ),
+                            revision: store.terminalAppearanceRevision
+                        )
+                        .frame(width: proxy.size.width, height: visibleHeight)
+                    case .noWorkspaces:
+                        TerminalEmptyPane(
+                            title: String(localized: "home.search.empty.title", defaultValue: "No Sessions"),
+                            bodyText: String(
+                                localized: "home.workspaces.empty.body",
+                                defaultValue: "No connected cmux session is available."
+                            ),
+                            revision: store.terminalAppearanceRevision
+                        )
+                        .frame(width: proxy.size.width, height: visibleHeight)
+                    case .noTerminal:
+                        TerminalEmptyPane(
+                            title: String(localized: "terminal.empty.title", defaultValue: "No Terminal"),
+                            bodyText: String(
+                                localized: "terminal.empty.body",
+                                defaultValue: "This session does not have a visible terminal."
+                            ),
+                            revision: store.terminalAppearanceRevision
+                        )
+                        .frame(width: proxy.size.width, height: visibleHeight)
                     }
 
                     Color.clear
@@ -667,6 +987,7 @@ private struct TerminalPane: View {
                         revision: store.terminalAppearanceRevision
                     )
                 }
+
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -674,7 +995,30 @@ private struct TerminalPane: View {
     }
 }
 
+private struct TerminalEmptyPane: View {
+    let title: String
+    let bodyText: String
+    let revision: Int
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Text(title)
+                .font(.callout.weight(.semibold))
+            Text(bodyText)
+                .font(.caption)
+                .multilineTextAlignment(.center)
+                .opacity(0.72)
+        }
+        .foregroundStyle(TerminalThemeChrome.foreground(revision: revision))
+        .padding(.horizontal, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(TerminalThemeChrome.background(revision: revision))
+        .accessibilityIdentifier("terminal.empty")
+    }
+}
+
 private struct TerminalLoadingPane: View {
+    var title = String(localized: "terminal.loading.title", defaultValue: "Loading terminal")
     let statusText: String
     let revision: Int
 
@@ -682,7 +1026,7 @@ private struct TerminalLoadingPane: View {
         VStack(spacing: 10) {
             ProgressView()
                 .tint(TerminalThemeChrome.foreground(revision: revision))
-            Text(String(localized: "terminal.loading.title", defaultValue: "Loading terminal"))
+            Text(title)
                 .font(.callout.weight(.semibold))
             Text(statusText)
                 .font(.caption.monospacedDigit())

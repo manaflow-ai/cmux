@@ -1,5 +1,5 @@
 import { hiveNodeInputSchema } from "../../../../services/hive/types";
-import { hiveStoreForUser } from "../../../../services/hive/rivetClient";
+import { hiveStoreForTeam } from "../../../../services/hive/rivetClient";
 import { withAuthedHiveApiRoute } from "../../../../services/hive/routeHelpers";
 import { jsonResponse } from "../../../../services/vms/routeHelpers";
 
@@ -11,7 +11,7 @@ export async function POST(request: Request): Promise<Response> {
     "/api/hive/nodes",
     { "cmux.hive.operation": "upsert_node" },
     "/api/hive/nodes POST failed",
-    async ({ user }) => {
+    async ({ hiveTeamID }) => {
       let body: unknown;
       try {
         body = await request.json();
@@ -22,9 +22,8 @@ export async function POST(request: Request): Promise<Response> {
       if (!parsed.success) {
         return jsonResponse({ error: "invalid hive node", issues: parsed.error.issues }, 400);
       }
-      const node = await hiveStoreForUser(user.id).upsertNode(parsed.data);
+      const node = await hiveStoreForTeam(hiveTeamID).upsertNode(parsed.data);
       return jsonResponse({ node });
     },
   );
 }
-

@@ -31,8 +31,57 @@ final class CmxUITestingEchoTerminalSession: CmxTerminalSession {
 
     func sendInput(_ data: Data, terminalID: UInt64) {
         guard let terminal = terminalState(for: terminalID) else { return }
+        var pendingPrintableInput = Data()
+
+        func flushPendingPrintableInput() {
+            guard !pendingPrintableInput.isEmpty else { return }
+            appendPrintableInput(pendingPrintableInput, terminal: terminal)
+            pendingPrintableInput.removeAll(keepingCapacity: true)
+        }
+
         for byte in data {
-            handleInput(byte, terminal: terminal)
+            switch byte {
+            case 0x0A, 0x0D, 0x7F:
+                flushPendingPrintableInput()
+                handleInput(byte, terminal: terminal)
+            default:
+                pendingPrintableInput.append(byte)
+            }
+        }
+        flushPendingPrintableInput()
+    }
+
+    private func appendPrintableInput(_ data: Data, terminal: CmxUITestingEchoTerminal) {
+        let text = String(decoding: data, as: UTF8.self)
+        if terminal.isAltScreen {
+            terminal.altCommandLine.append(contentsOf: text)
+        } else {
+            terminal.commandLine.append(contentsOf: text)
+        }
+        appendAndEmit(data, terminal: terminal)
+    }
+
+    private func handleInput(_ byte: UInt8, terminal: CmxUITestingEchoTerminal) {
+        if terminal.isAltScreen {
+            handleAltScreenInput(byte, terminal: terminal)
+            return
+        }
+
+        switch byte {
+        case 0x0A, 0x0D:
+            appendAndEmit(Data("\r\n".utf8), terminal: terminal)
+            let shouldPrompt = emitCommandResult(terminal: terminal)
+            terminal.commandLine.removeAll(keepingCapacity: true)
+            if shouldPrompt {
+                appendAndEmit(promptBytes, terminal: terminal)
+            }
+        case 0x7F:
+            if !terminal.commandLine.isEmpty {
+                terminal.commandLine.removeLast()
+                appendAndEmit(Data("\u{8} \u{8}".utf8), terminal: terminal)
+            }
+        default:
+            appendPrintableInput(Data([byte]), terminal: terminal)
         }
     }
 
@@ -83,32 +132,6 @@ final class CmxUITestingEchoTerminalSession: CmxTerminalSession {
 
     func disconnect() {
         delegate?.terminalSessionDidClose(self)
-    }
-
-    private func handleInput(_ byte: UInt8, terminal: CmxUITestingEchoTerminal) {
-        if terminal.isAltScreen {
-            handleAltScreenInput(byte, terminal: terminal)
-            return
-        }
-
-        switch byte {
-        case 0x0A, 0x0D:
-            appendAndEmit(Data("\r\n".utf8), terminal: terminal)
-            let shouldPrompt = emitCommandResult(terminal: terminal)
-            terminal.commandLine.removeAll(keepingCapacity: true)
-            if shouldPrompt {
-                appendAndEmit(promptBytes, terminal: terminal)
-            }
-        case 0x7F:
-            if !terminal.commandLine.isEmpty {
-                terminal.commandLine.removeLast()
-                appendAndEmit(Data("\u{8} \u{8}".utf8), terminal: terminal)
-            }
-        default:
-            guard let scalar = UnicodeScalar(Int(byte)) else { return }
-            terminal.commandLine.append(Character(scalar))
-            appendAndEmit(Data([byte]), terminal: terminal)
-        }
     }
 
     private func handleAltScreenInput(_ byte: UInt8, terminal: CmxUITestingEchoTerminal) {

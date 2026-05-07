@@ -1,4 +1,4 @@
-import { hiveStoreForUser } from "../../../../services/hive/rivetClient";
+import { hiveStoreForTeam } from "../../../../services/hive/rivetClient";
 import { withAuthedHiveApiRoute } from "../../../../services/hive/routeHelpers";
 import { hivePairingInputSchema } from "../../../../services/hive/types";
 import { jsonResponse } from "../../../../services/vms/routeHelpers";
@@ -11,7 +11,7 @@ export async function POST(request: Request): Promise<Response> {
     "/api/hive/pairings",
     { "cmux.hive.operation": "upsert_pairing" },
     "/api/hive/pairings POST failed",
-    async ({ user }) => {
+    async ({ hiveTeamID }) => {
       let body: unknown;
       try {
         body = await request.json();
@@ -22,9 +22,8 @@ export async function POST(request: Request): Promise<Response> {
       if (!parsed.success) {
         return jsonResponse({ error: "invalid hive pairing", issues: parsed.error.issues }, 400);
       }
-      const pairing = await hiveStoreForUser(user.id).upsertPairing(parsed.data);
+      const pairing = await hiveStoreForTeam(hiveTeamID).upsertPairing(parsed.data);
       return jsonResponse({ pairing });
     },
   );
 }
-

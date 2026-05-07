@@ -7500,30 +7500,62 @@ private struct SettingsSectionHeader: View {
 
 private struct AuthSettingsRow: View {
     @ObservedObject var authManager: AuthManager
+    @AppStorage(HiveWorkspaceTeamPreference.selectedTeamIDKey)
+    private var hiveTeamSelection = HiveWorkspaceTeamPreference.personalSelectionValue
 
     var body: some View {
-        HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(titleText)
-                    .font(.system(size: 13, weight: .medium))
-                if let subtitle = subtitleText {
-                    Text(subtitle)
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(titleText)
+                        .font(.system(size: 13, weight: .medium))
+                    if let subtitle = subtitleText {
+                        Text(subtitle)
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+                }
+                Spacer(minLength: 12)
+                if authManager.isLoading || authManager.isRestoringSession {
+                    ProgressView().controlSize(.small)
+                }
+                Button(action: buttonAction) {
+                    Text(buttonTitle)
+                }
+                .controlSize(.small)
+                .disabled(authManager.isLoading || authManager.isRestoringSession)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+
+            if authManager.isAuthenticated {
+                SettingsCardDivider()
+                SettingsCardRow(
+                    configurationReview: .settingsOnly,
+                    String(localized: "settings.account.hiveTeam.title", defaultValue: "Workspace Team"),
+                    subtitle: String(
+                        localized: "settings.account.hiveTeam.subtitle",
+                        defaultValue: "Personal by default. Choose a team to share this Mac's workspaces with teammates."
+                    ),
+                    controlWidth: 190
+                ) {
+                    Picker("", selection: $hiveTeamSelection) {
+                        Text(String(localized: "settings.account.hiveTeam.personal", defaultValue: "Personal"))
+                            .tag(HiveWorkspaceTeamPreference.personalSelectionValue)
+                        ForEach(authManager.availableTeams) { team in
+                            Text(teamDisplayName(team))
+                                .tag(team.id)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
                 }
             }
-            Spacer(minLength: 12)
-            if authManager.isLoading || authManager.isRestoringSession {
-                ProgressView().controlSize(.small)
-            }
-            Button(action: buttonAction) {
-                Text(buttonTitle)
-            }
-            .controlSize(.small)
-            .disabled(authManager.isLoading || authManager.isRestoringSession)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .onChange(of: hiveTeamSelection) { newValue in
+            HiveWorkspaceTeamPreference.setSelectedTeamID(newValue)
+            CmxHiveWorkspacePublisher.shared.schedulePublish()
+        }
     }
 
     private var titleText: String {
@@ -7573,6 +7605,17 @@ private struct AuthSettingsRow: View {
         } else {
             authManager.beginSignIn()
         }
+    }
+
+    private func teamDisplayName(_ team: AuthTeamSummary) -> String {
+        let name = team.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !name.isEmpty {
+            return name
+        }
+        if let slug = team.slug?.trimmingCharacters(in: .whitespacesAndNewlines), !slug.isEmpty {
+            return slug
+        }
+        return team.id
     }
 }
 

@@ -17,6 +17,7 @@ cmux-cli-core = { path = "../cmux-cli-core" }
 cmux-cli-client = { path = "../cmux-cli-client" }
 cmux-cli-protocol = { path = "../cmux-cli-protocol" }
 cmux-cli-server = { path = "../cmux-cli-server" }
+cmux-iroh-bridge = { path = "../cmux-iroh-bridge" }
 anyhow = { workspace = true }
 clap = { workspace = true }
 libc = { workspace = true }

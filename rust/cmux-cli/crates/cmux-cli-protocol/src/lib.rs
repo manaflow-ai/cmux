@@ -143,6 +143,10 @@ pub enum MouseKind {
     Drag,
     /// Left button released.
     Up,
+    /// Right button pressed down.
+    RightDown,
+    /// Right button released.
+    RightUp,
     /// Wheel scrolled up / down. Decimal lines; negative = scroll up.
     Wheel { lines: i16 },
 }

@@ -1,15 +1,30 @@
 import Foundation
+import OSLog
 
 private let cmxIrohRelayModeDefault: UInt32 = 0
+
+#if DEBUG
+nonisolated private let cmxIrohSessionLogger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "dev.cmux.ios",
+    category: "terminal-session"
+)
+
+nonisolated private func cmuxIrohSessionDebugLog(_ message: String) {
+    cmxIrohSessionLogger.debug("\(message, privacy: .public)")
+}
+#endif
 
 @MainActor
 final class CmxIrohTerminalSession: CmxTerminalSession {
     private static let heartbeatInterval: TimeInterval = 5
+    private static let maximumMainActorBatchMessages = 256
+    private static let maximumMainActorBatchBytes = 256 * 1024
 
     weak var delegate: CmxTerminalSessionDelegate?
 
     private let ticket: String
     private let pairingSecret: String?
+    nonisolated private let incomingMessageBuffer = CmxIrohIncomingMessageBuffer()
     private var handle: OpaquePointer?
     private var retainedSelf: UnsafeMutableRawPointer?
     private var heartbeatTimer: Timer?
@@ -36,6 +51,7 @@ final class CmxIrohTerminalSession: CmxTerminalSession {
     func start(viewport: CmxWireViewport) {
         closedByClient = false
         didNotifyEnd = false
+        stopHeartbeat()
         heartbeat.reset()
         retainCallbackContextIfNeeded()
         let context = retainedSelf
@@ -68,7 +84,6 @@ final class CmxIrohTerminalSession: CmxTerminalSession {
 
         handle = startedHandle
         send(.helloNative(viewport: viewport, token: nil))
-        startHeartbeat()
     }
 
     func sendInput(_ data: Data, terminalID: UInt64) {
@@ -121,10 +136,21 @@ final class CmxIrohTerminalSession: CmxTerminalSession {
         }
     }
 
+    nonisolated fileprivate func enqueueMessageEvent(_ data: Data) {
+        guard incomingMessageBuffer.enqueue(data) else { return }
+        Task { @MainActor [weak self] in
+            self?.drainMessageEvents()
+        }
+    }
+
     fileprivate func handleEvent(kind: CmxIrohClientEventKind, data: Data) {
+        drainMessageEvents()
         switch kind.rawValue {
         case CmxIrohClientEventKindConnected.rawValue:
-            break
+            #if DEBUG
+            cmuxIrohSessionDebugLog("transport.connected")
+            #endif
+            startHeartbeat()
         case CmxIrohClientEventKindMessage.rawValue:
             do {
                 let message = try CmxWireCodec.decodeServerMessage(data)
@@ -142,6 +168,37 @@ final class CmxIrohTerminalSession: CmxTerminalSession {
             failTransport(CmxIrohTerminalSessionError.remoteError(message))
         default:
             failTransport(CmxIrohTerminalSessionError.unknownEvent)
+        }
+    }
+
+    private func drainMessageEvents() {
+        let batch = incomingMessageBuffer.dequeueBatch(
+            maxMessages: Self.maximumMainActorBatchMessages,
+            maxBytes: Self.maximumMainActorBatchBytes
+        )
+        guard !batch.messages.isEmpty else { return }
+
+        var decodedMessages: [CmxServerMessage] = []
+        decodedMessages.reserveCapacity(batch.messages.count)
+        do {
+            for data in batch.messages {
+                let message = try CmxWireCodec.decodeServerMessage(data)
+                if case .pong = message {
+                    recordPong()
+                }
+                decodedMessages.append(message)
+            }
+        } catch {
+            incomingMessageBuffer.cancelScheduledDrain()
+            failTransport(error)
+            return
+        }
+
+        delegate?.terminalSession(self, didReceive: decodedMessages)
+        if batch.hasMore {
+            Task { @MainActor [weak self] in
+                self?.drainMessageEvents()
+            }
         }
     }
 
@@ -232,8 +289,59 @@ private let cmxIrohClientCallback: CmxIrohClientCallback = { userData, kind, dat
     } else {
         payload = Data()
     }
+    if kind.rawValue == CmxIrohClientEventKindMessage.rawValue {
+        session.enqueueMessageEvent(payload)
+        return
+    }
     Task { @MainActor in
         session.handleEvent(kind: kind, data: payload)
+    }
+}
+
+private final class CmxIrohIncomingMessageBuffer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var messages: [Data] = []
+    private var drainScheduled = false
+
+    func enqueue(_ data: Data) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        messages.append(data)
+        guard !drainScheduled else { return false }
+        drainScheduled = true
+        return true
+    }
+
+    func dequeueBatch(maxMessages: Int, maxBytes: Int) -> (messages: [Data], hasMore: Bool) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !messages.isEmpty else {
+            drainScheduled = false
+            return ([], false)
+        }
+
+        var batchCount = 0
+        var batchBytes = 0
+        while batchCount < messages.count, batchCount < maxMessages {
+            let nextBytes = messages[batchCount].count
+            if batchCount > 0, batchBytes + nextBytes > maxBytes {
+                break
+            }
+            batchBytes += nextBytes
+            batchCount += 1
+        }
+
+        let batch = Array(messages.prefix(batchCount))
+        messages.removeFirst(batchCount)
+        drainScheduled = !messages.isEmpty
+        return (batch, !messages.isEmpty)
+    }
+
+    func cancelScheduledDrain() {
+        lock.lock()
+        messages.removeAll(keepingCapacity: false)
+        drainScheduled = false
+        lock.unlock()
     }
 }
 
@@ -247,18 +355,18 @@ enum CmxIrohTerminalSessionError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .failedToStart:
-            String(localized: "iroh.error.start", defaultValue: "Could not start the iroh terminal session.")
+            String(localized: "iroh.error.start", defaultValue: "Could not start the terminal connection.")
         case .sendFailed:
-            String(localized: "iroh.error.send", defaultValue: "Could not send data to the iroh terminal session.")
+            String(localized: "iroh.error.send", defaultValue: "Could not send data to the terminal connection.")
         case .remoteError(let message):
             String(
-                format: String(localized: "iroh.error.remote", defaultValue: "Iroh connection failed: %@"),
+                format: String(localized: "iroh.error.remote", defaultValue: "Connection failed: %@"),
                 message.isEmpty ? String(localized: "iroh.error.remote_unknown", defaultValue: "unknown error") : message
             )
         case .unknownEvent:
-            String(localized: "iroh.error.unknown_event", defaultValue: "The iroh terminal session sent an unknown event.")
+            String(localized: "iroh.error.unknown_event", defaultValue: "The terminal connection sent an unknown event.")
         case .heartbeatTimedOut:
-            String(localized: "iroh.error.heartbeat_timeout", defaultValue: "The iroh terminal session stopped responding.")
+            String(localized: "iroh.error.heartbeat_timeout", defaultValue: "The terminal connection stopped responding.")
         }
     }
 }

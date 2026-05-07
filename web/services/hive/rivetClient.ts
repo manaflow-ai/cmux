@@ -13,21 +13,27 @@ import type {
 export type HiveStore = {
   list(): Promise<HiveSnapshot>;
   upsertNode(node: HiveNode): Promise<HiveNode>;
+  unlinkNode(nodeID: string): Promise<HiveNode | null>;
   upsertPairing(input: HivePairingInput): Promise<HivePairingSummary>;
   getPairingSecret(pairingID: string, nowUnix?: number): Promise<HivePairingSecret | null>;
 };
 
-export function hiveStoreForUser(userID: string): HiveStore {
+export function hiveStoreForTeam(teamID: string): HiveStore {
   const auth = actorAuth();
   const client = createClient<typeof registry>(hiveEndpoint());
-  const actor = client.cmuxHive.getOrCreate(["user", userID]);
+  const actor = client.cmuxHive.getOrCreate(["team", teamID]);
   return {
     list: () => actor.list(auth),
     upsertNode: (node) => actor.upsertNode(auth, node),
+    unlinkNode: (nodeID) => actor.unlinkNode(auth, nodeID),
     upsertPairing: (input) => actor.upsertPairing(auth, input),
     getPairingSecret: (pairingID, nowUnix) =>
       actor.getPairingSecret(auth, pairingID, nowUnix),
   };
+}
+
+export function hiveStoreForUser(userID: string): HiveStore {
+  return hiveStoreForTeam(`legacy-user:${userID}`);
 }
 
 function actorAuth(): HiveActorAuth {

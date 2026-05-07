@@ -1,4 +1,4 @@
-import { hiveStoreForUser } from "../../../../../../services/hive/rivetClient";
+import { hiveStoreForTeam } from "../../../../../../services/hive/rivetClient";
 import { withAuthedHiveApiRoute } from "../../../../../../services/hive/routeHelpers";
 import { jsonResponse } from "../../../../../../services/vms/routeHelpers";
 
@@ -13,9 +13,9 @@ export async function GET(
     "/api/hive/pairings/[id]/secret",
     { "cmux.hive.operation": "pairing_secret" },
     "/api/hive/pairings/[id]/secret GET failed",
-    async ({ user }) => {
+    async ({ hiveTeamID }) => {
       const { id } = await params;
-      const secret = await hiveStoreForUser(user.id).getPairingSecret(id);
+      const secret = await hiveStoreForTeam(hiveTeamID).getPairingSecret(id);
       if (!secret) {
         return jsonResponse({ error: "pairing not found" }, 404);
       }
@@ -23,4 +23,3 @@ export async function GET(
     },
   );
 }
-

@@ -13,6 +13,30 @@ struct AuthTeamSummary: Codable, Equatable, Identifiable, Sendable {
     }
 }
 
+enum HiveWorkspaceTeamPreference {
+    static let selectedTeamIDKey = "cmux.hive.selectedTeamID"
+    static let personalSelectionValue = ""
+
+    static func selectedTeamID(userDefaults: UserDefaults = .standard) -> String? {
+        normalized(userDefaults.string(forKey: selectedTeamIDKey))
+    }
+
+    static func setSelectedTeamID(_ value: String?, userDefaults: UserDefaults = .standard) {
+        if let teamID = normalized(value) {
+            userDefaults.set(teamID, forKey: selectedTeamIDKey)
+        } else {
+            userDefaults.removeObject(forKey: selectedTeamIDKey)
+        }
+    }
+
+    private static func normalized(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+        return value
+    }
+}
+
 enum SettingsPIIDisplayMode: String, CaseIterable, Identifiable, Sendable {
     case visible
     case hidden

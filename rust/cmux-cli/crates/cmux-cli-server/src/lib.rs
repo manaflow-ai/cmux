@@ -143,8 +143,8 @@ use crate::native_terminal::{
 };
 use crate::render::{
     BorderSpec, ChromeSpec, LineSelection, LogicalLineSelection, PaneChrome, RenderBroker,
-    RenderTabInit, SidebarItem, SidebarSpec, StatusSpec, TabBarSpec, TabBarStyle, TabId, TabPill,
-    TerminalProbeKind,
+    RenderTabInit, SidebarContextMenuSpec, SidebarItem, SidebarSpec, StatusSpec, TabBarSpec,
+    TabBarStyle, TabId, TabPill, TerminalProbeKind,
 };
 use crate::snapshot::{PanelSnapshot, Snapshot, SpaceSnapshot, TabSnapshot, WorkspaceSnapshot};
 use crate::terminal_query::TerminalQueryScanner;
@@ -2680,7 +2680,15 @@ struct WindowState {
     active_tab_by_panel: HashMap<PanelRef, TabId>,
     pane_focus_anchor_by_space: HashMap<SpaceId, PaneFocusAnchor>,
     sidebar_focused: bool,
+    sidebar_scroll: usize,
+    sidebar_scroll_follow_active: bool,
+    sidebar_context_menu: Option<SidebarContextMenuState>,
     space_strip_focused: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct SidebarContextMenuState {
+    workspace_id: u64,
 }
 
 impl WindowState {
@@ -2693,6 +2701,9 @@ impl WindowState {
             active_tab_by_panel: HashMap::new(),
             pane_focus_anchor_by_space: HashMap::new(),
             sidebar_focused: false,
+            sidebar_scroll: 0,
+            sidebar_scroll_follow_active: true,
+            sidebar_context_menu: None,
             space_strip_focused: false,
         }
     }
@@ -2764,6 +2775,8 @@ impl WindowState {
     async fn select_workspace(&mut self, daemon: &Daemon, index: usize) -> Result<Arc<Workspace>> {
         let ws = daemon.workspace_at(index).await?;
         self.active_ws_id = ws.id;
+        self.sidebar_scroll_follow_active = true;
+        self.sidebar_context_menu = None;
         Ok(ws)
     }
 
@@ -2781,6 +2794,8 @@ impl WindowState {
         let ws = workspaces[next].clone();
         drop(workspaces);
         self.active_ws_id = ws.id;
+        self.sidebar_scroll_follow_active = true;
+        self.sidebar_context_menu = None;
         Ok(ws)
     }
 
@@ -2897,6 +2912,26 @@ impl WindowState {
             self.remember_pane_focus_anchor(space, rect_center_anchor(leaf.inner));
         }
     }
+}
+
+async fn create_and_activate_workspace(
+    daemon: &Arc<Daemon>,
+    window: &mut WindowState,
+    title: Option<String>,
+    cwd: Option<PathBuf>,
+) -> Result<Arc<Workspace>> {
+    let ws = daemon.clone().new_workspace(title, cwd).await?;
+    window.active_ws_id = ws.id;
+    window.sidebar_scroll_follow_active = true;
+    window.sidebar_context_menu = None;
+    if let Some(space) = ws.first_space().await
+        && let Some(panel_id) = space.default_panel_id().await
+        && let Some(tab) = space.first_tab().await
+    {
+        window.remember_tab(&ws, &space, panel_id, &tab);
+    }
+    daemon.wake_model();
+    Ok(ws)
 }
 
 // ------------------------------- Daemon --------------------------------
@@ -3845,23 +3880,193 @@ fn reload_settings_if_changed(
     Ok(true)
 }
 
-/// Row inside the sidebar rect where workspace items begin (row 0 =
-/// header, row 1 = spacer). Kept in sync with `paint_sidebar` in
-/// `render.rs`; the hit tester below uses the same origin.
-const SIDEBAR_ITEM_ROW_OFFSET: u16 = 2;
+/// Row inside the sidebar rect where workspace item blocks begin. Kept in sync with `paint_sidebar` in
+/// `render.rs`; the hit tester below uses the same origin and row stride.
+const SIDEBAR_ITEM_ROW_OFFSET: u16 = 0;
+const SIDEBAR_ITEM_BLOCK_ROWS: u16 = 3;
+const SIDEBAR_ITEM_ROW_STRIDE: u16 = SIDEBAR_ITEM_BLOCK_ROWS;
+const SIDEBAR_NEW_BUTTON_TOP_PADDING_ROWS: u16 = 1;
+const SIDEBAR_NEW_BUTTON_ROWS: u16 = 1;
+const SIDEBAR_CONTEXT_MENU_COL: u16 = 1;
+const SIDEBAR_CONTEXT_MENU_WIDTH: u16 = 8;
+const SIDEBAR_CONTEXT_MENU_ROWS: u16 = 2;
 
-/// Given a click in viewport coordinates, return the 0-based workspace
-/// index if it lands on a sidebar item row. Header and spacer rows
-/// return None; clicks past the last workspace return None.
-pub fn hit_test_sidebar(col: u16, row: u16, sidebar: Rect, item_count: usize) -> Option<usize> {
-    if sidebar.cols == 0 || col >= sidebar.cols || row < SIDEBAR_ITEM_ROW_OFFSET {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SidebarHit {
+    Workspace(usize),
+    NewWorkspace,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SidebarContextMenuAction {
+    TogglePin,
+    Close,
+}
+
+fn sidebar_workspace_rows(sidebar: Rect) -> u16 {
+    sidebar.rows.saturating_sub(SIDEBAR_NEW_BUTTON_ROWS)
+}
+
+fn sidebar_workspace_capacity(sidebar: Rect) -> usize {
+    let rows = sidebar_workspace_rows(sidebar).saturating_add(SIDEBAR_NEW_BUTTON_ROWS);
+    let first_workspace_rows = SIDEBAR_ITEM_BLOCK_ROWS
+        .saturating_add(SIDEBAR_NEW_BUTTON_TOP_PADDING_ROWS)
+        .saturating_add(SIDEBAR_NEW_BUTTON_ROWS);
+    if rows < first_workspace_rows {
+        return 0;
+    }
+    usize::from(1 + (rows - first_workspace_rows) / SIDEBAR_ITEM_ROW_STRIDE)
+}
+
+fn sidebar_visible_workspace_count(item_count: usize, capacity: usize) -> usize {
+    item_count.min(capacity)
+}
+
+fn sidebar_new_button_relative_row(item_count: usize, capacity: usize) -> u16 {
+    let visible_count = sidebar_visible_workspace_count(item_count, capacity);
+    if visible_count == 0 {
+        SIDEBAR_NEW_BUTTON_TOP_PADDING_ROWS
+    } else {
+        ((visible_count - 1) as u16)
+            .saturating_mul(SIDEBAR_ITEM_ROW_STRIDE)
+            .saturating_add(SIDEBAR_ITEM_BLOCK_ROWS)
+            .saturating_add(SIDEBAR_NEW_BUTTON_TOP_PADDING_ROWS)
+    }
+}
+
+fn sidebar_context_menu_rect(
+    sidebar: Rect,
+    workspace_index: usize,
+    scroll_offset: usize,
+) -> Option<Rect> {
+    if sidebar.cols <= SIDEBAR_CONTEXT_MENU_COL || sidebar.rows < SIDEBAR_CONTEXT_MENU_ROWS {
         return None;
     }
-    if row >= sidebar.row + sidebar.rows {
+    let visible_index = workspace_index.checked_sub(scroll_offset)?;
+    if visible_index >= sidebar_workspace_capacity(sidebar) {
         return None;
     }
-    let idx = (row - SIDEBAR_ITEM_ROW_OFFSET) as usize;
-    if idx >= item_count { None } else { Some(idx) }
+    let desired_row = (visible_index as u16)
+        .saturating_mul(SIDEBAR_ITEM_ROW_STRIDE)
+        .saturating_add(1);
+    let max_row = sidebar.rows.saturating_sub(SIDEBAR_CONTEXT_MENU_ROWS);
+    Some(Rect {
+        col: sidebar.col.saturating_add(SIDEBAR_CONTEXT_MENU_COL),
+        row: sidebar.row.saturating_add(desired_row.min(max_row)),
+        cols: SIDEBAR_CONTEXT_MENU_WIDTH.min(sidebar.cols - SIDEBAR_CONTEXT_MENU_COL),
+        rows: SIDEBAR_CONTEXT_MENU_ROWS,
+    })
+}
+
+fn hit_test_sidebar_context_menu(
+    col: u16,
+    row: u16,
+    sidebar: Rect,
+    workspace_index: usize,
+    scroll_offset: usize,
+) -> Option<SidebarContextMenuAction> {
+    let rect = sidebar_context_menu_rect(sidebar, workspace_index, scroll_offset)?;
+    if col < rect.col
+        || col >= rect.col.saturating_add(rect.cols)
+        || row < rect.row
+        || row >= rect.row.saturating_add(rect.rows)
+    {
+        return None;
+    }
+    match row.saturating_sub(rect.row) {
+        0 => Some(SidebarContextMenuAction::TogglePin),
+        1 => Some(SidebarContextMenuAction::Close),
+        _ => None,
+    }
+}
+
+fn clamp_sidebar_scroll(scroll: usize, item_count: usize, capacity: usize) -> usize {
+    if capacity == 0 {
+        return 0;
+    }
+    scroll.min(item_count.saturating_sub(capacity))
+}
+
+fn sidebar_scroll_for_active(
+    active: usize,
+    scroll: usize,
+    item_count: usize,
+    sidebar: Rect,
+) -> usize {
+    if item_count == 0 {
+        return 0;
+    }
+    let capacity = sidebar_workspace_capacity(sidebar);
+    if capacity == 0 {
+        return 0;
+    }
+    let max_scroll = item_count.saturating_sub(capacity);
+    let active = active.min(item_count - 1);
+    let mut next = scroll.min(max_scroll);
+    if active < next {
+        next = active;
+    } else if active >= next.saturating_add(capacity) {
+        next = active.saturating_add(1).saturating_sub(capacity);
+    }
+    next.min(max_scroll)
+}
+
+/// Given a click in viewport coordinates, return the workspace row or the
+/// fixed new-workspace button if the click lands on a sidebar action.
+/// Empty padding past the last visible workspace returns None.
+pub fn hit_test_sidebar(
+    col: u16,
+    row: u16,
+    sidebar: Rect,
+    item_count: usize,
+    scroll_offset: usize,
+) -> Option<SidebarHit> {
+    if sidebar.cols == 0
+        || sidebar.rows == 0
+        || col < sidebar.col
+        || col >= sidebar.col.saturating_add(sidebar.cols)
+        || row < sidebar.row
+        || row >= sidebar.row.saturating_add(sidebar.rows)
+    {
+        return None;
+    }
+    let relative_row = row.saturating_sub(sidebar.row);
+    let capacity = sidebar_workspace_capacity(sidebar);
+    let new_button_relative_row = sidebar_new_button_relative_row(item_count, capacity);
+    if relative_row == new_button_relative_row {
+        return Some(SidebarHit::NewWorkspace);
+    }
+    if relative_row < SIDEBAR_ITEM_ROW_OFFSET {
+        return None;
+    }
+    if relative_row > new_button_relative_row {
+        return None;
+    }
+    let scroll = clamp_sidebar_scroll(scroll_offset, item_count, capacity);
+    let visible_count =
+        sidebar_visible_workspace_count(item_count.saturating_sub(scroll), capacity);
+    let idx = sidebar_hit_workspace_index(relative_row, scroll, visible_count)?;
+    if idx >= item_count {
+        None
+    } else {
+        Some(SidebarHit::Workspace(idx))
+    }
+}
+
+fn sidebar_hit_workspace_index(
+    relative_row: u16,
+    scroll_offset: usize,
+    visible_count: usize,
+) -> Option<usize> {
+    if visible_count == 0 {
+        return None;
+    }
+    let relative = usize::from(relative_row / SIDEBAR_ITEM_ROW_STRIDE);
+    if relative < visible_count {
+        Some(scroll_offset.saturating_add(relative))
+    } else {
+        None
+    }
 }
 
 /// Given a click in viewport coordinates and the layout leaves,
@@ -4366,6 +4571,27 @@ async fn build_chrome_spec(
                 .map(|(r, g, b)| cmux_cli_core::compositor::RgbColor { r, g, b }),
         })
         .collect();
+    let sidebar_capacity = sidebar_workspace_capacity(sidebar);
+    window.sidebar_scroll =
+        clamp_sidebar_scroll(window.sidebar_scroll, items.len(), sidebar_capacity);
+    if window.sidebar_scroll_follow_active {
+        window.sidebar_scroll =
+            sidebar_scroll_for_active(active, window.sidebar_scroll, items.len(), sidebar);
+        window.sidebar_scroll_follow_active = false;
+    }
+    let sidebar_scroll = window.sidebar_scroll;
+    let sidebar_context_menu = window.sidebar_context_menu.and_then(|menu| {
+        workspaces
+            .iter()
+            .position(|w| w.id == menu.workspace_id)
+            .map(|workspace_index| SidebarContextMenuSpec {
+                workspace_index,
+                pinned: workspaces[workspace_index].pinned,
+            })
+    });
+    if window.sidebar_context_menu.is_some() && sidebar_context_menu.is_none() {
+        window.sidebar_context_menu = None;
+    }
     let active_space = match window.active_space(&active_ws).await {
         Ok(space) => Some(space),
         Err(_) => active_ws.first_space().await,
@@ -4377,6 +4603,8 @@ async fn build_chrome_spec(
                 items,
                 active,
                 focused: window.sidebar_focused,
+                scroll_offset: sidebar_scroll,
+                context_menu: sidebar_context_menu,
             },
             space_bar: TabBarSpec {
                 rect: space_bar_rect,
@@ -4447,7 +4675,7 @@ async fn build_chrome_spec(
     // Shortcut hints mirror tmux's split defaults: `%` for side-by-side
     // and `"` for stacked panes.
     let hints = if window.sidebar_focused {
-        "j/k or C-n/C-p move · c new · enter done · esc cancel ".to_string()
+        "↑/↓ or j/k move · c new · enter done · esc cancel ".to_string()
     } else if window.space_strip_focused {
         "h/l or C-p/C-n move · enter done · esc cancel ".to_string()
     } else {
@@ -4521,6 +4749,8 @@ async fn build_chrome_spec(
             items,
             active,
             focused: window.sidebar_focused,
+            scroll_offset: sidebar_scroll,
+            context_menu: sidebar_context_menu,
         },
         space_bar: TabBarSpec {
             rect: space_bar_rect,
@@ -5138,6 +5368,8 @@ fn encode_sgr_mouse(col: u16, row: u16, event: cmux_cli_protocol::MouseKind) -> 
         MouseKind::Down => (0, false),
         MouseKind::Drag => (32, false), // button 0 + motion flag (32)
         MouseKind::Up => (0, true),
+        MouseKind::RightDown => (2, false),
+        MouseKind::RightUp => (2, true),
         MouseKind::Wheel { lines } if lines < 0 => (64, false),
         MouseKind::Wheel { lines: _ } => (65, false),
     };
@@ -6896,7 +7128,32 @@ async fn handle_window_mouse(
     match event {
         MouseKind::Down => {
             let (ws_items, _) = daemon.workspace_list_with_active(window.active_ws_id).await;
-            let sidebar_hit = hit_test_sidebar(col, row, sidebar, ws_items.len());
+            if let Some(menu) = window.sidebar_context_menu
+                && let Some(workspace_index) =
+                    ws_items.iter().position(|w| w.id == menu.workspace_id)
+                && let Some(action) = hit_test_sidebar_context_menu(
+                    col,
+                    row,
+                    sidebar,
+                    workspace_index,
+                    window.sidebar_scroll,
+                )
+            {
+                window.sidebar_context_menu = None;
+                match action {
+                    SidebarContextMenuAction::TogglePin => {
+                        let _ = toggle_workspace_pinned_by_id(daemon, menu.workspace_id).await;
+                    }
+                    SidebarContextMenuAction::Close => {
+                        let _ = close_workspace_by_id(daemon, menu.workspace_id).await;
+                    }
+                }
+                repaint_window(session, daemon, client_id, window, viewport, None).await?;
+                return Ok(());
+            }
+            window.sidebar_context_menu = None;
+            let sidebar_hit =
+                hit_test_sidebar(col, row, sidebar, ws_items.len(), window.sidebar_scroll);
             let spaces = active_ws.spaces.lock().await.clone();
             let space_titles: Vec<String> = {
                 let mut titles = Vec::with_capacity(spaces.len());
@@ -6945,23 +7202,44 @@ async fn handle_window_mouse(
                 None
             };
 
-            if let Some(idx) = sidebar_hit {
-                window.sidebar_focused = false;
-                let ws = window.select_workspace(daemon, idx).await?;
-                daemon.active_ws_tx.send(ws).ok();
-                sync_window_view(
-                    session,
-                    daemon,
-                    client_id,
-                    window,
-                    viewport,
-                    None,
-                    output_rx,
-                    subscribed_tab_id,
-                    last_announced_ws_id,
-                    last_announced_tab,
-                )
-                .await?;
+            if let Some(hit) = sidebar_hit {
+                match hit {
+                    SidebarHit::Workspace(idx) => {
+                        window.sidebar_focused = false;
+                        let ws = window.select_workspace(daemon, idx).await?;
+                        daemon.active_ws_tx.send(ws).ok();
+                        sync_window_view(
+                            session,
+                            daemon,
+                            client_id,
+                            window,
+                            viewport,
+                            None,
+                            output_rx,
+                            subscribed_tab_id,
+                            last_announced_ws_id,
+                            last_announced_tab,
+                        )
+                        .await?;
+                    }
+                    SidebarHit::NewWorkspace => {
+                        window.sidebar_focused = false;
+                        create_and_activate_workspace(daemon, window, None, None).await?;
+                        sync_window_view(
+                            session,
+                            daemon,
+                            client_id,
+                            window,
+                            viewport,
+                            None,
+                            output_rx,
+                            subscribed_tab_id,
+                            last_announced_ws_id,
+                            last_announced_tab,
+                        )
+                        .await?;
+                    }
+                }
             } else if let Some(idx) = space_hit {
                 window.sidebar_focused = false;
                 window.space_strip_focused = false;
@@ -7078,6 +7356,22 @@ async fn handle_window_mouse(
                 }
             }
         }
+        MouseKind::RightDown => {
+            *selection = None;
+            *selection_autoscroll = None;
+            let (ws_items, _) = daemon.workspace_list_with_active(window.active_ws_id).await;
+            let sidebar_hit =
+                hit_test_sidebar(col, row, sidebar, ws_items.len(), window.sidebar_scroll);
+            window.sidebar_context_menu = match sidebar_hit {
+                Some(SidebarHit::Workspace(idx)) => {
+                    ws_items.get(idx).map(|workspace| SidebarContextMenuState {
+                        workspace_id: workspace.id,
+                    })
+                }
+                _ => None,
+            };
+            repaint_window(session, daemon, client_id, window, viewport, None).await?;
+        }
         MouseKind::Drag => {
             if selection.is_some() {
                 let viewport_offset = daemon.broker.viewport_offset(active_tab.id).await;
@@ -7137,7 +7431,32 @@ async fn handle_window_mouse(
                 repaint_window(session, daemon, client_id, window, viewport, None).await?;
             }
         }
+        MouseKind::RightUp => {}
         MouseKind::Wheel { lines } => {
+            let in_sidebar = sidebar.cols > 0
+                && col >= sidebar.col
+                && col < sidebar.col.saturating_add(sidebar.cols)
+                && row >= sidebar.row
+                && row < sidebar.row.saturating_add(sidebar.rows);
+            if in_sidebar {
+                let (ws_items, _) = daemon.workspace_list_with_active(window.active_ws_id).await;
+                let capacity = sidebar_workspace_capacity(sidebar);
+                if capacity > 0 {
+                    let max_scroll = ws_items.len().saturating_sub(capacity);
+                    let current =
+                        clamp_sidebar_scroll(window.sidebar_scroll, ws_items.len(), capacity);
+                    let steps = usize::from(lines.unsigned_abs());
+                    let next = if lines > 0 {
+                        current.saturating_add(steps).min(max_scroll)
+                    } else {
+                        current.saturating_sub(steps)
+                    };
+                    window.sidebar_scroll = next;
+                    window.sidebar_scroll_follow_active = false;
+                }
+                repaint_window(session, daemon, client_id, window, viewport, *selection).await?;
+                return Ok(());
+            }
             let delta = lines as isize;
             daemon.broker.scroll(active_tab.id, delta);
             let viewport_offset = daemon.broker.viewport_offset(active_tab.id).await;
@@ -7158,16 +7477,40 @@ fn ok_result() -> CommandResult {
 
 fn sidebar_mode_commands(bytes: &[u8]) -> Vec<Command> {
     let mut commands = Vec::new();
-    for &byte in bytes {
-        match byte {
-            b'j' | 0x0e => commands.push(Command::NextWorkspace),
-            b'k' | 0x10 => commands.push(Command::PrevWorkspace),
-            b'c' => commands.push(Command::NewWorkspace {
-                title: None,
-                cwd: None,
-            }),
-            b'\r' | b' ' | 0x1b | b'q' => commands.push(Command::FocusSidebar),
-            _ => {}
+    let mut i = 0usize;
+    while i < bytes.len() {
+        match &bytes[i..] {
+            [0x1b, b'[', b'B', ..] => {
+                commands.push(Command::NextWorkspace);
+                i += 3;
+            }
+            [0x1b, b'[', b'A', ..] => {
+                commands.push(Command::PrevWorkspace);
+                i += 3;
+            }
+            [b'j', ..] | [0x0e, ..] => {
+                commands.push(Command::NextWorkspace);
+                i += 1;
+            }
+            [b'k', ..] | [0x10, ..] => {
+                commands.push(Command::PrevWorkspace);
+                i += 1;
+            }
+            [b'c', ..] => {
+                commands.push(Command::NewWorkspace {
+                    title: None,
+                    cwd: None,
+                });
+                i += 1;
+            }
+            [b'\r', ..] | [b' ', ..] | [0x1b, ..] | [b'q', ..] => {
+                commands.push(Command::FocusSidebar);
+                i += 1;
+            }
+            [_unknown, ..] => {
+                i += 1;
+            }
+            [] => break,
         }
     }
     commands
@@ -7200,6 +7543,40 @@ async fn close_workspace_tabs(ws: &Arc<Workspace>) {
             tab.pty_tx.send(PtyOp::Write(vec![0x04])).ok();
         }
     }
+}
+
+fn toggle_workspace_pinned(ws: &Arc<Workspace>, daemon: &Arc<Daemon>) {
+    ws.pinned.fetch_xor(true, Ordering::Relaxed);
+    daemon.wake_model();
+}
+
+async fn set_workspace_pinned_by_id(
+    daemon: &Arc<Daemon>,
+    workspace_id: u64,
+    pinned: bool,
+) -> Result<()> {
+    let Some(ws) = daemon.workspace_by_id(workspace_id).await else {
+        bail!("workspace {workspace_id} not found");
+    };
+    ws.pinned.store(pinned, Ordering::Relaxed);
+    daemon.wake_model();
+    Ok(())
+}
+
+async fn toggle_workspace_pinned_by_id(daemon: &Arc<Daemon>, workspace_id: u64) -> Result<()> {
+    let Some(ws) = daemon.workspace_by_id(workspace_id).await else {
+        bail!("workspace {workspace_id} not found");
+    };
+    toggle_workspace_pinned(&ws, daemon);
+    Ok(())
+}
+
+async fn close_workspace_by_id(daemon: &Arc<Daemon>, workspace_id: u64) -> Result<()> {
+    let Some(ws) = daemon.workspace_by_id(workspace_id).await else {
+        bail!("workspace {workspace_id} not found");
+    };
+    close_workspace_tabs(&ws).await;
+    Ok(())
 }
 
 async fn run_window_command(
@@ -7332,22 +7709,9 @@ async fn run_window_command(
             )
         }
         Command::NewWorkspace { title, cwd } => {
-            match daemon
-                .clone()
-                .new_workspace(title, cwd.map(PathBuf::from))
-                .await
+            match create_and_activate_workspace(daemon, window, title, cwd.map(PathBuf::from)).await
             {
-                Ok(ws) => {
-                    window.active_ws_id = ws.id;
-                    if let Some(space) = ws.first_space().await
-                        && let Some(panel_id) = space.default_panel_id().await
-                        && let Some(tab) = space.first_tab().await
-                    {
-                        window.remember_tab(&ws, &space, panel_id, &tab);
-                    }
-                    daemon.wake_model();
-                    (ok_result(), None, true)
-                }
+                Ok(_) => (ok_result(), None, true),
                 Err(e) => (err_result(e), None, false),
             }
         }
@@ -7726,24 +8090,15 @@ async fn run_window_command(
                 Ok(ws) => ws,
                 Err(e) => return (err_result(e), None, false),
             };
-            ws.pinned.fetch_xor(true, Ordering::Relaxed);
-            daemon.wake_model();
+            toggle_workspace_pinned(&ws, daemon);
             (ok_result(), None, true)
         }
         Command::SetWorkspacePinned {
             workspace_id,
             pinned,
-        } => match daemon.workspace_by_id(workspace_id).await {
-            Some(ws) => {
-                ws.pinned.store(pinned, Ordering::Relaxed);
-                daemon.wake_model();
-                (ok_result(), None, true)
-            }
-            None => (
-                err_result(format!("workspace {workspace_id} not found")),
-                None,
-                false,
-            ),
+        } => match set_workspace_pinned_by_id(daemon, workspace_id, pinned).await {
+            Ok(()) => (ok_result(), None, true),
+            Err(e) => (err_result(e), None, false),
         },
         Command::SetWorkspaceUnread {
             workspace_id,
@@ -8100,6 +8455,39 @@ mod tests {
             inner: rect,
             bottom_border: rect,
         }
+    }
+
+    #[test]
+    fn sidebar_mode_maps_arrow_keys_to_workspace_navigation() {
+        let commands = sidebar_mode_commands(b"\x1b[B\x1b[B\x1b[A");
+
+        assert_eq!(commands.len(), 3);
+        assert!(matches!(commands.first(), Some(Command::NextWorkspace)));
+        assert!(matches!(commands.get(1), Some(Command::NextWorkspace)));
+        assert!(matches!(commands.get(2), Some(Command::PrevWorkspace)));
+    }
+
+    #[test]
+    fn sidebar_mode_treats_bare_escape_as_exit() {
+        let commands = sidebar_mode_commands(b"\x1b");
+
+        assert_eq!(commands.len(), 1);
+        assert!(matches!(commands.first(), Some(Command::FocusSidebar)));
+    }
+
+    #[test]
+    fn sidebar_context_menu_hit_tests_pin_and_close_rows() {
+        let (sidebar, _space_bar, _top, _pane, _bottom, _status) = chrome_layout((120, 24));
+
+        assert_eq!(
+            hit_test_sidebar_context_menu(2, 4, sidebar, 1, 0),
+            Some(SidebarContextMenuAction::TogglePin)
+        );
+        assert_eq!(
+            hit_test_sidebar_context_menu(2, 5, sidebar, 1, 0),
+            Some(SidebarContextMenuAction::Close)
+        );
+        assert_eq!(hit_test_sidebar_context_menu(2, 6, sidebar, 1, 0), None);
     }
 
     #[test]

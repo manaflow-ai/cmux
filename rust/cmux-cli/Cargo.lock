@@ -484,6 +484,7 @@ dependencies = [
  "cmux-cli-core",
  "cmux-cli-protocol",
  "cmux-cli-server",
+ "cmux-iroh-bridge",
  "libc",
  "libghostty-vt",
  "libghostty-vt-sys",

@@ -49,9 +49,16 @@ const getPairingSecret = mock(async (pairingID: string) => ({
   pairing_secret: "shared-secret-from-rivet",
   expires_at_unix: 4_000_000_000,
 }));
-const hiveStoreForUser = mock(() => ({
+const unlinkNode = mock(async (nodeID: string) => ({
+  id: nodeID,
+  name: "Old Mac",
+  is_online: false,
+  workspaces: [],
+}));
+const hiveStoreForTeam = mock(() => ({
   list,
   upsertNode,
+  unlinkNode,
   upsertPairing,
   getPairingSecret,
 }));
@@ -62,20 +69,24 @@ mock.module("../app/lib/stack", () => ({
 }));
 
 mock.module("../services/hive/rivetClient", () => ({
-  hiveStoreForUser,
+  hiveStoreForTeam,
+  hiveStoreForUser: mock((userID: string) => hiveStoreForTeam(`legacy-user:${userID}`)),
 }));
 
 const hiveRoute = await import("../app/api/hive/route");
 const nodesRoute = await import("../app/api/hive/nodes/route");
+const nodeRoute = await import("../app/api/hive/nodes/[id]/route");
 const pairingsRoute = await import("../app/api/hive/pairings/route");
 const secretRoute = await import("../app/api/hive/pairings/[id]/secret/route");
+const teamsRoute = await import("../app/api/hive/teams/route");
 
 beforeEach(() => {
   getUser.mockClear();
   getUser.mockResolvedValue(null);
-  hiveStoreForUser.mockClear();
+  hiveStoreForTeam.mockClear();
   list.mockClear();
   upsertNode.mockClear();
+  unlinkNode.mockClear();
   upsertPairing.mockClear();
   getPairingSecret.mockClear();
 });
@@ -86,10 +97,10 @@ describe("hive API", () => {
 
     expect(response.status).toBe(401);
     expect(await response.json()).toEqual({ error: "unauthorized" });
-    expect(hiveStoreForUser).not.toHaveBeenCalled();
+    expect(hiveStoreForTeam).not.toHaveBeenCalled();
   });
 
-  test("returns Stack-scoped hive discovery records", async () => {
+  test("returns default personal-team hive discovery records", async () => {
     getUser.mockResolvedValue(authedStackUser());
 
     const response = await hiveRoute.GET(
@@ -103,7 +114,121 @@ describe("hive API", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual(await list());
-    expect(hiveStoreForUser).toHaveBeenCalledWith("user-1");
+    expect(hiveStoreForTeam).toHaveBeenCalledWith("personal:user-1");
+  });
+
+  test("uses the requested Stack team when the caller belongs to it", async () => {
+    getUser.mockResolvedValue(authedStackUser({
+      listTeams: async () => [
+        { id: "team-alpha", displayName: "Alpha Team", slug: "alpha" },
+      ],
+    }));
+
+    const response = await hiveRoute.GET(
+      new Request("https://cmux.test/api/hive", {
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+          "x-cmux-team-id": "team-alpha",
+        },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(hiveStoreForTeam).toHaveBeenCalledWith("team-alpha");
+  });
+
+  test("defaults to personal Hive team even when Stack has a selected shared team", async () => {
+    getUser.mockResolvedValue(authedStackUser({
+      selectedTeam: { id: "team-alpha", displayName: "Alpha Team" },
+      listTeams: async () => [{ id: "team-alpha", displayName: "Alpha Team" }],
+    }));
+
+    const response = await hiveRoute.GET(
+      new Request("https://cmux.test/api/hive", {
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(hiveStoreForTeam).toHaveBeenCalledWith("personal:user-1");
+  });
+
+  test("uses the real Stack personal team id when Stack exposes one", async () => {
+    getUser.mockResolvedValue(authedStackUser({
+      selectedTeam: { id: "team-alpha", displayName: "Alpha Team" },
+      listTeams: async () => [
+        { id: "team-personal", displayName: "Personal", isPersonal: true },
+        { id: "team-alpha", displayName: "Alpha Team" },
+      ],
+    }));
+
+    const response = await hiveRoute.GET(
+      new Request("https://cmux.test/api/hive", {
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(hiveStoreForTeam).toHaveBeenCalledWith("team-personal");
+  });
+
+  test("rejects requested Stack teams the caller cannot access", async () => {
+    getUser.mockResolvedValue(authedStackUser({
+      listTeams: async () => [{ id: "team-alpha", displayName: "Alpha Team" }],
+    }));
+
+    const response = await hiveRoute.GET(
+      new Request("https://cmux.test/api/hive?teamId=team-beta", {
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "team not found" });
+    expect(hiveStoreForTeam).not.toHaveBeenCalled();
+  });
+
+  test("lists available Hive teams for the settings picker", async () => {
+    getUser.mockResolvedValue(authedStackUser({
+      selectedTeam: {
+        id: "team-personal",
+        displayName: "Personal",
+        isPersonal: true,
+      },
+      listTeams: async () => [
+        { id: "team-personal", displayName: "Personal", isPersonal: true },
+        { id: "team-alpha", displayName: "Alpha Team", slug: "alpha" },
+      ],
+    }));
+
+    const response = await teamsRoute.GET(
+      new Request("https://cmux.test/api/hive/teams", {
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      teams: [
+        { id: "team-personal", display_name: "Personal", is_personal: true },
+        { id: "team-alpha", display_name: "Alpha Team", is_personal: false },
+      ],
+      default_team_id: "team-personal",
+      selected_team_id: "team-personal",
+    });
   });
 
   test("stores node metadata behind Stack auth", async () => {
@@ -130,6 +255,33 @@ describe("hive API", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ node: body });
     expect(upsertNode).toHaveBeenCalledWith(body);
+    expect(hiveStoreForTeam).toHaveBeenCalledWith("personal:user-1");
+  });
+
+  test("unlinks old nodes behind Stack auth", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+
+    const response = await nodeRoute.DELETE(
+      new Request("https://cmux.test/api/hive/nodes/old-mac", {
+        method: "DELETE",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+      }),
+      { params: Promise.resolve({ id: "old-mac" }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      node: {
+        id: "old-mac",
+        name: "Old Mac",
+        is_online: false,
+        workspaces: [],
+      },
+    });
+    expect(unlinkNode).toHaveBeenCalledWith("old-mac");
   });
 
   test("stores pairing secrets without returning secret material", async () => {
@@ -216,12 +368,13 @@ describe("hive API", () => {
   });
 });
 
-function authedStackUser() {
+function authedStackUser(overrides: Record<string, unknown> = {}) {
   return {
     id: "user-1",
     displayName: null,
     primaryEmail: "user@example.com",
     selectedTeam: null,
     listTeams: async () => [],
+    ...overrides,
   };
 }

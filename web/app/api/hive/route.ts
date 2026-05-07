@@ -1,4 +1,4 @@
-import { hiveStoreForUser } from "../../../services/hive/rivetClient";
+import { hiveStoreForTeam } from "../../../services/hive/rivetClient";
 import { withAuthedHiveApiRoute } from "../../../services/hive/routeHelpers";
 import { jsonResponse } from "../../../services/vms/routeHelpers";
 
@@ -10,10 +10,9 @@ export async function GET(request: Request): Promise<Response> {
     "/api/hive",
     { "cmux.hive.operation": "list" },
     "/api/hive GET failed",
-    async ({ user }) => {
-      const snapshot = await hiveStoreForUser(user.id).list();
+    async ({ hiveTeamID }) => {
+      const snapshot = await hiveStoreForTeam(hiveTeamID).list();
       return jsonResponse(snapshot);
     },
   );
 }
-

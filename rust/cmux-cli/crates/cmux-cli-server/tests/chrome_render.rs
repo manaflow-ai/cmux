@@ -72,7 +72,6 @@ async fn composed_frame_shows_sidebar_and_status() {
 
     // Collect rendered Grid frames; each one is a full-screen composite. Look
     // for:
-    //  - "cmux"        — sidebar header
     //  - "[main"       — status bar (workspace title + active space)
     //  - "CMX_CHROME_OK_22A" — echo output inside the pane
     let mut frames_buf = String::new();
@@ -83,7 +82,6 @@ async fn composed_frame_shows_sidebar_and_status() {
             Ok(Ok(Some(ServerMsg::PtyBytes { data, .. }))) => {
                 frames_buf.push_str(&String::from_utf8_lossy(&data));
                 if frames_buf.contains("CMX_CHROME_OK_22A")
-                    && frames_buf.contains("cmux")
                     && frames_buf.contains("[main")
                     && frames_buf.contains("42ms")
                 {
@@ -95,11 +93,6 @@ async fn composed_frame_shows_sidebar_and_status() {
         }
     }
 
-    assert!(
-        frames_buf.contains("cmux"),
-        "sidebar header missing from composite. snippet: {}",
-        &frames_buf[..frames_buf.len().min(800)]
-    );
     assert!(
         frames_buf.contains("[main"),
         "status bar missing workspace title. snippet: {}",
@@ -132,6 +125,11 @@ async fn composed_frame_shows_sidebar_and_status() {
     assert!(
         frames_buf.contains("new-space"),
         "space hint missing from status bar; snippet: {}",
+        &frames_buf[..frames_buf.len().min(800)]
+    );
+    assert!(
+        frames_buf.contains("[new]"),
+        "sidebar new-workspace button missing from composed frame; snippet: {}",
         &frames_buf[..frames_buf.len().min(800)]
     );
     // Zellij-style rounded-corner border around the pane area. The

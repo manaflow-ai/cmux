@@ -18,9 +18,13 @@
 use std::path::PathBuf;
 use std::process::{Command as ProcessCommand, Stdio};
 
-use anyhow::Result;
-use clap::{Parser, Subcommand};
+use anyhow::{Result, bail};
+use clap::{CommandFactory, Parser, Subcommand, ValueEnum, error::ErrorKind};
 use cmux_cli_core::probe;
+use cmux_iroh_bridge::{
+    BridgeNodeInfo, BridgeOptions, BridgePairingOptions, BridgeRelayMode,
+    serve as serve_iroh_bridge,
+};
 
 #[derive(Parser, Debug)]
 #[command(name = "cmx", version, about = "cmux-cli terminal multiplexer")]
@@ -45,6 +49,31 @@ enum Command {
         /// the WS listener accepts any connection; don't expose it.
         #[arg(long, env = "CMX_AUTH_TOKEN")]
         auth_token: Option<String>,
+    },
+    /// Expose the cmx socket over iroh and print an iOS bridge ticket.
+    Bridge {
+        #[arg(long, value_enum, default_value_t = BridgeRelayArg::Default)]
+        relay: BridgeRelayArg,
+        #[arg(long, env = "CMUX_PAIRING_ID")]
+        pairing_id: Option<String>,
+        #[arg(long, env = "CMUX_PAIRING_SECRET")]
+        pairing_secret: Option<String>,
+        #[arg(long, env = "CMUX_RIVET_ENDPOINT")]
+        rivet_endpoint: Option<String>,
+        #[arg(long, env = "CMUX_STACK_PROJECT_ID")]
+        stack_project_id: Option<String>,
+        #[arg(long, env = "CMUX_PAIRING_EXPIRES_AT_UNIX")]
+        expires_at_unix: Option<u64>,
+        #[arg(long, env = "CMUX_NODE_ID")]
+        node_id: Option<String>,
+        #[arg(long, env = "CMUX_NODE_NAME")]
+        node_name: Option<String>,
+        #[arg(long, env = "CMUX_NODE_SUBTITLE")]
+        node_subtitle: Option<String>,
+        #[arg(long, env = "CMUX_NODE_KIND")]
+        node_kind: Option<String>,
+        #[arg(long)]
+        allow_insecure_direct: bool,
     },
     /// Attach to the cmx server, starting it first if needed.
     #[command(alias = "reattach")]
@@ -233,6 +262,21 @@ enum Command {
     },
 }
 
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum BridgeRelayArg {
+    Default,
+    Disabled,
+}
+
+impl From<BridgeRelayArg> for BridgeRelayMode {
+    fn from(value: BridgeRelayArg) -> Self {
+        match value {
+            BridgeRelayArg::Default => Self::Default,
+            BridgeRelayArg::Disabled => Self::Disabled,
+        }
+    }
+}
+
 #[derive(Subcommand, Debug)]
 enum RenameTarget {
     /// Rename the currently-active terminal.
@@ -246,7 +290,7 @@ enum RenameTarget {
 
 fn main() -> ! {
     let args = normalized_cli_args(std::env::args());
-    let cli = Cli::parse_from(args);
+    let cli = parse_cli_or_exit(&args);
     let socket = cli.socket.unwrap_or_else(default_socket_path);
     probe::log_event(
         "cmx",
@@ -301,6 +345,36 @@ fn main() -> ! {
                     settings_path: Some(default_settings_path()),
                     ws_bind,
                     auth_token,
+                })
+                .await
+            }
+            Command::Bridge {
+                relay,
+                pairing_id,
+                pairing_secret,
+                rivet_endpoint,
+                stack_project_id,
+                expires_at_unix,
+                node_id,
+                node_name,
+                node_subtitle,
+                node_kind,
+                allow_insecure_direct,
+            } => {
+                let node = bridge_node_info(node_id, node_name, node_subtitle, node_kind)?;
+                let pairing = bridge_pairing_options(
+                    pairing_id,
+                    pairing_secret,
+                    rivet_endpoint,
+                    stack_project_id,
+                    expires_at_unix,
+                    allow_insecure_direct,
+                )?;
+                serve_iroh_bridge(BridgeOptions {
+                    cmx_socket_path: socket,
+                    relay_mode: relay.into(),
+                    pairing,
+                    node,
                 })
                 .await
             }
@@ -780,6 +854,7 @@ fn main() -> ! {
                     "attach",
                     "reattach",
                     "server",
+                    "bridge",
                     "ping",
                     "version",
                     "identify",
@@ -859,6 +934,97 @@ fn main() -> ! {
             std::process::exit(1);
         }
     }
+}
+
+fn parse_cli_or_exit(args: &[String]) -> Cli {
+    match Cli::try_parse_from(args.to_vec()) {
+        Ok(cli) => cli,
+        Err(error) => {
+            let exit_code = error.exit_code();
+            let error_kind = error.kind();
+            let _ = error.print();
+            if let Some(help) = contextual_command_help(args, error_kind) {
+                eprintln!();
+                eprint!("{help}");
+            }
+            std::process::exit(exit_code);
+        }
+    }
+}
+
+fn contextual_command_help(args: &[String], error_kind: ErrorKind) -> Option<String> {
+    if !matches!(
+        error_kind,
+        ErrorKind::InvalidSubcommand | ErrorKind::MissingSubcommand | ErrorKind::UnknownArgument
+    ) {
+        return None;
+    }
+
+    let path = recognized_command_path(args);
+    if path.is_empty() && error_kind != ErrorKind::InvalidSubcommand {
+        return None;
+    }
+    help_for_command_path(args, &path)
+}
+
+fn recognized_command_path(args: &[String]) -> Vec<String> {
+    let mut path = Vec::new();
+    let mut command = Cli::command();
+    for token in command_tokens(args) {
+        let Some(next) = matching_subcommand(&command, token) else {
+            break;
+        };
+        path.push(next.get_name().to_string());
+        command = next;
+    }
+    path
+}
+
+fn command_tokens(args: &[String]) -> Vec<&str> {
+    let mut tokens = Vec::new();
+    let mut skip_next = false;
+    for arg in args.iter().skip(1) {
+        if skip_next {
+            skip_next = false;
+            continue;
+        }
+        if arg == "--" {
+            break;
+        }
+        if arg == "--socket" {
+            skip_next = true;
+            continue;
+        }
+        if arg.starts_with("--socket=") || arg.starts_with('-') {
+            continue;
+        }
+        tokens.push(arg.as_str());
+    }
+    tokens
+}
+
+fn matching_subcommand(command: &clap::Command, token: &str) -> Option<clap::Command> {
+    command
+        .get_subcommands()
+        .find(|subcommand| {
+            subcommand.get_name() == token
+                || subcommand.get_all_aliases().any(|alias| alias == token)
+        })
+        .cloned()
+}
+
+fn help_for_command_path(args: &[String], path: &[String]) -> Option<String> {
+    let binary = args.first()?;
+    let mut help_args = Vec::with_capacity(path.len() + 2);
+    help_args.push(binary.clone());
+    help_args.extend(path.iter().cloned());
+    help_args.push("--help".to_string());
+
+    let help_error = Cli::try_parse_from(help_args).err()?;
+    if help_error.kind() != ErrorKind::DisplayHelp {
+        return None;
+    }
+    Some(help_error.to_string())
 }
 
 fn normalized_cli_args(args: impl IntoIterator<Item = String>) -> Vec<String> {
@@ -1201,6 +1367,74 @@ async fn fire_and_forget(socket: PathBuf, command: cmux_cli_protocol::Command) -
     }
 }
 
+fn bridge_node_info(
+    node_id: Option<String>,
+    node_name: Option<String>,
+    node_subtitle: Option<String>,
+    node_kind: Option<String>,
+) -> Result<Option<BridgeNodeInfo>> {
+    let node = BridgeNodeInfo {
+        id: non_empty(node_id),
+        name: non_empty(node_name).unwrap_or_else(|| "cmux node".to_owned()),
+        subtitle: non_empty(node_subtitle),
+        kind: non_empty(node_kind),
+    };
+    node.validate()?;
+    Ok(Some(node))
+}
+
+fn bridge_pairing_options(
+    pairing_id: Option<String>,
+    pairing_secret: Option<String>,
+    rivet_endpoint: Option<String>,
+    stack_project_id: Option<String>,
+    expires_at_unix: Option<u64>,
+    allow_insecure_direct: bool,
+) -> Result<Option<BridgePairingOptions>> {
+    let has_pairing = pairing_id.is_some()
+        || pairing_secret.is_some()
+        || rivet_endpoint.is_some()
+        || stack_project_id.is_some()
+        || expires_at_unix.is_some();
+    if !has_pairing {
+        if allow_insecure_direct {
+            return Ok(None);
+        }
+        bail!(
+            "pairing auth is required; provide CMUX_PAIRING_* and CMUX_RIVET_ENDPOINT/CMUX_STACK_PROJECT_ID or pass --allow-insecure-direct for local development"
+        );
+    }
+
+    Ok(Some(BridgePairingOptions {
+        pairing_id: required_non_empty(pairing_id, "--pairing-id / CMUX_PAIRING_ID")?,
+        secret: required_non_empty(pairing_secret, "--pairing-secret / CMUX_PAIRING_SECRET")?,
+        rivet_endpoint: required_non_empty(
+            rivet_endpoint,
+            "--rivet-endpoint / CMUX_RIVET_ENDPOINT",
+        )?,
+        stack_project_id: required_non_empty(
+            stack_project_id,
+            "--stack-project-id / CMUX_STACK_PROJECT_ID",
+        )?,
+        expires_at_unix: expires_at_unix.filter(|value| *value > 0).ok_or_else(|| {
+            anyhow::anyhow!("missing --expires-at-unix / CMUX_PAIRING_EXPIRES_AT_UNIX")
+        })?,
+    }))
+}
+
+fn required_non_empty(value: Option<String>, label: &str) -> Result<String> {
+    non_empty(value).ok_or_else(|| anyhow::anyhow!("missing {label}"))
+}
+
+fn non_empty(value: Option<String>) -> Option<String> {
+    let trimmed = value?.trim().to_owned();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    }
+}
+
 fn default_socket_path() -> PathBuf {
     if let Ok(dir) = std::env::var("XDG_RUNTIME_DIR") {
         return PathBuf::from(dir).join("cmux-cli").join("server.sock");
@@ -1240,6 +1474,7 @@ fn default_settings_path() -> PathBuf {
 fn command_label(command: &Command) -> &'static str {
     match command {
         Command::Server { .. } => "server",
+        Command::Bridge { .. } => "bridge",
         Command::Attach => "attach",
         Command::Ping => "ping",
         Command::Version => "version",

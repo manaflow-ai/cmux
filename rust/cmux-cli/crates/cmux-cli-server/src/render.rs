@@ -126,6 +126,8 @@ pub struct SidebarSpec {
     pub items: Vec<SidebarItem>,
     pub active: usize,
     pub focused: bool,
+    pub scroll_offset: usize,
+    pub context_menu: Option<SidebarContextMenuSpec>,
 }
 
 #[derive(Debug, Clone)]
@@ -138,6 +140,12 @@ pub struct SidebarItem {
     /// as a small `●` dot after the pin marker so long titles stay
     /// readable on a narrow sidebar.
     pub color_rgb: Option<RgbColor>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SidebarContextMenuSpec {
+    pub workspace_index: usize,
+    pub pinned: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -1021,11 +1029,6 @@ fn osc_color_response(slot: u8, color: GhosttyRgbColor) -> Vec<u8> {
 
 // ------------------------------ chrome paint -----------------------------
 
-const SIDEBAR_BG: RgbColor = RgbColor {
-    r: 24,
-    g: 26,
-    b: 30,
-};
 const SIDEBAR_FG: RgbColor = RgbColor {
     r: 210,
     g: 210,
@@ -1036,20 +1039,33 @@ const SIDEBAR_FG_DIM: RgbColor = RgbColor {
     g: 130,
     b: 140,
 };
-const ACCENT: RgbColor = RgbColor {
-    r: 100,
-    g: 160,
-    b: 255,
-};
 const STATUS_BG: RgbColor = RgbColor {
     r: 40,
     g: 44,
     b: 50,
 };
+const SIDEBAR_SELECTED_BG: RgbColor = RgbColor {
+    r: 64,
+    g: 64,
+    b: 64,
+};
 const STATUS_FG: RgbColor = RgbColor {
     r: 220,
     g: 220,
     b: 220,
+};
+const SIDEBAR_ITEM_ROW_OFFSET: u16 = 0;
+const SIDEBAR_ITEM_BLOCK_ROWS: u16 = 3;
+const SIDEBAR_ITEM_ROW_STRIDE: u16 = SIDEBAR_ITEM_BLOCK_ROWS;
+const SIDEBAR_NEW_BUTTON_TOP_PADDING_ROWS: u16 = 1;
+const SIDEBAR_NEW_BUTTON_LABEL: &str = "[new]";
+const SIDEBAR_CONTEXT_MENU_COL: u16 = 1;
+const SIDEBAR_CONTEXT_MENU_WIDTH: u16 = 8;
+const SIDEBAR_CONTEXT_MENU_ROWS: u16 = 2;
+const SIDEBAR_CONTEXT_MENU_BG: RgbColor = RgbColor {
+    r: 52,
+    g: 52,
+    b: 52,
 };
 
 fn paint_sidebar(frame: &mut Frame, spec: &SidebarSpec) {
@@ -1057,71 +1073,180 @@ fn paint_sidebar(frame: &mut Frame, spec: &SidebarSpec) {
     if width == 0 {
         return;
     }
-    // Background fill across the full height (minus status row).
+    let content_end = frame.rows.saturating_sub(1);
+    // Keep the sidebar on the terminal default background so it blends with
+    // the shell theme instead of forcing cmx's own dark panel color.
     frame.fill_rect(
         Rect {
             col: 0,
             row: 0,
             cols: width,
-            rows: frame.rows.saturating_sub(1),
+            rows: content_end,
         },
-        Some(SIDEBAR_BG),
+        None,
     );
 
-    // Header.
-    let header_bg = if spec.focused {
-        TAB_PILL_ACTIVE_BG
-    } else {
-        SIDEBAR_BG
-    };
-    let header_fg = if spec.focused {
-        TAB_PILL_ACTIVE_FG
-    } else {
-        ACCENT
-    };
-    frame.paint_text(
-        0,
-        0,
-        &pad_left(" cmux ", width as usize),
-        Some(header_fg),
-        Some(header_bg),
-    );
+    if content_end == 0 {
+        return;
+    }
 
-    // Items.
-    for (i, item) in spec.items.iter().enumerate() {
-        let row = 2u16.saturating_add(i as u16);
-        if row >= frame.rows.saturating_sub(1) {
+    let capacity = sidebar_workspace_capacity_for_rows(content_end);
+    let scroll_offset = spec
+        .scroll_offset
+        .min(spec.items.len().saturating_sub(capacity));
+    let visible_end = scroll_offset.saturating_add(capacity).min(spec.items.len());
+    let visible_count = visible_end.saturating_sub(scroll_offset);
+    let new_button_row = sidebar_new_button_row(visible_count);
+
+    for (relative_index, item) in spec.items[scroll_offset..visible_end].iter().enumerate() {
+        let i = scroll_offset + relative_index;
+        let block_row = SIDEBAR_ITEM_ROW_OFFSET
+            .saturating_add((relative_index as u16).saturating_mul(SIDEBAR_ITEM_ROW_STRIDE));
+        let row = block_row.saturating_add(1);
+        if row >= new_button_row {
             break;
         }
-        let active_marker = if i == spec.active { "▶" } else { " " };
+        let is_active = i == spec.active;
+        let bg = if is_active {
+            Some(SIDEBAR_SELECTED_BG)
+        } else {
+            None
+        };
+        if is_active {
+            frame.fill_rect(
+                Rect {
+                    col: 0,
+                    row: block_row,
+                    cols: width,
+                    rows: SIDEBAR_ITEM_BLOCK_ROWS.min(new_button_row.saturating_sub(block_row)),
+                },
+                bg,
+            );
+        }
         let pin_marker = if item.pinned { "*" } else { " " };
-        let fg = if i == spec.active {
+        let fg = if is_active {
             SIDEBAR_FG
         } else {
             SIDEBAR_FG_DIM
         };
-        // Layout: "<active><pin><colordot><title>". The colored
+        // Layout: "<pin><colordot><title>". The colored
         // dot is painted separately so it uses the user's RGB
         // instead of the row's foreground color.
         let (dot_glyph, dot_col) = if item.color_rgb.is_some() {
-            ("● ", Some(2u16))
+            ("● ", Some(1u16))
         } else {
             ("", None)
         };
-        let prefix = format!("{active_marker}{pin_marker}{dot_glyph}");
+        let prefix = format!("{pin_marker}{dot_glyph}");
         let line = format!("{prefix}{}", item.title);
-        frame.paint_text(
-            row,
-            0,
-            &pad_left(&line, width as usize),
-            Some(fg),
-            Some(SIDEBAR_BG),
-        );
+        frame.paint_text(row, 0, &pad_left(&line, width as usize), Some(fg), bg);
         // Overlay the dot in the user's color so it stands out
         // regardless of the dim/bright row styling above.
         if let (Some(rgb), Some(col)) = (item.color_rgb, dot_col) {
-            frame.paint_text(row, col, "●", Some(rgb), Some(SIDEBAR_BG));
+            frame.paint_text(row, col, "●", Some(rgb), bg);
         }
+    }
+
+    if new_button_row < content_end {
+        let new_label = pad_left(SIDEBAR_NEW_BUTTON_LABEL, width as usize);
+        frame.paint_text(new_button_row, 0, &new_label, Some(SIDEBAR_FG_DIM), None);
+    }
+
+    if new_button_row > 0 {
+        let indicator_col = width - 1;
+        if scroll_offset > 0 {
+            let bg = if spec.active == scroll_offset {
+                Some(SIDEBAR_SELECTED_BG)
+            } else {
+                None
+            };
+            frame.paint_text(0, indicator_col, "↑", Some(SIDEBAR_FG_DIM), bg);
+        }
+        if visible_end < spec.items.len() && new_button_row <= content_end {
+            let indicator_row = new_button_row - 1;
+            frame.paint_text(
+                indicator_row,
+                indicator_col,
+                "↓",
+                Some(SIDEBAR_FG_DIM),
+                None,
+            );
+        }
+    }
+
+    if let Some(menu) = spec.context_menu.as_ref() {
+        paint_sidebar_context_menu(frame, width, content_end, spec.scroll_offset, menu);
+    }
+}
+
+fn sidebar_workspace_capacity_for_rows(rows: u16) -> usize {
+    let first_workspace_rows = SIDEBAR_ITEM_BLOCK_ROWS
+        .saturating_add(SIDEBAR_NEW_BUTTON_TOP_PADDING_ROWS)
+        .saturating_add(1);
+    if rows < first_workspace_rows {
+        return 0;
+    }
+    usize::from(1 + (rows - first_workspace_rows) / SIDEBAR_ITEM_ROW_STRIDE)
+}
+
+fn sidebar_new_button_row(visible_count: usize) -> u16 {
+    if visible_count == 0 {
+        SIDEBAR_NEW_BUTTON_TOP_PADDING_ROWS
+    } else {
+        ((visible_count - 1) as u16)
+            .saturating_mul(SIDEBAR_ITEM_ROW_STRIDE)
+            .saturating_add(SIDEBAR_ITEM_BLOCK_ROWS)
+            .saturating_add(SIDEBAR_NEW_BUTTON_TOP_PADDING_ROWS)
+    }
+}
+
+fn sidebar_context_menu_rect(
+    width: u16,
+    content_rows: u16,
+    scroll_offset: usize,
+    workspace_index: usize,
+) -> Option<Rect> {
+    if width <= SIDEBAR_CONTEXT_MENU_COL || content_rows < SIDEBAR_CONTEXT_MENU_ROWS {
+        return None;
+    }
+    let visible_index = workspace_index.checked_sub(scroll_offset)?;
+    if visible_index >= sidebar_workspace_capacity_for_rows(content_rows) {
+        return None;
+    }
+    let desired_row = (visible_index as u16)
+        .saturating_mul(SIDEBAR_ITEM_ROW_STRIDE)
+        .saturating_add(1);
+    let max_row = content_rows.saturating_sub(SIDEBAR_CONTEXT_MENU_ROWS);
+    Some(Rect {
+        col: SIDEBAR_CONTEXT_MENU_COL,
+        row: desired_row.min(max_row),
+        cols: SIDEBAR_CONTEXT_MENU_WIDTH.min(width - SIDEBAR_CONTEXT_MENU_COL),
+        rows: SIDEBAR_CONTEXT_MENU_ROWS,
+    })
+}
+
+fn paint_sidebar_context_menu(
+    frame: &mut Frame,
+    width: u16,
+    content_rows: u16,
+    scroll_offset: usize,
+    menu: &SidebarContextMenuSpec,
+) {
+    let Some(rect) =
+        sidebar_context_menu_rect(width, content_rows, scroll_offset, menu.workspace_index)
+    else {
+        return;
+    };
+    let pin_label = if menu.pinned { "unpin" } else { "pin" };
+    for (row_offset, label) in [pin_label, "close"].iter().enumerate() {
+        let text = format!(" {label} ");
+        frame.paint_text(
+            rect.row + row_offset as u16,
+            rect.col,
+            &pad_left(&text, rect.cols as usize),
+            Some(SIDEBAR_FG),
+            Some(SIDEBAR_CONTEXT_MENU_BG),
+        );
     }
 }
 
@@ -1950,13 +2075,166 @@ mod tests {
                 }],
                 active: 0,
                 focused: false,
+                scroll_offset: 0,
+                context_menu: None,
             },
         );
 
-        assert_eq!(frame.cells[2][0].grapheme, "▶");
-        assert_eq!(frame.cells[2][1].grapheme, "*");
-        assert_eq!(frame.cells[2][2].grapheme, "●");
-        assert_eq!(frame.cells[2][2].fg, StyleColor::Rgb(dot));
+        assert_eq!(frame.cells[0][0].bg, StyleColor::Rgb(SIDEBAR_SELECTED_BG));
+        assert_eq!(frame.cells[1][0].grapheme, "*");
+        assert_eq!(frame.cells[1][1].grapheme, "●");
+        assert_eq!(frame.cells[1][1].fg, StyleColor::Rgb(dot));
+        assert_eq!(frame.cells[1][1].bg, StyleColor::Rgb(SIDEBAR_SELECTED_BG));
+        assert_eq!(frame.cells[1][0].bg, StyleColor::Rgb(SIDEBAR_SELECTED_BG));
+        assert_eq!(frame.cells[2][0].bg, StyleColor::Rgb(SIDEBAR_SELECTED_BG));
+        assert_eq!(frame.cells[3][0].grapheme, " ");
+        assert_eq!(frame.cells[4][0].grapheme, "[");
+        assert_eq!(frame.cells[4][1].grapheme, "n");
+    }
+
+    #[test]
+    fn sidebar_workspace_blocks_have_exact_three_row_heights() {
+        let mut frame = Frame::new(16, 12);
+        paint_sidebar(
+            &mut frame,
+            &SidebarSpec {
+                width: 16,
+                items: vec![
+                    SidebarItem {
+                        title: "one".into(),
+                        pinned: false,
+                        color_rgb: None,
+                    },
+                    SidebarItem {
+                        title: "two".into(),
+                        pinned: false,
+                        color_rgb: None,
+                    },
+                    SidebarItem {
+                        title: "three".into(),
+                        pinned: false,
+                        color_rgb: None,
+                    },
+                ],
+                active: 0,
+                focused: false,
+                scroll_offset: 0,
+                context_menu: None,
+            },
+        );
+
+        assert_eq!(frame.cells[0][0].bg, StyleColor::Rgb(SIDEBAR_SELECTED_BG));
+        assert_eq!(frame.cells[1][1].grapheme, "o");
+        assert_eq!(frame.cells[1][0].bg, StyleColor::Rgb(SIDEBAR_SELECTED_BG));
+        assert_eq!(frame.cells[2][0].bg, StyleColor::Rgb(SIDEBAR_SELECTED_BG));
+
+        assert_eq!(frame.cells[3][0].bg, StyleColor::None);
+        assert_eq!(frame.cells[4][1].grapheme, "t");
+        assert_eq!(frame.cells[5][0].bg, StyleColor::None);
+
+        assert_eq!(frame.cells[6][0].bg, StyleColor::None);
+        assert_eq!(frame.cells[7][1].grapheme, "t");
+        assert_eq!(frame.cells[8][0].bg, StyleColor::None);
+
+        assert_eq!(frame.cells[9][0].grapheme, " ");
+        assert_eq!(frame.cells[9][0].bg, StyleColor::None);
+        assert_eq!(frame.cells[10][0].grapheme, "[");
+        assert_eq!(frame.cells[10][1].grapheme, "n");
+    }
+
+    #[test]
+    fn sidebar_overflow_renders_new_button_and_scroll_indicators() {
+        let mut frame = Frame::new(16, 12);
+        paint_sidebar(
+            &mut frame,
+            &SidebarSpec {
+                width: 16,
+                items: vec![
+                    SidebarItem {
+                        title: "one".into(),
+                        pinned: false,
+                        color_rgb: None,
+                    },
+                    SidebarItem {
+                        title: "two".into(),
+                        pinned: false,
+                        color_rgb: None,
+                    },
+                    SidebarItem {
+                        title: "three".into(),
+                        pinned: false,
+                        color_rgb: None,
+                    },
+                    SidebarItem {
+                        title: "four".into(),
+                        pinned: false,
+                        color_rgb: None,
+                    },
+                    SidebarItem {
+                        title: "five".into(),
+                        pinned: false,
+                        color_rgb: None,
+                    },
+                ],
+                active: 2,
+                focused: false,
+                scroll_offset: 1,
+                context_menu: None,
+            },
+        );
+
+        assert_eq!(frame.cells[0][15].grapheme, "↑");
+        assert_eq!(frame.cells[1][1].grapheme, "t");
+        assert_eq!(frame.cells[2][0].bg, StyleColor::None);
+        assert_eq!(frame.cells[3][0].bg, StyleColor::Rgb(SIDEBAR_SELECTED_BG));
+        assert_eq!(frame.cells[4][1].grapheme, "t");
+        assert_eq!(frame.cells[5][0].bg, StyleColor::Rgb(SIDEBAR_SELECTED_BG));
+        assert_eq!(frame.cells[7][1].grapheme, "f");
+        assert_eq!(frame.cells[9][0].bg, StyleColor::None);
+        assert_eq!(frame.cells[9][15].grapheme, "↓");
+        assert_eq!(frame.cells[10][0].grapheme, "[");
+        assert_eq!(frame.cells[10][1].grapheme, "n");
+    }
+
+    #[test]
+    fn sidebar_context_menu_renders_pin_and_close_actions() {
+        let mut frame = Frame::new(16, 12);
+        paint_sidebar(
+            &mut frame,
+            &SidebarSpec {
+                width: 16,
+                items: vec![
+                    SidebarItem {
+                        title: "one".into(),
+                        pinned: false,
+                        color_rgb: None,
+                    },
+                    SidebarItem {
+                        title: "two".into(),
+                        pinned: false,
+                        color_rgb: None,
+                    },
+                ],
+                active: 0,
+                focused: false,
+                scroll_offset: 0,
+                context_menu: Some(SidebarContextMenuSpec {
+                    workspace_index: 1,
+                    pinned: false,
+                }),
+            },
+        );
+
+        assert_eq!(
+            frame.cells[4][1].bg,
+            StyleColor::Rgb(SIDEBAR_CONTEXT_MENU_BG)
+        );
+        assert_eq!(frame.cells[4][2].grapheme, "p");
+        assert_eq!(
+            frame.cells[5][1].bg,
+            StyleColor::Rgb(SIDEBAR_CONTEXT_MENU_BG)
+        );
+        assert_eq!(frame.cells[5][2].grapheme, "c");
     }
 
     #[test]

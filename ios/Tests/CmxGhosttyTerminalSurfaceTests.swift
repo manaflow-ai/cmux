@@ -313,7 +313,7 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
         let (surfaceView, delegate) = try makeSurfaceView()
         let appliedExpectation = expectation(description: "Ghostty applied live pinch zoom")
         surfaceView.onFontZoomAppliedForTesting = { fontSize in
-            if fontSize == 18 {
+            if fontSize == 16 {
                 appliedExpectation.fulfill()
             }
         }
@@ -325,7 +325,7 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
         await fulfillment(of: [appliedExpectation], timeout: 5.0)
         XCTAssertNotNil(delegate.lastSize)
         XCTAssertGreaterThan(delegate.resizeCount, 0)
-        XCTAssertEqual(surfaceView.fontSizeForTesting, 18)
+        XCTAssertEqual(surfaceView.fontSizeForTesting, 16)
         XCTAssertFalse(surfaceView.isDisplayLinkActiveForTesting)
     }
 
@@ -365,7 +365,7 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
         surfaceView.simulateTextInputForTesting("x")
 
         await fulfillment(of: [inputExpectation], timeout: 2.0)
-        XCTAssertEqual(surfaceView.fontSizeForTesting, 16)
+        XCTAssertEqual(surfaceView.fontSizeForTesting, 14)
         XCTAssertFalse(surfaceView.isDisplayLinkActiveForTesting)
     }
 

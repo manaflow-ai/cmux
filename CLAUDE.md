@@ -63,6 +63,16 @@ ios/scripts/attach-latest.sh <tag>
 If the tag is unknown, use `ios/scripts/attach-latest.sh`. If a specific socket
 is the relevant context, use `ios/scripts/attach-latest.sh --socket <path>`.
 
+For iOS iroh dogfood handoffs, reload through the tag-scoped bridge wrapper so
+the app launch ticket, bridge pid, and cmx socket all refer to the same tag:
+
+```bash
+ios/scripts/reload-with-bridge.sh --tag <tag>
+```
+
+Use `--simulator-only` when physical devices are unavailable. Use
+`--skip-reload` to refresh only the bridge ticket for an already built app.
+
 After making code changes, always use `reload.sh --tag` to build. **Never run bare `xcodebuild` or `open` an untagged `cmux DEV.app`.** Untagged builds share the default debug socket and bundle ID with other agents, causing conflicts and stealing focus.
 
 ```bash

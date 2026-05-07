@@ -5,6 +5,7 @@ import { recordSpanError, withApiRouteSpan, type MaybeAttributes } from "../tele
 
 export type AuthedHiveRouteContext = {
   user: AuthedUser;
+  hiveTeamID: string;
   span: Span;
 };
 
@@ -27,7 +28,10 @@ export async function withAuthedHiveApiRoute(
         if (requiresBrowserMutationProtection(request.method, bearer) && !browserMutationOriginAllowed(request)) {
           return jsonResponse({ error: "forbidden" }, 403);
         }
-        return await handler({ user, span });
+        const teamResolution = resolveHiveTeamID(request, user);
+        if ("response" in teamResolution) return teamResolution.response;
+        span.setAttribute("cmux.hive.team_id", teamResolution.teamID);
+        return await handler({ user, hiveTeamID: teamResolution.teamID, span });
       } catch (err) {
         recordSpanError(span, err);
         console.error(failureLog, err);
@@ -35,6 +39,42 @@ export async function withAuthedHiveApiRoute(
       }
     },
   );
+}
+
+export function hiveTeamIDFromRequest(request: Request): string | null {
+  const headerValue = request.headers.get("x-cmux-team-id")?.trim();
+  if (headerValue) return headerValue;
+  try {
+    const url = new URL(request.url);
+    return (
+      url.searchParams.get("teamId") ??
+      url.searchParams.get("team_id") ??
+      ""
+    ).trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveHiveTeamID(
+  request: Request,
+  user: AuthedUser,
+): { teamID: string } | { response: Response } {
+  const requestedTeamID = hiveTeamIDFromRequest(request);
+  const personalTeamID = personalHiveTeamID(user);
+  const teamIDs = new Set(user.teamIds);
+  if (requestedTeamID) {
+    if (requestedTeamID !== personalTeamID && !teamIDs.has(requestedTeamID)) {
+      return { response: jsonResponse({ error: "team not found" }, 403) };
+    }
+    return { teamID: requestedTeamID };
+  }
+
+  return { teamID: personalTeamID };
+}
+
+export function personalHiveTeamID(user: AuthedUser): string {
+  return user.teams.find((team) => team.isPersonal)?.id ?? `personal:${user.id}`;
 }
 
 function parseBearer(request: Request): { accessToken: string; refreshToken: string } | null {
@@ -91,4 +131,3 @@ function allowedBrowserOrigins(): Set<string> {
   );
   return cachedAllowedOrigins;
 }
-

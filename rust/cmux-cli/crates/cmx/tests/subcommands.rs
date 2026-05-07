@@ -111,6 +111,43 @@ async fn attach_rejects_removed_grid_flag() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn bridge_subcommand_prints_help() {
+    let dir = tempdir().unwrap();
+    let socket = dir.path().join("srv.sock");
+
+    let (code, stdout, stderr) = run_cmx(&socket, &["bridge", "--help"]).await;
+
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert!(
+        stdout.contains("Expose the cmx socket over iroh"),
+        "got: {stdout}"
+    );
+    assert!(stdout.contains("--pairing-id"), "got: {stdout}");
+    assert!(stdout.contains("--allow-insecure-direct"), "got: {stdout}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn invalid_nested_subcommand_prints_parent_help() {
+    let dir = tempdir().unwrap();
+    let socket = dir.path().join("srv.sock");
+
+    let (code, _, stderr) = run_cmx(&socket, &["rename", "lmao"]).await;
+
+    assert_ne!(code, 0);
+    assert!(
+        stderr.contains("unrecognized subcommand 'lmao'"),
+        "got: {stderr}"
+    );
+    assert!(
+        stderr.contains("Usage: cmx rename [OPTIONS] <COMMAND>"),
+        "got: {stderr}"
+    );
+    assert!(stderr.contains("Commands:"), "got: {stderr}");
+    assert!(stderr.contains("workspace"), "got: {stderr}");
+    assert!(stderr.contains("--socket <SOCKET>"), "got: {stderr}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn ping_succeeds_when_server_is_up() {
     let dir = tempdir().unwrap();
     let socket = dir.path().join("srv.sock");
@@ -364,6 +401,7 @@ async fn capabilities_lists_every_subcommand_and_is_json_parseable() {
     for expected in [
         "attach",
         "server",
+        "bridge",
         "ping",
         "send",
         "send-key",

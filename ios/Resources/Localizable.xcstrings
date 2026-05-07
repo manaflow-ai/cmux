@@ -49,6 +49,12 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "切断" } }
       }
     },
+    "common.done" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Done" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "完了" } }
+      }
+    },
     "home.action.mark_read" : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Read" } },
@@ -73,10 +79,142 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "ピン留め解除" } }
       }
     },
+    "home.action.hide_unavailable" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Hide" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "非表示" } }
+      }
+    },
+    "home.action.show_unavailable" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Show" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "表示" } }
+      }
+    },
+    "home.filter.all" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "All" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "すべて" } }
+      }
+    },
+    "home.filter.availability" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Availability" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "利用状況" } }
+      }
+    },
+    "home.filter.button" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Filter Workspaces" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ワークスペースをフィルタ" } }
+      }
+    },
+    "home.filter.hidden_unavailable" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Hidden" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "非表示" } }
+      }
+    },
+    "home.filter.machine_count" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%d" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%d" } }
+      }
+    },
+    "home.filter.machines" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Machines" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "マシン" } }
+      }
+    },
+    "home.filter.offline" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Offline" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "オフライン" } }
+      }
+    },
+    "home.filter.online" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Online" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "オンライン" } }
+      }
+    },
+    "home.filter.scope.grouped" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Group by Mac" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Mac ごとに表示" } }
+      }
+    },
+    "home.filter.scope.recent" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Recent" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "最近" } }
+      }
+    },
+    "home.filter.view" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "View" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "表示" } }
+      }
+    },
+    "home.settings" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Settings" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "設定" } }
+      }
+    },
     "ios.terminal.inputAccessory.arrowNub" : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Arrow keys" } },
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "矢印キー" } }
+      }
+    },
+    "settings.nodes.none_unavailable" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No unavailable machines." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "利用できないマシンはありません。" } }
+      }
+    },
+    "settings.nodes.section" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Machines" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "マシン" } }
+      }
+    },
+    "settings.nodes.unlink" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Unlink" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "リンク解除" } }
+      }
+    },
+    "settings.team.picker" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Workspace Team" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ワークスペース チーム" } }
+      }
+    },
+    "settings.team.section" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Team" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "チーム" } }
+      }
+    },
+    "settings.team.unavailable" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Sign in to load workspace teams." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ワークスペース チームを読み込むにはサインインしてください。" } }
+      }
+    },
+    "terminal.empty.body" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "This session does not have a visible terminal." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このセッションには表示できるターミナルがありません。" } }
+      }
+    },
+    "terminal.empty.title" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No Terminal" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ターミナルなし" } }
       }
     },
     "terminal.loading.title" : {
@@ -87,8 +225,8 @@
     },
     "demo.row.bridge_command" : {
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "$ cmux-iroh-bridge --socket $CMX_SOCKET_PATH" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "$ cmux-iroh-bridge --socket $CMX_SOCKET_PATH" } }
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "$ cmux bridge --socket $CMX_SOCKET_PATH" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "$ cmux bridge --socket $CMX_SOCKET_PATH" } }
       }
     },
     "demo.row.bridge_ticket" : {
@@ -135,8 +273,8 @@
     },
     "demo.row.iroh_ready" : {
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "iroh endpoint ready" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "iroh エンドポイント準備完了" } }
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "cmux connection ready" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "cmux 接続準備完了" } }
       }
     },
     "demo.row.list_workspaces" : {
@@ -267,38 +405,38 @@
     },
     "home.search.empty.body" : {
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "No matching workspace is available on your signed-in nodes." } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "サインイン済みノードに一致するワークスペースはありません。" } }
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No matching session is available on your signed-in nodes." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "サインイン済みノードに一致するセッションはありません。" } }
       }
     },
     "home.search.empty.title" : {
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "No Workspaces" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ワークスペースなし" } }
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No Sessions" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "セッションなし" } }
       }
     },
     "home.workspaces.empty.body" : {
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "No connected cmux workspace is available." } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "接続済みの cmux ワークスペースはありません。" } }
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No connected cmux session is available." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "接続済みの cmux セッションはありません。" } }
       }
     },
     "home.workspaces.loading.body" : {
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Waiting for cmux to send the workspace list." } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "cmux からワークスペース一覧が届くのを待っています。" } }
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Waiting for cmux to send the list." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "cmux から一覧が届くのを待っています。" } }
       }
     },
     "home.workspaces.loading.title" : {
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Loading Workspaces" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ワークスペースを読み込み中" } }
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Loading Sessions" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "セッションを読み込み中" } }
       }
     },
     "home.search.prompt" : {
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Search workspaces" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ワークスペースを検索" } }
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Search" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "検索" } }
       }
     },
     "home.timestamp.yesterday" : {
@@ -327,8 +465,8 @@
     },
     "iroh.error.heartbeat_timeout" : {
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "The iroh terminal session stopped responding." } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "iroh ターミナル セッションが応答しなくなりました。" } }
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The terminal connection stopped responding." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ターミナル接続が応答しなくなりました。" } }
       }
     },
     "nav.workspaces" : {
@@ -339,8 +477,8 @@
     },
     "iroh.error.remote" : {
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Iroh connection failed: %@" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Iroh 接続に失敗しました: %@" } }
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Connection failed: %@" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "接続に失敗しました: %@" } }
       }
     },
     "iroh.error.remote_unknown" : {
@@ -351,20 +489,20 @@
     },
     "iroh.error.send" : {
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Could not send data to the iroh terminal session." } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "iroh ターミナル セッションにデータを送信できませんでした。" } }
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Could not send data to the terminal connection." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ターミナル接続にデータを送信できませんでした。" } }
       }
     },
     "iroh.error.start" : {
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Could not start the iroh terminal session." } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "iroh ターミナル セッションを開始できませんでした。" } }
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Could not start the terminal connection." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ターミナル接続を開始できませんでした。" } }
       }
     },
     "iroh.error.unknown_event" : {
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "The iroh terminal session sent an unknown event." } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "iroh ターミナル セッションが不明なイベントを送信しました。" } }
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The terminal connection sent an unknown event." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ターミナル接続が不明なイベントを送信しました。" } }
       }
     },
     "node.connected.name" : {

@@ -328,6 +328,7 @@ final class CmxBridgeTicketTests: XCTestCase {
         XCTAssertEqual(store.ticketText, "ticket")
         XCTAssertTrue(store.workspaces.isEmpty)
         XCTAssertFalse(store.canRenderSelectedTerminal)
+        XCTAssertEqual(store.terminalDetailPresentation, .noWorkspaces)
         XCTAssertFalse(store.visibleWorkspaces(matching: "").contains { $0.title == "agent runs" })
     }
 
@@ -356,6 +357,7 @@ final class CmxBridgeTicketTests: XCTestCase {
 
         XCTAssertTrue(store.workspaces.isEmpty)
         XCTAssertFalse(store.canRenderSelectedTerminal)
+        XCTAssertEqual(store.terminalDetailPresentation, .noWorkspaces)
         XCTAssertFalse(store.visibleWorkspaces(matching: "").contains { $0.title == "agent runs" })
     }
 
@@ -403,6 +405,15 @@ final class CmxBridgeTicketTests: XCTestCase {
         XCTAssertEqual(session.authorizationHeaders["X-Stack-Refresh-Token"], "refresh-explicit")
         XCTAssertFalse(String(describing: session).contains("access-token"))
         XCTAssertFalse(String(describing: session).contains("refresh-explicit"))
+    }
+
+    func testStackAuthCallbackAcceptsNightlyScheme() throws {
+        let session = try CmxStackAuthCallback.parse(
+            url: URL(string: "cmux-nightly://auth-callback?stack_refresh=refresh&stack_access=access")!
+        )
+
+        XCTAssertEqual(session.refreshToken, "refresh")
+        XCTAssertEqual(session.accessToken, "access")
     }
 
     func testStackAuthCallbackRejectsMissingTokens() {
@@ -715,6 +726,77 @@ final class CmxBridgeTicketTests: XCTestCase {
 
         XCTAssertEqual(store.terminalOutputRevision, revisionBeforePTY + 1)
         XCTAssertEqual(store.outputChunks(for: 41).last?.data, Data("live".utf8))
+    }
+
+    @MainActor
+    func testStoreCoalescesBatchedPtyBytesBeforePublishingOutput() throws {
+        let sessionFactory = RecordingTerminalSessionFactory()
+        let store = CmxConnectionStore(
+            authSessionStore: MemoryStackAuthSessionStore(),
+            pairingSecretClient: RecordingPairingSecretClient(),
+            terminalSessionFactory: sessionFactory
+        )
+        store.ticketText = """
+        {
+          "version": 1,
+          "alpn": "/cmux/cmx/3",
+          "endpoint": { "id": "endpoint-public-key", "addrs": [] },
+          "auth": { "mode": "direct" }
+        }
+        """
+        store.connect()
+        sessionFactory.session.delegate?.terminalSession(
+            sessionFactory.session,
+            didReceive: .nativeSnapshot(CmxNativeSnapshot(
+                workspaces: [
+                    CmxNativeWorkspaceInfo(
+                        id: 11,
+                        title: "main",
+                        spaceCount: 1,
+                        tabCount: 2,
+                        terminalCount: 2,
+                        pinned: false,
+                        color: nil
+                    ),
+                ],
+                activeWorkspace: 0,
+                activeWorkspaceID: 11,
+                spaces: [
+                    CmxNativeSpaceInfo(id: 21, title: "space-1", paneCount: 1, terminalCount: 2),
+                ],
+                activeSpace: 0,
+                activeSpaceID: 21,
+                panels: .leaf(
+                    panelID: 31,
+                    tabs: [
+                        CmxNativeTabInfo(id: 41, title: "shell", hasActivity: false, bellCount: 0),
+                        CmxNativeTabInfo(id: 42, title: "logs", hasActivity: false, bellCount: 0),
+                    ],
+                    active: 0,
+                    activeTabID: 41
+                ),
+                focusedPanelID: 31,
+                focusedTabID: 41
+            ))
+        )
+        let revisionBeforePTY = store.terminalOutputRevision
+
+        sessionFactory.session.delegate?.terminalSession(
+            sessionFactory.session,
+            didReceive: [
+                .ptyBytes(tabID: 41, data: Data("one".utf8)),
+                .ptyBytes(tabID: 41, data: Data("two".utf8)),
+                .ptyBytes(tabID: 42, data: Data("logs".utf8)),
+                .ptyBytes(tabID: 41, data: Data("three".utf8)),
+            ]
+        )
+
+        XCTAssertEqual(store.terminalOutputRevision, revisionBeforePTY + 3)
+        XCTAssertEqual(store.outputChunks(for: 41).suffix(2).map(\.data), [
+            Data("onetwo".utf8),
+            Data("three".utf8),
+        ])
+        XCTAssertEqual(store.outputChunks(for: 42).last?.data, Data("logs".utf8))
     }
 
     @MainActor
