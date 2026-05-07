@@ -111,14 +111,18 @@ pub fn load(path: &Path) -> Option<Snapshot> {
 
 /// Write a snapshot to disk, creating parent directories as needed.
 pub fn save(path: &Path, snap: &Snapshot) -> anyhow::Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    std::fs::create_dir_all(parent)?;
     let json = serde_json::to_vec_pretty(snap)?;
     // Atomic rename via a tempfile in the same directory.
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, json)?;
-    std::fs::rename(tmp, path)?;
+    let mut tmp = tempfile::Builder::new()
+        .prefix(".snapshot-")
+        .suffix(".json.tmp")
+        .tempfile_in(parent)?;
+    std::io::Write::write_all(&mut tmp, &json)?;
+    tmp.as_file().sync_all()?;
+    let (_file, tmp_path) = tmp.keep()?;
+    std::fs::rename(tmp_path, path)?;
     Ok(())
 }
 
