@@ -68,6 +68,40 @@ final class CmuxCommandURLRequestTests: XCTestCase {
         }
     }
 
+    func testRejectsLeadingControlCharactersInsteadOfTrimmingThem() throws {
+        var components = URLComponents()
+        components.scheme = "cmux"
+        components.host = "run"
+        components.queryItems = [
+            URLQueryItem(name: "command", value: "\necho ok")
+        ]
+        let url = try XCTUnwrap(components.url)
+
+        switch CmuxCommandURLRequest.parse(url) {
+        case .failure(.commandContainsControlCharacters):
+            break
+        default:
+            XCTFail("Expected leading control character rejection")
+        }
+    }
+
+    func testRejectsUnicodeFormatCharacters() throws {
+        var components = URLComponents()
+        components.scheme = "cmux"
+        components.host = "run"
+        components.queryItems = [
+            URLQueryItem(name: "command", value: "echo safe\u{202E}bad")
+        ]
+        let url = try XCTUnwrap(components.url)
+
+        switch CmuxCommandURLRequest.parse(url) {
+        case .failure(.commandContainsControlCharacters):
+            break
+        default:
+            XCTFail("Expected Unicode format character rejection")
+        }
+    }
+
     func testRejectsInvalidWorkingDirectory() throws {
         var components = URLComponents()
         components.scheme = "cmux"

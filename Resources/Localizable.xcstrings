@@ -18726,13 +18726,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The command contains hidden control characters, so cmux refused to run it."
+            "value": "The command contains hidden control or formatting characters, so cmux refused to run it."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コマンドに隠れた制御文字が含まれているため、cmux は実行を拒否しました。"
+            "value": "コマンドに隠れた制御文字または書式制御文字が含まれているため、cmux は実行を拒否しました。"
           }
         }
       }
@@ -18777,13 +18777,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The workspace title contains hidden control characters, so cmux refused to use it."
+            "value": "The workspace title contains hidden control or formatting characters, so cmux refused to use it."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ワークスペース名に隠れた制御文字が含まれているため、cmux は使用を拒否しました。"
+            "value": "ワークスペース名に隠れた制御文字または書式制御文字が含まれているため、cmux は使用を拒否しました。"
           }
         }
       }
@@ -18811,13 +18811,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The working directory contains hidden control characters, so cmux refused to use it."
+            "value": "The working directory contains hidden control or formatting characters, so cmux refused to use it."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "作業ディレクトリに隠れた制御文字が含まれているため、cmux は使用を拒否しました。"
+            "value": "作業ディレクトリに隠れた制御文字または書式制御文字が含まれているため、cmux は使用を拒否しました。"
           }
         }
       }

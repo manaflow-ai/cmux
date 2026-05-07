@@ -56,37 +56,34 @@ struct CmuxCommandURLRequest: Equatable {
         }
 
         let queryItems = components.queryItems ?? []
-        let command = firstQueryValue(namedAnyOf: ["command", "cmd"], in: queryItems)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let command, !command.isEmpty else {
+        guard let command = firstQueryValue(namedAnyOf: ["command", "cmd"], in: queryItems),
+              !isBlank(command) else {
             return .failure(.missingCommand)
         }
         guard command.count <= maxCommandLength else {
             return .failure(.commandTooLong(maxLength: maxCommandLength))
         }
-        guard !containsControlCharacter(command) else {
+        guard !containsUnsafeHiddenCharacter(command) else {
             return .failure(.commandContainsControlCharacters)
         }
 
-        let title = firstQueryValue(namedAnyOf: ["title", "name"], in: queryItems)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        if let title, !title.isEmpty {
+        let title = firstQueryValue(namedAnyOf: ["title", "name"], in: queryItems)
+        if let title, !isBlank(title) {
             guard title.count <= maxTitleLength else {
                 return .failure(.titleTooLong(maxLength: maxTitleLength))
             }
-            guard !containsControlCharacter(title) else {
+            guard !containsUnsafeHiddenCharacter(title) else {
                 return .failure(.titleContainsControlCharacters)
             }
         }
 
-        let workingDirectory = firstQueryValue(namedAnyOf: ["cwd", "working_directory", "dir"], in: queryItems)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let workingDirectory = firstQueryValue(namedAnyOf: ["cwd", "working_directory", "dir"], in: queryItems)
         let normalizedWorkingDirectory: String?
-        if let workingDirectory, !workingDirectory.isEmpty {
+        if let workingDirectory, !isBlank(workingDirectory) {
             guard workingDirectory.count <= maxWorkingDirectoryLength else {
                 return .failure(.workingDirectoryTooLong(maxLength: maxWorkingDirectoryLength))
             }
-            guard !containsControlCharacter(workingDirectory) else {
+            guard !containsUnsafeHiddenCharacter(workingDirectory) else {
                 return .failure(.workingDirectoryContainsControlCharacters)
             }
             let resolved = URL(fileURLWithPath: NSString(string: workingDirectory).expandingTildeInPath)
@@ -137,9 +134,18 @@ struct CmuxCommandURLRequest: Equatable {
         queryItems.first { names.contains($0.name.lowercased()) }?.value
     }
 
-    private static func containsControlCharacter(_ value: String) -> Bool {
+    private static func isBlank(_ value: String) -> Bool {
+        value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private static func containsUnsafeHiddenCharacter(_ value: String) -> Bool {
         value.unicodeScalars.contains { scalar in
-            scalar.value < 0x20 || scalar.value == 0x7f
+            switch scalar.properties.generalCategory {
+            case .control, .format:
+                return true
+            default:
+                return false
+            }
         }
     }
 }
@@ -6498,7 +6504,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         NSApp.activate(ignoringOtherApps: true)
 
 #if DEBUG
-        cmuxDebugLog("commandURL.prompt url=\(request.originalURL.absoluteString)")
+        let target = request.originalURL.host ?? request.originalURL.path
+        cmuxDebugLog("commandURL.prompt target=\(target) commandLength=\(request.command.count) hasCWD=\(request.workingDirectory != nil)")
 #endif
 
         guard confirmCmuxCommandURLRequest(request) else {
