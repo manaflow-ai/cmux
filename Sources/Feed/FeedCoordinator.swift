@@ -25,6 +25,14 @@ final class FeedCoordinator: @unchecked Sendable {
     /// handler signals the semaphore after filling the slot.
     private let waiterLock = NSLock()
     private var waiters: [String: PendingWaiter] = [:]
+    private var pendingNotifications: [String: DispatchWorkItem] = [:]
+
+    /// How long to wait before posting a native notification banner.
+    /// Overridden in tests to a small value so tests don't take 500 ms.
+    nonisolated(unsafe) var notificationGraceDelay: TimeInterval = 0.5
+
+    /// Overrides the notification posting function in unit tests.
+    nonisolated(unsafe) var notificationPosterForTesting: ((WorkstreamEvent, String) -> Void)?
 
     /// One kqueue-backed DispatchSource per distinct agent PID we've
     /// ever seen. The kernel fires `.exit` the instant the process
@@ -124,7 +132,10 @@ final class FeedCoordinator: @unchecked Sendable {
         // If this is a blocking actionable event and the app window isn't
         // focused, post a native notification banner with inline action
         // buttons so the user can respond without switching windows.
-        postFeedNotification(event: event, requestId: requestId)
+        let poster = notificationPosterForTesting ?? postFeedNotification
+        DispatchQueue.main.async {
+            poster(event, requestId)
+        }
 
         let deadline: DispatchTime = .now() + waitTimeout
         let waitResult = semaphore.wait(timeout: deadline)
