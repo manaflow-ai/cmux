@@ -3431,8 +3431,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         sessionAutosaveTickInFlight = true
-        Task { @MainActor [weak self] in
-            guard let self else { return }
+        Task { @MainActor in
             await self.finishSessionAutosaveTick(source: source)
         }
     }
