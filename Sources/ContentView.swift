@@ -7,6 +7,130 @@ import ObjectiveC
 import UniformTypeIdentifiers
 import WebKit
 
+private final class FileDropHintBadgeView: NSView {
+    private let effectView: NSView
+    private let label = NSTextField(labelWithString: "")
+
+    override var isOpaque: Bool { false }
+
+    override init(frame frameRect: NSRect) {
+        if let glassClass = NSClassFromString("NSGlassEffectView") as? NSView.Type {
+            effectView = glassClass.init(frame: .zero)
+        } else {
+            let visualEffect = NSVisualEffectView(frame: .zero)
+            visualEffect.material = .hudWindow
+            visualEffect.blendingMode = .withinWindow
+            visualEffect.state = .active
+            effectView = visualEffect
+        }
+
+        super.init(frame: frameRect)
+
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.clear.cgColor
+        alphaValue = 0
+        isHidden = true
+
+        effectView.translatesAutoresizingMaskIntoConstraints = false
+        effectView.wantsLayer = true
+        effectView.layer?.cornerRadius = 13
+        effectView.layer?.masksToBounds = true
+        configureNativeGlassIfNeeded(effectView)
+        addSubview(effectView)
+
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.font = .systemFont(ofSize: 12, weight: .medium)
+        label.textColor = .labelColor
+        label.lineBreakMode = .byClipping
+        label.maximumNumberOfLines = 1
+        label.setContentCompressionResistancePriority(.required, for: .horizontal)
+        addSubview(label, positioned: .above, relativeTo: effectView)
+
+        NSLayoutConstraint.activate([
+            effectView.topAnchor.constraint(equalTo: topAnchor),
+            effectView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            effectView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            effectView.trailingAnchor.constraint(equalTo: trailingAnchor),
+
+            label.topAnchor.constraint(equalTo: topAnchor, constant: 5),
+            label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -5),
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    func show(text: String, near point: NSPoint, in bounds: CGRect) {
+        label.stringValue = text
+        let fitting = label.intrinsicContentSize
+        let width = min(max(140, fitting.width + 20), max(140, bounds.width - 16))
+        let height: CGFloat = 26
+        let origin = CGPoint(
+            x: min(max(point.x + 14, 8), max(8, bounds.maxX - width - 8)),
+            y: min(max(point.y + 16, 8), max(8, bounds.maxY - height - 8))
+        )
+        frame = CGRect(origin: origin, size: CGSize(width: width, height: height))
+        if isHidden {
+            alphaValue = 0
+            isHidden = false
+            animator().alphaValue = 1
+        } else {
+            alphaValue = 1
+        }
+    }
+
+    func hide() {
+        guard !isHidden else { return }
+        alphaValue = 0
+        isHidden = true
+    }
+
+    private func configureNativeGlassIfNeeded(_ view: NSView) {
+        guard view.className == "NSGlassEffectView" else { return }
+
+        let tintSelector = NSSelectorFromString("setTintColor:")
+        if view.responds(to: tintSelector) {
+            view.perform(tintSelector, with: NSColor.controlAccentColor.withAlphaComponent(0.22))
+        }
+
+        let cornerRadiusSelector = NSSelectorFromString("setCornerRadius:")
+        if view.responds(to: cornerRadiusSelector),
+           let implementation = view.method(for: cornerRadiusSelector) {
+            typealias CornerRadiusSetter = @convention(c) (AnyObject, Selector, CGFloat) -> Void
+            let setter = unsafeBitCast(implementation, to: CornerRadiusSetter.self)
+            setter(view, cornerRadiusSelector, 13)
+        }
+    }
+}
+
+private enum FileDropTextDestinationKind {
+    case terminal
+    case editor
+
+    var hintText: String {
+        switch self {
+        case .terminal:
+            return String(
+                localized: "fileDrop.holdShiftDropIntoTerminal",
+                defaultValue: "Hold Shift to drop into terminal"
+            )
+        case .editor:
+            return String(
+                localized: "fileDrop.holdShiftDropIntoEditor",
+                defaultValue: "Hold Shift to drop into editor"
+            )
+        }
+    }
+}
+
 /// Transparent NSView installed on the window's theme frame (above the NSHostingView) to
 /// handle file/URL drags from Finder. Nested NSHostingController layers (created by bonsplit's
 /// SinglePaneWrapper) prevent AppKit's NSDraggingDestination routing from reaching deeply
@@ -31,6 +155,7 @@ final class FileDropOverlayView: NSView {
     private weak var activePaneDropTarget: PaneDropTargetView?
     /// Pane drop target that accepted prepareForDragOperation.
     private weak var preparedPaneDropTarget: PaneDropTargetView?
+    private let hintBadgeView = FileDropHintBadgeView(frame: .zero)
     private var lastHitTestLogSignature: String?
     private var lastDragRouteLogSignatureByPhase: [String: String] = [:]
 
@@ -39,6 +164,7 @@ final class FileDropOverlayView: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         registerForDraggedTypes(Array(PasteboardFileURLReader.fileURLPasteboardTypes))
+        addSubview(hintBadgeView)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
@@ -199,6 +325,7 @@ final class FileDropOverlayView: NSView {
     }
 
     override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+        hintBadgeView.hide()
         preparedDragWebView = nil
         preparedPaneDropTarget = nil
         if let prev = activeDragWebView {
@@ -218,6 +345,12 @@ final class FileDropOverlayView: NSView {
             pasteboardTypes: types,
             hasLocalDraggingSource: hasLocalDraggingSource
         )
+        if shouldRouteFileDropToTextDestination(sender) {
+            preparedDragWebView = nil
+            preparedPaneDropTarget = nil
+            activePaneDropTarget = nil
+            return textDropDestinationKindUnderPoint(sender.draggingLocation) != nil
+        }
         let webView = shouldCapture ? (activeDragWebView ?? webViewUnderPoint(sender.draggingLocation)) : nil
         let paneDropTarget = shouldCapture && webView == nil
             ? (activePaneDropTarget ?? paneDropTargetUnderPoint(sender.draggingLocation))
@@ -259,6 +392,13 @@ final class FileDropOverlayView: NSView {
             pasteboardTypes: types,
             hasLocalDraggingSource: hasLocalDraggingSource
         )
+        if shouldRouteFileDropToTextDestination(sender) {
+            hintBadgeView.hide()
+            preparedDragWebView = nil
+            preparedPaneDropTarget = nil
+            activePaneDropTarget = nil
+            return performFileDropAsText(sender)
+        }
         let webView = shouldCapture
             ? (preparedDragWebView ?? activeDragWebView ?? webViewUnderPoint(sender.draggingLocation))
             : nil
@@ -304,12 +444,14 @@ final class FileDropOverlayView: NSView {
 
     override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) {
         defer {
+            hintBadgeView.hide()
             preparedDragWebView = nil
             activeDragWebView = nil
             preparedPaneDropTarget = nil
             activePaneDropTarget = nil
         }
         guard let sender else { return }
+        guard !shouldRouteFileDropToTextDestination(sender) else { return }
         guard DragOverlayRoutingPolicy.shouldCaptureFileDropDestination(
             pasteboardTypes: sender.draggingPasteboard.types,
             hasLocalDraggingSource: sender.draggingSource != nil
@@ -331,6 +473,20 @@ final class FileDropOverlayView: NSView {
             pasteboardTypes: types,
             hasLocalDraggingSource: hasLocalDraggingSource
         )
+        updateHintBadge(sender: sender, pasteboardTypes: types)
+
+        if shouldRouteFileDropToTextDestination(sender) {
+            if let prev = activeDragWebView {
+                prev.draggingExited(sender)
+                activeDragWebView = nil
+            }
+            if let prev = activePaneDropTarget {
+                prev.draggingExited(sender)
+                activePaneDropTarget = nil
+            }
+            return textDropDestinationKindUnderPoint(loc) == nil ? [] : .copy
+        }
+
         let webView = shouldCapture ? webViewUnderPoint(loc) : nil
         let paneDropTarget = shouldCapture && webView == nil ? paneDropTargetUnderPoint(loc) : nil
 
@@ -376,6 +532,201 @@ final class FileDropOverlayView: NSView {
     private func debugPasteboardTypes(_ types: [NSPasteboard.PasteboardType]?) -> String {
         guard let types, !types.isEmpty else { return "-" }
         return types.map(\.rawValue).joined(separator: ",")
+    }
+
+    private func shouldRouteFileDropToTextDestination(_ sender: any NSDraggingInfo) -> Bool {
+        DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
+            pasteboardTypes: sender.draggingPasteboard.types,
+            modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags
+        )
+    }
+
+    private func updateHintBadge(
+        sender: any NSDraggingInfo,
+        pasteboardTypes: [NSPasteboard.PasteboardType]?
+    ) {
+        guard DragOverlayRoutingPolicy.shouldShowTextDropHint(
+            pasteboardTypes: pasteboardTypes,
+            modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags
+        ), let kind = textDropDestinationKindUnderPoint(sender.draggingLocation) else {
+            hintBadgeView.hide()
+            return
+        }
+        let point = convert(sender.draggingLocation, from: nil)
+        hintBadgeView.show(text: kind.hintText, near: point, in: bounds)
+    }
+
+    private func textDropDestinationKindUnderPoint(_ windowPoint: NSPoint) -> FileDropTextDestinationKind? {
+        if editableTextViewUnderPoint(windowPoint) != nil {
+            return .editor
+        }
+        if webViewUnderPoint(windowPoint) != nil {
+            return .editor
+        }
+        if terminalUnderPoint(windowPoint) != nil {
+            return .terminal
+        }
+        return nil
+    }
+
+    private func performFileDropAsText(_ sender: any NSDraggingInfo) -> Bool {
+        let urls = DragOverlayRoutingPolicy.fileURLs(from: sender.draggingPasteboard)
+        guard !urls.isEmpty else { return false }
+        let text = TerminalImageTransferPlanner.insertedText(forFileURLs: urls)
+        guard !text.isEmpty else { return false }
+
+        let windowPoint = sender.draggingLocation
+        if let textView = editableTextViewUnderPoint(windowPoint) {
+            return insert(text, into: textView)
+        }
+        if let webView = webViewUnderPoint(windowPoint) {
+            return insert(text, into: webView, at: windowPoint)
+        }
+        if let terminal = terminalUnderPoint(windowPoint) {
+            return terminal.handleDroppedFileURLsAsText(urls)
+        }
+        return false
+    }
+
+    private func viewUnderPoint(_ windowPoint: NSPoint) -> NSView? {
+        guard let window, let contentView = window.contentView else { return nil }
+        isHidden = true
+        defer { isHidden = false }
+        let point = contentView.convert(windowPoint, from: nil)
+        return contentView.hitTest(point)
+    }
+
+    private func editableTextViewUnderPoint(_ windowPoint: NSPoint) -> NSTextView? {
+        var current = viewUnderPoint(windowPoint)
+        while let view = current {
+            if let textView = view as? NSTextView, textView.isEditable {
+                return textView
+            }
+            if let textField = view as? NSTextField,
+               textField.isEditable,
+               let editor = textField.currentEditor() as? NSTextView {
+                return editor
+            }
+            current = view.superview
+        }
+
+        if let fieldEditor = window?.firstResponder as? NSTextView,
+           fieldEditor.isFieldEditor,
+           fieldEditor.isEditable {
+            return fieldEditor
+        }
+        return nil
+    }
+
+    private func insert(_ text: String, into textView: NSTextView) -> Bool {
+        guard textView.isEditable else { return false }
+        textView.window?.makeFirstResponder(textView)
+        textView.insertText(text, replacementRange: textView.selectedRange())
+        return true
+    }
+
+    private func insert(_ text: String, into webView: WKWebView, at windowPoint: NSPoint) -> Bool {
+        let webPoint = webView.convert(windowPoint, from: nil)
+        let domY = webView.isFlipped ? webPoint.y : (webView.bounds.height - webPoint.y)
+        guard let payload = jsonLiteral([
+            "x": Double(max(0, min(webPoint.x, webView.bounds.width))),
+            "y": Double(max(0, min(domY, webView.bounds.height))),
+            "text": text
+        ]) else {
+            return false
+        }
+
+        let script = """
+        (() => {
+          const payload = \(payload);
+          const textInputTypes = new Set(["", "email", "number", "password", "search", "tel", "text", "url"]);
+          const isTextInput = (element) => {
+            if (!element || element.disabled || element.readOnly) return false;
+            const tag = element.tagName;
+            if (tag === "TEXTAREA") return true;
+            if (tag !== "INPUT") return false;
+            return textInputTypes.has((element.getAttribute("type") || "text").toLowerCase());
+          };
+          const editableFrom = (element) => {
+            for (let node = element; node && node !== document; node = node.parentElement) {
+              if (isTextInput(node)) return node;
+              if (node.isContentEditable) return node;
+            }
+            return null;
+          };
+          const dispatchInput = (element, data) => {
+            try {
+              element.dispatchEvent(new InputEvent("input", {
+                bubbles: true,
+                composed: true,
+                inputType: "insertText",
+                data
+              }));
+            } catch (_) {
+              element.dispatchEvent(new Event("input", { bubbles: true }));
+            }
+          };
+          const pointElement = document.elementFromPoint(payload.x, payload.y);
+          const target = editableFrom(pointElement) || editableFrom(document.activeElement);
+          if (!target) return false;
+          target.focus({ preventScroll: true });
+          if (isTextInput(target)) {
+            const start = target.selectionStart ?? target.value.length;
+            const end = target.selectionEnd ?? start;
+            if (typeof target.setRangeText === "function") {
+              target.setRangeText(payload.text, start, end, "end");
+            } else {
+              target.value = target.value.slice(0, start) + payload.text + target.value.slice(end);
+              const caret = start + payload.text.length;
+              target.setSelectionRange?.(caret, caret);
+            }
+            dispatchInput(target, payload.text);
+            return true;
+          }
+
+          let range = null;
+          if (document.caretRangeFromPoint) {
+            range = document.caretRangeFromPoint(payload.x, payload.y);
+          } else if (document.caretPositionFromPoint) {
+            const position = document.caretPositionFromPoint(payload.x, payload.y);
+            if (position) {
+              range = document.createRange();
+              range.setStart(position.offsetNode, position.offset);
+            }
+          }
+          const selection = window.getSelection();
+          if (range) {
+            selection.removeAllRanges();
+            selection.addRange(range);
+          }
+          if (!selection.rangeCount) {
+            target.appendChild(document.createTextNode(payload.text));
+            dispatchInput(target, payload.text);
+            return true;
+          }
+          range = selection.getRangeAt(0);
+          range.deleteContents();
+          const node = document.createTextNode(payload.text);
+          range.insertNode(node);
+          range.setStartAfter(node);
+          range.setEndAfter(node);
+          selection.removeAllRanges();
+          selection.addRange(range);
+          dispatchInput(target, payload.text);
+          return true;
+        })();
+        """
+        webView.evaluateJavaScript(script)
+        return true
+    }
+
+    private func jsonLiteral(_ object: [String: Any]) -> String? {
+        guard JSONSerialization.isValidJSONObject(object),
+              let data = try? JSONSerialization.data(withJSONObject: object, options: []),
+              let string = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        return string
     }
 
     /// Hit-tests the window to find a WKWebView (browser panel) under the cursor.

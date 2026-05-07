@@ -58,6 +58,44 @@ final class FinderFileDropRegressionTests: XCTestCase {
         )
     }
 
+    func testShiftFileDropRoutesToTextDestinationForAnyFileURLPayload() {
+        XCTAssertTrue(
+            DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
+                pasteboardTypes: [.fileURL],
+                modifierFlags: .shift
+            )
+        )
+        XCTAssertTrue(
+            DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
+                pasteboardTypes: [
+                    .fileURL,
+                    DragOverlayRoutingPolicy.filePreviewTransferType,
+                    DragOverlayRoutingPolicy.bonsplitTabTransferType
+                ],
+                modifierFlags: [.shift, .command]
+            ),
+            "Internal file-preview drags carry file URLs too, so Shift should convert them to path text instead of moving/opening the preview tab"
+        )
+        XCTAssertFalse(
+            DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
+                pasteboardTypes: [.fileURL],
+                modifierFlags: []
+            )
+        )
+        XCTAssertTrue(
+            DragOverlayRoutingPolicy.shouldShowTextDropHint(
+                pasteboardTypes: [.fileURL],
+                modifierFlags: []
+            )
+        )
+        XCTAssertFalse(
+            DragOverlayRoutingPolicy.shouldShowTextDropHint(
+                pasteboardTypes: [.fileURL],
+                modifierFlags: .shift
+            )
+        )
+    }
+
     func testLegacyFinderFilenameDropPlanInsertsEscapedLocalPath() throws {
         let fileURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("finder legacy \(UUID().uuidString)")
@@ -95,6 +133,25 @@ final class FinderFileDropRegressionTests: XCTestCase {
         XCTAssertEqual(
             text,
             paths
+                .map(TerminalImageTransferPlanner.escapeForShell)
+                .joined(separator: " ")
+        )
+    }
+
+    func testFileURLTextInsertionIsExtensionAgnostic() {
+        let urls = [
+            URL(fileURLWithPath: "/tmp/cmux drop/image.png"),
+            URL(fileURLWithPath: "/tmp/cmux drop/report.pdf"),
+            URL(fileURLWithPath: "/tmp/cmux drop/movie.mov"),
+            URL(fileURLWithPath: "/tmp/cmux drop/archive.zip")
+        ]
+
+        let text = TerminalImageTransferPlanner.insertedText(forFileURLs: urls)
+
+        XCTAssertEqual(
+            text,
+            urls
+                .map(\.path)
                 .map(TerminalImageTransferPlanner.escapeForShell)
                 .joined(separator: " ")
         )

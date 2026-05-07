@@ -29,6 +29,26 @@ enum DragOverlayRoutingPolicy {
         PasteboardFileURLReader.fileURLs(from: pasteboard)
     }
 
+    static var currentModifierFlags: NSEvent.ModifierFlags {
+        NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags
+    }
+
+    static func shouldRouteFileDropToTextDestination(
+        pasteboardTypes: [NSPasteboard.PasteboardType]?,
+        modifierFlags: NSEvent.ModifierFlags
+    ) -> Bool {
+        guard hasFileURL(pasteboardTypes) else { return false }
+        return modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.shift)
+    }
+
+    static func shouldShowTextDropHint(
+        pasteboardTypes: [NSPasteboard.PasteboardType]?,
+        modifierFlags: NSEvent.ModifierFlags
+    ) -> Bool {
+        guard hasFileURL(pasteboardTypes) else { return false }
+        return !modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.shift)
+    }
+
     static func shouldCaptureFileDropDestination(
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
         hasLocalDraggingSource: Bool

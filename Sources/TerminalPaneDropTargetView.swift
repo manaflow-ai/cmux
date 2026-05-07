@@ -222,6 +222,23 @@ final class PaneDropTargetView: NSView {
             return false
         }
 
+        if DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
+            pasteboardTypes: sender.draggingPasteboard.types,
+            modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags
+        ) {
+            let urls = DragOverlayRoutingPolicy.fileURLs(from: sender.draggingPasteboard)
+            guard !urls.isEmpty else { return false }
+            let handled = handleFileDropAsText(urls, context: dropContext, workspace: workspace)
+#if DEBUG
+            cmuxDebugLog(
+                "terminal.paneDrop.performAsText panel=\(dropContext.panelId.uuidString.prefix(5)) " +
+                "fileURLs=\(urls.count) pane=\(dropContext.paneId.id.uuidString.prefix(5)) " +
+                "handled=\(handled ? 1 : 0)"
+            )
+#endif
+            return handled
+        }
+
         if let transfer = PaneDragTransfer.decode(from: sender.draggingPasteboard),
            transfer.isFromCurrentProcess {
             let zone = resolvedZone(for: sender, transfer: transfer, context: dropContext, workspace: workspace)
@@ -283,6 +300,22 @@ final class PaneDropTargetView: NSView {
             return []
         }
 
+        if DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
+            pasteboardTypes: sender.draggingPasteboard.types,
+            modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags
+        ) {
+            clearDragState(phase: "\(phase).text")
+            guard !DragOverlayRoutingPolicy.fileURLs(from: sender.draggingPasteboard).isEmpty else {
+                return []
+            }
+#if DEBUG
+            cmuxDebugLog(
+                "terminal.paneDrop.\(phase) panel=\(dropContext.panelId.uuidString.prefix(5)) fileURL=1 textDestination=1"
+            )
+#endif
+            return .copy
+        }
+
         if let transfer = PaneDragTransfer.decode(from: sender.draggingPasteboard),
            transfer.isFromCurrentProcess {
             let zone = resolvedZone(
@@ -336,6 +369,23 @@ final class PaneDropTargetView: NSView {
             targetPane: context.paneId,
             proposedZone: proposedZone
         )
+    }
+
+    private func handleFileDropAsText(
+        _ urls: [URL],
+        context: PaneDropContext,
+        workspace: Workspace
+    ) -> Bool {
+        if let hostedView {
+            return hostedView.handleDroppedURLsAsText(urls)
+        }
+
+        guard let tabId = workspace.bonsplitController.selectedTab(inPane: context.paneId)?.id,
+              let panelId = workspace.panelIdFromSurfaceId(tabId),
+              let panel = workspace.panels[panelId] as? TerminalPanel else {
+            return false
+        }
+        return panel.hostedView.handleDroppedURLsAsText(urls)
     }
 
     func shouldDeferToPaneTabBar(at point: NSPoint) -> Bool {

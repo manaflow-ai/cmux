@@ -11,6 +11,8 @@
     "detail.section": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Section" } }, "ja": { "stringUnit": { "state": "translated", "value": "セクション" } } } },
     "detail.slider": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Amount" } }, "ja": { "stringUnit": { "state": "translated", "value": "量" } } } },
     "detail.toggle": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Enable" } }, "ja": { "stringUnit": { "state": "translated", "value": "有効にする" } } } },
+    "fileDrop.holdShiftDropIntoEditor": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Hold Shift to drop into editor" } }, "ja": { "stringUnit": { "state": "translated", "value": "Shift キーを押したままエディタにドロップ" } } } },
+    "fileDrop.holdShiftDropIntoTerminal": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Hold Shift to drop into terminal" } }, "ja": { "stringUnit": { "state": "translated", "value": "Shift キーを押したままターミナルにドロップ" } } } },
     "debug.bonsplitTabBarDebug.actionLaneBorder": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Action Lane Border" } }, "ja": { "stringUnit": { "state": "translated", "value": "アクションレーンの境界線" } } } },
     "debug.bonsplitTabBarDebug.actionLaneGeometry": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Action Lane Geometry" } }, "ja": { "stringUnit": { "state": "translated", "value": "アクションレーンのジオメトリ" } } } },
     "debug.bonsplitTabBarDebug.contentFade": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Content fade" } }, "ja": { "stringUnit": { "state": "translated", "value": "コンテンツのフェード" } } } },

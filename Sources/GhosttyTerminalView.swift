@@ -9251,6 +9251,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
 
+    func handleDroppedFileURLsAsText(_ urls: [URL]) -> Bool {
+        let text = TerminalImageTransferPlanner.insertedText(forFileURLs: urls)
+        guard !text.isEmpty else { return false }
+        terminalSurface?.sendText(text)
+        return true
+    }
+
     @discardableResult
     fileprivate func insertDroppedPasteboard(_ pasteboard: NSPasteboard) -> Bool {
         executePreparedImageTransfer(
@@ -11234,6 +11241,13 @@ final class GhosttySurfaceScrollView: NSView {
         cmuxDebugLog("terminal.swiftUIDrop surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") urls=\(urls.map(\.lastPathComponent))")
         #endif
         return surfaceView.handleDroppedFileURLs(urls)
+    }
+
+    func handleDroppedURLsAsText(_ urls: [URL]) -> Bool {
+        #if DEBUG
+        cmuxDebugLog("terminal.swiftUIDropAsText surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") urls=\(urls.map(\.lastPathComponent))")
+        #endif
+        return surfaceView.handleDroppedFileURLsAsText(urls)
     }
 
     func terminalViewForDrop(at point: NSPoint) -> GhosttyNSView? {

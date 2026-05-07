@@ -284,8 +284,12 @@ enum TerminalImageTransferPlanner {
             .joined(separator: " ")
     }
 
-    private static func insertedText(for fileURLs: [URL]) -> String {
+    static func insertedText(forFileURLs fileURLs: [URL]) -> String {
         insertedText(forPathStrings: fileURLs.map(\.path))
+    }
+
+    private static func insertedText(for fileURLs: [URL]) -> String {
+        insertedText(forFileURLs: fileURLs)
     }
 
     private static func isRemoteUploadableFileURL(_ fileURL: URL) -> Bool {
