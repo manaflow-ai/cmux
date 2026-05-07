@@ -741,9 +741,12 @@ def test_issue_3463_node_options_survives_tmpdir_cleanup(failures: list[str]) ->
             failures,
         )
 
-        guard_dir_tmpdir = tmp_dir / "cmux-claude-node-options"
-        if guard_dir_tmpdir.exists():
-            shutil.rmtree(guard_dir_tmpdir, ignore_errors=True)
+        # Wipe the whole sandboxed $TMPDIR the way macOS clears /var/folders/...
+        # between sessions. If the wrapper ever regresses to writing the guard
+        # file under $TMPDIR, the --require path will vanish here and the node
+        # child below will fail with the same 'Cannot find module' the issue
+        # reporter saw.
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
         node_env = os.environ.copy()
         node_env["NODE_OPTIONS"] = node_options
