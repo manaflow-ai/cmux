@@ -39,6 +39,78 @@ final class CmuxSSHURLRequestTests: XCTestCase {
         }
     }
 
+    func testParsesSSHURLWithAllStructuredSSHOptions() throws {
+        var components = URLComponents()
+        components.scheme = supportedScheme
+        components.host = "ssh"
+        components.queryItems = [
+            URLQueryItem(name: "host", value: "dev.example.com"),
+            URLQueryItem(name: "user", value: "alice"),
+            URLQueryItem(name: "port", value: "2222"),
+            URLQueryItem(name: "title", value: "Dev SSH"),
+            URLQueryItem(name: "identity", value: "~/.ssh/id_ed25519"),
+            URLQueryItem(name: "ssh-option", value: "ControlPath=/tmp/cmux-ssh-%C"),
+            URLQueryItem(name: "ssh-option", value: "StrictHostKeyChecking=accept-new"),
+            URLQueryItem(name: "no-focus", value: "true")
+        ]
+        let url = try XCTUnwrap(components.url)
+
+        switch CmuxSSHURLRequest.parse(url) {
+        case .success(.some(let request)):
+            XCTAssertEqual(request.destination, "alice@dev.example.com")
+            XCTAssertEqual(request.port, 2222)
+            XCTAssertEqual(request.title, "Dev SSH")
+            XCTAssertEqual(request.identityFile, "~/.ssh/id_ed25519")
+            XCTAssertEqual(request.sshOptions, [
+                "ControlPath=/tmp/cmux-ssh-%C",
+                "StrictHostKeyChecking=accept-new"
+            ])
+            XCTAssertTrue(request.noFocus)
+            XCTAssertEqual(request.cliArguments, [
+                "ssh",
+                "--port", "2222",
+                "--identity", "~/.ssh/id_ed25519",
+                "--name", "Dev SSH",
+                "--ssh-option", "ControlPath=/tmp/cmux-ssh-%C",
+                "--ssh-option", "StrictHostKeyChecking=accept-new",
+                "--no-focus",
+                "alice@dev.example.com"
+            ])
+        case .success(nil):
+            XCTFail("Expected SSH URL request")
+        case .failure(let error):
+            XCTFail("Unexpected parse error: \(error)")
+        }
+    }
+
+    func testParsesNoFocusFlagWithoutValue() throws {
+        let url = try XCTUnwrap(URL(string: "\(supportedScheme)://ssh?host=dev.example.com&no-focus"))
+
+        switch CmuxSSHURLRequest.parse(url) {
+        case .success(.some(let request)):
+            XCTAssertTrue(request.noFocus)
+            XCTAssertEqual(request.cliArguments, ["ssh", "--no-focus", "dev.example.com"])
+        case .success(nil):
+            XCTFail("Expected SSH URL request")
+        case .failure(let error):
+            XCTFail("Unexpected parse error: \(error)")
+        }
+    }
+
+    func testParsesNoFocusFalseAsDisabled() throws {
+        let url = try XCTUnwrap(URL(string: "\(supportedScheme)://ssh?host=dev.example.com&no-focus=false"))
+
+        switch CmuxSSHURLRequest.parse(url) {
+        case .success(.some(let request)):
+            XCTAssertFalse(request.noFocus)
+            XCTAssertEqual(request.cliArguments, ["ssh", "dev.example.com"])
+        case .success(nil):
+            XCTFail("Expected SSH URL request")
+        case .failure(let error):
+            XCTFail("Unexpected parse error: \(error)")
+        }
+    }
+
     func testParsesStableNightlyAndDevSchemes() throws {
         for scheme in ["cmux", "cmux-nightly", "cmux-dev"] {
             var components = URLComponents()
@@ -231,6 +303,71 @@ final class CmuxSSHURLRequestTests: XCTestCase {
             break
         default:
             XCTFail("Expected title separator character rejection")
+        }
+    }
+
+    func testRejectsHiddenControlCharactersInIdentity() throws {
+        var components = URLComponents()
+        components.scheme = supportedScheme
+        components.host = "ssh"
+        components.queryItems = [
+            URLQueryItem(name: "host", value: "dev.example.com"),
+            URLQueryItem(name: "identity", value: "~/.ssh/id_ed25519\u{202E}")
+        ]
+        let url = try XCTUnwrap(components.url)
+
+        switch CmuxSSHURLRequest.parse(url) {
+        case .failure(.identityContainsUnsafeCharacters):
+            break
+        default:
+            XCTFail("Expected identity hidden character rejection")
+        }
+    }
+
+    func testRejectsHiddenControlCharactersInSSHOption() throws {
+        var components = URLComponents()
+        components.scheme = supportedScheme
+        components.host = "ssh"
+        components.queryItems = [
+            URLQueryItem(name: "host", value: "dev.example.com"),
+            URLQueryItem(name: "ssh-option", value: "ProxyCommand=echo safe\nbad")
+        ]
+        let url = try XCTUnwrap(components.url)
+
+        switch CmuxSSHURLRequest.parse(url) {
+        case .failure(.sshOptionContainsUnsafeCharacters):
+            break
+        default:
+            XCTFail("Expected SSH option hidden character rejection")
+        }
+    }
+
+    func testRejectsInvalidNoFocusValue() throws {
+        let url = try XCTUnwrap(URL(string: "\(supportedScheme)://ssh?host=dev.example.com&no-focus=maybe"))
+
+        switch CmuxSSHURLRequest.parse(url) {
+        case .failure(.invalidBooleanParameter("no-focus")):
+            break
+        default:
+            XCTFail("Expected invalid no-focus value rejection")
+        }
+    }
+
+    func testRejectsTooManySSHOptions() throws {
+        var components = URLComponents()
+        components.scheme = supportedScheme
+        components.host = "ssh"
+        components.queryItems = [URLQueryItem(name: "host", value: "dev.example.com")] +
+            (0...CmuxSSHURLRequest.maxSSHOptionCount).map {
+                URLQueryItem(name: "ssh-option", value: "StrictHostKeyChecking=accept-new-\($0)")
+            }
+        let url = try XCTUnwrap(components.url)
+
+        switch CmuxSSHURLRequest.parse(url) {
+        case .failure(.tooManySSHOptions(maxCount: CmuxSSHURLRequest.maxSSHOptionCount)):
+            break
+        default:
+            XCTFail("Expected too many SSH options rejection")
         }
     }
 

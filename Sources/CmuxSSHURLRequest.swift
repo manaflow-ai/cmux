@@ -7,7 +7,13 @@ enum CmuxSSHURLParseError: Error, Equatable {
     case destinationStartsWithDash
     case titleTooLong(maxLength: Int)
     case titleContainsUnsafeCharacters
+    case identityTooLong(maxLength: Int)
+    case identityContainsUnsafeCharacters
+    case sshOptionTooLong(maxLength: Int)
+    case sshOptionContainsUnsafeCharacters
+    case tooManySSHOptions(maxCount: Int)
     case invalidPort
+    case invalidBooleanParameter(String)
     case conflictingDestinationParameters
     case conflictingTitleParameters
     case duplicateParameter(String)
@@ -18,6 +24,9 @@ enum CmuxSSHURLParseError: Error, Equatable {
 struct CmuxSSHURLRequest: Equatable {
     static let maxDestinationLength = 256
     static let maxTitleLength = 160
+    static let maxIdentityLength = 512
+    static let maxSSHOptionLength = 512
+    static let maxSSHOptionCount = 24
     static let supportedSchemes: Set<String> = ["cmux", "cmux-nightly", "cmux-dev"]
     static var activeSupportedSchemes: Set<String> {
         [AuthEnvironment.callbackScheme.lowercased()]
@@ -27,14 +36,26 @@ struct CmuxSSHURLRequest: Equatable {
     let destination: String
     let port: Int?
     let title: String?
+    let identityFile: String?
+    let sshOptions: [String]
+    let noFocus: Bool
 
     var cliArguments: [String] {
         var parts = ["ssh"]
         if let port {
             parts += ["--port", String(port)]
         }
+        if let identityFile {
+            parts += ["--identity", identityFile]
+        }
         if let title = normalizedTitle {
             parts += ["--name", title]
+        }
+        for sshOption in sshOptions {
+            parts += ["--ssh-option", sshOption]
+        }
+        if noFocus {
+            parts.append("--no-focus")
         }
         parts.append(destination)
         return parts
@@ -73,14 +94,24 @@ struct CmuxSSHURLRequest: Equatable {
         }
 
         let queryItems = components.queryItems ?? []
-        let allowedQueryNames: Set<String> = ["host", "user", "port", "title", "name"]
+        let allowedQueryNames: Set<String> = [
+            "host",
+            "user",
+            "port",
+            "title",
+            "name",
+            "identity",
+            "ssh-option",
+            "no-focus"
+        ]
+        let repeatableQueryNames: Set<String> = ["ssh-option"]
         var seenQueryNames = Set<String>()
         for item in queryItems {
             let name = item.name.lowercased()
             guard allowedQueryNames.contains(name) else {
                 return .failure(.unsupportedParameter(displayParameterName(item.name)))
             }
-            guard seenQueryNames.insert(name).inserted else {
+            guard repeatableQueryNames.contains(name) || seenQueryNames.insert(name).inserted else {
                 return .failure(.duplicateParameter(displayParameterName(item.name)))
             }
         }
@@ -138,12 +169,46 @@ struct CmuxSSHURLRequest: Equatable {
             }
         }
 
+        let identityFile = normalizedQueryValue(namedAnyOf: ["identity"], in: queryItems)
+        if let identityFile {
+            guard identityFile.count <= maxIdentityLength else {
+                return .failure(.identityTooLong(maxLength: maxIdentityLength))
+            }
+            guard !containsUnsafeHiddenCharacter(identityFile) else {
+                return .failure(.identityContainsUnsafeCharacters)
+            }
+        }
+
+        let sshOptions = normalizedQueryValues(named: "ssh-option", in: queryItems)
+        guard sshOptions.count <= maxSSHOptionCount else {
+            return .failure(.tooManySSHOptions(maxCount: maxSSHOptionCount))
+        }
+        for sshOption in sshOptions {
+            guard sshOption.count <= maxSSHOptionLength else {
+                return .failure(.sshOptionTooLong(maxLength: maxSSHOptionLength))
+            }
+            guard !containsUnsafeHiddenCharacter(sshOption) else {
+                return .failure(.sshOptionContainsUnsafeCharacters)
+            }
+        }
+
+        let noFocus: Bool
+        switch normalizedBooleanValue(named: "no-focus", in: queryItems) {
+        case .success(let value):
+            noFocus = value
+        case .failure(let error):
+            return .failure(error)
+        }
+
         return .success(
             CmuxSSHURLRequest(
                 originalURL: url,
                 destination: destination,
                 port: parsedPort,
-                title: title
+                title: title,
+                identityFile: identityFile,
+                sshOptions: sshOptions,
+                noFocus: noFocus
             )
         )
     }
@@ -182,6 +247,37 @@ struct CmuxSSHURLRequest: Equatable {
         }
         let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return normalized.isEmpty ? nil : normalized
+    }
+
+    private static func normalizedQueryValues(named name: String, in queryItems: [URLQueryItem]) -> [String] {
+        queryItems
+            .filter { $0.name.lowercased() == name }
+            .compactMap { item in
+                guard let value = item.value else { return nil }
+                let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                return normalized.isEmpty ? nil : normalized
+            }
+    }
+
+    private static func normalizedBooleanValue(named name: String, in queryItems: [URLQueryItem]) -> Result<Bool, CmuxSSHURLParseError> {
+        guard let item = queryItems.first(where: { $0.name.lowercased() == name }) else {
+            return .success(false)
+        }
+        guard let rawValue = item.value else {
+            return .success(true)
+        }
+        let normalized = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalized.isEmpty {
+            return .success(true)
+        }
+        switch normalized {
+        case "1", "true", "yes", "on":
+            return .success(true)
+        case "0", "false", "no", "off":
+            return .success(false)
+        default:
+            return .failure(.invalidBooleanParameter(displayParameterName(item.name)))
+        }
     }
 
     private static func isAllowedSSHHost(_ value: String) -> Bool {
