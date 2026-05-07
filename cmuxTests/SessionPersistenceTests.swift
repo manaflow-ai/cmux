@@ -1207,6 +1207,7 @@ final class SessionPersistenceTests: XCTestCase {
                     "--yolo",
                 ]
             ),
+            (.hermesAgent, ["/usr/local/bin/hermes", "--tui", "--model", "anthropic/claude-sonnet-4.6"]),
             (
                 .copilot,
                 [
@@ -1365,6 +1366,8 @@ final class SessionPersistenceTests: XCTestCase {
                 resolvedEnvironment = ["OPENCODE_CONFIG_DIR": "/tmp/opencode"]
             case .rovodev:
                 resolvedEnvironment = [:]
+            case .hermesAgent:
+                resolvedEnvironment = ["HERMES_HOME": "/tmp/hermes"]
             case .copilot:
                 resolvedEnvironment = ["COPILOT_HOME": "/tmp/copilot"]
             case .codebuddy:

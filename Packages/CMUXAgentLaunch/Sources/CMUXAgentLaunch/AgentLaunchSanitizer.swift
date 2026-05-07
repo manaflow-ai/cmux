@@ -83,6 +83,15 @@ public enum AgentLaunchSanitizer {
                 return nil
             }
             return preserveOptions(tail, policy: rovoDevPolicy)
+        case "hermes-agent":
+            var tail = args
+            if tail.first == "chat" {
+                tail.removeFirst()
+            } else if let command = tail.first,
+                      !command.hasPrefix("-") {
+                return nil
+            }
+            return preserveOptions(tail, policy: hermesAgentPolicy)
         case "copilot":
             return preserveOptions(args, policy: copilotPolicy)
         case "codebuddy":
