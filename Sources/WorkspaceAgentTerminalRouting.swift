@@ -14,13 +14,13 @@ extension Workspace {
 
         if let panelId {
             guard var keys = agentStatusKeysByPanelId[panelId] else {
-                clearRestoredAgentSnapshotForAgentRouting(panelId: panelId)
+                clearRestoredAgentSnapshotForAgentRouting(panelId: panelId, matchingKey: trimmedKey)
                 return
             }
             keys.remove(trimmedKey)
             if keys.isEmpty {
                 agentStatusKeysByPanelId.removeValue(forKey: panelId)
-                clearRestoredAgentSnapshotForAgentRouting(panelId: panelId)
+                clearRestoredAgentSnapshotForAgentRouting(panelId: panelId, matchingKey: trimmedKey)
             } else {
                 agentStatusKeysByPanelId[panelId] = keys
             }
@@ -35,6 +35,14 @@ extension Workspace {
         {
             clearRestoredAgentSnapshotForAgentRouting(panelId: existingPanelId)
         }
+    }
+
+    private func clearRestoredAgentSnapshotForAgentRouting(panelId: UUID, matchingKey key: String) {
+        guard let snapshot = restoredAgentSnapshotsByPanelId[panelId],
+              restoredAgentSnapshot(snapshot, matchesStatusKey: key) else {
+            return
+        }
+        clearRestoredAgentSnapshotForAgentRouting(panelId: panelId)
     }
 
     func setAgentPID(key: String, pid: pid_t, panelId: UUID? = nil) {

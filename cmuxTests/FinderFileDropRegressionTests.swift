@@ -99,6 +99,9 @@ final class FinderFileDropRegressionTests: XCTestCase {
         _ = workspace.sessionSnapshot(includeScrollback: false, restorableAgentIndex: index)
         XCTAssertEqual(workspace.externalFileDropRouting(forPanelId: panelId), .agentPromptPaste)
 
+        workspace.clearAgentTerminal(key: "pi", panelId: panelId)
+        XCTAssertEqual(workspace.externalFileDropRouting(forPanelId: panelId), .agentPromptPaste)
+
         workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
         workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
         XCTAssertNil(
