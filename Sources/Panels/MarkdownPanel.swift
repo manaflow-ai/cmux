@@ -35,6 +35,8 @@ final class MarkdownPanel: Panel, ObservableObject {
     // main actor, but DispatchSource.cancel() is thread-safe.
     private nonisolated(unsafe) var fileWatchSource: DispatchSourceFileSystemObject?
     private nonisolated(unsafe) var directoryWatchSource: DispatchSourceFileSystemObject?
+    private var directoryWatchPath: String?
+    private var watcherRetryWorkItem: DispatchWorkItem?
     private var isClosed: Bool = false
     private let watchQueue = DispatchQueue(label: "com.cmux.markdown-file-watch", qos: .utility)
 
@@ -103,6 +105,7 @@ final class MarkdownPanel: Panel, ObservableObject {
         }
 
         stopDirectoryWatcher()
+        cancelWatcherRetry()
 
         let source = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: fd,
@@ -144,11 +147,25 @@ final class MarkdownPanel: Panel, ObservableObject {
     }
 
     private func startDirectoryWatcher() {
-        guard directoryWatchSource == nil else { return }
-        let directoryPath = (filePath as NSString).deletingLastPathComponent
-        let fd = open(directoryPath, O_EVTONLY)
-        guard fd >= 0 else { return }
+        for directoryPath in existingDirectoryCandidatesForWatcher() {
+            if directoryWatchPath == directoryPath, directoryWatchSource != nil {
+                return
+            }
 
+            let fd = open(directoryPath, O_EVTONLY)
+            guard fd >= 0 else { continue }
+
+            stopDirectoryWatcher()
+            cancelWatcherRetry()
+
+            installDirectoryWatcher(fileDescriptor: fd, directoryPath: directoryPath)
+            return
+        }
+
+        scheduleWatcherRetry()
+    }
+
+    private func installDirectoryWatcher(fileDescriptor fd: Int32, directoryPath: String) {
         let source = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: fd,
             eventMask: [.write, .delete, .rename, .extend],
@@ -162,6 +179,11 @@ final class MarkdownPanel: Panel, ObservableObject {
                 self.loadFileContent()
                 if !self.isFileUnavailable {
                     self.startFileWatcher()
+                } else {
+                    // If we were watching an ancestor, a child directory may
+                    // have been recreated. Move the watcher as close to the
+                    // target file as possible.
+                    self.startDirectoryWatcher()
                 }
             }
         }
@@ -172,6 +194,52 @@ final class MarkdownPanel: Panel, ObservableObject {
 
         source.resume()
         directoryWatchSource = source
+        directoryWatchPath = directoryPath
+    }
+
+    private func existingDirectoryCandidatesForWatcher() -> [String] {
+        let fileManager = FileManager.default
+        var current = (filePath as NSString).deletingLastPathComponent
+        if current.isEmpty {
+            current = fileManager.currentDirectoryPath
+        }
+
+        var candidates: [String] = []
+        var seen = Set<String>()
+        while !current.isEmpty {
+            let standardized = (current as NSString).standardizingPath
+            guard seen.insert(standardized).inserted else { break }
+
+            var isDirectory: ObjCBool = false
+            if fileManager.fileExists(atPath: standardized, isDirectory: &isDirectory),
+               isDirectory.boolValue {
+                candidates.append(standardized)
+            }
+
+            let parent = (standardized as NSString).deletingLastPathComponent
+            if parent == standardized || parent.isEmpty {
+                break
+            }
+            current = parent
+        }
+        return candidates
+    }
+
+    private func scheduleWatcherRetry() {
+        guard watcherRetryWorkItem == nil else { return }
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.watcherRetryWorkItem = nil
+            guard !self.isClosed else { return }
+            self.startFileWatcher()
+        }
+        watcherRetryWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: workItem)
+    }
+
+    private func cancelWatcherRetry() {
+        watcherRetryWorkItem?.cancel()
+        watcherRetryWorkItem = nil
     }
 
     private func stopFileWatcher() {
@@ -186,16 +254,19 @@ final class MarkdownPanel: Panel, ObservableObject {
             source.cancel()
             directoryWatchSource = nil
         }
+        directoryWatchPath = nil
     }
 
     private func stopWatching() {
         stopFileWatcher()
         stopDirectoryWatcher()
+        cancelWatcherRetry()
     }
 
     deinit {
         // DispatchSource cancel is safe from any thread.
         fileWatchSource?.cancel()
         directoryWatchSource?.cancel()
+        watcherRetryWorkItem?.cancel()
     }
 }
