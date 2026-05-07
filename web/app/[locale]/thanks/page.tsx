@@ -58,23 +58,6 @@ function DragToApplicationsSvg({ title }: { title: string }) {
       aria-label={title}
     >
       <defs>
-        <linearGradient id="s1-iconFill" x1="110" y1="0" x2="110" y2="220" gradientUnits="userSpaceOnUse">
-          <stop offset="0" stopColor="#ffffff" />
-          <stop offset="0.58" stopColor="#fbfcfe" />
-          <stop offset="1" stopColor="#eef3f9" />
-        </linearGradient>
-        <linearGradient id="s1-chevronFill" x1="84" y1="72" x2="146" y2="148" gradientUnits="userSpaceOnUse">
-          <stop offset="0" stopColor="#4a8cff" />
-          <stop offset="1" stopColor="#1f6cff" />
-        </linearGradient>
-        <linearGradient id="s1-folderBack" x1="152" y1="24" x2="152" y2="94" gradientUnits="userSpaceOnUse">
-          <stop offset="0" stopColor="#a9dbff" />
-          <stop offset="1" stopColor="#5f9ff0" />
-        </linearGradient>
-        <linearGradient id="s1-folderFront" x1="152" y1="76" x2="152" y2="220" gradientUnits="userSpaceOnUse">
-          <stop offset="0" stopColor="#7fc4ff" />
-          <stop offset="1" stopColor="#2e7be0" />
-        </linearGradient>
         <filter id="s1-blur12" x="-40%" y="-40%" width="180%" height="180%">
           <feGaussianBlur stdDeviation="10" />
         </filter>
@@ -87,23 +70,15 @@ function DragToApplicationsSvg({ title }: { title: string }) {
       </defs>
 
       <g transform="translate(88 156) rotate(-6 110 110)">
-        <path d="M56 0H164C197 0 220 23 220 56V164C220 197 197 220 164 220H56C23 220 0 197 0 164V56C0 23 23 0 56 0Z" transform="translate(8 12)" fill="#000000" fillOpacity="0.15" filter="url(#s1-blur12)" />
-        <path d="M56 0H164C197 0 220 23 220 56V164C220 197 197 220 164 220H56C23 220 0 197 0 164V56C0 23 23 0 56 0Z" fill="url(#s1-iconFill)" stroke="#8893a3" strokeOpacity="0.18" />
-        <path d="M63 8H157C186 8 212 28 212 63V157C212 192 192 212 157 212H63C28 212 8 192 8 157V63C8 28 28 8 63 8Z" fill="none" stroke="#ffffff" strokeOpacity="0.72" strokeWidth="2" />
-        <image xlinkHref="/install/cmux-chevron.png" href="/install/cmux-chevron.png" x="56" y="40" width="120" height="140" preserveAspectRatio="xMidYMid meet" />
+        <ellipse cx="110" cy="218" rx="96" ry="12" fill="#000000" fillOpacity="0.18" filter="url(#s1-blur12)" />
+        <image xlinkHref="/install/cmux-app.png" href="/install/cmux-app.png" x="0" y="0" width="220" height="220" preserveAspectRatio="xMidYMid meet" />
       </g>
 
       <path d="M306 242C383 155 493 153 573 226" fill="none" stroke="currentColor" strokeOpacity="0.48" strokeWidth="3.5" strokeLinecap="round" strokeDasharray="7 11" markerEnd="url(#s1-dragArrow)" />
 
       <g transform="translate(516 154)">
-        <ellipse cx="152" cy="214" rx="116" ry="16" fill="#000000" fillOpacity="0.12" filter="url(#s1-blur8)" />
-        <path d="M24 94V48C24 34 36 24 50 24H100C116 24 127 29 135 41L143 52H252C268 52 280 64 280 80V94H24Z" fill="url(#s1-folderBack)" stroke="#175291" strokeOpacity="0.12" />
-        <path d="M16 94C16 84 24 76 34 76H270C280 76 288 84 288 94V182C288 203 271 220 250 220H54C33 220 16 203 16 182V94Z" fill="url(#s1-folderFront)" stroke="#12447e" strokeOpacity="0.14" />
-        <path d="M40 55H126C132 55 137 57 141 61" fill="none" stroke="#ffffff" strokeOpacity="0.38" strokeWidth="3" strokeLinecap="round" />
-        <path d="M38 95H266" fill="none" stroke="#ffffff" strokeOpacity="0.42" strokeWidth="3" strokeLinecap="round" />
-        <path d="M105 171C120 145 134 119 151 93" fill="none" stroke="#ffffff" strokeWidth="20" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M211 171C195 142 181 117 151 93" fill="none" stroke="#ffffff" strokeWidth="20" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M121 145C144 141 168 141 191 145" fill="none" stroke="#ffffff" strokeWidth="18" strokeLinecap="round" strokeLinejoin="round" />
+        <ellipse cx="152" cy="226" rx="118" ry="14" fill="#000000" fillOpacity="0.16" filter="url(#s1-blur8)" />
+        <image xlinkHref="/install/applications.png" href="/install/applications.png" x="22" y="0" width="260" height="220" preserveAspectRatio="xMidYMid meet" />
       </g>
 
       <g transform="translate(278 334) rotate(10)">
@@ -132,31 +107,12 @@ function DockSvg({ title }: { title: string }) {
           <stop offset="0" stopColor="#ffffff" stopOpacity="0.26" />
           <stop offset="1" stopColor="#ffffff" stopOpacity="0" />
         </linearGradient>
-        <linearGradient id="s2-finderFill" x1="70" y1="0" x2="70" y2="140" gradientUnits="userSpaceOnUse">
-          <stop offset="0" stopColor="#6aa6ff" />
-          <stop offset="1" stopColor="#2e6ff0" />
-        </linearGradient>
-        <linearGradient id="s2-cmuxFill" x1="70" y1="0" x2="70" y2="140" gradientUnits="userSpaceOnUse">
-          <stop offset="0" stopColor="#ffffff" />
-          <stop offset="1" stopColor="#eef2f9" />
-        </linearGradient>
-        <linearGradient id="s2-cmuxChevron" x1="49" y1="43" x2="90" y2="97" gradientUnits="userSpaceOnUse">
-          <stop offset="0" stopColor="#4a8cff" />
-          <stop offset="1" stopColor="#1f6cff" />
-        </linearGradient>
-        <linearGradient id="s2-messageFill" x1="70" y1="0" x2="70" y2="140" gradientUnits="userSpaceOnUse">
-          <stop offset="0" stopColor="#5ee07b" />
-          <stop offset="1" stopColor="#18a943" />
-        </linearGradient>
         <filter id="s2-blur14" x="-35%" y="-35%" width="170%" height="170%">
           <feGaussianBlur stdDeviation="14" />
         </filter>
         <filter id="s2-blur18" x="-35%" y="-35%" width="170%" height="170%">
           <feGaussianBlur stdDeviation="18" />
         </filter>
-        <clipPath id="s2-finderClip">
-          <path d="M34 0H106C126 0 140 14 140 34V106C140 126 126 140 106 140H34C14 140 0 126 0 106V34C0 14 14 0 34 0Z" />
-        </clipPath>
       </defs>
 
       <rect x="130" y="233" width="620" height="174" rx="56" fill="#000000" fillOpacity="0.32" filter="url(#s2-blur14)" />
@@ -166,25 +122,9 @@ function DockSvg({ title }: { title: string }) {
       <rect x="130.5" y="215.5" width="619" height="173" rx="55.5" fill="none" stroke="#ffffff" strokeOpacity="0.16" />
       <rect x="144" y="227" width="592" height="40" rx="32" fill="url(#s2-dockHighlight)" />
 
-      <g transform="translate(190 233)">
-        <path d="M34 0H106C126 0 140 14 140 34V106C140 126 126 140 106 140H34C14 140 0 126 0 106V34C0 14 14 0 34 0Z" fill="url(#s2-finderFill)" stroke="#ffffff" strokeOpacity="0.12" />
-        <rect x="70" y="0" width="70" height="140" fill="#ffffff" clipPath="url(#s2-finderClip)" />
-        <path d="M70 14V104" fill="none" stroke="#1a3a78" strokeOpacity="0.9" strokeWidth="4.5" strokeLinecap="round" />
-        <path d="M39 58C43 54 49 54 53 58" fill="none" stroke="#1a3a78" strokeWidth="4.5" strokeLinecap="round" />
-        <path d="M87 58C91 54 97 54 101 58" fill="none" stroke="#1a3a78" strokeWidth="4.5" strokeLinecap="round" />
-        <path d="M46 93C57 104 83 104 94 93" fill="none" stroke="#18243b" strokeWidth="5" strokeLinecap="round" />
-      </g>
-
-      <g transform="translate(370 233)">
-        <path d="M34 0H106C126 0 140 14 140 34V106C140 126 126 140 106 140H34C14 140 0 126 0 106V34C0 14 14 0 34 0Z" fill="url(#s2-cmuxFill)" stroke="#94a0b2" strokeOpacity="0.18" />
-        <path d="M40 6H100C121 6 134 19 134 40V100C134 121 121 134 100 134H40C19 134 6 121 6 100V40C6 19 19 6 40 6Z" fill="none" stroke="#ffffff" strokeOpacity="0.68" strokeWidth="1.8" />
-        <image xlinkHref="/install/cmux-chevron.png" href="/install/cmux-chevron.png" x="32" y="22" width="76" height="96" preserveAspectRatio="xMidYMid meet" />
-      </g>
-
-      <g transform="translate(550 233)">
-        <path d="M34 0H106C126 0 140 14 140 34V106C140 126 126 140 106 140H34C14 140 0 126 0 106V34C0 14 14 0 34 0Z" fill="url(#s2-messageFill)" stroke="#ffffff" strokeOpacity="0.12" />
-        <path d="M44 49H97C108 49 117 58 117 69V87C117 98 108 107 97 107H67L50 120L55 107H44C33 107 24 98 24 87V69C24 58 33 49 44 49Z" fill="none" stroke="#ffffff" strokeWidth="11" strokeLinecap="round" strokeLinejoin="round" />
-      </g>
+      <image xlinkHref="/install/finder.png" href="/install/finder.png" x="190" y="233" width="140" height="140" preserveAspectRatio="xMidYMid meet" />
+      <image xlinkHref="/install/cmux-app.png" href="/install/cmux-app.png" x="370" y="233" width="140" height="140" preserveAspectRatio="xMidYMid meet" />
+      <image xlinkHref="/install/messages.png" href="/install/messages.png" x="550" y="233" width="140" height="140" preserveAspectRatio="xMidYMid meet" />
 
       <circle cx="440" cy="405" r="4.5" fill="#ffffff" fillOpacity="0.56" />
     </svg>
