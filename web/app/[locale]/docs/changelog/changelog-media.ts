@@ -26,6 +26,31 @@ export interface VersionMedia {
 }
 
 export const changelogMedia: Record<string, VersionMedia> = {
+  "0.64.0": {
+    title: "Session Restore on Quit, Passkeys, File Explorer, Task Manager",
+    features: [
+      {
+        title: "Session Restore on Quit",
+        description:
+          "Closing the last window with the red X no longer drops your work. cmux restores prior panes on relaunch and resumes Claude Code, Codex, OpenCode, Gemini, and Rovo Dev sessions where you left off.",
+      },
+      {
+        title: "Passkeys, WebAuthn, and FIDO2",
+        description:
+          "Sign in to passkey-protected sites directly inside cmux browser panes. Reworked inside-out signing keeps the notarized Developer ID build compatible with macOS authentication services.",
+      },
+      {
+        title: "File Explorer",
+        description:
+          "A Finder-like file explorer sidebar with full SSH support so remote workspaces get the same tree view as local ones.",
+      },
+      {
+        title: "Task Manager",
+        description:
+          "A built-in Task Manager window plus cmux top CLI shows a live snapshot of windows, workspaces, panes, surfaces, and browser webviews, with jumps from the manager into the matching surface.",
+      },
+    ],
+  },
   "0.63.0": {
     title: "SSH, Claude Code Teams, oh-my-openagent, Browser Import, Minimal Mode",
     features: [

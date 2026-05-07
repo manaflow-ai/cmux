@@ -9,6 +9,8 @@ enum SettingsSearchAliasIndex {
             return localized("settings.search.alias.section.terminal", defaultValue: "shell scrollback scrollbar scroll bar ghostty tty pty")
         case .sidebarAppearance:
             return localized("settings.search.alias.section.sidebarAppearance", defaultValue: "sidebar left rail navigation details branches badges material terminal background")
+        case .betaFeatures:
+            return localized("settings.search.alias.section.betaFeatures", defaultValue: "beta experimental unstable preview feed dock right sidebar")
         case .automation:
             return localized("settings.search.alias.section.automation", defaultValue: "api cli control socket mcp agents hooks ports")
         case .browser:
@@ -75,6 +77,8 @@ enum SettingsSearchAliasIndex {
         "sidebarAppearance:show-log": localized("settings.search.alias.setting.app.show-log", defaultValue: "sidebar.showLog log status latest message imperative"),
         "sidebarAppearance:show-progress": localized("settings.search.alias.setting.app.show-progress", defaultValue: "sidebar.showProgress progress bar percent status set_progress"),
         "sidebarAppearance:show-metadata": localized("settings.search.alias.setting.app.show-metadata", defaultValue: "sidebar.showCustomMetadata metadata meta report_meta status custom block"),
+        "betaFeatures:feed": localized("settings.search.alias.setting.betaFeatures.feed", defaultValue: "feed right sidebar agent decisions permissions questions approval beta unstable"),
+        "betaFeatures:dock": localized("settings.search.alias.setting.betaFeatures.dock", defaultValue: "dock right sidebar terminal controls tui beta unstable"),
         "automation:socket-mode": localized("settings.search.alias.setting.automation.socket-mode", defaultValue: "automation.socketControlMode api socket unix domain control server auth allow password disabled"),
         "automation:socket-password": localized("settings.search.alias.setting.automation.socket-password", defaultValue: "automation.socketPassword auth token credential secret password access key"),
         "automation:claude-code": localized("settings.search.alias.setting.automation.claude-code", defaultValue: "automation.claudeCodeIntegration claude code hooks agent integration status notifications"),

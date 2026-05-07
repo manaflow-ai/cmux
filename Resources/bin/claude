@@ -73,8 +73,6 @@ resolve_hook_cmux_bin() {
 
 CLAUDE_AUTH_SELECTION_ENV_KEYS=(
     ANTHROPIC_API_KEY
-    ANTHROPIC_AUTH_TOKEN
-    ANTHROPIC_BASE_URL
     ANTHROPIC_MODEL
     ANTHROPIC_SMALL_FAST_MODEL
     CLAUDE_CODE_USE_BEDROCK
@@ -288,20 +286,6 @@ for arg in "$@"; do
     esac
 done
 
-# Claude only honors a PermissionRequest `setMode` update to
-# `bypassPermissions` when bypass has been made available at launch.
-# This flag exposes bypass as an option without enabling it by default,
-# so the Feed Bypass button can switch modes later in the session.
-CMUX_BYPASS_AVAILABILITY_ARGS=(--allow-dangerously-skip-permissions)
-for arg in "$@"; do
-    case "$arg" in
-        --allow-dangerously-skip-permissions|--dangerously-skip-permissions)
-            CMUX_BYPASS_AVAILABILITY_ARGS=()
-            break
-            ;;
-    esac
-done
-
 # Export the wrapper's PID. Because we exec claude below, this PID becomes
 # the actual claude process PID, which hooks use for stale-session detection.
 export CMUX_CLAUDE_PID=$$
@@ -336,8 +320,8 @@ fi
 HOOKS_JSON='{"preferredNotifChannel":"notifications_disabled","hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-start","timeout":10}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude stop","timeout":10}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":10,"async":true}]}],"SessionEnd":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-end","timeout":1}]}],"Notification":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude notification","timeout":10}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude prompt-submit","timeout":10}]}],"PreToolUse":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude pre-tool-use","timeout":5,"async":true}]}],"PermissionRequest":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":125}]}]}}'
 
 if [[ "$SKIP_SESSION_ID" == true ]]; then
-    exec "$REAL_CLAUDE" "${CMUX_BYPASS_AVAILABILITY_ARGS[@]}" --settings "$HOOKS_JSON" "$@"
+    exec "$REAL_CLAUDE" --settings "$HOOKS_JSON" "$@"
 else
     SESSION_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
-    exec "$REAL_CLAUDE" "${CMUX_BYPASS_AVAILABILITY_ARGS[@]}" --session-id "$SESSION_ID" --settings "$HOOKS_JSON" "$@"
+    exec "$REAL_CLAUDE" --session-id "$SESSION_ID" --settings "$HOOKS_JSON" "$@"
 fi

@@ -21,30 +21,6 @@ func cmuxJavaScriptStringLiteral(_ value: String?) -> String? {
     return String(arrayLiteral.dropFirst().dropLast())
 }
 
-final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
-    private let zeroSafeAreaLayoutGuide = NSLayoutGuide()
-
-    override var safeAreaInsets: NSEdgeInsets { NSEdgeInsetsZero }
-    override var safeAreaRect: NSRect { bounds }
-    override var safeAreaLayoutGuide: NSLayoutGuide { zeroSafeAreaLayoutGuide }
-
-    required init(rootView: Content) {
-        super.init(rootView: rootView)
-        addLayoutGuide(zeroSafeAreaLayoutGuide)
-        NSLayoutConstraint.activate([
-            zeroSafeAreaLayoutGuide.leadingAnchor.constraint(equalTo: leadingAnchor),
-            zeroSafeAreaLayoutGuide.trailingAnchor.constraint(equalTo: trailingAnchor),
-            zeroSafeAreaLayoutGuide.topAnchor.constraint(equalTo: topAnchor),
-            zeroSafeAreaLayoutGuide.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-}
-
 /// Caches `AXWindows` responses so repeated AX polls can reuse the same
 /// snapshot while the app window graph is unchanged. Only `.windows` is
 /// cached; `.children` and `.visibleChildren` fall through to AppKit so the
@@ -611,8 +587,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var onClose: (() -> Void)?
         var shouldClose: (() -> Bool)?
 
+        #if DEBUG
+        private func logWindowEvent(_ event: String, notification: Notification) {
+            guard let window = notification.object as? NSWindow else { return }
+            let id = window.identifier?.rawValue ?? "<nil>"
+            cmuxDebugLog(
+                "mainWindow.delegate.\(event) window=\(id) visible=\(window.isVisible ? 1 : 0) mini=\(window.isMiniaturized ? 1 : 0) key=\(window.isKeyWindow ? 1 : 0) main=\(window.isMainWindow ? 1 : 0)"
+            )
+        }
+        #endif
+
+        func windowWillClose(_ notification: Notification) {
+            onClose?()
+        }
+
+        #if DEBUG
+        func windowDidDeminiaturize(_ notification: Notification) {
+            logWindowEvent("didDeminiaturize", notification: notification)
+        }
+
+        func windowDidMiniaturize(_ notification: Notification) {
+            logWindowEvent("didMiniaturize", notification: notification)
+        }
+
+        func windowDidBecomeKey(_ notification: Notification) {
+            logWindowEvent("didBecomeKey", notification: notification)
+        }
+
+        func windowDidResignKey(_ notification: Notification) {
+            logWindowEvent("didResignKey", notification: notification)
+        }
+
+        func windowDidBecomeMain(_ notification: Notification) {
+            logWindowEvent("didBecomeMain", notification: notification)
+        }
+
+        func windowDidResignMain(_ notification: Notification) {
+            logWindowEvent("didResignMain", notification: notification)
+        }
+        #endif
+
         func windowShouldClose(_ sender: NSWindow) -> Bool { shouldClose?() ?? true }
-        func windowWillClose(_ notification: Notification) { onClose?() }
     }
 
     struct ScriptableMainWindowState {
@@ -635,6 +650,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     nonisolated static let persistedWindowGeometrySchemaVersion = 2
     private nonisolated static let persistedWindowGeometryDefaultsKey = "cmux.session.lastWindowGeometry.v2"
+#if DEBUG
+    nonisolated static var debugPersistedWindowGeometryDefaultsKey: String { persistedWindowGeometryDefaultsKey }
+#endif
     private nonisolated static let legacyPersistedWindowGeometryDefaultsKeys = [
         "cmux.session.lastWindowGeometry.v1"
     ]
@@ -648,7 +666,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var shortcutLayoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
     private var workspaceObserver: NSObjectProtocol?
     private var lifecycleSnapshotObservers: [NSObjectProtocol] = []
-    private var windowKeyObserver: NSObjectProtocol?
+    private var windowKeyObservers: [NSObjectProtocol] = []
     private var shortcutMonitor: Any?
     private var shortcutDefaultsObserver: NSObjectProtocol?
     private var menuBarVisibilityObserver: NSObjectProtocol?
@@ -678,6 +696,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(viewModel: updateViewModel)
     private let windowDecorationsController = WindowDecorationsController()
     private var menuBarExtraController: MenuBarExtraController?
+    private lazy var mainWindowVisibilityController = MainWindowVisibilityController(
+        dependencies: .init(
+            isActivationSuppressed: {
+                TerminalController.shouldSuppressSocketCommandActivation()
+                    && !TerminalController.socketCommandAllowsInAppFocusMutations()
+            },
+            setActiveMainWindow: { [weak self] window in
+                self?.setActiveMainWindow(window)
+            }
+        )
+    )
     private static let serviceErrorNoPath = NSString(string: String(localized: "error.clipboardFolderPath", defaultValue: "Could not load any folder path from the clipboard."))
     private static let didInstallWindowKeyEquivalentSwizzle: Void = {
         let targetClass: AnyClass = NSWindow.self
@@ -941,7 +970,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             _ = synchronizeActiveMainWindowContext(preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow)
             return true
         }
-        ensureInitialMainWindowIfNeeded()
+        if mainWindowVisibilityController.showApplicationWindows(
+            windows: mainWindowsForVisibilityController(),
+            reason: .applicationReopen,
+            activation: .none
+        ) == nil {
+            _ = ensureInitialMainWindowIfNeeded()
+        }
         return true
     }
 
@@ -1413,7 +1448,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 #endif
 
+    func applicationWillBecomeActive(_ notification: Notification) { if !hasVisibleMainTerminalWindow() { _ = mainWindowVisibilityController.orderFrontApplicationWindowsBeforeActivation(windows: mainWindowsForVisibilityController(), reason: .applicationWillBecomeActive) } }
+
     func applicationDidBecomeActive(_ notification: Notification) {
+        let activationWindows = mainWindowsForVisibilityController()
+        if mainWindowVisibilityController.finishPendingApplicationActivationRestore(windows: activationWindows, reason: .applicationDidBecomeActive) == nil, !hasVisibleMainTerminalWindow() {
+            _ = mainWindowVisibilityController.restoreApplicationWindowsAfterActivation(windows: activationWindows, reason: .applicationDidBecomeActive)
+        }
         sentryBreadcrumb("app.didBecomeActive", category: "lifecycle", data: [
             "tabCount": tabManager?.tabs.count ?? 0
         ])
@@ -2449,9 +2490,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         startupSessionSnapshot = SessionPersistenceStore.load()
     }
 
-    private func persistedWindowGeometry(
-        defaults: UserDefaults = .standard
-    ) -> PersistedWindowGeometry? {
+    private func persistedWindowGeometry(defaults: UserDefaults = .standard) -> PersistedWindowGeometry? {
         Self.removeLegacyPersistedWindowGeometry(defaults: defaults)
         guard let data = defaults.data(forKey: Self.persistedWindowGeometryDefaultsKey) else {
             return nil
@@ -2510,10 +2549,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    private func currentDisplayGeometries() -> (
-        available: [SessionDisplayGeometry],
-        fallback: SessionDisplayGeometry?
-    ) {
+    private func currentDisplayGeometries() -> (available: [SessionDisplayGeometry], fallback: SessionDisplayGeometry?) {
         let available = NSScreen.screens.map { screen in
             SessionDisplayGeometry(
                 displayID: screen.cmuxDisplayID,
@@ -2529,6 +2565,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
         }
         return (available, fallback)
+    }
+
+    private func resolvedPersistedWindowGeometryFrame() -> NSRect? {
+        let displays = currentDisplayGeometries()
+        let fallbackGeometry = persistedWindowGeometry()
+        return Self.resolvedWindowFrame(
+            from: fallbackGeometry?.frame,
+            display: fallbackGeometry?.display,
+            availableDisplays: displays.available,
+            fallbackDisplay: displays.fallback
+        )
     }
 
     private func attemptStartupSessionRestoreIfNeeded(primaryWindow: NSWindow) {
@@ -3275,6 +3322,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         return true
     }
+
+#if DEBUG
+    func debugBenchmarkSessionSnapshot(
+        includeScrollback: Bool,
+        persist: Bool
+    ) -> [String: Any] {
+        SessionSnapshotDebugBenchmark.run(
+            includeScrollback: includeScrollback,
+            persist: persist,
+            buildSnapshot: { [self] includeScrollback in
+                buildSessionSnapshot(includeScrollback: includeScrollback)
+            },
+            persistedGeometryData: { snapshot in
+                snapshot?.windows.first.flatMap { primaryWindow in
+                    Self.encodedPersistedWindowGeometryData(
+                        frame: primaryWindow.frame,
+                        display: primaryWindow.display
+                    )
+                }
+            },
+            persistSnapshot: { [self] snapshot, persistedGeometryData in
+                persistSessionSnapshot(
+                    snapshot,
+                    removeWhenEmpty: false,
+                    persistedGeometryData: persistedGeometryData,
+                    synchronously: true
+                )
+            }
+        )
+    }
+
+    func debugSeedSessionSnapshotScrollback(charactersPerTerminal: Int) -> [String: Any] {
+        let workspaces = sortedMainWindowContextsForSessionSnapshot().flatMap { context in
+            context.tabManager.tabs.filter { !$0.isRemoteWorkspace }
+        }
+        return SessionSnapshotDebugBenchmark.seedScrollback(
+            workspaces: workspaces,
+            charactersPerTerminal: charactersPerTerminal
+        )
+    }
+#endif
 
     nonisolated static func shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: Bool) -> Bool {
         !isTerminatingApp
@@ -4708,13 +4796,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func focusMainWindow(windowId: UUID) -> Bool {
         guard let window = windowForMainWindowId(windowId) else { return false }
-        if TerminalController.shouldSuppressSocketCommandActivation(),
-           !TerminalController.socketCommandAllowsInAppFocusMutations() {
-            setActiveMainWindow(window)
-            return true
+        let didFocus = mainWindowVisibilityController.focus(window, reason: .focusMainWindow)
+        if didFocus {
+            publishCmuxWindowLifecycle(name: "window.focused", windowId: windowId, origin: "focus_request")
         }
-        bringToFront(window)
-        return true
+        return didFocus
     }
 
     func closeMainWindow(windowId: UUID) -> Bool {
@@ -5569,13 +5655,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
         if let window {
-            if !window.isKeyWindow {
-                if !NSApp.isActive {
-                    NSRunningApplication.current.activate(options: [.activateAllWindows])
-                }
-                window.makeKeyAndOrderFront(nil)
-            }
-            setActiveMainWindow(window)
+            mainWindowVisibilityController.focusForInWindowCommand(window, reason: .rightSidebarFocus)
         }
         let result = context.keyboardFocusCoordinator.focusRightSidebar(
             mode: requestedMode,
@@ -5672,13 +5752,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
         if let window {
-            if !window.isKeyWindow {
-                if !NSApp.isActive {
-                    NSRunningApplication.current.activate(options: [.activateAllWindows])
-                }
-                window.makeKeyAndOrderFront(nil)
-            }
-            setActiveMainWindow(window)
+            mainWindowVisibilityController.focusForInWindowCommand(window, reason: .fileSearchFocus)
         }
         let result = context.keyboardFocusCoordinator.focusFileSearch()
 #if DEBUG
@@ -5714,13 +5788,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
         if let window {
-            if !window.isKeyWindow {
-                if !NSApp.isActive {
-                    NSRunningApplication.current.activate(options: [.activateAllWindows])
-                }
-                window.makeKeyAndOrderFront(nil)
-            }
-            setActiveMainWindow(window)
+            mainWindowVisibilityController.focusForInWindowCommand(window, reason: .findShortcut)
         }
 
         let target = context.keyboardFocusCoordinator.findShortcutTarget(
@@ -5769,13 +5837,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
         if let window {
-            if !window.isKeyWindow {
-                if !NSApp.isActive {
-                    NSRunningApplication.current.activate(options: [.activateAllWindows])
-                }
-                window.makeKeyAndOrderFront(nil)
-            }
-            setActiveMainWindow(window)
+            mainWindowVisibilityController.focusForInWindowCommand(window, reason: .rightSidebarToggle)
         }
         let result = context.keyboardFocusCoordinator.toggleRightSidebarOrTerminalFocus()
 #if DEBUG
@@ -5864,11 +5926,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for context in sortedMainWindowContextsForSessionSnapshot() {
             guard let window = resolvedWindow(for: context) else { continue }
             if shouldActivate {
-                if window.isMiniaturized {
-                    window.deminiaturize(nil)
-                }
-                window.makeKeyAndOrderFront(nil)
-                setActiveMainWindow(window)
+                mainWindowVisibilityController.focus(
+                    window,
+                    reason: .ensureInitialWindow,
+                    activation: .none,
+                    respectActivationSuppression: false
+                )
             }
             return context.windowId
         }
@@ -5879,7 +5942,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func hasVisibleMainTerminalWindow() -> Bool {
         mainWindowContexts.values.contains { context in
             guard let window = resolvedWindow(for: context) else { return false }
-            return window.isVisible && !window.isMiniaturized
+            return window.isVisible && !window.isMiniaturized && window.alphaValue > 0.001
         }
     }
 
@@ -6241,16 +6304,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func servicePathURLs(from pasteboard: NSPasteboard) -> [URL] {
-        if let pathURLs = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL], !pathURLs.isEmpty {
+        let pathURLs = PasteboardFileURLReader.fileURLs(from: pasteboard)
+        if !pathURLs.isEmpty {
             return pathURLs
-        }
-
-        let filenamesType = NSPasteboard.PasteboardType(rawValue: "NSFilenamesPboardType")
-        if let paths = pasteboard.propertyList(forType: filenamesType) as? [String] {
-            let urls = paths.map { URL(fileURLWithPath: $0) }
-            if !urls.isEmpty {
-                return urls
-            }
         }
 
         if let raw = pasteboard.string(forType: .string), !raw.isEmpty {
@@ -6811,21 +6867,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }()
         let shouldTemporarilyDisallowFullScreenTiling =
             sessionWindowSnapshot == nil && sourceWindowIsNativeFullScreen
+        let restoredFrame = resolvedWindowFrame(from: sessionWindowSnapshot)
+        let persistedGeometryFrame = (restoredFrame == nil && sourceWindow == nil)
+            ? resolvedPersistedWindowGeometryFrame()
+            : nil
         let initialRect: NSRect
-        if sessionWindowSnapshot == nil, let existingFrame {
+        if restoredFrame == nil, let existingFrame {
             // Convert frame rect to content rect so the new window matches the
             // source window's actual size (frame includes titlebar insets).
             initialRect = NSWindow.contentRect(forFrameRect: existingFrame, styleMask: styleMask)
+        } else if let explicitInitialFrame = restoredFrame ?? persistedGeometryFrame {
+            initialRect = NSWindow.contentRect(forFrameRect: explicitInitialFrame, styleMask: styleMask)
         } else {
-            initialRect = NSRect(x: 0, y: 0, width: 460, height: 360)
+            initialRect = CmuxMainWindow.defaultContentRect(styleMask: styleMask)
         }
 
-        let window = NSWindow(
+        let window = CmuxMainWindow(
             contentRect: initialRect,
             styleMask: styleMask,
             backing: .buffered,
             defer: false
         )
+        window.animationBehavior = .none
         // When creating a new window from an existing native fullscreen window,
         // temporarily opt out of fullscreen tiling so AppKit doesn't place the
         // new window into the active fullscreen Space.
@@ -6840,9 +6903,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         window.isRestorable = false
         window.isMovableByWindowBackground = false
         window.isMovable = false
-        let restoredFrame = resolvedWindowFrame(from: sessionWindowSnapshot)
-        if let restoredFrame {
-            window.setFrame(restoredFrame, display: false)
+        let explicitInitialFrame = restoredFrame ?? persistedGeometryFrame
+        if let explicitInitialFrame {
+            window.setFrame(explicitInitialFrame, display: false)
         } else if let sourceWindow {
             positionNewMainWindow(window, relativeTo: sourceWindow)
         } else {
@@ -6881,6 +6944,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             fileExplorerState: fileExplorerState,
             cmuxConfigStore: cmuxConfigStore
         )
+        publishCmuxWindowLifecycle(name: "window.created", windowId: windowId, origin: "create")
         installFileDropOverlay(on: window, tabManager: tabManager)
         if !shouldActivate || TerminalController.shouldSuppressSocketCommandActivation() {
             window.orderFront(nil)
@@ -6888,20 +6952,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 setActiveMainWindow(window)
             }
         } else {
-            window.makeKeyAndOrderFront(nil)
-            setActiveMainWindow(window)
-            NSApp.activate(ignoringOtherApps: true)
+            mainWindowVisibilityController.focus(
+                window,
+                reason: .createMainWindow,
+                activation: .runningApplication([.activateAllWindows]),
+                respectActivationSuppression: false
+            )
         }
         if shouldTemporarilyDisallowFullScreenTiling {
             DispatchQueue.main.async { [weak window] in
                 window?.collectionBehavior.remove(.fullScreenDisallowsTiling)
             }
         }
-        if let restoredFrame {
-            window.setFrame(restoredFrame, display: true)
+        if let explicitInitialFrame {
+            window.setFrame(explicitInitialFrame, display: true)
 #if DEBUG
             cmuxDebugLog(
-                "session.restore.frameApplied window=\(windowId.uuidString.prefix(8)) " +
+                "mainWindow.initialFrameApplied source=\(restoredFrame == nil ? "persistedGeometry" : "sessionSnapshot") window=\(windowId.uuidString.prefix(8)) " +
                     "applied={\(debugNSRectDescription(window.frame))}"
             )
 #endif
@@ -7140,39 +7207,109 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         TaskManagerWindowController.shared.show()
     }
 
-    @discardableResult func showMainWindowFromMenuBar() -> NSWindow? {
-        let context: MainWindowContext? = {
-            if let keyWindow = NSApp.keyWindow,
-               let keyContext = contextForMainTerminalWindow(keyWindow) {
-                return keyContext
-            }
-            if let mainWindow = NSApp.mainWindow,
-               let mainContext = contextForMainTerminalWindow(mainWindow) {
-                return mainContext
-            }
-            if let visibleContext = sortedMainWindowContextsForSessionSnapshot().first(where: { context in
-                guard let window = resolvedWindow(for: context) else { return false }
-                return window.isVisible && !window.isMiniaturized
-            }) {
-                return visibleContext
-            }
-            return sortedMainWindowContextsForSessionSnapshot().first
-        }()
+    func captureMainWindowVisibilityRestoreTargetsForApplicationHide() {
+        mainWindowVisibilityController.captureHiddenWindowRestoreTargets(windows: mainWindowsForVisibilityController())
+    }
 
-        let window: NSWindow? = {
-            if let context {
-                if let window = resolvedWindow(for: context) {
-                    return window
-                }
-                discardOrphanedMainWindowContext(context)
-            }
+    func dismissMainWindowFromWindowChrome(_ window: NSWindow) {
+        mainWindowVisibilityController.dismissWindows(windows: [window], reason: .titlebarDismiss)
+    }
+
+    func toggleApplicationVisibilityFromGlobalHotkey() {
+        mainWindowVisibilityController.toggleApplicationVisibility(
+            windows: mainWindowsForVisibilityController(),
+            reason: .globalHotkey
+        )
+    }
+
+    @discardableResult
+    func activateMainWindowFromSocket() -> Bool {
+        let window = preferredMainWindowForVisibilityActivation() ?? {
             let windowId = ensureInitialMainWindowIfNeeded(shouldActivate: false)
             return windowForMainWindowId(windowId)
         }()
+        guard let window else { return false }
+        return mainWindowVisibilityController.focus(
+            window,
+            reason: .socketActivate,
+            activation: .runningApplication([.activateAllWindows]),
+            respectActivationSuppression: false
+        )
+    }
 
-        guard let window else { NSSound.beep(); return nil }
+    @discardableResult
+    func focusWindowForAppActivation(
+        _ window: NSWindow,
+        reason: MainWindowVisibilityController.Reason
+    ) -> Bool {
+        mainWindowVisibilityController.focus(
+            window,
+            reason: reason,
+            activation: .runningApplication([.activateAllWindows]),
+            respectActivationSuppression: false
+        )
+    }
 
-        NSApp.unhide(nil); bringToFront(window); return window
+    private func preferredMainWindowForVisibilityActivation() -> NSWindow? {
+        if let keyWindow = NSApp.keyWindow,
+           isMainTerminalWindow(keyWindow) {
+            return keyWindow
+        }
+        if let mainWindow = NSApp.mainWindow,
+           isMainTerminalWindow(mainWindow) {
+            return mainWindow
+        }
+        if let visibleContext = sortedMainWindowContextsForSessionSnapshot().first(where: { context in
+            guard let window = resolvedWindow(for: context) else { return false }
+            return window.isVisible && !window.isMiniaturized
+        }) {
+            return resolvedWindow(for: visibleContext)
+        }
+        return sortedMainWindowContextsForSessionSnapshot()
+            .compactMap { resolvedWindow(for: $0) }
+            .first
+    }
+
+    @MainActor
+    func preferredMainWindowForSettingsPresentation() -> NSWindow? {
+        preferredMainWindowForVisibilityActivation()
+    }
+
+    @discardableResult func showMainWindowFromMenuBar() -> NSWindow? {
+        if let window = mainWindowVisibilityController.showApplicationWindows(
+            windows: mainWindowsForVisibilityController(),
+            reason: .menuBar
+        ) {
+            return window
+        }
+
+        let windowId = ensureInitialMainWindowIfNeeded(shouldActivate: false)
+        guard let window = windowForMainWindowId(windowId) else {
+            NSSound.beep()
+            return nil
+        }
+        _ = mainWindowVisibilityController.focus(
+            window,
+            reason: .menuBar,
+            respectActivationSuppression: false
+        )
+        return window
+    }
+
+    private func mainWindowsForVisibilityController() -> [NSWindow] {
+        var windows: [NSWindow] = []
+        for context in sortedMainWindowContextsForSessionSnapshot() {
+            guard let window = resolvedWindow(for: context) else { continue }
+            if !windows.contains(where: { $0 === window }) {
+                windows.append(window)
+            }
+        }
+        for window in NSApp.windows where isMainTerminalWindow(window) {
+            if !windows.contains(where: { $0 === window }) {
+                windows.append(window)
+            }
+        }
+        return windows
     }
 
     func showNotificationsPopoverFromMenuBar() {
@@ -13001,18 +13138,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func installMainWindowKeyObserver() {
-        guard windowKeyObserver == nil else { return }
-        windowKeyObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.didBecomeKeyNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] note in
-            guard let self, let window = note.object as? NSWindow else { return }
+        guard windowKeyObservers.isEmpty else { return }
+        let center = NotificationCenter.default
+        windowKeyObservers.append(center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { [weak self] note in
             MainActor.assumeIsolated {
-                self.setActiveMainWindow(window)
-                _ = self.contextForMainTerminalWindow(window)?.keyboardFocusCoordinator.restoreTargetAfterWindowBecameKey()
+                self?.handleCmuxWindowBecameKey(note)
             }
-        }
+        })
+        windowKeyObservers.append(center.addObserver(forName: NSWindow.didResignKeyNotification, object: nil, queue: .main) { [weak self] note in
+            MainActor.assumeIsolated {
+                self?.handleCmuxWindowResignedKey(note)
+            }
+        })
     }
 
     private func installBrowserAddressBarFocusObservers() {
@@ -13174,7 +13311,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         TerminalController.shared.setActiveTabManager(context.tabManager)
     }
 
-    private func setActiveMainWindow(_ window: NSWindow) {
+    func setActiveMainWindow(_ window: NSWindow) {
         guard let context = contextForMainTerminalWindow(window) else { return }
 #if DEBUG
         let beforeManagerToken = debugManagerToken(tabManager)
@@ -13206,6 +13343,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         persistWindowGeometry(from: window)
 
         guard let removed = unregisterMainWindowContext(for: window) else { return }
+        publishCmuxWindowLifecycle(name: "window.closed", windowId: removed.windowId, origin: "appkit_close")
         commandPaletteVisibilityByWindowId.removeValue(forKey: removed.windowId)
         commandPalettePendingOpenByWindowId.removeValue(forKey: removed.windowId)
         commandPaletteRecentRequestAtByWindowId.removeValue(forKey: removed.windowId)
@@ -13519,18 +13657,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return tabManager?.tabs.first(where: { $0.id == tabId })?.title
     }
 
-    private func bringToFront(_ window: NSWindow) {
-        if TerminalController.shouldSuppressSocketCommandActivation(),
-           !TerminalController.socketCommandAllowsInAppFocusMutations() {
-            return
-        }
-        setActiveMainWindow(window)
-        if window.isMiniaturized {
-            window.deminiaturize(nil)
-        }
-        window.makeKeyAndOrderFront(nil)
-        // Improve reliability across Spaces / when other helper panels are key.
-        NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+    private func bringToFront(
+        _ window: NSWindow,
+        reason: MainWindowVisibilityController.Reason = .focusMainWindow
+    ) {
+        _ = mainWindowVisibilityController.focus(window, reason: reason)
     }
 
     private func markReadIfFocused(
@@ -14105,7 +14236,7 @@ private extension NSWindow {
             return true
         }
 
-        // Some browser content (notably Google Docs) loses plain up/down when
+        // Some browser content (notably Google Docs) loses plain arrows when
         // NSWindow.performKeyEquivalent claims the arrow before WebKit sees
         // keyDown. Route those arrows directly to the first responder instead.
         if shouldDispatchBrowserArrowViaFirstResponderKeyDown(
@@ -14118,14 +14249,14 @@ private extension NSWindow {
             // performKeyEquivalent while the synthesized keyDown is in flight.
             if cmuxBrowserArrowForwardingDepth > 0 {
 #if DEBUG
-                cmuxDebugLog("  → browser Up/Down reentry; using normal dispatch")
+                cmuxDebugLog("  → browser arrow reentry; using normal dispatch")
 #endif
                 return false
             }
             cmuxBrowserArrowForwardingDepth += 1
             defer { cmuxBrowserArrowForwardingDepth = max(0, cmuxBrowserArrowForwardingDepth - 1) }
 #if DEBUG
-            cmuxDebugLog("  → browser Up/Down routed to firstResponder.keyDown")
+            cmuxDebugLog("  → browser arrow routed to firstResponder.keyDown")
 #endif
             self.firstResponder?.keyDown(with: event)
             return true

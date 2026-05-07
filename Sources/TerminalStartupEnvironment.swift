@@ -1,4 +1,5 @@
 import Foundation
+import CMUXAgentLaunch
 
 extension TerminalSurface {
     static let managedTerminalType = "xterm-256color"
@@ -7,8 +8,6 @@ extension TerminalSurface {
 
     private static let inheritedClaudeAuthSelectionEnvironmentKeys: Set<String> = [
         "ANTHROPIC_API_KEY",
-        "ANTHROPIC_AUTH_TOKEN",
-        "ANTHROPIC_BASE_URL",
         "ANTHROPIC_MODEL",
         "ANTHROPIC_SMALL_FAST_MODEL",
         "CLAUDE_CODE_USE_BEDROCK",

@@ -5,7 +5,7 @@ enum JSONCParser {
         let source = try sourceString(from: data)
         let withoutBOM = source.hasPrefix("\u{feff}") ? String(source.dropFirst()) : source
         let stripped = try stripComments(from: withoutBOM)
-        let normalized = stripTrailingCommas(from: stripped)
+        let normalized = try stripTrailingCommas(from: stripped)
         return Data(normalized.utf8)
     }
 
@@ -140,11 +140,12 @@ enum JSONCParser {
         return result
     }
 
-    private static func stripTrailingCommas(from source: String) -> String {
+    private static func stripTrailingCommas(from source: String) throws -> String {
         var result = ""
         var index = source.startIndex
         var inString = false
         var isEscaped = false
+        var lastSignificantCharacter: Character?
 
         while index < source.endIndex {
             let character = source[index]
@@ -157,6 +158,7 @@ enum JSONCParser {
                     isEscaped = true
                 } else if character == "\"" {
                     inString = false
+                    lastSignificantCharacter = character
                 }
                 index = source.index(after: index)
                 continue
@@ -175,12 +177,22 @@ enum JSONCParser {
                     lookahead = source.index(after: lookahead)
                 }
                 if lookahead < source.endIndex && (source[lookahead] == "}" || source[lookahead] == "]") {
+                    if lastSignificantCharacter == nil ||
+                        lastSignificantCharacter == "," ||
+                        lastSignificantCharacter == "{" ||
+                        lastSignificantCharacter == "[" ||
+                        lastSignificantCharacter == ":" {
+                        throw JSONCError.invalidTrailingComma
+                    }
                     index = source.index(after: index)
                     continue
                 }
             }
 
             result.append(character)
+            if !character.isWhitespace {
+                lastSignificantCharacter = character
+            }
             index = source.index(after: index)
         }
 
@@ -189,12 +201,15 @@ enum JSONCParser {
 
     private enum JSONCError: LocalizedError {
         case invalidTextEncoding
+        case invalidTrailingComma
         case unterminatedBlockComment
 
         var errorDescription: String? {
             switch self {
             case .invalidTextEncoding:
                 return "config file text encoding is not supported"
+            case .invalidTrailingComma:
+                return "invalid trailing comma"
             case .unterminatedBlockComment:
                 return "unterminated block comment"
             }
