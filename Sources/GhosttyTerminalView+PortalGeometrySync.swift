@@ -17,17 +17,12 @@ extension GhosttyTerminalView {
         guard coordinator.lastSynchronizedHostGeometryRevision != geometryRevision else { return }
         coordinator.lastSynchronizedHostGeometryRevision = geometryRevision
         let window = host.window
-        let shouldUseImmediateVisibilitySync = PortalGeometrySyncUrgency
-            .shouldSynchronizeNextExternalGeometryChangeImmediately(for: window)
         if shouldSynchronizePortalGeometryImmediately(
             hostInLiveResize: host.inLiveResize,
             windowInLiveResize: window?.inLiveResize == true,
             interactiveGeometryResizeActive: TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive
-        ) || shouldUseImmediateVisibilitySync {
+        ) {
             TerminalWindowPortalRegistry.synchronizeForAnchor(host)
-            if shouldUseImmediateVisibilitySync {
-                PortalGeometrySyncUrgency.noteImmediateExternalGeometrySyncUsed(for: window)
-            }
             return
         }
         // Avoid synchronizing the terminal portal while AppKit is still inside

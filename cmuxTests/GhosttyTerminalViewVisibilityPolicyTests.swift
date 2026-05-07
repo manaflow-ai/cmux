@@ -57,4 +57,15 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
             "Interactive resize should use the immediate portal sync path"
         )
     }
+
+    func testNonInteractiveGeometryResizeUsesCoalescedPortalSyncDecision() {
+        XCTAssertFalse(
+            GhosttyTerminalView.shouldSynchronizePortalGeometryImmediately(
+                hostInLiveResize: false,
+                windowInLiveResize: false,
+                interactiveGeometryResizeActive: false
+            ),
+            "Keyboard sidebar toggles should use coalesced portal sync instead of consuming partial layout frames"
+        )
+    }
 }
