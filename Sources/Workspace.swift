@@ -12529,13 +12529,14 @@ final class Workspace: Identifiable, ObservableObject {
         entry: SessionEntry,
         destination: BonsplitController.ExternalTabDropRequest.Destination
     ) -> Bool {
-        let inputWithReturn = entry.resumeCommand + "\n"
+        guard let resumeCommand = entry.resumeCommand else { return false }
+        let inputWithReturn = resumeCommand + "\n"
         switch destination {
         case .insert(let paneId, _):
             let panel = newTerminalSurface(
                 inPane: paneId,
                 focus: true,
-                workingDirectory: entry.cwd,
+                workingDirectory: entry.resumeWorkingDirectory,
                 initialInput: inputWithReturn
             )
             return panel != nil
@@ -12544,7 +12545,7 @@ final class Workspace: Identifiable, ObservableObject {
                 targetPane: paneId,
                 orientation: orientation,
                 insertFirst: insertFirst,
-                workingDirectory: entry.cwd,
+                workingDirectory: entry.resumeWorkingDirectory,
                 initialInput: inputWithReturn
             )
             return panel != nil

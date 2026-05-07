@@ -4190,9 +4190,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private let surfaceContext: ghostty_surface_context_e
     private let configTemplate: CmuxSurfaceConfigTemplate?
     private let workingDirectory: String?
-    private let initialCommand: String?
-    private let tmuxStartCommand: String?
-    private let initialInput: String?
+    let initialCommand: String?
+    let tmuxStartCommand: String?
+    let initialInput: String?
     private let initialEnvironmentOverrides: [String: String]
     var requestedWorkingDirectory: String? { workingDirectory }
     let focusPlacement: TerminalSurfaceFocusPlacement
@@ -4385,19 +4385,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     func debugSurfaceContextLabel() -> String {
         cmuxSurfaceContextName(surfaceContext)
-    }
-
-    func debugInitialCommand() -> String? {
-        initialCommand
-    }
-
-    func debugTmuxStartCommand() -> String? {
-        tmuxStartCommand
-    }
-
-    func debugInitialInputMetadata() -> (hasInitialInput: Bool, byteCount: Int) {
-        let byteCount = initialInput?.utf8.count ?? 0
-        return (byteCount > 0, byteCount)
     }
 
     func debugPortalHostLease() -> (hostId: String?, paneId: UUID?, inWindow: Bool?, area: CGFloat?) {
