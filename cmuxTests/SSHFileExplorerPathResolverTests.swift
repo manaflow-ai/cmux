@@ -182,9 +182,9 @@ final class SSHFileExplorerPathResolverTests: XCTestCase {
     }
 
     func testEffectiveRootPath_privatePathIsPreserved() {
-        // /private/etc exists on macOS BUT the path /private is also valid on
-        // some setups; the user might have intentionally chosen it. We err
-        // on the side of preserving user intent.
+        // `/private/...` is not in `isMacLocalPath`'s prefix allowlist, so the
+        // resolver does not redirect it. Pinned so the deliberate narrowness
+        // of the allowlist (only `/Users/`, `/Volumes/`) stays explicit.
         XCTAssertEqual(
             SSHFileExplorerPathResolver.effectiveRootPath(
                 workspaceDirectory: "/private/etc",
@@ -216,10 +216,12 @@ final class SSHFileExplorerPathResolverTests: XCTestCase {
         )
     }
 
-    func testEffectiveRootPath_emptyDirFallsBackToHome() {
-        // An empty workspace cwd *with* a credible remote anchor is
-        // effectively "Mac-local-ish nothing"; substituting the home is the
-        // friendlier behavior.
+    func testEffectiveRootPath_emptyDirIsPreservedEvenWhenHomeKnown() {
+        // Empty workspace directory is preserved verbatim — `isMacLocalPath("")`
+        // is false, so the resolver does not substitute the home. Callers
+        // (FileExplorerStore) treat an empty `rootPath` as "no root selected"
+        // and skip loading, which is the safe default. Pinned so any future
+        // change to substitute the home here has to be intentional.
         XCTAssertEqual(
             SSHFileExplorerPathResolver.effectiveRootPath(
                 workspaceDirectory: "",
@@ -227,10 +229,6 @@ final class SSHFileExplorerPathResolverTests: XCTestCase {
             ),
             ""
         )
-        // Note: current implementation preserves "" because isMacLocalPath("")
-        // is false. This test pins down that behavior so a future change is
-        // intentional. The caller (FileExplorerStore) treats empty rootPath
-        // as "no root selected" and skips loading, which is the safe default.
     }
 
     // MARK: - isMacLocalPath
@@ -261,9 +259,9 @@ final class SSHFileExplorerPathResolverTests: XCTestCase {
     // MARK: - End-to-end (composition)
 
     func testComposition_macWorkspaceWithSSHRemote_routesToRemoteHome() {
-        // The exact scenario the upstream bug report describes:
-        //   workspace cwd captured from Mac caller, SSH-bound to user@host,
-        //   file explorer should anchor at the remote home, not the Mac path.
+        // Workspace cwd captured from a Mac caller, SSH-bound to `user@host`:
+        // the file explorer must anchor at the remote home, not the Mac path
+        // (which is unreachable on the Linux remote).
         let home = SSHFileExplorerPathResolver.remoteHomePath(from: "imgyu@100.79.206.23")
         let root = SSHFileExplorerPathResolver.effectiveRootPath(
             workspaceDirectory: "/Users/imgyukim/Downloads",
@@ -292,5 +290,105 @@ final class SSHFileExplorerPathResolverTests: XCTestCase {
             remoteHomePath: home
         )
         XCTAssertEqual(root, "/home/imgyu/projects/cmux")
+    }
+
+    // MARK: - Concurrency / nonisolated invocation
+    //
+    // The three helpers are marked `nonisolated`. These tests document that
+    // they can be invoked from a detached Task — i.e. off the main actor —
+    // and produce the same results as on-actor calls. The runtime XCTAssert
+    // exercises the call shape; the bigger value is that the test bodies
+    // make the off-main-actor invocation path part of the project's
+    // executable contract, so a Swift 6 default actor isolation rollout
+    // can't silently turn these into main-actor-only helpers without
+    // someone adjusting these test sites first.
+
+    func testRemoteHomePath_isCallableFromDetachedTask() async {
+        let result = await Task.detached {
+            SSHFileExplorerPathResolver.remoteHomePath(from: "imgyu@host")
+        }.value
+        XCTAssertEqual(result, "/home/imgyu")
+    }
+
+    func testEffectiveRootPath_isCallableFromDetachedTask() async {
+        let result = await Task.detached {
+            SSHFileExplorerPathResolver.effectiveRootPath(
+                workspaceDirectory: "/Users/imgyukim/Downloads",
+                remoteHomePath: "/home/imgyu"
+            )
+        }.value
+        XCTAssertEqual(result, "/home/imgyu")
+    }
+
+    func testIsMacLocalPath_isCallableFromDetachedTask() async {
+        let result = await Task.detached {
+            SSHFileExplorerPathResolver.isMacLocalPath("/Users/x")
+        }.value
+        XCTAssertTrue(result)
+    }
+
+    // MARK: - isMacLocalPath boundary
+
+    func testIsMacLocalPath_exactUsersWithoutTrailingSlashIsNotMacLocal() {
+        // Prefix is `/Users/` (with the trailing slash), so the exact path
+        // `/Users` does not match. This pins the behavior so a future
+        // "let's also catch the bare directory" tweak has to reckon with
+        // the SSH side-effect: rerouting `/Users` itself on a Mac-local
+        // workspace would be an unrelated regression.
+        XCTAssertFalse(SSHFileExplorerPathResolver.isMacLocalPath("/Users"))
+    }
+
+    func testIsMacLocalPath_exactVolumesWithoutTrailingSlashIsNotMacLocal() {
+        XCTAssertFalse(SSHFileExplorerPathResolver.isMacLocalPath("/Volumes"))
+    }
+
+    func testIsMacLocalPath_usersWithTrailingSlashOnlyIsMacLocal() {
+        // `/Users/` (just the trailing slash, no child) DOES match the
+        // prefix. Document the edge so anyone reading the implementation
+        // knows it was deliberate, not an oversight.
+        XCTAssertTrue(SSHFileExplorerPathResolver.isMacLocalPath("/Users/"))
+    }
+
+    // MARK: - remoteHomePath additional parsing edges
+
+    func testRemoteHomePath_userTokenInternalSpaceIsPreserved() {
+        // Outer whitespace gets trimmed, but spaces inside the user token
+        // are kept verbatim. POSIX usernames typically don't contain spaces,
+        // so this is rarely a real scenario — the test exists to fail loudly
+        // if someone adds an over-eager sanitization step that silently
+        // mutates user-supplied destinations.
+        XCTAssertEqual(
+            SSHFileExplorerPathResolver.remoteHomePath(from: " im gyu@host "),
+            "/home/im gyu"
+        )
+    }
+
+    func testRemoteHomePath_userTokenSurroundingTabsAreTrimmed() {
+        // `.whitespacesAndNewlines` covers tabs too. Lock in the contract.
+        XCTAssertEqual(
+            SSHFileExplorerPathResolver.remoteHomePath(from: "\timgyu\t@host"),
+            "/home/imgyu"
+        )
+    }
+
+    func testRemoteHomePath_unicodeUserPreservesNonASCII() {
+        // Non-ASCII usernames (CJK in this case) must round-trip into
+        // /home/<user> unchanged. Path encoding is the consumer's job, not
+        // ours; we just preserve what the user typed.
+        XCTAssertEqual(
+            SSHFileExplorerPathResolver.remoteHomePath(from: "임규@host"),
+            "/home/임규"
+        )
+    }
+
+    func testRemoteHomePath_userWithColonSyntaxKeepsColon() {
+        // Splitting on the first `@` keeps any colon attached to the user
+        // token; the resolver does not attempt port extraction from the user
+        // portion. Pinned so a future "smart port re-parse" can't silently
+        // change the resolved home path.
+        XCTAssertEqual(
+            SSHFileExplorerPathResolver.remoteHomePath(from: "imgyu:2222@host"),
+            "/home/imgyu:2222"
+        )
     }
 }
