@@ -154,6 +154,9 @@ final class FileDropOverlayView: NSView {
         case .leftMouseDown: target.mouseDown(with: event)
         case .leftMouseUp: target.mouseUp(with: event)
         case .leftMouseDragged: target.mouseDragged(with: event)
+        case .mouseMoved: target.mouseMoved(with: event)
+        case .mouseEntered: target.mouseEntered(with: event)
+        case .mouseExited: target.mouseExited(with: event)
         case .rightMouseDown: target.rightMouseDown(with: event)
         case .rightMouseUp: target.rightMouseUp(with: event)
         case .rightMouseDragged: target.rightMouseDragged(with: event)
@@ -175,6 +178,9 @@ final class FileDropOverlayView: NSView {
     override func mouseDown(with event: NSEvent) { forwardEvent(event) }
     override func mouseUp(with event: NSEvent) { forwardEvent(event) }
     override func mouseDragged(with event: NSEvent) { forwardEvent(event) }
+    override func mouseMoved(with event: NSEvent) { forwardEvent(event) }
+    override func mouseEntered(with event: NSEvent) { forwardEvent(event) }
+    override func mouseExited(with event: NSEvent) { forwardEvent(event) }
     override func rightMouseDown(with event: NSEvent) { forwardEvent(event) }
     override func rightMouseUp(with event: NSEvent) { forwardEvent(event) }
     override func rightMouseDragged(with event: NSEvent) { forwardEvent(event) }

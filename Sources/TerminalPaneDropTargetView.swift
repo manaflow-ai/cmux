@@ -97,13 +97,7 @@ final class PaneDropTargetView: NSView {
         guard let eventType else { return false }
 
         if hasFileURL, !hasTabTransfer {
-            switch eventType {
-            case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged,
-                 .leftMouseUp, .rightMouseUp, .otherMouseUp:
-                return true
-            default:
-                return false
-            }
+            return DragOverlayRoutingPolicy.isFileDropRoutingEvent(eventType)
         }
 
         switch eventType {
@@ -204,7 +198,7 @@ final class PaneDropTargetView: NSView {
             return false
         }
 
-        let shiftKeyHeld = activeShiftKeyHeld ?? currentShiftKeyHeld()
+        let shiftKeyHeld = currentShiftKeyHeld()
         switch workspace.externalFileDropRouting(
             forPanelId: dropContext.panelId,
             shiftKeyHeld: shiftKeyHeld
@@ -445,7 +439,7 @@ final class PaneDropTargetView: NSView {
     }
 
     private func currentShiftKeyHeld() -> Bool {
-        (NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags).intersection(.deviceIndependentFlagsMask).contains(.shift)
+        NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.shift)
     }
 
 #if DEBUG
