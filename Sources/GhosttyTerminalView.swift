@@ -7026,6 +7026,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if result {
             desiredFocus = false
             terminalSurface?.recordExternalFocusState(false)
+            imeSuppressedKeyUpKeyCodes.removeAll()
         }
         if result, let surface = surface {
             let now = CACurrentMediaTime()
