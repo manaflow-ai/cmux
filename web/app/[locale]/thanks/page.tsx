@@ -90,7 +90,7 @@ function DragToApplicationsSvg({ title }: { title: string }) {
         <path d="M56 0H164C197 0 220 23 220 56V164C220 197 197 220 164 220H56C23 220 0 197 0 164V56C0 23 23 0 56 0Z" transform="translate(8 12)" fill="#000000" fillOpacity="0.15" filter="url(#s1-blur12)" />
         <path d="M56 0H164C197 0 220 23 220 56V164C220 197 197 220 164 220H56C23 220 0 197 0 164V56C0 23 23 0 56 0Z" fill="url(#s1-iconFill)" stroke="#8893a3" strokeOpacity="0.18" />
         <path d="M63 8H157C186 8 212 28 212 63V157C212 192 192 212 157 212H63C28 212 8 192 8 157V63C8 28 28 8 63 8Z" fill="none" stroke="#ffffff" strokeOpacity="0.72" strokeWidth="2" />
-        <path d="M84 74L142 110L84 146" fill="none" stroke="url(#s1-chevronFill)" strokeWidth="20" strokeLinecap="round" strokeLinejoin="round" />
+        <image href="/install/cmux-chevron.png" x="56" y="40" width="120" height="140" preserveAspectRatio="xMidYMid meet" />
       </g>
 
       <path d="M306 242C383 155 493 153 573 226" fill="none" stroke="currentColor" strokeOpacity="0.48" strokeWidth="3.5" strokeLinecap="round" strokeDasharray="7 11" markerEnd="url(#s1-dragArrow)" />
@@ -178,7 +178,7 @@ function DockSvg({ title }: { title: string }) {
       <g transform="translate(370 233)">
         <path d="M34 0H106C126 0 140 14 140 34V106C140 126 126 140 106 140H34C14 140 0 126 0 106V34C0 14 14 0 34 0Z" fill="url(#s2-cmuxFill)" stroke="#94a0b2" strokeOpacity="0.18" />
         <path d="M40 6H100C121 6 134 19 134 40V100C134 121 121 134 100 134H40C19 134 6 121 6 100V40C6 19 19 6 40 6Z" fill="none" stroke="#ffffff" strokeOpacity="0.68" strokeWidth="1.8" />
-        <path d="M49 43L90 70L49 97" fill="none" stroke="url(#s2-cmuxChevron)" strokeWidth="14" strokeLinecap="round" strokeLinejoin="round" />
+        <image href="/install/cmux-chevron.png" x="32" y="22" width="76" height="96" preserveAspectRatio="xMidYMid meet" />
       </g>
 
       <g transform="translate(550 233)">
