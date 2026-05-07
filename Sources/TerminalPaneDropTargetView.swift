@@ -131,6 +131,7 @@ final class PaneDropTargetView: NSView {
     private let dropZoneOverlayView = NSView(frame: .zero)
 #if DEBUG
     private var lastHitTestSignature: String?
+    private var lastDragStateLogSignature: String?
 #endif
 
     override var acceptsFirstResponder: Bool { false }
@@ -237,7 +238,11 @@ final class PaneDropTargetView: NSView {
             return false
         }
 
-        if let transfer = PaneDragTransfer.decode(from: sender.draggingPasteboard),
+        let pasteboard = sender.draggingPasteboard
+        let pasteboardTypes = pasteboard.types
+
+        if DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboardTypes),
+           let transfer = PaneDragTransfer.decode(from: pasteboard),
            transfer.isFromCurrentProcess {
             let zone = resolvedZone(for: sender, transfer: transfer, context: dropContext, workspace: workspace)
             let handled = workspace.performPortalPaneDrop(
@@ -256,7 +261,7 @@ final class PaneDropTargetView: NSView {
             return handled
         }
 
-        let urls = DragOverlayRoutingPolicy.fileURLs(from: sender.draggingPasteboard)
+        let urls = DragOverlayRoutingPolicy.fileURLs(from: pasteboard)
         guard !urls.isEmpty else {
 #if DEBUG
             cmuxDebugLog(
@@ -313,7 +318,11 @@ final class PaneDropTargetView: NSView {
             return []
         }
 
-        if let transfer = PaneDragTransfer.decode(from: sender.draggingPasteboard),
+        let pasteboard = sender.draggingPasteboard
+        let pasteboardTypes = pasteboard.types
+
+        if DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboardTypes),
+           let transfer = PaneDragTransfer.decode(from: pasteboard),
            transfer.isFromCurrentProcess {
             let zone = resolvedZone(
                 for: sender,
@@ -323,15 +332,17 @@ final class PaneDropTargetView: NSView {
             )
             setActiveDropZone(zone)
 #if DEBUG
-            cmuxDebugLog(
-                "terminal.paneDrop.\(phase) panel=\(dropContext.panelId.uuidString.prefix(5)) " +
-                "tab=\(transfer.tabId.uuidString.prefix(5)) zone=\(zone)"
+            logDragState(
+                phase: phase,
+                signature: "tab|\(dropContext.panelId)|\(transfer.tabId)|\(zone)",
+                message: "terminal.paneDrop.\(phase) panel=\(dropContext.panelId.uuidString.prefix(5)) " +
+                    "tab=\(transfer.tabId.uuidString.prefix(5)) zone=\(zone)"
             )
 #endif
             return .move
         }
 
-        guard !DragOverlayRoutingPolicy.fileURLs(from: sender.draggingPasteboard).isEmpty else {
+        guard DragOverlayRoutingPolicy.hasFileURL(pasteboardTypes) else {
             clearDragState(phase: "\(phase).reject")
             return []
         }
@@ -340,9 +351,11 @@ final class PaneDropTargetView: NSView {
         case .agentPromptPaste:
             clearDragState(phase: "\(phase).agentPromptPaste")
 #if DEBUG
-            cmuxDebugLog(
-                "terminal.paneDrop.\(phase) panel=\(dropContext.panelId.uuidString.prefix(5)) " +
-                "fileURL=1 route=agentPromptPaste"
+            logDragState(
+                phase: phase,
+                signature: "file|agentPromptPaste|\(dropContext.panelId)",
+                message: "terminal.paneDrop.\(phase) panel=\(dropContext.panelId.uuidString.prefix(5)) " +
+                    "fileURL=1 route=agentPromptPaste"
             )
 #endif
             return .copy
@@ -353,9 +366,11 @@ final class PaneDropTargetView: NSView {
         let zone = fileDropZone(for: sender)
         setActiveDropZone(zone)
 #if DEBUG
-        cmuxDebugLog(
-            "terminal.paneDrop.\(phase) panel=\(dropContext.panelId.uuidString.prefix(5)) " +
-            "fileURL=1 zone=\(zone)"
+        logDragState(
+            phase: phase,
+            signature: "file|preview|\(dropContext.panelId)|\(zone)",
+            message: "terminal.paneDrop.\(phase) panel=\(dropContext.panelId.uuidString.prefix(5)) " +
+                "fileURL=1 zone=\(zone)"
         )
 #endif
         return .copy
@@ -420,6 +435,16 @@ final class PaneDropTargetView: NSView {
     }
 
     private func clearDragState(phase: String) {
+#if DEBUG
+        let shouldResetDragLog = activeZone != nil
+            || phase == "exited"
+            || phase.hasPrefix("perform")
+            || phase.hasSuffix(".reject")
+            || phase.hasSuffix(".tabBar")
+        if shouldResetDragLog {
+            lastDragStateLogSignature = nil
+        }
+#endif
         guard activeZone != nil else { return }
         setActiveDropZone(nil)
 #if DEBUG
@@ -432,6 +457,18 @@ final class PaneDropTargetView: NSView {
     }
 
 #if DEBUG
+    private func logDragState(
+        phase: String,
+        signature: String,
+        message: @autoclosure () -> String
+    ) {
+        if phase == "updated", lastDragStateLogSignature == signature {
+            return
+        }
+        lastDragStateLogSignature = signature
+        cmuxDebugLog(message())
+    }
+
     private func logHitTestDecision(
         capture: Bool,
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
