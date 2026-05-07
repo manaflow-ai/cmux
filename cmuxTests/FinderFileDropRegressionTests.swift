@@ -58,6 +58,122 @@ final class FinderFileDropRegressionTests: XCTestCase {
         )
     }
 
+    func testDefaultFileDropRoutesToTextDestinationForAnyFileURLPayload() {
+        XCTAssertTrue(
+            DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
+                pasteboardTypes: [.fileURL],
+                modifierFlags: [],
+                defaultBehavior: .text
+            )
+        )
+        XCTAssertTrue(
+            DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
+                pasteboardTypes: [
+                    .fileURL,
+                    DragOverlayRoutingPolicy.filePreviewTransferType,
+                    DragOverlayRoutingPolicy.bonsplitTabTransferType
+                ],
+                modifierFlags: .command,
+                defaultBehavior: .text
+            ),
+            "Internal file-preview drags carry file URLs too, so the default text behavior should insert path text instead of moving/opening the preview tab"
+        )
+        XCTAssertFalse(
+            DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
+                pasteboardTypes: [.fileURL],
+                modifierFlags: .shift,
+                defaultBehavior: .text
+            )
+        )
+
+        XCTAssertEqual(
+            DragOverlayRoutingPolicy.alternateFileDropBehaviorForShiftHint(
+                pasteboardTypes: [.fileURL],
+                modifierFlags: [],
+                defaultBehavior: .text
+            ),
+            .preview
+        )
+        XCTAssertNil(
+            DragOverlayRoutingPolicy.alternateFileDropBehaviorForShiftHint(
+                pasteboardTypes: [.fileURL],
+                modifierFlags: .shift,
+                defaultBehavior: .text
+            )
+        )
+    }
+
+    func testPreviewDefaultMakesShiftRouteFileDropToTextDestination() {
+        XCTAssertFalse(
+            DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
+                pasteboardTypes: [.fileURL],
+                modifierFlags: [],
+                defaultBehavior: .preview
+            )
+        )
+        XCTAssertTrue(
+            DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
+                pasteboardTypes: [.fileURL],
+                modifierFlags: .shift,
+                defaultBehavior: .preview
+            )
+        )
+        XCTAssertEqual(
+            DragOverlayRoutingPolicy.alternateFileDropBehaviorForShiftHint(
+                pasteboardTypes: [.fileURL],
+                modifierFlags: [],
+                defaultBehavior: .preview
+            ),
+            .text
+        )
+    }
+
+    func testNonTextDestinationsAlwaysUsePreviewRouting() {
+        XCTAssertEqual(
+            DragOverlayRoutingPolicy.resolvedFileDropBehavior(
+                pasteboardTypes: [.fileURL],
+                modifierFlags: [],
+                canDropAsText: false,
+                defaultBehavior: .text
+            ),
+            .preview
+        )
+        XCTAssertEqual(
+            DragOverlayRoutingPolicy.resolvedFileDropBehavior(
+                pasteboardTypes: [.fileURL],
+                modifierFlags: .shift,
+                canDropAsText: false,
+                defaultBehavior: .text
+            ),
+            .preview
+        )
+        XCTAssertFalse(
+            DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
+                pasteboardTypes: [.fileURL],
+                modifierFlags: [],
+                canDropAsText: false,
+                defaultBehavior: .text
+            )
+        )
+        XCTAssertNil(
+            DragOverlayRoutingPolicy.alternateFileDropBehaviorForShiftHint(
+                pasteboardTypes: [.fileURL],
+                modifierFlags: [],
+                canDropAsText: false,
+                defaultBehavior: .text
+            )
+        )
+    }
+
+    func testGlobalModifierFlagsContributeShiftWhenWindowIsInactive() {
+        let flags = DragOverlayRoutingPolicy.mergedModifierFlags(
+            appKitFlags: [],
+            cgEventFlags: .maskShift
+        )
+
+        XCTAssertTrue(flags.intersection(.deviceIndependentFlagsMask).contains(.shift))
+    }
+
     func testLegacyFinderFilenameDropPlanInsertsEscapedLocalPath() throws {
         let fileURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("finder legacy \(UUID().uuidString)")
@@ -97,6 +213,142 @@ final class FinderFileDropRegressionTests: XCTestCase {
             paths
                 .map(TerminalImageTransferPlanner.escapeForShell)
                 .joined(separator: " ")
+        )
+    }
+
+    func testFileURLTextInsertionIsExtensionAgnostic() {
+        let urls = [
+            URL(fileURLWithPath: "/tmp/cmux drop/image.png"),
+            URL(fileURLWithPath: "/tmp/cmux drop/report.pdf"),
+            URL(fileURLWithPath: "/tmp/cmux drop/movie.mov"),
+            URL(fileURLWithPath: "/tmp/cmux drop/archive.zip")
+        ]
+
+        let text = TerminalImageTransferPlanner.insertedText(forFileURLs: urls)
+
+        XCTAssertEqual(
+            text,
+            urls
+                .map(\.path)
+                .map(TerminalImageTransferPlanner.escapeForShell)
+                .joined(separator: " ")
+        )
+    }
+
+    func testSuccessfulPanelTextDropFocusesDestinationPanel() {
+        let workspace = Workspace(title: "Tests")
+        guard let terminalId = workspace.focusedPanelId,
+              let browserPanel = workspace.newBrowserSplit(from: terminalId, orientation: .horizontal) else {
+            XCTFail("Expected workspace with terminal and browser split")
+            return
+        }
+
+        workspace.focusPanel(terminalId)
+        XCTAssertEqual(workspace.focusedPanelId, terminalId)
+
+        var didInsert = false
+        XCTAssertTrue(
+            FileDropTextDropController.performPanelTextDrop(
+                workspace: workspace,
+                panelId: browserPanel.id,
+                focusIntent: .browser(.webView),
+                window: nil,
+                insert: {
+                    didInsert = true
+                    return true
+                }
+            )
+        )
+
+        XCTAssertTrue(didInsert)
+        XCTAssertEqual(workspace.focusedPanelId, browserPanel.id)
+    }
+
+    func testTerminalTextDropFocusResolvesGhosttySurfaceIdToPanelId() {
+        let workspace = Workspace(title: "Tests")
+        guard let terminalId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: terminalId) else {
+            XCTFail("Expected workspace with terminal panel")
+            return
+        }
+
+        XCTAssertEqual(
+            FileDropTextDropController.panelIdForTerminalDropFocus(
+                terminalSurfaceId: terminalPanel.surface.id,
+                workspace: workspace
+            ),
+            terminalId
+        )
+    }
+
+    func testFailedPanelTextDropDoesNotChangeFocusedPanel() {
+        let workspace = Workspace(title: "Tests")
+        guard let terminalId = workspace.focusedPanelId,
+              let browserPanel = workspace.newBrowserSplit(from: terminalId, orientation: .horizontal) else {
+            XCTFail("Expected workspace with terminal and browser split")
+            return
+        }
+
+        workspace.focusPanel(terminalId)
+
+        XCTAssertFalse(
+            FileDropTextDropController.performPanelTextDrop(
+                workspace: workspace,
+                panelId: browserPanel.id,
+                focusIntent: .browser(.webView),
+                window: nil,
+                insert: {
+                    false
+                }
+            )
+        )
+
+        XCTAssertEqual(workspace.focusedPanelId, terminalId)
+    }
+
+    func testFilePreviewTransferRoutesToTextEvenWhenTargetPasteboardOmitsFileURLType() throws {
+        let filePath = "/tmp/cmux drop/from image pane.png"
+        let dragId = UUID()
+        _ = FilePreviewDragRegistry.shared.register(
+            FilePreviewDragEntry(filePath: filePath, displayTitle: "from image pane.png"),
+            id: dragId
+        )
+        defer { FilePreviewDragRegistry.shared.discard(id: dragId) }
+
+        let transferData = try JSONSerialization.data(withJSONObject: [
+            "tab": [
+                "id": dragId.uuidString,
+                "title": "from image pane.png",
+                "hasCustomTitle": false,
+                "icon": NSNull(),
+                "iconImageData": NSNull(),
+                "kind": "filePreview",
+                "isDirty": false,
+                "showsNotificationBadge": false,
+                "isLoading": false,
+                "isPinned": false,
+            ],
+            "sourcePaneId": UUID().uuidString,
+            "sourceProcessId": Int(ProcessInfo.processInfo.processIdentifier),
+        ])
+        let pasteboard = NSPasteboard(name: .init("cmux-test-file-preview-transfer-drop-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.setData(transferData, forType: DragOverlayRoutingPolicy.filePreviewTransferType)
+        pasteboard.setData(transferData, forType: DragOverlayRoutingPolicy.bonsplitTabTransferType)
+
+        XCTAssertFalse(DragOverlayRoutingPolicy.hasFileURL(pasteboard.types))
+        XCTAssertTrue(DragOverlayRoutingPolicy.hasFileDropPayload(pasteboard.types))
+        XCTAssertTrue(
+            DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
+                pasteboardTypes: pasteboard.types,
+                modifierFlags: [],
+                defaultBehavior: .text
+            )
+        )
+        XCTAssertEqual(DragOverlayRoutingPolicy.textDropOperation(pasteboardTypes: pasteboard.types), .move)
+        XCTAssertEqual(
+            DragOverlayRoutingPolicy.fileURLs(from: pasteboard).map(\.path),
+            [URL(fileURLWithPath: filePath).standardizedFileURL.path]
         )
     }
 
