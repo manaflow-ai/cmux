@@ -406,7 +406,7 @@ enum TerminalImageTransferPlanner {
     private static func prepareDrop(
         pasteboard: NSPasteboard
     ) -> TerminalImageTransferPreparedContent {
-        let fileURLs = materializedFileURLs(from: pasteboard)
+        let fileURLs = fileURLs(from: pasteboard)
         if !fileURLs.isEmpty {
             return .fileURLs(fileURLs)
         }
@@ -419,10 +419,15 @@ enum TerminalImageTransferPlanner {
             return .insertText(string)
         }
 
+        let materializedFileURLs = filePreviewFileURLs(from: pasteboard)
+        if !materializedFileURLs.isEmpty {
+            return .fileURLs(materializedFileURLs)
+        }
+
         return .reject
     }
 
-    private static func materializedFileURLs(from pasteboard: NSPasteboard) -> [URL] {
+    static func filePreviewFileURLs(from pasteboard: NSPasteboard) -> [URL] {
         let urls = fileURLs(from: pasteboard)
         if !urls.isEmpty {
             return urls

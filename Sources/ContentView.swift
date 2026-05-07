@@ -38,7 +38,7 @@ final class FileDropOverlayView: NSView {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        registerForDraggedTypes(Array(PasteboardFileURLReader.fileURLPasteboardTypes))
+        registerForDraggedTypes(Array(DragOverlayRoutingPolicy.externalContentDropTypes))
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
@@ -456,7 +456,7 @@ final class FileDropOverlayView: NSView {
 
     private func hasRelevantDragTypes(_ types: [NSPasteboard.PasteboardType]?) -> Bool {
         guard let types else { return false }
-        return DragOverlayRoutingPolicy.hasFileURL(types)
+        return DragOverlayRoutingPolicy.hasFileOrImagePayload(types)
             || types.contains(DragOverlayRoutingPolicy.bonsplitTabTransferType)
             || types.contains(DragOverlayRoutingPolicy.sidebarTabReorderType)
     }

@@ -68,10 +68,11 @@ final class PaneDropTargetView: NSView {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        registerForDraggedTypes([
-            DragOverlayRoutingPolicy.bonsplitTabTransferType,
-            .fileURL,
-        ])
+        registerForDraggedTypes(Array(
+            DragOverlayRoutingPolicy.externalContentDropTypes.union([
+                DragOverlayRoutingPolicy.bonsplitTabTransferType,
+            ])
+        ))
         setupDropZoneOverlayView()
         setupDropHintView()
     }
@@ -92,11 +93,11 @@ final class PaneDropTargetView: NSView {
         eventType: NSEvent.EventType?
     ) -> Bool {
         let hasTabTransfer = DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboardTypes)
-        let hasFileURL = DragOverlayRoutingPolicy.hasFileURL(pasteboardTypes)
-        guard hasTabTransfer || hasFileURL else { return false }
+        let hasFileOrImagePayload = DragOverlayRoutingPolicy.hasFileOrImagePayload(pasteboardTypes)
+        guard hasTabTransfer || hasFileOrImagePayload else { return false }
         guard let eventType else { return false }
 
-        if hasFileURL, !hasTabTransfer {
+        if hasFileOrImagePayload, !hasTabTransfer {
             return DragOverlayRoutingPolicy.isFileDropRoutingEvent(eventType)
         }
 
@@ -187,12 +188,11 @@ final class PaneDropTargetView: NSView {
             return handled
         }
 
-        let urls = DragOverlayRoutingPolicy.fileURLs(from: pasteboard)
-        guard !urls.isEmpty else {
+        guard DragOverlayRoutingPolicy.hasFileOrImagePayload(pasteboardTypes) else {
 #if DEBUG
             cmuxDebugLog(
                 "terminal.paneDrop.perform allowed=0 panel=\(dropContext.panelId.uuidString.prefix(5)) " +
-                "reason=missingTransferAndFiles"
+                "reason=missingTransferAndFileOrImage"
             )
 #endif
             return false
@@ -207,21 +207,21 @@ final class PaneDropTargetView: NSView {
             shiftKeyHeld: shiftKeyHeld
         ) {
         case .agentPromptPaste:
-            let handled = hostedView?.handleAgentDroppedURLs(urls) ?? false
+            let handled = hostedView?.handleAgentDroppedPasteboard(pasteboard) ?? false
 #if DEBUG
             cmuxDebugLog(
                 "terminal.paneDrop.perform panel=\(dropContext.panelId.uuidString.prefix(5)) " +
-                "fileURLs=\(urls.count) route=agentPromptPaste shift=\(shiftKeyHeld ? 1 : 0) " +
+                "route=agentPromptPaste shift=\(shiftKeyHeld ? 1 : 0) " +
                 "pane=\(dropContext.paneId.id.uuidString.prefix(5)) handled=\(handled ? 1 : 0)"
             )
 #endif
             return handled
         case .terminalPaste:
-            let handled = hostedView?.handleDroppedURLs(urls) ?? false
+            let handled = hostedView?.handleDroppedPasteboard(pasteboard) ?? false
 #if DEBUG
             cmuxDebugLog(
                 "terminal.paneDrop.perform panel=\(dropContext.panelId.uuidString.prefix(5)) " +
-                "fileURLs=\(urls.count) route=terminalPaste shift=\(shiftKeyHeld ? 1 : 0) " +
+                "route=terminalPaste shift=\(shiftKeyHeld ? 1 : 0) " +
                 "pane=\(dropContext.paneId.id.uuidString.prefix(5)) handled=\(handled ? 1 : 0)"
             )
 #endif
@@ -230,6 +230,8 @@ final class PaneDropTargetView: NSView {
             break
         }
 
+        let urls = TerminalImageTransferPlanner.filePreviewFileURLs(from: pasteboard)
+        guard !urls.isEmpty else { return false }
         let zone = fileDropZone(for: sender)
         let handled = workspace.handleExternalFileDrop(BonsplitController.ExternalFileDropRequest(
             urls: urls,
@@ -279,7 +281,7 @@ final class PaneDropTargetView: NSView {
             return .move
         }
 
-        guard DragOverlayRoutingPolicy.hasFileURL(pasteboardTypes) else {
+        guard DragOverlayRoutingPolicy.hasFileOrImagePayload(pasteboardTypes) else {
             clearDragState(phase: "\(phase).reject")
             return []
         }
@@ -454,13 +456,13 @@ final class PaneDropTargetView: NSView {
         eventType: NSEvent.EventType?
     ) {
         let hasTransferType = DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboardTypes)
-        let hasFileURL = DragOverlayRoutingPolicy.hasFileURL(pasteboardTypes)
-        guard hasTransferType || hasFileURL || capture else { return }
+        let hasFileOrImagePayload = DragOverlayRoutingPolicy.hasFileOrImagePayload(pasteboardTypes)
+        guard hasTransferType || hasFileOrImagePayload || capture else { return }
 
         let signature = [
             capture ? "1" : "0",
             hasTransferType ? "1" : "0",
-            hasFileURL ? "1" : "0",
+            hasFileOrImagePayload ? "1" : "0",
             String(describing: dropContext != nil),
             eventType.map { String($0.rawValue) } ?? "nil",
         ].joined(separator: "|")
@@ -470,7 +472,7 @@ final class PaneDropTargetView: NSView {
         let types = pasteboardTypes?.map(\.rawValue).joined(separator: ",") ?? "-"
         cmuxDebugLog(
             "terminal.paneDrop.hitTest capture=\(capture ? 1 : 0) " +
-            "hasTransfer=\(hasTransferType ? 1 : 0) hasFileURL=\(hasFileURL ? 1 : 0) " +
+            "hasTransfer=\(hasTransferType ? 1 : 0) hasFileOrImage=\(hasFileOrImagePayload ? 1 : 0) " +
             "context=\(dropContext != nil ? 1 : 0) " +
             "event=\(eventType.map { String($0.rawValue) } ?? "nil") types=\(types)"
         )

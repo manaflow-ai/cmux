@@ -5852,7 +5852,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
 
-    fileprivate static func focusLog(_ message: String) {
+    static func focusLog(_ message: String) {
         guard focusDebugEnabled else { return }
         FocusLogStore.shared.append(message)
         NSLog("[FOCUSDBG] %@", message)
@@ -9248,9 +9248,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return true
     }
 
-    private func resolvedImageTransferTarget() -> TerminalImageTransferTarget {
-        MainActor.assumeIsolated {
-            terminalSurface?.resolvedImageTransferTarget() ?? .local
+    private func resolvedImageTransferPlanningContext() -> (
+        target: TerminalImageTransferTarget,
+        localRootPath: String?
+    ) {
+        performOnMain {
+            let target = terminalSurface?.resolvedImageTransferTarget() ?? .local
+            let localRootPath = target == .local
+                ? terminalSurface?.resolvedLocalPathInsertionRoot()
+                : nil
+            return (target, localRootPath)
         }
     }
 
@@ -9266,12 +9273,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     @discardableResult
-    fileprivate func insertDroppedPasteboard(_ pasteboard: NSPasteboard) -> Bool {
+    fileprivate func insertDroppedPasteboard(
+        _ pasteboard: NSPasteboard,
+        textDelivery: TerminalDroppedTextDelivery = .terminalPaste
+    ) -> Bool {
         executePreparedImageTransfer(
             TerminalImageTransferPlanner.prepare(
                 pasteboard: pasteboard,
                 mode: .drop
             ),
+            textDelivery: textDelivery,
             onCancel: {}
         )
     }
@@ -9289,11 +9300,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             textDelivery.send(text, to: terminalSurface)
             return true
         case .fileURLs(let fileURLs):
-            let target = resolvedImageTransferTarget()
-            let rootPath = target == .local
-                ? MainActor.assumeIsolated { terminalSurface?.resolvedLocalPathInsertionRoot() }
-                : nil
-            let plan = TerminalImageTransferPlanner.plan(fileURLs: fileURLs, target: target, localRootPath: rootPath)
+            let context = resolvedImageTransferPlanningContext()
+            let plan = TerminalImageTransferPlanner.plan(
+                fileURLs: fileURLs,
+                target: context.target,
+                localRootPath: context.localRootPath
+            )
             return executeImageTransferPlan(plan, textDelivery: textDelivery, onCancel: onCancel)
         }
     }
@@ -9358,71 +9370,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         cmuxDebugLog("terminal.fileDrop surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
         #endif
         return insertDroppedPasteboard(sender.draggingPasteboard)
-    }
-}
-
-private extension NSScreen {
-    var displayID: UInt32? {
-        let key = NSDeviceDescriptionKey("NSScreenNumber")
-        if let v = deviceDescription[key] as? UInt32 { return v }
-        if let v = deviceDescription[key] as? Int { return UInt32(v) }
-        if let v = deviceDescription[key] as? NSNumber { return v.uint32Value }
-        return nil
-    }
-}
-
-struct GhosttyScrollbar {
-    let total: UInt64
-    let offset: UInt64
-    let len: UInt64
-
-    init(c: ghostty_action_scrollbar_s) {
-        total = c.total
-        offset = c.offset
-        len = c.len
-    }
-}
-
-extension Notification.Name {
-    static let ghosttyDidUpdateScrollbar = Notification.Name("ghosttyDidUpdateScrollbar")
-    static let ghosttyDidUpdateCellSize = Notification.Name("ghosttyDidUpdateCellSize")
-    static let ghosttyDidReceiveWheelScroll = Notification.Name("ghosttyDidReceiveWheelScroll")
-    static let ghosttySearchFocus = Notification.Name("ghosttySearchFocus")
-    static let ghosttyConfigDidReload = Notification.Name("ghosttyConfigDidReload")
-    static let ghosttyDefaultBackgroundDidChange = Notification.Name("ghosttyDefaultBackgroundDidChange")
-    static let browserSearchFocus = Notification.Name("browserSearchFocus")
-}
-
-// MARK: - Scroll View Wrapper (Ghostty-style scrollbar)
-
-private final class GhosttyScrollView: NSScrollView {
-    weak var surfaceView: GhosttyNSView?
-
-    // Keep keyboard routing on the terminal surface; this wrapper is viewport plumbing.
-    override var acceptsFirstResponder: Bool { false }
-
-    override func scrollWheel(with event: NSEvent) {
-        guard let surfaceView else {
-            super.scrollWheel(with: event)
-            return
-        }
-
-        // Route wheel gestures to the terminal surface so Ghostty handles scrollback.
-        // Letting NSScrollView consume these events moves the wrapper viewport itself,
-        // which causes pane-content drift instead of terminal scrollback movement.
-        GhosttyNSView.focusLog("GhosttyScrollView.scrollWheel: surface scroll")
-        if window?.firstResponder !== surfaceView {
-            window?.makeFirstResponder(surfaceView)
-        }
-        surfaceView.scrollWheel(with: event)
-    }
-}
-
-private final class GhosttyFlashOverlayView: NSView {
-    override var acceptsFirstResponder: Bool { false }
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        nil
     }
 }
 
@@ -11252,8 +11199,16 @@ final class GhosttySurfaceScrollView: NSView {
         return surfaceView.handleDroppedFileURLs(urls)
     }
 
+    func handleDroppedPasteboard(_ pasteboard: NSPasteboard) -> Bool {
+        surfaceView.insertDroppedPasteboard(pasteboard)
+    }
+
     func handleAgentDroppedURLs(_ urls: [URL]) -> Bool {
         surfaceView.handleAgentDroppedFileURLs(urls)
+    }
+
+    func handleAgentDroppedPasteboard(_ pasteboard: NSPasteboard) -> Bool {
+        surfaceView.insertDroppedPasteboard(pasteboard, textDelivery: .agentPromptPaste)
     }
 
     func terminalViewForDrop(at point: NSPoint) -> GhosttyNSView? {

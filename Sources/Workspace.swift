@@ -7240,10 +7240,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var remoteDetectedSurfaceIds: Set<UUID> = []
     private var activeRemoteTerminalSurfaceIds: Set<UUID> = []
     private var pendingRemoteTerminalChildExitSurfaceIds: Set<UUID> = []
-    /// Display target of the remote workspace that just disconnected. Set right before
-    /// `createReplacementTerminalPanel()` so the replacement shell can print a banner
-    /// explaining that ssh ended (instead of the user seeing an unexplained local prompt
-    /// that looks identical to a healthy workspace).
+    /// Remote target shown when ssh exits and cmux replaces it with a local shell.
     private var pendingReplacementBannerRemoteTarget: String?
     private static let remoteErrorStatusKey = "remote.error"
     private static let remotePortConflictStatusKey = "remote.port_conflicts"
@@ -7259,7 +7256,6 @@ final class Workspace: Identifiable, ObservableObject {
     }()
     nonisolated(unsafe) static var runSSHControlMasterCommandOverrideForTesting: (([String]) -> Void)?
     private var panelShellActivityStates: [UUID: PanelShellActivityState] = [:]
-    /// PIDs associated with agent status entries; dead PIDs clear stale statuses.
     var agentPIDs: [String: pid_t] = [:]
     var agentStatusKeysByPanelId: [UUID: Set<String>] = [:]
     private var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]

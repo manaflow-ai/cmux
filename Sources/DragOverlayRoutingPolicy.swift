@@ -1,10 +1,22 @@
 import AppKit
 import Foundation
+import UniformTypeIdentifiers
 
 enum DragOverlayRoutingPolicy {
     static let bonsplitTabTransferType = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
     static let filePreviewTransferType = NSPasteboard.PasteboardType("com.cmux.filepreview.transfer")
     static let sidebarTabReorderType = NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)
+    static let externalContentDropTypes: Set<NSPasteboard.PasteboardType> =
+        PasteboardFileURLReader.fileURLPasteboardTypes.union([
+            .URL,
+            .string,
+            .png,
+            .tiff,
+            NSPasteboard.PasteboardType(UTType.jpeg.identifier),
+            NSPasteboard.PasteboardType(UTType.gif.identifier),
+            NSPasteboard.PasteboardType(UTType.heic.identifier),
+            NSPasteboard.PasteboardType(UTType.heif.identifier),
+        ])
 
     static func hasBonsplitTabTransfer(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
         guard let pasteboardTypes else { return false }
@@ -25,6 +37,20 @@ enum DragOverlayRoutingPolicy {
         PasteboardFileURLReader.hasFileURLType(pasteboardTypes ?? [])
     }
 
+    static func hasFileOrImagePayload(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
+        guard let pasteboardTypes else { return false }
+        if hasFileURL(pasteboardTypes) {
+            return true
+        }
+        return pasteboardTypes.contains { type in
+            if type == .png || type == .tiff {
+                return true
+            }
+            guard let utType = UTType(type.rawValue) else { return false }
+            return utType.conforms(to: .image)
+        }
+    }
+
     static func fileURLs(from pasteboard: NSPasteboard) -> [URL] {
         PasteboardFileURLReader.fileURLs(from: pasteboard)
     }
@@ -35,7 +61,7 @@ enum DragOverlayRoutingPolicy {
     ) -> Bool {
         // The window overlay delegates Finder/sidebar files to pane-level Bonsplit targets.
         _ = hasLocalDraggingSource
-        guard hasFileURL(pasteboardTypes) else { return false }
+        guard hasFileOrImagePayload(pasteboardTypes) else { return false }
         return true
     }
 
@@ -89,7 +115,7 @@ enum DragOverlayRoutingPolicy {
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
         eventType: NSEvent.EventType?
     ) -> Bool {
-        if hasFileURL(pasteboardTypes) {
+        if hasFileOrImagePayload(pasteboardTypes) {
             return isFileDropRoutingEvent(eventType)
         }
         return shouldPassThroughPortalHitTesting(
