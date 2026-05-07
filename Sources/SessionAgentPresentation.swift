@@ -9,6 +9,7 @@ extension SessionAgent {
         case .rovodev: return String(localized: "sessionIndex.agent.rovodev", defaultValue: "Rovo Dev")
         case .registered(let agent):
             return agent.displayName
+        case .hermesAgent: return String(localized: "sessionIndex.agent.hermesAgent", defaultValue: "Hermes Agent")
         }
     }
 
@@ -21,6 +22,7 @@ extension SessionAgent {
         case .rovodev: return "AgentIcons/RovoDev"
         case .registered(let agent):
             return agent.iconAssetName
+        case .hermesAgent: return "AgentIcons/HermesAgent"
         }
     }
 

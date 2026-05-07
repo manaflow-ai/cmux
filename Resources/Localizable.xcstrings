@@ -105514,6 +105514,29 @@
         }
       }
     },
+    "sessionIndex.agent.hermesAgent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hermes Agent"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hermes Agent"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hermes Agent"
+          }
+        }
+      }
+    },
     "sessionIndex.untitled": {
       "extractionState": "manual",
       "localizations": {

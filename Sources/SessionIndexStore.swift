@@ -1095,12 +1095,13 @@ final class SessionIndexStore: ObservableObject {
                 offset: offset, limit: limit, errorBag: bag, registry: registry
             )
         case .directory(let path):
-            let cwdFilter = (path?.isEmpty == false) ? path : nil
+            let noFolderScope = (path == nil) || ((path ?? "").isEmpty)
+            let cwdFilter = noFolderScope ? nil : path
             // Multi-agent merge: fetch the union of (offset+limit) per agent so the
             // merge-sort can produce a stable global ordering, then slice.
             let target = offset + limit
             let order = await Self.defaultAgentOrder(workingDirectory: cwdFilter)
-            let merged = await Self.loadAgents(
+            var merged = await Self.loadAgents(
                 order.agents,
                 registry: order.registry,
                 needle: needle,
@@ -1109,6 +1110,9 @@ final class SessionIndexStore: ObservableObject {
                 limit: target,
                 errorBag: bag
             )
+            if noFolderScope {
+                merged = merged.filter { ($0.cwd ?? "").isEmpty }
+            }
             let sorted = merged.sorted { $0.modified > $1.modified }
             entries = Array(sorted.dropFirst(offset).prefix(limit))
         }
@@ -1188,6 +1192,7 @@ final class SessionIndexStore: ObservableObject {
         case .codex: return await loadCodexEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
         case .opencode: return loadOpenCodeEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
         case .rovodev: return loadRovoDevEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
+        case .hermesAgent: return loadHermesAgentEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
         case .registered(let agent):
             guard let registration = registry.registration(id: agent.id) else {
                 return []

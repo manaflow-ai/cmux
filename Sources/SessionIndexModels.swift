@@ -39,11 +39,12 @@ enum SessionAgent: Identifiable, Codable, Sendable, Hashable {
     case codex
     case opencode
     case rovodev
+    case hermesAgent
     case registered(RegisteredSessionAgent)
 
     var id: String { rawValue }
 
-    static let builtInCases: [SessionAgent] = [.claude, .codex, .opencode, .rovodev]
+    static let builtInCases: [SessionAgent] = [.claude, .codex, .opencode, .rovodev, .hermesAgent]
 
     init?(rawValue: String) {
         let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -52,6 +53,7 @@ enum SessionAgent: Identifiable, Codable, Sendable, Hashable {
         case "codex": self = .codex
         case "opencode": self = .opencode
         case "rovodev": self = .rovodev
+        case "hermes-agent": self = .hermesAgent
         default:
             guard CmuxVaultAgentRegistration.isValidID(value) else { return nil }
             self = .registered(RegisteredSessionAgent(id: value))
@@ -64,6 +66,7 @@ enum SessionAgent: Identifiable, Codable, Sendable, Hashable {
         case .codex: return "codex"
         case .opencode: return "opencode"
         case .rovodev: return "rovodev"
+        case .hermesAgent: return "hermes-agent"
         case .registered(let agent): return agent.id
         }
     }
@@ -190,6 +193,7 @@ enum AgentSpecifics: Hashable {
     case codex(model: String?, approvalPolicy: String?, sandboxMode: String?, effort: String?)
     case opencode(providerModel: String?, agentName: String?)
     case rovodev
+    case hermesAgent(source: String?, model: String?, hermesHome: String?)
     case registered(CmuxVaultAgentRegistration)
 }
 
@@ -257,6 +261,13 @@ struct SessionEntry: Identifiable, Hashable {
             return parts.joined(separator: " ")
         case .rovodev:
             return "acli rovodev run --restore \(Self.shellQuote(sessionId))"
+        case let .hermesAgent(source, model, hermesHome):
+            return Self.hermesResumeCommand(
+                sessionId: sessionId,
+                source: source,
+                model: model,
+                hermesHome: hermesHome
+            )
         case .registered(let registration):
             if let command = AgentResumeCommandBuilder.resumeShellCommand(
                 kind: .custom(registration.id),
@@ -318,7 +329,7 @@ struct SessionEntry: Identifiable, Hashable {
     }
 
     /// Single-quote a value for safe shell injection. Escapes embedded single quotes.
-    private static func shellQuote(_ value: String) -> String {
+    static func shellQuote(_ value: String) -> String {
         if value.range(of: "[^A-Za-z0-9_./:=+-]", options: .regularExpression) == nil {
             return value
         }
