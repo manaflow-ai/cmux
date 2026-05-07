@@ -13943,7 +13943,7 @@ struct CMUXCLI {
                 try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
-                    surfaceId: surfaceId ?? mappedSession?.surfaceId ?? "",
+                    surfaceId: surfaceId ?? "",
                     cwd: parsedInput.cwd,
                     lastSubtitle: summary.subtitle,
                     lastBody: summary.body

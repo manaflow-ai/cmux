@@ -1,9 +1,18 @@
 import Foundation
 
 extension CMUXCLI {
+    func socketCommandQuote(_ value: String) -> String {
+        let escaped = value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\r")
+        return "\"\(escaped)\""
+    }
+
     func socketSurfaceOption(_ surfaceId: String?) -> String {
         guard let surfaceId = nonEmptyClaudeHookIdentifier(surfaceId) else { return "" }
-        return " --surface=\(surfaceId)"
+        return " --surface=\(socketCommandQuote(surfaceId))"
     }
 
     func setClaudeStatus(
@@ -15,14 +24,18 @@ extension CMUXCLI {
         color: String,
         pid: Int? = nil
     ) throws {
-        var cmd = "set_status claude_code \(value) --icon=\(icon) --color=\(color) --tab=\(workspaceId)"
+        var cmd = "set_status claude_code \(socketCommandQuote(value))"
+        cmd += " --icon=\(socketCommandQuote(icon))"
+        cmd += " --color=\(socketCommandQuote(color))"
+        cmd += " --tab=\(socketCommandQuote(workspaceId))"
         if let pid { cmd += " --pid=\(pid)" }
         cmd += socketSurfaceOption(surfaceId)
         _ = try client.send(command: cmd)
     }
 
     func clearClaudeStatus(client: SocketClient, workspaceId: String, surfaceId: String? = nil) throws {
-        _ = try client.send(command: "clear_status claude_code --tab=\(workspaceId)\(socketSurfaceOption(surfaceId))")
+        let cmd = "clear_status claude_code --tab=\(socketCommandQuote(workspaceId))\(socketSurfaceOption(surfaceId))"
+        _ = try client.send(command: cmd)
     }
 
     func resolvePreferredWorkspaceIdForClaudeHook(

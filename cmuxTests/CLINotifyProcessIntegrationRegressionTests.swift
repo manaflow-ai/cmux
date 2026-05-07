@@ -174,7 +174,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             state.commands.contains {
                 $0.contains("set_status codex Running")
                     && $0.contains("--tab=\(currentWorkspaceId)")
-                    && $0.contains("--surface=\(currentSurfaceId)")
+                    && $0.contains("--surface=\"\(currentSurfaceId)\"")
             },
             "Expected Codex prompt status to target current workspace surface, saw \(state.commands)"
         )
