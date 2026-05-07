@@ -612,8 +612,9 @@ fn parse_u16_color_component(value: &str) -> Option<u8> {
     if value.is_empty() || value.len() > 4 {
         return None;
     }
-    let raw = u16::from_str_radix(value, 16).ok()?;
-    Some((raw / 257) as u8)
+    let raw = u32::from_str_radix(value, 16).ok()?;
+    let max = (1u32 << (value.len() * 4)) - 1;
+    Some(((raw * 255 + (max / 2)) / max) as u8)
 }
 
 struct EventReaderHandle {
@@ -977,6 +978,28 @@ mod tests {
                 r: 17,
                 g: 34,
                 b: 51,
+            })
+        );
+    }
+
+    #[test]
+    fn parses_osc_color_reports_with_short_components() {
+        let response = b"\x1b]10;rgb:ff/ee/dd\x1b\\noise\x1b]11;rgb:f/8/0\x07";
+
+        assert_eq!(
+            parse_osc_color(response, 10),
+            Some(TerminalRgb {
+                r: 255,
+                g: 238,
+                b: 221,
+            })
+        );
+        assert_eq!(
+            parse_osc_color(response, 11),
+            Some(TerminalRgb {
+                r: 255,
+                g: 136,
+                b: 0,
             })
         );
     }
