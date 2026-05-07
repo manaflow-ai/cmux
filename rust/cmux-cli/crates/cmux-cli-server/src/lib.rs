@@ -5370,6 +5370,20 @@ enum AuthPolicy {
     WsToken(Option<String>),
 }
 
+fn auth_token_matches(token: Option<&str>, expected: &str) -> bool {
+    let Some(token) = token else {
+        return false;
+    };
+    let token = token.as_bytes();
+    let expected = expected.as_bytes();
+    let mut diff = token.len() ^ expected.len();
+    for (idx, expected_byte) in expected.iter().enumerate() {
+        let token_byte = token.get(idx).copied().unwrap_or(0);
+        diff |= (token_byte ^ expected_byte) as usize;
+    }
+    diff == 0
+}
+
 // --------------------------- Client handler ---------------------------
 
 async fn handle_client(
@@ -5656,7 +5670,7 @@ async fn run_session(
         return Ok(());
     }
     if let AuthPolicy::WsToken(Some(expected)) = &auth
-        && token.as_deref() != Some(expected.as_str())
+        && !auth_token_matches(token.as_deref(), expected)
     {
         session
             .send(&ServerMsg::Error {
@@ -8252,5 +8266,14 @@ mod tests {
         assert!(should_skip_child_env("TERM_PROGRAM", "screen"));
         assert!(!should_skip_child_env("TERM_PROGRAM", "ghostty"));
         assert!(!should_skip_child_env("PATH", "/usr/bin"));
+    }
+
+    #[test]
+    fn auth_token_compare_accepts_only_exact_match() {
+        assert!(auth_token_matches(Some("sekrit"), "sekrit"));
+        assert!(!auth_token_matches(Some("sekri"), "sekrit"));
+        assert!(!auth_token_matches(Some("sekrit-extra"), "sekrit"));
+        assert!(!auth_token_matches(Some("xxxxx"), "sekrit"));
+        assert!(!auth_token_matches(None, "sekrit"));
     }
 }

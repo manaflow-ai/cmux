@@ -22,6 +22,10 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use cmux_cli_core::probe;
 
+const SERVER_WAIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+const SERVER_WAIT_INITIAL_DELAY: std::time::Duration = std::time::Duration::from_millis(25);
+const SERVER_WAIT_MAX_DELAY: std::time::Duration = std::time::Duration::from_millis(250);
+
 #[derive(Parser, Debug)]
 #[command(name = "cmx", version, about = "cmux-cli terminal multiplexer")]
 struct Cli {
@@ -1136,32 +1140,40 @@ fn start_server_background(socket: &std::path::Path) -> Result<()> {
 }
 
 async fn wait_for_server(socket: &std::path::Path) -> Result<()> {
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+    let deadline = tokio::time::Instant::now() + SERVER_WAIT_TIMEOUT;
     let start_ms = probe::mono_ms();
-    let mut attempts: u64 = 0;
+    let mut socket_attempts: u64 = 0;
+    let mut handshake_attempts: u64 = 0;
+    let mut delay = SERVER_WAIT_INITIAL_DELAY;
     while tokio::time::Instant::now() < deadline {
-        attempts = attempts.saturating_add(1);
-        if server_reachable(socket).await {
-            probe::log_event(
-                "cmx",
-                "server_wait_ready",
-                &[
-                    ("attempts", attempts.to_string()),
-                    (
-                        "elapsed_ms",
-                        probe::mono_ms().saturating_sub(start_ms).to_string(),
-                    ),
-                ],
-            );
-            return Ok(());
+        socket_attempts = socket_attempts.saturating_add(1);
+        if socket_ready_for_handshake(socket).await {
+            handshake_attempts = handshake_attempts.saturating_add(1);
+            if server_reachable(socket).await {
+                probe::log_event(
+                    "cmx",
+                    "server_wait_ready",
+                    &[
+                        ("socket_attempts", socket_attempts.to_string()),
+                        ("handshake_attempts", handshake_attempts.to_string()),
+                        (
+                            "elapsed_ms",
+                            probe::mono_ms().saturating_sub(start_ms).to_string(),
+                        ),
+                    ],
+                );
+                return Ok(());
+            }
         }
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(delay).await;
+        delay = delay.saturating_mul(2).min(SERVER_WAIT_MAX_DELAY);
     }
     probe::log_event(
         "cmx",
         "server_wait_timeout",
         &[
-            ("attempts", attempts.to_string()),
+            ("socket_attempts", socket_attempts.to_string()),
+            ("handshake_attempts", handshake_attempts.to_string()),
             (
                 "elapsed_ms",
                 probe::mono_ms().saturating_sub(start_ms).to_string(),
@@ -1172,6 +1184,25 @@ async fn wait_for_server(socket: &std::path::Path) -> Result<()> {
         "server did not become reachable at {}",
         socket.display()
     ))
+}
+
+async fn socket_ready_for_handshake(socket: &std::path::Path) -> bool {
+    let Ok(metadata) = tokio::fs::metadata(socket).await else {
+        return false;
+    };
+    socket_metadata_is_ready(metadata)
+}
+
+fn socket_metadata_is_ready(metadata: std::fs::Metadata) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::FileTypeExt;
+        metadata.file_type().is_socket()
+    }
+    #[cfg(not(unix))]
+    {
+        metadata.is_file()
+    }
 }
 
 async fn query_and_print<F>(
@@ -1287,7 +1318,7 @@ fn command_label(command: &Command) -> &'static str {
 
 #[cfg(test)]
 mod key_parser_tests {
-    use super::parse_named_key;
+    use super::{parse_named_key, socket_metadata_is_ready};
 
     #[test]
     fn ctrl_letters_map_to_control_bytes() {
@@ -1329,5 +1360,15 @@ mod key_parser_tests {
     fn unknown_keys_return_none() {
         assert_eq!(parse_named_key("NotAKey"), None);
         assert_eq!(parse_named_key(""), None);
+    }
+
+    #[test]
+    fn server_wait_does_not_handshake_plain_files() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let file = dir.path().join("server.sock");
+        std::fs::write(&file, b"not a socket")?;
+
+        assert!(!socket_metadata_is_ready(std::fs::metadata(file)?));
+        Ok(())
     }
 }

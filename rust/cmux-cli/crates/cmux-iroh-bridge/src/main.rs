@@ -27,8 +27,6 @@ struct Cli {
     relay: RelayArg,
     #[arg(long, env = "CMUX_PAIRING_ID")]
     pairing_id: Option<String>,
-    #[arg(long, env = "CMUX_PAIRING_SECRET")]
-    pairing_secret: Option<String>,
     #[arg(long, env = "CMUX_RIVET_ENDPOINT")]
     rivet_endpoint: Option<String>,
     #[arg(long, env = "CMUX_STACK_PROJECT_ID")]
@@ -172,8 +170,21 @@ fn non_empty(value: String) -> Option<String> {
 }
 
 fn pairing_options(cli: &Cli) -> Result<Option<BridgePairingOptions>> {
+    pairing_options_with_secret(cli, pairing_secret_from_env())
+}
+
+fn pairing_secret_from_env() -> Option<String> {
+    std::env::var("CMUX_PAIRING_SECRET")
+        .ok()
+        .and_then(non_empty)
+}
+
+fn pairing_options_with_secret(
+    cli: &Cli,
+    pairing_secret: Option<String>,
+) -> Result<Option<BridgePairingOptions>> {
     let has_pairing = cli.pairing_id.is_some()
-        || cli.pairing_secret.is_some()
+        || pairing_secret.is_some()
         || cli.rivet_endpoint.is_some()
         || cli.stack_project_id.is_some()
         || cli.expires_at_unix.is_some();
@@ -191,10 +202,7 @@ fn pairing_options(cli: &Cli) -> Result<Option<BridgePairingOptions>> {
             .pairing_id
             .clone()
             .context("missing --pairing-id / CMUX_PAIRING_ID")?,
-        secret: cli
-            .pairing_secret
-            .clone()
-            .context("missing --pairing-secret / CMUX_PAIRING_SECRET")?,
+        secret: pairing_secret.context("missing CMUX_PAIRING_SECRET")?,
         rivet_endpoint: cli
             .rivet_endpoint
             .clone()
@@ -218,7 +226,6 @@ mod tests {
             socket: PathBuf::from("/tmp/cmx.sock"),
             relay: RelayArg::Default,
             pairing_id: None,
-            pairing_secret: None,
             rivet_endpoint: None,
             stack_project_id: None,
             expires_at_unix: None,
@@ -257,5 +264,24 @@ mod tests {
         assert_eq!(node.name, "Linux Builder");
         assert_eq!(node.subtitle.as_deref(), Some("remote"));
         assert_eq!(node.kind.as_deref(), Some("linux"));
+    }
+
+    #[test]
+    fn pairing_secret_is_env_only() {
+        let mut cli = cli();
+        cli.allow_insecure_direct = false;
+        cli.pairing_id = Some("pairing-1".into());
+        cli.rivet_endpoint = Some("https://rivet.example.test".into());
+        cli.stack_project_id = Some("stack-project".into());
+        cli.expires_at_unix = Some(123);
+
+        let missing = pairing_options_with_secret(&cli, None).expect_err("missing secret");
+        assert!(missing.to_string().contains("CMUX_PAIRING_SECRET"));
+        assert!(!missing.to_string().contains("--pairing-secret"));
+
+        let pairing = pairing_options_with_secret(&cli, Some("shared-secret".into()))
+            .expect("pairing options")
+            .expect("pairing");
+        assert_eq!(pairing.secret, "shared-secret");
     }
 }
