@@ -157,6 +157,75 @@ final class FinderFileDropRegressionTests: XCTestCase {
         XCTAssertEqual(text, TerminalImageTransferPlanner.escapeForShell(fileURL.path))
     }
 
+    func testFileExplorerPathInsertionEscapesMultiplePathsLikeTerminalDrop() {
+        let paths = [
+            "/tmp/cmux path/one file.txt",
+            "/tmp/cmux path/quote's file.txt"
+        ]
+
+        let text = FileExplorerTerminalPathInsertion.insertedText(forPaths: paths)
+
+        XCTAssertEqual(
+            text,
+            paths
+                .map(TerminalImageTransferPlanner.escapeForShell)
+                .joined(separator: " ")
+        )
+    }
+
+    func testFileExplorerRelativePathInsertionUsesWorkspaceRelativePaths() {
+        let rootPath = "/Users/example/project"
+        let paths = [
+            "/Users/example/project/README.md",
+            "/Users/example/project/Folder With Spaces/file.txt"
+        ]
+
+        let text = FileExplorerTerminalPathInsertion.insertedText(
+            forPaths: paths,
+            relativeToRootPath: rootPath
+        )
+
+        XCTAssertEqual(text, "README.md Folder\\ With\\ Spaces/file.txt")
+        XCTAssertEqual(
+            FileExplorerTerminalPathInsertion.relativePath(
+                for: rootPath,
+                rootPath: rootPath
+            ),
+            "."
+        )
+        XCTAssertEqual(
+            FileExplorerTerminalPathInsertion.relativePath(
+                for: rootPath,
+                rootPath: rootPath + "/"
+            ),
+            "."
+        )
+        XCTAssertEqual(
+            FileExplorerTerminalPathInsertion.relativePath(
+                for: "/Users/example/project-backup/file.txt",
+                rootPath: rootPath
+            ),
+            "/Users/example/project-backup/file.txt"
+        )
+        XCTAssertEqual(
+            FileExplorerTerminalPathInsertion.relativePath(
+                for: "Sources/App.swift",
+                rootPath: rootPath
+            ),
+            "Sources/App.swift"
+        )
+    }
+
+    func testFileExplorerRelativePathInsertionStandardizesMacOSSymlinkedRoots() {
+        XCTAssertEqual(
+            FileExplorerTerminalPathInsertion.relativePath(
+                for: "/private/tmp/cmux-project/Sources/App.swift",
+                rootPath: "/tmp/cmux-project"
+            ),
+            "Sources/App.swift"
+        )
+    }
+
     private func makeCodexRestorableAgentIndex(
         workspaceId: UUID,
         panelId: UUID,

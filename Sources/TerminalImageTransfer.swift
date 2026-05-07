@@ -311,10 +311,14 @@ enum TerminalImageTransferPlanner {
         GhosttyPasteboardHelper.escapeForShell(value)
     }
 
-    private static func insertedText(for fileURLs: [URL]) -> String {
-        fileURLs
-            .map { escapeForShell($0.path) }
+    static func insertedText(forPathStrings paths: [String]) -> String {
+        paths
+            .map(escapeForShell)
             .joined(separator: " ")
+    }
+
+    private static func insertedText(for fileURLs: [URL]) -> String {
+        insertedText(forPathStrings: fileURLs.map(\.path))
     }
 
     private static func isRemoteUploadableFileURL(_ fileURL: URL) -> Bool {

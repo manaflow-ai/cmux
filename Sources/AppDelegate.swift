@@ -21,30 +21,6 @@ func cmuxJavaScriptStringLiteral(_ value: String?) -> String? {
     return String(arrayLiteral.dropFirst().dropLast())
 }
 
-final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
-    private let zeroSafeAreaLayoutGuide = NSLayoutGuide()
-
-    override var safeAreaInsets: NSEdgeInsets { NSEdgeInsetsZero }
-    override var safeAreaRect: NSRect { bounds }
-    override var safeAreaLayoutGuide: NSLayoutGuide { zeroSafeAreaLayoutGuide }
-
-    required init(rootView: Content) {
-        super.init(rootView: rootView)
-        addLayoutGuide(zeroSafeAreaLayoutGuide)
-        NSLayoutConstraint.activate([
-            zeroSafeAreaLayoutGuide.leadingAnchor.constraint(equalTo: leadingAnchor),
-            zeroSafeAreaLayoutGuide.trailingAnchor.constraint(equalTo: trailingAnchor),
-            zeroSafeAreaLayoutGuide.topAnchor.constraint(equalTo: topAnchor),
-            zeroSafeAreaLayoutGuide.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-}
-
 /// Caches `AXWindows` responses so repeated AX polls can reuse the same
 /// snapshot while the app window graph is unchanged. Only `.windows` is
 /// cached; `.children` and `.visibleChildren` fall through to AppKit so the
@@ -674,6 +650,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     nonisolated static let persistedWindowGeometrySchemaVersion = 2
     private nonisolated static let persistedWindowGeometryDefaultsKey = "cmux.session.lastWindowGeometry.v2"
+#if DEBUG
+    nonisolated static var debugPersistedWindowGeometryDefaultsKey: String { persistedWindowGeometryDefaultsKey }
+#endif
     private nonisolated static let legacyPersistedWindowGeometryDefaultsKeys = [
         "cmux.session.lastWindowGeometry.v1"
     ]
@@ -2511,9 +2490,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         startupSessionSnapshot = SessionPersistenceStore.load()
     }
 
-    private func persistedWindowGeometry(
-        defaults: UserDefaults = .standard
-    ) -> PersistedWindowGeometry? {
+    private func persistedWindowGeometry(defaults: UserDefaults = .standard) -> PersistedWindowGeometry? {
         Self.removeLegacyPersistedWindowGeometry(defaults: defaults)
         guard let data = defaults.data(forKey: Self.persistedWindowGeometryDefaultsKey) else {
             return nil
@@ -2572,10 +2549,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    private func currentDisplayGeometries() -> (
-        available: [SessionDisplayGeometry],
-        fallback: SessionDisplayGeometry?
-    ) {
+    private func currentDisplayGeometries() -> (available: [SessionDisplayGeometry], fallback: SessionDisplayGeometry?) {
         let available = NSScreen.screens.map { screen in
             SessionDisplayGeometry(
                 displayID: screen.cmuxDisplayID,
@@ -2591,6 +2565,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
         }
         return (available, fallback)
+    }
+
+    private func resolvedPersistedWindowGeometryFrame() -> NSRect? {
+        let displays = currentDisplayGeometries()
+        let fallbackGeometry = persistedWindowGeometry()
+        return Self.resolvedWindowFrame(
+            from: fallbackGeometry?.frame,
+            display: fallbackGeometry?.display,
+            availableDisplays: displays.available,
+            fallbackDisplay: displays.fallback
+        )
     }
 
     private func attemptStartupSessionRestoreIfNeeded(primaryWindow: NSWindow) {
@@ -6876,13 +6861,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }()
         let shouldTemporarilyDisallowFullScreenTiling =
             sessionWindowSnapshot == nil && sourceWindowIsNativeFullScreen
+        let restoredFrame = resolvedWindowFrame(from: sessionWindowSnapshot)
+        let persistedGeometryFrame = (restoredFrame == nil && sourceWindow == nil)
+            ? resolvedPersistedWindowGeometryFrame()
+            : nil
         let initialRect: NSRect
-        if sessionWindowSnapshot == nil, let existingFrame {
+        if restoredFrame == nil, let existingFrame {
             // Convert frame rect to content rect so the new window matches the
             // source window's actual size (frame includes titlebar insets).
             initialRect = NSWindow.contentRect(forFrameRect: existingFrame, styleMask: styleMask)
+        } else if let explicitInitialFrame = restoredFrame ?? persistedGeometryFrame {
+            initialRect = NSWindow.contentRect(forFrameRect: explicitInitialFrame, styleMask: styleMask)
         } else {
-            initialRect = NSRect(x: 0, y: 0, width: 460, height: 360)
+            initialRect = CmuxMainWindow.defaultContentRect(styleMask: styleMask)
         }
 
         let window = CmuxMainWindow(
@@ -6906,9 +6897,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         window.isRestorable = false
         window.isMovableByWindowBackground = false
         window.isMovable = false
-        let restoredFrame = resolvedWindowFrame(from: sessionWindowSnapshot)
-        if let restoredFrame {
-            window.setFrame(restoredFrame, display: false)
+        let explicitInitialFrame = restoredFrame ?? persistedGeometryFrame
+        if let explicitInitialFrame {
+            window.setFrame(explicitInitialFrame, display: false)
         } else if let sourceWindow {
             positionNewMainWindow(window, relativeTo: sourceWindow)
         } else {
@@ -6966,11 +6957,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 window?.collectionBehavior.remove(.fullScreenDisallowsTiling)
             }
         }
-        if let restoredFrame {
-            window.setFrame(restoredFrame, display: true)
+        if let explicitInitialFrame {
+            window.setFrame(explicitInitialFrame, display: true)
 #if DEBUG
             cmuxDebugLog(
-                "session.restore.frameApplied window=\(windowId.uuidString.prefix(8)) " +
+                "mainWindow.initialFrameApplied source=\(restoredFrame == nil ? "persistedGeometry" : "sessionSnapshot") window=\(windowId.uuidString.prefix(8)) " +
                     "applied={\(debugNSRectDescription(window.frame))}"
             )
 #endif
