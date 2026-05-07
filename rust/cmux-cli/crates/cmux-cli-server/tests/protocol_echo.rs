@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use cmux_cli_protocol::{ClientMsg, PROTOCOL_VERSION, ServerMsg, Viewport, read_msg, write_msg};
 use cmux_cli_server::{ServerOptions, run};
-use tokio::io::BufReader;
+use tokio::io::{AsyncRead, BufReader};
 use tokio::net::UnixStream;
 use tokio::time::timeout;
 
@@ -71,11 +71,11 @@ async fn shell_output_streams_over_socket() {
         .then_some(())
         .expect("expected Welcome");
 
-    let mut collected = Vec::<u8>::new();
+    let mut collected = read_pty_until_contains(&mut reader, "sh-", Duration::from_secs(5)).await;
     let mut saw_bye = false;
 
     // Drive the process through the protocol input path.
-    let cmd = format!("printf '{SENTINEL}\\n'; exit\n");
+    let cmd = format!("printf '{SENTINEL}\\n'\n");
     write_msg(
         &mut write_half,
         &ClientMsg::Input {
@@ -117,6 +117,15 @@ async fn shell_output_streams_over_socket() {
         saw_sentinel,
         "expected sentinel {SENTINEL} in stream; got:\n{joined}"
     );
+
+    write_msg(
+        &mut write_half,
+        &ClientMsg::Input {
+            data: b"exit\n".to_vec(),
+        },
+    )
+    .await
+    .expect("send exit");
 
     let bye_deadline = tokio::time::Instant::now() + Duration::from_secs(5);
     while tokio::time::Instant::now() < bye_deadline && !saw_bye {
@@ -200,7 +209,9 @@ async fn shell_output_streams_over_grid_socket() {
         .then_some(())
         .expect("expected Welcome");
 
-    let cmd = format!("printf '{SENTINEL}\\n'; exit\n");
+    let _ = read_pty_until_contains(&mut reader, "sh-", Duration::from_secs(5)).await;
+
+    let cmd = format!("printf '{SENTINEL}\\n'\n");
     write_msg(
         &mut write_half,
         &ClientMsg::Input {
@@ -239,9 +250,48 @@ async fn shell_output_streams_over_grid_socket() {
         "expected sentinel {SENTINEL} in grid stream; got:\n{joined}"
     );
 
+    write_msg(
+        &mut write_half,
+        &ClientMsg::Input {
+            data: b"exit\n".to_vec(),
+        },
+    )
+    .await
+    .expect("send exit");
+
     timeout(Duration::from_secs(5), server_handle)
         .await
         .expect("server shutdown timeout")
         .expect("server task panicked")
         .expect("server returned error");
+}
+
+async fn read_pty_until_contains<R>(reader: &mut R, needle: &str, deadline: Duration) -> Vec<u8>
+where
+    R: AsyncRead + Unpin,
+{
+    let end = tokio::time::Instant::now() + deadline;
+    let mut collected = Vec::new();
+    while tokio::time::Instant::now() < end {
+        let remaining = end.saturating_duration_since(tokio::time::Instant::now());
+        match timeout(remaining, read_msg::<_, ServerMsg>(reader)).await {
+            Err(_) => break,
+            Ok(Ok(None)) => break,
+            Ok(Err(error)) => panic!("protocol error while waiting for {needle:?}: {error:?}"),
+            Ok(Ok(Some(ServerMsg::PtyBytes { data, .. }))) => {
+                collected.extend_from_slice(&data);
+                if String::from_utf8_lossy(&collected).contains(needle) {
+                    return collected;
+                }
+            }
+            Ok(Ok(Some(ServerMsg::Error { message }))) => {
+                panic!("server Error while waiting for {needle:?}: {message}");
+            }
+            Ok(Ok(Some(_))) => {}
+        }
+    }
+    panic!(
+        "expected {needle:?} in stream; got:\n{}",
+        String::from_utf8_lossy(&collected)
+    );
 }
