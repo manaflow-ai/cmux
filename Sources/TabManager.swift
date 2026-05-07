@@ -3795,14 +3795,18 @@ class TabManager: ObservableObject {
         // value, falling back to home. Returning nil here would let Ghostty
         // inherit the cmux process cwd (typically `/` for launchd-launched apps),
         // which is not what users expect when they explicitly opt out of inherit.
+        // Ghostty accepts the keywords `home` and `inherit` plus explicit paths;
+        // `GhosttyConfig` stores the raw string so we resolve keywords here.
         guard WorkspaceInheritWorkingDirectorySettings.isEnabled() else {
-            if let configured = GhosttyConfig.load().workingDirectory?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-               !configured.isEmpty,
-               configured.lowercased() != "inherit" {
-                return configured
+            let home = FileManager.default.homeDirectoryForCurrentUser.path
+            let configured = GhosttyConfig.load().workingDirectory?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            switch configured?.lowercased() {
+            case nil, "", "home", "inherit":
+                return home
+            default:
+                return normalizedWorkingDirectory(configured) ?? home
             }
-            return FileManager.default.homeDirectoryForCurrentUser.path
         }
         guard let workspace else {
             return nil
