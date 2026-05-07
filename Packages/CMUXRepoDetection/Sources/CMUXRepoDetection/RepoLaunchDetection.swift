@@ -70,12 +70,22 @@ public enum CMUXRepoDetection {
     }
 
     public static func makefile(_ contents: String, hasTarget target: String) -> Bool {
-        contents.split(separator: "\n", omittingEmptySubsequences: false).contains { rawLine in
+        guard !target.isEmpty else { return false }
+
+        return contents.split(separator: "\n", omittingEmptySubsequences: false).contains { rawLine in
             let line = String(rawLine)
-            guard !line.hasPrefix("\t"), !line.trimmingCharacters(in: .whitespaces).hasPrefix("#") else {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !line.hasPrefix("\t"), !trimmed.hasPrefix("#") else {
                 return false
             }
-            return line.range(of: #"^\#(target):(\s|$)"#, options: .regularExpression) != nil
+
+            let targetPrefix = "\(target):"
+            guard trimmed.hasPrefix(targetPrefix) else {
+                return false
+            }
+
+            let suffix = trimmed.dropFirst(targetPrefix.count)
+            return suffix.isEmpty || suffix.first?.isWhitespace == true
         }
     }
 }
