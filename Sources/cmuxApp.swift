@@ -16,7 +16,7 @@ struct cmuxApp: App {
     private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(BrowserToolbarAccessorySpacingDebugSettings.key) private var browserToolbarAccessorySpacingRaw = BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
-    @AppStorage("fileExplorer.isVisible") private var rightSidebarVisible: Bool = false
+    @ObservedObject private var rightSidebarVisibilityTracker = RightSidebarVisibilityTracker.shared
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @Environment(\.openWindow) private var openWindow
 
@@ -653,7 +653,7 @@ struct cmuxApp: App {
                 }
             }
             splitCommandButton(
-                title: rightSidebarVisible
+                title: rightSidebarVisibilityTracker.isVisible
                     ? String(localized: "menu.view.hideRightSidebar", defaultValue: "Hide Right Sidebar")
                     : String(localized: "menu.view.showRightSidebar", defaultValue: "Show Right Sidebar"),
                 shortcut: menuShortcut(for: .toggleFileExplorer)

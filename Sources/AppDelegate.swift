@@ -13296,6 +13296,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             sidebarState = nil
             sidebarSelectionState = nil
             fileExplorerState = nil
+            RightSidebarVisibilityTracker.shared.bind(to: nil)
             TerminalController.shared.setActiveTabManager(nil)
             return
         }
@@ -13303,6 +13304,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sidebarState = context.sidebarState
         sidebarSelectionState = context.sidebarSelectionState
         fileExplorerState = context.fileExplorerState
+        RightSidebarVisibilityTracker.shared.bind(to: context.fileExplorerState)
         TerminalController.shared.setActiveTabManager(context.tabManager)
     }
 
