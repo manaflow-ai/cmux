@@ -10560,7 +10560,7 @@ final class Workspace: Identifiable, ObservableObject {
         hideAllBrowserPortalViews()
         let panelEntries = Array(panels)
         for (panelId, panel) in panelEntries {
-            TerminalController.shared.cleanupSurfaceState(surfaceId: panelId)
+            TerminalController.shared.cleanupSurfaceState(surfaceIds: [panelId, surfaceIdFromPanelId(panelId)?.uuid].compactMap { $0 })
             removePendingTerminalInputObservers(forPanelId: panelId)
             removeBrowserOpenTabSuggestionIfNeeded(panel: panel, panelId: panelId)
             panelSubscriptions.removeValue(forKey: panelId)
@@ -13387,7 +13387,7 @@ extension Workspace: BonsplitDelegate {
             Self.requestSSHControlMasterCleanupIfNeeded(configuration: transferredRemoteCleanupConfiguration)
         }
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, surfaceId: panelId)
-        if !isDetaching { TerminalController.shared.cleanupSurfaceState(surfaceId: panelId) }
+        if !isDetaching { TerminalController.shared.cleanupSurfaceState(surfaceIds: [panelId, tabId.uuid]) }
 
         // Keep the workspace invariant for normal close paths.
         // Detach/move flows intentionally allow a temporary empty workspace so AppDelegate can
@@ -13527,7 +13527,7 @@ extension Workspace: BonsplitDelegate {
 
         if !closedPanelIds.isEmpty {
             for panelId in closedPanelIds {
-                if !isDetachingCloseTransaction { TerminalController.shared.cleanupSurfaceState(surfaceId: panelId) }
+                if !isDetachingCloseTransaction { TerminalController.shared.cleanupSurfaceState(surfaceIds: [panelId, surfaceIdFromPanelId(panelId)?.uuid].compactMap { $0 }) }
                 removePendingTerminalInputObservers(forPanelId: panelId)
                 let panel = panels[panelId]
                 removeBrowserOpenTabSuggestionIfNeeded(panel: panel, panelId: panelId)
