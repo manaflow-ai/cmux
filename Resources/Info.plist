@@ -78,18 +78,6 @@
 				<string>$(CMUX_AUTH_CALLBACK_SCHEME)</string>
 			</array>
 		</dict>
-		<dict>
-			<key>CFBundleTypeRole</key>
-			<string>Viewer</string>
-			<key>CFBundleURLName</key>
-			<string>$(PRODUCT_BUNDLE_IDENTIFIER).command</string>
-			<key>LSHandlerRank</key>
-			<string>Default</string>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>$(CMUX_AUTH_CALLBACK_SCHEME)</string>
-			</array>
-		</dict>
 	</array>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>

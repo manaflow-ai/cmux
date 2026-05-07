@@ -21,198 +21,6 @@ func cmuxJavaScriptStringLiteral(_ value: String?) -> String? {
     return String(arrayLiteral.dropFirst().dropLast())
 }
 
-enum CmuxSSHURLParseError: Error, Equatable {
-    case missingDestination
-    case destinationTooLong(maxLength: Int)
-    case destinationContainsUnsafeCharacters
-    case destinationStartsWithDash
-    case titleTooLong(maxLength: Int)
-    case titleContainsUnsafeCharacters
-    case invalidPort
-    case conflictingDestinationParameters
-    case unsupportedParameter(String)
-    case multipleLinks
-}
-
-struct CmuxSSHURLRequest: Equatable {
-    static let maxDestinationLength = 256
-    static let maxTitleLength = 160
-
-    let originalURL: URL
-    let destination: String
-    let port: Int?
-    let title: String?
-
-    var commandLine: String {
-        var parts = ["/usr/bin/ssh"]
-        if let port {
-            parts += ["-p", String(port)]
-        }
-        parts.append(destination)
-        return parts.map(Self.shellQuote).joined(separator: " ")
-    }
-
-    var displayTarget: String {
-        if let port {
-            return "\(destination):\(port)"
-        }
-        return destination
-    }
-
-    static func parse(_ url: URL) -> Result<CmuxSSHURLRequest?, CmuxSSHURLParseError> {
-        guard isSupportedScheme(url.scheme) else {
-            return .success(nil)
-        }
-        guard sshTarget(from: url) else {
-            return .success(nil)
-        }
-
-        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
-            return .failure(.missingDestination)
-        }
-
-        let queryItems = components.queryItems ?? []
-        let allowedQueryNames: Set<String> = ["destination", "host", "user", "port", "title", "name"]
-        for item in queryItems {
-            let name = item.name.lowercased()
-            guard allowedQueryNames.contains(name) else {
-                return .failure(.unsupportedParameter(item.name))
-            }
-        }
-
-        let destinationValue = normalizedQueryValue(namedAnyOf: ["destination"], in: queryItems)
-        let hostValue = normalizedQueryValue(namedAnyOf: ["host"], in: queryItems)
-        let pathDestination = normalizedPathDestination(from: url)
-
-        let destination: String
-        if let destinationValue {
-            guard hostValue == nil && pathDestination == nil else {
-                return .failure(.conflictingDestinationParameters)
-            }
-            destination = destinationValue
-        } else if let hostValue {
-            guard pathDestination == nil else {
-                return .failure(.conflictingDestinationParameters)
-            }
-            if let user = normalizedQueryValue(namedAnyOf: ["user"], in: queryItems) {
-                destination = "\(user)@\(hostValue)"
-            } else {
-                destination = hostValue
-            }
-        } else if let pathDestination {
-            guard normalizedQueryValue(namedAnyOf: ["user"], in: queryItems) == nil else {
-                return .failure(.conflictingDestinationParameters)
-            }
-            destination = pathDestination
-        } else {
-            return .failure(.missingDestination)
-        }
-
-        guard destination.count <= maxDestinationLength else {
-            return .failure(.destinationTooLong(maxLength: maxDestinationLength))
-        }
-        guard !destination.hasPrefix("-") else {
-            return .failure(.destinationStartsWithDash)
-        }
-        guard isAllowedSSHDestination(destination) else {
-            return .failure(.destinationContainsUnsafeCharacters)
-        }
-
-        let parsedPort: Int?
-        if let portValue = normalizedQueryValue(namedAnyOf: ["port"], in: queryItems) {
-            guard let value = Int(portValue), value > 0, value <= 65535 else {
-                return .failure(.invalidPort)
-            }
-            parsedPort = value
-        } else {
-            parsedPort = nil
-        }
-
-        let title = normalizedQueryValue(namedAnyOf: ["title", "name"], in: queryItems)
-        if let title, !isBlank(title) {
-            guard title.count <= maxTitleLength else {
-                return .failure(.titleTooLong(maxLength: maxTitleLength))
-            }
-            guard !containsUnsafeHiddenCharacter(title) else {
-                return .failure(.titleContainsUnsafeCharacters)
-            }
-        }
-
-        return .success(
-            CmuxSSHURLRequest(
-                originalURL: url,
-                destination: destination,
-                port: parsedPort,
-                title: title
-            )
-        )
-    }
-
-    private static func isSupportedScheme(_ scheme: String?) -> Bool {
-        guard let scheme = scheme?.lowercased() else { return false }
-        return scheme == AuthEnvironment.callbackScheme.lowercased()
-    }
-
-    private static func sshTarget(from url: URL) -> Bool {
-        if let host = url.host?.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased(),
-           !host.isEmpty {
-            return host == "ssh"
-        }
-
-        let firstPathComponent = url.path
-            .split(separator: "/")
-            .first
-            .map { String($0).lowercased() }
-        return firstPathComponent == "ssh"
-    }
-
-    private static func normalizedQueryValue(namedAnyOf names: Set<String>, in queryItems: [URLQueryItem]) -> String? {
-        guard let value = queryItems.first(where: { names.contains($0.name.lowercased()) })?.value else {
-            return nil
-        }
-        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return normalized.isEmpty ? nil : normalized
-    }
-
-    private static func normalizedPathDestination(from url: URL) -> String? {
-        guard let host = url.host?.lowercased(), host == "ssh" else {
-            return nil
-        }
-        let trimmed = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    private static func isBlank(_ value: String) -> Bool {
-        value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    private static func isAllowedSSHDestination(_ value: String) -> Bool {
-        guard !containsUnsafeHiddenCharacter(value) else { return false }
-        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._@%+=:-[]")
-        return value.unicodeScalars.allSatisfy { allowed.contains($0) }
-    }
-
-    private static func containsUnsafeHiddenCharacter(_ value: String) -> Bool {
-        value.unicodeScalars.contains { scalar in
-            switch scalar.properties.generalCategory {
-            case .control, .format:
-                return true
-            default:
-                return false
-            }
-        }
-    }
-
-    private static func shellQuote(_ value: String) -> String {
-        if value.range(of: "[^A-Za-z0-9_./:=+@%-]", options: .regularExpression) == nil {
-            return value
-        }
-        let escaped = value.replacingOccurrences(of: "'", with: #"'\''"#)
-        return "'\(escaped)'"
-    }
-}
-
 private final class CmuxSSHURLConfirmationGate: NSObject {
     weak var connectButton: NSButton?
 
@@ -1033,6 +841,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     var mainWindowContexts: [ObjectIdentifier: MainWindowContext] = [:]
     private var mainWindowControllers: [MainWindowController] = []
+    private var cmuxSSHURLProcesses: [Int32: Process] = [:]
 
     /// Tracks the cascade point for new windows, matching Ghostty's upstream algorithm.
     /// Reset to `.zero` so the first window seeds the point from its own position.
@@ -1755,6 +1564,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
         stopSessionAutosaveTimer()
         CloudVMActionLauncher.shared.terminateAll()
+        for process in cmuxSSHURLProcesses.values where process.isRunning {
+            process.terminate()
+        }
+        cmuxSSHURLProcesses.removeAll()
         TerminalController.shared.stop()
         VSCodeServeWebController.shared.stop()
         BrowserProfileStore.shared.flushPendingSaves()
@@ -6576,9 +6389,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func handleCmuxSSHURLRequest(_ request: CmuxSSHURLRequest) {
-        prepareForExplicitOpenIntentAtStartup()
-        NSApp.activate(ignoringOtherApps: true)
-
 #if DEBUG
         let target = request.originalURL.host ?? request.originalURL.path
         cmuxDebugLog("sshURL.prompt target=\(target) destinationLength=\(request.destination.count) hasPort=\(request.port != nil)")
@@ -6591,20 +6401,102 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
 
-        _ = openWorkspaceForSSHURLRequest(request)
+        prepareForExplicitOpenIntentAtStartup()
+        NSApp.activate(ignoringOtherApps: true)
+        _ = launchCmuxSSHURLRequest(request)
     }
 
     @discardableResult
-    private func openWorkspaceForSSHURLRequest(_ request: CmuxSSHURLRequest) -> UUID? {
-        let initialInput = request.commandLine + "\n"
-        let windowId = createMainWindow(
-            initialWorkspaceTitle: request.title,
-            initialTerminalInput: initialInput
+    private func launchCmuxSSHURLRequest(_ request: CmuxSSHURLRequest) -> Bool {
+        let cliURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux")
+        guard let cliURL,
+              FileManager.default.isExecutableFile(atPath: cliURL.path) else {
+            presentCmuxSSHURLLaunchFailure(
+                summary: String(
+                    localized: "dialog.sshURL.launchFailed.missingCLI",
+                    defaultValue: "The bundled cmux CLI is missing from this app build."
+                ),
+                output: ""
+            )
+            return false
+        }
+
+        let socketPath = TerminalController.shared.activeSocketPath(
+            preferredPath: SocketControlSettings.socketPath()
         )
+        let process = Process()
+        process.executableURL = cliURL
+        process.arguments = ["--socket", socketPath] + request.cliArguments
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_BUNDLED_CLI_PATH"] = cliURL.path
+        environment.removeValue(forKey: "CMUX_SOCKET")
+        process.environment = environment
+
+        let outputPipe = Pipe()
+        let errorPipe = Pipe()
+        process.standardOutput = outputPipe
+        process.standardError = errorPipe
+        let outputCollector = ProcessOutputCollector(stdout: outputPipe, stderr: errorPipe)
+        outputCollector.start()
+        process.terminationHandler = { terminatedProcess in
+            let output = outputCollector.finish()
+            let processIdentifier = terminatedProcess.processIdentifier
+            let terminationStatus = terminatedProcess.terminationStatus
+            Task { @MainActor in
+                AppDelegate.shared?.cmuxSSHURLProcesses.removeValue(forKey: processIdentifier)
+                guard terminationStatus != 0 else { return }
+                let format = String(
+                    localized: "dialog.sshURL.launchFailed.exit",
+                    defaultValue: "cmux ssh exited with status %d."
+                )
+                AppDelegate.shared?.presentCmuxSSHURLLaunchFailure(
+                    summary: String(format: format, Int(terminationStatus)),
+                    output: output
+                )
+            }
+        }
+
+        do {
+            try process.run()
+            cmuxSSHURLProcesses[process.processIdentifier] = process
 #if DEBUG
-        cmuxDebugLog("sshURL.createdWindow window=\(windowId.uuidString.prefix(8))")
+            cmuxDebugLog("sshURL.launchCLI pid=\(process.processIdentifier) socket=\(socketPath) targetLength=\(request.destination.count)")
 #endif
-        return tabManagerFor(windowId: windowId)?.selectedTabId
+            return true
+        } catch {
+            outputCollector.cancel()
+            presentCmuxSSHURLLaunchFailure(
+                summary: String(
+                    localized: "dialog.sshURL.launchFailed.launch",
+                    defaultValue: "cmux ssh could not be launched."
+                ),
+                output: error.localizedDescription
+            )
+            return false
+        }
+    }
+
+    private func presentCmuxSSHURLLaunchFailure(summary: String, output: String) {
+        let trimmedOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        let limitedOutput = String(trimmedOutput.prefix(2000))
+        let informativeText = limitedOutput.isEmpty
+            ? summary
+            : "\(summary)\n\n\(limitedOutput)"
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(
+            localized: "dialog.sshURL.launchFailed.title",
+            defaultValue: "Couldn't Open SSH Link"
+        )
+        alert.informativeText = informativeText
+        alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+            alert.beginSheetModal(for: window, completionHandler: nil)
+        } else {
+            alert.runModal()
+        }
     }
 
     private func confirmCmuxSSHURLRequest(_ request: CmuxSSHURLRequest) -> Bool {
@@ -6614,9 +6506,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             localized: "dialog.sshURL.title",
             defaultValue: "Open an SSH Connection From an External Link?"
         )
+        let scheme = request.originalURL.scheme ?? AuthEnvironment.callbackScheme
         alert.informativeText = String(
-            localized: "dialog.sshURL.message",
-            defaultValue: "A cmux:// link is asking cmux to open an SSH connection in a new terminal window. cmux cannot verify which website or app opened this link.\n\nSSH may use your local SSH config, keys, and agent settings. Only continue if you trust this SSH target."
+            format: String(
+                localized: "dialog.sshURL.message",
+                defaultValue: "A %@:// link is asking cmux to open an SSH workspace. cmux cannot verify which website or app opened this link.\n\nSSH may use your local SSH config, keys, agent settings, ProxyCommand, LocalCommand, and forwarding rules. Only continue if you trust this SSH target."
+            ),
+            scheme
         )
 
         let cancelTitle = String(localized: "dialog.sshURL.cancel", defaultValue: "Cancel")
@@ -6666,11 +6562,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let commandLabel = NSTextField(labelWithString: String(
             localized: "dialog.sshURL.commandLabel",
-            defaultValue: "SSH command that will run:"
+            defaultValue: "cmux action that will run after approval:"
         ))
         commandLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
 
-        let commandScrollView = cmuxSSHURLTextPreview(request.commandLine, height: 80)
+        let commandScrollView = cmuxSSHURLTextPreview(request.cliPreview, height: 80)
 
         stack.addArrangedSubview(targetLabel)
         stack.addArrangedSubview(commandLabel)
@@ -6728,7 +6624,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func showCmuxSSHURLParseError(_ error: CmuxSSHURLParseError) {
-        NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.alertStyle = .critical
         alert.messageText = String(
@@ -6745,22 +6640,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case .missingDestination:
             return String(
                 localized: "dialog.sshURL.error.missingDestination",
-                defaultValue: "The link did not include an SSH destination."
+                defaultValue: "The link did not include an SSH host."
             )
         case .destinationTooLong(let maxLength):
             return String(
-                format: String(localized: "dialog.sshURL.error.destinationTooLong", defaultValue: "The SSH destination is too long. The maximum length is %lld characters."),
+                format: String(localized: "dialog.sshURL.error.destinationTooLong", defaultValue: "The SSH target is too long. The maximum length is %lld characters."),
                 maxLength
             )
         case .destinationContainsUnsafeCharacters:
             return String(
                 localized: "dialog.sshURL.error.destinationContainsUnsafeCharacters",
-                defaultValue: "The SSH destination contains unsupported or hidden characters, so cmux refused to use it."
+                defaultValue: "The SSH host or user contains unsupported or hidden characters, so cmux refused to use it."
             )
         case .destinationStartsWithDash:
             return String(
                 localized: "dialog.sshURL.error.destinationStartsWithDash",
-                defaultValue: "The SSH destination cannot start with a dash."
+                defaultValue: "The SSH host or user cannot start with a dash."
             )
         case .titleTooLong(let maxLength):
             return String(
@@ -6780,7 +6675,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case .conflictingDestinationParameters:
             return String(
                 localized: "dialog.sshURL.error.conflictingDestinationParameters",
-                defaultValue: "The link included conflicting SSH destination fields."
+                defaultValue: "The link included conflicting SSH target fields."
+            )
+        case .duplicateParameter(let parameter):
+            return String(
+                format: String(localized: "dialog.sshURL.error.duplicateParameter", defaultValue: "The SSH link repeated a parameter: %@"),
+                parameter
             )
         case .unsupportedParameter(let parameter):
             return String(

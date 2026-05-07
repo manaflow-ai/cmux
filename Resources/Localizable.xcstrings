@@ -18652,6 +18652,74 @@
         }
       }
     },
+    "dialog.sshURL.launchFailed.exit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ssh exited with status %d."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ssh はステータス %d で終了しました。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.launchFailed.launch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ssh could not be launched."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ssh を起動できませんでした。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.launchFailed.missingCLI": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The bundled cmux CLI is missing from this app build."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアプリビルドに同梱されている cmux CLI が見つかりません。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.launchFailed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't Open SSH Link"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH リンクを開けませんでした"
+          }
+        }
+      }
+    },
     "dialog.sshURL.cancel": {
       "extractionState": "manual",
       "localizations": {
@@ -18692,13 +18760,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "SSH command that will run:"
+            "value": "cmux action that will run after approval:"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "実行される SSH コマンド:"
+            "value": "承認後に実行される cmux アクション:"
           }
         }
       }
@@ -18726,13 +18794,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The SSH destination contains unsupported or hidden characters, so cmux refused to use it."
+            "value": "The SSH host or user contains unsupported or hidden characters, so cmux refused to use it."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "SSH 接続先に未対応の文字または隠れた文字が含まれているため、cmux は使用を拒否しました。"
+            "value": "SSH ホストまたはユーザーに未対応の文字または隠れた文字が含まれているため、cmux は使用を拒否しました。"
           }
         }
       }
@@ -18743,7 +18811,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The SSH destination is too long. The maximum length is %lld characters."
+            "value": "The SSH target is too long. The maximum length is %lld characters."
           }
         },
         "ja": {
@@ -18760,13 +18828,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The link did not include an SSH destination."
+            "value": "The link did not include an SSH host."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "リンクに SSH 接続先が含まれていません。"
+            "value": "リンクに SSH ホストが含まれていません。"
           }
         }
       }
@@ -18828,13 +18896,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The SSH destination cannot start with a dash."
+            "value": "The SSH host or user cannot start with a dash."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "SSH 接続先をダッシュで始めることはできません。"
+            "value": "SSH ホストまたはユーザーをダッシュで始めることはできません。"
           }
         }
       }
@@ -18845,13 +18913,30 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The link included conflicting SSH destination fields."
+            "value": "The link included conflicting SSH target fields."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "リンクに競合する SSH 接続先フィールドが含まれています。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.error.duplicateParameter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH link repeated a parameter: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH リンクで同じパラメータが繰り返されています: %@"
           }
         }
       }
@@ -18896,13 +18981,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A cmux:// link is asking cmux to open an SSH connection in a new terminal window. cmux cannot verify which website or app opened this link.\n\nSSH may use your local SSH config, keys, and agent settings. Only continue if you trust this SSH target."
+            "value": "A %@:// link is asking cmux to open an SSH workspace. cmux cannot verify which website or app opened this link.\n\nSSH may use your local SSH config, keys, agent settings, ProxyCommand, LocalCommand, and forwarding rules. Only continue if you trust this SSH target."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux:// リンクが、新しいターミナルウィンドウで SSH 接続を開くよう cmux に要求しています。cmux は、このリンクを開いた Web サイトやアプリを確認できません。\n\nSSH はローカルの SSH 設定、鍵、エージェント設定を使用する場合があります。この SSH 接続先を信頼している場合のみ続行してください。"
+            "value": "%@:// リンクが SSH ワークスペースを開くよう cmux に要求しています。cmux は、このリンクを開いた Web サイトやアプリを確認できません。\n\nSSH はローカルの SSH 設定、鍵、エージェント設定、ProxyCommand、LocalCommand、ポート転送ルールを使用する場合があります。この SSH 接続先を信頼している場合のみ続行してください。"
           }
         }
       }
