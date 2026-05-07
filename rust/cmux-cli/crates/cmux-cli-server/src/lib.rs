@@ -51,6 +51,9 @@ const PTY_REPLAY_MAX_BYTES: usize = 4 * 1024 * 1024;
 const LIBGHOSTTY_PTY_REPLAY_RESET: &[u8] = b"\x1bc";
 const CLIENT_VIEW_STALE_TIMEOUT_MS: u64 = 15_000;
 const WEBSOCKET_HELLO_TIMEOUT: Duration = Duration::from_secs(5);
+const WORKSPACE_ENTITY_TYPE_COUNT: u64 = 2;
+const WORKSPACE_ENTITY_STRIDE: u64 = 1 << 33;
+const WORKSPACE_LOCAL_ENTITY_CAPACITY: u64 = 1 << 32;
 
 fn flash_is_on(deadline_ms: u64, now_ms: u64) -> bool {
     if deadline_ms <= now_ms {
@@ -71,20 +74,25 @@ fn tab_size(rect: Rect) -> (u16, u16) {
     (rect.cols.max(1), rect.rows.max(1))
 }
 
-fn workspace_tab_id(workspace_id: u64, local_id: u64) -> u64 {
+fn workspace_entity_id(workspace_id: u64, local_id: u64, type_tag: u64) -> u64 {
+    debug_assert!(type_tag < WORKSPACE_ENTITY_TYPE_COUNT);
+    debug_assert!(local_id < WORKSPACE_LOCAL_ENTITY_CAPACITY);
     workspace_id
-        .saturating_mul(1 << 32)
-        .saturating_add(local_id)
+        .saturating_mul(WORKSPACE_ENTITY_STRIDE)
+        .saturating_add(local_id.saturating_mul(WORKSPACE_ENTITY_TYPE_COUNT))
+        .saturating_add(type_tag)
+}
+
+fn workspace_tab_id(workspace_id: u64, local_id: u64) -> u64 {
+    workspace_entity_id(workspace_id, local_id, 0)
 }
 
 fn local_tab_index(workspace_id: u64, tab_id: u64) -> u64 {
-    tab_id.saturating_sub(workspace_tab_id(workspace_id, 0))
+    tab_id.saturating_sub(workspace_tab_id(workspace_id, 0)) / WORKSPACE_ENTITY_TYPE_COUNT
 }
 
 fn workspace_space_id(workspace_id: u64, local_id: u64) -> u64 {
-    workspace_id
-        .saturating_mul(1 << 32)
-        .saturating_add(local_id)
+    workspace_entity_id(workspace_id, local_id, 1)
 }
 
 /// Accept `#RRGGBB` or `RRGGBB` (case-insensitive) and return the
@@ -1750,7 +1758,7 @@ impl Space {
         spawn_opts: TabSpawnOptions,
         broker: Arc<RenderBroker>,
     ) -> Result<Arc<Self>> {
-        let tab_id = next_tab_id.fetch_add(1, Ordering::Relaxed);
+        let tab_id = next_tab_id.fetch_add(WORKSPACE_ENTITY_TYPE_COUNT, Ordering::Relaxed);
         let tab = Tab::spawn(
             tab_id,
             workspace_id,
@@ -1794,7 +1802,7 @@ impl Space {
     ) -> Result<Arc<Self>> {
         let mut tabs: Vec<Arc<Tab>> = Vec::with_capacity(snap.tabs.len());
         for t in &snap.tabs {
-            let tab_id = next_tab_id.fetch_add(1, Ordering::Relaxed);
+            let tab_id = next_tab_id.fetch_add(WORKSPACE_ENTITY_TYPE_COUNT, Ordering::Relaxed);
             let tab = Tab::spawn(
                 tab_id,
                 workspace_id,
@@ -1807,7 +1815,7 @@ impl Space {
             tabs.push(tab);
         }
         if tabs.is_empty() {
-            let tab_id = next_tab_id.fetch_add(1, Ordering::Relaxed);
+            let tab_id = next_tab_id.fetch_add(WORKSPACE_ENTITY_TYPE_COUNT, Ordering::Relaxed);
             let tab = Tab::spawn(
                 tab_id,
                 workspace_id,
@@ -1926,7 +1934,9 @@ impl Space {
     }
 
     async fn spawn_shell_tab(&self, cwd: Option<PathBuf>) -> Result<Arc<Tab>> {
-        let id = self.next_tab_id.fetch_add(1, Ordering::Relaxed);
+        let id = self
+            .next_tab_id
+            .fetch_add(WORKSPACE_ENTITY_TYPE_COUNT, Ordering::Relaxed);
         let viewport = *self.last_viewport.lock().await;
         let title = format!("term-{}", local_tab_index(self.workspace_id, id));
         let spawn_opts = TabSpawnOptions {
@@ -8214,6 +8224,32 @@ mod tests {
                 Some(PaneFocusAnchor { col: 60, row: 4 }),
             ),
             Some(3)
+        );
+    }
+
+    #[test]
+    fn workspace_tab_and_space_ids_are_disjoint() {
+        for workspace_id in [0, 1, 42] {
+            let tab0 = workspace_tab_id(workspace_id, 0);
+            let tab1 = workspace_tab_id(workspace_id, 1);
+            let space0 = workspace_space_id(workspace_id, 0);
+            let space1 = workspace_space_id(workspace_id, 1);
+
+            assert_ne!(tab0, space0);
+            assert_ne!(tab0, space1);
+            assert_ne!(tab1, space0);
+            assert_ne!(tab1, space1);
+            assert_eq!(local_tab_index(workspace_id, tab0), 0);
+            assert_eq!(local_tab_index(workspace_id, tab1), 1);
+        }
+
+        assert_eq!(
+            workspace_tab_id(0, WORKSPACE_LOCAL_ENTITY_CAPACITY - 1) + 2,
+            workspace_tab_id(1, 0)
+        );
+        assert_eq!(
+            workspace_space_id(0, WORKSPACE_LOCAL_ENTITY_CAPACITY - 1) + 1,
+            workspace_tab_id(1, 0)
         );
     }
 

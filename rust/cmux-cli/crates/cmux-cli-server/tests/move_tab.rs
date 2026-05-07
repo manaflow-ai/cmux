@@ -62,12 +62,13 @@ async fn move_tab_shuffles_the_tab_list() {
         .unwrap();
         let _ = read_reply(&mut r, id).await;
     }
-    // ListTabs baseline: tab ids are 0, 1, 2 in that order.
+    // ListTabs baseline: preserve the server-provided ids in their
+    // current order. IDs are stable but not required to be dense.
     let first = list_tabs(&mut w, &mut r, 10).await;
     let baseline_ids: Vec<u64> = first.iter().map(|t| t.id).collect();
-    assert_eq!(baseline_ids, vec![0, 1, 2]);
+    assert_eq!(baseline_ids.len(), 3);
 
-    // Move tab 0 → index 2 (end). Expect [1, 2, 0].
+    // Move tab 0 → index 2 (end).
     write_msg(
         &mut w,
         &ClientMsg::Command {
@@ -80,10 +81,13 @@ async fn move_tab_shuffles_the_tab_list() {
     let _ = read_reply(&mut r, 20).await;
     let after = list_tabs(&mut w, &mut r, 30).await;
     let ids: Vec<u64> = after.iter().map(|t| t.id).collect();
-    assert_eq!(ids, vec![1, 2, 0], "after move(0→2) expected [1, 2, 0]");
+    assert_eq!(
+        ids,
+        vec![baseline_ids[1], baseline_ids[2], baseline_ids[0]],
+        "after move(0→2) expected first tab to move to the end"
+    );
 
     // Out-of-bounds `to` clamps: move tab at 0 → 99 → end again.
-    // After [1, 2, 0], move(0, 99) → [2, 0, 1].
     write_msg(
         &mut w,
         &ClientMsg::Command {
@@ -96,7 +100,11 @@ async fn move_tab_shuffles_the_tab_list() {
     let _ = read_reply(&mut r, 40).await;
     let after2 = list_tabs(&mut w, &mut r, 50).await;
     let ids2: Vec<u64> = after2.iter().map(|t| t.id).collect();
-    assert_eq!(ids2, vec![2, 0, 1], "after move(0→99) expected [2, 0, 1]");
+    assert_eq!(
+        ids2,
+        vec![baseline_ids[2], baseline_ids[0], baseline_ids[1]],
+        "after move(0→99) expected first tab to clamp to the end"
+    );
 
     // Out-of-bounds `from` errors.
     write_msg(
