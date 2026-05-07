@@ -339,6 +339,12 @@ final class SSHFileExplorerPathResolverTests: XCTestCase {
         XCTAssertFalse(SSHFileExplorerPathResolver.isMacLocalPath("/Volumes"))
     }
 
+    func testIsMacLocalPath_volumesWithTrailingSlashOnlyIsMacLocal() {
+        // Symmetric pin to `testIsMacLocalPath_usersWithTrailingSlashOnlyIsMacLocal`
+        // — the trailing-slash boundary applies identically to both prefixes.
+        XCTAssertTrue(SSHFileExplorerPathResolver.isMacLocalPath("/Volumes/"))
+    }
+
     func testIsMacLocalPath_usersWithTrailingSlashOnlyIsMacLocal() {
         // `/Users/` (just the trailing slash, no child) DOES match the
         // prefix. Document the edge so anyone reading the implementation
