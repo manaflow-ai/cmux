@@ -32,7 +32,8 @@ nonisolated struct CmuxUseManifest: Equatable {
 }
 
 nonisolated enum CmuxUseSupport {
-    private static let maxManifestCommandSearchDepth = 10
+    private static let manifestCommandKeys = ["use", "launch", "start", "run", "command"]
+    private static let manifestCommandContainers = ["scripts", "commands", "cmux"]
 
     static func parseGitHubRepository(_ raw: String) throws -> CmuxUseRepository {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -249,46 +250,16 @@ nonisolated enum CmuxUseSupport {
     }
 
     private static func manifestCommand(in manifest: [String: Any]) -> CmuxUseLaunchCommand? {
-        return manifestCommand(in: manifest, source: "manifest", depth: 0)
-    }
-
-    private static func manifestCommand(
-        in object: [String: Any],
-        source: String,
-        depth: Int
-    ) -> CmuxUseLaunchCommand? {
-        guard depth <= maxManifestCommandSearchDepth else {
-            return nil
+        if let command = stringValue(in: manifest, keys: manifestCommandKeys) {
+            return CmuxUseLaunchCommand(command: command, source: "manifest")
         }
 
-        let keys = ["use", "launch", "start", "run", "command"]
-        if let command = stringValue(in: object, keys: keys) {
-            return CmuxUseLaunchCommand(command: command, source: source)
-        }
-
-        for key in ["scripts", "commands", "cmux"] {
-            guard let nested = object[key] as? [String: Any],
-                  let command = manifestCommand(
-                    in: nested,
-                    source: "\(source):\(key)",
-                    depth: depth + 1
-                  ) else {
+        for container in manifestCommandContainers {
+            guard let nested = manifest[container] as? [String: Any],
+                  let command = stringValue(in: nested, keys: manifestCommandKeys) else {
                 continue
             }
-            return command
-        }
-
-        let reserved = Set(["scripts", "commands", "cmux", "install", "engines", "permissions"])
-        for key in object.keys.sorted() where !reserved.contains(key) {
-            guard let nested = object[key] as? [String: Any],
-                  let command = manifestCommand(
-                    in: nested,
-                    source: "\(source):\(key)",
-                    depth: depth + 1
-                  ) else {
-                continue
-            }
-            return command
+            return CmuxUseLaunchCommand(command: command, source: "manifest:\(container)")
         }
 
         return nil
