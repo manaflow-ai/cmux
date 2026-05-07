@@ -211,7 +211,7 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
             return
         }
 
-        withCommandPaletteFieldEditor(appDelegate: appDelegate) { window in
+        withCommandPaletteFieldEditor(appDelegate: appDelegate) { window, _ in
             withTemporaryCommandPalettePreviousShortcut {
                 let remappedPrevious = StoredShortcut(key: "u", command: false, shift: false, option: false, control: true)
                 KeyboardShortcutSettings.setShortcut(remappedPrevious, for: .commandPalettePrevious)
@@ -290,7 +290,7 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
             return
         }
 
-        withCommandPaletteFieldEditor(appDelegate: appDelegate) { window in
+        withCommandPaletteFieldEditor(appDelegate: appDelegate) { window, _ in
             withTemporaryCommandPalettePreviousShortcut {
                 KeyboardShortcutSettings.unbindShortcut(for: .commandPalettePrevious)
                 XCTAssertNil(KeyboardShortcutSettings.shortcutIfBound(for: .commandPalettePrevious))
@@ -338,7 +338,7 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
             return
         }
 
-        withCommandPaletteFieldEditor(appDelegate: appDelegate) { window in
+        withCommandPaletteFieldEditor(appDelegate: appDelegate) { window, _ in
             withTemporaryCommandPaletteShortcut(.commandPaletteNext) {
                 KeyboardShortcutSettings.setShortcut(
                     StoredShortcut(key: "b", command: false, shift: false, option: false, control: true, chordKey: "n"),
@@ -377,9 +377,38 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
         }
     }
 
+    func testWindowPerformKeyEquivalentRoutesHorizontalArrowsToCommandPaletteFieldEditor() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        withCommandPaletteFieldEditor(appDelegate: appDelegate) { window, fieldEditor in
+            guard let leftArrowEvent = makeKeyDownEvent(
+                key: String(UnicodeScalar(NSLeftArrowFunctionKey)!),
+                modifiers: [],
+                keyCode: 123,
+                windowNumber: window.windowNumber
+            ),
+            let rightArrowEvent = makeKeyDownEvent(
+                key: String(UnicodeScalar(NSRightArrowFunctionKey)!),
+                modifiers: [],
+                keyCode: 124,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct horizontal arrow events")
+                return
+            }
+
+            XCTAssertTrue(window.performKeyEquivalent(with: leftArrowEvent))
+            XCTAssertTrue(window.performKeyEquivalent(with: rightArrowEvent))
+            XCTAssertEqual(fieldEditor.keyDownKeyCodes, [123, 124])
+        }
+    }
+
     private func withCommandPaletteFieldEditor(
         appDelegate: AppDelegate,
-        _ body: (NSWindow) -> Void
+        _ body: (NSWindow, CommandPaletteShortcutFieldEditor) -> Void
     ) {
         let windowId = appDelegate.createMainWindow()
         defer { closeWindow(withId: windowId) }
@@ -407,7 +436,7 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
             fieldEditor.removeFromSuperview()
         }
 
-        body(window)
+        body(window, fieldEditor)
     }
 
     private func withTemporaryCommandPalettePreviousShortcut(_ body: () -> Void) {
@@ -463,7 +492,13 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
 }
 
 private final class CommandPaletteShortcutFieldEditor: NSTextView {
+    var keyDownKeyCodes: [UInt16] = []
+
     override func hasMarkedText() -> Bool {
         false
+    }
+
+    override func keyDown(with event: NSEvent) {
+        keyDownKeyCodes.append(event.keyCode)
     }
 }
