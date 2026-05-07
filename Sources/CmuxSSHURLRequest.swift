@@ -7,12 +7,9 @@ enum CmuxSSHURLParseError: Error, Equatable {
     case destinationStartsWithDash
     case titleTooLong(maxLength: Int)
     case titleContainsUnsafeCharacters
-    case identityTooLong(maxLength: Int)
-    case identityContainsUnsafeCharacters
-    case sshOptionTooLong(maxLength: Int)
-    case sshOptionContainsUnsafeCharacters
-    case tooManySSHOptions(maxCount: Int)
     case invalidPort
+    case invalidIntegerParameter(String)
+    case invalidHostKeyPolicy(String)
     case invalidBooleanParameter(String)
     case conflictingDestinationParameters
     case conflictingTitleParameters
@@ -24,9 +21,6 @@ enum CmuxSSHURLParseError: Error, Equatable {
 struct CmuxSSHURLRequest: Equatable {
     static let maxDestinationLength = 256
     static let maxTitleLength = 160
-    static let maxIdentityLength = 512
-    static let maxSSHOptionLength = 512
-    static let maxSSHOptionCount = 24
     static let supportedSchemes: Set<String> = ["cmux", "cmux-nightly", "cmux-dev"]
     static var activeSupportedSchemes: Set<String> {
         [AuthEnvironment.callbackScheme.lowercased()]
@@ -100,18 +94,19 @@ struct CmuxSSHURLRequest: Equatable {
             "port",
             "title",
             "name",
-            "identity",
-            "ssh-option",
+            "connect-timeout",
+            "server-alive-interval",
+            "server-alive-count-max",
+            "host-key-policy",
             "no-focus"
         ]
-        let repeatableQueryNames: Set<String> = ["ssh-option"]
         var seenQueryNames = Set<String>()
         for item in queryItems {
             let name = item.name.lowercased()
             guard allowedQueryNames.contains(name) else {
                 return .failure(.unsupportedParameter(displayParameterName(item.name)))
             }
-            guard repeatableQueryNames.contains(name) || seenQueryNames.insert(name).inserted else {
+            guard seenQueryNames.insert(name).inserted else {
                 return .failure(.duplicateParameter(displayParameterName(item.name)))
             }
         }
@@ -169,27 +164,12 @@ struct CmuxSSHURLRequest: Equatable {
             }
         }
 
-        let identityFile = normalizedQueryValue(namedAnyOf: ["identity"], in: queryItems)
-        if let identityFile {
-            guard identityFile.count <= maxIdentityLength else {
-                return .failure(.identityTooLong(maxLength: maxIdentityLength))
-            }
-            guard !containsUnsafeHiddenCharacter(identityFile) else {
-                return .failure(.identityContainsUnsafeCharacters)
-            }
-        }
-
-        let sshOptions = normalizedQueryValues(named: "ssh-option", in: queryItems)
-        guard sshOptions.count <= maxSSHOptionCount else {
-            return .failure(.tooManySSHOptions(maxCount: maxSSHOptionCount))
-        }
-        for sshOption in sshOptions {
-            guard sshOption.count <= maxSSHOptionLength else {
-                return .failure(.sshOptionTooLong(maxLength: maxSSHOptionLength))
-            }
-            guard !containsUnsafeHiddenCharacter(sshOption) else {
-                return .failure(.sshOptionContainsUnsafeCharacters)
-            }
+        let sshOptions: [String]
+        switch structuredSSHOptions(from: queryItems) {
+        case .success(let options):
+            sshOptions = options
+        case .failure(let error):
+            return .failure(error)
         }
 
         let noFocus: Bool
@@ -206,7 +186,7 @@ struct CmuxSSHURLRequest: Equatable {
                 destination: destination,
                 port: parsedPort,
                 title: title,
-                identityFile: identityFile,
+                identityFile: nil,
                 sshOptions: sshOptions,
                 noFocus: noFocus
             )
@@ -249,14 +229,55 @@ struct CmuxSSHURLRequest: Equatable {
         return normalized.isEmpty ? nil : normalized
     }
 
-    private static func normalizedQueryValues(named name: String, in queryItems: [URLQueryItem]) -> [String] {
-        queryItems
-            .filter { $0.name.lowercased() == name }
-            .compactMap { item in
-                guard let value = item.value else { return nil }
-                let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
-                return normalized.isEmpty ? nil : normalized
+    private static func structuredSSHOptions(from queryItems: [URLQueryItem]) -> Result<[String], CmuxSSHURLParseError> {
+        var options: [String] = []
+        if let value = normalizedQueryValue(namedAnyOf: ["connect-timeout"], in: queryItems) {
+            switch boundedInteger(value, parameter: "connect-timeout", range: 1...600) {
+            case .success(let seconds):
+                options.append("ConnectTimeout=\(seconds)")
+            case .failure(let error):
+                return .failure(error)
             }
+        }
+        if let value = normalizedQueryValue(namedAnyOf: ["server-alive-interval"], in: queryItems) {
+            switch boundedInteger(value, parameter: "server-alive-interval", range: 1...3600) {
+            case .success(let seconds):
+                options.append("ServerAliveInterval=\(seconds)")
+            case .failure(let error):
+                return .failure(error)
+            }
+        }
+        if let value = normalizedQueryValue(namedAnyOf: ["server-alive-count-max"], in: queryItems) {
+            switch boundedInteger(value, parameter: "server-alive-count-max", range: 1...100) {
+            case .success(let count):
+                options.append("ServerAliveCountMax=\(count)")
+            case .failure(let error):
+                return .failure(error)
+            }
+        }
+        if let value = normalizedQueryValue(namedAnyOf: ["host-key-policy"], in: queryItems) {
+            switch value.lowercased() {
+            case "accept-new":
+                options.append("StrictHostKeyChecking=accept-new")
+            case "ask":
+                options.append("StrictHostKeyChecking=ask")
+            case "strict", "yes":
+                options.append("StrictHostKeyChecking=yes")
+            default:
+                return .failure(.invalidHostKeyPolicy("host-key-policy"))
+            }
+        }
+        return .success(options)
+    }
+
+    private static func boundedInteger(_ value: String, parameter: String, range: ClosedRange<Int>) -> Result<Int, CmuxSSHURLParseError> {
+        guard !containsUnsafeHiddenCharacter(value),
+              value.range(of: #"^[0-9]+$"#, options: .regularExpression) != nil,
+              let integer = Int(value),
+              range.contains(integer) else {
+            return .failure(.invalidIntegerParameter(parameter))
+        }
+        return .success(integer)
     }
 
     private static func normalizedBooleanValue(named name: String, in queryItems: [URLQueryItem]) -> Result<Bool, CmuxSSHURLParseError> {

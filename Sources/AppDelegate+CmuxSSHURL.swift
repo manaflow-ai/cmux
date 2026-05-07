@@ -52,8 +52,7 @@ final class CmuxSSHURLProcessLauncher {
         process.standardError = errorPipe
         let outputCollector = ProcessOutputCollector(stdout: outputPipe, stderr: errorPipe)
         outputCollector.start()
-        weak var launchWindow = preferredWindow
-        process.terminationHandler = { terminatedProcess in
+        process.terminationHandler = { [weak preferredWindow] terminatedProcess in
             let output = outputCollector.finish()
             let processIdentifier = terminatedProcess.processIdentifier
             let terminationStatus = terminatedProcess.terminationStatus
@@ -67,7 +66,7 @@ final class CmuxSSHURLProcessLauncher {
                 Self.shared.presentLaunchFailure(
                     summary: String(format: format, Int(terminationStatus)),
                     output: output,
-                    preferredWindow: launchWindow
+                    preferredWindow: preferredWindow
                 )
             }
         }
@@ -216,7 +215,7 @@ extension AppDelegate {
         alert.informativeText = String(
             format: String(
                 localized: "dialog.sshURL.message",
-                defaultValue: "A %@:// link is asking cmux to open an SSH workspace. cmux cannot verify which website or app opened this link.\n\nSSH may use your local SSH config, keys, agent settings, ProxyCommand, LocalCommand, forwarding rules, and any SSH options supplied by this link. Only continue if you trust this SSH target."
+                defaultValue: "A %@:// link is asking cmux to open an SSH workspace. cmux cannot verify which website or app opened this link.\n\nSSH may use your local SSH config, keys, agent settings, ProxyCommand, LocalCommand, and forwarding rules for this target. External links cannot supply arbitrary SSH options. Only continue if you trust this SSH target."
             ),
             scheme
         )
@@ -373,35 +372,20 @@ extension AppDelegate {
                 localized: "dialog.sshURL.error.titleContainsControlCharacters",
                 defaultValue: "The workspace title contains hidden control or formatting characters, so cmux refused to use it."
             )
-        case .identityTooLong(let maxLength):
-            return String(
-                format: String(localized: "dialog.sshURL.error.identityTooLong", defaultValue: "The SSH identity path is too long. The maximum length is %lld characters."),
-                maxLength
-            )
-        case .identityContainsUnsafeCharacters:
-            return String(
-                localized: "dialog.sshURL.error.identityContainsUnsafeCharacters",
-                defaultValue: "The SSH identity path contains hidden control or formatting characters, so cmux refused to use it."
-            )
-        case .sshOptionTooLong(let maxLength):
-            return String(
-                format: String(localized: "dialog.sshURL.error.sshOptionTooLong", defaultValue: "An SSH option is too long. The maximum length is %lld characters."),
-                maxLength
-            )
-        case .sshOptionContainsUnsafeCharacters:
-            return String(
-                localized: "dialog.sshURL.error.sshOptionContainsUnsafeCharacters",
-                defaultValue: "An SSH option contains hidden control or formatting characters, so cmux refused to use it."
-            )
-        case .tooManySSHOptions(let maxCount):
-            return String(
-                format: String(localized: "dialog.sshURL.error.tooManySSHOptions", defaultValue: "The SSH link included too many SSH options. The maximum is %lld."),
-                maxCount
-            )
         case .invalidPort:
             return String(
                 localized: "dialog.sshURL.error.invalidPort",
                 defaultValue: "The SSH port must be between 1 and 65535."
+            )
+        case .invalidIntegerParameter(let parameter):
+            return String(
+                format: String(localized: "dialog.sshURL.error.invalidIntegerParameter", defaultValue: "The SSH link included an invalid integer value for parameter: %@"),
+                parameter
+            )
+        case .invalidHostKeyPolicy(let parameter):
+            return String(
+                format: String(localized: "dialog.sshURL.error.invalidHostKeyPolicy", defaultValue: "The SSH link included an invalid host key policy for parameter: %@"),
+                parameter
             )
         case .invalidBooleanParameter(let parameter):
             return String(

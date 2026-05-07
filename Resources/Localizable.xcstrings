@@ -18898,87 +18898,36 @@
         }
       }
     },
-    "dialog.sshURL.error.identityContainsUnsafeCharacters": {
+    "dialog.sshURL.error.invalidIntegerParameter": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The SSH identity path contains hidden control or formatting characters, so cmux refused to use it."
+            "value": "The SSH link included an invalid integer value for parameter: %@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "SSH 鍵パスに隠れた制御文字または書式制御文字が含まれているため、cmux は使用を拒否しました。"
+            "value": "SSH リンクのパラメータに無効な整数値が含まれています: %@"
           }
         }
       }
     },
-    "dialog.sshURL.error.identityTooLong": {
+    "dialog.sshURL.error.invalidHostKeyPolicy": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The SSH identity path is too long. The maximum length is %lld characters."
+            "value": "The SSH link included an invalid host key policy for parameter: %@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "SSH 鍵パスが長すぎます。最大長は %lld 文字です。"
-          }
-        }
-      }
-    },
-    "dialog.sshURL.error.sshOptionContainsUnsafeCharacters": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "An SSH option contains hidden control or formatting characters, so cmux refused to use it."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH オプションに隠れた制御文字または書式制御文字が含まれているため、cmux は使用を拒否しました。"
-          }
-        }
-      }
-    },
-    "dialog.sshURL.error.sshOptionTooLong": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "An SSH option is too long. The maximum length is %lld characters."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH オプションが長すぎます。最大長は %lld 文字です。"
-          }
-        }
-      }
-    },
-    "dialog.sshURL.error.tooManySSHOptions": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The SSH link included too many SSH options. The maximum is %lld."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH リンクに含まれる SSH オプションが多すぎます。最大数は %lld です。"
+            "value": "SSH リンクのパラメータに無効なホストキー確認ポリシーが含まれています: %@"
           }
         }
       }
@@ -19108,13 +19057,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A %@:// link is asking cmux to open an SSH workspace. cmux cannot verify which website or app opened this link.\n\nSSH may use your local SSH config, keys, agent settings, ProxyCommand, LocalCommand, forwarding rules, and any SSH options supplied by this link. Only continue if you trust this SSH target."
+            "value": "A %@:// link is asking cmux to open an SSH workspace. cmux cannot verify which website or app opened this link.\n\nSSH may use your local SSH config, keys, agent settings, ProxyCommand, LocalCommand, and forwarding rules for this target. External links cannot supply arbitrary SSH options. Only continue if you trust this SSH target."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@:// リンクが SSH ワークスペースを開くよう cmux に要求しています。cmux は、このリンクを開いた Web サイトやアプリを確認できません。\n\nSSH はローカルの SSH 設定、鍵、エージェント設定、ProxyCommand、LocalCommand、ポート転送ルール、このリンクで指定された SSH オプションを使用する場合があります。この SSH 接続先を信頼している場合のみ続行してください。"
+            "value": "%@:// リンクが SSH ワークスペースを開くよう cmux に要求しています。cmux は、このリンクを開いた Web サイトやアプリを確認できません。\n\nSSH はこの接続先に対して、ローカルの SSH 設定、鍵、エージェント設定、ProxyCommand、LocalCommand、ポート転送ルールを使用する場合があります。外部リンクは任意の SSH オプションを指定できません。この SSH 接続先を信頼している場合のみ続行してください。"
           }
         }
       }

@@ -39,7 +39,7 @@ final class CmuxSSHURLRequestTests: XCTestCase {
         }
     }
 
-    func testParsesSSHURLWithAllStructuredSSHOptions() throws {
+    func testParsesSSHURLWithAllowedConnectionKnobs() throws {
         var components = URLComponents()
         components.scheme = supportedScheme
         components.host = "ssh"
@@ -48,9 +48,10 @@ final class CmuxSSHURLRequestTests: XCTestCase {
             URLQueryItem(name: "user", value: "alice"),
             URLQueryItem(name: "port", value: "2222"),
             URLQueryItem(name: "title", value: "Dev SSH"),
-            URLQueryItem(name: "identity", value: "~/.ssh/id_ed25519"),
-            URLQueryItem(name: "ssh-option", value: "ControlPath=/tmp/cmux-ssh-%C"),
-            URLQueryItem(name: "ssh-option", value: "StrictHostKeyChecking=accept-new"),
+            URLQueryItem(name: "connect-timeout", value: "15"),
+            URLQueryItem(name: "server-alive-interval", value: "20"),
+            URLQueryItem(name: "server-alive-count-max", value: "4"),
+            URLQueryItem(name: "host-key-policy", value: "accept-new"),
             URLQueryItem(name: "no-focus", value: "true")
         ]
         let url = try XCTUnwrap(components.url)
@@ -60,18 +61,21 @@ final class CmuxSSHURLRequestTests: XCTestCase {
             XCTAssertEqual(request.destination, "alice@dev.example.com")
             XCTAssertEqual(request.port, 2222)
             XCTAssertEqual(request.title, "Dev SSH")
-            XCTAssertEqual(request.identityFile, "~/.ssh/id_ed25519")
+            XCTAssertNil(request.identityFile)
             XCTAssertEqual(request.sshOptions, [
-                "ControlPath=/tmp/cmux-ssh-%C",
+                "ConnectTimeout=15",
+                "ServerAliveInterval=20",
+                "ServerAliveCountMax=4",
                 "StrictHostKeyChecking=accept-new"
             ])
             XCTAssertTrue(request.noFocus)
             XCTAssertEqual(request.cliArguments, [
                 "ssh",
                 "--port", "2222",
-                "--identity", "~/.ssh/id_ed25519",
                 "--name", "Dev SSH",
-                "--ssh-option", "ControlPath=/tmp/cmux-ssh-%C",
+                "--ssh-option", "ConnectTimeout=15",
+                "--ssh-option", "ServerAliveInterval=20",
+                "--ssh-option", "ServerAliveCountMax=4",
                 "--ssh-option", "StrictHostKeyChecking=accept-new",
                 "--no-focus",
                 "alice@dev.example.com"
@@ -306,39 +310,107 @@ final class CmuxSSHURLRequestTests: XCTestCase {
         }
     }
 
-    func testRejectsHiddenControlCharactersInIdentity() throws {
-        var components = URLComponents()
-        components.scheme = supportedScheme
-        components.host = "ssh"
-        components.queryItems = [
+    func testRejectsIdentityParameterFromExternalLinks() throws {
+        let url = try XCTUnwrap(sshURL(queryItems: [
             URLQueryItem(name: "host", value: "dev.example.com"),
-            URLQueryItem(name: "identity", value: "~/.ssh/id_ed25519\u{202E}")
-        ]
-        let url = try XCTUnwrap(components.url)
+            URLQueryItem(name: "identity", value: "~/.ssh/id_ed25519")
+        ]))
 
         switch CmuxSSHURLRequest.parse(url) {
-        case .failure(.identityContainsUnsafeCharacters):
+        case .failure(.unsupportedParameter("identity")):
             break
         default:
-            XCTFail("Expected identity hidden character rejection")
+            XCTFail("Expected identity parameter rejection")
         }
     }
 
-    func testRejectsHiddenControlCharactersInSSHOption() throws {
-        var components = URLComponents()
-        components.scheme = supportedScheme
-        components.host = "ssh"
-        components.queryItems = [
-            URLQueryItem(name: "host", value: "dev.example.com"),
-            URLQueryItem(name: "ssh-option", value: "ProxyCommand=echo safe\nbad")
+    func testRejectsRawSSHOptionParameterFromExternalLinks() throws {
+        let cases = [
+            "HostName=evil.example.com",
+            "ProxyJump=evil.example.com",
+            "ProxyCommand=/bin/sh -c id",
+            "SendEnv=*",
+            "ControlMaster=auto",
+            "StrictHostKeyChecking = no",
+            "UserKnownHostsFile=/tmp/link-known-hosts"
         ]
-        let url = try XCTUnwrap(components.url)
 
-        switch CmuxSSHURLRequest.parse(url) {
-        case .failure(.sshOptionContainsUnsafeCharacters):
-            break
-        default:
-            XCTFail("Expected SSH option hidden character rejection")
+        for option in cases {
+            let url = try XCTUnwrap(sshURL(queryItems: [
+                URLQueryItem(name: "host", value: "dev.example.com"),
+                URLQueryItem(name: "ssh-option", value: option)
+            ]))
+            switch CmuxSSHURLRequest.parse(url) {
+            case .failure(.unsupportedParameter("ssh-option")):
+                break
+            default:
+                XCTFail("Expected raw ssh-option rejection for \(option)")
+            }
+        }
+    }
+
+    func testParsesAllowedHostKeyPolicies() throws {
+        let cases = [
+            ("accept-new", "StrictHostKeyChecking=accept-new"),
+            ("ask", "StrictHostKeyChecking=ask"),
+            ("strict", "StrictHostKeyChecking=yes"),
+            ("yes", "StrictHostKeyChecking=yes")
+        ]
+
+        for (value, option) in cases {
+            let url = try XCTUnwrap(sshURL(queryItems: [
+                URLQueryItem(name: "host", value: "dev.example.com"),
+                URLQueryItem(name: "host-key-policy", value: value)
+            ]))
+            switch CmuxSSHURLRequest.parse(url) {
+            case .success(.some(let request)):
+                XCTAssertEqual(request.sshOptions, [option])
+            case .success(nil):
+                XCTFail("Expected SSH URL request")
+            case .failure(let error):
+                XCTFail("Unexpected parse error for \(value): \(error)")
+            }
+        }
+    }
+
+    func testRejectsHostKeyPolicyThatDisablesChecking() throws {
+        for value in ["no", "off", "false", "0"] {
+            let url = try XCTUnwrap(sshURL(queryItems: [
+                URLQueryItem(name: "host", value: "dev.example.com"),
+                URLQueryItem(name: "host-key-policy", value: value)
+            ]))
+            switch CmuxSSHURLRequest.parse(url) {
+            case .failure(.invalidHostKeyPolicy("host-key-policy")):
+                break
+            default:
+                XCTFail("Expected host-key-policy rejection for \(value)")
+            }
+        }
+    }
+
+    func testRejectsInvalidStructuredIntegerKnobs() throws {
+        let cases = [
+            ("connect-timeout", "0"),
+            ("connect-timeout", "601"),
+            ("server-alive-interval", "0"),
+            ("server-alive-interval", "3601"),
+            ("server-alive-count-max", "0"),
+            ("server-alive-count-max", "101"),
+            ("server-alive-count-max", "1\n2"),
+            ("server-alive-count-max", "1.5")
+        ]
+
+        for (parameter, value) in cases {
+            let url = try XCTUnwrap(sshURL(queryItems: [
+                URLQueryItem(name: "host", value: "dev.example.com"),
+                URLQueryItem(name: parameter, value: value)
+            ]))
+            switch CmuxSSHURLRequest.parse(url) {
+            case .failure(.invalidIntegerParameter(parameter)):
+                break
+            default:
+                XCTFail("Expected invalid integer rejection for \(parameter)=\(value)")
+            }
         }
     }
 
@@ -353,21 +425,18 @@ final class CmuxSSHURLRequestTests: XCTestCase {
         }
     }
 
-    func testRejectsTooManySSHOptions() throws {
-        var components = URLComponents()
-        components.scheme = supportedScheme
-        components.host = "ssh"
-        components.queryItems = [URLQueryItem(name: "host", value: "dev.example.com")] +
-            (0...CmuxSSHURLRequest.maxSSHOptionCount).map {
-                URLQueryItem(name: "ssh-option", value: "StrictHostKeyChecking=accept-new-\($0)")
-            }
-        let url = try XCTUnwrap(components.url)
+    func testRejectsDuplicateStructuredKnobs() throws {
+        let url = try XCTUnwrap(sshURL(queryItems: [
+            URLQueryItem(name: "host", value: "dev.example.com"),
+            URLQueryItem(name: "connect-timeout", value: "10"),
+            URLQueryItem(name: "connect-timeout", value: "20")
+        ]))
 
         switch CmuxSSHURLRequest.parse(url) {
-        case .failure(.tooManySSHOptions(maxCount: CmuxSSHURLRequest.maxSSHOptionCount)):
+        case .failure(.duplicateParameter("connect-timeout")):
             break
         default:
-            XCTFail("Expected too many SSH options rejection")
+            XCTFail("Expected duplicate connect-timeout rejection")
         }
     }
 
@@ -449,5 +518,13 @@ final class CmuxSSHURLRequestTests: XCTestCase {
         case .failure(let error):
             throw error
         }
+    }
+
+    private func sshURL(queryItems: [URLQueryItem]) -> URL? {
+        var components = URLComponents()
+        components.scheme = supportedScheme
+        components.host = "ssh"
+        components.queryItems = queryItems
+        return components.url
     }
 }
