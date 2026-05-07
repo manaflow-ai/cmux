@@ -52,7 +52,7 @@ final class CmuxSSHURLProcessLauncher {
         process.standardError = errorPipe
         let outputCollector = ProcessOutputCollector(stdout: outputPipe, stderr: errorPipe)
         outputCollector.start()
-        let launchWindow = preferredWindow
+        weak var launchWindow = preferredWindow
         process.terminationHandler = { terminatedProcess in
             let output = outputCollector.finish()
             let processIdentifier = terminatedProcess.processIdentifier
