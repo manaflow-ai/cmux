@@ -100,21 +100,20 @@ enum PaneDropRouting {
     }
 
     static func overlayFrame(for zone: DropZone, in bounds: CGRect) -> CGRect {
-        let padding: CGFloat = 4
         let midX = bounds.midX
         let midY = bounds.midY
 
         switch zone {
         case .center:
-            return bounds.insetBy(dx: padding, dy: padding)
+            return bounds.insetBy(dx: 10, dy: 10)
         case .left:
-            return CGRect(x: bounds.minX + padding, y: bounds.minY + padding, width: max(0, midX - bounds.minX - padding), height: max(0, bounds.height - padding * 2))
+            return CGRect(x: bounds.minX + 8, y: bounds.minY + 8, width: max(0, midX - bounds.minX - 12), height: max(0, bounds.height - 16))
         case .right:
-            return CGRect(x: midX, y: bounds.minY + padding, width: max(0, bounds.maxX - midX - padding), height: max(0, bounds.height - padding * 2))
+            return CGRect(x: midX + 4, y: bounds.minY + 8, width: max(0, bounds.maxX - midX - 12), height: max(0, bounds.height - 16))
         case .top:
-            return CGRect(x: bounds.minX + padding, y: midY, width: max(0, bounds.width - padding * 2), height: max(0, bounds.maxY - midY - padding))
+            return CGRect(x: bounds.minX + 8, y: midY + 4, width: max(0, bounds.width - 16), height: max(0, bounds.maxY - midY - 12))
         case .bottom:
-            return CGRect(x: bounds.minX + padding, y: bounds.minY + padding, width: max(0, bounds.width - padding * 2), height: max(0, midY - bounds.minY - padding))
+            return CGRect(x: bounds.minX + 8, y: bounds.minY + 8, width: max(0, bounds.width - 16), height: max(0, midY - bounds.minY - 12))
         }
     }
 }
@@ -235,4 +234,3 @@ final class PaneDropZoneOverlayAnimator {
             abs(lhs.size.height - rhs.size.height) <= epsilon
     }
 }
-

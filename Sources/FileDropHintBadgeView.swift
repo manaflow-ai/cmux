@@ -1,5 +1,6 @@
 import AppKit
 
+@MainActor
 final class FileDropHintBadgeView: NSView {
     private static let neutralBackgroundColor = NSColor.systemGray.withAlphaComponent(0.20)
     private let effectView: NSView
@@ -97,9 +98,11 @@ final class FileDropHintBadgeView: NSView {
             context.duration = 0.12
             animator().alphaValue = 0
         } completionHandler: { [weak self] in
-            guard let self else { return }
-            guard self.animationGeneration == generation else { return }
-            self.isHidden = true
+            Task { @MainActor in
+                guard let self else { return }
+                guard self.animationGeneration == generation else { return }
+                self.isHidden = true
+            }
         }
     }
 
