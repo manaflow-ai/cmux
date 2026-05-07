@@ -363,7 +363,9 @@ where
                                 ],
                             );
                         }
-                        write_server_frame(&mut stdout, &data)?;
+                        if write_server_frame(&mut stdout, &data).is_err() {
+                            break Ok(());
+                        }
                     }
                     ServerMsg::HostControl { data } => {
                         probe::log_event(
@@ -371,8 +373,12 @@ where
                             "host_control",
                             &[("summary", probe::terminal_bytes_summary(&data))],
                         );
-                        if stdout.write_all(&data).is_err() { break Ok(()); }
-                        if stdout.flush().is_err() { break Ok(()); }
+                        if stdout.write_all(&data).is_err() {
+                            break Ok(());
+                        }
+                        if stdout.flush().is_err() {
+                            break Ok(());
+                        }
                     }
                     ServerMsg::ActiveTabChanged { .. } => {
                         probe::log_event("client", "active_tab_changed", &[]);

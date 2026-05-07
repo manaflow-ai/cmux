@@ -569,6 +569,20 @@ pub fn pairing_proof(
     client_nonce: &str,
     server_nonce: &str,
 ) -> Result<String> {
+    Ok(URL_SAFE_NO_PAD.encode(pairing_proof_bytes(
+        secret,
+        pairing_id,
+        client_nonce,
+        server_nonce,
+    )?))
+}
+
+fn pairing_proof_bytes(
+    secret: &str,
+    pairing_id: &str,
+    client_nonce: &str,
+    server_nonce: &str,
+) -> Result<Vec<u8>> {
     let mut mac =
         HmacSha256::new_from_slice(secret.as_bytes()).map_err(|_| anyhow!("invalid HMAC key"))?;
     mac.update(CMUX_IROH_ALPN);
@@ -578,7 +592,29 @@ pub fn pairing_proof(
     mac.update(client_nonce.as_bytes());
     mac.update(b"\n");
     mac.update(server_nonce.as_bytes());
-    Ok(URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes()))
+    Ok(mac.finalize().into_bytes().to_vec())
+}
+
+fn verify_pairing_proof(
+    secret: &str,
+    pairing_id: &str,
+    client_nonce: &str,
+    server_nonce: &str,
+    proof: &str,
+) -> Result<bool> {
+    let Ok(proof) = URL_SAFE_NO_PAD.decode(proof) else {
+        return Ok(false);
+    };
+    let mut mac =
+        HmacSha256::new_from_slice(secret.as_bytes()).map_err(|_| anyhow!("invalid HMAC key"))?;
+    mac.update(CMUX_IROH_ALPN);
+    mac.update(b"\n");
+    mac.update(pairing_id.as_bytes());
+    mac.update(b"\n");
+    mac.update(client_nonce.as_bytes());
+    mac.update(b"\n");
+    mac.update(server_nonce.as_bytes());
+    Ok(mac.verify_slice(&proof).is_ok())
 }
 
 async fn complete_pairing_auth<W, R>(
@@ -617,13 +653,13 @@ where
     if response.pairing_id != pairing.pairing_id {
         bail!("pairing id mismatch");
     }
-    let expected = pairing_proof(
+    if !verify_pairing_proof(
         &pairing.secret,
         &pairing.pairing_id,
         &start.client_nonce,
         &server_nonce,
-    )?;
-    if response.proof != expected {
+        &response.proof,
+    )? {
         bail!("pairing proof rejected");
     }
 
@@ -869,6 +905,34 @@ mod tests {
             proof,
             pairing_proof("secret-a", "pairing-1", "client-a", "server-b").expect("proof")
         );
+    }
+
+    #[test]
+    fn pairing_proof_verification_rejects_tampered_or_malformed_proofs() -> Result<()> {
+        let proof = pairing_proof("secret-a", "pairing-1", "client-a", "server-a")?;
+
+        assert!(verify_pairing_proof(
+            "secret-a",
+            "pairing-1",
+            "client-a",
+            "server-a",
+            &proof,
+        )?);
+        assert!(!verify_pairing_proof(
+            "secret-a",
+            "pairing-1",
+            "client-a",
+            "server-b",
+            &proof,
+        )?);
+        assert!(!verify_pairing_proof(
+            "secret-a",
+            "pairing-1",
+            "client-a",
+            "server-a",
+            "not base64",
+        )?);
+        Ok(())
     }
 
     #[tokio::test]
