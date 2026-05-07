@@ -3,9 +3,17 @@ import Combine
 
 @MainActor
 final class BackgroundWorkspacePrimeCoordinator {
+    private nonisolated enum PrimeCompletionReason: String {
+        case alreadyCleared = "already_cleared"
+        case cancelled
+        case surfaceReady = "surface_ready"
+        case timeout
+        case workspaceRemoved = "workspace_removed"
+    }
+
     private nonisolated enum PrimeState {
         case pending
-        case completed(reason: String)
+        case completed(reason: PrimeCompletionReason)
     }
 
     private nonisolated enum Policy {
@@ -17,9 +25,9 @@ final class BackgroundWorkspacePrimeCoordinator {
         // Cancellation handlers cannot await an actor hop; this lock keeps continuation
         // and cleanup state synchronous across task cancellation and readiness callbacks.
         private let lock = NSLock()
-        private var continuation: CheckedContinuation<String, Never>?
+        private var continuation: CheckedContinuation<PrimeCompletionReason, Never>?
         private var cleanupActions: [() -> Void] = []
-        private var resolvedReason: String?
+        private var resolvedReason: PrimeCompletionReason?
 
         var isResolved: Bool {
             lock.lock()
@@ -28,11 +36,11 @@ final class BackgroundWorkspacePrimeCoordinator {
         }
 
         deinit {
-            finish(reason: "cancelled")
+            finish(reason: .cancelled)
         }
 
-        func start(continuation: CheckedContinuation<String, Never>) {
-            let reason: String?
+        func start(continuation: CheckedContinuation<PrimeCompletionReason, Never>) {
+            let reason: PrimeCompletionReason?
             lock.lock()
             reason = resolvedReason
             if reason == nil {
@@ -56,8 +64,8 @@ final class BackgroundWorkspacePrimeCoordinator {
             addCleanup { task.cancel() }
         }
 
-        func finish(reason: String) {
-            let drained: (CheckedContinuation<String, Never>?, [() -> Void])?
+        func finish(reason: PrimeCompletionReason) {
+            let drained: (CheckedContinuation<PrimeCompletionReason, Never>?, [() -> Void])?
             lock.lock()
             if resolvedReason == nil {
                 resolvedReason = reason
@@ -106,24 +114,31 @@ final class BackgroundWorkspacePrimeCoordinator {
                 guard !Task.isCancelled else { return }
                 let reason = await primeBackgroundWorkspaceIfNeeded(workspaceId: workspaceId, tabManager: tabManager)
                 guard !Task.isCancelled else { return }
-                guard reason == "timeout" else {
-                    timeoutCounts[workspaceId] = nil
-                    continue
-                }
 
-                let timeoutCount = (timeoutCounts[workspaceId] ?? 0) + 1
-                timeoutCounts[workspaceId] = timeoutCount
-                if timeoutCount >= Policy.maxTimeoutRetries {
-                    tabManager.completeBackgroundWorkspaceLoad(for: workspaceId)
+                switch reason {
+                case .timeout:
+                    let timeoutCount = (timeoutCounts[workspaceId] ?? 0) + 1
+                    timeoutCounts[workspaceId] = timeoutCount
+                    if timeoutCount >= Policy.maxTimeoutRetries {
+                        tabManager.completeBackgroundWorkspaceLoad(for: workspaceId)
+                        timeoutCounts[workspaceId] = nil
+                    }
+                case .cancelled:
+                    // SwiftUI restarts this .task(id:) as pending IDs change; preserve timeout debt.
+                    continue
+                case .alreadyCleared, .surfaceReady, .workspaceRemoved:
                     timeoutCounts[workspaceId] = nil
                 }
             }
         }
     }
 
-    private func primeBackgroundWorkspaceIfNeeded(workspaceId: UUID, tabManager: TabManager) async -> String {
+    private func primeBackgroundWorkspaceIfNeeded(
+        workspaceId: UUID,
+        tabManager: TabManager
+    ) async -> PrimeCompletionReason {
         guard tabManager.pendingBackgroundWorkspaceLoadIds.contains(workspaceId) else {
-            return "already_cleared"
+            return .alreadyCleared
         }
 
 #if DEBUG
@@ -131,7 +146,7 @@ final class BackgroundWorkspacePrimeCoordinator {
         cmuxDebugLog("workspace.backgroundPrime.start workspace=\(workspaceId.uuidString.prefix(5))")
 #endif
 
-        let completionReason: String
+        let completionReason: PrimeCompletionReason
         switch stepBackgroundWorkspacePrime(workspaceId: workspaceId, tabManager: tabManager) {
         case .completed(let reason):
             completionReason = reason
@@ -147,7 +162,7 @@ final class BackgroundWorkspacePrimeCoordinator {
         let elapsedMs = (ProcessInfo.processInfo.systemUptime - startedAt) * 1000
         cmuxDebugLog(
             "workspace.backgroundPrime.finish workspace=\(workspaceId.uuidString.prefix(5)) " +
-            "reason=\(completionReason) ms=\(String(format: "%.2f", elapsedMs))"
+            "reason=\(completionReason.rawValue) ms=\(String(format: "%.2f", elapsedMs))"
         )
 #endif
         return completionReason
@@ -155,12 +170,12 @@ final class BackgroundWorkspacePrimeCoordinator {
 
     private func stepBackgroundWorkspacePrime(workspaceId: UUID, tabManager: TabManager) -> PrimeState {
         guard tabManager.pendingBackgroundWorkspaceLoadIds.contains(workspaceId) else {
-            return .completed(reason: "already_cleared")
+            return .completed(reason: .alreadyCleared)
         }
         guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
             tabManager.completeBackgroundWorkspaceLoad(for: workspaceId)
             timeoutCounts[workspaceId] = nil
-            return .completed(reason: "workspace_removed")
+            return .completed(reason: .workspaceRemoved)
         }
 
         workspace.requestBackgroundPrimeTerminalSurfaceStartIfNeeded()
@@ -170,17 +185,17 @@ final class BackgroundWorkspacePrimeCoordinator {
 
         tabManager.completeBackgroundWorkspaceLoad(for: workspaceId)
         timeoutCounts[workspaceId] = nil
-        return .completed(reason: "surface_ready")
+        return .completed(reason: .surfaceReady)
     }
 
     private func waitForBackgroundWorkspacePrimeCompletion(
         workspaceId: UUID,
         timeoutSeconds: TimeInterval,
         tabManager: TabManager
-    ) async -> String {
+    ) async -> PrimeCompletionReason {
         let waiter = Waiter()
         return await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
+            await withCheckedContinuation { (continuation: CheckedContinuation<PrimeCompletionReason, Never>) in
                 waiter.start(continuation: continuation)
                 guard !waiter.isResolved else { return }
 
@@ -204,7 +219,7 @@ final class BackgroundWorkspacePrimeCoordinator {
                     ) {
                         waiter.finish(reason: reason)
                     } else {
-                        waiter.finish(reason: "timeout")
+                        waiter.finish(reason: .timeout)
                     }
                 }
                 waiter.addTask(timeoutTask)
@@ -212,7 +227,7 @@ final class BackgroundWorkspacePrimeCoordinator {
                 evaluate(waiter: waiter, workspaceId: workspaceId, tabManager: tabManager)
             }
         } onCancel: {
-            waiter.finish(reason: "cancelled")
+            waiter.finish(reason: .cancelled)
         }
     }
 
