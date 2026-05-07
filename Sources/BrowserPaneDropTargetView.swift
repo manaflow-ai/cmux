@@ -31,6 +31,7 @@ final class BrowserPaneDropTargetView: NSView {
 
     deinit {}
 
+    @MainActor
     static func shouldCaptureHitTesting(
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
         eventType: NSEvent.EventType?
@@ -269,7 +270,7 @@ final class BrowserPaneDropTargetView: NSView {
 
     override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) {
         defer {
-            exitActiveFileDropWebView(sender)
+            activeFileDropWebView = nil
             preparedFileDropWebView = nil
             performedFileDropWebView = nil
             clearDragState(phase: "conclude.clear")

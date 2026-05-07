@@ -9,6 +9,7 @@ import WebKit
 @testable import cmux
 #endif
 
+@MainActor
 final class BrowserPaneDropRoutingTests: XCTestCase {
     private final class DragSpyWebView: WKWebView {
         var dragCalls: [String] = []
@@ -306,7 +307,7 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
         XCTAssertTrue(target.performDragOperation(dragInfo))
         target.concludeDragOperation(dragInfo)
 
-        XCTAssertEqual(webView.dragCalls, ["entered", "prepare", "perform", "conclude", "exited"])
+        XCTAssertEqual(webView.dragCalls, ["entered", "prepare", "perform", "conclude"])
     }
 
     func testBrowserPaneFilePreviewOnlyDragUsesPaneDropPathInsteadOfHostedWebView() throws {
