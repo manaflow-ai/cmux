@@ -704,7 +704,7 @@ def test_issue_3463_guard_file_lives_under_home_not_tmpdir(failures: list[str]) 
         )
 
         stale_under_tmpdir = (
-            list(guard_dir_tmpdir.glob("restore-node-options.cjs"))
+            list(guard_dir_tmpdir.glob("*.cjs"))
             if guard_dir_tmpdir.exists()
             else []
         )
