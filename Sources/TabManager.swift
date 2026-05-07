@@ -2152,6 +2152,9 @@ class TabManager: ObservableObject {
                     object: nil,
                     userInfo: [GhosttyNotificationKey.tabId: newWorkspace.id]
                 )
+                newWorkspace.scheduleInitialSelectedTerminalRenderRefresh(
+                    reason: "tabManager.addWorkspace"
+                )
             }
 #if DEBUG
             UITestRecorder.incrementInt("addTabInvocations")

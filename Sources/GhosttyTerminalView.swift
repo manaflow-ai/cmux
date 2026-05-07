@@ -9498,6 +9498,7 @@ final class GhosttySurfaceScrollView: NSView {
     private var pendingDropZone: DropZone?
     private var dropZoneOverlayAnimationGeneration: UInt64 = 0
     private var pendingAutomaticFirstResponderApply = false
+    private var pendingVisibleSurfaceDisplayOnWindowAttach = false
     // Intentionally no focus retry loops: rely on AppKit first-responder and bonsplit selection.
 
     /// Tracks whether keyboard focus should go to the search field or the terminal
@@ -10112,6 +10113,30 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.terminalSurface?.forceRefresh(reason: reason)
     }
 
+    /// Nudge AppKit/CoreAnimation to composite the selected surface once the portal sync lands.
+    /// This is only used on structural transitions like new-workspace insertion, not typing paths.
+    func requestVisibleSurfaceDisplayIfNeeded() {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                self?.requestVisibleSurfaceDisplayIfNeeded()
+            }
+            return
+        }
+
+        guard window != nil else {
+            pendingVisibleSurfaceDisplayOnWindowAttach = true
+            return
+        }
+
+        pendingVisibleSurfaceDisplayOnWindowAttach = false
+        surfaceView.layoutSubtreeIfNeeded()
+        if let metalLayer = surfaceView.layer as? CAMetalLayer {
+            metalLayer.setNeedsDisplay()
+        } else {
+            surfaceView.layer?.setNeedsDisplay()
+        }
+    }
+
     @discardableResult
     private func synchronizeGeometryAndContent() -> Bool {
         CATransaction.begin()
@@ -10308,6 +10333,11 @@ final class GhosttySurfaceScrollView: NSView {
         windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
         windowObservers.removeAll()
         guard let window else { return }
+        if pendingVisibleSurfaceDisplayOnWindowAttach {
+            DispatchQueue.main.async { [weak self] in
+                self?.requestVisibleSurfaceDisplayIfNeeded()
+            }
+        }
         windowObservers.append(NotificationCenter.default.addObserver(
             forName: NSWindow.didBecomeKeyNotification,
             object: window,
