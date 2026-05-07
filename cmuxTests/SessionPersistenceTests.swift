@@ -1358,22 +1358,18 @@ final class SessionPersistenceTests: XCTestCase {
                 resolvedEnvironment = ["CODEX_HOME": "/tmp/codex"]
             case .pi:
                 resolvedEnvironment = ["PI_CODING_AGENT_DIR": "/tmp/pi"]
-            case .cursor:
+            case .cursor, .rovodev, .factory, .custom:
                 resolvedEnvironment = [:]
             case .gemini:
                 resolvedEnvironment = ["GEMINI_CLI_HOME": "/tmp/gemini"]
             case .opencode:
                 resolvedEnvironment = ["OPENCODE_CONFIG_DIR": "/tmp/opencode"]
-            case .rovodev:
-                resolvedEnvironment = [:]
             case .hermesAgent:
                 resolvedEnvironment = ["HERMES_HOME": "/tmp/hermes"]
             case .copilot:
                 resolvedEnvironment = ["COPILOT_HOME": "/tmp/copilot"]
             case .codebuddy:
                 resolvedEnvironment = ["CODEBUDDY_CONFIG_DIR": "/tmp/codebuddy"]
-            case .factory:
-                resolvedEnvironment = [:]
             case .qoder:
                 resolvedEnvironment = ["QODER_CONFIG_DIR": "/tmp/qoder"]
             }

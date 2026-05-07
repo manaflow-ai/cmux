@@ -105290,6 +105290,57 @@
         }
       }
     },
+    "settings.terminal.agentAutoResume": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resume Agent Sessions on Reopen"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再起動時にエージェントセッションを再開"
+          }
+        }
+      }
+    },
+    "settings.terminal.agentAutoResume.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When cmux reopens after quit, restored agent terminals stay idle until you resume them manually."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux を終了後に再度開いたとき、復元されたエージェント端末は手動で再開するまで待機します。"
+          }
+        }
+      }
+    },
+    "settings.terminal.agentAutoResume.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When cmux reopens after quit, restored agent terminals automatically run their resume command."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux を終了後に再度開いたとき、復元されたエージェント端末で再開コマンドを自動実行します。"
+          }
+        }
+      }
+    },
     "settings.app.openMarkdownInCmuxViewer": {
       "extractionState": "manual",
       "localizations": {
@@ -105512,6 +105563,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "OpenCode"
+          }
+        }
+      }
+    },
+    "sessionIndex.agent.pi": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
           }
         }
       }

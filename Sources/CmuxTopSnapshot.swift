@@ -109,6 +109,12 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         Set(pidsByCMUXSurfaceID[surfaceID] ?? [])
     }
 
+    func cmuxScopedProcesses() -> [CmuxTopProcessInfo] {
+        processesByPID.values
+            .filter { $0.cmuxWorkspaceID != nil && $0.cmuxSurfaceID != nil }
+            .sorted { $0.pid < $1.pid }
+    }
+
     func expandedPIDs(rootPIDs: Set<Int>) -> Set<Int> {
         var result: Set<Int> = []
         var stack = Array(rootPIDs.filter { $0 > 0 })
