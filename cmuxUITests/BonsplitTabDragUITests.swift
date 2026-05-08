@@ -215,6 +215,11 @@ final class BonsplitTabDragUITests: XCTestCase {
             40,
             "Expected close shortcut hint to stay attached to the close button. hint=\(shortcutHint.frame) button=\(closeButton.frame)"
         )
+        XCTAssertLessThan(
+            shortcutHint.frame.midY,
+            closeButton.frame.midY,
+            "Expected close shortcut hint to render above the close button so it does not shift titlebar controls. hint=\(shortcutHint.frame) button=\(closeButton.frame)"
+        )
 
         closeButton.click()
         XCTAssertTrue(

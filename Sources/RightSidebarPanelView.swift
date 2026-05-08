@@ -263,7 +263,7 @@ struct RightSidebarPanelView: View {
             alwaysShowShortcutHints: alwaysShowShortcutHints,
             modifierPressed: closeShortcutHintMonitor.isModifierPressed
         )
-        return ZStack(alignment: .topTrailing) {
+        return ZStack {
             Button(action: onClose) {
                 Image(systemName: "xmark")
                     .font(.system(size: 11, weight: .semibold))
@@ -279,16 +279,19 @@ struct RightSidebarPanelView: View {
             )
             .accessibilityLabel(String(localized: "rightSidebar.close.accessibilityLabel", defaultValue: "Close Right Sidebar"))
             .accessibilityIdentifier("RightSidebar.closeButton")
-
+        }
+        .frame(width: RightSidebarChromeMetrics.controlHeight, height: RightSidebarChromeMetrics.controlHeight)
+        .overlay(alignment: .top) {
             if showsShortcutHint {
                 ShortcutHintPill(shortcut: shortcut, fontSize: 9, emphasis: 1.05)
-                    .offset(x: 5)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .offset(y: -18)
                     .shortcutHintTransition()
                     .accessibilityIdentifier("rightSidebarCloseShortcutHint")
                     .allowsHitTesting(false)
+                    .zIndex(10)
             }
         }
-        .frame(width: RightSidebarChromeMetrics.controlHeight, height: RightSidebarChromeMetrics.controlHeight)
         .shortcutHintVisibilityAnimation(value: showsShortcutHint)
     }
 
