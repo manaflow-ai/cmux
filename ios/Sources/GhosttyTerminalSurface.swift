@@ -861,6 +861,7 @@ public final class GhosttyTerminalSurfaceView: UIView {
     private var followsLiveOutput = true
     private var pendingScrollToActiveArea = false
     private var pendingBlankSurfaceProbe = false
+    private var shouldProbeAfterInitialRenderableOutput = true
     private var accessibilityTranscript = ""
     #if DEBUG
     var onOutputProcessedForTesting: (() -> Void)?
@@ -941,6 +942,9 @@ public final class GhosttyTerminalSurfaceView: UIView {
         inputProxy.frame = CGRect(x: 0, y: 0, width: bounds.width, height: 1)
         inputProxy.setAccessoryLayoutNeedsUpdate()
         syncSurfaceGeometry()
+        if pendingBlankSurfaceProbe, canProbeBlankSurfaceInCurrentAttachment {
+            startDisplayLink()
+        }
     }
 
     public override func didMoveToWindow() {
@@ -949,6 +953,9 @@ public final class GhosttyTerminalSurfaceView: UIView {
             syncSurfaceGeometry()
             ghostty_surface_set_occlusion(surface, true)
             ghostty_surface_set_focus(surface, true)
+            if needsDraw || pendingBlankSurfaceProbe {
+                startDisplayLink()
+            }
         } else {
             ghostty_surface_set_focus(surface, false)
             ghostty_surface_set_occlusion(surface, false)
@@ -1017,12 +1024,14 @@ public final class GhosttyTerminalSurfaceView: UIView {
                 guard self.surface == surface,
                       self.outputGate.isCurrent(generation) else { return }
                 self.pendingScrollToActiveArea = self.pendingScrollToActiveArea || shouldScrollToActiveArea
+                let shouldProbeInitialOutput = marksInitialOutput
+                    && self.shouldProbeInitialRenderableOutputAfterAttach(payload)
                 if marksInitialOutput {
                     self.hasFedInitialOutput = true
                 }
                 self.appendAccessibilityTranscript(accessibilityText)
                 self.needsDraw = true
-                if Self.shouldProbeBlankSurfaceAfterOutput(payload, accessibilityText: accessibilityText) {
+                if shouldProbeInitialOutput || Self.shouldProbeBlankSurfaceAfterOutput(payload, accessibilityText: accessibilityText) {
                     self.pendingBlankSurfaceProbe = true
                 }
                 self.startDisplayLink()
@@ -1056,6 +1065,26 @@ public final class GhosttyTerminalSurfaceView: UIView {
         return data.range(of: Data("\u{1B}[2J".utf8)) != nil
             || data.range(of: Data("\u{1B}[?1049h".utf8)) != nil
             || data.range(of: Data("\u{1B}[?1049l".utf8)) != nil
+    }
+
+    private func shouldProbeInitialRenderableOutputAfterAttach(_ data: Data) -> Bool {
+        guard shouldProbeAfterInitialRenderableOutput else { return false }
+        let shouldProbe = Self.shouldProbeInitialRenderableOutputAfterAttach(
+            data,
+            hasFedInitialRenderableOutput: false
+        )
+        if shouldProbe {
+            shouldProbeAfterInitialRenderableOutput = false
+        }
+        return shouldProbe
+    }
+
+    nonisolated static func shouldProbeInitialRenderableOutputAfterAttach(
+        _ data: Data,
+        hasFedInitialRenderableOutput: Bool
+    ) -> Bool {
+        guard !hasFedInitialRenderableOutput else { return false }
+        return containsPrintableTerminalText(data)
     }
 
     private nonisolated static func containsPrintableTerminalText(_ data: Data) -> Bool {
@@ -1122,6 +1151,7 @@ public final class GhosttyTerminalSurfaceView: UIView {
         outputFlushScheduled = false
         pendingScrollToActiveArea = false
         pendingBlankSurfaceProbe = false
+        shouldProbeAfterInitialRenderableOutput = true
         clearAccessibilityTranscript()
         followsLiveOutput = true
         let generation = outputGate.advance()
@@ -1146,6 +1176,7 @@ public final class GhosttyTerminalSurfaceView: UIView {
         outputFlushScheduled = false
         pendingScrollToActiveArea = false
         pendingBlankSurfaceProbe = false
+        shouldProbeAfterInitialRenderableOutput = true
         clearAccessibilityTranscript()
         followsLiveOutput = true
         let generation = outputGate.advance()
@@ -1316,6 +1347,10 @@ public final class GhosttyTerminalSurfaceView: UIView {
     #if DEBUG
     public var isDisplayLinkActiveForTesting: Bool {
         displayLink != nil
+    }
+
+    public func simulateDisplayLinkFrameForTesting() {
+        renderDisplayLinkFrame(allowsOffscreenBlankProbe: true)
     }
 
     #endif
@@ -1758,9 +1793,12 @@ public final class GhosttyTerminalSurfaceView: UIView {
     }
 
     private func stopDisplayLinkIfIdle() {
+        let awaitingVisibleBlankProbe = pendingBlankSurfaceProbe
+            && canProbeBlankSurfaceInCurrentAttachment
         if !isApplyingFontSize,
            pendingFontSizeApplication == nil,
            (pinchTargetFontSize == nil || pinchTargetFontSize == currentFontSize),
+           !awaitingVisibleBlankProbe,
            !needsDraw {
             stopDisplayLink()
         }
@@ -1829,7 +1867,15 @@ public final class GhosttyTerminalSurfaceView: UIView {
         displayLink = nil
     }
 
+    private var canProbeBlankSurfaceInCurrentAttachment: Bool {
+        window != nil && bounds.width > 0 && bounds.height > 0
+    }
+
     @objc private func handleDisplayLink() {
+        renderDisplayLinkFrame(allowsOffscreenBlankProbe: false)
+    }
+
+    private func renderDisplayLinkFrame(allowsOffscreenBlankProbe: Bool) {
         guard let surface else {
             stopDisplayLink()
             return
@@ -1842,10 +1888,11 @@ public final class GhosttyTerminalSurfaceView: UIView {
                 Self.performBindingAction(Self.scrollToBottomAction, on: surface)
             }
             refreshSurface(surface)
-            if pendingBlankSurfaceProbe {
-                pendingBlankSurfaceProbe = false
-                _ = requestServerReplayIfBlank()
-            }
+        }
+        if pendingBlankSurfaceProbe,
+           allowsOffscreenBlankProbe || canProbeBlankSurfaceInCurrentAttachment {
+            pendingBlankSurfaceProbe = false
+            _ = requestServerReplayIfBlank()
         }
         stopDisplayLinkIfIdle()
     }

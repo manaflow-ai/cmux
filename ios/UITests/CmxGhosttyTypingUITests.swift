@@ -41,12 +41,16 @@ final class CmxGhosttyTypingUITests: XCTestCase {
     func testPaletteIndexedPromptUsesRemoteTheme() throws {
         let app = launchApp(paletteSession: true)
         let terminal = try openTerminal(in: app, expectedPrompt: "palette-test$")
-        let image = terminal.screenshot().image
+        let magentaPixelCount = waitForTerminalPixels(
+            in: terminal,
+            minimum: 20,
+            timeout: 10
+        ) { pixel in
+            pixel.red > 180 && pixel.blue > 130 && pixel.green < 90
+        }
 
         XCTAssertGreaterThan(
-            image.countPixels(where: { pixel in
-                pixel.red > 180 && pixel.blue > 130 && pixel.green < 90
-            }),
+            magentaPixelCount,
             20,
             "expected palette-indexed prompt text to render with the remote magenta palette entry"
         )
@@ -147,6 +151,25 @@ final class CmxGhosttyTypingUITests: XCTestCase {
         }
         let expectation = XCTNSPredicateExpectation(predicate: predicate, object: terminal)
         return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    @MainActor
+    private func waitForTerminalPixels(
+        in terminal: XCUIElement,
+        minimum: Int,
+        timeout: TimeInterval,
+        matching predicate: (CmxPixel) -> Bool
+    ) -> Int {
+        let deadline = Date().addingTimeInterval(timeout)
+        var lastCount = 0
+        repeat {
+            lastCount = terminal.screenshot().image.countPixels(where: predicate)
+            if lastCount > minimum {
+                return lastCount
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        } while Date() < deadline
+        return lastCount
     }
 
     private static let directTicket = #"{"version":1,"alpn":"/cmux/cmx/3","endpoint":{"id":"ui-test-endpoint","addrs":[]},"auth":{"mode":"direct"},"node":{"id":"ui-test-node","name":"UI Test Mac","subtitle":"Ghostty echo session","kind":"macbook"}}"#

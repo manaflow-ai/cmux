@@ -73,6 +73,39 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
         )
     }
 
+    func testGhosttySurfaceProbesFirstRenderableOutputAfterAttach() {
+        XCTAssertFalse(
+            GhosttyTerminalSurfaceView.shouldProbeInitialRenderableOutputAfterAttach(
+                Data("\u{1B}c".utf8),
+                hasFedInitialRenderableOutput: false
+            )
+        )
+        XCTAssertFalse(
+            GhosttyTerminalSurfaceView.shouldProbeInitialRenderableOutputAfterAttach(
+                Data("\u{1B}[2J\u{1B}[H".utf8),
+                hasFedInitialRenderableOutput: false
+            )
+        )
+        XCTAssertFalse(
+            GhosttyTerminalSurfaceView.shouldProbeInitialRenderableOutputAfterAttach(
+                Data("cached prompt\r\n".utf8),
+                hasFedInitialRenderableOutput: true
+            )
+        )
+        XCTAssertTrue(
+            GhosttyTerminalSurfaceView.shouldProbeInitialRenderableOutputAfterAttach(
+                Data("cached prompt\r\n".utf8),
+                hasFedInitialRenderableOutput: false
+            )
+        )
+        XCTAssertTrue(
+            GhosttyTerminalSurfaceView.shouldProbeInitialRenderableOutputAfterAttach(
+                Data("\u{1B}[31mcached prompt\u{1B}[0m\r\n".utf8),
+                hasFedInitialRenderableOutput: false
+            )
+        )
+    }
+
     func testGhosttySurfaceInitializesRealLibghosttyRenderer() throws {
         let (surfaceView, _) = try makeSurfaceView()
 
@@ -439,6 +472,7 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
         surfaceView.processOutput(Data("\u{1B}[2J\u{1B}[H".utf8))
 
         await fulfillment(of: [processedExpectation], timeout: 5.0)
+        surfaceView.simulateDisplayLinkFrameForTesting()
         XCTAssertEqual(delegate.surfaceResetRequestCount, 0)
         XCTAssertEqual(delegate.ptyReplayRequestCount, 1)
     }
@@ -457,6 +491,7 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
         surfaceView.processOutput(Data("\u{1B}[?1049h\u{1B}[2J\u{1B}[H".utf8))
 
         await fulfillment(of: [processedExpectation], timeout: 5.0)
+        surfaceView.simulateDisplayLinkFrameForTesting()
         XCTAssertEqual(delegate.surfaceResetRequestCount, 0)
         XCTAssertEqual(delegate.ptyReplayRequestCount, 1)
     }
