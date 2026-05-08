@@ -1315,7 +1315,8 @@ Tagged build/smoke evidence from `feat-desktop-cmx-backend`:
   metadata, cmuxd-remote stdio resize semantics, and the Docker-backed SSH
   bootstrap/relay/forwarding/reconnect/port/proxy/shell-integration fixtures.
   The workflow installs Go with `actions/setup-go` and provisions Docker through
-  Colima when Docker is absent on the selected macOS runner, then fails early if
+  Colima when Docker is absent on the selected macOS runner, trying VZ first and
+  deleting/retrying with QEMU if the VZ VM cannot start. It then fails early if
   those tools still cannot run so a skipped fixture cannot be mistaken for
   remote proof. It uploads the same tagged CMX diagnostics directory as the
   broad `tests_v2` workflow. It sets

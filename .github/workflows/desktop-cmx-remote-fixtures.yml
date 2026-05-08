@@ -86,6 +86,9 @@ jobs:
           cache-dependency-path: daemon/remote/go.sum
 
       - name: Prepare Docker
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_ENV_HINTS: "1"
         run: |
           set -euo pipefail
           if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
@@ -108,9 +111,12 @@ jobs:
 
           brew_install_if_missing docker
           brew_install_if_missing colima
+          brew_install_if_missing qemu
 
-          colima start --cpu 4 --memory 6 --disk 30 --vm-type vz || \
-            colima start --cpu 4 --memory 6 --disk 30
+          if ! colima start --cpu 4 --memory 6 --disk 30 --vm-type vz; then
+            colima delete --force || true
+            colima start --cpu 4 --memory 6 --disk 30 --vm-type qemu
+          fi
           export DOCKER_HOST="unix://$HOME/.colima/default/docker.sock"
           echo "DOCKER_HOST=$DOCKER_HOST" >> "$GITHUB_ENV"
           docker info
