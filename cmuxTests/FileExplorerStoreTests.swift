@@ -1,4 +1,5 @@
 import XCTest
+import AppKit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -316,6 +317,72 @@ final class FileExplorerStoreTests: XCTestCase {
         )
     }
 
+    func testCoordinatorSkipsOutlineRefreshWhenStoreRevisionIsUnchanged() {
+        let store = FileExplorerStore()
+        let state = FileExplorerState()
+        let srcNode = FileExplorerNode(name: "src", path: "/project/src", isDirectory: true)
+        srcNode.children = [
+            FileExplorerNode(name: "main.swift", path: "/project/src/main.swift", isDirectory: false),
+        ]
+        store.rootPath = "/project"
+        store.rootNodes = [srcNode]
+
+        let outlineView = CountingFileExplorerOutlineView(items: [srcNode])
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { _ in }
+        )
+        coordinator.outlineView = outlineView
+
+        coordinator.reloadIfNeeded()
+        XCTAssertEqual(outlineView.reloadDataCallCount, 1)
+        XCTAssertEqual(outlineView.reloadItemCallCount, 0)
+
+        coordinator.reloadIfNeeded()
+
+        XCTAssertEqual(outlineView.reloadDataCallCount, 1)
+        XCTAssertEqual(
+            outlineView.reloadItemCallCount,
+            0,
+            "Unrelated parent SwiftUI updates must not refresh loaded file tree rows."
+        )
+    }
+
+    func testCoordinatorRefreshesOutlineWhenStoreRevisionChanges() {
+        let store = FileExplorerStore()
+        let state = FileExplorerState()
+        let srcNode = FileExplorerNode(name: "src", path: "/project/src", isDirectory: true)
+        srcNode.children = [
+            FileExplorerNode(name: "main.swift", path: "/project/src/main.swift", isDirectory: false),
+        ]
+        store.rootPath = "/project"
+        store.rootNodes = [srcNode]
+
+        let outlineView = CountingFileExplorerOutlineView(items: [srcNode])
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { _ in }
+        )
+        coordinator.outlineView = outlineView
+
+        coordinator.reloadIfNeeded()
+        XCTAssertEqual(outlineView.reloadDataCallCount, 1)
+        XCTAssertEqual(outlineView.reloadItemCallCount, 0)
+
+        store.expand(node: srcNode)
+        coordinator.reloadIfNeeded()
+
+        XCTAssertEqual(outlineView.reloadDataCallCount, 1)
+        XCTAssertEqual(
+            outlineView.reloadItemCallCount,
+            1,
+            "Files-owned store mutations must still refresh loaded file tree rows."
+        )
+        XCTAssertTrue(outlineView.isItemExpanded(srcNode))
+    }
+
     // MARK: - Collapse/Expand
 
     func testCollapseRemovesFromExpandedPaths() {
@@ -334,6 +401,60 @@ final class FileExplorerStoreTests: XCTestCase {
         let node = FileExplorerNode(name: "file.txt", path: "/project/file.txt", isDirectory: false)
         store.expand(node: node)
         XCTAssertFalse(store.isExpanded(node))
+    }
+}
+
+private final class CountingFileExplorerOutlineView: NSOutlineView {
+    private let items: [FileExplorerNode]
+    private var expandedObjectIDs: Set<ObjectIdentifier> = []
+    private(set) var reloadDataCallCount = 0
+    private(set) var reloadItemCallCount = 0
+
+    init(items: [FileExplorerNode]) {
+        self.items = items
+        super.init(frame: .zero)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var numberOfRows: Int {
+        items.count
+    }
+
+    override func item(atRow row: Int) -> Any? {
+        guard items.indices.contains(row) else { return nil }
+        return items[row]
+    }
+
+    override func isExpandable(_ item: Any?) -> Bool {
+        (item as? FileExplorerNode)?.isExpandable == true
+    }
+
+    override func isItemExpanded(_ item: Any?) -> Bool {
+        guard let node = item as? FileExplorerNode else { return false }
+        return expandedObjectIDs.contains(ObjectIdentifier(node))
+    }
+
+    override func expandItem(_ item: Any?, expandChildren: Bool) {
+        if let node = item as? FileExplorerNode {
+            expandedObjectIDs.insert(ObjectIdentifier(node))
+        }
+    }
+
+    override func collapseItem(_ item: Any?, collapseChildren: Bool) {
+        if let node = item as? FileExplorerNode {
+            expandedObjectIDs.remove(ObjectIdentifier(node))
+        }
+    }
+
+    override func reloadData() {
+        reloadDataCallCount += 1
+    }
+
+    override func reloadItem(_ item: Any?, reloadChildren: Bool) {
+        reloadItemCallCount += 1
     }
 }
 
