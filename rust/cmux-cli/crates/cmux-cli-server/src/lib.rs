@@ -4807,6 +4807,7 @@ struct WindowState {
     workspace_ids: Option<Vec<u64>>,
     active_space_by_ws: HashMap<u64, SpaceId>,
     active_panel_by_space: HashMap<SpaceId, PanelId>,
+    last_panel_by_space: HashMap<SpaceId, PanelId>,
     active_tab_by_panel: HashMap<PanelRef, TabId>,
     pane_focus_anchor_by_space: HashMap<SpaceId, PaneFocusAnchor>,
     sidebar_focused: bool,
@@ -4833,6 +4834,7 @@ impl WindowState {
             workspace_ids: None,
             active_space_by_ws: HashMap::new(),
             active_panel_by_space: HashMap::new(),
+            last_panel_by_space: HashMap::new(),
             active_tab_by_panel: HashMap::new(),
             pane_focus_anchor_by_space: HashMap::new(),
             sidebar_focused: false,
@@ -5110,7 +5112,7 @@ impl WindowState {
         let tab = space.offset_tab_from(active.id, offset).await?;
         tab.has_activity.store(false, Ordering::Relaxed);
         if let Some(panel_id) = space.panel_containing_tab(tab.id).await {
-            self.active_panel_by_space.insert(space.id, panel_id);
+            self.remember_active_panel(space.id, panel_id);
             self.active_tab_by_panel.insert(
                 PanelRef {
                     space_id: space.id,
@@ -5122,6 +5124,14 @@ impl WindowState {
         Ok(tab)
     }
 
+    fn remember_active_panel(&mut self, space_id: SpaceId, panel_id: PanelId) {
+        if let Some(previous) = self.active_panel_by_space.insert(space_id, panel_id)
+            && previous != panel_id
+        {
+            self.last_panel_by_space.insert(space_id, previous);
+        }
+    }
+
     fn remember_tab(
         &mut self,
         ws: &Arc<Workspace>,
@@ -5130,7 +5140,7 @@ impl WindowState {
         tab: &Arc<Tab>,
     ) {
         self.active_space_by_ws.insert(ws.id, space.id);
-        self.active_panel_by_space.insert(space.id, panel_id);
+        self.remember_active_panel(space.id, panel_id);
         self.active_tab_by_panel.insert(
             PanelRef {
                 space_id: space.id,
@@ -5148,7 +5158,7 @@ impl WindowState {
         tab_id: TabId,
     ) {
         self.active_space_by_ws.insert(ws.id, space.id);
-        self.active_panel_by_space.insert(space.id, panel_id);
+        self.remember_active_panel(space.id, panel_id);
         self.active_tab_by_panel.insert(
             PanelRef {
                 space_id: space.id,
@@ -26898,10 +26908,19 @@ async fn compatibility_pane_last_v2(
     let snapshot = build_native_snapshot(daemon, &mut window)
         .await
         .map_err(|error| error.to_string())?;
-    let target = compatibility_panel_entries(&snapshot)
-        .into_iter()
-        .find(|panel| panel.panel_id != snapshot.focused_panel_id)
-        .map(|panel| panel.panel_id)
+    let panels = compatibility_panel_entries(&snapshot);
+    let target = window
+        .last_panel_by_space
+        .get(&snapshot.active_space_id)
+        .copied()
+        .filter(|panel_id| *panel_id != snapshot.focused_panel_id)
+        .filter(|panel_id| panels.iter().any(|panel| panel.panel_id == *panel_id))
+        .or_else(|| {
+            panels
+                .iter()
+                .find(|panel| panel.panel_id != snapshot.focused_panel_id)
+                .map(|panel| panel.panel_id)
+        })
         .ok_or_else(|| "No alternate pane available".to_string())?;
     let (reply, _side_effect, _repaint) = run_window_command(
         daemon,
