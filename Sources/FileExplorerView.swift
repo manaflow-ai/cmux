@@ -595,6 +595,7 @@ final class FileExplorerContainerView: NSView {
     private var currentRootPath = ""
     private var currentProviderIsLocal = false
     private var currentContentRevision = 0
+    private var searchDebounceGeneration = 0
     private var isSearchVisible = false {
         didSet {
             if !isSearchVisible {
@@ -1038,14 +1039,14 @@ final class FileExplorerContainerView: NSView {
     private func scheduleSearchRefresh() {
         guard isSearchVisible else { return }
         searchDebounceWorkItem?.cancel()
+        searchDebounceGeneration += 1
+        let debounceGeneration = searchDebounceGeneration
 #if DEBUG
         dlog("file.search.debounce.schedule queryLen=\(searchField.stringValue.count) delayMs=200")
 #endif
-        var workItem: DispatchWorkItem!
-        workItem = DispatchWorkItem { [weak self] in
-            guard !workItem.isCancelled else { return }
-            MainActor.assumeIsolated {
-                guard let self, self.searchDebounceWorkItem === workItem else { return }
+        let workItem = DispatchWorkItem { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, self.searchDebounceGeneration == debounceGeneration else { return }
                 self.searchDebounceWorkItem = nil
 #if DEBUG
                 dlog("file.search.debounce.fire queryLen=\(self.searchField.stringValue.count) delayMs=200")
@@ -1058,6 +1059,7 @@ final class FileExplorerContainerView: NSView {
     }
 
     private func cancelPendingSearchRefresh() {
+        searchDebounceGeneration += 1
         searchDebounceWorkItem?.cancel()
         searchDebounceWorkItem = nil
     }
@@ -1268,7 +1270,6 @@ final class FileExplorerContainerView: NSView {
         }
 
         isSearchVisible = false
-        cancelPendingSearchRefresh()
         searchController.cancel(clear: true)
         searchField.stringValue = ""
         searchSnapshot = .empty
@@ -1341,10 +1342,8 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
     func controlTextDidChange(_ notification: Notification) {
         guard notification.object as? NSTextField === searchField else { return }
         scrollSearchFieldEditorToInsertionPoint()
-        DispatchQueue.main.async { [weak self] in
-            MainActor.assumeIsolated {
-                self?.scrollSearchFieldEditorToInsertionPoint()
-            }
+        Task { @MainActor [weak self] in
+            self?.scrollSearchFieldEditorToInsertionPoint()
         }
 #if DEBUG
         let now = ProcessInfo.processInfo.systemUptime
