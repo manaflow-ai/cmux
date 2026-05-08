@@ -24798,6 +24798,9 @@ async fn compatibility_workspace_last_v2(
         .map_err(|error| error.to_string())?;
     window.add_workspace_member(workspace.id);
     daemon.update_native_window_state(&window).await;
+    daemon
+        .set_native_window_active_workspace(&window_ref, workspace.id)
+        .await;
     daemon.set_active_workspace(workspace.clone());
     compatibility_mark_active_workspace_notifications_read(daemon).await;
     daemon.wake_model();
