@@ -145,6 +145,10 @@ extension FileDropOverlayView {
         if terminalUnderPoint(windowPoint) != nil {
             return .terminal
         }
+        if let paneTarget = paneDropTargetUnderPoint(windowPoint) as? PaneDropTargetView,
+           paneTarget.hostedView != nil {
+            return .terminal
+        }
         return nil
     }
 
