@@ -839,6 +839,40 @@ final class CommandPaletteSelectionScrollBehaviorTests: XCTestCase {
 
 
 final class ShortcutHintModifierPolicyTests: XCTestCase {
+    func testTitlebarShortcutHintAlwaysShowAllowsBoundNonCommandShortcut() {
+        let controlShortcut = StoredShortcut(key: "R", command: false, shift: false, option: false, control: true)
+        let commandShortcut = StoredShortcut(key: "R", command: true, shift: false, option: false, control: false)
+
+        XCTAssertTrue(
+            titlebarShortcutHintShouldShow(
+                shortcut: controlShortcut,
+                alwaysShowShortcutHints: true,
+                modifierPressed: false
+            )
+        )
+        XCTAssertFalse(
+            titlebarShortcutHintShouldShow(
+                shortcut: controlShortcut,
+                alwaysShowShortcutHints: false,
+                modifierPressed: true
+            )
+        )
+        XCTAssertTrue(
+            titlebarShortcutHintShouldShow(
+                shortcut: commandShortcut,
+                alwaysShowShortcutHints: false,
+                modifierPressed: true
+            )
+        )
+        XCTAssertFalse(
+            titlebarShortcutHintShouldShow(
+                shortcut: .unbound,
+                alwaysShowShortcutHints: true,
+                modifierPressed: true
+            )
+        )
+    }
+
     func testShortcutHintRequiresEnabledCommandOrControlOnlyModifier() {
         withDefaultsSuite { defaults in
             defaults.set(true, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)

@@ -693,6 +693,75 @@ final class WindowDragHandleHitTests: XCTestCase {
         )
     }
 
+    func testMinimalModeSidebarFallbackHitUsesProvidedDebugLeadingInset() {
+        let suiteName = "WindowDragHandleHitTests.debugLeadingInset.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.set(WorkspacePresentationModeSettings.Mode.minimal.rawValue, forKey: WorkspacePresentationModeSettings.modeKey)
+        defaults.set(TitlebarControlsStyle.classic.rawValue, forKey: "titlebarControlsStyle")
+        defaults.set(120.0, forKey: MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 300, height: 120),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.test")
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let firstButtonX = TitlebarControlsHitRegions.buttonXRanges(config: TitlebarControlsStyle.classic.config)[0].lowerBound + 1
+        let titlebarY = contentView.bounds.maxY - 4
+        XCTAssertNil(
+            minimalModeSidebarControlActionSlot(
+                window: window,
+                locationInWindow: NSPoint(
+                    x: CGFloat(MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset) + firstButtonX,
+                    y: titlebarY
+                ),
+                defaults: defaults
+            ),
+            "Fallback hit testing should move away from the default leading inset when debug defaults override it."
+        )
+        XCTAssertEqual(
+            minimalModeSidebarControlActionSlot(
+                window: window,
+                locationInWindow: NSPoint(x: CGFloat(120) + firstButtonX, y: titlebarY),
+                defaults: defaults
+            ),
+            .toggleSidebar
+        )
+    }
+
+    func testTitlebarDebugSettingsRejectNonFiniteValues() {
+        let suiteName = "WindowDragHandleHitTests.nonFiniteDebugSettings.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.set("nan", forKey: MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey)
+        defaults.set("inf", forKey: MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let snapshot = MinimalModeTitlebarDebugSettings.snapshot(defaults: defaults)
+        XCTAssertEqual(
+            snapshot.leftControlsLeadingInset,
+            MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            snapshot.leftControlsTopInset,
+            MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            MinimalModeTitlebarDebugSettings.leftControlsLeadingInset(defaults: defaults),
+            CGFloat(MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset),
+            accuracy: 0.001
+        )
+    }
+
     func testDragHandleIgnoresHiddenSiblingWhenResolvingHit() {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 36))
         let dragHandle = NSView(frame: container.bounds)
