@@ -26927,16 +26927,21 @@ async fn compatibility_pane_last_v2(
         .await
         .map_err(|error| error.to_string())?;
     let panels = compatibility_panel_entries(&snapshot);
-    let space_last_panel = match daemon.workspace_by_id(workspace_id).await {
-        Some(workspace) => match workspace.space_by_id(snapshot.active_space_id).await {
-            Some(space) => space.last_panel_id().await,
-            None => None,
-        },
+    let active_space = match daemon.workspace_by_id(workspace_id).await {
+        Some(workspace) => workspace.space_by_id(snapshot.active_space_id).await,
+        None => None,
+    };
+    let space_focused_panel = match active_space.as_ref() {
+        Some(space) => space.default_panel_id().await,
+        None => None,
+    };
+    let focused_panel_id = space_focused_panel.unwrap_or(snapshot.focused_panel_id);
+    let space_last_panel = match active_space.as_ref() {
+        Some(space) => space.last_panel_id().await,
         None => None,
     };
     let panel_is_available = |panel_id: &PanelId| {
-        *panel_id != snapshot.focused_panel_id
-            && panels.iter().any(|panel| panel.panel_id == *panel_id)
+        *panel_id != focused_panel_id && panels.iter().any(|panel| panel.panel_id == *panel_id)
     };
     let target = space_last_panel
         .filter(|panel_id| panel_is_available(panel_id))
