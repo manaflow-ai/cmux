@@ -305,6 +305,8 @@ exit 0
             env = os.environ.copy()
             env.pop("CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV", None)
             env.pop("CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS", None)
+            for ambient_aws_key in [k for k in env if k.startswith("AWS_")]:
+                env.pop(ambient_aws_key, None)
             for ambient_key in (
                 "ANTHROPIC_API_KEY",
                 "ANTHROPIC_AUTH_TOKEN",
@@ -314,8 +316,6 @@ exit 0
                 "ANTHROPIC_SMALL_FAST_MODEL",
                 "ANTHROPIC_VERTEX_BASE_URL",
                 "ANTHROPIC_VERTEX_PROJECT_ID",
-                "AWS_PROFILE",
-                "AWS_REGION",
                 "CLAUDE_CODE_USE_BEDROCK",
                 "CLAUDE_CODE_USE_VERTEX",
                 "CLAUDE_CONFIG_DIR",
@@ -673,6 +673,28 @@ def test_live_socket_does_not_auto_preserve_when_all_backends_are_falsy(failures
     )
 
 
+def test_live_socket_auto_preserve_accepts_all_documented_truthy_variants(failures: list[str]) -> None:
+    # The wrapper recognizes 1|true|TRUE|yes|YES as truthy (matching the
+    # existing CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV parser); the focused
+    # auto-preserve tests above only exercise "1". This loop pins all 5
+    # documented variants for both backends so a future "simplification"
+    # of the case statement cannot silently drop yes/YES/true/TRUE.
+    for backend_key in ("CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_BEDROCK"):
+        for variant in ("1", "true", "TRUE", "yes", "YES"):
+            inherited = {backend_key: variant}
+            code, auth_env, _, stderr = run_wrapper_auth_env(
+                argv=["hello"],
+                inherited_env=inherited,
+            )
+            label = f"{backend_key}={variant!r}"
+            expect(code == 0, f"truthy variants ({label}): wrapper exited {code}: {stderr}", failures)
+            expect(
+                auth_env.get(backend_key) == variant,
+                f"truthy variants ({label}): expected {backend_key} preserved, got {auth_env.get(backend_key)!r}",
+                failures,
+            )
+
+
 def test_live_socket_explicit_key_list_is_additive_to_vertex_auto_preserve(failures: list[str]) -> None:
     # Pins the precedence between the explicit-opt-in key list
     # (CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS) and the Vertex/Bedrock
@@ -864,6 +886,7 @@ def main() -> int:
     test_live_socket_auto_preserves_vertex_auth_when_truthy(failures)
     test_live_socket_auto_preserves_bedrock_auth_when_truthy(failures)
     test_live_socket_does_not_auto_preserve_when_all_backends_are_falsy(failures)
+    test_live_socket_auto_preserve_accepts_all_documented_truthy_variants(failures)
     test_live_socket_explicit_key_list_is_additive_to_vertex_auto_preserve(failures)
     test_live_socket_enforces_heap_cap_for_space_separated_flag(failures)
     test_live_socket_tmpdir_failure_skips_node_options_injection(failures)
