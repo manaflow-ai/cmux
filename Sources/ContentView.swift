@@ -2336,7 +2336,7 @@ struct ContentView: View {
                                 + CGFloat(ShortcutHintDebugSettings.clamped(titlebarShortcutHintYOffset))
                         )
                         .shortcutHintTransition()
-                        .accessibilityIdentifier("titlebarShortcutHint.toggleRightSidebar")
+                        .accessibilityIdentifier("titlebarShortcutHint.\(KeyboardShortcutSettings.Action.toggleRightSidebar.rawValue)")
                 }
             }
             .allowsHitTesting(false)
