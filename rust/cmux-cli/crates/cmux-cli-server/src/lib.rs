@@ -3235,6 +3235,7 @@ pub struct Space {
     /// locking on every frame.
     zoomed: AtomicBool,
     default_panel_id: AtomicU64,
+    last_panel_id: AtomicU64,
 }
 
 pub struct Workspace {
@@ -3327,6 +3328,7 @@ impl Space {
             next_panel_id: AtomicU64::new(1),
             zoomed: AtomicBool::new(false),
             default_panel_id: AtomicU64::new(0),
+            last_panel_id: AtomicU64::new(u64::MAX),
         });
         send_initial_tab_input(&tab, seed_initial_input);
         space.clone().spawn_tab_reaper(tab);
@@ -3365,6 +3367,7 @@ impl Space {
             next_panel_id: AtomicU64::new(1),
             zoomed: AtomicBool::new(false),
             default_panel_id: AtomicU64::new(0),
+            last_panel_id: AtomicU64::new(u64::MAX),
         });
         space.clone().spawn_tab_reaper(tab);
         space
@@ -3469,6 +3472,7 @@ impl Space {
             next_panel_id: AtomicU64::new(next_panel_id),
             zoomed: AtomicBool::new(false),
             default_panel_id: AtomicU64::new(default_panel_id),
+            last_panel_id: AtomicU64::new(u64::MAX),
         });
         for tab in tabs {
             if tab.kind == SnapshotTabKind::Terminal {
@@ -3658,7 +3662,7 @@ impl Space {
                 bail!("no panel {panel_id}");
             }
         }
-        self.default_panel_id.store(panel_id, Ordering::Relaxed);
+        self.remember_default_panel(panel_id);
         tab.has_activity.store(false, Ordering::Relaxed);
         self.active_tab_tx.send(tab.clone()).ok();
         self.clone().spawn_tab_reaper(tab.clone());
@@ -3684,7 +3688,7 @@ impl Space {
                 bail!("no panel {panel_id}");
             }
         }
-        self.default_panel_id.store(panel_id, Ordering::Relaxed);
+        self.remember_default_panel(panel_id);
         self.active_tab_tx.send(tab.clone()).ok();
         Ok(tab)
     }
@@ -3709,7 +3713,7 @@ impl Space {
             let mut tabs = self.tabs.lock().await;
             tabs.push(tab.clone());
         }
-        self.default_panel_id.store(new_panel_id, Ordering::Relaxed);
+        self.remember_default_panel(new_panel_id);
         self.active_tab_tx.send(tab.clone()).ok();
         Ok((new_panel_id, tab))
     }
@@ -3737,7 +3741,7 @@ impl Space {
             .await
             .ok_or_else(|| anyhow!("no tab {tab_id}"))?;
         t.has_activity.store(false, Ordering::Relaxed);
-        self.default_panel_id.store(panel_id, Ordering::Relaxed);
+        self.remember_default_panel(panel_id);
         self.active_tab_tx.send(t.clone()).ok();
         Ok(t)
     }
@@ -3849,7 +3853,7 @@ impl Space {
             .ok_or_else(|| anyhow!("no tab {tab_id}"))?;
         if focus {
             tab.has_activity.store(false, Ordering::Relaxed);
-            self.default_panel_id.store(to_panel_id, Ordering::Relaxed);
+            self.remember_default_panel(to_panel_id);
         }
         Ok(tab)
     }
@@ -3876,7 +3880,7 @@ impl Space {
         }
         if focus {
             tab.has_activity.store(false, Ordering::Relaxed);
-            self.default_panel_id.store(panel_id, Ordering::Relaxed);
+            self.remember_default_panel(panel_id);
             self.active_tab_tx.send(tab.clone()).ok();
         } else {
             wake_space_repaint(&self);
@@ -3952,7 +3956,7 @@ impl Space {
             .ok_or_else(|| anyhow!("no tab {tab_id}"))?;
         if focus {
             tab.has_activity.store(false, Ordering::Relaxed);
-            self.default_panel_id.store(new_panel_id, Ordering::Relaxed);
+            self.remember_default_panel(new_panel_id);
         }
         Ok((new_panel_id, tab))
     }
@@ -4113,7 +4117,7 @@ impl Space {
             .await
             .ok_or_else(|| anyhow!("no tab {tab_id}"))?;
         tab.has_activity.store(false, Ordering::Relaxed);
-        self.default_panel_id.store(panel_id, Ordering::Relaxed);
+        self.remember_default_panel(panel_id);
         self.active_tab_tx.send(tab.clone()).ok();
         Ok(tab)
     }
@@ -4166,6 +4170,22 @@ impl Space {
         }
     }
 
+    fn remember_default_panel(&self, panel_id: PanelId) {
+        let previous = self.default_panel_id.swap(panel_id, Ordering::Relaxed);
+        if previous != panel_id {
+            self.last_panel_id.store(previous, Ordering::Relaxed);
+        }
+    }
+
+    async fn last_panel_id(&self) -> Option<PanelId> {
+        let last = self.last_panel_id.load(Ordering::Relaxed);
+        if last == u64::MAX {
+            return None;
+        }
+        let panels = self.panels.lock().await;
+        panels.contains_panel(last).then_some(last)
+    }
+
     async fn panel_containing_tab(&self, tab_id: TabId) -> Option<PanelId> {
         self.panels.lock().await.panel_containing_tab(tab_id)
     }
@@ -4206,7 +4226,7 @@ impl Space {
             let mut tabs = self.tabs.lock().await;
             tabs.push(tab.clone());
         }
-        self.default_panel_id.store(new_panel_id, Ordering::Relaxed);
+        self.remember_default_panel(new_panel_id);
         tab.has_activity.store(false, Ordering::Relaxed);
         self.active_tab_tx.send(tab.clone()).ok();
         self.clone().spawn_tab_reaper(tab.clone());
@@ -4220,7 +4240,7 @@ impl Space {
             .lock()
             .await
             .flatten(active_panel_id, active_tab_id);
-        self.default_panel_id.store(new_panel, Ordering::Relaxed);
+        self.remember_default_panel(new_panel);
         new_panel
     }
 
@@ -4231,7 +4251,7 @@ impl Space {
             .await
             .resize_active_split(panel_id, delta);
         if changed {
-            self.default_panel_id.store(panel_id, Ordering::Relaxed);
+            self.remember_default_panel(panel_id);
         }
     }
 
@@ -10344,7 +10364,7 @@ async fn focus_tab_id_in_window(
             };
             tab.has_activity.store(false, Ordering::Relaxed);
             window.remember_tab(&ws, &space, panel_id, &tab);
-            space.default_panel_id.store(panel_id, Ordering::Relaxed);
+            space.remember_default_panel(panel_id);
             space.active_tab_tx.send(tab.clone()).ok();
             return Ok(tab);
         }
@@ -12492,9 +12512,7 @@ async fn run_window_command(
                     tab.has_activity.store(false, Ordering::Relaxed);
                     window.remember_panel(&ws, &space, next_panel_id, tab.id);
                     window.remember_pane_focus_anchor(&space, next_anchor);
-                    space
-                        .default_panel_id
-                        .store(next_panel_id, Ordering::Relaxed);
+                    space.remember_default_panel(next_panel_id);
                     space.active_tab_tx.send(tab).ok();
                     daemon.wake_model();
                     (ok_result(), None, true)
@@ -12518,7 +12536,7 @@ async fn run_window_command(
                     if let Ok(leaves) = window_panel_layouts(&space, window, viewport).await {
                         window.remember_pane_focus_anchor_for_panel(&space, &leaves, panel_id);
                     }
-                    space.default_panel_id.store(panel_id, Ordering::Relaxed);
+                    space.remember_default_panel(panel_id);
                     space.active_tab_tx.send(tab).ok();
                     daemon.wake_model();
                     (ok_result(), None, true)
@@ -26909,12 +26927,26 @@ async fn compatibility_pane_last_v2(
         .await
         .map_err(|error| error.to_string())?;
     let panels = compatibility_panel_entries(&snapshot);
-    let target = window
-        .last_panel_by_space
-        .get(&snapshot.active_space_id)
-        .copied()
-        .filter(|panel_id| *panel_id != snapshot.focused_panel_id)
-        .filter(|panel_id| panels.iter().any(|panel| panel.panel_id == *panel_id))
+    let space_last_panel = match daemon.workspace_by_id(workspace_id).await {
+        Some(workspace) => match workspace.space_by_id(snapshot.active_space_id).await {
+            Some(space) => space.last_panel_id().await,
+            None => None,
+        },
+        None => None,
+    };
+    let panel_is_available = |panel_id: &PanelId| {
+        *panel_id != snapshot.focused_panel_id
+            && panels.iter().any(|panel| panel.panel_id == *panel_id)
+    };
+    let target = space_last_panel
+        .filter(|panel_id| panel_is_available(panel_id))
+        .or_else(|| {
+            window
+                .last_panel_by_space
+                .get(&snapshot.active_space_id)
+                .copied()
+                .filter(|panel_id| panel_is_available(panel_id))
+        })
         .or_else(|| {
             panels
                 .iter()
