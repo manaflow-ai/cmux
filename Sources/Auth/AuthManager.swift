@@ -68,7 +68,7 @@ private final class AuthPresentationContext: NSObject, ASWebAuthenticationPresen
             }
 
             let didRequestActivation = NSRunningApplication.current.activate(
-                options: [.activateAllWindows, .activateIgnoringOtherApps]
+                options: [.activateAllWindows]
             )
             if !didRequestActivation || NSApp.isActive {
                 resumeOnce()
