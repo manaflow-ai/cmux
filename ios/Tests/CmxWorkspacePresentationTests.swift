@@ -4,7 +4,7 @@ import XCTest
 @MainActor
 final class CmxWorkspacePresentationTests: XCTestCase {
     func testDefaultStoreStartsWithoutDemoWorkspaces() {
-        let store = CmxConnectionStore()
+        let store = Self.makeStore()
 
         XCTAssertTrue(store.workspaces.isEmpty)
         XCTAssertTrue(store.visibleWorkspaces(matching: "").isEmpty)
@@ -12,7 +12,7 @@ final class CmxWorkspacePresentationTests: XCTestCase {
     }
 
     func testVisibleWorkspacesSortsMostRecentAcrossMachinesRegardlessPinned() {
-        let store = CmxConnectionStore()
+        let store = Self.makeStore()
         store.applyHiveDiscoverySnapshot(Self.presentationSnapshot())
         store.workspaces[0].pinned = true
         store.workspaces[0].lastActivity = Date(timeIntervalSince1970: 1_777_680_000)
@@ -25,7 +25,7 @@ final class CmxWorkspacePresentationTests: XCTestCase {
     }
 
     func testVisibleWorkspacesSearchesNodeAndPreviewText() {
-        let store = CmxConnectionStore()
+        let store = Self.makeStore()
         store.applyHiveDiscoverySnapshot(Self.presentationSnapshot())
 
         XCTAssertEqual(store.visibleWorkspaces(matching: "standby").map(\.title), ["agent runs"])
@@ -33,10 +33,7 @@ final class CmxWorkspacePresentationTests: XCTestCase {
     }
 
     func testVisibleWorkspacesCanFilterAndHideUnavailableMachines() {
-        let store = CmxConnectionStore(
-            hiddenUnavailableNodeStore: MemoryHiddenUnavailableNodeStore(),
-            startHiveDiscoveryOnInit: false
-        )
+        let store = Self.makeStore(hiddenUnavailableNodeStore: MemoryHiddenUnavailableNodeStore())
         let baseSnapshot = Self.presentationSnapshot()
         var nodes = baseSnapshot.nodes
         nodes[1].isOnline = false
@@ -58,7 +55,7 @@ final class CmxWorkspacePresentationTests: XCTestCase {
     }
 
     func testNativeSnapshotPopulatesRustOwnedWorkspaceState() {
-        let store = CmxConnectionStore()
+        let store = Self.makeStore()
 
         store.applyNativeSnapshot(
             CmxNativeSnapshot(
@@ -104,7 +101,7 @@ final class CmxWorkspacePresentationTests: XCTestCase {
     }
 
     func testNativeSnapshotAllowsZeroValuedRustTabID() {
-        let store = CmxConnectionStore()
+        let store = Self.makeStore()
 
         store.applyNativeSnapshot(
             CmxNativeSnapshot(
@@ -145,7 +142,7 @@ final class CmxWorkspacePresentationTests: XCTestCase {
     }
 
     func testNativeSnapshotWithNoSpacesOrTabsUsesPlaceholdersInsteadOfStaleSelection() {
-        let store = CmxConnectionStore()
+        let store = Self.makeStore()
 
         store.applyNativeSnapshot(
             CmxNativeSnapshot(
@@ -179,7 +176,7 @@ final class CmxWorkspacePresentationTests: XCTestCase {
     }
 
     func testInactiveWorkspaceWithKnownTerminalsPresentsLoadingUntilNativeSnapshotActivatesIt() {
-        let store = CmxConnectionStore()
+        let store = Self.makeStore()
 
         store.applyNativeSnapshot(
             CmxNativeSnapshot(
@@ -232,7 +229,7 @@ final class CmxWorkspacePresentationTests: XCTestCase {
 
     func testDisconnectedStorePresentsNotConnectedEvenWithCachedTerminalState() {
         let sessionFactory = WorkspacePresentationTerminalSessionFactory()
-        let store = CmxConnectionStore(
+        let store = Self.makeStore(
             terminalSessionFactory: sessionFactory,
             launchTicket: nil,
             launchAutoconnect: false
@@ -258,7 +255,7 @@ final class CmxWorkspacePresentationTests: XCTestCase {
     }
 
     func testEmptyNativeSnapshotDoesNotReplaceExistingWorkspaceList() {
-        let store = CmxConnectionStore()
+        let store = Self.makeStore()
         store.applyNativeSnapshot(Self.nativeSnapshot(title: "main"))
 
         store.applyNativeSnapshot(Self.emptyNativeSnapshot())
@@ -270,7 +267,7 @@ final class CmxWorkspacePresentationTests: XCTestCase {
 
     func testConnectedStoreAwaitsNonEmptyInitialWorkspaceSnapshot() {
         let sessionFactory = WorkspacePresentationTerminalSessionFactory()
-        let store = CmxConnectionStore(
+        let store = Self.makeStore(
             terminalSessionFactory: sessionFactory,
             launchTicket: nil,
             launchAutoconnect: false
@@ -334,6 +331,29 @@ final class CmxWorkspacePresentationTests: XCTestCase {
             ),
             focusedPanelID: 31,
             focusedTabID: 41
+        )
+    }
+
+    private static func makeStore(
+        hiddenUnavailableNodeStore: CmxHiddenUnavailableNodeStoring = MemoryHiddenUnavailableNodeStore(),
+        terminalSessionFactory: any CmxTerminalSessionMaking = WorkspacePresentationTerminalSessionFactory(),
+        launchTicket: String? = nil,
+        launchAutoconnect: Bool = false
+    ) -> CmxConnectionStore {
+        CmxConnectionStore(
+            authSessionStore: WorkspacePresentationAuthSessionStore(),
+            launchTicketStore: WorkspacePresentationLaunchTicketStore(),
+            pairingSecretClient: WorkspacePresentationPairingSecretClient(),
+            hiveDiscoveryClient: WorkspacePresentationHiveDiscoveryClient(),
+            hiveControlClient: WorkspacePresentationHiveControlClient(),
+            hiveTeamPreferenceStore: WorkspacePresentationHiveTeamPreferenceStore(),
+            hiddenUnavailableNodeStore: hiddenUnavailableNodeStore,
+            hiveDiscoveryCacheStore: WorkspacePresentationHiveDiscoveryCacheStore(),
+            hiveDiscoveryEndpoint: nil,
+            terminalSessionFactory: terminalSessionFactory,
+            startHiveDiscoveryOnInit: false,
+            launchTicket: launchTicket,
+            launchAutoconnect: launchAutoconnect
         )
     }
 
@@ -469,5 +489,101 @@ private final class MemoryHiddenUnavailableNodeStore: CmxHiddenUnavailableNodeSt
 
     func saveHiddenNodeIDs(_ nodeIDs: Set<UInt64>) throws {
         self.nodeIDs = nodeIDs
+    }
+}
+
+private final class WorkspacePresentationAuthSessionStore: CmxStackAuthSessionStore {
+    var session: CmxStackAuthSession?
+
+    func load() throws -> CmxStackAuthSession? {
+        session
+    }
+
+    func save(_ session: CmxStackAuthSession) throws {
+        self.session = session
+    }
+
+    func clear() throws {
+        session = nil
+    }
+}
+
+private final class WorkspacePresentationLaunchTicketStore: CmxLaunchTicketStateStore {
+    var state: CmxLaunchTicketState?
+
+    func load() throws -> CmxLaunchTicketState? {
+        state
+    }
+
+    func save(_ state: CmxLaunchTicketState) throws {
+        self.state = state
+    }
+
+    func clear() throws {
+        state = nil
+    }
+}
+
+private struct WorkspacePresentationPairingSecretClient: CmxRivetPairingSecretFetching {
+    func fetchSecret(
+        for auth: CmxBridgeTicketAuth,
+        stackSession _: CmxStackAuthSession,
+        now _: Date
+    ) async throws -> CmxRivetPairingSecret {
+        CmxRivetPairingSecret(pairingID: auth.pairingID ?? "", secret: "secret", expiresAtUnix: 4_000_000_000)
+    }
+}
+
+private struct WorkspacePresentationHiveDiscoveryClient: CmxHiveDiscoveryFetching {
+    func fetchHive(
+        endpoint _: URL,
+        stackSession _: CmxStackAuthSession,
+        teamID _: String?
+    ) async throws -> CmxHiveDiscoverySnapshot {
+        CmxHiveDiscoverySnapshot(nodes: [], workspaces: [])
+    }
+}
+
+private struct WorkspacePresentationHiveControlClient: CmxHiveControlFetching {
+    func fetchTeams(
+        endpoint _: URL,
+        stackSession _: CmxStackAuthSession
+    ) async throws -> CmxHiveTeamsSnapshot {
+        CmxHiveTeamsSnapshot(teams: [], defaultTeamID: nil, selectedTeamID: nil)
+    }
+
+    func unlinkNode(
+        nodeID _: String,
+        endpoint _: URL,
+        stackSession _: CmxStackAuthSession,
+        teamID _: String?
+    ) async throws {}
+}
+
+private final class WorkspacePresentationHiveTeamPreferenceStore: CmxHiveTeamPreferenceStoring {
+    var selectedTeamID: String?
+
+    func loadSelectedTeamID() throws -> String? {
+        selectedTeamID
+    }
+
+    func saveSelectedTeamID(_ teamID: String?) throws {
+        selectedTeamID = teamID
+    }
+}
+
+private final class WorkspacePresentationHiveDiscoveryCacheStore: CmxHiveDiscoveryCacheStoring {
+    var payload: CmxHiveDiscoveryCachePayload?
+
+    func load() throws -> CmxHiveDiscoveryCachePayload? {
+        payload
+    }
+
+    func save(_ payload: CmxHiveDiscoveryCachePayload) throws {
+        self.payload = payload
+    }
+
+    func clear() throws {
+        payload = nil
     }
 }
