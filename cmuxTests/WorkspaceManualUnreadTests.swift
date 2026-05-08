@@ -9,6 +9,28 @@ import AppKit
 
 @MainActor
 final class WorkspaceManualUnreadTests: XCTestCase {
+    override func tearDown() {
+        TerminalNotificationStore.shared.replaceNotificationsForTesting([])
+        super.tearDown()
+    }
+
+    func testMarkWorkspaceUnreadCreatesUnreadStateForReadWorkspaceWithoutRetainedNotification() {
+        let store = TerminalNotificationStore.shared
+        let workspaceId = UUID()
+
+        store.replaceNotificationsForTesting([])
+
+        XCTAssertEqual(store.unreadCount(forTabId: workspaceId), 0)
+
+        store.markUnread(forTabId: workspaceId)
+
+        XCTAssertGreaterThan(store.unreadCount(forTabId: workspaceId), 0)
+
+        store.markRead(forTabId: workspaceId)
+
+        XCTAssertEqual(store.unreadCount(forTabId: workspaceId), 0)
+    }
+
     func testShouldClearManualUnreadWhenFocusMovesToDifferentPanel() {
         let previousFocusedPanelId = UUID()
         let nextFocusedPanelId = UUID()
