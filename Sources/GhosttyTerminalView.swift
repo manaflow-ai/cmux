@@ -7045,6 +7045,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private(set) var externalCommittedTextDepth = 0
     var numpadIMECommitDeduplicator = NumpadIMECommitDeduplicator()
     private var imeSuppressedKeyUpKeyCodes: Set<UInt16> = []
+    private var textInputCommandSelectorDuringKeyDown: Selector?
+    private var zhuyinCandidateOpenRequested = false
     private struct SelectionSnapshot {
         let range: NSRange
         let string: String
@@ -7086,6 +7088,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     // Prevents NSBeep for unimplemented actions from interpretKeyEvents
     override func doCommand(by selector: Selector) {
+        textInputCommandSelectorDuringKeyDown = selector
+#if DEBUG
+        if hasMarkedText() {
+            cmuxDebugLog(
+                "ime.doCommand selector=\(NSStringFromSelector(selector)) " +
+                "markedLength=\(markedText.length)"
+            )
+        }
+#endif
         // Intentionally empty - prevents system beep on unhandled key commands
     }
 
@@ -7467,6 +7478,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // Set up text accumulator for interpretKeyEvents
         keyTextAccumulator = []
         defer { keyTextAccumulator = nil }
+        textInputCommandSelectorDuringKeyDown = nil
 
         let markedTextBefore = markedText.length > 0
         let markedStateBefore = (markedText.string, markedSelectedRange)
@@ -7513,10 +7525,39 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         syncPreeditMs = (ProcessInfo.processInfo.systemUptime - syncPreeditStart) * 1000.0
 #endif
 
-        let accumulatedText = keyTextAccumulator ?? []
+        var accumulatedText = keyTextAccumulator ?? []
+        var markedStateAfter = (markedText.string, markedSelectedRange)
+        if shouldOpenZhuyinCandidatesWithSyntheticSpace(
+            event: translationEvent,
+            inputSourceId: keyboardIdBefore,
+            markedTextBefore: markedTextBefore,
+            before: markedStateBefore,
+            after: markedStateAfter,
+            accumulatedText: accumulatedText,
+            commandSelector: textInputCommandSelectorDuringKeyDown,
+            candidateOpenAlreadyRequested: zhuyinCandidateOpenRequested
+        ) {
+            imeSuppressedKeyUpKeyCodes.insert(event.keyCode)
+            zhuyinCandidateOpenRequested = true
+            textInputCommandSelectorDuringKeyDown = nil
+            _ = handleTextInputKeyEvent(zhuyinCandidateOpenSpaceEvent(from: translationEvent))
+            syncPreedit(clearIfNeeded: markedTextBefore)
+            accumulatedText = keyTextAccumulator ?? []
+            markedStateAfter = (markedText.string, markedSelectedRange)
+        } else if shouldRememberZhuyinCandidateInteraction(
+            event: translationEvent,
+            inputSourceId: keyboardIdBefore,
+            markedTextBefore: markedTextBefore,
+            accumulatedText: accumulatedText
+        ) {
+            zhuyinCandidateOpenRequested = true
+        } else if markedTextBefore, isTraditionalZhuyinInputSource(keyboardIdBefore) {
+            zhuyinCandidateOpenRequested = false
+        }
+
         if shouldSuppressGhosttyKeyForwardingAfterIMEHandling(
             before: markedStateBefore,
-            after: (markedText.string, markedSelectedRange),
+            after: markedStateAfter,
             accumulatedText: accumulatedText,
             event: translationEvent,
             textInputHandledEvent: textInputHandledEvent,
@@ -7722,6 +7763,21 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return false
         }
         return inputContext.handleEvent(event)
+    }
+
+    private func zhuyinCandidateOpenSpaceEvent(from event: NSEvent) -> NSEvent {
+        NSEvent.keyEvent(
+            with: event.type,
+            location: event.locationInWindow,
+            modifierFlags: event.modifierFlags.subtracting([.shift, .numericPad, .function]),
+            timestamp: event.timestamp,
+            windowNumber: event.windowNumber,
+            context: nil,
+            characters: " ",
+            charactersIgnoringModifiers: " ",
+            isARepeat: event.isARepeat,
+            keyCode: UInt16(kVK_Space)
+        ) ?? event
     }
 
     @discardableResult
@@ -12807,6 +12863,7 @@ extension GhosttyNSView: NSTextInputClient {
         if markedText.length > 0 {
             markedText.mutableString.setString("")
             markedSelectedRange = NSRange(location: NSNotFound, length: 0)
+            zhuyinCandidateOpenRequested = false
             syncPreedit()
             invalidateTextInputCoordinates(selectionChanged: true)
         }

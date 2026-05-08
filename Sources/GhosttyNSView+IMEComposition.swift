@@ -83,6 +83,59 @@ extension GhosttyNSView {
         return flags == [.numericPad]
     }
 
+    func isTraditionalZhuyinInputSource(_ sourceId: String?) -> Bool {
+        guard let sourceId else { return false }
+        return sourceId.localizedCaseInsensitiveContains("TCIM.Zhuyin")
+    }
+
+    func shouldOpenZhuyinCandidatesWithSyntheticSpace(
+        event: NSEvent,
+        inputSourceId: String?,
+        markedTextBefore: Bool,
+        before: (text: String, selection: NSRange),
+        after: (text: String, selection: NSRange),
+        accumulatedText: [String],
+        commandSelector: Selector?,
+        candidateOpenAlreadyRequested: Bool
+    ) -> Bool {
+        guard !candidateOpenAlreadyRequested,
+              markedTextBefore,
+              accumulatedText.isEmpty,
+              isTraditionalZhuyinInputSource(inputSourceId),
+              Int(event.keyCode) == kVK_DownArrow,
+              commandSelector == #selector(NSResponder.moveDown(_:)),
+              before.text == after.text,
+              before.selection == after.selection else {
+            return false
+        }
+        return true
+    }
+
+    func shouldRememberZhuyinCandidateInteraction(
+        event: NSEvent,
+        inputSourceId: String?,
+        markedTextBefore: Bool,
+        accumulatedText: [String]
+    ) -> Bool {
+        guard markedTextBefore,
+              accumulatedText.isEmpty,
+              isTraditionalZhuyinInputSource(inputSourceId) else {
+            return false
+        }
+
+        let flags = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+        guard flags.isEmpty || flags == [.shift] else { return false }
+
+        switch Int(event.keyCode) {
+        case kVK_DownArrow, kVK_UpArrow, kVK_PageUp, kVK_PageDown, kVK_Space:
+            return true
+        default:
+            return false
+        }
+    }
+
     /// Returns true for active-composition command keys that belong to AppKit's
     /// text input manager even when marked text itself does not change.
     func shouldKeepIMECompositionCommandInsideTextInput(_ event: NSEvent) -> Bool {
