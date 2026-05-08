@@ -9229,6 +9229,8 @@ private struct SidebarTabItemSettingsSnapshot: Equatable {
     let alwaysShowShortcutHints: Bool
     let showsGitBranch: Bool
     let usesVerticalBranchLayout: Bool
+    let stacksBranchAndDirectory: Bool
+    let usesLastSegmentPath: Bool
     let showsGitBranchIcon: Bool
     let showsSSH: Bool
     let makesPullRequestsClickable: Bool
@@ -9247,6 +9249,8 @@ private struct SidebarTabItemSettingsSnapshot: Equatable {
         alwaysShowShortcutHints = ShortcutHintDebugSettings.alwaysShowHints()
         showsGitBranch = Self.bool(defaults: defaults, key: "sidebarShowGitBranch", defaultValue: true)
         usesVerticalBranchLayout = SidebarBranchLayoutSettings.usesVerticalLayout(defaults: defaults)
+        stacksBranchAndDirectory = SidebarBranchDirectoryStackedSettings.isStacked(defaults: defaults)
+        usesLastSegmentPath = SidebarPathLastSegmentSettings.isLastSegmentOnly(defaults: defaults)
         showsGitBranchIcon = Self.bool(defaults: defaults, key: "sidebarShowGitBranchIcon", defaultValue: false)
         showsSSH = Self.bool(defaults: defaults, key: "sidebarShowSSH", defaultValue: SidebarWorkspaceDetailDefaults.showSSH)
         makesPullRequestsClickable = SidebarPullRequestClickabilitySettings.isClickable(defaults: defaults)
@@ -12176,6 +12180,84 @@ enum SidebarPathFormatter {
         }
         return trimmed
     }
+
+    static func lastSegmentPath(
+        _ path: String,
+        homeDirectoryPath: String = Self.homeDirectoryPath
+    ) -> String {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return path }
+        if trimmed == homeDirectoryPath { return "~" }
+        if trimmed == "/" { return "/" }
+        let stripped = trimmed.hasSuffix("/") && trimmed.count > 1
+            ? String(trimmed.dropLast())
+            : trimmed
+        guard let slashRange = stripped.range(of: "/", options: .backwards) else {
+            return stripped
+        }
+        let last = String(stripped[slashRange.upperBound...])
+        guard !last.isEmpty else { return stripped }
+        return "…/\(last)"
+    }
+
+    // Ordered longest → shortest. The first entry is the full abbreviated path
+    // (with `~/` if applicable). Each subsequent entry drops one more leading
+    // segment and is prefixed with `…/`. Suitable as `ViewThatFits` candidates.
+    static func pathCandidates(
+        _ path: String,
+        homeDirectoryPath: String = Self.homeDirectoryPath
+    ) -> [String] {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+        let abbreviated = shortenedPath(trimmed, homeDirectoryPath: homeDirectoryPath)
+        guard !abbreviated.isEmpty else { return [] }
+        if abbreviated == "~" || abbreviated == "/" { return [abbreviated] }
+
+        let prefixLength: Int = {
+            if abbreviated.hasPrefix("~/") { return 2 }
+            if abbreviated.hasPrefix("/") { return 1 }
+            return 0
+        }()
+        let suffix = String(abbreviated.dropFirst(prefixLength))
+        let parts = suffix.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        var candidates = [abbreviated]
+        guard parts.count > 1 else { return candidates }
+        for dropCount in 1..<parts.count {
+            let remainder = parts[dropCount...].joined(separator: "/")
+            candidates.append("…/\(remainder)")
+        }
+        return candidates
+    }
+}
+
+// Picks the longest directory candidate that fits the available width,
+// falling back to progressively shorter forms (each prefixed with `…/`).
+// When the smallest candidate still overflows, `.truncationMode(.tail)`
+// trims it from the end — but in practice the shortest fallback is just
+// `…/<lastSegment>` and rarely exceeds a normal sidebar width.
+private struct SidebarDirectoryText: View {
+    let candidates: [String]
+    let color: Color
+
+    var body: some View {
+        if candidates.count <= 1 {
+            Text(candidates.first ?? "")
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundColor(color)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        } else {
+            ViewThatFits(in: .horizontal) {
+                ForEach(candidates, id: \.self) { candidate in
+                    Text(candidate)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(color)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+            }
+        }
+    }
 }
 
 enum SidebarWorkspaceShortcutHintMetrics {
@@ -12255,7 +12337,11 @@ struct SidebarWorkspaceSnapshotBuilder {
 
     struct VerticalBranchDirectoryLine: Equatable {
         let branch: String?
-        let directory: String?
+        // Ordered longest → shortest. Empty means no directory to show.
+        // First element is the canonical display string when only one is needed.
+        let directoryCandidates: [String]
+
+        var directory: String? { directoryCandidates.first }
     }
 
     struct PullRequestDisplay: Identifiable, Equatable {
@@ -12283,6 +12369,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let latestLog: SidebarLogEntry?
         let progress: SidebarProgressState?
         let compactGitBranchSummaryText: String?
+        let compactDirectorySummaryText: String?
         let compactBranchDirectoryRow: String?
         let branchDirectoryLines: [VerticalBranchDirectoryLine]
         let branchLinesContainBranch: Bool
@@ -12389,6 +12476,14 @@ private struct TabItemView: View, Equatable {
 
     private var sidebarBranchVerticalLayout: Bool {
         settings.usesVerticalBranchLayout
+    }
+
+    private var sidebarStacksBranchAndDirectory: Bool {
+        settings.stacksBranchAndDirectory
+    }
+
+    private var sidebarUsesLastSegmentPath: Bool {
+        settings.usesLastSegmentPath
     }
 
     private var sidebarShowGitBranchIcon: Bool {
@@ -12740,7 +12835,7 @@ private struct TabItemView: View, Equatable {
                             }
                             VStack(alignment: .leading, spacing: 1) {
                                 ForEach(Array(workspaceSnapshot.branchDirectoryLines.enumerated()), id: \.offset) { _, line in
-                                    HStack(spacing: 3) {
+                                    if sidebarStacksBranchAndDirectory {
                                         if let branch = line.branch {
                                             Text(branch)
                                                 .font(.system(size: 10, design: .monospaced))
@@ -12748,21 +12843,62 @@ private struct TabItemView: View, Equatable {
                                                 .lineLimit(1)
                                                 .truncationMode(.tail)
                                         }
-                                        if line.branch != nil, line.directory != nil {
-                                            Image(systemName: "circle.fill")
-                                                .font(.system(size: 3))
-                                                .foregroundColor(activeSecondaryColor(0.6))
-                                                .padding(.horizontal, 1)
+                                        if !line.directoryCandidates.isEmpty {
+                                            SidebarDirectoryText(
+                                                candidates: line.directoryCandidates,
+                                                color: activeSecondaryColor(0.75)
+                                            )
                                         }
-                                        if let directory = line.directory {
-                                            Text(directory)
-                                                .font(.system(size: 10, design: .monospaced))
-                                                .foregroundColor(activeSecondaryColor(0.75))
-                                                .lineLimit(1)
-                                                .truncationMode(.tail)
+                                    } else {
+                                        HStack(spacing: 3) {
+                                            if let branch = line.branch {
+                                                Text(branch)
+                                                    .font(.system(size: 10, design: .monospaced))
+                                                    .foregroundColor(activeSecondaryColor(0.75))
+                                                    .lineLimit(1)
+                                                    .truncationMode(.tail)
+                                            }
+                                            if line.branch != nil, !line.directoryCandidates.isEmpty {
+                                                Image(systemName: "circle.fill")
+                                                    .font(.system(size: 3))
+                                                    .foregroundColor(activeSecondaryColor(0.6))
+                                                    .padding(.horizontal, 1)
+                                            }
+                                            if !line.directoryCandidates.isEmpty {
+                                                SidebarDirectoryText(
+                                                    candidates: line.directoryCandidates,
+                                                    color: activeSecondaryColor(0.75)
+                                                )
+                                            }
                                         }
                                     }
                                 }
+                            }
+                        }
+                    }
+                } else if sidebarStacksBranchAndDirectory,
+                          (workspaceSnapshot.compactGitBranchSummaryText != nil
+                           || workspaceSnapshot.compactDirectorySummaryText != nil) {
+                    HStack(alignment: .top, spacing: 3) {
+                        if sidebarShowGitBranchIcon, workspaceSnapshot.compactGitBranchSummaryText != nil {
+                            Image(systemName: "arrow.triangle.branch")
+                                .font(.system(size: 9))
+                                .foregroundColor(activeSecondaryColor(0.6))
+                        }
+                        VStack(alignment: .leading, spacing: 1) {
+                            if let branchRow = workspaceSnapshot.compactGitBranchSummaryText {
+                                Text(branchRow)
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .foregroundColor(activeSecondaryColor(0.75))
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                            }
+                            if let directoryRow = workspaceSnapshot.compactDirectorySummaryText {
+                                Text(directoryRow)
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .foregroundColor(activeSecondaryColor(0.75))
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
                             }
                         }
                     }
@@ -13626,6 +13762,7 @@ private struct TabItemView: View, Equatable {
             latestLog: detailVisibility.showsLog ? tab.logEntries.last : nil,
             progress: detailVisibility.showsProgress ? tab.progress : nil,
             compactGitBranchSummaryText: compactGitBranchSummaryText,
+            compactDirectorySummaryText: compactDirectorySummaryText,
             compactBranchDirectoryRow: compactBranchDirectoryRow,
             branchDirectoryLines: branchDirectoryLines,
             branchLinesContainBranch: branchLinesContainBranch,
@@ -13716,36 +13853,40 @@ private struct TabItemView: View, Equatable {
     private func verticalBranchDirectoryLines(orderedPanelIds: [UUID]) -> [SidebarWorkspaceSnapshotBuilder.VerticalBranchDirectoryLine] {
         let entries = tab.sidebarBranchDirectoryEntriesInDisplayOrder(orderedPanelIds: orderedPanelIds)
         let home = SidebarPathFormatter.homeDirectoryPath
+        let useViewportAwarePath = sidebarUsesLastSegmentPath
         return entries.compactMap { entry in
             let branchText: String? = {
                 guard sidebarShowGitBranch, let branch = entry.branch else { return nil }
                 return "\(branch)\(entry.isDirty ? "*" : "")"
             }()
 
-            let directoryText: String? = {
-                guard let directory = entry.directory else { return nil }
+            let directoryCandidates: [String] = {
+                guard let directory = entry.directory else { return [] }
+                if useViewportAwarePath {
+                    return SidebarPathFormatter.pathCandidates(directory, homeDirectoryPath: home)
+                }
                 let shortened = SidebarPathFormatter.shortenedPath(directory, homeDirectoryPath: home)
-                return shortened.isEmpty ? nil : shortened
+                return shortened.isEmpty ? [] : [shortened]
             }()
 
-            switch (branchText, directoryText) {
-            case let (branch?, directory?):
-                return SidebarWorkspaceSnapshotBuilder.VerticalBranchDirectoryLine(branch: branch, directory: directory)
-            case let (branch?, nil):
-                return SidebarWorkspaceSnapshotBuilder.VerticalBranchDirectoryLine(branch: branch, directory: nil)
-            case let (nil, directory?):
-                return SidebarWorkspaceSnapshotBuilder.VerticalBranchDirectoryLine(branch: nil, directory: directory)
-            default:
+            if branchText == nil && directoryCandidates.isEmpty {
                 return nil
             }
+            return SidebarWorkspaceSnapshotBuilder.VerticalBranchDirectoryLine(
+                branch: branchText,
+                directoryCandidates: directoryCandidates
+            )
         }
     }
 
     private func directorySummaryText(orderedPanelIds: [UUID]) -> String? {
         let home = SidebarPathFormatter.homeDirectoryPath
-        let entries = tab.sidebarDirectoriesInDisplayOrder(orderedPanelIds: orderedPanelIds).compactMap { directory in
-            let shortened = SidebarPathFormatter.shortenedPath(directory, homeDirectoryPath: home)
-            return shortened.isEmpty ? nil : shortened
+        let useLastSegment = sidebarUsesLastSegmentPath
+        let entries = tab.sidebarDirectoriesInDisplayOrder(orderedPanelIds: orderedPanelIds).compactMap { directory -> String? in
+            let formatted = useLastSegment
+                ? SidebarPathFormatter.lastSegmentPath(directory, homeDirectoryPath: home)
+                : SidebarPathFormatter.shortenedPath(directory, homeDirectoryPath: home)
+            return formatted.isEmpty ? nil : formatted
         }
         return entries.isEmpty ? nil : entries.joined(separator: " | ")
     }

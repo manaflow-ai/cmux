@@ -33,6 +33,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             latestLog: latestLog,
             progress: progress,
             compactGitBranchSummaryText: compactGitBranchSummaryText,
+            compactDirectorySummaryText: compactDirectorySummaryText,
             compactBranchDirectoryRow: compactBranchDirectoryRow,
             branchDirectoryLines: branchDirectoryLines,
             branchLinesContainBranch: branchLinesContainBranch,
