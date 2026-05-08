@@ -2,6 +2,7 @@ import Foundation
 
 extension Workspace {
     struct DetachedSurfaceTransfer {
+        let sourceWorkspaceId: UUID
         let panelId: UUID
         let panel: any Panel
         let title: String
@@ -21,6 +22,7 @@ extension Workspace {
 
         func withRemoteCleanupConfiguration(_ configuration: WorkspaceRemoteConfiguration?) -> Self {
             Self(
+                sourceWorkspaceId: sourceWorkspaceId,
                 panelId: panelId,
                 panel: panel,
                 title: title,
