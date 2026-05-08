@@ -3680,9 +3680,11 @@ struct ContentView: View {
 
     private func setTitlebarControlsHidden(_ hidden: Bool, in window: NSWindow) {
         let controlsId = NSUserInterfaceItemIdentifier("cmux.titlebarControls")
+        let rightSidebarToggleId = NSUserInterfaceItemIdentifier("cmux.titlebarRightSidebarToggle")
         let shouldHide = hidden || isMinimalMode
         for accessory in window.titlebarAccessoryViewControllers {
-            if accessory.view.identifier == controlsId {
+            if accessory.view.identifier == controlsId
+                || accessory.view.identifier == rightSidebarToggleId {
                 accessory.isHidden = shouldHide
                 accessory.view.alphaValue = shouldHide ? 0 : 1
             }

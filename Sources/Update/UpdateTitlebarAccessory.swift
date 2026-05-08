@@ -1595,6 +1595,203 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     }
 }
 
+struct TitlebarRightSidebarToggleView: View {
+    let onToggle: () -> Void
+    @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
+
+    var body: some View {
+        let style = TitlebarControlsStyle(rawValue: styleRawValue) ?? .classic
+        let config = style.config
+        TitlebarControlButton(
+            config: config,
+            accessibilityIdentifier: "titlebarControl.toggleRightSidebar",
+            accessibilityLabel: String(localized: "titlebar.rightSidebar.accessibilityLabel", defaultValue: "Toggle Right Sidebar"),
+            action: {
+            #if DEBUG
+            cmuxDebugLog("titlebar.toggleRightSidebar")
+            #endif
+            onToggle()
+        }) {
+            iconLabel(systemName: "sidebar.right", config: config)
+        }
+        .padding(.trailing, 4)
+        .contentShape(Rectangle())
+        .safeHelp(String(localized: "titlebar.rightSidebar.tooltip", defaultValue: "Show or hide the right sidebar"))
+    }
+
+    @ViewBuilder
+    private func iconLabel(systemName: String, config: TitlebarControlsStyleConfig) -> some View {
+        let icon = Image(systemName: systemName)
+            .font(.system(size: config.iconSize, weight: .semibold))
+            .frame(width: config.buttonSize, height: config.buttonSize)
+
+        if config.buttonBackground {
+            icon
+                .background(
+                    RoundedRectangle(cornerRadius: config.buttonCornerRadius)
+                        .fill(Color(nsColor: .controlBackgroundColor).opacity(0.7))
+                )
+        } else {
+            icon
+        }
+    }
+}
+
+final class TitlebarRightSidebarToggleAccessoryViewController: NSTitlebarAccessoryViewController {
+    private let hostingView: NonDraggableHostingView<TitlebarRightSidebarToggleView>
+    private let containerView: NSView
+    private var pendingSizeUpdate = false
+    private var fittingSizeNeedsRefresh = true
+    private var cachedFittingSize: NSSize?
+    private var lastObservedViewSize: NSSize = .zero
+    private var lastAppliedLayoutSnapshot: TitlebarControlsLayoutSnapshot?
+    private var userDefaultsObserver: NSObjectProtocol?
+    private var showsWorkspaceTitlebar: Bool { !WorkspacePresentationModeSettings.isMinimal() }
+
+    init() {
+        let containerView = NSView()
+        self.containerView = containerView
+        let toggleRightSidebar: () -> Void = { [weak containerView] in
+            _ = AppDelegate.shared?.toggleRightSidebarInActiveMainWindow(preferredWindow: containerView?.window)
+        }
+        hostingView = NonDraggableHostingView(
+            rootView: TitlebarRightSidebarToggleView(onToggle: toggleRightSidebar)
+        )
+
+        super.init(nibName: nil, bundle: nil)
+
+        view = containerView
+        containerView.translatesAutoresizingMaskIntoConstraints = true
+        // Match the left titlebar accessory: prevent clipping of button backgrounds
+        // when the system constrains accessory height to the titlebar.
+        containerView.wantsLayer = true
+        containerView.layer?.masksToBounds = false
+        hostingView.translatesAutoresizingMaskIntoConstraints = true
+        hostingView.autoresizingMask = [.width, .height]
+        containerView.addSubview(hostingView)
+
+        userDefaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.applyWorkspaceTitlebarVisibility()
+            if self?.showsWorkspaceTitlebar == true {
+                self?.restoreSizeAfterMinimalMode()
+            }
+        }
+
+        applyWorkspaceTitlebarVisibility()
+        scheduleSizeUpdate(invalidateFittingSize: true)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        if let userDefaultsObserver {
+            NotificationCenter.default.removeObserver(userDefaultsObserver)
+        }
+    }
+
+    override func viewDidAppear() {
+        super.viewDidAppear()
+        scheduleSizeUpdate(invalidateFittingSize: true)
+    }
+
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        let currentViewSize = view.bounds.size
+        guard titlebarControlsShouldScheduleForViewSizeChange(
+            previous: lastObservedViewSize,
+            current: currentViewSize
+        ) else {
+            return
+        }
+        lastObservedViewSize = currentViewSize
+        scheduleSizeUpdate(invalidateFittingSize: true)
+    }
+
+    private func scheduleSizeUpdate(invalidateFittingSize: Bool = false) {
+        if invalidateFittingSize {
+            fittingSizeNeedsRefresh = true
+        }
+        guard !pendingSizeUpdate else { return }
+        pendingSizeUpdate = true
+        DispatchQueue.main.async { [weak self] in
+            self?.pendingSizeUpdate = false
+            self?.updateSize()
+        }
+    }
+
+    private func updateSize() {
+        applyWorkspaceTitlebarVisibility()
+        guard showsWorkspaceTitlebar else { return }
+        let contentSize: NSSize
+        if fittingSizeNeedsRefresh || cachedFittingSize == nil {
+            hostingView.invalidateIntrinsicContentSize()
+            hostingView.layoutSubtreeIfNeeded()
+            cachedFittingSize = hostingView.fittingSize
+            fittingSizeNeedsRefresh = false
+        }
+        contentSize = cachedFittingSize ?? .zero
+
+        guard contentSize.width > 0, contentSize.height > 0 else { return }
+        // Mirror the left accessory's titlebar-height computation so the right
+        // toggle ends up at the same Y as the left toggle (centered on the
+        // traffic-light row, not the full non-content area that includes tabs).
+        let titlebarHeight: CGFloat = {
+            if let window = view.window,
+               let closeButton = window.standardWindowButton(.closeButton),
+               let titlebarView = closeButton.superview,
+               titlebarView.frame.height > 0 {
+                return titlebarView.frame.height
+            }
+            return view.window.map { window in
+                window.frame.height - window.contentLayoutRect.height
+            } ?? contentSize.height
+        }()
+        let containerHeight = max(contentSize.height, titlebarHeight)
+        let yOffset = max(0, (containerHeight - contentSize.height) / 2.0)
+        let nextLayoutSnapshot = TitlebarControlsLayoutSnapshot(
+            contentSize: contentSize,
+            containerHeight: containerHeight,
+            yOffset: yOffset
+        )
+        guard titlebarControlsShouldApplyLayout(
+            previous: lastAppliedLayoutSnapshot,
+            next: nextLayoutSnapshot
+        ) else {
+            return
+        }
+        lastAppliedLayoutSnapshot = nextLayoutSnapshot
+        preferredContentSize = NSSize(width: contentSize.width, height: containerHeight)
+        containerView.frame = NSRect(x: 0, y: 0, width: contentSize.width, height: containerHeight)
+        hostingView.frame = NSRect(x: 0, y: yOffset, width: contentSize.width, height: contentSize.height)
+    }
+
+    private func applyWorkspaceTitlebarVisibility() {
+        let shouldShow = showsWorkspaceTitlebar
+        self.isHidden = !shouldShow
+        view.isHidden = !shouldShow
+        view.alphaValue = shouldShow ? 1 : 0
+        if !shouldShow {
+            preferredContentSize = .zero
+        }
+    }
+
+    private func restoreSizeAfterMinimalMode() {
+        guard showsWorkspaceTitlebar else { return }
+        let seed = cachedFittingSize ?? NSSize(width: 32, height: 28)
+        if hostingView.frame.size == .zero || containerView.frame.size == .zero {
+            containerView.frame.size = seed
+            hostingView.frame.size = seed
+        }
+        scheduleSizeUpdate(invalidateFittingSize: true)
+    }
+}
+
 private struct NotificationsPopoverView: View {
     @ObservedObject var notificationStore: TerminalNotificationStore
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
@@ -1779,7 +1976,9 @@ final class UpdateTitlebarAccessoryController {
     private var pendingAttachRetries: [ObjectIdentifier: Int] = [:]
     private var startupScanWorkItems: [DispatchWorkItem] = []
     private let controlsIdentifier = NSUserInterfaceItemIdentifier("cmux.titlebarControls")
+    private let rightSidebarToggleIdentifier = NSUserInterfaceItemIdentifier("cmux.titlebarRightSidebarToggle")
     private let controlsControllers = NSHashTable<TitlebarControlsAccessoryViewController>.weakObjects()
+    private let rightSidebarToggleControllers = NSHashTable<TitlebarRightSidebarToggleAccessoryViewController>.weakObjects()
     private var lastKnownPresentationMode: WorkspacePresentationModeSettings.Mode = WorkspacePresentationModeSettings.mode()
     private var detachedNotificationsPopover: NSPopover?
     private var detachedNotificationsPopoverDelegate: DetachedNotificationsPopoverDelegate?
@@ -1932,6 +2131,14 @@ final class UpdateTitlebarAccessoryController {
             controlsControllers.add(controls)
         }
 
+        if !window.titlebarAccessoryViewControllers.contains(where: { $0.view.identifier == rightSidebarToggleIdentifier }) {
+            let rightToggle = TitlebarRightSidebarToggleAccessoryViewController()
+            rightToggle.layoutAttribute = .right
+            rightToggle.view.identifier = rightSidebarToggleIdentifier
+            window.addTitlebarAccessoryViewController(rightToggle)
+            rightSidebarToggleControllers.add(rightToggle)
+        }
+
         attachedWindows.add(window)
         applyAccessoryVisibility(for: window)
 
@@ -1953,7 +2160,8 @@ final class UpdateTitlebarAccessoryController {
         let shouldHide = WorkspacePresentationModeSettings.mode() == .minimal
             || window.styleMask.contains(.fullScreen)
         for accessory in window.titlebarAccessoryViewControllers
-            where accessory.view.identifier == controlsIdentifier {
+            where accessory.view.identifier == controlsIdentifier
+                || accessory.view.identifier == rightSidebarToggleIdentifier {
             accessory.isHidden = shouldHide
             accessory.view.isHidden = shouldHide
             accessory.view.alphaValue = shouldHide ? 0 : 1
@@ -1968,7 +2176,7 @@ final class UpdateTitlebarAccessoryController {
         }
         let matchingIndices = window.titlebarAccessoryViewControllers.indices.reversed().filter { index in
             let id = window.titlebarAccessoryViewControllers[index].view.identifier
-            return id == controlsIdentifier
+            return id == controlsIdentifier || id == rightSidebarToggleIdentifier
         }
         guard !matchingIndices.isEmpty || attachedWindows.contains(window) else { return }
 
