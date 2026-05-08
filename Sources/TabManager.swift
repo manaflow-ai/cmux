@@ -5139,7 +5139,6 @@ class TabManager: ObservableObject {
         agentPIDDiscoveryLastStartedAt = now
         agentPIDDiscoveryInFlight = true
         agentPIDDiscoveryQueue.async { [weak self] in
-            guard self != nil else { return }
             let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }

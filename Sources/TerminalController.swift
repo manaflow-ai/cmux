@@ -3589,34 +3589,6 @@ class TerminalController {
             seenKeys.insert(entry.key)
         }
 
-        for key in workspace.agentPIDs.keys.sorted() where !seenKeys.contains(key) {
-            guard let rawPid = workspace.agentPIDs[key],
-                  rawPid > 0 else {
-                continue
-            }
-            if let state = workspace.agentProcessStates[key],
-               state.pid == rawPid,
-               !state.isAlive {
-                continue
-            }
-            let pid = Int(rawPid)
-            tags.append([
-                "kind": "tag",
-                "id": v2TopTagIdentifier(workspaceId: workspace.id, key: key),
-                "ref": v2TopTagRef(workspaceId: workspace.id, key: key),
-                "index": tags.count,
-                "key": key,
-                "value": "",
-                "icon": NSNull(),
-                "color": NSNull(),
-                "url": NSNull(),
-                "priority": 0,
-                "format": "plain",
-                "visible": false,
-                "pid": v2OrNull(pid)
-            ])
-        }
-
         return tags
     }
 
