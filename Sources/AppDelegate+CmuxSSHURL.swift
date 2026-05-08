@@ -34,9 +34,7 @@ final class CmuxSSHURLProcessLauncher {
             return false
         }
 
-        let socketPath = TerminalController.shared.activeSocketPath(
-            preferredPath: SocketControlSettings.socketPath()
-        )
+        let socketPath = resolvedSocketPath()
         let process = Process()
         process.executableURL = cliURL
         process.arguments = ["--socket", socketPath] + request.cliArguments
@@ -90,6 +88,12 @@ final class CmuxSSHURLProcessLauncher {
             )
             return false
         }
+    }
+
+    func resolvedSocketPath() -> String {
+        TerminalController.shared.activeSocketPath(
+            preferredPath: SocketControlSettings.socketPath()
+        )
     }
 
     private func presentLaunchFailure(summary: String, output: String, preferredWindow: NSWindow?) {
@@ -276,7 +280,8 @@ extension AppDelegate {
         ))
         commandLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
 
-        let commandScrollView = cmuxSSHURLTextPreview(request.cliPreview, height: 80)
+        let socketPath = CmuxSSHURLProcessLauncher.shared.resolvedSocketPath()
+        let commandScrollView = cmuxSSHURLTextPreview(request.cliPreview(socketPath: socketPath), height: 80)
 
         stack.addArrangedSubview(targetLabel)
         stack.addArrangedSubview(commandLabel)

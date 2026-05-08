@@ -87,6 +87,25 @@ final class CmuxSSHURLRequestTests: XCTestCase {
         }
     }
 
+    func testCommandPreviewIncludesSocketPathWhenProvided() throws {
+        let url = try XCTUnwrap(sshURL(queryItems: [
+            URLQueryItem(name: "host", value: "dev.example.com"),
+            URLQueryItem(name: "title", value: "Dev SSH")
+        ]))
+
+        switch CmuxSSHURLRequest.parse(url) {
+        case .success(.some(let request)):
+            XCTAssertEqual(
+                request.cliPreview(socketPath: "/tmp/cmux-urlcmd.sock"),
+                "cmux --socket /tmp/cmux-urlcmd.sock ssh --name \"Dev SSH\" dev.example.com"
+            )
+        case .success(nil):
+            XCTFail("Expected SSH URL request")
+        case .failure(let error):
+            XCTFail("Unexpected parse error: \(error)")
+        }
+    }
+
     func testParsesNoFocusFlagWithoutValue() throws {
         let url = try XCTUnwrap(URL(string: "\(supportedScheme)://ssh?host=dev.example.com&no-focus"))
 

@@ -56,7 +56,16 @@ struct CmuxSSHURLRequest: Equatable {
     }
 
     var cliPreview: String {
-        (["cmux"] + cliArguments).map(Self.previewArgument).joined(separator: " ")
+        cliPreview(socketPath: nil)
+    }
+
+    func cliPreview(socketPath: String?) -> String {
+        var parts = ["cmux"]
+        if let socketPath, !socketPath.isEmpty {
+            parts += ["--socket", socketPath]
+        }
+        parts += cliArguments
+        return parts.map(Self.previewArgument).joined(separator: " ")
     }
 
     var displayTarget: String {
