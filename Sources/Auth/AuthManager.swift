@@ -288,7 +288,7 @@ final class AuthManager: ObservableObject {
     }
 
     private func startOrAttachSignIn() async -> AuthSignInAttempt {
-        if let activeSessionID = webAuthSessionID, webAuthSession != nil {
+        if let activeSessionID = webAuthSessionID {
             return AuthSignInAttempt(sessionID: activeSessionID, startedNewSession: false)
         }
 

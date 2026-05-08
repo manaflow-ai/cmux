@@ -2367,15 +2367,16 @@ struct CMUXCLI {
                 // popup completes (or 5min timeout). The response is the
                 // callback — no polling.
                 let result = try client.sendV2(method: "auth.begin_sign_in", responseTimeout: 305)
-                let resultSignInURL = Self.manualSignInURL(from: result) ?? statusSignInURL
                 if (result["signed_in"] as? Bool) == true {
                     let email = (result["user"] as? [String: Any])?["email"] as? String
                     print("Signed in\(email.map { " as \($0)" } ?? "").")
                 } else if (result["timed_out"] as? Bool) == true {
                     print("Timed out waiting for sign-in. Run `cmux auth status` once you've finished in the browser.")
+                    let resultSignInURL = Self.manualSignInURL(from: result) ?? statusSignInURL
                     Self.printManualSignInFallback(resultSignInURL)
                 } else {
                     print("Sign-in did not complete. Run `cmux auth status` to check.")
+                    let resultSignInURL = Self.manualSignInURL(from: result) ?? statusSignInURL
                     Self.printManualSignInFallback(resultSignInURL)
                 }
 
