@@ -1283,7 +1283,9 @@ Tagged build/smoke evidence from `feat-desktop-cmx-backend`:
   `CMUX_TESTS_V2_DESKTOP_CMX_BACKEND=1`, and a dispatch-time
   `CMUX_TESTS_V2_FILTER`. The workflow uploads the diagnostics directory
   captured by the runner. Local validation covered shell syntax, YAML parsing,
-  and `git diff --check`; the workflow still needs a GitHub run on a pushed ref.
+  and `git diff --check`; the workflow also has a temporary push trigger for
+  branch `feat-desktop-cmx-backend` because GitHub cannot manually dispatch a
+  brand-new workflow file until it exists on the default branch.
 - Added `tests_v2/test_desktop_cmx_workspace_split_tab.py` and included it in
   the workflow's default targeted subset. This CMX-only artifact creates a new
   Rust-backed workspace, asserts it starts with one terminal surface and one
@@ -1302,8 +1304,8 @@ Tagged build/smoke evidence from `feat-desktop-cmx-backend`:
   `BonsplitTabDragUITests/testCmxBackendMinimalModeDragToSplitCreatesPane`
   under a virtual display, with downloadable `.xcresult`, tagged debug log, and
   `/tmp/cmux-cmx-ui-bonsplit-cmx-*` diagnostics artifacts. Local validation
-  covered YAML parsing and `git diff --check`; the workflow still needs a
-  GitHub run on a pushed ref.
+  covered YAML parsing and `git diff --check`; it has the same temporary
+  `feat-desktop-cmx-backend` push trigger for pre-merge execution.
 - Added a manual `Desktop CMX remote fixtures` workflow at
   `.github/workflows/desktop-cmx-remote-fixtures.yml`. It runs the CMX-backed
   `tests_v2` launcher against the Rust remote-state model test, SSH CLI
@@ -1319,7 +1321,8 @@ Tagged build/smoke evidence from `feat-desktop-cmx-backend`:
   base64-encoded identity material from repository secrets. Local validation
   covered YAML parsing and dispatcher dry-run command construction; the workflow
   itself must run on a pushed ref with a Docker-capable macOS runner, plus a
-  configured external SSH host when that optional path is enabled.
+  configured external SSH host when that optional path is enabled. It also has
+  the temporary branch push trigger used by the other new Desktop CMX workflows.
 - Added `scripts/dispatch-desktop-cmx-ci.sh` as the branch handoff command for
   the external gates. It refuses to dispatch without a pushed ref/upstream,
   supports `--dry-run`, and launches main `ci.yml`,
@@ -1331,9 +1334,11 @@ Tagged build/smoke evidence from `feat-desktop-cmx-backend`:
   default subset covers the Docker/SSH matrix separately from the broad socket
   suite, with `--skip-remote`, `--remote-filter`, `--include-external-ssh`, and
   `--external-ssh-filter` available for runner limitations or targeted re-runs.
-  Local validation covered `bash -n`,
-  `--dry-run --ref feat-desktop-cmx-backend`, the all-skipped guard path, YAML
-  default parsing, and `git diff --check`.
+  Because GitHub rejects `workflow_dispatch` for workflow files that are new to
+  a feature branch and absent from the default branch, the script now treats
+  that specific 404 as a warning and points to the branch push triggers. Local
+  validation covered `bash -n`, `--dry-run --ref feat-desktop-cmx-backend`, the
+  all-skipped guard path, YAML default parsing, and `git diff --check`.
 - Added `tests/test_shell_integration_cursor_reset.py` to CI's no-socket
   regression step. The test sources the bundled bash and zsh cmux shell
   integrations, verifies `_cmux_reset_ghostty_cursor_if_needed` emits

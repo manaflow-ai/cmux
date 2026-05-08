@@ -1,6 +1,9 @@
 name: Desktop CMX tests_v2
 
 on:
+  push:
+    branches:
+      - feat-desktop-cmx-backend
   workflow_dispatch:
     inputs:
       ref:

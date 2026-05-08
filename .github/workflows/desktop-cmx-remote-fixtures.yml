@@ -1,6 +1,9 @@
 name: Desktop CMX remote fixtures
 
 on:
+  push:
+    branches:
+      - feat-desktop-cmx-backend
   workflow_dispatch:
     inputs:
       ref:

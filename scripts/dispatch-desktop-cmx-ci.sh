@@ -129,7 +129,23 @@ run_or_print() {
   printf ' %q' "$@"
   printf '\n'
   if [ "$dry_run" -eq 0 ]; then
-    "$@"
+    local output
+    local status
+    set +e
+    output="$("$@" 2>&1)"
+    status=$?
+    set -e
+    if [ -n "$output" ]; then
+      printf '%s\n' "$output"
+    fi
+    if [ "$status" -ne 0 ]; then
+      if [[ "$output" == *"not found on the default branch"* ]]; then
+        echo "WARN: GitHub cannot manually dispatch new workflow files until they exist on the default branch." >&2
+        echo "WARN: On this feature branch, the Desktop CMX workflows also run from the branch push trigger." >&2
+        return 0
+      fi
+      return "$status"
+    fi
   fi
 }
 
