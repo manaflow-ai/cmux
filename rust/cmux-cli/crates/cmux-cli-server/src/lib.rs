@@ -26936,13 +26936,14 @@ async fn compatibility_pane_join_v2(
         ],
     )
     .ok_or_else(|| "Missing target_pane_id".to_string())?;
+    let requested_workspace_id = match compatibility_workspace_scope_param(params) {
+        Some(target) => Some(compatibility_workspace_id_from_ref(daemon, &target).await?),
+        None => None,
+    };
     let source_surface = match compatibility_surface_ref_param(params) {
         Some(surface) => surface,
         None => {
-            let workspace_id = match compatibility_workspace_scope_param(params) {
-                Some(target) => compatibility_workspace_id_from_ref(daemon, &target).await?,
-                None => daemon.active_ws_rx.borrow().id,
-            };
+            let workspace_id = requested_workspace_id.unwrap_or(daemon.active_ws_rx.borrow().id);
             let source_pane = compatibility_source_pane_ref_param(params)
                 .ok_or_else(|| "Missing surface_id".to_string())?;
             let source_panel_id =
@@ -26963,33 +26964,65 @@ async fn compatibility_pane_join_v2(
         }
     };
     let ctx = compatibility_resolve_tab_context(daemon, &source_surface).await?;
-    let target_panel_id =
-        compatibility_panel_id_in_workspace(daemon, ctx.workspace.id, &target_pane).await?;
-    let focus = compatibility_bool_param(params, &["focus"]).unwrap_or(false);
-    let moved = ctx
-        .space
-        .move_tab_to_panel(
-            ctx.surface.panel_id,
-            ctx.surface.index,
-            target_panel_id,
-            usize::MAX,
-            focus,
-        )
+    let destination_workspace_id = requested_workspace_id.unwrap_or(ctx.workspace.id);
+    let destination_workspace = daemon
+        .workspace_by_id(destination_workspace_id)
         .await
-        .map_err(|error| error.to_string())?;
+        .ok_or_else(|| format!("Workspace not found: {destination_workspace_id}"))?;
+    let destination_space = destination_workspace
+        .first_space()
+        .await
+        .ok_or_else(|| "Destination workspace has no space".to_string())?;
+    let target_panel_id =
+        compatibility_panel_id_in_workspace(daemon, destination_workspace_id, &target_pane).await?;
+    let focus = compatibility_bool_param(params, &["focus"]).unwrap_or(false);
+    let moved = if destination_workspace_id == ctx.workspace.id {
+        ctx.space
+            .move_tab_to_panel(
+                ctx.surface.panel_id,
+                ctx.surface.index,
+                target_panel_id,
+                usize::MAX,
+                focus,
+            )
+            .await
+            .map_err(|error| error.to_string())?
+    } else {
+        let detached = ctx
+            .space
+            .clone()
+            .detach_tab(ctx.tab.id)
+            .await
+            .map_err(|error| error.to_string())?;
+        let moved = destination_space
+            .clone()
+            .insert_existing_tab_in_panel(target_panel_id, detached.tab.clone(), usize::MAX, focus)
+            .await
+            .map_err(|error| error.to_string())?;
+        if detached.emptied_space {
+            ctx.space.dead_tx.send(true).ok();
+        }
+        moved
+    };
     let window_ref = if focus {
         compatibility_remember_focused_tab_for_params(
             daemon,
             params,
-            &ctx.workspace,
-            &ctx.space,
+            &destination_workspace,
+            &destination_space,
             target_panel_id,
             &moved,
         )
         .await?
     } else {
-        wake_space_repaint(&ctx.space);
-        compatibility_window_ref_for_workspace_params(daemon, params, ctx.workspace.id).await?
+        let window_ref =
+            compatibility_window_ref_for_workspace_params(daemon, params, destination_workspace_id)
+                .await?;
+        daemon
+            .add_workspace_to_native_window(&window_ref, destination_workspace_id)
+            .await;
+        wake_space_repaint(&destination_space);
+        window_ref
     };
     daemon.wake_model();
     daemon.snapshot_notifier.wake();
