@@ -4414,7 +4414,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(activateApplicationCallCount, 1)
     }
 
-    // MARK: - Non-Latin keyboard layout shortcut tests
+    // MARK: - Shortcut settings consultation regression tests
 
     func testExampleShortcutRoutingConsultsConfiguredShortcutSettings() {
         guard let appDelegate = AppDelegate.shared else {
@@ -4484,30 +4484,43 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
     }
 
-    func testBrowserFindCommandPreflightConsultsConfiguredFindInDirectoryShortcut() {
+    func testBrowserFindCommandPreflightConsultsConfiguredFindFamilyShortcuts() {
         #if DEBUG
-        var observedActions: [KeyboardShortcutSettings.Action] = []
-        KeyboardShortcutSettings.shortcutLookupObserver = { action in
-            observedActions.append(action)
+        let cases: [(action: KeyboardShortcutSettings.Action, modifiers: NSEvent.ModifierFlags, key: String, keyCode: UInt16)] = [
+            (.find, [.command], "f", 3),
+            (.findInDirectory, [.command, .shift], "f", 3),
+            (.findNext, [.command], "g", 5),
+            (.findPrevious, [.command, .shift], "g", 5),
+            (.hideFind, [.command, .option, .shift], "f", 3),
+            (.useSelectionForFind, [.command], "e", 14),
+        ]
+
+        for testCase in cases {
+            var observedActions: [KeyboardShortcutSettings.Action] = []
+            KeyboardShortcutSettings.shortcutLookupObserver = { action in
+                observedActions.append(action)
+            }
+
+            let event = makeKeyEvent(
+                modifierFlags: testCase.modifiers,
+                characters: testCase.key,
+                charactersIgnoringModifiers: testCase.key,
+                keyCode: testCase.keyCode
+            )
+
+            _ = shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(event)
+
+            XCTAssertTrue(
+                observedActions.contains(testCase.action),
+                "Browser find command preflight must read the configured \(testCase.action.rawValue) shortcut instead of matching a literal combo"
+            )
         }
-
-        let event = makeKeyEvent(
-            modifierFlags: [.command, .shift],
-            characters: "f",
-            charactersIgnoringModifiers: "f",
-            keyCode: 3
-        )
-
-        _ = shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(event)
-
-        XCTAssertTrue(
-            observedActions.contains(.findInDirectory),
-            "Browser find command preflight must read the configured Find in Directory shortcut instead of hardcoding Cmd+Shift+F"
-        )
         #else
         XCTFail("shortcutLookupObserver is only available in DEBUG")
         #endif
     }
+
+    // MARK: - Browser find shortcut routing tests
 
     func testBrowserFirstFindShortcutRoutingRecognizesBrowserLocalFindCommandFamily() {
         let cases: [(name: String, modifiers: NSEvent.ModifierFlags, chars: String, keyCode: UInt16)] = [
@@ -4632,6 +4645,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             )
         }
     }
+
+    // MARK: - Non-Latin keyboard layout shortcut tests
 
     func testCmdTWorksWithRussianKeyboardLayout() {
         guard let appDelegate = AppDelegate.shared else {
