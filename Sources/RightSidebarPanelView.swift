@@ -148,12 +148,14 @@ struct RightSidebarPanelView: View {
     let workspaceId: UUID?
     let onResumeSession: ((SessionEntry) -> Void)?
     let onOpenFilePreview: (String) -> Void
+    let onClose: () -> Void
 
     @State private var modeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOrControl) { window in
         guard let responder = window.firstResponder else { return false }
         return AppDelegate.shared?.isRightSidebarFocusResponder(responder, in: window) == true
     }
     @State private var focusShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
+    @State private var closeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @StateObject private var dockStore = DockControlsStore()
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey)
@@ -195,6 +197,7 @@ struct RightSidebarPanelView: View {
             WindowAccessor { window in
                 modeShortcutHintMonitor.setHostWindow(window)
                 focusShortcutHintMonitor.setHostWindow(window)
+                closeShortcutHintMonitor.setHostWindow(window)
             }
             .frame(width: 0, height: 0)
         )
@@ -202,11 +205,13 @@ struct RightSidebarPanelView: View {
         .onAppear {
             modeShortcutHintMonitor.start()
             focusShortcutHintMonitor.start()
+            closeShortcutHintMonitor.start()
             fileExplorerState.refreshModeAvailability()
         }
         .onDisappear {
             modeShortcutHintMonitor.stop()
             focusShortcutHintMonitor.stop()
+            closeShortcutHintMonitor.stop()
         }
         .onChange(of: fileExplorerState.mode) { _, mode in
             if mode != .dock { dockStore.deactivate() }
@@ -238,6 +243,7 @@ struct RightSidebarPanelView: View {
                 }
             }
             Spacer(minLength: 0)
+            closeButton
         }
         .rightSidebarChromeBar(leadingPadding: 4, trailingPadding: 6, height: titlebarHeight)
         .background(MinimalModeTitlebarControlHitRegionView())
@@ -247,6 +253,40 @@ struct RightSidebarPanelView: View {
             isVisible: true,
             titlebarHeight: titlebarHeight
         )
+    }
+
+    private var closeButton: some View {
+        let _ = keyboardShortcutSettingsObserver.revision
+        let shortcut = KeyboardShortcutSettings.shortcut(for: .toggleFileExplorer)
+        let showsShortcutHint = titlebarShortcutHintShouldShow(
+            shortcut: shortcut,
+            alwaysShowShortcutHints: alwaysShowShortcutHints,
+            modifierPressed: closeShortcutHintMonitor.isModifierPressed
+        )
+        return Button(action: onClose) {
+            Image(systemName: "xmark")
+                .font(.system(size: 11, weight: .semibold))
+                .frame(width: RightSidebarChromeMetrics.controlHeight, height: RightSidebarChromeMetrics.controlHeight)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundColor(.secondary)
+        .overlay(alignment: .topTrailing) {
+            if showsShortcutHint {
+                ShortcutHintPill(shortcut: shortcut, fontSize: 9, emphasis: 1.05)
+                    .offset(x: 5)
+                    .shortcutHintTransition()
+                    .accessibilityIdentifier("rightSidebarCloseShortcutHint")
+            }
+        }
+        .safeHelp(
+            KeyboardShortcutSettings.Action.toggleFileExplorer.tooltip(
+                String(localized: "rightSidebar.toggle.tooltip", defaultValue: "Toggle right sidebar")
+            )
+        )
+        .accessibilityLabel(String(localized: "rightSidebar.close.accessibilityLabel", defaultValue: "Close Right Sidebar"))
+        .accessibilityIdentifier("RightSidebar.closeButton")
+        .shortcutHintVisibilityAnimation(value: showsShortcutHint)
     }
 
     @ViewBuilder

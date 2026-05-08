@@ -180,6 +180,67 @@ final class BonsplitTabDragUITests: XCTestCase {
         }
     }
 
+    func testRightSidebarCloseButtonLivesInsideSidebarChrome() {
+        let (app, dataPath) = launchConfiguredApp(showRightSidebar: true, alwaysShowHints: true)
+
+        XCTAssertTrue(
+            ensureForegroundAfterLaunch(app, timeout: launchTimeout),
+            "Expected app to launch for right-sidebar close button UI test. state=\(app.state.rawValue)"
+        )
+        XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
+        guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: setupTimeout) else {
+            XCTFail("Timed out waiting for ready=1. data=\(loadJSON(atPath: dataPath) ?? [:])")
+            return
+        }
+
+        if let setupError = ready["setupError"], !setupError.isEmpty {
+            XCTFail("Setup failed: \(setupError)")
+            return
+        }
+
+        let titlebarToggle = app.descendants(matching: .any).matching(identifier: "titlebarControl.toggleRightSidebar").firstMatch
+        XCTAssertFalse(
+            titlebarToggle.waitForExistence(timeout: 1.0),
+            "Expected right sidebar toggle to be removed from the global titlebar."
+        )
+
+        let closeButton = app.buttons["RightSidebar.closeButton"]
+        XCTAssertTrue(closeButton.waitForExistence(timeout: 5.0), "Expected close button inside the right sidebar chrome.")
+        XCTAssertTrue(closeButton.isHittable, "Expected right sidebar close button to be hittable. button=\(closeButton.debugDescription)")
+
+        let shortcutHint = app.staticTexts["rightSidebarCloseShortcutHint"]
+        XCTAssertTrue(shortcutHint.waitForExistence(timeout: 5.0), "Expected Cmd+Option+B hint over the close button.")
+        XCTAssertLessThanOrEqual(
+            abs(shortcutHint.frame.midX - closeButton.frame.midX),
+            40,
+            "Expected close shortcut hint to stay attached to the close button. hint=\(shortcutHint.frame) button=\(closeButton.frame)"
+        )
+
+        closeButton.click()
+        XCTAssertTrue(
+            waitForCondition(timeout: 3.0) {
+                !closeButton.exists || !closeButton.isHittable
+            },
+            "Expected clicking the right sidebar close button to hide the sidebar."
+        )
+
+        app.typeKey("b", modifierFlags: [.command, .option])
+        XCTAssertTrue(
+            waitForCondition(timeout: 3.0) {
+                closeButton.exists && closeButton.isHittable
+            },
+            "Expected Cmd+Option+B to reopen the right sidebar."
+        )
+
+        app.typeKey("b", modifierFlags: [.command, .option])
+        XCTAssertTrue(
+            waitForCondition(timeout: 3.0) {
+                !closeButton.exists || !closeButton.isHittable
+            },
+            "Expected Cmd+Option+B to hide the right sidebar when it is open."
+        )
+    }
+
     func testMinimalModeTitlebarDoubleClickZoomsWindow() {
         let (app, dataPath) = launchConfiguredApp(windowSize: "640x420")
 
@@ -558,7 +619,8 @@ final class BonsplitTabDragUITests: XCTestCase {
         startWithHiddenSidebar: Bool = false,
         presentationMode: WorkspacePresentationMode = .minimal,
         showRightSidebar: Bool = false,
-        windowSize: String? = nil
+        windowSize: String? = nil,
+        alwaysShowHints: Bool = false
     ) -> (XCUIApplication, String) {
         let app = XCUIApplication()
         let dataPath = "/tmp/cmux-ui-test-bonsplit-tab-drag-\(UUID().uuidString).json"
@@ -577,6 +639,7 @@ final class BonsplitTabDragUITests: XCTestCase {
             app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR"] = "1"
         }
         app.launchArguments += ["-workspacePresentationMode", presentationMode.rawValue]
+        app.launchArguments += ["-shortcutHintAlwaysShow", alwaysShowHints ? "YES" : "NO"]
         let options = XCTExpectedFailure.Options()
         options.isStrict = false
         XCTExpectFailure("App activation may fail on headless CI runners", options: options) {

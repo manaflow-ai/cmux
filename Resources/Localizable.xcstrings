@@ -92930,40 +92930,6 @@
         }
       }
     },
-    "titlebar.rightSidebar.accessibilityLabel": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Toggle Right Sidebar"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "右サイドバーの切り替え"
-          }
-        }
-      }
-    },
-    "titlebar.rightSidebar.tooltip": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show or hide the right sidebar"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "右サイドバーの表示/非表示"
-          }
-        }
-      }
-    },
     "titlebar.sidebar.accessibilityLabel": {
       "extractionState": "manual",
       "localizations": {
@@ -105965,6 +105931,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Cmd+clic sui file .md/.markdown/.mkd/.mdx apre il pannello del visualizzatore markdown cmux invece dell'editor preferito."
+          }
+        }
+      }
+    },
+    "rightSidebar.close.accessibilityLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close Right Sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右サイドバーを閉じる"
+          }
+        }
+      }
+    },
+    "rightSidebar.toggle.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle right sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右サイドバーを切り替え"
           }
         }
       }

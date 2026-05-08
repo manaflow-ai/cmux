@@ -1031,13 +1031,8 @@ struct ContentView: View {
     @EnvironmentObject var fileExplorerState: FileExplorerState
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage("titlebarControlsStyle") private var titlebarControlsStyleRawValue = TitlebarControlsStyle.classic.rawValue
-    @AppStorage(ShortcutHintDebugSettings.titlebarHintXKey) private var titlebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultTitlebarHintX
-    @AppStorage(ShortcutHintDebugSettings.titlebarHintYKey) private var titlebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultTitlebarHintY
-    @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey) private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey) private var leftTitlebarControlsLeadingInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey) private var leftTitlebarControlsTopInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset
-    @AppStorage(MinimalModeTitlebarDebugSettings.rightToggleTrailingInsetKey) private var rightTitlebarToggleTrailingInset = MinimalModeTitlebarDebugSettings.defaultRightToggleTrailingInset
-    @AppStorage(MinimalModeTitlebarDebugSettings.rightToggleTopInsetKey) private var rightTitlebarToggleTopInset = MinimalModeTitlebarDebugSettings.defaultRightToggleTopInset
     @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightsXOffsetKey) private var trafficLightsXOffset = MinimalModeTitlebarDebugSettings.defaultTrafficLightsXOffset
     @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightsYOffsetKey) private var trafficLightsYOffset = MinimalModeTitlebarDebugSettings.defaultTrafficLightsYOffset
     @State private var sidebarWidth: CGFloat = 200
@@ -1051,7 +1046,6 @@ struct ContentView: View {
     @State private var isFullScreen: Bool = false
     @State private var observedWindow: NSWindow?
     @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
-    @State private var rightSidebarToggleShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @StateObject private var fileExplorerStore = FileExplorerStore()
     @StateObject private var sessionIndexStore = SessionIndexStore()
     @StateObject private var selectedWorkspaceDirectoryObserver = SelectedWorkspaceDirectoryObserver()
@@ -1063,7 +1057,6 @@ struct ContentView: View {
     @State private var workspaceHandoffFallbackTask: Task<Void, Never>?
     @State private var didApplyUITestSidebarSelection = false
     @State private var titlebarThemeGeneration: UInt64 = 0
-    @State private var rightSidebarShortcutRefreshTick = 0
     @State private var sidebarDraggedTabId: UUID?
     @State private var titlebarTextUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
     @State private var sidebarResizerCursorReleaseWorkItem: DispatchWorkItem?
@@ -2165,6 +2158,12 @@ struct ContentView: View {
             },
             onOpenFilePreview: { filePath in
                 openFilePreviewFromSidebar(filePath: filePath)
+            },
+            onClose: {
+                #if DEBUG
+                cmuxDebugLog("rightSidebar.closeButton")
+                #endif
+                _ = AppDelegate.shared?.toggleRightSidebarInActiveMainWindow(preferredWindow: observedWindow)
             }
         )
         .frame(width: rightSidebarWidth)
@@ -2275,14 +2274,6 @@ struct ContentView: View {
                 leftTitlebarControlsTopInset,
                 range: MinimalModeTitlebarDebugSettings.topInsetRange
             ),
-            rightToggleTrailingInset: MinimalModeTitlebarDebugSettings.clamped(
-                rightTitlebarToggleTrailingInset,
-                range: MinimalModeTitlebarDebugSettings.horizontalInsetRange
-            ),
-            rightToggleTopInset: MinimalModeTitlebarDebugSettings.clamped(
-                rightTitlebarToggleTopInset,
-                range: MinimalModeTitlebarDebugSettings.topInsetRange
-            ),
             trafficLightsXOffset: MinimalModeTitlebarDebugSettings.clamped(
                 trafficLightsXOffset,
                 range: MinimalModeTitlebarDebugSettings.trafficLightOffsetRange
@@ -2292,73 +2283,6 @@ struct ContentView: View {
                 range: MinimalModeTitlebarDebugSettings.trafficLightYOffsetRange
             )
         )
-    }
-
-    private var rightSidebarTitlebarToggle: some View {
-        let config = titlebarControlsConfig
-        let _ = rightSidebarShortcutRefreshTick
-        let shortcut = KeyboardShortcutSettings.shortcut(for: .toggleFileExplorer)
-        let showsShortcutHint = titlebarShortcutHintShouldShow(
-            shortcut: shortcut,
-            alwaysShowShortcutHints: alwaysShowShortcutHints,
-            modifierPressed: rightSidebarToggleShortcutHintMonitor.isModifierPressed
-        )
-        return TitlebarControlButton(
-            config: config,
-            accessibilityIdentifier: "titlebarControl.toggleRightSidebar",
-            accessibilityLabel: String(localized: "titlebar.rightSidebar.accessibilityLabel", defaultValue: "Toggle Right Sidebar"),
-            action: {
-                #if DEBUG
-                cmuxDebugLog("titlebar.toggleRightSidebar")
-                #endif
-                _ = AppDelegate.shared?.toggleRightSidebarInActiveMainWindow(preferredWindow: observedWindow)
-            }
-        ) {
-            titlebarControlIcon(systemName: "sidebar.right", config: config)
-        }
-        .safeHelp(
-            KeyboardShortcutSettings.Action.toggleFileExplorer.tooltip(
-                String(localized: "titlebar.rightSidebar.tooltip", defaultValue: "Show or hide the right sidebar")
-            )
-        )
-        .frame(
-            width: MinimalModeSidebarTitlebarControlsMetrics.singleButtonHostWidth,
-            height: MinimalModeSidebarTitlebarControlsMetrics.hostHeight
-        )
-        .overlay(alignment: .topTrailing) {
-            ZStack(alignment: .topTrailing) {
-                if showsShortcutHint {
-                    ShortcutHintPill(shortcut: shortcut, fontSize: max(8, config.iconSize - 5))
-                        .frame(minHeight: titlebarShortcutHintHeight(for: config))
-                        .offset(
-                            x: CGFloat(ShortcutHintDebugSettings.clamped(titlebarShortcutHintXOffset)),
-                            y: titlebarShortcutHintVerticalOffset(for: config)
-                                + CGFloat(ShortcutHintDebugSettings.clamped(titlebarShortcutHintYOffset))
-                        )
-                        .shortcutHintTransition()
-                        .accessibilityIdentifier("titlebarShortcutHint.toggleFileExplorer")
-                }
-            }
-            .allowsHitTesting(false)
-        }
-        .shortcutHintVisibilityAnimation(value: showsShortcutHint)
-    }
-
-    @ViewBuilder
-    private func titlebarControlIcon(systemName: String, config: TitlebarControlsStyleConfig) -> some View {
-        let icon = Image(systemName: systemName)
-            .font(.system(size: config.iconSize, weight: .semibold))
-            .frame(width: config.buttonSize, height: config.buttonSize)
-
-        if config.buttonBackground {
-            icon
-                .background(
-                    RoundedRectangle(cornerRadius: config.buttonCornerRadius)
-                        .fill(Color(nsColor: .controlBackgroundColor).opacity(0.7))
-                )
-        } else {
-            icon
-        }
     }
 
     private func customTitlebar(appearance: WindowAppearanceSnapshot) -> some View {
@@ -2721,27 +2645,6 @@ struct ContentView: View {
                             .padding(.top, 4)
                     }
                 }
-                .overlay(alignment: .topTrailing) {
-                    rightSidebarTitlebarToggle
-                        .padding(
-                            .top,
-                            CGFloat(
-                                MinimalModeTitlebarDebugSettings.clamped(
-                                    rightTitlebarToggleTopInset,
-                                    range: MinimalModeTitlebarDebugSettings.topInsetRange
-                                )
-                            )
-                        )
-                        .padding(
-                            .trailing,
-                            CGFloat(
-                                MinimalModeTitlebarDebugSettings.clamped(
-                                    rightTitlebarToggleTrailingInset,
-                                    range: MinimalModeTitlebarDebugSettings.horizontalInsetRange
-                                )
-                            )
-                        )
-                }
                 .frame(minWidth: CGFloat(SessionPersistencePolicy.minimumWindowWidth), minHeight: CGFloat(SessionPersistencePolicy.minimumWindowHeight))
                 .background(Color.clear)
                 .background(
@@ -2750,7 +2653,6 @@ struct ContentView: View {
         )
 
         view = AnyView(view.onAppear {
-            rightSidebarToggleShortcutHintMonitor.start()
             selectedWorkspaceDirectoryObserver.wire(tabManager: tabManager)
             tabManager.applyWindowBackgroundForSelectedTab()
             reconcileMountedWorkspaceIds()
@@ -3287,10 +3189,6 @@ struct ContentView: View {
             applyTitlebarDebugChromeChange()
         })
 
-        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: KeyboardShortcutSettings.didChangeNotification)) { _ in
-            rightSidebarShortcutRefreshTick &+= 1
-        })
-
         view = AnyView(view.onChange(of: tabManager.tabs.map(\.id)) { _ in
             syncTrafficLightInset()
         })
@@ -3319,11 +3217,9 @@ struct ContentView: View {
                 sidebarDragStartWidth = nil
             }
             removeSidebarResizerPointerMonitor()
-            rightSidebarToggleShortcutHintMonitor.stop()
         })
 
         view = AnyView(view.background(WindowAccessor(refreshID: appearance.appKitWindowMutationID) { [appearance] window in
-            rightSidebarToggleShortcutHintMonitor.setHostWindow(window)
             window.identifier = NSUserInterfaceItemIdentifier(windowIdentifier)
             window.isRestorable = false
             setMinimalModeSidebarTitlebarControlsAvailable(sidebarState.isVisible, in: window)

@@ -1613,8 +1613,6 @@ private enum DebugWindowConfigSnapshot {
         let titlebarChromePayload = """
         titlebarLeftControlsLeadingInset=\(String(format: "%.1f", doubleValue(defaults, key: MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey, fallback: MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset)))
         titlebarLeftControlsTopInset=\(String(format: "%.1f", doubleValue(defaults, key: MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey, fallback: MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset)))
-        titlebarRightToggleTrailingInset=\(String(format: "%.1f", doubleValue(defaults, key: MinimalModeTitlebarDebugSettings.rightToggleTrailingInsetKey, fallback: MinimalModeTitlebarDebugSettings.defaultRightToggleTrailingInset)))
-        titlebarRightToggleTopInset=\(String(format: "%.1f", doubleValue(defaults, key: MinimalModeTitlebarDebugSettings.rightToggleTopInsetKey, fallback: MinimalModeTitlebarDebugSettings.defaultRightToggleTopInset)))
         titlebarTrafficLightsXOffset=\(String(format: "%.1f", doubleValue(defaults, key: MinimalModeTitlebarDebugSettings.trafficLightsXOffsetKey, fallback: MinimalModeTitlebarDebugSettings.defaultTrafficLightsXOffset)))
         titlebarTrafficLightsYOffset=\(String(format: "%.1f", doubleValue(defaults, key: MinimalModeTitlebarDebugSettings.trafficLightsYOffsetKey, fallback: MinimalModeTitlebarDebugSettings.defaultTrafficLightsYOffset)))
         titlebarTrafficLightTabBarInset=\(String(format: "%.1f", Double(MinimalModeTitlebarDebugSettings.trafficLightTabBarLeadingInset(defaults: defaults))))
@@ -1720,10 +1718,6 @@ private struct DebugWindowControlsView: View {
     private var leftControlsLeadingInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey)
     private var leftControlsTopInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset
-    @AppStorage(MinimalModeTitlebarDebugSettings.rightToggleTrailingInsetKey)
-    private var rightToggleTrailingInset = MinimalModeTitlebarDebugSettings.defaultRightToggleTrailingInset
-    @AppStorage(MinimalModeTitlebarDebugSettings.rightToggleTopInsetKey)
-    private var rightToggleTopInset = MinimalModeTitlebarDebugSettings.defaultRightToggleTopInset
     @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightsXOffsetKey)
     private var trafficLightsXOffset = MinimalModeTitlebarDebugSettings.defaultTrafficLightsXOffset
     @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightsYOffsetKey)
@@ -1917,16 +1911,6 @@ private struct DebugWindowControlsView: View {
                             yRange: MinimalModeTitlebarDebugSettings.topInsetRange
                         )
 
-                        chromeSliderSection(
-                            "Right toggle",
-                            xLabel: "Trailing",
-                            x: $rightToggleTrailingInset,
-                            xRange: MinimalModeTitlebarDebugSettings.horizontalInsetRange,
-                            yLabel: "Top",
-                            y: $rightToggleTopInset,
-                            yRange: MinimalModeTitlebarDebugSettings.topInsetRange
-                        )
-
                         HStack(spacing: 8) {
                             Text("Title text leading")
                             Slider(value: $titlebarLeadingExtra, in: 0...40)
@@ -2071,8 +2055,6 @@ private struct DebugWindowControlsView: View {
     private func resetTitlebarChrome() {
         leftControlsLeadingInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset
         leftControlsTopInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset
-        rightToggleTrailingInset = MinimalModeTitlebarDebugSettings.defaultRightToggleTrailingInset
-        rightToggleTopInset = MinimalModeTitlebarDebugSettings.defaultRightToggleTopInset
         trafficLightsXOffset = MinimalModeTitlebarDebugSettings.defaultTrafficLightsXOffset
         trafficLightsYOffset = MinimalModeTitlebarDebugSettings.defaultTrafficLightsYOffset
         titlebarLeadingExtra = 0
@@ -2082,8 +2064,6 @@ private struct DebugWindowControlsView: View {
         let payload = """
         titlebarLeftControlsLeadingInset=\(String(format: "%.1f", leftControlsLeadingInset))
         titlebarLeftControlsTopInset=\(String(format: "%.1f", leftControlsTopInset))
-        titlebarRightToggleTrailingInset=\(String(format: "%.1f", rightToggleTrailingInset))
-        titlebarRightToggleTopInset=\(String(format: "%.1f", rightToggleTopInset))
         titlebarTrafficLightsXOffset=\(String(format: "%.1f", trafficLightsXOffset))
         titlebarTrafficLightsYOffset=\(String(format: "%.1f", trafficLightsYOffset))
         titlebarTrafficLightTabBarInset=\(String(format: "%.1f", Double(MinimalModeTitlebarDebugSettings.trafficLightTabBarLeadingInset())))

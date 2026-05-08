@@ -457,15 +457,11 @@ func isMinimalModeTitlebarControlHit(window: NSWindow, locationInWindow: NSPoint
 enum MinimalModeTitlebarDebugSettings {
     static let leftControlsLeadingInsetKey = "debug.titlebar.leftControlsLeadingInset"
     static let leftControlsTopInsetKey = "debug.titlebar.leftControlsTopInset"
-    static let rightToggleTrailingInsetKey = "debug.titlebar.rightToggleTrailingInset"
-    static let rightToggleTopInsetKey = "debug.titlebar.rightToggleTopInset"
     static let trafficLightsXOffsetKey = "debug.titlebar.trafficLightsXOffset"
     static let trafficLightsYOffsetKey = "debug.titlebar.trafficLightsYOffset"
 
     static let defaultLeftControlsLeadingInset = 72.0
     static let defaultLeftControlsTopInset = -0.3
-    static let defaultRightToggleTrailingInset = 8.0
-    static let defaultRightToggleTopInset = -0.0
     static let defaultTrafficLightsXOffset = 0.0
     static let defaultTrafficLightsYOffset = 1.7
     static let defaultTrafficLightTabBarInset = 80.0
@@ -563,18 +559,6 @@ enum MinimalModeTitlebarDebugSettings {
                 fallback: defaultLeftControlsTopInset,
                 range: topInsetRange
             ),
-            rightToggleTrailingInset: doubleValue(
-                defaults: defaults,
-                key: rightToggleTrailingInsetKey,
-                fallback: defaultRightToggleTrailingInset,
-                range: horizontalInsetRange
-            ),
-            rightToggleTopInset: doubleValue(
-                defaults: defaults,
-                key: rightToggleTopInsetKey,
-                fallback: defaultRightToggleTopInset,
-                range: topInsetRange
-            ),
             trafficLightsXOffset: doubleValue(
                 defaults: defaults,
                 key: trafficLightsXOffsetKey,
@@ -594,8 +578,6 @@ enum MinimalModeTitlebarDebugSettings {
 struct MinimalModeTitlebarDebugSnapshot: Equatable {
     let leftControlsLeadingInset: Double
     let leftControlsTopInset: Double
-    let rightToggleTrailingInset: Double
-    let rightToggleTopInset: Double
     let trafficLightsXOffset: Double
     let trafficLightsYOffset: Double
 }
