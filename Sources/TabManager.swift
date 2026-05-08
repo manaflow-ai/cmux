@@ -4169,6 +4169,7 @@ class TabManager: ObservableObject {
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
         clearWorkspaceGitProbes(workspaceId: workspace.id)
         clearWorkspacePullRequestTracking(workspaceId: workspace.id)
+        clearPanelTitleTracking(workspaceId: workspace.id)
         sidebarSelectedWorkspaceIds.remove(workspace.id)
 
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
@@ -4197,6 +4198,7 @@ class TabManager: ObservableObject {
     func detachWorkspace(tabId: UUID) -> Workspace? {
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return nil }
         clearWorkspaceGitProbes(workspaceId: tabId)
+        clearPanelTitleTracking(workspaceId: tabId)
         sidebarSelectedWorkspaceIds.remove(tabId)
 
         let removed = tabs.remove(at: index)
@@ -5149,6 +5151,15 @@ class TabManager: ObservableObject {
             }
         }
         return didRegisterAny
+    }
+
+    private func clearPanelTitleTracking(workspaceId: UUID) {
+        for key in Array(pendingPanelTitleUpdates.keys) where key.tabId == workspaceId {
+            pendingPanelTitleUpdates.removeValue(forKey: key)
+        }
+        for key in Array(panelAgentTitleRegistrations.keys) where key.tabId == workspaceId {
+            panelAgentTitleRegistrations.removeValue(forKey: key)
+        }
     }
 
     private func registerAgentPID(
