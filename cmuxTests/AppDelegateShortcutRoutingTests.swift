@@ -1646,6 +1646,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             self.window(withId: windowId)?.isVisible ?? false,
             "Confirming Cmd+Ctrl+W should close the visible window"
         )
+        XCTAssertNil(appDelegate.tabManagerFor(windowId: windowId))
+        XCTAssertNil(appDelegate.recoverableMainWindowRoute(windowId: windowId))
     }
 
     // NOTE: This test is skipped in CI via -skip-testing in ci.yml because closing

@@ -832,6 +832,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
     var mainWindowContexts: [ObjectIdentifier: MainWindowContext] = [:]
+    private var explicitlyConfirmedMainWindowCloseIds: Set<UUID> = []
     private var mainWindowControllers: [MainWindowController] = []
 
     /// Tracks the cascade point for new windows, matching Ghostty's upstream algorithm.
@@ -4851,7 +4852,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
         guard confirmCloseMainWindow(window) else { return true }
-        window.close()
+        let confirmedWindowId = mainWindowId(for: window)
+        if let confirmedWindowId {
+            explicitlyConfirmedMainWindowCloseIds.insert(confirmedWindowId)
+        }
+        window.performClose(nil)
+        if let confirmedWindowId {
+            explicitlyConfirmedMainWindowCloseIds.remove(confirmedWindowId)
+        }
         return true
     }
 
@@ -6947,7 +6955,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard let self, let controller else { return }
             self.mainWindowControllers.removeAll(where: { $0 === controller })
         }
-        controller.shouldClose = { [weak self] in self?.handleMainTerminalWindowShouldClose() ?? true }
+        controller.shouldClose = { [weak self, weak window] in
+            self?.handleMainTerminalWindowShouldClose(window: window) ?? true
+        }
         window.delegate = controller
         mainWindowControllers.append(controller)
 
@@ -13357,7 +13367,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
     }
 
-    private func handleMainTerminalWindowShouldClose() -> Bool {
+    private func handleMainTerminalWindowShouldClose(window: NSWindow?) -> Bool {
+        if let window,
+           let windowId = mainWindowId(for: window),
+           explicitlyConfirmedMainWindowCloseIds.remove(windowId) != nil {
+            return true
+        }
         // XCTest has no UI for the warn-before-quit dialog and would either block
         // on runModal or have NSApp.terminate kill the test process.
         if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil { return true }
