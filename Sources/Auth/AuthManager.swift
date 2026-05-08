@@ -9,6 +9,7 @@ import Security
 
 private final class AuthPresentationContext: NSObject, ASWebAuthenticationPresentationContextProviding {
     static let shared = AuthPresentationContext()
+    @MainActor private static var fallbackAnchor: NSWindow?
 
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
         // ASWebAuthenticationSession invokes this on whichever thread called
@@ -18,16 +19,64 @@ private final class AuthPresentationContext: NSObject, ASWebAuthenticationPresen
         if Thread.isMainThread {
             return Self.currentAnchor()
         }
-        var result: ASPresentationAnchor = NSWindow()
+        var result: ASPresentationAnchor?
         DispatchQueue.main.sync {
             result = Self.currentAnchor()
         }
-        return result
+        return result!
+    }
+
+    @MainActor
+    static func prepareForPresentation() async {
+        let window = currentAnchor()
+        if window.isMiniaturized {
+            window.deminiaturize(nil)
+        }
+        if !window.isVisible {
+            window.orderFront(nil)
+        }
+        if !NSApp.isActive {
+            var activationEvents = NotificationCenter.default
+                .notifications(named: NSApplication.didBecomeActiveNotification, object: NSApp)
+                .makeAsyncIterator()
+            let didRequestActivation = NSRunningApplication.current.activate(
+                options: [.activateAllWindows, .activateIgnoringOtherApps]
+            )
+            if didRequestActivation, !NSApp.isActive {
+                _ = await activationEvents.next()
+            }
+        }
+        window.makeKeyAndOrderFront(nil)
+        cmuxDebugLog(
+            "auth.webauth.prepare active=\(NSApp.isActive ? 1 : 0) visible=\(window.isVisible ? 1 : 0) key=\(window.isKeyWindow ? 1 : 0) main=\(window.isMainWindow ? 1 : 0)"
+        )
     }
 
     @MainActor
     private static func currentAnchor() -> ASPresentationAnchor {
-        NSApp.keyWindow ?? NSApp.mainWindow ?? (NSApp.windows.first ?? NSWindow())
+        if let keyWindow = NSApp.keyWindow {
+            return keyWindow
+        }
+        if let mainWindow = NSApp.mainWindow {
+            return mainWindow
+        }
+        if let visibleWindow = NSApp.windows.first(where: { $0.isVisible && !$0.isMiniaturized }) {
+            return visibleWindow
+        }
+        if let window = NSApp.windows.first {
+            return window
+        }
+        if let fallbackAnchor {
+            return fallbackAnchor
+        }
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1, height: 1),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        fallbackAnchor = window
+        return window
     }
 }
 
@@ -61,6 +110,11 @@ enum AuthSignInAwaitResult: Equatable, Sendable {
     case signedIn
     case cancelled
     case timedOut
+}
+
+private struct AuthSignInAttempt {
+    let sessionID: UUID?
+    let startedNewSession: Bool
 }
 
 protocol StackAuthTokenStoreProtocol: TokenStoreProtocol, Sendable {
@@ -191,10 +245,22 @@ final class AuthManager: ObservableObject {
     private var loginPollTask: Task<Void, Never>?
     private var webAuthSession: ASWebAuthenticationSession?
     private var webAuthSessionID: UUID?
+    private var webAuthSignInURL: URL?
+
+    var currentSignInURL: URL? {
+        if isAuthenticated { return nil }
+        return webAuthSignInURL ?? AuthEnvironment.signInURL()
+    }
 
     func beginSignIn() {
-        if isLoading, webAuthSession != nil {
-            return
+        Task { @MainActor in
+            _ = await startOrAttachSignIn()
+        }
+    }
+
+    private func startOrAttachSignIn() async -> AuthSignInAttempt {
+        if let activeSessionID = webAuthSessionID, webAuthSession != nil {
+            return AuthSignInAttempt(sessionID: activeSessionID, startedNewSession: false)
         }
 
         loginPollTask?.cancel()
@@ -205,6 +271,7 @@ final class AuthManager: ObservableObject {
         let callbackScheme = AuthEnvironment.callbackScheme
         let sessionID = UUID()
         webAuthSessionID = sessionID
+        webAuthSignInURL = signInURL
 
         let session = ASWebAuthenticationSession(
             url: signInURL,
@@ -218,9 +285,11 @@ final class AuthManager: ObservableObject {
                         self.isLoading = false
                         self.webAuthSession = nil
                         self.webAuthSessionID = nil
+                        self.webAuthSignInURL = nil
                     }
                 }
                 if let error {
+                    cmuxDebugLog("auth.webauth.failed session=\(sessionID.uuidString.prefix(8)) error=\(error)")
                     NSLog("auth.webauth failed: %@", "\(error)")
                     return
                 }
@@ -235,15 +304,24 @@ final class AuthManager: ObservableObject {
         session.presentationContextProvider = AuthPresentationContext.shared
         session.prefersEphemeralWebBrowserSession = false
 
+        await AuthPresentationContext.prepareForPresentation()
+        cmuxDebugLog(
+            "auth.webauth.start session=\(sessionID.uuidString.prefix(8)) scheme=\(callbackScheme) active=\(NSApp.isActive ? 1 : 0)"
+        )
         if session.start() {
             webAuthSession = session
+            cmuxDebugLog("auth.webauth.started session=\(sessionID.uuidString.prefix(8))")
+            return AuthSignInAttempt(sessionID: sessionID, startedNewSession: true)
         } else {
+            cmuxDebugLog("auth.webauth.startFailed session=\(sessionID.uuidString.prefix(8))")
             NSLog("auth.webauth: session.start() returned false")
             if webAuthSessionID == sessionID {
                 isLoading = false
                 webAuthSession = nil
                 webAuthSessionID = nil
+                webAuthSignInURL = nil
             }
+            return AuthSignInAttempt(sessionID: nil, startedNewSession: false)
         }
     }
 
@@ -254,12 +332,13 @@ final class AuthManager: ObservableObject {
     /// — the $isAuthenticated / $isLoading AsyncPublishers drive the wait.
     func beginSignInAndAwait(timeout: TimeInterval) async -> AuthSignInAwaitResult {
         if isAuthenticated { return .signedIn }
-        if !isLoading || webAuthSession == nil {
-            beginSignIn()
+        let attempt = await startOrAttachSignIn()
+        if attempt.sessionID == nil, !isLoading {
+            return isAuthenticated ? .signedIn : .cancelled
         }
         let result = await waitForSignInSettled(timeout: timeout)
-        if result == .timedOut {
-            cancelActiveWebAuthSession(setLoading: true)
+        if result == .timedOut, attempt.startedNewSession, let sessionID = attempt.sessionID {
+            cancelActiveWebAuthSession(sessionID: sessionID, setLoading: true)
         }
         return result
     }
@@ -305,10 +384,14 @@ final class AuthManager: ObservableObject {
         }
     }
 
-    private func cancelActiveWebAuthSession(setLoading: Bool) {
+    private func cancelActiveWebAuthSession(sessionID: UUID? = nil, setLoading: Bool) {
+        if let sessionID, webAuthSessionID != sessionID {
+            return
+        }
         let session = webAuthSession
         webAuthSession = nil
         webAuthSessionID = nil
+        webAuthSignInURL = nil
         if setLoading {
             isLoading = false
         }

@@ -556,6 +556,7 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       CMUXD_SOCKET="${APP_SUPPORT_DIR}/cmuxd-dev-${TAG_SLUG}.sock"
       CMUX_SOCKET_PATH_VALUE="/tmp/cmux-debug-${TAG_SLUG}.sock"
       CMUX_DEBUG_LOG="/tmp/cmux-debug-${TAG_SLUG}.log"
+      CMUX_AUTH_CALLBACK_SCHEME_VALUE="cmux-dev-${TAG_SLUG}"
       write_last_socket_path "$CMUX_SOCKET_PATH_VALUE"
       echo "$CMUX_DEBUG_LOG" > /tmp/cmux-last-debug-log-path || true
       /usr/libexec/PlistBuddy -c "Add :LSEnvironment dict" "$INFO_PLIST" 2>/dev/null || true
@@ -573,6 +574,8 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       set_plist_env "$INFO_PLIST" CMUX_AUTH_WWW_ORIGIN "$CMUX_DEV_ORIGIN"
       set_plist_env "$INFO_PLIST" CMUX_API_BASE_URL "$CMUX_DEV_ORIGIN"
       set_plist_env "$INFO_PLIST" CMUX_VM_API_BASE_URL "$CMUX_DEV_ORIGIN"
+      set_plist_env "$INFO_PLIST" CMUX_AUTH_CALLBACK_SCHEME "$CMUX_AUTH_CALLBACK_SCHEME_VALUE"
+      /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:1:CFBundleURLSchemes:0 ${CMUX_AUTH_CALLBACK_SCHEME_VALUE}" "$INFO_PLIST" 2>/dev/null || true
       if [[ -S "$CMUXD_SOCKET" ]]; then
         for PID in $(lsof -t "$CMUXD_SOCKET" 2>/dev/null); do
           kill "$PID" 2>/dev/null || true
@@ -674,6 +677,7 @@ if [[ "$LAUNCH" -eq 1 ]]; then
     -u CMUXD_UNIX_PATH
     -u CMUX_TAG
     -u CMUX_DEBUG_LOG
+    -u CMUX_AUTH_CALLBACK_SCHEME
     -u CMUX_BUNDLE_ID
     -u CMUX_SHELL_INTEGRATION
     -u GHOSTTY_BIN_DIR
@@ -699,6 +703,7 @@ if [[ "$LAUNCH" -eq 1 ]]; then
     CMUX_PORT_RANGE="$CMUX_DEV_PORT_RANGE"
     PORT="$CMUX_DEV_PORT"
     CMUX_AUTH_WWW_ORIGIN="$CMUX_DEV_ORIGIN"
+    CMUX_AUTH_CALLBACK_SCHEME="cmux-dev-${TAG_SLUG:-dev}"
     CMUX_API_BASE_URL="$CMUX_DEV_ORIGIN"
     CMUX_VM_API_BASE_URL="$CMUX_DEV_ORIGIN"
   )

@@ -3749,6 +3749,9 @@ class TerminalController {
                     "is_loading": manager.isLoading,
                     "timed_out": timedOut
                 ]
+                if let signInURL = manager.currentSignInURL {
+                    status["sign_in_url"] = signInURL.absoluteString
+                }
                 if let user = manager.currentUser {
                     var userDict: [String: Any] = ["id": user.id]
                     if let email = user.primaryEmail { userDict["email"] = email }
