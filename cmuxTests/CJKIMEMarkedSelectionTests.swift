@@ -658,7 +658,7 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         let view = GhosttyNSView(frame: .zero)
         let event = try keyEvent(
             text: "1",
-            keyCode: 83,
+            keyCode: UInt16(kVK_ANSI_Keypad1),
             modifierFlags: [.numericPad],
             windowNumber: 0
         )
