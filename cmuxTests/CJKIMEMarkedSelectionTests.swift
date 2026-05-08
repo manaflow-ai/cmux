@@ -352,6 +352,84 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         )
     }
 
+    func testWindowKeyEquivalentRoutesInputMethodArrowThroughKeyDownBeforeMarkedText() throws {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let hostedTerminal = try makeHostedTerminalWindow()
+        let terminalSurface = hostedTerminal.surface
+        let window = hostedTerminal.window
+        let surfaceView = hostedTerminal.surfaceView
+        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+        let previousInputSourceOverride = KeyboardLayout.debugInputSourceIdOverride
+        let previousInterpretHook = cjkIMEInterpretKeyEventsHook
+        defer {
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
+            KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
+            cjkIMEInterpretKeyEventsHook = previousInterpretHook
+            window.orderOut(nil)
+            withExtendedLifetime(terminalSurface) {}
+        }
+
+        KeyboardLayout.debugInputSourceIdOverride = "com.apple.inputmethod.TCIM.Zhuyin"
+        installCJKIMEInterpretKeyEventsSwizzle()
+
+        var sawDownInTextInput = false
+        cjkIMEInterpretKeyEventsHook = { candidateView, events in
+            guard candidateView === surfaceView, let event = events.first else { return false }
+            guard Int(event.keyCode) == kVK_DownArrow else { return false }
+            sawDownInTextInput = true
+            return true
+        }
+
+        var forwardedPressKeyCodes: [UInt32] = []
+        var forwardedReleaseKeyCodes: [UInt32] = []
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            previousKeyEventObserver?(keyEvent)
+            if keyEvent.action == GHOSTTY_ACTION_PRESS {
+                forwardedPressKeyCodes.append(keyEvent.keycode)
+            } else if keyEvent.action == GHOSTTY_ACTION_RELEASE {
+                forwardedReleaseKeyCodes.append(keyEvent.keycode)
+            }
+        }
+
+        let keyDown = try keyEvent(
+            text: "\u{F701}",
+            keyCode: UInt16(kVK_DownArrow),
+            windowNumber: window.windowNumber
+        )
+        let keyUp = try keyEvent(
+            type: .keyUp,
+            text: "\u{F701}",
+            keyCode: UInt16(kVK_DownArrow),
+            windowNumber: window.windowNumber
+        )
+
+        window.makeFirstResponder(surfaceView)
+        withExtendedLifetime(terminalSurface) {
+            XCTAssertTrue(
+                window.performKeyEquivalent(with: keyDown),
+                "A window-level IME arrow key equivalent should be handled by routing it through terminal keyDown"
+            )
+            surfaceView.keyUp(with: keyUp)
+        }
+
+        XCTAssertTrue(
+            sawDownInTextInput,
+            "The window key-equivalent path must deliver Bopomofo candidate arrows to NSTextInputContext"
+        )
+        XCTAssertEqual(
+            forwardedPressKeyCodes,
+            [],
+            "A Down arrow handled by the input method must not move the terminal cursor"
+        )
+        XCTAssertEqual(
+            forwardedReleaseKeyCodes,
+            [],
+            "A suppressed IME keyDown must also suppress the paired keyUp"
+        )
+    }
+
     func testArrowStillForwardsToTerminalWhenNoCompositionIsActive() throws {
         let hostedTerminal = try makeHostedTerminalWindow()
         let terminalSurface = hostedTerminal.surface
