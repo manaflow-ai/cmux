@@ -225,6 +225,7 @@ struct RightSidebarPanelView: View {
             Spacer(minLength: 0)
         }
         .rightSidebarChromeBar(leadingPadding: 4, trailingPadding: 6, height: titlebarHeight)
+        .titlebarDoubleClickRegion()
         .background(MinimalModeTitlebarControlHitRegionView())
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("RightSidebarModeBar")

@@ -1031,6 +1031,26 @@ struct TitlebarDoubleClickMonitorView: NSViewRepresentable {
     }
 }
 
+struct TitlebarDoubleClickRegionModifier: ViewModifier {
+    var doubleClickBehavior: TitlebarDoubleClickBehavior = .standardAction
+
+    func body(content: Content) -> some View {
+        ZStack {
+            WindowDragHandleView(doubleClickBehavior: doubleClickBehavior)
+            content
+        }
+        .background(TitlebarDoubleClickMonitorView(doubleClickBehavior: doubleClickBehavior))
+    }
+}
+
+extension View {
+    func titlebarDoubleClickRegion(
+        doubleClickBehavior: TitlebarDoubleClickBehavior = .standardAction
+    ) -> some View {
+        modifier(TitlebarDoubleClickRegionModifier(doubleClickBehavior: doubleClickBehavior))
+    }
+}
+
 func shouldHandleMinimalModeTitlebarDoubleClick(
     isEnabled: Bool,
     clickCount: Int,
