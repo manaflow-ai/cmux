@@ -13724,7 +13724,7 @@ struct CMUXCLI {
             guard let buffer = store.buffers[name] else {
                 throw CLIError(message: "Buffer not found: \(name)")
             }
-            var params: [String: Any] = ["text": buffer]
+            var params: [String: Any] = ["text": unescapeSendText(buffer)]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, allowCurrent: true)
             if let wsId { params["workspace_id"] = wsId }
             let sfId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId, allowFocused: true)
