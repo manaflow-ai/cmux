@@ -459,7 +459,7 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
         XCTAssertFalse(accessibilityValue.contains("stale-before-reset"))
     }
 
-    func testGhosttySurfaceBlankReplayRequestsPtyReplayWithoutSurfaceReset() async throws {
+    func testGhosttySurfaceBlankReplayProbeCanRequestPtyReplayWithoutSurfaceReset() async throws {
         let (surfaceView, delegate) = try makeSurfaceView()
         surfaceView.frame = CGRect(x: 0, y: 0, width: 390, height: 640)
         surfaceView.layoutIfNeeded()
@@ -475,10 +475,12 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
         await fulfillment(of: [processedExpectation], timeout: 5.0)
         surfaceView.simulateDisplayLinkFrameForTesting()
         XCTAssertEqual(delegate.surfaceResetRequestCount, 0)
+        XCTAssertEqual(delegate.ptyReplayRequestCount, 0)
+        XCTAssertTrue(surfaceView.requestServerReplayIfBlank())
         XCTAssertEqual(delegate.ptyReplayRequestCount, 1)
     }
 
-    func testGhosttySurfaceBlankOutputRequestsReplayWithoutSurfaceResetAfterRender() async throws {
+    func testGhosttySurfaceBlankAlternateScreenProbeCanRequestReplayWithoutSurfaceResetAfterRender() async throws {
         let (surfaceView, delegate) = try makeSurfaceView()
         surfaceView.frame = CGRect(x: 0, y: 0, width: 390, height: 640)
         surfaceView.layoutIfNeeded()
@@ -494,6 +496,8 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
         await fulfillment(of: [processedExpectation], timeout: 5.0)
         surfaceView.simulateDisplayLinkFrameForTesting()
         XCTAssertEqual(delegate.surfaceResetRequestCount, 0)
+        XCTAssertEqual(delegate.ptyReplayRequestCount, 0)
+        XCTAssertTrue(surfaceView.requestServerReplayIfBlank())
         XCTAssertEqual(delegate.ptyReplayRequestCount, 1)
     }
 
