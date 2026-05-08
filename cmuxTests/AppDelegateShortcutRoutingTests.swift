@@ -77,6 +77,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         _ = NSApplication.shared
         if let applicationDelegate = NSApp.delegate as? AppDelegate {
             AppDelegate.shared = applicationDelegate
+        } else {
+            AppDelegate.shared = nil
         }
         // Prevent a single hanging test from consuming the entire CI timeout budget.
         executionTimeAllowance = 30

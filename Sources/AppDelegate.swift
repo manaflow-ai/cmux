@@ -5802,9 +5802,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let target = context.keyboardFocusCoordinator.findShortcutTarget(
             currentResponder: window?.firstResponder
         )
-        if let window, target != .none {
-            mainWindowVisibilityController.focusForInWindowCommand(window, reason: .findShortcut)
-        }
         let result: Bool
         switch target {
         case .rightSidebarFileSearch:
@@ -5813,6 +5810,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             result = context.tabManager.startSearch()
         case .none:
             result = false
+        }
+        if let window, result {
+            mainWindowVisibilityController.focusForInWindowCommand(window, reason: .findShortcut)
         }
 #if DEBUG
         let afterResponder = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
@@ -13375,7 +13375,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         // XCTest has no UI for the warn-before-quit dialog and would either block
         // on runModal or have NSApp.terminate kill the test process.
-        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil { return true }
+        if isRunningUnderXCTestCached { return true }
         guard !isTerminatingApp, mainWindowContexts.count <= 1 else { return true }
         _ = handleQuitShortcutWarning()
         return false
