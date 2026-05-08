@@ -979,6 +979,15 @@ private func installFileDropOverlayWhenReady(
 
 @MainActor
 private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
+    private struct Snapshot: Equatable {
+        let workspaceId: UUID?
+        let currentDirectory: String?
+        let remoteConfiguration: WorkspaceRemoteConfiguration?
+        let remoteConnectionState: WorkspaceRemoteConnectionState?
+        let remoteConnectionDetail: String?
+        let remoteDaemonStatus: WorkspaceRemoteDaemonStatus?
+    }
+
     @Published private(set) var directoryChangeGeneration: UInt64 = 0
     private weak var tabManager: TabManager?
     private var cancellable: AnyCancellable?
@@ -992,9 +1001,19 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                 return tabManager.tabs.first(where: { $0.id == tabId })
             }
             .removeDuplicates(by: { $0?.id == $1?.id })
-            .map { workspace -> AnyPublisher<(UUID?, String?), Never> in
+            .map { workspace -> AnyPublisher<Snapshot, Never> in
                 guard let workspace else {
-                    return Just<(UUID?, String?)>((nil, nil)).eraseToAnyPublisher()
+                    return Just(
+                        Snapshot(
+                            workspaceId: nil,
+                            currentDirectory: nil,
+                            remoteConfiguration: nil,
+                            remoteConnectionState: nil,
+                            remoteConnectionDetail: nil,
+                            remoteDaemonStatus: nil
+                        )
+                    )
+                    .eraseToAnyPublisher()
                 }
                 let signals: [AnyPublisher<Void, Never>] = [
                     workspace.$currentDirectory.map { _ in () }.eraseToAnyPublisher(),
@@ -1004,10 +1023,20 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                     workspace.$remoteDaemonStatus.map { _ in () }.eraseToAnyPublisher(),
                 ]
                 return Publishers.MergeMany(signals)
-                    .map { (Optional(workspace.id), Optional(workspace.currentDirectory)) }
+                    .map {
+                        Snapshot(
+                            workspaceId: workspace.id,
+                            currentDirectory: workspace.currentDirectory,
+                            remoteConfiguration: workspace.remoteConfiguration,
+                            remoteConnectionState: workspace.remoteConnectionState,
+                            remoteConnectionDetail: workspace.remoteConnectionDetail,
+                            remoteDaemonStatus: workspace.remoteDaemonStatus
+                        )
+                    }
                     .eraseToAnyPublisher()
             }
             .switchToLatest()
+            .removeDuplicates()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.directoryChangeGeneration &+= 1

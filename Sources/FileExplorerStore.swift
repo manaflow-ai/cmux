@@ -203,7 +203,7 @@ enum FileExplorerStyle: Int, CaseIterable {
 
 // MARK: - Models
 
-struct FileExplorerEntry {
+struct FileExplorerEntry: Sendable {
     let name: String
     let path: String
     let isDirectory: Bool
@@ -261,7 +261,7 @@ protocol FileExplorerProvider: AnyObject {
     var isAvailable: Bool { get }
 }
 
-struct SSHFileExplorerConnection: Equatable {
+struct SSHFileExplorerConnection: Equatable, Sendable {
     let destination: String
     let port: Int?
     let identityFile: String?
@@ -391,8 +391,8 @@ final class SSHFileExplorerProvider: FileExplorerProvider {
 final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
     static let shared = ProcessSSHFileExplorerTransport()
 
-    func resolveHomePath(connection: SSHFileExplorerConnection) async throws -> String {
-        try await runOnBackground {
+    nonisolated func resolveHomePath(connection: SSHFileExplorerConnection) async throws -> String {
+        try await runOffMain {
             let output = try Self.runSSHCommand(
                 connection: connection,
                 command: #"printf '%s\n' "$HOME""#
@@ -401,27 +401,20 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         }
     }
 
-    func listDirectory(
+    nonisolated func listDirectory(
         path: String,
         connection: SSHFileExplorerConnection,
         showHidden: Bool
     ) async throws -> [FileExplorerEntry] {
-        try await runOnBackground {
+        try await runOffMain {
             try Self.runSSHListCommand(path: path, connection: connection, showHidden: showHidden)
         }
     }
 
-    private func runOnBackground<T>(_ work: @escaping () throws -> T) async throws -> T {
-        return try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                do {
-                    let result = try work()
-                    continuation.resume(returning: result)
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
-        }
+    private nonisolated func runOffMain<T: Sendable>(_ work: @escaping @Sendable () throws -> T) async throws -> T {
+        try await Task.detached(priority: .userInitiated) {
+            try work()
+        }.value
     }
 
     private static func runSSHCommand(connection: SSHFileExplorerConnection, command: String) throws -> String {
