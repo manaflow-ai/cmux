@@ -1311,9 +1311,11 @@ Tagged build/smoke evidence from `feat-desktop-cmx-backend`:
   `tests_v2` launcher against the Rust remote-state model test, SSH CLI
   metadata, cmuxd-remote stdio resize semantics, and the Docker-backed SSH
   bootstrap/relay/forwarding/reconnect/port/proxy/shell-integration fixtures.
-  The workflow fails early if Docker or Go is unavailable so a skipped fixture
-  cannot be mistaken for remote proof, and it uploads the same tagged CMX
-  diagnostics directory as the broad `tests_v2` workflow. It sets
+  The workflow installs Go with `actions/setup-go` and provisions Docker through
+  Colima when Docker is absent on the selected macOS runner, then fails early if
+  those tools still cannot run so a skipped fixture cannot be mistaken for
+  remote proof. It uploads the same tagged CMX diagnostics directory as the
+  broad `tests_v2` workflow. It sets
   `CMUX_TESTS_V2_FAIL_ON_SKIP=1`, so fixture-level skips fail the run instead of
   silently passing. It also has an explicit `run_external_ssh` path for
   host-backed SSH fixtures, sourcing
