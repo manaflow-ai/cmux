@@ -12876,7 +12876,6 @@ extension GhosttyNSView: NSTextInputClient {
         markedText.mutableString.setString("")
         markedSelectedRange = NSRange(location: NSNotFound, length: 0)
         zhuyinCandidateOpenRequested = false
-        imeSuppressedKeyUpKeyCodes.removeAll()
 
         if hadMarkedText {
             syncPreedit()

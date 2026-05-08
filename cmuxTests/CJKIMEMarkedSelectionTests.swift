@@ -695,7 +695,7 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         )
     }
 
-    func testUnmarkTextClearsIMETransientStateWithoutMarkedText() {
+    func testUnmarkTextPreservesSuppressedKeyUpStateWithoutMarkedText() {
         let view = GhosttyNSView(frame: .zero)
         view.setIMETransientStateForTesting(
             suppressedKeyUpKeyCodes: [UInt16(kVK_DownArrow)],
@@ -706,7 +706,7 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
 
         XCTAssertFalse(view.hasMarkedText())
         XCTAssertEqual(view.markedRange(), NSRange(location: NSNotFound, length: 0))
-        XCTAssertEqual(view.imeSuppressedKeyUpKeyCodesForTesting, [])
+        XCTAssertEqual(view.imeSuppressedKeyUpKeyCodesForTesting, [UInt16(kVK_DownArrow)])
         XCTAssertFalse(view.zhuyinCandidateOpenRequestedForTesting)
     }
 
