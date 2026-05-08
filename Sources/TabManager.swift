@@ -5087,7 +5087,7 @@ class TabManager: ObservableObject {
 
     private func agentTitleRegistrationCandidates() -> [(Workspace, UUID, SidebarAgentTitleRegistration)] {
         pruneExpiredPanelAgentTitleRegistrations()
-        tabs.flatMap { tab in
+        return tabs.flatMap { tab in
             tab.panels.keys.compactMap { panelId -> (Workspace, UUID, SidebarAgentTitleRegistration)? in
                 let key = PanelTitleUpdateKey(tabId: tab.id, panelId: panelId)
                 let registration = tab.panelTitles[panelId].flatMap(SidebarAgentStatusService.titleRegistration)
