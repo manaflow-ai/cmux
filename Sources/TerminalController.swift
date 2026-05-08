@@ -3591,8 +3591,12 @@ class TerminalController {
 
         for key in workspace.agentPIDs.keys.sorted() where !seenKeys.contains(key) {
             guard let rawPid = workspace.agentPIDs[key],
-                  rawPid > 0,
-                  SidebarAgentProcessProbe.isProcessAlive(rawPid) else {
+                  rawPid > 0 else {
+                continue
+            }
+            if let state = workspace.agentProcessStates[key],
+               state.pid == rawPid,
+               !state.isAlive {
                 continue
             }
             let pid = Int(rawPid)
@@ -16058,6 +16062,12 @@ class TerminalController {
                 // Still update PID tracking even if the status display hasn't changed.
                 if let pidValue {
                     tab.agentPIDs[key] = pidValue
+                    tab.agentProcessStates[key] = SidebarAgentProcessState(
+                        pid: pidValue,
+                        isAlive: true,
+                        activity: .running,
+                        updatedAt: Date()
+                    )
                     controller.refreshTrackedAgentPorts(for: tab)
                 }
                 return
@@ -16074,6 +16084,12 @@ class TerminalController {
             )
             if let pidValue {
                 tab.agentPIDs[key] = pidValue
+                tab.agentProcessStates[key] = SidebarAgentProcessState(
+                    pid: pidValue,
+                    isAlive: true,
+                    activity: .running,
+                    updatedAt: Date()
+                )
                 controller.refreshTrackedAgentPorts(for: tab)
             }
         }
@@ -16094,6 +16110,7 @@ class TerminalController {
         scheduleSidebarMutation(target: target) { controller, tab in
             _ = tab.statusEntries.removeValue(forKey: key)
             if tab.agentPIDs.removeValue(forKey: key) != nil {
+                tab.agentProcessStates.removeValue(forKey: key)
                 controller.refreshTrackedAgentPorts(for: tab)
             }
         }
@@ -16115,6 +16132,12 @@ class TerminalController {
         }
         scheduleSidebarMutation(target: target) { controller, tab in
             tab.agentPIDs[key] = pid
+            tab.agentProcessStates[key] = SidebarAgentProcessState(
+                pid: pid,
+                isAlive: true,
+                activity: .running,
+                updatedAt: Date()
+            )
             controller.refreshTrackedAgentPorts(for: tab)
         }
         return "OK"
@@ -16132,6 +16155,7 @@ class TerminalController {
         }
         scheduleSidebarMutation(target: target) { controller, tab in
             tab.agentPIDs.removeValue(forKey: key)
+            tab.agentProcessStates.removeValue(forKey: key)
             controller.refreshTrackedAgentPorts(for: tab)
         }
         return "OK"

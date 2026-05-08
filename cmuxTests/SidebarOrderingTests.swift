@@ -1023,6 +1023,7 @@ final class SidebarAgentPIDFallbackTests: XCTestCase {
 
         process.terminate()
         process.waitUntilExit()
+        workspace.agentProcessStates["codex"] = SidebarAgentProcessProbe.processState(for: process.processIdentifier)
 
         XCTAssertTrue(workspace.sidebarStatusEntriesInDisplayOrder().isEmpty)
     }

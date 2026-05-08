@@ -15314,6 +15314,7 @@ struct CMUXCLI {
         case "completed", "waiting":
             return ("Idle", "pause.circle.fill", "#8E8E93")
         default:
+            // Unknown Claude notification classes remain actionable until mapped explicitly.
             return ("Needs input", "bell.fill", "#4C8DFF")
         }
     }
