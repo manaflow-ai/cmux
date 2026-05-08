@@ -430,8 +430,6 @@ def test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures
         "ANTHROPIC_BASE_URL": "https://api.example.test",
         "ANTHROPIC_MODEL": "stale-model",
         "ANTHROPIC_SMALL_FAST_MODEL": "stale-small-model",
-        "CLAUDE_CODE_USE_BEDROCK": "1",
-        "CLAUDE_CODE_USE_VERTEX": "1",
     }
     code, auth_env, real_argv, stderr = run_wrapper_auth_env(
         argv=["hello"],

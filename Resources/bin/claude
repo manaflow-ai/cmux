@@ -85,16 +85,53 @@ case "${CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV:-}" in
 esac
 
 should_preserve_claude_auth_selection_key() {
-    [[ "$PRESERVE_CLAUDE_AUTH_SELECTION_ENV" == true ]] || return 1
+    if [[ "$PRESERVE_CLAUDE_AUTH_SELECTION_ENV" == true ]]; then
+        local configured_keys="${CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS:-}"
+        if [[ -z "$configured_keys" ]]; then
+            return 0
+        fi
+        configured_keys="${configured_keys//,/ }"
+        local configured_key
+        for configured_key in $configured_keys; do
+            [[ "$configured_key" == "$1" ]] && return 0
+        done
+    fi
 
-    local configured_keys="${CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS:-}"
-    [[ -n "$configured_keys" ]] || return 0
+    # Auto-preserve Vertex/Bedrock auth selection so users with valid
+    # CLAUDE_CODE_USE_VERTEX=1 / CLAUDE_CODE_USE_BEDROCK=1 setups in their
+    # shell rc authenticate inside cmux the same way they do in plain
+    # Terminal. Without this, the wrapper silently drops the selection
+    # signal and claude reports "not logged in".
+    # Refs: https://github.com/manaflow-ai/cmux/issues/3641 (Vertex)
+    #       https://github.com/manaflow-ai/cmux/issues/3638 (Bedrock)
+    local vertex_on=false bedrock_on=false
+    case "${CLAUDE_CODE_USE_VERTEX:-}" in
+        1|true|TRUE|yes|YES) vertex_on=true ;;
+    esac
+    case "${CLAUDE_CODE_USE_BEDROCK:-}" in
+        1|true|TRUE|yes|YES) bedrock_on=true ;;
+    esac
 
-    configured_keys="${configured_keys//,/ }"
-    local configured_key
-    for configured_key in $configured_keys; do
-        [[ "$configured_key" == "$1" ]] && return 0
-    done
+    case "$1" in
+        CLAUDE_CODE_USE_VERTEX)
+            [[ "$vertex_on" == true ]] && return 0
+            ;;
+        CLAUDE_CODE_USE_BEDROCK)
+            [[ "$bedrock_on" == true ]] && return 0
+            ;;
+        ANTHROPIC_MODEL|ANTHROPIC_SMALL_FAST_MODEL)
+            # Vertex and Bedrock require backend-specific full model ids
+            # (e.g. "claude-sonnet-4-5@20250929" for Vertex,
+            # "us.anthropic.claude-sonnet-4-5-20250929-v1:0" for Bedrock).
+            # Preserve the user's selection only when one of those
+            # backends is active; otherwise stale ids would leak into the
+            # default Anthropic API path.
+            if [[ "$vertex_on" == true || "$bedrock_on" == true ]]; then
+                return 0
+            fi
+            ;;
+    esac
+
     return 1
 }
 
