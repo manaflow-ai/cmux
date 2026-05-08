@@ -168,15 +168,38 @@ final class PortalTabDragRoutingTests: XCTestCase {
         )
     }
 
-    func testTerminalPaneDropTargetIgnoresExternalFileImageAndBrowserDrags() {
+    func testTerminalPaneDropTargetCapturesFinderFilesButIgnoresBrowserPayloads() {
+        XCTAssertTrue(
+            TerminalPaneDropTargetView.shouldCaptureHitTesting(
+                pasteboardTypes: [.fileURL],
+                eventType: .leftMouseDragged
+            )
+        )
+        XCTAssertTrue(
+            TerminalPaneDropTargetView.shouldCaptureHitTesting(
+                pasteboardTypes: [.fileURL],
+                eventType: .leftMouseUp
+            )
+        )
+        XCTAssertTrue(
+            TerminalPaneDropTargetView.shouldCaptureHitTesting(
+                pasteboardTypes: [.fileURL, .png],
+                eventType: .leftMouseDragged
+            )
+        )
+        XCTAssertTrue(
+            TerminalPaneDropTargetView.shouldCaptureHitTesting(
+                pasteboardTypes: [DragOverlayRoutingPolicy.filePreviewTransferType, DragOverlayRoutingPolicy.bonsplitTabTransferType, .fileURL],
+                eventType: .leftMouseUp
+            )
+        )
+
         let externalPayloads: [[NSPasteboard.PasteboardType]] = [
-            [.fileURL],
             [.URL],
             [.png],
             [.tiff],
             [.html],
             [.string],
-            [.fileURL, .png],
         ]
 
         for pasteboardTypes in externalPayloads {
@@ -188,5 +211,91 @@ final class PortalTabDragRoutingTests: XCTestCase {
                 "Terminal pane drop target should not capture external drag payload: \(pasteboardTypes)"
             )
         }
+    }
+
+    func testPaneDropRoutingMapsFileDropsToSharedBonsplitDestinations() {
+        let paneId = PaneID()
+
+        if case let .insert(targetPane, targetIndex) = PaneDropRouting.filePreviewDestination(
+            targetPane: paneId,
+            zone: .center
+        ) {
+            XCTAssertEqual(targetPane, paneId)
+            XCTAssertNil(targetIndex)
+        } else {
+            XCTFail("Center drops should insert into the hovered pane")
+        }
+
+        if case let .split(targetPane, orientation, insertFirst) = PaneDropRouting.filePreviewDestination(
+            targetPane: paneId,
+            zone: .left
+        ) {
+            XCTAssertEqual(targetPane, paneId)
+            XCTAssertEqual(orientation, .horizontal)
+            XCTAssertTrue(insertFirst)
+        } else {
+            XCTFail("Left drops should use Bonsplit horizontal split routing")
+        }
+
+        if case let .split(targetPane, orientation, insertFirst) = PaneDropRouting.filePreviewDestination(
+            targetPane: paneId,
+            zone: .bottom
+        ) {
+            XCTAssertEqual(targetPane, paneId)
+            XCTAssertEqual(orientation, .vertical)
+            XCTAssertFalse(insertFirst)
+        } else {
+            XCTFail("Bottom drops should use Bonsplit vertical split routing")
+        }
+    }
+
+    func testPaneDropRoutingKeepsStandaloneOverlayFrames() {
+        let bounds = CGRect(x: 0, y: 0, width: 200, height: 100)
+
+        XCTAssertEqual(
+            PaneDropRouting.overlayFrame(for: .center, in: bounds),
+            CGRect(x: 10, y: 10, width: 180, height: 80)
+        )
+        XCTAssertEqual(
+            PaneDropRouting.overlayFrame(for: .left, in: bounds),
+            CGRect(x: 8, y: 8, width: 88, height: 84)
+        )
+        XCTAssertEqual(
+            PaneDropRouting.overlayFrame(for: .right, in: bounds),
+            CGRect(x: 104, y: 8, width: 88, height: 84)
+        )
+        XCTAssertEqual(
+            PaneDropRouting.overlayFrame(for: .top, in: bounds),
+            CGRect(x: 8, y: 54, width: 184, height: 38)
+        )
+        XCTAssertEqual(
+            PaneDropRouting.overlayFrame(for: .bottom, in: bounds),
+            CGRect(x: 8, y: 8, width: 184, height: 38)
+        )
+    }
+
+    func testPaneDropRoutingKeepsCompactInlineOverlayFrames() {
+        let bounds = CGRect(x: 0, y: 0, width: 200, height: 100)
+
+        XCTAssertEqual(
+            PaneDropRouting.compactOverlayFrame(for: .center, in: bounds),
+            CGRect(x: 4, y: 4, width: 192, height: 92)
+        )
+        XCTAssertEqual(
+            PaneDropRouting.compactOverlayFrame(for: .left, in: bounds),
+            CGRect(x: 4, y: 4, width: 96, height: 92)
+        )
+        XCTAssertEqual(
+            PaneDropRouting.compactOverlayFrame(for: .right, in: bounds),
+            CGRect(x: 100, y: 4, width: 96, height: 92)
+        )
+        XCTAssertEqual(
+            PaneDropRouting.compactOverlayFrame(for: .top, in: bounds),
+            CGRect(x: 4, y: 50, width: 192, height: 46)
+        )
+        XCTAssertEqual(
+            PaneDropRouting.compactOverlayFrame(for: .bottom, in: bounds),
+            CGRect(x: 4, y: 4, width: 192, height: 46)
+        )
     }
 }

@@ -11,14 +11,8 @@ final class KeyboardShortcutSettingsObserver: ObservableObject {
     private var recorderCancellable: AnyCancellable?
 
     private init(notificationCenter: NotificationCenter = .default) {
-        settingsCancellable = notificationCenter.publisher(for: KeyboardShortcutSettings.didChangeNotification)
-            .sink { [weak self] _ in
-                self?.revision &+= 1
-            }
-        recorderCancellable = notificationCenter.publisher(for: KeyboardShortcutRecorderActivity.didChangeNotification)
-            .sink { [weak self] _ in
-                self?.revision &+= 1
-            }
+        settingsCancellable = notificationCenter.publisher(for: KeyboardShortcutSettings.didChangeNotification).receive(on: DispatchQueue.main).sink { [weak self] _ in self?.revision &+= 1 }
+        recorderCancellable = notificationCenter.publisher(for: KeyboardShortcutRecorderActivity.didChangeNotification).receive(on: DispatchQueue.main).sink { [weak self] _ in self?.revision &+= 1 }
     }
 }
 
@@ -28,78 +22,6 @@ final class CmuxSettingsFileStore {
     static let currentSchemaVersion = 1
     static let schemaURLString = "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json"
     private static let legacySchemaURLString = "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux-settings.schema.json"
-    // Keep this in sync with the parser below and the web schema/docs. Settings UI rows
-    // validate against this set so new persisted settings need an explicit cmux.json review.
-    static let supportedSettingsJSONPaths: Set<String> = [
-        "app.language",
-        "app.appearance",
-        "app.appIcon",
-        "app.menuBarOnly",
-        "app.newWorkspacePlacement",
-        "app.minimalMode",
-        "app.keepWorkspaceOpenWhenClosingLastSurface",
-        "app.focusPaneOnFirstClick",
-        "app.preferredEditor",
-        "app.openMarkdownInCmuxViewer",
-        "app.iMessageMode",
-        "app.reorderOnNotification",
-        "app.sendAnonymousTelemetry",
-        "app.warnBeforeQuit",
-        "app.renameSelectsExistingName",
-        "app.commandPaletteSearchesAllSurfaces",
-        "terminal.showScrollBar",
-        "notifications.dockBadge",
-        "notifications.showInMenuBar",
-        "notifications.unreadPaneRing",
-        "notifications.paneFlash",
-        "notifications.sound",
-        "notifications.customSoundFilePath",
-        "notifications.command",
-        "sidebar.hideAllDetails",
-        "sidebar.branchLayout",
-        "sidebar.showNotificationMessage",
-        "sidebar.showBranchDirectory",
-        "sidebar.showPullRequests",
-        "sidebar.openPullRequestLinksInCmuxBrowser",
-        "sidebar.openPortLinksInCmuxBrowser",
-        "sidebar.showSSH",
-        "sidebar.showPorts",
-        "sidebar.showLog",
-        "sidebar.showProgress",
-        "sidebar.showCustomMetadata",
-        "workspaceColors.indicatorStyle",
-        "workspaceColors.selectionColor",
-        "workspaceColors.notificationBadgeColor",
-        "workspaceColors.colors",
-        "workspaceColors.paletteOverrides",
-        "workspaceColors.customColors",
-        "sidebarAppearance.matchTerminalBackground",
-        "sidebarAppearance.tintColor",
-        "sidebarAppearance.lightModeTintColor",
-        "sidebarAppearance.darkModeTintColor",
-        "sidebarAppearance.tintOpacity",
-        "automation.socketControlMode",
-        "automation.socketPassword",
-        "automation.claudeCodeIntegration",
-        "automation.claudeBinaryPath",
-        "automation.cursorIntegration",
-        "automation.geminiIntegration",
-        "automation.portBase",
-        "automation.portRange",
-        "browser.defaultSearchEngine",
-        "browser.showSearchSuggestions",
-        "browser.theme",
-        "browser.openTerminalLinksInCmuxBrowser",
-        "browser.interceptTerminalOpenCommandInCmuxBrowser",
-        "browser.hostsToOpenInEmbeddedBrowser",
-        "browser.urlsToAlwaysOpenExternally",
-        "browser.insecureHttpHostsAllowedInEmbeddedBrowser",
-        "browser.showImportHintOnBlankTabs",
-        "browser.reactGrabVersion",
-        "shortcuts.showModifierHoldHints",
-        "shortcuts.bindings",
-    ]
-
     private static let releaseBundleIdentifier = "com.cmuxterm.app"
     private static let backupsDefaultsKey = "cmux.settingsFile.backups.v1"
     fileprivate static let socketPasswordBackupIdentifier = "automation.socketPassword"
@@ -175,15 +97,8 @@ final class CmuxSettingsFileStore {
             }
         }
 
-        defaultsCancellable = notificationCenter.publisher(for: UserDefaults.didChangeNotification)
-            .sink { [weak self] _ in
-                self?.reapplyManagedSettingsIfNeeded()
-            }
-        socketPasswordObserver = notificationCenter.addObserver(
-            forName: SocketControlPasswordStore.didChangeNotification,
-            object: nil,
-            queue: nil
-        ) { [weak self] _ in
+        defaultsCancellable = notificationCenter.publisher(for: UserDefaults.didChangeNotification).receive(on: DispatchQueue.main).sink { [weak self] _ in self?.reapplyManagedSettingsIfNeeded() }
+        socketPasswordObserver = notificationCenter.addObserver(forName: SocketControlPasswordStore.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
             self?.reapplyManagedSettingsIfNeeded()
         }
     }
@@ -210,7 +125,7 @@ final class CmuxSettingsFileStore {
         }
 
         if previousShortcuts != resolved.shortcuts || previousActiveSourcePath != resolved.path {
-            KeyboardShortcutSettings.notifySettingsFileDidChange()
+            KeyboardShortcutSettings.notifySettingsFileDidChange(center: notificationCenter)
         }
     }
 
@@ -503,6 +418,12 @@ final class CmuxSettingsFileStore {
         } else if section.keys.contains("showScrollBar") {
             logInvalid("terminal.showScrollBar", sourcePath: sourcePath)
         }
+
+        if let value = jsonBool(section["autoResumeAgentSessions"]) {
+            snapshot.managedUserDefaults[AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey] = .bool(value)
+        } else if section.keys.contains("autoResumeAgentSessions") {
+            logInvalid("terminal.autoResumeAgentSessions", sourcePath: sourcePath)
+        }
     }
 
     private func parseSidebarSection(
@@ -526,12 +447,9 @@ final class CmuxSettingsFileStore {
         if let value = jsonBool(section["showNotificationMessage"]) {
             snapshot.managedUserDefaults[SidebarWorkspaceDetailSettings.showNotificationMessageKey] = .bool(value)
         }
-        if let value = jsonBool(section["showBranchDirectory"]) {
-            snapshot.managedUserDefaults["sidebarShowBranchDirectory"] = .bool(value)
-        }
-        if let value = jsonBool(section["showPullRequests"]) {
-            snapshot.managedUserDefaults["sidebarShowPullRequest"] = .bool(value)
-        }
+        if let value = jsonBool(section["showBranchDirectory"]) { snapshot.managedUserDefaults["sidebarShowBranchDirectory"] = .bool(value) }
+        if let value = jsonBool(section["showPullRequests"]) { snapshot.managedUserDefaults["sidebarShowPullRequest"] = .bool(value) }
+        if let value = jsonBool(section["makePullRequestsClickable"]) { snapshot.managedUserDefaults[SidebarPullRequestClickabilitySettings.key] = .bool(value) }
         if let value = jsonBool(section["openPullRequestLinksInCmuxBrowser"]) {
             snapshot.managedUserDefaults[BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowserKey] = .bool(value)
         }
@@ -661,7 +579,7 @@ final class CmuxSettingsFileStore {
         snapshot: inout ResolvedSettingsSnapshot
     ) {
         if let value = jsonBool(section["matchTerminalBackground"]) {
-            snapshot.managedUserDefaults["sidebarMatchTerminalBackground"] = .bool(value)
+            snapshot.managedUserDefaults[SidebarMatchTerminalBackgroundSettings.userDefaultsKey] = .bool(value)
         }
         if let raw = jsonString(section["tintColor"]) {
             guard let normalized = WorkspaceTabColorSettings.normalizedHex(raw) else {
@@ -857,15 +775,16 @@ final class CmuxSettingsFileStore {
         let shortcut: StoredShortcut? = {
             if rawValue is NSNull { return .unbound }
             if let stroke = jsonString(rawValue) { return StoredShortcut.parseConfig(stroke) }
-            if let strokes = jsonStringArray(rawValue) { return StoredShortcut.parseConfig(strokes: strokes) }
+            if let strokes = jsonStringArray(rawValue) {
+                return strokes.isEmpty ? .unbound : StoredShortcut.parseConfig(strokes: strokes)
+            }
             return nil
         }()
 
         guard let shortcut else { return nil }
-        if case let .accepted(normalized) = action.resolvedRecordedShortcutIgnoringConflicts(shortcut, checkingSystemWideConflicts: false) {
-            return normalized
-        }
-        return action.usesNumberedDigitMatching ? nil : shortcut
+        // Settings-file parsing runs while the shared store may still be initializing.
+        // Avoid the UI recorder's conflict lookup here because it reads the shared store.
+        return action.normalizedSettingsFileShortcut(shortcut)
     }
 
     private func parseNullableHex(
@@ -884,15 +803,12 @@ final class CmuxSettingsFileStore {
         return .some(normalized)
     }
 
-    private func applyManagedSettings(
-        snapshot: ResolvedSettingsSnapshot,
-        updateBackups: Bool = true
-    ) {
+    private func applyManagedSettings(snapshot: ResolvedSettingsSnapshot, updateBackups: Bool = true) {
         var backups = loadBackups()
+        var sideEffects = ManagedDefaultBatchSideEffects()
         let currentManagedIdentifiers = Set(backups.keys)
-        let nextManagedIdentifiers = Set(snapshot.managedUserDefaults.keys)
+        let nextManagedIdentifiers = Set(snapshot.managedUserDefaults.keys.filter { !SidebarMatchTerminalBackgroundSettings.isSettingsFileDefaultKey($0) })
             .union(snapshot.managedCustomSettings.managedIdentifiers)
-
         synchronized {
             isApplyingManagedSettings = true
         }
@@ -903,7 +819,7 @@ final class CmuxSettingsFileStore {
         }
 
         if updateBackups {
-            for (defaultsKey, value) in snapshot.managedUserDefaults where backups[defaultsKey] == nil {
+            for (defaultsKey, value) in snapshot.managedUserDefaults where backups[defaultsKey] == nil && !SidebarMatchTerminalBackgroundSettings.isSettingsFileDefaultKey(defaultsKey) {
                 backups[defaultsKey] = backupValueForUserDefaultsKey(defaultsKey, managedValue: value)
             }
             if snapshot.managedCustomSettings.socketPassword != nil,
@@ -913,19 +829,20 @@ final class CmuxSettingsFileStore {
         }
 
         for identifier in currentManagedIdentifiers.subtracting(nextManagedIdentifiers) {
+            if SidebarMatchTerminalBackgroundSettings.isSettingsFileDefaultKey(identifier) { backups.removeValue(forKey: identifier); continue }
             guard let backup = backups[identifier] else { continue }
-            restoreBackup(backup, for: identifier)
+            sideEffects.merge(restoreBackup(backup, for: identifier))
             backups.removeValue(forKey: identifier)
         }
 
         for (defaultsKey, value) in snapshot.managedUserDefaults {
-            applyManagedUserDefaultsValue(value, for: defaultsKey)
+            sideEffects.merge(applyManagedUserDefaultsValue(value, for: defaultsKey))
         }
         applyManagedCustomSettings(snapshot.managedCustomSettings)
-
         if updateBackups {
             saveBackups(backups)
         }
+        applyManagedDefaultBatchSideEffects(sideEffects)
     }
 
     private func applyManagedCustomSettings(_ settings: ManagedCustomSettings) {
@@ -945,7 +862,7 @@ final class CmuxSettingsFileStore {
         }
     }
 
-    private func restoreBackup(_ backup: BackupValue, for identifier: String) {
+    private func restoreBackup(_ backup: BackupValue, for identifier: String) -> ManagedDefaultBatchSideEffects {
         switch identifier {
         case Self.socketPasswordBackupIdentifier:
             switch backup {
@@ -956,8 +873,9 @@ final class CmuxSettingsFileStore {
             default:
                 break
             }
+            return ManagedDefaultBatchSideEffects()
         default:
-            restoreUserDefaultsBackup(backup, for: identifier)
+            return restoreUserDefaultsBackup(backup, for: identifier)
         }
     }
 
@@ -1000,7 +918,10 @@ final class CmuxSettingsFileStore {
         return .string(current)
     }
 
-    private func applyManagedUserDefaultsValue(_ value: ManagedSettingsValue, for defaultsKey: String) {
+    private func applyManagedUserDefaultsValue(
+        _ value: ManagedSettingsValue,
+        for defaultsKey: String
+    ) -> ManagedDefaultBatchSideEffects {
         let defaults = UserDefaults.standard
         if defaultsKey == WorkspaceTabColorSettings.paletteKey,
            case .stringDictionary(let next) = value {
@@ -1008,16 +929,24 @@ final class CmuxSettingsFileStore {
             if current != next {
                 WorkspaceTabColorSettings.persistPaletteMap(next, defaults: defaults)
             }
-            return
+            return ManagedDefaultBatchSideEffects()
         }
 
         var didMutateStoredValue = false
         switch value {
         case .bool(let next):
+            let shouldTrackFileDefault = SidebarMatchTerminalBackgroundSettings.isSettingsFileDefaultKey(defaultsKey)
+            if shouldTrackFileDefault, !SidebarMatchTerminalBackgroundSettings.shouldApplySettingsFileDefault(defaults: defaults) {
+                SidebarMatchTerminalBackgroundSettings.recordSettingsFileDefault(next, defaults: defaults)
+                return ManagedDefaultBatchSideEffects()
+            }
             let current = defaults.object(forKey: defaultsKey) as? Bool
             if current != next {
                 defaults.set(next, forKey: defaultsKey)
                 didMutateStoredValue = true
+            }
+            if shouldTrackFileDefault, didMutateStoredValue {
+                SidebarMatchTerminalBackgroundSettings.recordSettingsFileDefault(next, defaults: defaults)
             }
         case .int(let next):
             let current = defaults.object(forKey: defaultsKey) as? Int
@@ -1061,22 +990,19 @@ final class CmuxSettingsFileStore {
             }
         }
 
-        if defaultsKey == TerminalScrollBarSettings.showScrollBarKey, didMutateStoredValue {
-            TerminalScrollBarSettings.notifyDidChange(notificationCenter: notificationCenter)
+        if didMutateStoredValue {
+            return applyManagedDefaultSideEffects(
+                for: defaultsKey,
+                source: "cmuxConfig.applyManagedDefault"
+            )
         }
-
-        switch defaultsKey {
-        case LanguageSettings.languageKey:
-            let language = AppLanguage(rawValue: UserDefaults.standard.string(forKey: defaultsKey) ?? "") ?? .system
-            LanguageSettings.apply(language)
-        case AppIconSettings.modeKey:
-            AppIconSettings.applyIcon(AppIconSettings.resolvedMode())
-        default:
-            break
-        }
+        return ManagedDefaultBatchSideEffects()
     }
 
-    private func restoreUserDefaultsBackup(_ backup: BackupValue, for defaultsKey: String) {
+    private func restoreUserDefaultsBackup(
+        _ backup: BackupValue,
+        for defaultsKey: String
+    ) -> ManagedDefaultBatchSideEffects {
         let defaults = UserDefaults.standard
         if defaultsKey == WorkspaceTabColorSettings.paletteKey {
             switch backup {
@@ -1087,38 +1013,81 @@ final class CmuxSettingsFileStore {
             default:
                 break
             }
-            return
+            return ManagedDefaultBatchSideEffects()
         }
 
+        var didMutateStoredValue = false
         switch backup {
         case .absent:
-            defaults.removeObject(forKey: defaultsKey)
+            if defaults.object(forKey: defaultsKey) != nil { defaults.removeObject(forKey: defaultsKey); didMutateStoredValue = true }
         case .bool(let value):
-            defaults.set(value, forKey: defaultsKey)
+            if defaults.object(forKey: defaultsKey) as? Bool != value { defaults.set(value, forKey: defaultsKey); didMutateStoredValue = true }
         case .int(let value):
-            defaults.set(value, forKey: defaultsKey)
+            if defaults.object(forKey: defaultsKey) as? Int != value { defaults.set(value, forKey: defaultsKey); didMutateStoredValue = true }
         case .double(let value):
-            defaults.set(value, forKey: defaultsKey)
+            if defaults.object(forKey: defaultsKey) as? Double != value { defaults.set(value, forKey: defaultsKey); didMutateStoredValue = true }
         case .string(let value):
-            defaults.set(value, forKey: defaultsKey)
+            if defaults.string(forKey: defaultsKey) != value { defaults.set(value, forKey: defaultsKey); didMutateStoredValue = true }
         case .stringArray(let value):
-            defaults.set(value, forKey: defaultsKey)
+            if defaults.array(forKey: defaultsKey) as? [String] != value { defaults.set(value, forKey: defaultsKey); didMutateStoredValue = true }
         case .stringDictionary(let value):
-            defaults.set(value, forKey: defaultsKey)
+            if defaults.dictionary(forKey: defaultsKey) as? [String: String] != value { defaults.set(value, forKey: defaultsKey); didMutateStoredValue = true }
         }
 
-        if defaultsKey == TerminalScrollBarSettings.showScrollBarKey {
-            TerminalScrollBarSettings.notifyDidChange(notificationCenter: notificationCenter)
+        if didMutateStoredValue {
+            return applyManagedDefaultSideEffects(
+                for: defaultsKey,
+                source: "cmuxConfig.restoreUserDefault"
+            )
+        }
+        return ManagedDefaultBatchSideEffects()
+    }
+
+    private func applyManagedDefaultSideEffects(
+        for defaultsKey: String,
+        source: String
+    ) -> ManagedDefaultBatchSideEffects {
+        let notificationCenter = notificationCenter
+        let notifyScrollBar = defaultsKey == TerminalScrollBarSettings.showScrollBarKey
+        var sideEffects = ManagedDefaultBatchSideEffects()
+        sideEffects.agentSessionAutoResumeDidChange =
+            defaultsKey == AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey
+        let language = defaultsKey == LanguageSettings.languageKey ? AppLanguage(rawValue: UserDefaults.standard.string(forKey: defaultsKey) ?? "") ?? .system : nil
+        let shouldApplyAppearance = defaultsKey == AppearanceSettings.appearanceModeKey
+        let appearanceRawValue = shouldApplyAppearance ? UserDefaults.standard.string(forKey: defaultsKey) : nil
+        let appIconMode = defaultsKey == AppIconSettings.modeKey ? AppIconSettings.resolvedMode() : nil
+        let apply = {
+            if notifyScrollBar {
+                TerminalScrollBarSettings.notifyDidChange(notificationCenter: notificationCenter)
+            }
+
+            if let language {
+                LanguageSettings.apply(language)
+            } else if shouldApplyAppearance {
+                AppearanceSettings.applyStoredMode(rawValue: appearanceRawValue, source: source)
+            } else if let appIconMode {
+                AppIconSettings.applyIcon(appIconMode)
+            }
         }
 
-        switch defaultsKey {
-        case LanguageSettings.languageKey:
-            let language = AppLanguage(rawValue: UserDefaults.standard.string(forKey: defaultsKey) ?? "") ?? .system
-            LanguageSettings.apply(language)
-        case AppIconSettings.modeKey:
-            AppIconSettings.applyIcon(AppIconSettings.resolvedMode())
-        default:
-            break
+        if Thread.isMainThread {
+            apply()
+        } else {
+            DispatchQueue.main.async { apply() }
+        }
+        return sideEffects
+    }
+
+    private func applyManagedDefaultBatchSideEffects(_ sideEffects: ManagedDefaultBatchSideEffects) {
+        guard sideEffects.agentSessionAutoResumeDidChange else { return }
+        let notificationCenter = notificationCenter
+        let apply = {
+            AgentSessionAutoResumeSettings.notifyDidChange(notificationCenter: notificationCenter)
+        }
+        if Thread.isMainThread {
+            apply()
+        } else {
+            DispatchQueue.main.async { apply() }
         }
     }
 
@@ -1256,6 +1225,7 @@ final class CmuxSettingsFileStore {
             [
                 "terminal": [
                     "showScrollBar": TerminalScrollBarSettings.defaultShowScrollBar,
+                    "autoResumeAgentSessions": AgentSessionAutoResumeSettings.defaultAutoResumeAgentSessions,
                 ],
             ],
             [
@@ -1276,6 +1246,7 @@ final class CmuxSettingsFileStore {
                     "showNotificationMessage": SidebarWorkspaceDetailSettings.defaultShowNotificationMessage,
                     "showBranchDirectory": true,
                     "showPullRequests": true,
+                    "makePullRequestsClickable": SidebarPullRequestClickabilitySettings.defaultClickable,
                     "openPullRequestLinksInCmuxBrowser": BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser,
                     "openPortLinksInCmuxBrowser": BrowserLinkOpenSettings.defaultOpenSidebarPortLinksInCmuxBrowser,
                     "showSSH": true,
@@ -1385,6 +1356,15 @@ private struct ResolvedSettingsSnapshot {
             managedUserDefaults[key] = value
         }
         managedCustomSettings.fillMissingSettings(from: fallback.managedCustomSettings)
+    }
+}
+
+private struct ManagedDefaultBatchSideEffects {
+    var agentSessionAutoResumeDidChange = false
+
+    mutating func merge(_ other: ManagedDefaultBatchSideEffects) {
+        agentSessionAutoResumeDidChange =
+            agentSessionAutoResumeDidChange || other.agentSessionAutoResumeDidChange
     }
 }
 

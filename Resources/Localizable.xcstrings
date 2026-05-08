@@ -2,12 +2,23 @@
   "sourceLanguage": "en",
   "version": "1.0",
   "strings": {
+    "shortcut.commandPaletteNext.label": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "ja": { "stringUnit": { "state": "translated", "value": "コマンドパレット: 次へ" } }, "zh-Hans": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "zh-Hant": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "ko": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "de": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "es": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "fr": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "it": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "da": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "pl": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "ru": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "bs": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "ar": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "nb": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "th": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "tr": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "uk": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } } } },
+    "shortcut.commandPalettePrevious.label": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "ja": { "stringUnit": { "state": "translated", "value": "コマンドパレット: 前へ" } }, "zh-Hans": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "zh-Hant": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "ko": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "de": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "es": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "fr": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "it": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "da": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "pl": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "ru": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "bs": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "ar": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "nb": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "th": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "tr": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "uk": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } } } },
+    "settings.shortcuts.managedByFile": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "ja": { "stringUnit": { "state": "translated", "value": "cmux.json で管理" } }, "zh-Hans": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "zh-Hant": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "ko": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "de": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "es": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "fr": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "it": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "da": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "pl": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "ru": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "bs": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "ar": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "nb": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "th": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "tr": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "uk": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } } } },
     "detail.mode": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Mode" } }, "ja": { "stringUnit": { "state": "translated", "value": "モード" } } } },
     "detail.primaryAction": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Open Related File" } }, "ja": { "stringUnit": { "state": "translated", "value": "関連ファイルを開く" } } } },
     "detail.secondaryAction": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Restore Defaults" } }, "ja": { "stringUnit": { "state": "translated", "value": "デフォルトに戻す" } } } },
     "detail.section": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Section" } }, "ja": { "stringUnit": { "state": "translated", "value": "セクション" } } } },
     "detail.slider": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Amount" } }, "ja": { "stringUnit": { "state": "translated", "value": "量" } } } },
     "detail.toggle": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Enable" } }, "ja": { "stringUnit": { "state": "translated", "value": "有効にする" } } } },
+    "fileDrop.holdShiftDropIntoEditor": { "localizations": {"ar":{"stringUnit":{"state":"translated","value":"اضغط Shift للإفلات في المحرر"}},"bs":{"stringUnit":{"state":"translated","value":"Držite Shift za ispuštanje u editor"}},"da":{"stringUnit":{"state":"translated","value":"Hold Skift nede for at slippe i editoren"}},"de":{"stringUnit":{"state":"translated","value":"Umschalt halten, um in den Editor abzulegen"}},"en":{"stringUnit":{"state":"translated","value":"Hold Shift to drop into editor"}},"es":{"stringUnit":{"state":"translated","value":"Mantén Shift para soltar en el editor"}},"fr":{"stringUnit":{"state":"translated","value":"Maintenez Maj pour déposer dans l’éditeur"}},"it":{"stringUnit":{"state":"translated","value":"Tieni premuto Maiuscole per rilasciare nell’editor"}},"ja":{"stringUnit":{"state":"translated","value":"Shift キーを押したままエディタにドロップ"}},"ko":{"stringUnit":{"state":"translated","value":"편집기에 드롭하려면 Shift를 누르세요"}},"nb":{"stringUnit":{"state":"translated","value":"Hold Skift for å slippe i redigereren"}},"pl":{"stringUnit":{"state":"translated","value":"Przytrzymaj Shift, aby upuścić w edytorze"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Segure Shift para soltar no editor"}},"ru":{"stringUnit":{"state":"translated","value":"Удерживайте Shift, чтобы перетащить в редактор"}},"th":{"stringUnit":{"state":"translated","value":"กด Shift ค้างไว้เพื่อวางในตัวแก้ไข"}},"tr":{"stringUnit":{"state":"translated","value":"Düzenleyiciye bırakmak için Shift tuşunu basılı tutun"}},"uk":{"stringUnit":{"state":"translated","value":"Утримуйте Shift, щоб скинути в редактор"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"按住 Shift 以拖放到编辑器"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"按住 Shift 以拖放到編輯器"}}} },
+    "fileDrop.holdShiftDropIntoTerminal": { "localizations": {"ar":{"stringUnit":{"state":"translated","value":"اضغط Shift للإفلات في الطرفية"}},"bs":{"stringUnit":{"state":"translated","value":"Držite Shift za ispuštanje u terminal"}},"da":{"stringUnit":{"state":"translated","value":"Hold Skift nede for at slippe i terminalen"}},"de":{"stringUnit":{"state":"translated","value":"Umschalt halten, um ins Terminal abzulegen"}},"en":{"stringUnit":{"state":"translated","value":"Hold Shift to drop into terminal"}},"es":{"stringUnit":{"state":"translated","value":"Mantén Shift para soltar en la terminal"}},"fr":{"stringUnit":{"state":"translated","value":"Maintenez Maj pour déposer dans le terminal"}},"it":{"stringUnit":{"state":"translated","value":"Tieni premuto Maiuscole per rilasciare nel terminale"}},"ja":{"stringUnit":{"state":"translated","value":"Shift キーを押したままターミナルにドロップ"}},"ko":{"stringUnit":{"state":"translated","value":"터미널에 드롭하려면 Shift를 누르세요"}},"nb":{"stringUnit":{"state":"translated","value":"Hold Skift for å slippe i terminalen"}},"pl":{"stringUnit":{"state":"translated","value":"Przytrzymaj Shift, aby upuścić w terminalu"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Segure Shift para soltar no terminal"}},"ru":{"stringUnit":{"state":"translated","value":"Удерживайте Shift, чтобы перетащить в терминал"}},"th":{"stringUnit":{"state":"translated","value":"กด Shift ค้างไว้เพื่อวางในเทอร์มินัล"}},"tr":{"stringUnit":{"state":"translated","value":"Terminale bırakmak için Shift tuşunu basılı tutun"}},"uk":{"stringUnit":{"state":"translated","value":"Утримуйте Shift, щоб скинути в термінал"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"按住 Shift 以拖放到终端"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"按住 Shift 以拖放到終端"}}} },
+    "fileDrop.holdShiftOpenAsSplit": { "localizations": {"ar":{"stringUnit":{"state":"translated","value":"اضغط Shift للفتح كتقسيم"}},"bs":{"stringUnit":{"state":"translated","value":"Držite Shift za otvaranje kao podjelu"}},"da":{"stringUnit":{"state":"translated","value":"Hold Skift nede for at åbne som split"}},"de":{"stringUnit":{"state":"translated","value":"Umschalt halten, um als Split zu öffnen"}},"en":{"stringUnit":{"state":"translated","value":"Hold Shift to open as split"}},"es":{"stringUnit":{"state":"translated","value":"Mantén Shift para abrir como división"}},"fr":{"stringUnit":{"state":"translated","value":"Maintenez Maj pour ouvrir en division"}},"it":{"stringUnit":{"state":"translated","value":"Tieni premuto Maiuscole per aprire come divisione"}},"ja":{"stringUnit":{"state":"translated","value":"Shift キーを押したまま分割で開く"}},"ko":{"stringUnit":{"state":"translated","value":"분할로 열려면 Shift를 누르세요"}},"nb":{"stringUnit":{"state":"translated","value":"Hold Skift for å åpne som delt visning"}},"pl":{"stringUnit":{"state":"translated","value":"Przytrzymaj Shift, aby otworzyć jako podział"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Segure Shift para abrir como divisão"}},"ru":{"stringUnit":{"state":"translated","value":"Удерживайте Shift, чтобы открыть как разделение"}},"th":{"stringUnit":{"state":"translated","value":"กด Shift ค้างไว้เพื่อเปิดแบบแบ่ง"}},"tr":{"stringUnit":{"state":"translated","value":"Bölünmüş görünüm olarak açmak için Shift tuşunu basılı tutun"}},"uk":{"stringUnit":{"state":"translated","value":"Утримуйте Shift, щоб відкрити як розділення"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"按住 Shift 以拆分打开"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"按住 Shift 以分割開啟"}}} },
+    "settings.app.fileDrop.defaultBehavior": { "localizations": {"ar":{"stringUnit":{"state":"translated","value":"إفلات الملفات"}},"bs":{"stringUnit":{"state":"translated","value":"Ispuštanje datoteka"}},"da":{"stringUnit":{"state":"translated","value":"Filslip"}},"de":{"stringUnit":{"state":"translated","value":"Dateiablagen"}},"en":{"stringUnit":{"state":"translated","value":"File Drops"}},"es":{"stringUnit":{"state":"translated","value":"Soltar archivos"}},"fr":{"stringUnit":{"state":"translated","value":"Dépôts de fichiers"}},"it":{"stringUnit":{"state":"translated","value":"Rilasci file"}},"ja":{"stringUnit":{"state":"translated","value":"ファイルドロップ"}},"ko":{"stringUnit":{"state":"translated","value":"파일 드롭"}},"nb":{"stringUnit":{"state":"translated","value":"Filslipp"}},"pl":{"stringUnit":{"state":"translated","value":"Upuszczanie plików"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Soltar arquivos"}},"ru":{"stringUnit":{"state":"translated","value":"Перетаскивание файлов"}},"th":{"stringUnit":{"state":"translated","value":"การวางไฟล์"}},"tr":{"stringUnit":{"state":"translated","value":"Dosya Bırakma"}},"uk":{"stringUnit":{"state":"translated","value":"Перетягування файлів"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"文件拖放"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"檔案拖放"}}} },
+    "settings.app.fileDrop.defaultBehavior.preview": { "localizations": {"ar":{"stringUnit":{"state":"translated","value":"فتح معاينة الملف"}},"bs":{"stringUnit":{"state":"translated","value":"Otvori pregled datoteke"}},"da":{"stringUnit":{"state":"translated","value":"Åbn filvisning"}},"de":{"stringUnit":{"state":"translated","value":"Dateivorschau öffnen"}},"en":{"stringUnit":{"state":"translated","value":"Open file preview"}},"es":{"stringUnit":{"state":"translated","value":"Abrir vista previa del archivo"}},"fr":{"stringUnit":{"state":"translated","value":"Ouvrir l’aperçu du fichier"}},"it":{"stringUnit":{"state":"translated","value":"Apri anteprima file"}},"ja":{"stringUnit":{"state":"translated","value":"ファイルプレビューを開く"}},"ko":{"stringUnit":{"state":"translated","value":"파일 미리보기 열기"}},"nb":{"stringUnit":{"state":"translated","value":"Åpne filforhåndsvisning"}},"pl":{"stringUnit":{"state":"translated","value":"Otwórz podgląd pliku"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Abrir pré-visualização do arquivo"}},"ru":{"stringUnit":{"state":"translated","value":"Открыть предпросмотр файла"}},"th":{"stringUnit":{"state":"translated","value":"เปิดตัวอย่างไฟล์"}},"tr":{"stringUnit":{"state":"translated","value":"Dosya önizlemesini aç"}},"uk":{"stringUnit":{"state":"translated","value":"Відкрити попередній перегляд файлу"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"打开文件预览"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"開啟檔案預覽"}}} },
+    "settings.app.fileDrop.defaultBehavior.preview.subtitle": { "localizations": {"ar":{"stringUnit":{"state":"translated","value":"يؤدي سحب الملفات إلى فتح المعاينات أو الأجزاء المقسمة. اضغط Shift فوق الطرفيات والمحررات لإدراج نص المسار."}},"bs":{"stringUnit":{"state":"translated","value":"Prevlačenje datoteka otvara preglede ili podijeljene panele. Držite Shift iznad terminala i editora za umetanje teksta putanje."}},"da":{"stringUnit":{"state":"translated","value":"Når filer trækkes ind, åbnes forhåndsvisninger eller splitpaneler. Hold Skift nede over terminaler og editorer for at indsætte stitekst."}},"de":{"stringUnit":{"state":"translated","value":"Gezogene Dateien öffnen Vorschauen oder Split-Bereiche. Halten Sie über Terminals und Editoren die Umschalttaste, um Pfadtext einzufügen."}},"en":{"stringUnit":{"state":"translated","value":"Dragging files opens previews or split panes. Hold Shift over terminals and editors to insert path text."}},"es":{"stringUnit":{"state":"translated","value":"Arrastrar archivos abre vistas previas o paneles divididos. Mantén Shift sobre terminales y editores para insertar texto de ruta."}},"fr":{"stringUnit":{"state":"translated","value":"Faire glisser des fichiers ouvre des aperçus ou des volets divisés. Maintenez Maj sur les terminaux et les éditeurs pour insérer le chemin sous forme de texte."}},"it":{"stringUnit":{"state":"translated","value":"Trascinare file apre anteprime o riquadri divisi. Tieni premuto Maiuscole sopra terminali ed editor per inserire il percorso come testo."}},"ja":{"stringUnit":{"state":"translated","value":"ファイルをドラッグするとプレビューまたは分割ペインで開きます。ターミナルやエディタ上で Shift キーを押したままにするとパス文字列を挿入します。"}},"ko":{"stringUnit":{"state":"translated","value":"파일을 드래그하면 미리보기 또는 분할 창이 열립니다. 터미널과 편집기 위에서 Shift를 누르면 경로 텍스트가 삽입됩니다."}},"nb":{"stringUnit":{"state":"translated","value":"Når filer dras inn, åpnes forhåndsvisninger eller delte ruter. Hold Skift over terminaler og redigerere for å sette inn stitekst."}},"pl":{"stringUnit":{"state":"translated","value":"Przeciąganie plików otwiera podglądy lub podzielone panele. Przytrzymaj Shift nad terminalami i edytorami, aby wstawić tekst ścieżki."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Arrastar arquivos abre pré-visualizações ou painéis divididos. Segure Shift sobre terminais e editores para inserir texto de caminho."}},"ru":{"stringUnit":{"state":"translated","value":"Перетаскивание файлов открывает предпросмотр или разделённые панели. Удерживайте Shift над терминалами и редакторами, чтобы вставить путь как текст."}},"th":{"stringUnit":{"state":"translated","value":"การลากไฟล์จะเปิดตัวอย่างหรือบานหน้าต่างแบบแบ่ง กด Shift ค้างไว้เหนือเทอร์มินัลและตัวแก้ไขเพื่อแทรกข้อความพาธ"}},"tr":{"stringUnit":{"state":"translated","value":"Dosyaları sürüklemek önizlemeleri veya bölünmüş bölmeleri açar. Yol metni eklemek için terminal ve düzenleyicilerin üzerinde Shift tuşunu basılı tutun."}},"uk":{"stringUnit":{"state":"translated","value":"Перетягування файлів відкриває попередній перегляд або розділені панелі. Утримуйте Shift над терміналами й редакторами, щоб вставити шлях як текст."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"拖入文件会打开预览或拆分窗格。在终端和编辑器上按住 Shift 可插入路径文本。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"拖入檔案會開啟預覽或分割窗格。在終端機和編輯器上按住 Shift 可插入路徑文字。"}}} },
+    "settings.app.fileDrop.defaultBehavior.text": { "localizations": {"ar":{"stringUnit":{"state":"translated","value":"إفلات نص المسار"}},"bs":{"stringUnit":{"state":"translated","value":"Ispusti tekst putanje"}},"da":{"stringUnit":{"state":"translated","value":"Slip stitekst"}},"de":{"stringUnit":{"state":"translated","value":"Pfadtext ablegen"}},"en":{"stringUnit":{"state":"translated","value":"Drop path text"}},"es":{"stringUnit":{"state":"translated","value":"Soltar texto de ruta"}},"fr":{"stringUnit":{"state":"translated","value":"Déposer le chemin en texte"}},"it":{"stringUnit":{"state":"translated","value":"Rilascia testo percorso"}},"ja":{"stringUnit":{"state":"translated","value":"パス文字列をドロップ"}},"ko":{"stringUnit":{"state":"translated","value":"경로 텍스트 드롭"}},"nb":{"stringUnit":{"state":"translated","value":"Slipp stitekst"}},"pl":{"stringUnit":{"state":"translated","value":"Upuść tekst ścieżki"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Soltar texto de caminho"}},"ru":{"stringUnit":{"state":"translated","value":"Перетащить путь как текст"}},"th":{"stringUnit":{"state":"translated","value":"วางข้อความพาธ"}},"tr":{"stringUnit":{"state":"translated","value":"Yol metnini bırak"}},"uk":{"stringUnit":{"state":"translated","value":"Скинути шлях як текст"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"拖放路径文本"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"拖放路徑文字"}}} },
+    "settings.app.fileDrop.defaultBehavior.text.subtitle": { "localizations": {"ar":{"stringUnit":{"state":"translated","value":"فوق الطرفيات والمحررات، يؤدي سحب الملفات إلى إدراج مسارات مهربة للصدفة. اضغط Shift لفتح معاينة ملف أو تقسيم."}},"bs":{"stringUnit":{"state":"translated","value":"Iznad terminala i editora, prevlačenje datoteka umeće shell-escapirane putanje. Držite Shift za otvaranje pregleda datoteke ili podjele."}},"da":{"stringUnit":{"state":"translated","value":"Over terminaler og editorer indsætter træk af filer shell-escaped stier. Hold Skift nede for at åbne en filvisning eller et split."}},"de":{"stringUnit":{"state":"translated","value":"Über Terminals und Editoren fügt das Ziehen von Dateien shell-escapte Pfade ein. Halten Sie Umschalt, um eine Dateivorschau oder einen Split zu öffnen."}},"en":{"stringUnit":{"state":"translated","value":"Over terminals and editors, dragging files inserts shell-escaped paths. Hold Shift to open a file preview or split."}},"es":{"stringUnit":{"state":"translated","value":"Sobre terminales y editores, arrastrar archivos inserta rutas escapadas para shell. Mantén Shift para abrir una vista previa del archivo o una división."}},"fr":{"stringUnit":{"state":"translated","value":"Sur les terminaux et les éditeurs, faire glisser des fichiers insère des chemins échappés pour le shell. Maintenez Maj pour ouvrir un aperçu de fichier ou une division."}},"it":{"stringUnit":{"state":"translated","value":"Sopra terminali ed editor, trascinare file inserisce percorsi con escape per la shell. Tieni premuto Maiuscole per aprire un’anteprima file o una divisione."}},"ja":{"stringUnit":{"state":"translated","value":"ターミナルやエディタ上では、ファイルをドラッグするとシェル用にエスケープされたパスを挿入します。Shift キーを押したままにするとファイルプレビューまたは分割で開きます。"}},"ko":{"stringUnit":{"state":"translated","value":"터미널과 편집기 위에서는 파일을 드래그하면 셸 이스케이프된 경로가 삽입됩니다. Shift를 누르면 파일 미리보기 또는 분할로 열립니다."}},"nb":{"stringUnit":{"state":"translated","value":"Over terminaler og redigerere setter dra-og-slipp av filer inn skall-escapede stier. Hold Skift for å åpne filforhåndsvisning eller delt visning."}},"pl":{"stringUnit":{"state":"translated","value":"Nad terminalami i edytorami przeciąganie plików wstawia ścieżki escapowane dla powłoki. Przytrzymaj Shift, aby otworzyć podgląd pliku lub podział."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Sobre terminais e editores, arrastar arquivos insere caminhos escapados para shell. Segure Shift para abrir uma pré-visualização do arquivo ou uma divisão."}},"ru":{"stringUnit":{"state":"translated","value":"Над терминалами и редакторами перетаскивание файлов вставляет пути с экранированием для shell. Удерживайте Shift, чтобы открыть предпросмотр файла или разделение."}},"th":{"stringUnit":{"state":"translated","value":"เหนือเทอร์มินัลและตัวแก้ไข การลากไฟล์จะแทรกพาธที่ escape สำหรับเชลล์ กด Shift ค้างไว้เพื่อเปิดตัวอย่างไฟล์หรือแบ่งหน้าต่าง"}},"tr":{"stringUnit":{"state":"translated","value":"Terminal ve düzenleyicilerin üzerinde dosya sürüklemek shell için kaçışlanmış yollar ekler. Dosya önizlemesi veya bölünmüş görünüm açmak için Shift tuşunu basılı tutun."}},"uk":{"stringUnit":{"state":"translated","value":"Над терміналами й редакторами перетягування файлів вставляє шляхи з екрануванням для shell. Утримуйте Shift, щоб відкрити попередній перегляд файлу або розділення."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"在终端和编辑器上拖入文件会插入经过 shell 转义的路径。按住 Shift 可打开文件预览或拆分。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"在終端機和編輯器上拖入檔案會插入經過 shell 跳脫的路徑。按住 Shift 可開啟檔案預覽或分割。"}}} },
     "debug.bonsplitTabBarDebug.actionLaneBorder": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Action Lane Border" } }, "ja": { "stringUnit": { "state": "translated", "value": "アクションレーンの境界線" } } } },
     "debug.bonsplitTabBarDebug.actionLaneGeometry": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Action Lane Geometry" } }, "ja": { "stringUnit": { "state": "translated", "value": "アクションレーンのジオメトリ" } } } },
     "debug.bonsplitTabBarDebug.contentFade": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Content fade" } }, "ja": { "stringUnit": { "state": "translated", "value": "コンテンツのフェード" } } } },
@@ -18611,6 +18622,482 @@
           "stringUnit": {
             "state": "translated",
             "value": "Скасувати"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.blocked.ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.blocked.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux SSH Link Blocked"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux SSH リンクをブロックしました"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.launchFailed.exit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ssh exited with status %d."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ssh はステータス %d で終了しました。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.launchFailed.launch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ssh could not be launched."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ssh を起動できませんでした。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.launchFailed.missingCLI": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The bundled cmux CLI is missing from this app build."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアプリビルドに同梱されている cmux CLI が見つかりません。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.launchFailed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't Open SSH Link"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH リンクを開けませんでした"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャンセル"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.checkbox": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I trust this SSH target and want cmux to connect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この SSH 接続先を信頼し、cmux で接続することに同意します。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.commandLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command preview:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンドのプレビュー:"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.targetLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH target: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 接続先: %@"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.error.destinationContainsUnsafeCharacters": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH host or user contains unsupported or hidden characters, so cmux refused to use it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH ホストまたはユーザーに未対応の文字または隠れた文字が含まれているため、cmux は使用を拒否しました。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.error.destinationTooLong": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH target is too long. The maximum length is %lld characters."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 接続先が長すぎます。最大長は %lld 文字です。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.error.missingDestination": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The link did not include an SSH host."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクに SSH ホストが含まれていません。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.error.multipleLinks": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only one SSH link can be opened at a time."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一度に開ける SSH リンクは 1 つだけです。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.error.titleContainsControlCharacters": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The workspace title contains hidden control or formatting characters, so cmux refused to use it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース名に隠れた制御文字または書式制御文字が含まれているため、cmux は使用を拒否しました。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.error.titleTooLong": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The workspace title is too long. The maximum length is %lld characters."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース名が長すぎます。最大長は %lld 文字です。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.error.invalidIntegerParameter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH link included an invalid integer value for parameter: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH リンクのパラメータに無効な整数値が含まれています: %@"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.error.invalidHostKeyPolicy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH link included an invalid host key policy for parameter: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH リンクのパラメータに無効なホストキー確認ポリシーが含まれています: %@"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.error.destinationStartsWithDash": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH host or user cannot start with a dash."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH ホストまたはユーザーをダッシュで始めることはできません。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.error.conflictingDestinationParameters": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The link included conflicting SSH target fields."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクに競合する SSH 接続先フィールドが含まれています。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.error.conflictingTitleParameters": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The link included both title and name. Use only one workspace title field."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクに title と name の両方が含まれています。ワークスペース名のフィールドは 1 つだけ使用してください。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.error.duplicateParameter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH link repeated a parameter: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH リンクで同じパラメータが繰り返されています: %@"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.error.unsupportedParameter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH link included an unsupported parameter: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH リンクに未対応のパラメータが含まれています: %@"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.error.invalidPort": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH port must be between 1 and 65535."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH ポートは 1 から 65535 の範囲で指定してください。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.error.invalidBooleanParameter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH link included an invalid boolean value for parameter: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH リンクのパラメータに無効な真偽値が含まれています: %@"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A %@:// link is asking cmux to open an SSH workspace. cmux cannot verify which website or app opened this link.\n\nSSH may use your local SSH config, keys, agent settings, ProxyCommand, LocalCommand, and forwarding rules for this target. External links cannot supply arbitrary SSH options. Only continue if you trust this SSH target."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@:// リンクが SSH ワークスペースを開くよう cmux に要求しています。cmux は、このリンクを開いた Web サイトやアプリを確認できません。\n\nSSH はこの接続先に対して、ローカルの SSH 設定、鍵、エージェント設定、ProxyCommand、LocalCommand、ポート転送ルールを使用する場合があります。外部リンクは任意の SSH オプションを指定できません。この SSH 接続先を信頼している場合のみ続行してください。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.run": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open an SSH Connection From an External Link?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "外部リンクから SSH 接続を開きますか？"
           }
         }
       }
@@ -52136,13 +52623,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open Config Window"
+            "value": "Open Config"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "構成ウインドウを開く"
+            "value": "設定を開く"
           }
         }
       }
@@ -52153,13 +52640,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open the cmux config, standalone Ghostty config, and merged preview in one utility window."
+            "value": "Open the cmux terminal config and generated preview in one utility window."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux の設定、単体の Ghostty 設定、マージ後のプレビューを 1 つのユーティリティウインドウで開きます。"
+            "value": "cmux の端末設定と生成プレビューを 1 つのユーティリティウインドウで開きます。"
           }
         }
       }
@@ -52177,6 +52664,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "エディタで開く…"
+          }
+        }
+      }
+    },
+    "settings.config.action.openActiveEditor": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Active Config…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有効な設定を開く…"
           }
         }
       }
@@ -52215,6 +52719,23 @@
         }
       }
     },
+    "settings.config.action.revealActiveFinder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reveal Active Config in Finder"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有効な設定をFinderで表示"
+          }
+        }
+      }
+    },
     "settings.config.action.save": {
       "extractionState": "manual",
       "localizations": {
@@ -52238,47 +52759,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This is the config file cmux reads. Edit it here, then Save to reload cmux."
+            "value": "This is the cmux Ghostty config selected for this build. Edit it here, then Save to reload cmux."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "これは cmux が読み込む設定ファイルです。ここで編集し、保存すると cmux が再読み込みされます。"
-          }
-        }
-      }
-    },
-    "settings.config.banner.ghostty": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This file belongs to standalone Ghostty. cmux does not read it, so edits here do not affect cmux."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このファイルは単体の Ghostty 用です。cmux はこれを読み込まないため、ここでの編集は cmux に反映されません。"
-          }
-        }
-      }
-    },
-    "settings.config.banner.ghosttyMissing": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No standalone Ghostty config file was found at the preferred path. cmux still does not read standalone Ghostty config."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "優先パスに単体の Ghostty 設定ファイルが見つかりませんでした。cmux は単体の Ghostty 設定を読み込みません。"
+            "value": "これはこのビルドで選択されている cmux Ghostty 設定です。ここで編集し、保存すると cmux が再読み込みされます。"
           }
         }
       }
@@ -52306,13 +52793,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This is a generated preview of the effective config. No standalone Ghostty config file was found, so only cmux overrides are shown."
+            "value": "This is a generated preview of the effective config. No base Ghostty config file was found, so only cmux overrides are shown."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "これは実効設定の生成プレビューです。単体の Ghostty 設定ファイルが見つからなかったため、cmux の上書き設定のみを表示しています。"
+            "value": "これは実効設定の生成プレビューです。ベースの Ghostty 設定ファイルが見つからなかったため、cmux の上書き設定のみを表示しています。"
           }
         }
       }
@@ -52330,23 +52817,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux"
-          }
-        }
-      }
-    },
-    "settings.config.source.ghostty": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ghostty"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ghostty"
           }
         }
       }
@@ -52398,6 +52868,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "ディスクから構成を再読み込みしました。"
+          }
+        }
+      }
+    },
+    "settings.config.status.openFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't open the cmux config."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 設定を開けませんでした。"
           }
         }
       }
@@ -53067,6 +53554,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Кліки відкриваються у браузері cmux."
+          }
+        }
+      }
+    },
+    "settings.app.openSidebarPRLinks.subtitleDisabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable sidebar PR clickability to choose where PR links open."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PRリンクの開き先を選ぶには、サイドバーのPRクリックを有効にしてください。"
+          }
+        }
+      }
+    },
+    "settings.app.openSidebarPRLinks.subtitleHidden": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable sidebar PR visibility to choose where PR links open."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PRリンクの開き先を選ぶには、サイドバーのPR表示を有効にしてください。"
           }
         }
       }
@@ -55836,115 +56357,166 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Display review items (PR/MR/etc.) with status, number, and clickable link."
+            "value": "Display review items (PR/MR/etc.) with status and number."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ステータス、番号、クリック可能なリンク付きのレビュー項目（PR/MRなど）を表示します。"
+            "value": "ステータスと番号付きのレビュー項目（PR/MRなど）を表示します。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "显示包含状态、编号和可点击链接的审查项（PR/MR 等）。"
+            "value": "显示包含状态和编号的审查项（PR/MR 等）。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "顯示審查項目（PR/MR 等），包含狀態、編號和可點擊的連結。"
+            "value": "顯示審查項目（PR/MR 等），包含狀態和編號。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "상태, 번호 및 클릭 가능한 링크가 있는 리뷰 항목(PR/MR 등)을 표시합니다."
+            "value": "상태와 번호가 있는 리뷰 항목(PR/MR 등)을 표시합니다."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Review-Elemente (PR/MR/etc.) mit Status, Nummer und anklickbarem Link anzeigen."
+            "value": "Review-Elemente (PR/MR/etc.) mit Status und Nummer anzeigen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mostrar elementos de revisión (PR/MR/etc.) con estado, número y enlace interactivo."
+            "value": "Mostrar elementos de revisión (PR/MR/etc.) con estado y número."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Afficher les éléments de revue (PR/MR/etc.) avec le statut, le numéro et un lien cliquable."
+            "value": "Afficher les éléments de revue (PR/MR/etc.) avec le statut et le numéro."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Visualizza elementi di revisione (PR/MR/ecc.) con stato, numero e link cliccabile."
+            "value": "Visualizza elementi di revisione (PR/MR/ecc.) con stato e numero."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vis gennemgangselementer (PR/MR osv.) med status, nummer og klikbart link."
+            "value": "Vis gennemgangselementer (PR/MR osv.) med status og nummer."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wyświetlaj elementy przeglądu (PR/MR/itp.) ze statusem, numerem i klikalnym linkiem."
+            "value": "Wyświetlaj elementy przeglądu (PR/MR/itp.) ze statusem i numerem."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Отображать элементы проверки (PR/MR и т.д.) со статусом, номером и ссылкой."
+            "value": "Отображать элементы проверки (PR/MR и т.д.) со статусом и номером."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Prikaži stavke za pregled (PR/MR/itd.) sa statusom, brojem i linkom."
+            "value": "Prikaži stavke za pregled (PR/MR/itd.) sa statusom i brojem."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "عرض عناصر المراجعة (طلبات السحب/الدمج/إلخ.) مع الحالة والرقم والرابط القابل للنقر."
+            "value": "عرض عناصر المراجعة (طلبات السحب/الدمج/إلخ.) مع الحالة والرقم."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vis gjennomgangselementer (PR/MR/osv.) med status, nummer og klikkbar lenke."
+            "value": "Vis gjennomgangselementer (PR/MR/osv.) med status og nummer."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Exibir itens de revisão (PR/MR/etc.) com status, número e link clicável."
+            "value": "Exibir itens de revisão (PR/MR/etc.) com status e número."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "แสดงรายการตรวจสอบ (PR/MR/อื่นๆ) พร้อมสถานะ หมายเลข และลิงก์ที่คลิกได้"
+            "value": "แสดงรายการตรวจสอบ (PR/MR/อื่นๆ) พร้อมสถานะและหมายเลข"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Durum, numara ve tıklanabilir bağlantıyla inceleme öğelerini (PR/MR/vb.) göster."
+            "value": "Durum ve numarayla inceleme öğelerini (PR/MR/vb.) göster."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Відображати елементи перегляду (PR/MR тощо) зі статусом, номером та клікабельним посиланням."
+            "value": "Відображати елементи перегляду (PR/MR тощо) зі статусом і номером."
+          }
+        }
+      }
+    },
+    "settings.app.showPullRequests.subtitle.basic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Display review items (PR/MR/etc.) with status and number."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステータスと番号付きのレビュー項目（PR/MRなど）を表示します。"
+          }
+        }
+      }
+    },
+    "settings.app.makeSidebarPullRequestClickable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Make Sidebar PR Clickable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーのPRをクリック可能にする"
+          }
+        }
+      }
+    },
+    "settings.app.makeSidebarPullRequestClickable.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review items stay visible as plain text, and clicks in that area select the workspace row."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レビュー項目は通常のテキストとして表示され、その領域をクリックするとワークスペース行が選択されます。"
           }
         }
       }
@@ -64239,6 +64811,13 @@
         }
       }
     },
+    "settings.betaFeatures.dock": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Dock" } }, "ja": { "stringUnit": { "state": "translated", "value": "Dock" } } } },
+    "settings.betaFeatures.dock.subtitleOff": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Hides Dock from the right sidebar until you enable it here." } }, "ja": { "stringUnit": { "state": "translated", "value": "ここで有効にするまで、Dock を右サイドバーから隠します。" } } } },
+    "settings.betaFeatures.dock.subtitleOn": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Shows Dock in the right sidebar mode switcher for custom terminal controls." } }, "ja": { "stringUnit": { "state": "translated", "value": "Dock を右サイドバーのモード切り替えに表示し、カスタム端末コントロールを使えるようにします。" } } } },
+    "settings.betaFeatures.feed": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Feed" } }, "ja": { "stringUnit": { "state": "translated", "value": "Feed" } } } },
+    "settings.betaFeatures.feed.subtitleOff": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Hides Feed from the right sidebar until you enable it here." } }, "ja": { "stringUnit": { "state": "translated", "value": "ここで有効にするまで、Feed を右サイドバーから隠します。" } } } },
+    "settings.betaFeatures.feed.subtitleOn": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Shows Feed in the right sidebar mode switcher for inline agent decisions." } }, "ja": { "stringUnit": { "state": "translated", "value": "Feed を右サイドバーのモード切り替えに表示し、エージェントの判断をインラインで扱えるようにします。" } } } },
+    "settings.betaFeatures.warning": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "These features are unstable and may change or break. Enable them only when you are testing them." } }, "ja": { "stringUnit": { "state": "translated", "value": "これらの機能は不安定で、変更されたり壊れたりする可能性があります。テストする場合だけ有効にしてください。" } } } },
     "settings.browser.enabled": {
       "extractionState": "manual",
       "localizations": {
@@ -68098,6 +68677,7 @@
         }
       }
     },
+    "settings.section.betaFeatures": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Beta Features" } }, "ja": { "stringUnit": { "state": "translated", "value": "ベータ機能" } } } },
     "settings.section.browser": {
       "extractionState": "manual",
       "localizations": {
@@ -68901,29 +69481,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "모든 윈도우 표시/숨기기"
-          }
-        }
-      }
-    },
-    "settings.shortcuts.managedByFile": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Managed in cmux.json"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux.json で管理"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux.json에서 관리됨"
           }
         }
       }
@@ -83188,6 +83745,23 @@
         }
       }
     },
+    "shortcut.key.space": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Space"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スペース"
+          }
+        }
+      }
+    },
     "shortcut.pressShortcut.prompt": {
       "extractionState": "manual",
       "localizations": {
@@ -85828,6 +86402,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "相対パスをコピー"
+          }
+        }
+      }
+    },
+    "fileExplorer.contextMenu.insertPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Insert Path"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスを挿入"
+          }
+        }
+      }
+    },
+    "fileExplorer.contextMenu.insertRelativePath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Insert Relative Path"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "相対パスを挿入"
           }
         }
       }
@@ -89262,6 +89870,210 @@
         }
       }
     },
+    "socket.surfaceSplitOff.error.appDelegateUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AppDelegate not available"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AppDelegateを利用できません"
+          }
+        }
+      }
+    },
+    "socket.surfaceSplitOff.error.invalidDirection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing or invalid direction (left|right|up|down)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "方向が指定されていないか無効です（left|right|up|down）"
+          }
+        }
+      }
+    },
+    "socket.surfaceSplitOff.error.invalidWindowId": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing or invalid window_id"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "window_idが指定されていないか無効です"
+          }
+        }
+      }
+    },
+    "socket.surfaceSplitOff.error.invalidWorkspaceId": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing or invalid workspace_id"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace_idが指定されていないか無効です"
+          }
+        }
+      }
+    },
+    "socket.surfaceSplitOff.error.missingSurfaceId": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing or invalid surface_id"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface_idが指定されていないか無効です"
+          }
+        }
+      }
+    },
+    "socket.surfaceSplitOff.error.moveSurfaceFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to move surface"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスを移動できませんでした"
+          }
+        }
+      }
+    },
+    "socket.surfaceSplitOff.error.sourcePaneNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source pane not found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移動元ペインが見つかりません"
+          }
+        }
+      }
+    },
+    "socket.surfaceSplitOff.error.splitPaneFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to split pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインを分割できませんでした"
+          }
+        }
+      }
+    },
+    "socket.surfaceSplitOff.error.surfaceNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface not found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスが見つかりません"
+          }
+        }
+      }
+    },
+    "socket.surfaceSplitOff.error.surfaceNotFoundInWindow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface not found in window"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウィンドウ内にサーフェスが見つかりません"
+          }
+        }
+      }
+    },
+    "socket.surfaceSplitOff.error.surfaceNotFoundInWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface not found in workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース内にサーフェスが見つかりません"
+          }
+        }
+      }
+    },
+    "socket.surfaceSplitOff.error.wouldEmptySourcePane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "splitting off would leave the source pane empty"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分割して移動すると移動元ペインが空になります"
+          }
+        }
+      }
+    },
     "socketControl.cmuxOnly.name": {
       "extractionState": "manual",
       "localizations": {
@@ -92114,6 +92926,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Показати сповіщення"
+          }
+        }
+      }
+    },
+    "titlebar.rightSidebar.accessibilityLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle Right Sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右サイドバーの切り替え"
+          }
+        }
+      }
+    },
+    "titlebar.rightSidebar.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show or hide the right sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右サイドバーの表示/非表示"
           }
         }
       }
@@ -104605,19 +105451,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show Sidebar Sessions"
+            "value": "Show Sidebar Vault"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サイドバーのセッションを表示"
+            "value": "サイドバーのボールトを表示"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사이드바 세션 표시"
+            "value": "사이드바 볼트 표시"
           }
         }
       }
@@ -104954,6 +105800,57 @@
         }
       }
     },
+    "settings.terminal.agentAutoResume": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resume Agent Sessions on Reopen"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再起動時にエージェントセッションを再開"
+          }
+        }
+      }
+    },
+    "settings.terminal.agentAutoResume.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When cmux reopens after quit, restored agent terminals stay idle until you resume them manually."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux を終了後に再度開いたとき、復元されたエージェント端末は手動で再開するまで待機します。"
+          }
+        }
+      }
+    },
+    "settings.terminal.agentAutoResume.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When cmux reopens after quit, restored agent terminals automatically run their resume command."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux を終了後に再度開いたとき、復元されたエージェント端末で再開コマンドを自動実行します。"
+          }
+        }
+      }
+    },
     "settings.app.openMarkdownInCmuxViewer": {
       "extractionState": "manual",
       "localizations": {
@@ -105112,13 +106009,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sessions"
+            "value": "Vault"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "セッション"
+            "value": "ボールト"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "볼트"
           }
         }
       }
@@ -105174,19 +106077,88 @@
         }
       }
     },
+    "sessionIndex.agent.pi": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        }
+      }
+    },
+    "sessionIndex.agent.rovodev": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rovo Dev"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rovo Dev"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rovo Dev"
+          }
+        }
+      }
+    },
+    "sessionIndex.agent.hermesAgent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hermes Agent"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hermes Agent"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hermes Agent"
+          }
+        }
+      }
+    },
     "sessionIndex.untitled": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Untitled session"
+            "value": "Untitled chat"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "無題のセッション"
+            "value": "無題のチャット"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제목 없는 채팅"
           }
         }
       }
@@ -105231,13 +106203,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reload sessions"
+            "value": "Reload Vault"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "セッションを再読み込み"
+            "value": "ボールトを再読み込み"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "볼트 새로고침"
           }
         }
       }
@@ -105248,13 +106226,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Scanning sessions…"
+            "value": "Loading Vault…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "セッションをスキャン中…"
+            "value": "ボールトを読み込み中…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "볼트를 불러오는 중…"
           }
         }
       }
@@ -105265,13 +106249,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No sessions found"
+            "value": "Vault is empty"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "セッションが見つかりません"
+            "value": "ボールトは空です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "볼트가 비어 있습니다"
           }
         }
       }
@@ -105282,13 +106272,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sessions from Claude Code, Codex, and OpenCode will appear here."
+            "value": "Claude Code, Codex, OpenCode, and Rovo Dev history will appear here."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude Code、Codex、OpenCode のセッションがここに表示されます。"
+            "value": "Claude Code、Codex、OpenCode、Rovo Dev の履歴がここに表示されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code, Codex, OpenCode 및 Rovo Dev의 기록이 여기에 표시됩니다."
           }
         }
       }
@@ -105299,13 +106295,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No sessions"
+            "value": "No chats"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "セッションなし"
+            "value": "チャットなし"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대화 없음"
           }
         }
       }
@@ -105554,13 +106556,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Search sessions"
+            "value": "Search Vault"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "セッションを検索"
+            "value": "ボールトを検索"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "볼트 검색"
           }
         }
       }
@@ -110297,6 +111305,90 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Open a workspace, terminal, or browser surface to see it here." } },
         "ja": { "stringUnit": { "state": "translated", "value": "ワークスペース、ターミナル、またはブラウザサーフェスを開くとここに表示されます。" } }
+      }
+    },
+    "taskManager.contextMenu.viewWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "View Workspace" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースを表示" } }
+      }
+    },
+    "taskManager.contextMenu.viewTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "View Terminal" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルを表示" } }
+      }
+    },
+    "taskManager.contextMenu.killProcess": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Kill Process..." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プロセスを終了..." } }
+      }
+    },
+    "taskManager.killProcess.title.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Kill process?" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プロセスを終了しますか？" } }
+      }
+    },
+    "taskManager.killProcess.message.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Ask %@ (PID %lld) to terminate gracefully. cmux will force-kill it if it is still running after a short grace period." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@（PID %lld）に正常終了を要求します。短い猶予時間の後も実行中の場合、cmux が強制終了します。" } }
+      }
+    },
+    "taskManager.killProcess.title.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Kill processes?" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プロセスを終了しますか？" } }
+      }
+    },
+    "taskManager.killProcess.message.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Ask %lld processes to terminate gracefully. cmux will force-kill remaining processes after a short grace period. PIDs: %@." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%lld 個のプロセスに正常終了を要求します。短い猶予時間の後も残っているプロセスは cmux が強制終了します。PID: %@。" } }
+      }
+    },
+    "taskManager.killProcess.confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Kill" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "終了" } }
+      }
+    },
+    "taskManager.killProcess.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Cancel" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "キャンセル" } }
+      }
+    },
+    "taskManager.killProcess.error": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unable to kill process: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プロセスを終了できません: %@" } }
+      }
+    },
+    "taskManager.killProcess.target.processGroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "process group %lld" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プロセスグループ %lld" } }
+      }
+    },
+    "taskManager.killProcess.target.pid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "PID %lld" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "PID %lld" } }
       }
     },
     "taskManager.updated.never": {

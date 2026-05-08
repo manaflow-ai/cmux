@@ -187,10 +187,16 @@ struct cmuxApp: App {
     var body: some Scene {
         WindowGroup {
             MainWindowBootstrapView()
+                .cmuxAppearanceColorScheme(appearanceMode)
                 .onAppear {
-                    SettingsWindowPresenter.configure {
-                        openWindow(id: SettingsWindowPresenter.windowID)
-                    }
+                    SettingsWindowPresenter.configure(
+                        openWindow: {
+                            openWindow(id: SettingsWindowPresenter.windowID)
+                        },
+                        parentWindowProvider: {
+                            AppDelegate.shared?.preferredMainWindowForSettingsPresentation()
+                        }
+                    )
 #if DEBUG
                     if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1" {
                         UpdateLogStore.shared.append("ui test: cmuxApp onAppear")
@@ -606,6 +612,7 @@ struct cmuxApp: App {
 
         Window(String(localized: "settings.title", defaultValue: "Settings"), id: SettingsWindowPresenter.windowID) {
             SettingsRootView()
+                .cmuxAppearanceColorScheme(appearanceMode)
                 .background(WindowAccessor { window in
                     SettingsWindowPresenter.configure(window: window)
                 })
@@ -618,6 +625,7 @@ struct cmuxApp: App {
 
         Window(String(localized: "settings.config.windowTitle", defaultValue: "Config"), id: ConfigSettingsView.windowID) {
             ConfigSettingsView()
+                .cmuxAppearanceColorScheme(appearanceMode)
         }
     }
 
@@ -791,26 +799,22 @@ struct cmuxApp: App {
     }
 
     private func applyAppearance() {
-        let mode = AppearanceSettings.mode(for: appearanceMode)
+        let mode = AppearanceSettings.applyStoredMode(
+            rawValue: appearanceMode,
+            source: "cmuxApp.appearanceModeChanged"
+        )
         if appearanceMode != mode.rawValue {
             appearanceMode = mode.rawValue
         }
-        Self.applyAppearance(mode)
     }
 
     private static func applyAppearance(_ mode: AppearanceMode, duringLaunch: Bool = false) {
-        switch mode {
-        case .system:
-            NSApplication.shared.appearance = duringLaunch
-                ? AppearanceSettings.systemNSAppearance()
-                : nil
-        case .light:
-            NSApplication.shared.appearance = NSAppearance(named: .aqua)
-        case .dark:
-            NSApplication.shared.appearance = NSAppearance(named: .darkAqua)
-        case .auto:
-            NSApplication.shared.appearance = nil
-        }
+        AppearanceSettings.applyLiveMode(
+            mode,
+            source: duringLaunch ? "cmuxApp.launch" : "cmuxApp.applyAppearance",
+            duringLaunch: duringLaunch,
+            synchronizeTerminalTheme: !duringLaunch
+        )
     }
 
     private func updateSocketController() {
@@ -949,14 +953,14 @@ struct cmuxApp: App {
         closeWorkspaceIds(workspaceIds, in: manager, allowPinned: true)
     }
 
-    private func selectedWorkspaceHasUnreadNotifications(in manager: TabManager) -> Bool {
+    private func selectedWorkspaceCanMarkRead(in manager: TabManager) -> Bool {
         guard let workspaceId = manager.selectedWorkspace?.id else { return false }
-        return notificationStore.notifications.contains { $0.tabId == workspaceId && !$0.isRead }
+        return notificationStore.canMarkWorkspaceRead(forTabIds: [workspaceId])
     }
 
-    private func selectedWorkspaceHasReadNotifications(in manager: TabManager) -> Bool {
+    private func selectedWorkspaceCanMarkUnread(in manager: TabManager) -> Bool {
         guard let workspaceId = manager.selectedWorkspace?.id else { return false }
-        return notificationStore.notifications.contains { $0.tabId == workspaceId && $0.isRead }
+        return notificationStore.canMarkWorkspaceUnread(forTabIds: [workspaceId])
     }
 
     private func markSelectedWorkspaceRead(in manager: TabManager) {
@@ -1060,12 +1064,12 @@ struct cmuxApp: App {
         Button(String(localized: "contextMenu.markWorkspaceRead", defaultValue: "Mark Workspace as Read")) {
             markSelectedWorkspaceRead(in: manager)
         }
-        .disabled(!selectedWorkspaceHasUnreadNotifications(in: manager))
+        .disabled(!selectedWorkspaceCanMarkRead(in: manager))
 
         Button(String(localized: "contextMenu.markWorkspaceUnread", defaultValue: "Mark Workspace as Unread")) {
             markSelectedWorkspaceUnread(in: manager)
         }
-        .disabled(!selectedWorkspaceHasReadNotifications(in: manager))
+        .disabled(!selectedWorkspaceCanMarkUnread(in: manager))
     }
 
     @ViewBuilder
@@ -1101,6 +1105,7 @@ struct cmuxApp: App {
 
 #if DEBUG
     private func openAllDebugWindows() {
+        DebugWindowControlsWindowController.shared.show()
         BrowserImportHintDebugWindowController.shared.show()
         BrowserProfilePopoverDebugWindowController.shared.show()
         AboutTitlebarDebugWindowController.shared.show()
@@ -1138,6 +1143,16 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.about",
     "cmux.licenses",
     "cmux.browser-popup",
+    "cmux.browserProfilePopoverDebug",
+    "cmux.configEditor",
+    "cmux.feedButtonStyleDebug",
+    "cmux.feedPreview",
+    "cmux.feedTextEditorDebug",
+    "cmux.fileExplorerStyleDebug",
+    "cmux.pdfPreviewChromeDebug",
+    "cmux.splitButtonLayoutDebug",
+    "cmux.tabBarBackdropLab",
+    "cmux.taskManager",
     "cmux.aboutTitlebarDebug",
     "cmux.debugWindowControls",
     "cmux.browserImportHintDebug",
@@ -1595,6 +1610,18 @@ private enum DebugWindowConfigSnapshot {
         shortcutHintShowOnControlHold=\(boolValue(defaults, key: ShortcutHintDebugSettings.showHintsOnControlHoldKey, fallback: ShortcutHintDebugSettings.defaultShowHintsOnControlHold))
         """
 
+        let titlebarChromePayload = """
+        titlebarLeftControlsLeadingInset=\(String(format: "%.1f", doubleValue(defaults, key: MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey, fallback: MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset)))
+        titlebarLeftControlsTopInset=\(String(format: "%.1f", doubleValue(defaults, key: MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey, fallback: MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset)))
+        titlebarRightToggleTrailingInset=\(String(format: "%.1f", doubleValue(defaults, key: MinimalModeTitlebarDebugSettings.rightToggleTrailingInsetKey, fallback: MinimalModeTitlebarDebugSettings.defaultRightToggleTrailingInset)))
+        titlebarRightToggleTopInset=\(String(format: "%.1f", doubleValue(defaults, key: MinimalModeTitlebarDebugSettings.rightToggleTopInsetKey, fallback: MinimalModeTitlebarDebugSettings.defaultRightToggleTopInset)))
+        titlebarTrafficLightsXOffset=\(String(format: "%.1f", doubleValue(defaults, key: MinimalModeTitlebarDebugSettings.trafficLightsXOffsetKey, fallback: MinimalModeTitlebarDebugSettings.defaultTrafficLightsXOffset)))
+        titlebarTrafficLightsYOffset=\(String(format: "%.1f", doubleValue(defaults, key: MinimalModeTitlebarDebugSettings.trafficLightsYOffsetKey, fallback: MinimalModeTitlebarDebugSettings.defaultTrafficLightsYOffset)))
+        titlebarTrafficLightTabBarInset=\(String(format: "%.1f", Double(MinimalModeTitlebarDebugSettings.trafficLightTabBarLeadingInset(defaults: defaults))))
+        titlebarTrafficLightTitleLeadingInset=\(String(format: "%.1f", Double(MinimalModeTitlebarDebugSettings.trafficLightTitlebarLeadingInset(defaults: defaults))))
+        titlebarLeadingExtra=\(String(format: "%.1f", doubleValue(defaults, key: "debugTitlebarLeadingExtra", fallback: 0.0)))
+        """
+
         let backgroundPayload = """
         bgGlassEnabled=\(boolValue(defaults, key: "bgGlassEnabled", fallback: false))
         bgGlassMaterial=\(stringValue(defaults, key: "bgGlassMaterial", fallback: "hudWindow"))
@@ -1608,6 +1635,9 @@ private enum DebugWindowConfigSnapshot {
         return """
         # Sidebar Debug
         \(sidebarPayload)
+
+        # Titlebar Chrome
+        \(titlebarChromePayload)
 
         # Background Debug
         \(backgroundPayload)
@@ -1686,6 +1716,18 @@ private struct DebugWindowControlsView: View {
     @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
     private var sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
     @AppStorage("debugTitlebarLeadingExtra") private var titlebarLeadingExtra: Double = 0
+    @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey)
+    private var leftControlsLeadingInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset
+    @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey)
+    private var leftControlsTopInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset
+    @AppStorage(MinimalModeTitlebarDebugSettings.rightToggleTrailingInsetKey)
+    private var rightToggleTrailingInset = MinimalModeTitlebarDebugSettings.defaultRightToggleTrailingInset
+    @AppStorage(MinimalModeTitlebarDebugSettings.rightToggleTopInsetKey)
+    private var rightToggleTopInset = MinimalModeTitlebarDebugSettings.defaultRightToggleTopInset
+    @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightsXOffsetKey)
+    private var trafficLightsXOffset = MinimalModeTitlebarDebugSettings.defaultTrafficLightsXOffset
+    @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightsYOffsetKey)
+    private var trafficLightsYOffset = MinimalModeTitlebarDebugSettings.defaultTrafficLightsYOffset
     @AppStorage(BrowserDevToolsButtonDebugSettings.iconNameKey) private var browserDevToolsIconNameRaw = BrowserDevToolsButtonDebugSettings.defaultIcon.rawValue
     @AppStorage(BrowserDevToolsButtonDebugSettings.iconColorKey) private var browserDevToolsIconColorRaw = BrowserDevToolsButtonDebugSettings.defaultColor.rawValue
 
@@ -1785,6 +1827,7 @@ private struct DebugWindowControlsView: View {
                             FeedTextEditorDebugWindowController.shared.show()
                         }
                         Button("Open All Debug Windows") {
+                            DebugWindowControlsWindowController.shared.show()
                             BrowserImportHintDebugWindowController.shared.show()
                             BrowserProfilePopoverDebugWindowController.shared.show()
                             AboutTitlebarDebugWindowController.shared.show()
@@ -1852,18 +1895,54 @@ private struct DebugWindowControlsView: View {
                     .padding(.top, 2)
                 }
 
-                GroupBox("Titlebar Spacing") {
-                    VStack(alignment: .leading, spacing: 6) {
+                GroupBox("Titlebar Chrome") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        chromeSliderSection(
+                            "Traffic lights",
+                            xLabel: "X offset",
+                            x: $trafficLightsXOffset,
+                            xRange: MinimalModeTitlebarDebugSettings.trafficLightOffsetRange,
+                            yLabel: "Y offset",
+                            y: $trafficLightsYOffset,
+                            yRange: MinimalModeTitlebarDebugSettings.trafficLightYOffsetRange
+                        )
+
+                        chromeSliderSection(
+                            "Left buttons",
+                            xLabel: "Leading",
+                            x: $leftControlsLeadingInset,
+                            xRange: MinimalModeTitlebarDebugSettings.horizontalInsetRange,
+                            yLabel: "Top",
+                            y: $leftControlsTopInset,
+                            yRange: MinimalModeTitlebarDebugSettings.topInsetRange
+                        )
+
+                        chromeSliderSection(
+                            "Right toggle",
+                            xLabel: "Trailing",
+                            x: $rightToggleTrailingInset,
+                            xRange: MinimalModeTitlebarDebugSettings.horizontalInsetRange,
+                            yLabel: "Top",
+                            y: $rightToggleTopInset,
+                            yRange: MinimalModeTitlebarDebugSettings.topInsetRange
+                        )
+
                         HStack(spacing: 8) {
-                            Text("Leading extra")
+                            Text("Title text leading")
                             Slider(value: $titlebarLeadingExtra, in: 0...40)
                             Text(String(format: "%.0f", titlebarLeadingExtra))
                                 .font(.caption)
                                 .monospacedDigit()
                                 .frame(width: 30, alignment: .trailing)
                         }
-                        Button("Reset (0)") {
-                            titlebarLeadingExtra = 0
+
+                        HStack(spacing: 12) {
+                            Button("Reset Chrome") {
+                                resetTitlebarChrome()
+                            }
+                            Button("Copy Chrome Config") {
+                                copyTitlebarChromeConfig()
+                            }
                         }
                     }
                     .padding(.top, 2)
@@ -1920,7 +1999,7 @@ private struct DebugWindowControlsView: View {
                         Button("Copy All Debug Config") {
                             DebugWindowConfigSnapshot.copyCombinedToPasteboard()
                         }
-                        Text("Copies sidebar, background, menu bar, and browser devtools settings as one payload.")
+                        Text("Copies sidebar, titlebar, background, menu bar, and browser devtools settings as one payload.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -1946,11 +2025,33 @@ private struct DebugWindowControlsView: View {
         }
     }
 
+    private func chromeSliderSection(
+        _ title: String,
+        xLabel: String,
+        x: Binding<Double>,
+        xRange: ClosedRange<Double>,
+        yLabel: String,
+        y: Binding<Double>,
+        yRange: ClosedRange<Double>
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.caption)
+                .foregroundColor(.secondary)
+            sliderRow(xLabel, value: x, range: xRange)
+            sliderRow(yLabel, value: y, range: yRange)
+        }
+    }
+
     private func sliderRow(_ label: String, value: Binding<Double>) -> some View {
+        sliderRow(label, value: value, range: ShortcutHintDebugSettings.offsetRange)
+    }
+
+    private func sliderRow(_ label: String, value: Binding<Double>, range: ClosedRange<Double>) -> some View {
         HStack(spacing: 8) {
             Text(label)
-            Slider(value: value, in: ShortcutHintDebugSettings.offsetRange)
-            Text(String(format: "%.1f", ShortcutHintDebugSettings.clamped(value.wrappedValue)))
+            Slider(value: value, in: range)
+            Text(String(format: "%.1f", MinimalModeTitlebarDebugSettings.clamped(value.wrappedValue, range: range)))
                 .font(.caption)
                 .monospacedDigit()
                 .frame(width: 44, alignment: .trailing)
@@ -1965,6 +2066,33 @@ private struct DebugWindowControlsView: View {
         paneShortcutHintXOffset = ShortcutHintDebugSettings.defaultPaneHintX
         paneShortcutHintYOffset = ShortcutHintDebugSettings.defaultPaneHintY
         alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
+    }
+
+    private func resetTitlebarChrome() {
+        leftControlsLeadingInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset
+        leftControlsTopInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset
+        rightToggleTrailingInset = MinimalModeTitlebarDebugSettings.defaultRightToggleTrailingInset
+        rightToggleTopInset = MinimalModeTitlebarDebugSettings.defaultRightToggleTopInset
+        trafficLightsXOffset = MinimalModeTitlebarDebugSettings.defaultTrafficLightsXOffset
+        trafficLightsYOffset = MinimalModeTitlebarDebugSettings.defaultTrafficLightsYOffset
+        titlebarLeadingExtra = 0
+    }
+
+    private func copyTitlebarChromeConfig() {
+        let payload = """
+        titlebarLeftControlsLeadingInset=\(String(format: "%.1f", leftControlsLeadingInset))
+        titlebarLeftControlsTopInset=\(String(format: "%.1f", leftControlsTopInset))
+        titlebarRightToggleTrailingInset=\(String(format: "%.1f", rightToggleTrailingInset))
+        titlebarRightToggleTopInset=\(String(format: "%.1f", rightToggleTopInset))
+        titlebarTrafficLightsXOffset=\(String(format: "%.1f", trafficLightsXOffset))
+        titlebarTrafficLightsYOffset=\(String(format: "%.1f", trafficLightsYOffset))
+        titlebarTrafficLightTabBarInset=\(String(format: "%.1f", Double(MinimalModeTitlebarDebugSettings.trafficLightTabBarLeadingInset())))
+        titlebarTrafficLightTitleLeadingInset=\(String(format: "%.1f", Double(MinimalModeTitlebarDebugSettings.trafficLightTitlebarLeadingInset())))
+        titlebarLeadingExtra=\(String(format: "%.1f", titlebarLeadingExtra))
+        """
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(payload, forType: .string)
     }
 
     private func copyShortcutHintConfig() {
@@ -2481,111 +2609,6 @@ private struct AcknowledgmentsView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding()
         }
-    }
-}
-
-
-@MainActor
-enum SettingsWindowPresenter {
-    static let windowID = "settings"
-    static let windowIdentifier = "cmux.settings"
-    static let minimumSize = NSSize(width: 820, height: 540)
-    private static let visibleAreaInset: CGFloat = 18
-
-    private static var openWindow: (@MainActor () -> Void)?
-    private static weak var settingsWindow: NSWindow?
-    private static var pendingNavigationTarget: SettingsNavigationTarget?
-    private static var shouldOpenWhenConfigured = false
-
-    static func configure(openWindow: @escaping @MainActor () -> Void) {
-        self.openWindow = openWindow
-        if shouldOpenWhenConfigured {
-            shouldOpenWhenConfigured = false
-            openWindow()
-        }
-    }
-
-    static func configure(window: NSWindow) {
-        settingsWindow = window
-        window.identifier = NSUserInterfaceItemIdentifier(windowIdentifier)
-        window.isRestorable = false
-        window.minSize = minimumSize
-        window.contentMinSize = minimumSize
-        clampToVisibleAreaIfNeeded(window)
-    }
-
-    static func show(navigationTarget: SettingsNavigationTarget? = nil) {
-#if DEBUG
-        cmuxDebugLog("settings.window.show path=swiftuiWindow")
-#endif
-        if let navigationTarget {
-            pendingNavigationTarget = navigationTarget
-        } else {
-            pendingNavigationTarget = nil
-        }
-
-        if let window = existingWindow() {
-            pendingNavigationTarget = nil
-            focus(window)
-            if let navigationTarget {
-                SettingsNavigationRequest.post(navigationTarget)
-            }
-            return
-        }
-
-        guard let openWindow else {
-            shouldOpenWhenConfigured = true
-            return
-        }
-        openWindow()
-    }
-
-    static func consumePendingNavigationTarget() -> SettingsNavigationTarget? {
-        let target = pendingNavigationTarget
-        pendingNavigationTarget = nil
-        return target
-    }
-
-    static func refocusIfVisible() {
-        guard let window = existingWindow() else { return }
-        focus(window)
-    }
-
-    private static func existingWindow() -> NSWindow? {
-        if let settingsWindow, settingsWindow.isVisible || settingsWindow.isMiniaturized {
-            return settingsWindow
-        }
-        return NSApp.windows.first {
-            $0.identifier?.rawValue == windowIdentifier && ($0.isVisible || $0.isMiniaturized)
-        }
-    }
-
-    private static func focus(_ window: NSWindow) {
-        if window.isMiniaturized {
-            window.deminiaturize(nil)
-        }
-        clampToVisibleAreaIfNeeded(window)
-        NSRunningApplication.current.activate(options: [.activateAllWindows])
-        window.makeKeyAndOrderFront(nil)
-        window.orderFrontRegardless()
-    }
-
-    private static func clampToVisibleAreaIfNeeded(_ window: NSWindow) {
-        guard let screen = window.screen ?? NSScreen.main else { return }
-        var frame = window.frame
-        let visibleFrame = screen.visibleFrame
-        let minX = visibleFrame.minX + visibleAreaInset
-        let minY = visibleFrame.minY + visibleAreaInset
-        let maxX = max(minX, visibleFrame.maxX - visibleAreaInset - frame.width)
-        let maxY = max(minY, visibleFrame.maxY - visibleAreaInset - frame.height)
-        let clampedOrigin = NSPoint(
-            x: min(max(frame.origin.x, minX), maxX),
-            y: min(max(frame.origin.y, minY), maxY)
-        )
-
-        guard clampedOrigin != frame.origin else { return }
-        frame.origin = clampedOrigin
-        window.setFrame(frame, display: true)
     }
 }
 
@@ -4779,12 +4802,12 @@ final class AppIconAppearanceObserver: NSObject {
     private var observation: AppIconAppearanceObservation?
     private var launchObserver: NSObjectProtocol?
     private var hasDeferredStartPending = false
+    private var lastAppliedImageName: String?
 
     init(environment: Environment = .live()) {
         self.environment = environment
         super.init()
     }
-
     func startObserving() {
         // Tahoe crashes if effectiveAppearance is touched during App.init(),
         // so defer the first automatic-icon apply until launch completes.
@@ -4805,9 +4828,9 @@ final class AppIconAppearanceObserver: NSObject {
     func stopObserving() {
         observation?.invalidate()
         observation = nil
+        lastAppliedImageName = nil
         cancelDeferredStart()
     }
-
     private func deferStartUntilLaunchIfNeeded() {
         hasDeferredStartPending = true
         guard launchObserver == nil else { return }
@@ -4824,14 +4847,14 @@ final class AppIconAppearanceObserver: NSObject {
         environment.removeObserver(launchObserver)
         self.launchObserver = nil
     }
-
     private func applyIconForCurrentAppearance() {
         guard environment.isApplicationFinishedLaunching() else { return }
         guard let isDark = environment.currentAppearanceIsDark() else { return }
         let imageName = isDark ? "AppIconDark" : "AppIconLight"
-        if let icon = environment.imageForName(imageName) {
-            environment.setApplicationIconImage(icon)
-        }
+        guard imageName != lastAppliedImageName,
+              let icon = environment.imageForName(imageName) else { return }
+        environment.setApplicationIconImage(icon)
+        lastAppliedImageName = imageName
     }
 }
 
@@ -5239,6 +5262,10 @@ struct SettingsView: View {
     private var paneFirstClickFocusEnabled = PaneFirstClickFocusSettings.defaultEnabled
     @AppStorage(TerminalScrollBarSettings.showScrollBarKey)
     private var showTerminalScrollBar = TerminalScrollBarSettings.defaultShowScrollBar
+    @AppStorage(FileDropBehaviorSettings.defaultBehaviorKey)
+    private var fileDropDefaultBehavior = FileDropBehaviorSettings.defaultBehavior.rawValue
+    @AppStorage(AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+    private var autoResumeAgentSessions = AgentSessionAutoResumeSettings.defaultAutoResumeAgentSessions
     @AppStorage(WorkspaceAutoReorderSettings.key) private var workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
     @AppStorage(IMessageModeSettings.key) private var iMessageMode = IMessageModeSettings.defaultValue
     @AppStorage(SidebarWorkspaceDetailSettings.hideAllDetailsKey)
@@ -5252,6 +5279,7 @@ struct SettingsView: View {
     @AppStorage("sidebarNotificationBadgeColorHex") private var sidebarNotificationBadgeColorHex: String?
     @AppStorage("sidebarShowBranchDirectory") private var sidebarShowBranchDirectory = true
     @AppStorage("sidebarShowPullRequest") private var sidebarShowPullRequest = true
+    @AppStorage(SidebarPullRequestClickabilitySettings.key) private var sidebarMakePullRequestClickable = SidebarPullRequestClickabilitySettings.defaultClickable
     @AppStorage(BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowserKey)
     private var openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
     @AppStorage(BrowserLinkOpenSettings.openSidebarPortLinksInCmuxBrowserKey)
@@ -5270,6 +5298,10 @@ struct SettingsView: View {
     @AppStorage("sidebarTintHexDark") private var sidebarTintHexDark: String?
     @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = SidebarTintDefaults.opacity
     @AppStorage("sidebarMatchTerminalBackground") private var sidebarMatchTerminalBackground = false
+    @AppStorage(RightSidebarBetaFeatureSettings.feedEnabledKey)
+    private var rightSidebarFeedEnabled = RightSidebarBetaFeatureSettings.defaultFeedEnabled
+    @AppStorage(RightSidebarBetaFeatureSettings.dockEnabledKey)
+    private var rightSidebarDockEnabled = RightSidebarBetaFeatureSettings.defaultDockEnabled
 
     @ObservedObject private var notificationStore = TerminalNotificationStore.shared
     @ObservedObject private var authManager = AuthManager.shared
@@ -5358,6 +5390,30 @@ struct SettingsView: View {
                 guard showTerminalScrollBar != newValue else { return }
                 showTerminalScrollBar = newValue
                 TerminalScrollBarSettings.notifyDidChange()
+            }
+        )
+    }
+
+    private var selectedFileDropDefaultBehavior: FileDropDefaultBehavior {
+        FileDropBehaviorSettings.behavior(for: fileDropDefaultBehavior)
+    }
+
+    private var fileDropDefaultBehaviorSelection: Binding<String> {
+        Binding(
+            get: { selectedFileDropDefaultBehavior.rawValue },
+            set: { newValue in
+                fileDropDefaultBehavior = FileDropBehaviorSettings.behavior(for: newValue).rawValue
+            }
+        )
+    }
+
+    private var autoResumeAgentSessionsBinding: Binding<Bool> {
+        Binding(
+            get: { autoResumeAgentSessions },
+            set: { newValue in
+                guard autoResumeAgentSessions != newValue else { return }
+                autoResumeAgentSessions = newValue
+                AgentSessionAutoResumeSettings.notifyDidChange()
             }
         )
     }
@@ -5864,7 +5920,11 @@ struct SettingsView: View {
                             configurationReview: .json("app.appearance"),
                             selectedMode: appearanceMode,
                             onSelect: { mode in
-                                appearanceMode = mode.rawValue
+                                let selected = AppearanceSettings.selectMode(
+                                    mode,
+                                    source: "settings.themePicker"
+                                )
+                                appearanceMode = selected.rawValue
                             }
                         )
 
@@ -5938,6 +5998,21 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
+                        SettingsPickerRow(
+                            configurationReview: .settingsOnly,
+                            String(localized: "settings.app.fileDrop.defaultBehavior", defaultValue: "File Drops"),
+                            subtitle: selectedFileDropDefaultBehavior.settingsSubtitle,
+                            controlWidth: pickerColumnWidth,
+                            selection: fileDropDefaultBehaviorSelection
+                        ) {
+                            ForEach(FileDropDefaultBehavior.allCases) { behavior in
+                                Text(behavior.displayName).tag(behavior.rawValue)
+                            }
+                        }
+                        .settingsSearchAnchor(SettingsSearchIndex.settingID(for: .app, idSuffix: "file-drops"))
+
+                        SettingsCardDivider()
+
                         SettingsCardRow(
                             configurationReview: .json("app.preferredEditor"),
                             String(localized: "settings.app.preferredEditor", defaultValue: "Open Files With"),
@@ -5958,12 +6033,16 @@ struct SettingsView: View {
                             String(localized: "settings.app.configWindow", defaultValue: "Terminal Config"),
                             subtitle: String(
                                 localized: "settings.app.configWindow.subtitle",
-                                defaultValue: "Open the cmux config, standalone Ghostty config, and merged preview in one utility window."
+                                defaultValue: "Open the cmux terminal config and generated preview in one utility window."
                             ),
+                            controlWidth: pickerColumnWidth,
                             searchAnchorID: SettingsSearchIndex.settingID(for: .app, idSuffix: "terminal-config")
                         ) {
-                            Button(String(localized: "settings.app.configWindow.openButton", defaultValue: "Open Config Window")) {
+                            Button {
                                 openWindow(id: ConfigSettingsView.windowID)
+                            } label: {
+                                Text(String(localized: "settings.app.configWindow.openButton", defaultValue: "Open Config"))
+                                    .font(.system(size: 13, weight: .regular))
                             }
                             .buttonStyle(.bordered)
                             .controlSize(.small)
@@ -6272,6 +6351,24 @@ struct SettingsView: View {
                                     String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar")
                                 )
                         }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("terminal.autoResumeAgentSessions"),
+                            String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen"),
+                            subtitle: autoResumeAgentSessions
+                                ? String(localized: "settings.terminal.agentAutoResume.subtitleOn", defaultValue: "When cmux reopens after quit, restored agent terminals automatically run their resume command.")
+                                : String(localized: "settings.terminal.agentAutoResume.subtitleOff", defaultValue: "When cmux reopens after quit, restored agent terminals stay idle until you resume them manually.")
+                        ) {
+                            Toggle("", isOn: autoResumeAgentSessionsBinding)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsTerminalAgentAutoResumeToggle")
+                                .accessibilityLabel(
+                                    String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen")
+                                )
+                        }
                     }
 
                     SettingsSectionHeader(title: String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar"))
@@ -6349,31 +6446,24 @@ struct SettingsView: View {
                         SettingsCardRow(
                             configurationReview: .json("sidebar.showPullRequests"),
                             String(localized: "settings.app.showPullRequests", defaultValue: "Show Pull Requests in Sidebar"),
-                            subtitle: String(localized: "settings.app.showPullRequests.subtitle", defaultValue: "Display review items (PR/MR/etc.) with status, number, and clickable link.")
+                            subtitle: String(localized: "settings.app.showPullRequests.subtitle", defaultValue: "Display review items (PR/MR/etc.) with status and number.")
                         ) {
                             Toggle("", isOn: $sidebarShowPullRequest)
                                 .labelsHidden()
                                 .controlSize(.small)
                         }
                         .disabled(sidebarHideAllDetails)
-
                         SettingsCardDivider()
-
+                        SettingsCardRow(configurationReview: .json("sidebar.makePullRequestsClickable"), String(localized: "settings.app.makeSidebarPullRequestClickable", defaultValue: "Make Sidebar PR Clickable"), subtitle: String(localized: "settings.app.makeSidebarPullRequestClickable.subtitle", defaultValue: "Review items stay visible as plain text, and clicks in that area select the workspace row.")) { Toggle("", isOn: $sidebarMakePullRequestClickable).labelsHidden().controlSize(.small).accessibilityIdentifier("SettingsSidebarPullRequestClickableToggle") }
+                        .disabled(sidebarHideAllDetails || !sidebarShowPullRequest)
+                        SettingsCardDivider()
                         SettingsCardRow(
                             configurationReview: .json("sidebar.openPullRequestLinksInCmuxBrowser"),
                             String(localized: "settings.app.openSidebarPRLinks", defaultValue: "Open Sidebar PR Links in cmux Browser"),
-                            subtitle: openSidebarPullRequestLinksInCmuxBrowser
-                                ? String(localized: "settings.app.openSidebarPRLinks.subtitleOn", defaultValue: "Clicks open inside cmux browser.")
-                                : String(localized: "settings.app.openSidebarPRLinks.subtitleOff", defaultValue: "Clicks open in your default browser.")
-                        ) {
-                            Toggle("", isOn: $openSidebarPullRequestLinksInCmuxBrowser)
-                                .labelsHidden()
-                                .controlSize(.small)
-                        }
-                        .disabled(sidebarHideAllDetails)
-
+                            subtitle: !sidebarShowPullRequest ? String(localized: "settings.app.openSidebarPRLinks.subtitleHidden", defaultValue: "Enable sidebar PR visibility to choose where PR links open.") : (!sidebarMakePullRequestClickable ? String(localized: "settings.app.openSidebarPRLinks.subtitleDisabled", defaultValue: "Enable sidebar PR clickability to choose where PR links open.") : (openSidebarPullRequestLinksInCmuxBrowser ? String(localized: "settings.app.openSidebarPRLinks.subtitleOn", defaultValue: "Clicks open inside cmux browser.") : String(localized: "settings.app.openSidebarPRLinks.subtitleOff", defaultValue: "Clicks open in your default browser.")))
+                        ) { Toggle("", isOn: $openSidebarPullRequestLinksInCmuxBrowser).labelsHidden().controlSize(.small) }
+                        .disabled(sidebarHideAllDetails || !sidebarShowPullRequest || !sidebarMakePullRequestClickable)
                         SettingsCardDivider()
-
                         SettingsCardRow(
                             configurationReview: .json("sidebar.openPortLinksInCmuxBrowser"),
                             String(localized: "settings.app.openSidebarPortLinks", defaultValue: "Open Sidebar Port Links in cmux Browser"),
@@ -6451,6 +6541,11 @@ struct SettingsView: View {
                         }
                         .disabled(sidebarHideAllDetails)
                     }
+
+                    BetaFeaturesSettingsView(
+                        feedEnabled: $rightSidebarFeedEnabled,
+                        dockEnabled: $rightSidebarDockEnabled
+                    )
 
                     SettingsSectionHeader(title: String(localized: "settings.section.automation", defaultValue: "Automation"))
                         .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .automation))
@@ -7340,7 +7435,10 @@ struct SettingsView: View {
         if appLanguage != LanguageSettings.languageAtLaunch.rawValue {
             showLanguageRestartAlert = true
         }
-        appearanceMode = AppearanceSettings.defaultMode.rawValue
+        appearanceMode = AppearanceSettings.selectMode(
+            AppearanceSettings.defaultMode,
+            source: "settings.resetAll"
+        ).rawValue
         appIconMode = AppIconSettings.defaultMode.rawValue
         AppIconSettings.applyIcon(.automatic)
         socketControlMode = SocketControlSettings.defaultMode.rawValue
@@ -7359,6 +7457,8 @@ struct SettingsView: View {
         browserImportHintVariantRaw = BrowserImportHintSettings.defaultVariant.rawValue
         showBrowserImportHintOnBlankTabs = BrowserImportHintSettings.defaultShowOnBlankTabs
         isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed
+        rightSidebarFeedEnabled = RightSidebarBetaFeatureSettings.defaultFeedEnabled
+        rightSidebarDockEnabled = RightSidebarBetaFeatureSettings.defaultDockEnabled
         openTerminalLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser
         interceptTerminalOpenCommandInCmuxBrowser = BrowserLinkOpenSettings.defaultInterceptTerminalOpenCommandInCmuxBrowser
         browserHostWhitelist = BrowserLinkOpenSettings.defaultBrowserHostWhitelist
@@ -7396,6 +7496,12 @@ struct SettingsView: View {
         if previousShowTerminalScrollBar != showTerminalScrollBar {
             TerminalScrollBarSettings.notifyDidChange()
         }
+        fileDropDefaultBehavior = FileDropBehaviorSettings.defaultBehavior.rawValue
+        let previousAutoResumeAgentSessions = autoResumeAgentSessions
+        autoResumeAgentSessions = AgentSessionAutoResumeSettings.defaultAutoResumeAgentSessions
+        if previousAutoResumeAgentSessions != autoResumeAgentSessions {
+            AgentSessionAutoResumeSettings.notifyDidChange()
+        }
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
         iMessageMode = IMessageModeSettings.defaultValue
         sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
@@ -7406,6 +7512,7 @@ struct SettingsView: View {
         sidebarNotificationBadgeColorHex = nil
         sidebarShowBranchDirectory = true
         sidebarShowPullRequest = true
+        sidebarMakePullRequestClickable = SidebarPullRequestClickabilitySettings.defaultClickable
         openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
         openSidebarPortLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPortLinksInCmuxBrowser
         showShortcutHintsOnCommandHold = ShortcutHintDebugSettings.defaultShowHintsOnCommandHold
@@ -7485,7 +7592,7 @@ struct SettingsView: View {
     }
 }
 
-private struct SettingsSectionHeader: View {
+struct SettingsSectionHeader: View {
     let title: String
 
     var body: some View {
@@ -7575,7 +7682,7 @@ private struct AuthSettingsRow: View {
     }
 }
 
-private struct SettingsCard<Content: View>: View {
+struct SettingsCard<Content: View>: View {
     @ViewBuilder let content: Content
 
     init(@ViewBuilder content: () -> Content) {
@@ -7597,7 +7704,7 @@ private struct SettingsCard<Content: View>: View {
     }
 }
 
-private struct SettingsCardRow<Trailing: View>: View {
+struct SettingsCardRow<Trailing: View>: View {
     let configurationReview: SettingsConfigurationReview
     let title: String
     let subtitle: String?
@@ -7622,12 +7729,7 @@ private struct SettingsCardRow<Trailing: View>: View {
         self.trailing = trailing()
     }
 
-    private var searchAnchorIDs: [String] {
-        if let searchAnchorID {
-            return [searchAnchorID]
-        }
-        return configurationReview.searchAnchorIDs
-    }
+    private var searchAnchorIDs: [String] { searchAnchorID.map { [$0] } ?? configurationReview.searchAnchorIDs }
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
@@ -7722,7 +7824,7 @@ extension SettingsPickerRow where ExtraTrailing == EmptyView {
     }
 }
 
-private enum SettingsConfigurationReview: Equatable {
+enum SettingsConfigurationReview: Equatable {
     case settingsFile([String])
     case settingsOnly
     case action
@@ -7760,28 +7862,11 @@ private extension View {
     }
 }
 
-private struct SettingsCardDivider: View {
+struct SettingsCardDivider: View {
     var body: some View {
         Rectangle()
             .fill(Color(nsColor: NSColor.separatorColor).opacity(0.5))
             .frame(height: 1)
-    }
-}
-
-private struct SettingsCardNote: View {
-    let text: String
-
-    init(_ text: String) {
-        self.text = text
-    }
-
-    var body: some View {
-        Text(text)
-            .font(.caption)
-            .foregroundColor(.secondary)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -8083,6 +8168,7 @@ private struct AppIconPickerRow: View {
 private struct GlobalHotkeySection: View {
     @AppStorage(SystemWideHotkeySettings.enabledKey) private var isEnabled = SystemWideHotkeySettings.defaultEnabled
     @State private var shortcut = KeyboardShortcutSettings.shortcut(for: SystemWideHotkeySettings.action)
+    @State private var isManagedBySettingsFile = SystemWideHotkeySettings.isManagedBySettingsFile()
 
     private var enabledBinding: Binding<Bool> {
         Binding(
@@ -8129,8 +8215,8 @@ private struct GlobalHotkeySection: View {
             ShortcutRecorderSettingsControl(
                 action: SystemWideHotkeySettings.action,
                 shortcut: $shortcut,
-                subtitle: KeyboardShortcutSettings.settingsFileManagedSubtitle(for: SystemWideHotkeySettings.action),
-                isDisabled: KeyboardShortcutSettings.isManagedBySettingsFile(SystemWideHotkeySettings.action)
+                subtitle: isManagedBySettingsFile ? KeyboardShortcutSettings.settingsFileManagedSubtitle(for: SystemWideHotkeySettings.action) : nil,
+                isDisabled: isManagedBySettingsFile
             )
                 .padding(.horizontal, 14)
                 .padding(.vertical, 9)
@@ -8155,8 +8241,12 @@ private struct GlobalHotkeySection: View {
 
     private func syncFromDefaults() {
         let latestShortcut = KeyboardShortcutSettings.shortcut(for: SystemWideHotkeySettings.action)
+        let latestManagedState = SystemWideHotkeySettings.isManagedBySettingsFile()
         if latestShortcut != shortcut {
             shortcut = latestShortcut
+        }
+        if latestManagedState != isManagedBySettingsFile {
+            isManagedBySettingsFile = latestManagedState
         }
     }
 }

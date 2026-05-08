@@ -60,6 +60,7 @@ Environment:
 | `welcome` | Print the welcome screen. |
 | `docs` | Print canonical docs URLs, raw GitHub resources, and useful commands for a topic. |
 | `settings` | Open Settings, print cmux.json paths, or print settings docs. |
+| `config` | Validate cmux.json syntax, print config references, or reload config. |
 | `shortcuts` | Open Settings to Keyboard Shortcuts. |
 | `disable-browser` | Disable cmux browser creation and link interception until re-enabled. |
 | `enable-browser` | Re-enable cmux browser creation and link interception. |
@@ -76,6 +77,7 @@ Environment:
 | `codex` | Compatibility alias for installing or uninstalling Codex hooks. |
 | `ping` | Check socket connectivity. |
 | `capabilities` | Print server capabilities as JSON. |
+| `events` | Stream reconnectable cmux events as newline-delimited JSON. |
 | `auth` | Manage auth status, login, and logout through the app. |
 | `vm`, `cloud` | Manage cloud VMs. `cloud` is an alias for `vm`. |
 | `rpc` | Call a raw v2 socket method with optional JSON params. |
@@ -101,6 +103,7 @@ Environment:
 | `new-surface` | Create a surface inside a pane. |
 | `close-surface` | Close a surface. |
 | `move-surface` | Move a surface to another pane, workspace, window, or index. |
+| `split-off` | Move a surface into a new split without changing focus by default. |
 | `reorder-surface` | Reorder a surface within its pane. |
 | `tab-action` | Run horizontal tab context-menu actions. |
 | `rename-tab` | Rename a tab. Compatibility wrapper for `tab-action rename`. |
@@ -260,14 +263,14 @@ Hook subcommands:
 
 | Command | Contract |
 | --- | --- |
-| `hooks setup` | Install hooks for all supported agents whose binaries are on `PATH`. Supports `--agent <name>` and `--yes`. |
-| `hooks uninstall` | Remove hooks for all supported agents. Supports `--agent <name>` and `--yes`. |
+| `hooks setup` | Install hooks for all supported agents whose binaries are on `PATH`. Supports `--agent <name>`, positional agent filters such as `cmux hooks setup rovo`, and `--yes`. |
+| `hooks uninstall` | Remove hooks for all supported agents. Supports `--agent <name>`, positional agent filters such as `cmux hooks uninstall rovo`, and `--yes`. |
 | `hooks <agent> install` | Install hooks for one supported agent. `opencode` also supports `--project` for the project-local Feed plugin. |
 | `hooks <agent> uninstall` | Remove hooks for one supported agent. |
 | `hooks claude <event>` | Handle Claude Code hook events. `claude-hook <event>` remains as the main-compatibility alias. |
 | `hooks codex <event>` | Handle Codex hook events. `codex install-hooks` remains as the main-compatibility installer alias. |
 | `hooks feed --source <agent>` | Convert agent hook events into Feed context. |
-| `hooks <agent> <event>` | Generic hook surface for `opencode`, `cursor`, `gemini`, `copilot`, `codebuddy`, `factory`, and `qoder`. |
+| `hooks <agent> <event>` | Generic hook surface for `opencode`, `pi`, `cursor`, `gemini`, `rovodev`, `copilot`, `codebuddy`, `factory`, and `qoder`. |
 
 Docs topics:
 
@@ -290,6 +293,46 @@ Settings subcommands:
 | `settings docs` | Print the same output as `docs settings` without a socket. |
 | `settings <target>` | Open Settings to a target section. Supported aliases include `shortcuts`, `json`, `cmux-json`, `browser`, and `automation`. |
 
+Config subcommands:
+
+| Command | Contract |
+| --- | --- |
+| `config doctor [--path <file>]`, `config check`, `config validate` | Validate JSONC syntax for config files. When `--path` is absent, default discovery checks the primary config, project-level `.cmux/cmux.json` or `cmux.json`, and legacy config files. `--path <file>` may be repeated to validate multiple explicit files. Exits 0 on success and 1 on any error. Supports `--json`. Works without a socket. |
+| `config path`, `config paths` | Print cmux.json paths, docs URL, schema URL, backup reminder, and reload command without a socket. |
+| `config docs`, `config documentation` | Print the same output as `docs settings` without a socket. |
+| `config reload` | Ask the running cmux app to reload configuration. Requires a socket. |
+
+`config doctor --json` outputs an object with `ok`, `error_count`,
+`findings`, `reload_command`, `docs_url`, and `schema_url`. Each finding includes
+`label`, `display_path`, `path`, `status`, `ok`, `keys`, and, when available,
+`message` and `bytes`.
+
+Events command:
+
+| Option | Contract |
+| --- | --- |
+| `--after <seq>`, `--after-seq <seq>` | Subscribe to retained events after a sequence number. |
+| `--cursor-file <path>` | Read the starting sequence from a file and update it after every event. |
+| `--name <event>` | Filter by event name. Repeatable. |
+| `--category <name>` | Filter by category. Repeatable. |
+| `--reconnect` | Reconnect and resume from the last received sequence until interrupted. |
+| `--limit <n>` | Exit after printing `n` event frames. |
+| `--no-ack` | Suppress the initial ack frame in stdout. |
+| `--no-heartbeat`, `--no-heartbeats` | Suppress heartbeat frames in stdout. |
+
+`events.stream` is a v2 socket method advertised by `capabilities`. The first
+response frame is an `ack`; sequence resume metadata lives under `ack.resume` as
+`after_seq`, `oldest_seq`, `latest_seq`, `next_seq`, and `gap`. Event frames
+carry a process-local monotonic `seq` and a stable `id` for dedupe. Clients
+should persist `seq` after processing each event and reconnect with that value.
+See [events.md](events.md) for the full protocol and event catalog. Every emitted event is also appended to
+`~/.cmuxterm/events.jsonl`, including model lifecycle events for window
+creation, close, focus, key-window state, workspace selection, pane focus, and
+surface selection, focus, creation, or closure. The stream is bounded: cmux keeps
+4,096 replay events in memory, caps each encoded event frame at 16 KiB, closes
+slow subscribers after 1,024 pending events, and rotates `events.jsonl` with one
+16 MiB archive at `events.jsonl.1`.
+
 ## No-Socket Help Probes
 
 The following probes are executable contract checks. They must exit 0 and print
@@ -300,6 +343,7 @@ the expected text without connecting to a cmux socket.
 - `cmux help` -> `cmux - control cmux via Unix socket`
 - `cmux ping --help` -> `Usage: cmux ping`
 - `cmux capabilities --help` -> `Usage: cmux capabilities`
+- `cmux events --help` -> `Usage: cmux events [options]`
 - `cmux auth --help` -> `Usage: cmux auth <status|login|logout>`
 - `cmux vm --help` -> `Usage: cmux vm <new|ls|rm|exec|shell|attach|ssh> [args...]`
 - `cmux cloud --help` -> `Usage: cmux cloud <new|ls|rm|exec|shell|attach|ssh> [args...]`
@@ -309,9 +353,12 @@ the expected text without connecting to a cmux socket.
 - `cmux docs` -> `Topics:`
 - `cmux docs settings` -> `Config files:`
 - `cmux docs dock` -> `dock: Custom right-sidebar terminal controls`
-- `cmux settings --help` -> `Usage: cmux settings [open|path|docs|target]`
+- `cmux settings --help` -> `Usage: cmux settings [open [target]|path|docs|<target>]`
 - `cmux settings path` -> `Config files:`
 - `cmux settings docs` -> `Config files:`
+- `cmux config --help` -> `Usage: cmux config <doctor|check|validate|path|paths|docs|documentation|reload>`
+- `cmux config path` -> `Config files:`
+- `cmux config docs` -> `Config files:`
 - `cmux welcome --help` -> `Usage: cmux welcome`
 - `cmux shortcuts --help` -> `Usage: cmux shortcuts`
 - `cmux disable-browser --help` -> `Usage: cmux disable-browser [--json]`
@@ -320,7 +367,7 @@ the expected text without connecting to a cmux socket.
 - `cmux restore-session --help` -> `Usage: cmux restore-session`
 - `cmux feedback --help` -> `Usage: cmux feedback`
 - `cmux feed --help` -> `Usage: cmux feed tui [--opentui|--legacy]`
-- `cmux hooks --help` -> `Usage: cmux hooks setup [--agent <name>] [--yes|-y]`
+- `cmux hooks --help` -> `Usage: cmux hooks setup [agent] [--agent <name>] [--yes|-y]`
 - `cmux codex --help` -> `Usage: cmux codex <install-hooks|uninstall-hooks>`
 - `cmux themes --help` -> `Usage: cmux themes`
 - `cmux omo --help` -> `Usage: cmux omo [opencode-args...]`
@@ -334,6 +381,7 @@ the expected text without connecting to a cmux socket.
 - `cmux close-window --help` -> `Usage: cmux close-window --window <id|ref|index>`
 - `cmux move-workspace-to-window --help` -> `Usage: cmux move-workspace-to-window`
 - `cmux move-surface --help` -> `Usage: cmux move-surface`
+- `cmux split-off --help` -> `Usage: cmux split-off`
 - `cmux reorder-surface --help` -> `Usage: cmux reorder-surface`
 - `cmux reorder-workspace --help` -> `Usage: cmux reorder-workspace`
 - `cmux workspace-action --help` -> `Usage: cmux workspace-action --action <name>`

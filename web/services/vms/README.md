@@ -118,6 +118,7 @@ Set these Vercel environment variables per production/staging environment:
 - `CMUX_VM_DEFAULT_PROVIDER`, `freestyle` or `e2b`.
 - `CMUX_VM_PLAN_FREE_CREATE_CREDIT_ITEM_ID`, Stack Auth team item used as the free-plan create-credit bucket. Defaults to `cmux-vm-create-credit`; set to `none`, `disabled`, `off`, or `false` to opt out.
 - `CMUX_VM_PLAN_FREE_CREATE_CREDIT_COST`, optional free-plan per-create cost. Defaults to `1`.
+- `CMUX_VM_PLAN_FREE_INITIAL_CREATE_CREDITS`, optional first-use seed for the free-plan Stack Auth create-credit item. Defaults to `20`.
 - `CMUX_VM_CREATE_CREDIT_ITEM_ID`, optional global Stack Auth item used as a prepaid create-credit bucket for every plan without a plan-specific item. Set to `none`, `disabled`, `off`, or `false` to opt out of create credits for plans without a plan-specific value.
 - `CMUX_VM_CREATE_CREDIT_COST`, default `1`.
 - `CMUX_VM_CREATE_CREDIT_COST_E2B`, optional provider-specific override.
@@ -171,6 +172,13 @@ Staging may run a real create/destroy smoke with tiny quotas:
 bun run cloud-vm:smoke -- staging --create --provider e2b
 ```
 
+Run default-provider stress before changing provider defaults or after provider incidents:
+
+```bash
+bun run cloud-vm:stress -- staging --count 8 --concurrency 4 --provider default
+bun run cloud-vm:stress -- production --count 12 --concurrency 4 --provider default
+```
+
 ## GitHub operations
 
 Cloud VM migrations and smoke checks are exposed as manual GitHub Actions:
@@ -219,10 +227,10 @@ The dev Postgres port is `CMUX_PORT + 10000`, so `CMUX_PORT=10180` maps to `loca
 
 E2B interactive paths require a cmuxd WebSocket PTY image. The backend writes only a hash of attach tokens to Postgres; raw tokens are returned once to the Mac client.
 
-Operational note: Freestyle creates are currently disabled in staging and production while the active Freestyle snapshot lacks the cmuxd RPC lease path required for browser proxy. Keep `CMUX_VM_DEFAULT_PROVIDER=e2b` and `CMUX_VM_FREESTYLE_ENABLED=0` until a new Freestyle snapshot passes WebSocket PTY and browser proxy smoke.
+Operational note: Freestyle is the intended default when `CMUX_VM_DEFAULT_PROVIDER=freestyle`. Before rollout or rollback, verify the deployed `CMUX_VM_DEFAULT_PROVIDER`, `CMUX_VM_FREESTYLE_ENABLED`, and `FREESTYLE_SANDBOX_SNAPSHOT` env values with `bun run cloud-vm:env:audit -- <target> --strict`, then confirm WebSocket PTY, reusable daemon RPC lease, and browser proxy health with `bun run cloud-vm:stress -- <target> --provider default`. Keep E2B enabled as the rollback provider.
 
 ## Usage, limits, and pricing
 
-The usage ledger is in Postgres. VM create pricing gates use Stack Auth payment items. The free plan uses the team-scoped item `cmux-vm-create-credit` by default. Configure the Stack Auth free product as team-owned, include-by-default, and grant 20 of that item with no repeat and no expiry. Set `CMUX_VM_PLAN_FREE_CREATE_CREDIT_ITEM_ID=none` in local or self-hosted deployments that intentionally do not use Stack Auth create credits. The create workflow inserts the idempotent VM row first, reserves one Stack Auth create credit only for a newly inserted row, calls the provider, and refunds the credit if provisioning fails before a usable VM exists.
+The usage ledger is in Postgres. VM create pricing gates use Stack Auth payment items. The free plan uses the team-scoped item `cmux-vm-create-credit` by default. Configure the Stack Auth free product as team-owned, include-by-default, and grant 20 of that item with no repeat and no expiry for dashboard visibility. Because Stack Auth currently does not materialize include-by-default item grants for normal project teams, the create workflow also records a one-time local grant row and seeds 20 Stack Auth item credits the first time a free-plan team creates a VM. Set `CMUX_VM_PLAN_FREE_CREATE_CREDIT_ITEM_ID=none` in local or self-hosted deployments that intentionally do not use Stack Auth create credits. The create workflow inserts the idempotent VM row first, seeds the free-plan credits once per billing team, reserves one Stack Auth create credit only for a newly inserted row, calls the provider, and refunds the credit if provisioning fails before a usable VM exists.
 
 Plan limits are team-based. Stack Auth personal teams should stay enabled for both dev/staging and production projects (`createTeamOnSignUp` / `teams.createPersonalTeamOnSignUp`). New VM rows store `billing_team_id` and `billing_plan_id`; the free plan allows one active VM at a time and 20 total successful creates by default. Paid plan activation should write a readable plan id such as `pro` into Stack Auth team read-only metadata (`cmuxVmPlan`) or equivalent billing sync metadata, then configure the matching `CMUX_VM_PLAN_<PLAN>_MAX_ACTIVE_VMS` env var. Paid plans only consume Stack Auth create credits when `CMUX_VM_PLAN_<PLAN>_CREATE_CREDIT_ITEM_ID` or the global `CMUX_VM_CREATE_CREDIT_ITEM_ID` is configured.

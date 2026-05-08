@@ -65,7 +65,7 @@ final class SessionIndexViewTests: XCTestCase {
 
         XCTAssertEqual(
             entry.resumeCommand,
-            "env CLAUDE_CONFIG_DIR='/tmp/claude config' claude --resume claude-session-123"
+            "env CLAUDE_CONFIG_DIR='/tmp/claude config' CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1 CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR claude --resume claude-session-123"
         )
     }
 
@@ -80,7 +80,7 @@ final class SessionIndexViewTests: XCTestCase {
 
         XCTAssertEqual(
             entry.resumeCommand,
-            "env CLAUDE_CONFIG_DIR='/tmp/projects/claude config' claude --resume claude-session-123"
+            "env CLAUDE_CONFIG_DIR='/tmp/projects/claude config' CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1 CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR claude --resume claude-session-123"
         )
     }
 
@@ -230,13 +230,14 @@ final class SessionIndexViewTests: XCTestCase {
     }
 
     private func makeEntry(
+        agent: SessionAgent = .claude,
         sessionId: String = UUID().uuidString,
         title: String,
         fileURL: URL? = nil
     ) -> SessionEntry {
         SessionEntry(
             id: UUID().uuidString,
-            agent: .claude,
+            agent: agent,
             sessionId: sessionId,
             title: title,
             cwd: nil,
@@ -244,7 +245,7 @@ final class SessionIndexViewTests: XCTestCase {
             pullRequest: nil,
             modified: Date(timeIntervalSince1970: 0),
             fileURL: fileURL,
-            specifics: .claude(model: nil, permissionMode: nil)
+            specifics: agent.defaultSpecificsForTesting
         )
     }
 
@@ -323,6 +324,23 @@ final class SessionIndexViewTests: XCTestCase {
     private func sqliteMessage(_ db: OpaquePointer) -> String? {
         guard let cString = sqlite3_errmsg(db) else { return nil }
         return String(cString: cString)
+    }
+}
+
+private extension SessionAgent {
+    var defaultSpecificsForTesting: AgentSpecifics {
+        switch self {
+        case .claude:
+            return .claude(model: nil, permissionMode: nil)
+        case .codex:
+            return .codex(model: nil, approvalPolicy: nil, sandboxMode: nil, effort: nil)
+        case .opencode:
+            return .opencode(providerModel: nil, agentName: nil)
+        case .rovodev:
+            return .rovodev
+        case .hermesAgent:
+            return .hermesAgent(source: nil, model: nil, hermesHome: nil)
+        }
     }
 }
 

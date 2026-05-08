@@ -1,13 +1,11 @@
 import XCTest
 import AppKit
 import Darwin
-
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
 @testable import cmux
 #endif
-
 @MainActor
 final class TerminalControllerSocketSecurityTests: XCTestCase {
     private func makeSocketPath(_ name: String) -> String {
@@ -102,13 +100,6 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertTrue(focusV2.insideSuppressed)
         XCTAssertTrue(focusV2.insideAllowsFocus)
         XCTAssertFalse(focusV2.outsideSuppressed)
-
-        let moveWorkspace = TerminalController.debugSocketCommandPolicySnapshot(
-            commandKey: "workspace.move_to_window",
-            isV2: true
-        )
-        XCTAssertTrue(moveWorkspace.insideSuppressed)
-        XCTAssertFalse(moveWorkspace.insideAllowsFocus)
 
         let triggerFlash = TerminalController.debugSocketCommandPolicySnapshot(
             commandKey: "surface.trigger_flash",

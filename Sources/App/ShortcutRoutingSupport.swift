@@ -81,15 +81,36 @@ func shouldDispatchBrowserArrowViaFirstResponderKeyDown(
 ) -> Bool {
     guard firstResponderIsBrowser else { return false }
     guard !firstResponderHasMarkedText else { return false }
-    guard keyCode == 125 || keyCode == 126 else { return false }
+    guard (123...126).contains(keyCode) else { return false }
 
     // Keep this narrow to avoid stealing app/browser shortcuts that layer onto
-    // modified arrow keys. Plain up/down should always flow through keyDown so
+    // modified arrow keys. Plain arrows should always flow through keyDown so
     // web content such as Google Docs receives the event directly.
     let normalizedFlags = flags
         .intersection(.deviceIndependentFlagsMask)
         .subtracting([.numericPad, .function, .capsLock])
     return normalizedFlags.isEmpty
+}
+
+func shouldDispatchCommandPaletteHorizontalArrowViaFirstResponderKeyDown(
+    keyCode: UInt16,
+    firstResponderIsCommandPaletteFieldEditor: Bool,
+    firstResponderHasMarkedText: Bool = false,
+    flags: NSEvent.ModifierFlags
+) -> Bool {
+    guard firstResponderIsCommandPaletteFieldEditor else { return false }
+    guard !firstResponderHasMarkedText else { return false }
+    guard keyCode == 123 || keyCode == 124 else { return false }
+
+    let normalizedFlags = flags
+        .intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function, .capsLock])
+    switch normalizedFlags {
+    case [], [.shift], [.option], [.option, .shift], [.command], [.command, .shift]:
+        return true
+    default:
+        return false
+    }
 }
 
 func shouldToggleMainWindowFullScreenForCommandControlFShortcut(
@@ -120,35 +141,6 @@ func shouldToggleMainWindowFullScreenForCommandControlFShortcut(
 
     // Keep ANSI fallback as a final safety net when layout translation is unavailable.
     return keyCode == 3
-}
-
-func commandPaletteSelectionDeltaForKeyboardNavigation(
-    flags: NSEvent.ModifierFlags,
-    chars: String,
-    keyCode: UInt16
-) -> Int? {
-    let normalizedFlags = flags
-        .intersection(.deviceIndependentFlagsMask)
-        .subtracting([.numericPad, .function, .capsLock])
-    let normalizedChars = chars.lowercased()
-
-    if normalizedFlags == [] {
-        switch keyCode {
-        case 125: return 1    // Down arrow
-        case 126: return -1   // Up arrow
-        default: break
-        }
-    }
-
-    if normalizedFlags == [.control] {
-        // Control modifiers can surface as either printable chars or ASCII control chars.
-        // Keep Emacs-style next/previous navigation, but leave other control bindings
-        // (for example Ctrl+K text editing in the palette search field) to AppKit.
-        if keyCode == 45 || normalizedChars == "n" || normalizedChars == "\u{0e}" { return 1 }    // Ctrl+N
-        if keyCode == 35 || normalizedChars == "p" || normalizedChars == "\u{10}" { return -1 }   // Ctrl+P
-    }
-
-    return nil
 }
 
 func shouldRouteCommandPaletteSelectionNavigation(

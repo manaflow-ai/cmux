@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 
 enum AppearanceMode: String, CaseIterable, Identifiable {
     case system
@@ -27,6 +28,26 @@ enum AppearanceMode: String, CaseIterable, Identifiable {
 }
 
 enum AppearanceSettings {
+    struct LiveApplyEnvironment {
+        let setApplicationAppearance: (NSAppearance?) -> Void
+        let synchronizeTerminalThemeWithAppearance: (NSAppearance?, String) -> Void
+        let systemAppearance: () -> NSAppearance?
+
+        static var live: LiveApplyEnvironment {
+            LiveApplyEnvironment(
+                setApplicationAppearance: { appearance in
+                    NSApplication.shared.appearance = appearance
+                },
+                synchronizeTerminalThemeWithAppearance: { appearance, source in
+                    GhosttyApp.shared.synchronizeThemeWithAppearance(appearance, source: source)
+                },
+                systemAppearance: {
+                    AppearanceSettings.systemNSAppearance()
+                }
+            )
+        }
+    }
+
     struct SystemAppearance {
         let interfaceStyle: String?
 
@@ -81,5 +102,113 @@ enum AppearanceSettings {
 
     static func systemNSAppearance(defaults: UserDefaults = .standard) -> NSAppearance? {
         NSAppearance(named: SystemAppearance.current(defaults: defaults).prefersDark ? .darkAqua : .aqua)
+    }
+
+    static func colorSchemeOverride(for rawValue: String?) -> ColorScheme? {
+        switch mode(for: rawValue) {
+        case .system, .auto:
+            return nil
+        case .light:
+            return .light
+        case .dark:
+            return .dark
+        }
+    }
+
+    static func colorScheme(for rawValue: String?, fallback: ColorScheme) -> ColorScheme {
+        colorSchemeOverride(for: rawValue) ?? fallback
+    }
+
+    @discardableResult
+    static func selectMode(
+        _ mode: AppearanceMode,
+        defaults: UserDefaults = .standard,
+        source: String,
+        environment: LiveApplyEnvironment = .live
+    ) -> AppearanceMode {
+        let normalized = Self.mode(for: mode.rawValue)
+        defaults.set(normalized.rawValue, forKey: appearanceModeKey)
+        applyLiveMode(normalized, source: source, environment: environment)
+        return normalized
+    }
+
+    @discardableResult
+    static func applyStoredMode(
+        rawValue: String?,
+        defaults: UserDefaults = .standard,
+        source: String,
+        duringLaunch: Bool = false,
+        synchronizeTerminalTheme: Bool = true,
+        environment: LiveApplyEnvironment = .live
+    ) -> AppearanceMode {
+        let normalized = Self.mode(for: rawValue)
+        if rawValue != normalized.rawValue {
+            defaults.set(normalized.rawValue, forKey: appearanceModeKey)
+        }
+        applyLiveMode(
+            normalized,
+            source: source,
+            duringLaunch: duringLaunch,
+            synchronizeTerminalTheme: synchronizeTerminalTheme,
+            environment: environment
+        )
+        return normalized
+    }
+
+    @discardableResult
+    static func applyLiveMode(
+        _ mode: AppearanceMode,
+        source: String,
+        duringLaunch: Bool = false,
+        synchronizeTerminalTheme: Bool = true,
+        environment: LiveApplyEnvironment = .live
+    ) -> AppearanceMode {
+        let normalized = Self.mode(for: mode.rawValue)
+        let appearance = applicationAppearance(
+            for: normalized,
+            duringLaunch: duringLaunch,
+            environment: environment
+        )
+        environment.setApplicationAppearance(appearance)
+        if synchronizeTerminalTheme {
+            environment.synchronizeTerminalThemeWithAppearance(appearance, source)
+        }
+        return normalized
+    }
+
+    private static func applicationAppearance(
+        for mode: AppearanceMode,
+        duringLaunch: Bool,
+        environment: LiveApplyEnvironment
+    ) -> NSAppearance? {
+        switch mode {
+        case .system:
+            return duringLaunch ? environment.systemAppearance() : nil
+        case .light:
+            return NSAppearance(named: .aqua)
+        case .dark:
+            return NSAppearance(named: .darkAqua)
+        case .auto:
+            return nil
+        }
+    }
+}
+
+private struct AppearanceColorSchemeModifier: ViewModifier {
+    @Environment(\.colorScheme) private var colorScheme
+    let rawValue: String?
+
+    func body(content: Content) -> some View {
+        let override = AppearanceSettings.colorSchemeOverride(for: rawValue)
+        let effective = AppearanceSettings.colorScheme(for: rawValue, fallback: colorScheme)
+        content
+            .environment(\.colorScheme, effective)
+            .preferredColorScheme(override)
+    }
+}
+
+extension View {
+    func cmuxAppearanceColorScheme(_ rawValue: String?) -> some View {
+        modifier(AppearanceColorSchemeModifier(rawValue: rawValue))
     }
 }

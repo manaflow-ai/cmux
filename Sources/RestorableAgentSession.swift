@@ -1,258 +1,94 @@
 import Foundation
-
-enum RestorableAgentKind: String, Codable, CaseIterable, Sendable {
-    case claude
-    case codex
-    case opencode
-
-    private var hookStoreFilename: String {
-        "\(rawValue)-hook-sessions.json"
-    }
-
-    func resumeCommand(
-        sessionId: String,
-        launchCommand: AgentLaunchCommandSnapshot?,
-        workingDirectory: String?
-    ) -> String? {
-        AgentResumeCommandBuilder.resumeShellCommand(
-            kind: self,
-            sessionId: sessionId,
-            launchCommand: launchCommand,
-            workingDirectory: workingDirectory
-        )
-    }
-
-    func hookStoreFileURL(
-        homeDirectory: String = NSHomeDirectory(),
-        environment: [String: String] = ProcessInfo.processInfo.environment
-    ) -> URL {
-        let directory: URL
-        if let override = environment["CMUX_AGENT_HOOK_STATE_DIR"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-           !override.isEmpty {
-            directory = URL(fileURLWithPath: NSString(string: override).expandingTildeInPath, isDirectory: true)
-        } else {
-            directory = URL(fileURLWithPath: homeDirectory, isDirectory: true)
-                .appendingPathComponent(".cmuxterm", isDirectory: true)
-        }
-        return directory
-            .appendingPathComponent(hookStoreFilename, isDirectory: false)
-    }
-}
-
-struct AgentLaunchCommandSnapshot: Codable, Equatable, Sendable {
-    var launcher: String?
-    var executablePath: String?
-    var arguments: [String]
-    var workingDirectory: String?
-    var environment: [String: String]?
-    var capturedAt: TimeInterval?
-    var source: String?
-}
+import CMUXAgentLaunch
 
 fileprivate func shellSingleQuoted(_ value: String) -> String {
     "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
 }
 
-private enum AgentResumeCommandBuilder {
-    private static let claudeValueOptions: Set<String> = [
-        "--add-dir",
-        "--agent",
-        "--agents",
-        "--allowedTools",
-        "--allowed-tools",
-        "--append-system-prompt",
-        "--betas",
-        "--debug-file",
-        "--disallowedTools",
-        "--disallowed-tools",
-        "--effort",
-        "--fallback-model",
-        "--file",
-        "--fork-session",
-        "--from-pr",
-        "--input-format",
-        "--json-schema",
-        "--max-budget-usd",
-        "--mcp-config",
-        "--model",
-        "--name",
-        "-n",
-        "--output-format",
-        "--permission-mode",
-        "--plugin-dir",
-        "--remote-control-session-name-prefix",
-        "--resume",
-        "-r",
-        "--session-id",
-        "--setting-sources",
-        "--settings",
-        "--system-prompt",
-        "--teammate-mode",
-        "--tmux",
-        "--tools",
-        "--worktree",
-        "-w"
+enum AgentResumeCommandBuilder {
+    private static let claudeAuthSelectionEnvironmentKeys: Set<String> = [
+        "ANTHROPIC_API_KEY",
+        "ANTHROPIC_AUTH_TOKEN",
+        "ANTHROPIC_BASE_URL",
+        "ANTHROPIC_MODEL",
+        "ANTHROPIC_SMALL_FAST_MODEL",
+        "CLAUDE_CODE_USE_BEDROCK",
+        "CLAUDE_CODE_USE_VERTEX",
+        "CLAUDE_CONFIG_DIR"
     ]
-
-    private static let claudeOptionalValueOptions: Set<String> = [
-        "--debug"
-    ]
-
-    private static let claudeVariadicOptions: Set<String> = [
-        "--add-dir",
-        "--allowedTools",
-        "--allowed-tools",
-        "--betas",
-        "--disallowedTools",
-        "--disallowed-tools",
-        "--file",
-        "--mcp-config",
-        "--tools"
-    ]
-
-    private static let claudeNonRestorableCommands: Set<String> = [
-        "agents",
-        "auth",
-        "auto-mode",
-        "api-key",
-        "config",
-        "doctor",
-        "install",
-        "mcp",
-        "plugin",
-        "plugins",
-        "rc",
-        "remote-control",
-        "setup-token",
-        "update",
-        "upgrade"
-    ]
-
-    private static let codexValueOptions: Set<String> = [
-        "--config",
-        "-c",
-        "--remote",
-        "--remote-auth-token-env",
-        "--image",
-        "-i",
-        "--model",
-        "-m",
-        "--local-provider",
-        "--profile",
-        "-p",
-        "--sandbox",
-        "-s",
-        "--ask-for-approval",
-        "-a",
-        "--cd",
-        "-C",
-        "--add-dir",
-        "--enable",
-        "--disable"
-    ]
-
-    private static let codexNonRestorableCommands: Set<String> = [
-        "exec",
-        "e",
-        "review",
-        "login",
-        "logout",
-        "mcp",
-        "mcp-server",
-        "app-server",
-        "app",
-        "completion",
-        "sandbox",
-        "debug",
-        "apply",
-        "a",
-        "fork",
-        "cloud",
-        "exec-server",
-        "features",
-        "help"
-    ]
-
-    private static let opencodeValueOptions: Set<String> = [
-        "--log-level",
-        "--port",
-        "--hostname",
-        "--mdns-domain",
-        "--cors",
-        "--model",
-        "-m",
-        "--session",
-        "-s",
-        "--prompt",
-        "--agent"
-    ]
-
-    private static let opencodeNonRestorableCommands: Set<String> = [
-        "completion",
-        "acp",
-        "mcp",
-        "attach",
-        "run",
-        "debug",
-        "providers",
-        "auth",
-        "agent",
-        "upgrade",
-        "uninstall",
-        "serve",
-        "web",
-        "models",
-        "stats",
-        "export",
-        "import",
-        "pr",
-        "github",
-        "session",
-        "plugin",
-        "plug",
-        "db"
-    ]
-
     static func resumeShellCommand(
         kind: RestorableAgentKind,
         sessionId: String,
         launchCommand: AgentLaunchCommandSnapshot?,
-        workingDirectory: String?
+        workingDirectory: String?,
+        registrationOverride: CmuxVaultAgentRegistration? = nil,
+        includeWorkingDirectoryPrefix: Bool = true
     ) -> String? {
+        let customRegistration = registrationOverride
         guard !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              let argv = resumeArguments(kind: kind, sessionId: sessionId, launchCommand: launchCommand),
+              let argv = resumeArguments(
+                  kind: kind,
+                  sessionId: sessionId,
+                  launchCommand: launchCommand,
+                  workingDirectory: workingDirectory,
+                  customRegistration: customRegistration
+              ),
               !argv.isEmpty else {
             return nil
         }
 
         var commandParts: [String] = []
-        if let env = launchCommand?.environment, !env.isEmpty {
-            var environmentParts: [String] = []
-            for key in env.keys.sorted() {
-                guard isSafeEnvironmentKey(key),
-                      let value = sanitizedEnvironmentValue(key: key, value: env[key]) else { continue }
-                environmentParts.append("\(key)=\(value)")
-            }
-            if !environmentParts.isEmpty {
-                commandParts.append("env")
-                commandParts.append(contentsOf: environmentParts)
-            }
+        let environmentParts = launchEnvironmentParts(kind: kind, environment: launchCommand?.environment)
+        if !environmentParts.isEmpty {
+            commandParts.append("env")
+            commandParts.append(contentsOf: environmentParts)
         }
         commandParts.append(contentsOf: argv)
 
         var shellCommand = commandParts.map(shellSingleQuoted).joined(separator: " ")
-        let cwd = normalized(workingDirectory ?? launchCommand?.workingDirectory)
+        let cwd = !includeWorkingDirectoryPrefix || customRegistration?.cwd == .ignore
+            ? nil
+            : normalized(workingDirectory ?? launchCommand?.workingDirectory)
         if let cwd {
             shellCommand = "cd \(shellSingleQuoted(cwd)) && \(shellCommand)"
         }
         return shellCommand
     }
 
+    private static func launchEnvironmentParts(
+        kind: RestorableAgentKind,
+        environment: [String: String]?
+    ) -> [String] {
+        guard let environment, !environment.isEmpty else {
+            return []
+        }
+
+        var environmentParts: [String] = []
+        var preservedClaudeAuthSelectionEnvironmentKeys: [String] = []
+        let selectedEnvironment = AgentLaunchEnvironmentPolicy.selectedEnvironment(from: environment)
+        for key in selectedEnvironment.keys.sorted() {
+            guard let value = selectedEnvironment[key] else { continue }
+            environmentParts.append("\(key)=\(value)")
+            if kind == .claude,
+               claudeAuthSelectionEnvironmentKeys.contains(key) {
+                preservedClaudeAuthSelectionEnvironmentKeys.append(key)
+            }
+        }
+        if !preservedClaudeAuthSelectionEnvironmentKeys.isEmpty {
+            environmentParts.append("CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1")
+            environmentParts.append(
+                "CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=\(preservedClaudeAuthSelectionEnvironmentKeys.joined(separator: ","))"
+            )
+        }
+        return environmentParts
+    }
+
     private static func resumeArguments(
         kind: RestorableAgentKind,
         sessionId: String,
-        launchCommand: AgentLaunchCommandSnapshot?
+        launchCommand: AgentLaunchCommandSnapshot?,
+        workingDirectory: String?,
+        customRegistration: CmuxVaultAgentRegistration?
     ) -> [String]? {
         switch launchCommand?.launcher {
         case "claudeTeams":
@@ -264,7 +100,7 @@ private enum AgentResumeCommandBuilder {
             if args.first == "claude-teams" {
                 args.removeFirst()
             }
-            guard let preserved = preservedClaudeArguments(args) else { return nil }
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "claude", args: args) else { return nil }
             return [original.executable, "claude-teams", "--resume", sessionId] + preserved
         case "omo":
             let original = commandParts(
@@ -275,7 +111,7 @@ private enum AgentResumeCommandBuilder {
             if args.first == "omo" {
                 args.removeFirst()
             }
-            guard let preserved = preservedOpenCodeArguments(args) else { return nil }
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "opencode", args: args) else { return nil }
             return [original.executable, "omo", "--session", sessionId] + preserved
         case "omx", "omc":
             return nil
@@ -283,20 +119,221 @@ private enum AgentResumeCommandBuilder {
             break
         }
 
+        if case .custom = kind {
+            guard let customRegistration else { return nil }
+            let arguments = customResumeArguments(
+                registration: customRegistration,
+                sessionId: sessionId,
+                launchCommand: launchCommand,
+                workingDirectory: workingDirectory
+            )
+            return arguments.isEmpty ? nil : arguments
+        }
+
         switch kind {
         case .claude:
-            let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "claude")
-            guard let preserved = preservedClaudeArguments(original.tail) else { return nil }
-            return [original.executable, "--resume", sessionId] + preserved
+            return resumeWithOption(
+                kind: "claude",
+                launchCommand: launchCommand,
+                fallbackExecutable: "claude",
+                option: "--resume",
+                sessionId: sessionId
+            )
         case .codex:
             let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "codex")
-            guard let preserved = preservedCodexArguments(original.tail) else { return nil }
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "codex", args: original.tail) else { return nil }
             return [original.executable, "resume"] + preserved + [sessionId]
+        case .pi:
+            return resumeWithOption(
+                kind: "pi",
+                launchCommand: launchCommand,
+                fallbackExecutable: "pi",
+                option: "--session",
+                sessionId: sessionId
+            )
+        case .cursor:
+            return resumeWithOption(
+                kind: "cursor",
+                launchCommand: launchCommand,
+                fallbackExecutable: "cursor-agent",
+                option: "--resume",
+                sessionId: sessionId
+            )
+        case .gemini:
+            return resumeWithOption(
+                kind: "gemini",
+                launchCommand: launchCommand,
+                fallbackExecutable: "gemini",
+                option: "--resume",
+                sessionId: sessionId
+            )
         case .opencode:
             let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "opencode")
-            guard let preserved = preservedOpenCodeArguments(original.tail) else { return nil }
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "opencode", args: original.tail) else { return nil }
             return [original.executable, "--session", sessionId] + preserved
+        case .rovodev:
+            let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "acli")
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "rovodev", args: original.tail) else { return nil }
+            return [original.executable, "rovodev", "run", "--restore", sessionId] + preserved
+        case .hermesAgent:
+            let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "hermes")
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "hermes-agent", args: original.tail) else { return nil }
+            return [original.executable] + preserved + ["--resume", sessionId]
+        case .copilot:
+            return resumeWithOption(
+                kind: "copilot",
+                launchCommand: launchCommand,
+                fallbackExecutable: "copilot",
+                option: "--resume",
+                sessionId: sessionId
+            )
+        case .codebuddy:
+            return resumeWithOption(
+                kind: "codebuddy",
+                launchCommand: launchCommand,
+                fallbackExecutable: "codebuddy",
+                option: "--resume",
+                sessionId: sessionId
+            )
+        case .factory:
+            return resumeWithOption(
+                kind: "factory",
+                launchCommand: launchCommand,
+                fallbackExecutable: "droid",
+                option: "--resume",
+                sessionId: sessionId
+            )
+        case .qoder:
+            return resumeWithOption(
+                kind: "qoder",
+                launchCommand: launchCommand,
+                fallbackExecutable: "qodercli",
+                option: "--resume",
+                sessionId: sessionId
+            )
+        case .custom:
+            return nil
         }
+    }
+
+    private static func customResumeArguments(
+        registration: CmuxVaultAgentRegistration,
+        sessionId: String,
+        launchCommand: AgentLaunchCommandSnapshot?,
+        workingDirectory: String?
+    ) -> [String] {
+        let templateParts = splitShellWords(registration.resumeCommand)
+        guard !templateParts.isEmpty else { return [] }
+        let original = commandParts(
+            launchCommand: launchCommand,
+            fallbackExecutable: registration.defaultExecutable
+        )
+        let sessionDirectory = normalized(registration.sessionDirectory).map {
+            ($0 as NSString).expandingTildeInPath
+        }
+        let replacements: [String: String] = [
+            "sessionId": sessionId,
+            "sessionPath": sessionId,
+            "executable": original.executable,
+            "cwd": normalized(workingDirectory ?? launchCommand?.workingDirectory) ?? "",
+            "sessionDir": sessionDirectory ?? "",
+        ]
+        var resolved: [String] = []
+        for part in templateParts {
+            guard let value = resolveTemplatePart(part, replacements: replacements) else { return [] }
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return [] }
+            resolved.append(trimmed)
+        }
+        return resolved
+    }
+
+    private static func resolveTemplatePart(
+        _ part: String,
+        replacements: [String: String]
+    ) -> String? {
+        var resolved = ""
+        var searchStart = part.startIndex
+        while let opening = part[searchStart...].range(of: "{{") {
+            resolved.append(contentsOf: part[searchStart..<opening.lowerBound])
+            guard let closing = part[opening.upperBound...].range(of: "}}") else {
+                resolved.append(contentsOf: part[opening.lowerBound...])
+                return resolved
+            }
+            let key = String(part[opening.upperBound..<closing.lowerBound])
+            if let replacement = replacements[key] {
+                if replacement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    return nil
+                }
+                resolved += replacement
+            } else {
+                resolved.append(contentsOf: part[opening.lowerBound..<closing.upperBound])
+            }
+            searchStart = closing.upperBound
+        }
+        resolved.append(contentsOf: part[searchStart...])
+        return resolved
+    }
+
+    private static func splitShellWords(_ command: String) -> [String] {
+        enum Quote {
+            case single
+            case double
+        }
+
+        var words: [String] = []
+        var current = ""
+        var quote: Quote?
+        var escaping = false
+
+        func finishWord() {
+            guard !current.isEmpty else { return }
+            words.append(current)
+            current = ""
+        }
+
+        for character in command {
+            if escaping {
+                current.append(character)
+                escaping = false
+                continue
+            }
+            if character == "\\" {
+                escaping = true
+                continue
+            }
+            switch (quote, character) {
+            case (.single, "'"), (.double, "\""):
+                quote = nil
+            case (nil, "'"):
+                quote = .single
+            case (nil, "\""):
+                quote = .double
+            case (nil, " "), (nil, "\t"), (nil, "\n"):
+                finishWord()
+            default:
+                current.append(character)
+            }
+        }
+        if escaping {
+            current.append("\\")
+        }
+        finishWord()
+        return words
+    }
+
+    private static func resumeWithOption(
+        kind: String,
+        launchCommand: AgentLaunchCommandSnapshot?,
+        fallbackExecutable: String,
+        option: String,
+        sessionId: String
+    ) -> [String]? {
+        let original = commandParts(launchCommand: launchCommand, fallbackExecutable: fallbackExecutable)
+        guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: kind, args: original.tail) else {
+            return nil
+        }
+        return [original.executable, option, sessionId] + preserved
     }
 
     private static func commandParts(
@@ -309,339 +346,6 @@ private enum AgentResumeCommandBuilder {
             ?? fallbackExecutable
         let tail = arguments.isEmpty ? [] : Array(arguments.dropFirst())
         return (executable, tail)
-    }
-
-    private static func preservedClaudeArguments(_ args: [String]) -> [String]? {
-        preserveOptions(
-            args,
-            valueOptions: claudeValueOptions,
-            optionalValueOptions: claudeOptionalValueOptions,
-            variadicOptions: claudeVariadicOptions,
-            nonRestorableCommands: claudeNonRestorableCommands,
-            droppedOptions: [
-                "--continue",
-                "-c",
-                "--fork-session",
-                "--from-pr",
-                "--resume",
-                "-r",
-                "--session-id",
-                "--tmux",
-                "--worktree",
-                "-w"
-            ],
-            droppedOptionPrefixes: [
-                "--fork-session=",
-                "--from-pr=",
-                "--resume=",
-                "--session-id=",
-                "--tmux=",
-                "--worktree="
-            ],
-            rejectOptions: [
-                "--print",
-                "-p",
-                "--no-session-persistence"
-            ],
-            skipHookSettings: true,
-            resumeSubcommand: nil
-        )
-    }
-
-    private static func preservedCodexArguments(_ args: [String]) -> [String]? {
-        preserveOptions(
-            args,
-            valueOptions: codexValueOptions,
-            optionalValueOptions: [],
-            variadicOptions: ["--image", "-i", "--add-dir"],
-            nonRestorableCommands: codexNonRestorableCommands,
-            droppedOptions: [
-                "--last",
-                "--all"
-            ],
-            droppedOptionPrefixes: [],
-            rejectOptions: [],
-            skipHookSettings: false,
-            resumeSubcommand: "resume"
-        )
-    }
-
-    private static func preservedOpenCodeArguments(_ args: [String]) -> [String]? {
-        let sanitizedArgs = args.filter { !isOpenCodeInternalWorkerArgument($0) }
-        return preserveOptions(
-            sanitizedArgs,
-            valueOptions: opencodeValueOptions,
-            optionalValueOptions: [],
-            variadicOptions: ["--cors"],
-            nonRestorableCommands: opencodeNonRestorableCommands,
-            droppedOptions: [
-                "--continue",
-                "-c",
-                "--fork",
-                "--session",
-                "-s",
-                "--prompt"
-            ],
-            droppedOptionPrefixes: [
-                "--session=",
-                "--prompt="
-            ],
-            rejectOptions: [],
-            skipHookSettings: false,
-            resumeSubcommand: nil,
-            preserveFirstPositional: true
-        )
-    }
-
-    private static func isOpenCodeInternalWorkerArgument(_ value: String) -> Bool {
-        let normalized = value.replacingOccurrences(of: "\\", with: "/")
-        return normalized.contains("/$bunfs/") &&
-            normalized.contains("/src/cli/cmd/tui/worker.js")
-    }
-
-    private static func preserveOptions(
-        _ args: [String],
-        valueOptions: Set<String>,
-        optionalValueOptions: Set<String>,
-        variadicOptions: Set<String>,
-        nonRestorableCommands: Set<String>,
-        droppedOptions: Set<String>,
-        droppedOptionPrefixes: [String],
-        rejectOptions: Set<String>,
-        skipHookSettings: Bool,
-        resumeSubcommand: String?,
-        preserveFirstPositional: Bool = false
-    ) -> [String]? {
-        var result: [String] = []
-        var index = 0
-        var consumedFirstPositional = false
-        var skippingResumePositionals = false
-
-        while index < args.count {
-            let arg = args[index]
-            if arg == "--" {
-                break
-            }
-
-            if !arg.hasPrefix("-") || arg == "-" {
-                if let resumeSubcommand, arg == resumeSubcommand {
-                    skippingResumePositionals = true
-                    index += 1
-                    continue
-                }
-                if skippingResumePositionals {
-                    break
-                }
-                if nonRestorableCommands.contains(arg) {
-                    return nil
-                }
-                if preserveFirstPositional && !consumedFirstPositional {
-                    result.append(arg)
-                    consumedFirstPositional = true
-                    index += 1
-                    continue
-                }
-                break
-            }
-
-            if shouldDropOption(arg, droppedOptions: rejectOptions) {
-                return nil
-            }
-
-            if droppedOptionPrefixes.contains(where: { arg.hasPrefix($0) }) {
-                index += 1
-                continue
-            }
-
-            if shouldDropOption(arg, droppedOptions: droppedOptions) {
-                index += optionWidth(
-                    args,
-                    index: index,
-                    valueOptions: valueOptions,
-                    optionalValueOptions: optionalValueOptions,
-                    variadicOptions: variadicOptions
-                )
-                continue
-            }
-
-            if skipHookSettings, isHookSettingsOption(args, index: index) {
-                index += optionWidth(
-                    args,
-                    index: index,
-                    valueOptions: valueOptions,
-                    optionalValueOptions: optionalValueOptions,
-                    variadicOptions: variadicOptions
-                )
-                continue
-            }
-
-            let width = optionWidth(
-                args,
-                index: index,
-                valueOptions: valueOptions,
-                optionalValueOptions: optionalValueOptions,
-                variadicOptions: variadicOptions
-            )
-            result.append(contentsOf: args[index..<min(args.count, index + width)])
-            index += width
-        }
-
-        return result
-    }
-
-    private static func shouldDropOption(_ arg: String, droppedOptions: Set<String>) -> Bool {
-        if droppedOptions.contains(arg) { return true }
-        guard let equals = arg.firstIndex(of: "=") else { return false }
-        return droppedOptions.contains(String(arg[..<equals]))
-    }
-
-    private static func optionWidth(
-        _ args: [String],
-        index: Int,
-        valueOptions: Set<String>,
-        optionalValueOptions: Set<String>,
-        variadicOptions: Set<String>
-    ) -> Int {
-        let arg = args[index]
-        if arg.contains("=") {
-            return 1
-        }
-        if optionalValueOptions.contains(arg) {
-            guard index + 1 < args.count,
-                  looksLikeOptionalValue(
-                    args[index + 1],
-                    following: index + 2 < args.count ? args[index + 2] : nil
-                  ) else {
-                return 1
-            }
-            return 2
-        }
-        guard valueOptions.contains(arg), index + 1 < args.count else {
-            return 1
-        }
-        if variadicOptions.contains(arg) {
-            var end = index + 1
-            while end < args.count, !args[end].hasPrefix("-") {
-                end += 1
-            }
-            return max(1, end - index)
-        }
-        return 2
-    }
-
-    private static func looksLikeOptionalValue(_ value: String, following: String?) -> Bool {
-        guard !value.isEmpty,
-              !value.hasPrefix("-"),
-              value.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else {
-            return false
-        }
-        return value.contains(",") || (following?.hasPrefix("-") == true)
-    }
-
-    private static func isHookSettingsOption(_ args: [String], index: Int) -> Bool {
-        let arg = args[index]
-        if arg.hasPrefix("--settings=") {
-            return arg.contains("claude-hook") || arg.contains("hooks claude")
-        }
-        guard arg == "--settings", index + 1 < args.count else {
-            return false
-        }
-        return args[index + 1].contains("claude-hook") || args[index + 1].contains("hooks claude")
-    }
-
-    private static func isSafeEnvironmentKey(_ key: String) -> Bool {
-        switch key {
-        case "ANTHROPIC_MODEL",
-             "CLAUDE_CONFIG_DIR",
-             "CMUX_CUSTOM_CLAUDE_PATH",
-             "CODEX_HOME",
-             "NODE_OPTIONS",
-             "OPENCODE_CONFIG_DIR":
-            return true
-        default:
-            return false
-        }
-    }
-
-    private static func sanitizedEnvironmentValue(key: String, value: String?) -> String? {
-        guard key == "NODE_OPTIONS" else {
-            return value
-        }
-        return sanitizedNodeOptions(value)
-    }
-
-    private static func sanitizedNodeOptions(_ rawValue: String?) -> String? {
-        let tokens = rawValue?
-            .split(whereSeparator: \.isWhitespace)
-            .map(String.init) ?? []
-        guard !tokens.isEmpty else { return nil }
-
-        var sanitized: [String] = []
-        var index = 0
-        var shouldDropInjectedHeapCap = false
-        while index < tokens.count {
-            let token = tokens[index]
-
-            if shouldDropInjectedHeapCap, isInjectedNodeHeapCap(tokens, index: index) {
-                index += nodeHeapCapWidth(tokens, index: index)
-                shouldDropInjectedHeapCap = false
-                continue
-            }
-            shouldDropInjectedHeapCap = false
-
-            if isRequireOption(token), index + 1 < tokens.count,
-               isCmuxNodeOptionsRestoreModulePath(tokens[index + 1]) {
-                index += 2
-                shouldDropInjectedHeapCap = true
-                continue
-            }
-            if let path = inlineRequireOptionPath(token),
-               isCmuxNodeOptionsRestoreModulePath(path) {
-                index += 1
-                shouldDropInjectedHeapCap = true
-                continue
-            }
-
-            sanitized.append(token)
-            index += 1
-        }
-
-        let joined = sanitized.joined(separator: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return joined.isEmpty ? nil : joined
-    }
-
-    private static func isRequireOption(_ token: String) -> Bool {
-        token == "--require" || token == "-r"
-    }
-
-    private static func inlineRequireOptionPath(_ token: String) -> String? {
-        for prefix in ["--require=", "-r="] where token.hasPrefix(prefix) {
-            return String(token.dropFirst(prefix.count))
-        }
-        return nil
-    }
-
-    private static func isCmuxNodeOptionsRestoreModulePath(_ value: String) -> Bool {
-        let trimmed = value.trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
-        guard URL(fileURLWithPath: trimmed).lastPathComponent == "restore-node-options.cjs" else {
-            return false
-        }
-        return trimmed.contains("/cmux-")
-    }
-
-    private static func isInjectedNodeHeapCap(_ tokens: [String], index: Int) -> Bool {
-        guard index < tokens.count else { return false }
-        let token = tokens[index]
-        if token == "--max-old-space-size" {
-            return index + 1 < tokens.count && tokens[index + 1] == "4096"
-        }
-        return token == "--max-old-space-size=4096"
-    }
-
-    private static func nodeHeapCapWidth(_ tokens: [String], index: Int) -> Int {
-        guard index < tokens.count else { return 1 }
-        return tokens[index] == "--max-old-space-size" ? min(2, tokens.count - index) : 1
     }
 
     private static func normalized(_ value: String?) -> String? {
@@ -660,12 +364,15 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
     var sessionId: String
     var workingDirectory: String?
     var launchCommand: AgentLaunchCommandSnapshot?
+    var registration: CmuxVaultAgentRegistration? = nil
 
     var resumeCommand: String? {
-        kind.resumeCommand(
+        AgentResumeCommandBuilder.resumeShellCommand(
+            kind: kind,
             sessionId: sessionId,
             launchCommand: launchCommand,
-            workingDirectory: workingDirectory
+            workingDirectory: workingDirectory,
+            registrationOverride: registration
         )
     }
 
@@ -769,7 +476,7 @@ private struct RestorableAgentHookSessionStoreFile: Codable, Sendable {
 struct RestorableAgentSessionIndex: Sendable {
     static let empty = RestorableAgentSessionIndex(snapshotsByPanel: [:])
 
-    private struct PanelKey: Hashable, Sendable {
+    struct PanelKey: Hashable, Sendable {
         let workspaceId: UUID
         let panelId: UUID
     }
@@ -784,10 +491,52 @@ struct RestorableAgentSessionIndex: Sendable {
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default
     ) -> RestorableAgentSessionIndex {
+        let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
+        return load(
+            homeDirectory: homeDirectory,
+            fileManager: fileManager,
+            registry: registry,
+            detectedSnapshots: [:]
+        )
+    }
+
+    static func loadIncludingProcessDetectedSnapshots(
+        homeDirectory: String = NSHomeDirectory(),
+        fileManager: FileManager = .default
+    ) async -> RestorableAgentSessionIndex {
+        await Task.detached(priority: .utility) {
+            let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
+            let detectedSnapshots = processDetectedSnapshots(
+                registry: registry,
+                fileManager: fileManager
+            )
+            return load(
+                homeDirectory: homeDirectory,
+                fileManager: fileManager,
+                registry: registry,
+                detectedSnapshots: detectedSnapshots
+            )
+        }.value
+    }
+
+    private static func load(
+        homeDirectory: String,
+        fileManager: FileManager,
+        registry: CmuxVaultAgentRegistry,
+        detectedSnapshots: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)]
+    ) -> RestorableAgentSessionIndex {
         let decoder = JSONDecoder()
         var resolved: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] = [:]
+        let builtInKindIDs = Set(RestorableAgentKind.allCases.map(\.rawValue))
+        let hookKinds: [(kind: RestorableAgentKind, registration: CmuxVaultAgentRegistration?)] =
+            RestorableAgentKind.allCases.map { (kind: $0, registration: nil) }
+            + registry.registrations.compactMap { registration in
+                builtInKindIDs.contains(registration.id)
+                    ? nil
+                    : (kind: .custom(registration.id), registration: registration)
+            }
 
-        for kind in RestorableAgentKind.allCases {
+        for (kind, registration) in hookKinds {
             let fileURL = kind.hookStoreFileURL(homeDirectory: homeDirectory)
             guard fileManager.fileExists(atPath: fileURL.path),
                   let data = try? Data(contentsOf: fileURL),
@@ -807,7 +556,8 @@ struct RestorableAgentSessionIndex: Sendable {
                     kind: kind,
                     sessionId: normalizedSessionId,
                     workingDirectory: normalizedWorkingDirectory(record.cwd),
-                    launchCommand: record.launchCommand
+                    launchCommand: record.launchCommand,
+                    registration: registration
                 )
                 let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
                 if let existing = resolved[key], existing.updatedAt > record.updatedAt {
@@ -815,6 +565,13 @@ struct RestorableAgentSessionIndex: Sendable {
                 }
                 resolved[key] = (snapshot: snapshot, updatedAt: record.updatedAt)
             }
+        }
+
+        for (key, detected) in detectedSnapshots {
+            if let existing = resolved[key], existing.updatedAt > detected.updatedAt {
+                continue
+            }
+            resolved[key] = detected
         }
 
         return RestorableAgentSessionIndex(snapshotsByPanel: resolved.mapValues(\.snapshot))
