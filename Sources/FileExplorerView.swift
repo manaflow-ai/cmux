@@ -586,7 +586,7 @@ final class FileExplorerContainerView: NSView {
     let searchResultsView: FileExplorerSearchResultsTableView
     private let emptyLabel: NSTextField
     private let loadingIndicator: NSProgressIndicator
-    private let searchController: FileSearchController
+    private let searchController: any FileSearchControlling
     private var searchBarHeightConstraint: NSLayoutConstraint!
     private(set) var searchSnapshot = FileSearchSnapshot.empty
     private var currentRootPath = ""
@@ -596,7 +596,11 @@ final class FileExplorerContainerView: NSView {
     private var presentation: FileExplorerPanelPresentation
     private let coordinator: FileExplorerPanelView.Coordinator
 
-    init(coordinator: FileExplorerPanelView.Coordinator, presentation: FileExplorerPanelPresentation) {
+    init(
+        coordinator: FileExplorerPanelView.Coordinator,
+        presentation: FileExplorerPanelPresentation,
+        searchController: any FileSearchControlling = FileSearchController()
+    ) {
         headerView = FileExplorerHeaderView()
         searchBarView = NSView()
         searchField = FileExplorerSearchField()
@@ -607,7 +611,7 @@ final class FileExplorerContainerView: NSView {
         searchResultsView = FileExplorerSearchResultsTableView()
         emptyLabel = NSTextField(labelWithString: String(localized: "fileExplorer.empty", defaultValue: "No folder open"))
         loadingIndicator = NSProgressIndicator()
-        searchController = FileSearchController()
+        self.searchController = searchController
         self.presentation = presentation
         self.coordinator = coordinator
 

@@ -66,7 +66,15 @@ struct FileSearchSnapshot: Equatable {
 }
 
 @MainActor
-final class FileSearchController {
+protocol FileSearchControlling: AnyObject {
+    var onSnapshotChanged: ((FileSearchSnapshot) -> Void)? { get set }
+
+    func search(query rawQuery: String, rootPath: String, isLocal: Bool, contentRevision: Int)
+    func cancel(clear: Bool)
+}
+
+@MainActor
+final class FileSearchController: FileSearchControlling {
     private struct Request: Equatable {
         let query: String
         let rootPath: String
