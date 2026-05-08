@@ -10575,6 +10575,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return true
     }
 
+    private func handleContextIndependentShortcut(event: NSEvent) -> Bool {
+        if matchConfiguredShortcut(event: event, action: .quit) {
+            return handleQuitShortcutWarning()
+        }
+
+        if matchConfiguredShortcut(event: event, action: .openSettings) {
+            openPreferencesWindow(debugSource: "shortcut.openSettings")
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .reloadConfiguration) {
+            GhosttyApp.shared.reloadConfiguration(source: "shortcut.reloadConfiguration")
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .newWindow) {
+            openNewMainWindow(preferredWindow: mainWindowForShortcutEvent(event))
+            return true
+        }
+
+        return false
+    }
+
+    private var contextIndependentShortcutActions: [KeyboardShortcutSettings.Action] {
+        // Keep main-window lifecycle commands, such as Close Window, on the synchronized
+        // path because their AppKit delegates depend on the active terminal context.
+        [
+            .quit,
+            .openSettings,
+            .reloadConfiguration,
+            .newWindow,
+        ]
+    }
+
     private func handleCustomShortcut(event: NSEvent) -> Bool {
         guard event.type == .keyDown else {
             clearConfiguredShortcutChordState()
@@ -10946,6 +10980,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if handleContextIndependentShortcut(event: event) {
+            return true
+        }
+
+        if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
+           armConfiguredShortcutChordIfNeeded(event: event, actions: contextIndependentShortcutActions) {
+            return true
+        }
+
         let hasEventWindowContext = shortcutEventHasAddressableWindow(event)
         let didSynchronizeShortcutContext = synchronizeShortcutRoutingContext(event: event)
         if hasEventWindowContext && !didSynchronizeShortcutContext {
@@ -11036,18 +11079,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .quit) {
-            return handleQuitShortcutWarning()
-        }
-        if matchConfiguredShortcut(event: event, action: .openSettings) {
-            openPreferencesWindow(debugSource: "shortcut.openSettings")
-            return true
-        }
-        if matchConfiguredShortcut(event: event, action: .reloadConfiguration) {
-            GhosttyApp.shared.reloadConfiguration(source: "shortcut.reloadConfiguration")
-            return true
-        }
-
         if matchConfiguredShortcut(event: event, action: .toggleFullScreen) {
             guard let targetWindow = mainWindowForShortcutEvent(event) else {
                 return false
@@ -11075,15 +11106,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             cmuxDebugLog("shortcut.action name=newWorkspace \(debugShortcutRouteSnapshot(event: event))")
 #endif
             performNewWorkspaceAction(event: event, debugSource: "shortcut.cmdN")
-            return true
-        }
-
-        // New Window: Cmd+Shift+N
-        // Handled here instead of relying on SwiftUI's CommandGroup menu item because
-        // after a browser panel has been shown, SwiftUI's menu dispatch can silently
-        // consume the key equivalent without firing the action closure.
-        if matchConfiguredShortcut(event: event, action: .newWindow) {
-            openNewMainWindow(preferredWindow: mainWindowForShortcutEvent(event))
             return true
         }
 
