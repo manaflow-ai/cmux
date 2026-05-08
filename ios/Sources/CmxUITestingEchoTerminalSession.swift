@@ -3,6 +3,8 @@ import Foundation
 
 @MainActor
 final class CmxUITestingEchoTerminalSession: CmxTerminalSession {
+    private static let sessionID = "ui-test"
+
     weak var delegate: CmxTerminalSessionDelegate?
 
     private let usesPaletteTheme: Bool
@@ -24,7 +26,7 @@ final class CmxUITestingEchoTerminalSession: CmxTerminalSession {
     }
 
     func start(viewport: CmxWireViewport) {
-        delegate?.terminalSession(self, didReceive: .welcome(serverVersion: "ui-test", sessionID: "ui-test"))
+        delegate?.terminalSession(self, didReceive: .welcome(serverVersion: "ui-test", sessionID: Self.sessionID))
         emitNativeSnapshot()
         emitReplay(terminalID: activeTerminal.id)
     }
@@ -393,7 +395,7 @@ final class CmxUITestingEchoTerminalSession: CmxTerminalSession {
             focusedTabID: activeTerminal.id,
             attachedClients: [
                 CmxAttachedClientInfo(
-                    clientID: "ui-peer",
+                    clientID: Self.sessionID,
                     kind: .native,
                     visibleTerminalCount: lastNativeLayoutByTerminalID.count,
                     updatedAtMilliseconds: 0,

@@ -657,6 +657,7 @@ final class CmxBridgeTicketTests: XCTestCase {
         store.terminalScreenDidAppear()
         sessionFactory.session.clearRecordedResizes()
         sessionFactory.session.clearRecordedLayouts()
+        sessionFactory.session.clearRequestedPtyReplays()
 
         store.updateTerminalSize(terminalID: 41, size: CmxTerminalSize(cols: 100, rows: 20))
 
@@ -665,6 +666,7 @@ final class CmxBridgeTicketTests: XCTestCase {
             sessionFactory.session.sentLayouts.last,
             [CmxWireTerminalViewport(tabID: 41, cols: 100, rows: 20)]
         )
+        XCTAssertEqual(sessionFactory.session.requestedPtyReplayTerminalIDs, [41])
     }
 
     @MainActor
@@ -1181,7 +1183,7 @@ final class CmxBridgeTicketTests: XCTestCase {
     }
 
     @MainActor
-    func testVisibleTerminalResizeRequestsFreshReplayEvenWithCachedOutput() throws {
+    func testVisibleTerminalResizeDoesNotForceReplayWithCachedOutput() throws {
         let sessionFactory = RecordingTerminalSessionFactory()
         let store = CmxConnectionStore(
             authSessionStore: MemoryStackAuthSessionStore(),
@@ -1243,7 +1245,7 @@ final class CmxBridgeTicketTests: XCTestCase {
             sessionFactory.session.sentLayouts.last,
             [CmxWireTerminalViewport(tabID: 41, cols: 54, rows: 52)]
         )
-        XCTAssertEqual(sessionFactory.session.requestedPtyReplayTerminalIDs, [41])
+        XCTAssertTrue(sessionFactory.session.requestedPtyReplayTerminalIDs.isEmpty)
     }
 
     @MainActor

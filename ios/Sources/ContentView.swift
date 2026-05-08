@@ -812,7 +812,6 @@ private struct CmxKeyboardOverlapReader: UIViewRepresentable {
         uiView.onOverlapChange = { [weak coordinator = context.coordinator] overlap in
             coordinator?.setOverlap(overlap)
         }
-        uiView.reportCurrentOverlap()
     }
 
     final class Coordinator {
@@ -843,7 +842,7 @@ private final class CmxKeyboardOverlapReaderView: UIView {
         super.init(frame: frame)
         isUserInteractionEnabled = false
         backgroundColor = .clear
-        keyboardLayoutGuide.followsUndockedKeyboard = true
+        keyboardLayoutGuide.followsUndockedKeyboard = false
         guideTracker.translatesAutoresizingMaskIntoConstraints = false
         guideTracker.isUserInteractionEnabled = false
         guideTracker.accessibilityElementsHidden = true
@@ -1046,6 +1045,7 @@ private struct TerminalPane: View {
                     store: store,
                     terminalID: terminal.id,
                     renderSize: store.renderSize(for: terminal.id),
+                    layoutRevision: store.terminalLayoutRevision,
                     outputRevision: store.terminalOutputRevision,
                     hostPlatform: store.selectedHostPlatform,
                     visibleGridSize: $visibleGridSize,

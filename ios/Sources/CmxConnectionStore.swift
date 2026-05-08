@@ -171,9 +171,10 @@ final class CmxConnectionStore: ObservableObject {
     @Published var selectedSpaceID: UInt64 = 0
     @Published var selectedTerminalID: UInt64 = CmxConnectionStore.placeholderTerminalID
     @Published private(set) var effectiveTerminalSizesByID: [UInt64: CmxTerminalSize] = [:]
+    @Published private(set) var terminalLayoutRevision = 0
     @Published private(set) var terminalOutputRevision = 0
-    @Published private var outputChunksByTerminalID: [UInt64: [CmxTerminalOutputChunk]] = [:]
-    @Published private var nextOutputChunkID = 1
+    private var outputChunksByTerminalID: [UInt64: [CmxTerminalOutputChunk]] = [:]
+    private var nextOutputChunkID = 1
     private var cachedOutputByteCountByTerminalID: [UInt64: Int] = [:]
     private let authSessionStore: CmxStackAuthSessionStore
     private let launchTicketStore: CmxLaunchTicketStateStore
@@ -197,6 +198,7 @@ final class CmxConnectionStore: ObservableObject {
     private var reconnectPending = false
     private var didUseImmediateReconnectForCurrentLoss = false
     private var terminalScreenVisible = false
+    private var localTerminalSizesByID: [UInt64: CmxTerminalSize] = [:]
     private var lastSentNativeLayoutByTerminalID: [UInt64: CmxTerminalSize] = [:]
     private var lastReplayRequest: ReplayRequestKey?
     private var needsReplayAfterSessionStart = false
@@ -503,7 +505,7 @@ final class CmxConnectionStore: ObservableObject {
             terminalSession?.sendCommand(.selectWorkspace(index: index))
         }
         syncNativeLayoutForVisibleTerminal(force: true)
-        if requestPtyReplayForVisibleTerminal(force: true) {
+        if requestPtyReplayForVisibleTerminalIfCacheIsEmpty() {
             needsReplayAfterSessionStart = false
         }
     }
@@ -539,7 +541,7 @@ final class CmxConnectionStore: ObservableObject {
             terminalSession?.sendCommand(.selectSpace(index: index))
         }
         syncNativeLayoutForVisibleTerminal(force: true)
-        if requestPtyReplayForVisibleTerminal(force: true) {
+        if requestPtyReplayForVisibleTerminalIfCacheIsEmpty() {
             needsReplayAfterSessionStart = false
         }
     }
@@ -550,7 +552,7 @@ final class CmxConnectionStore: ObservableObject {
             terminalSession?.sendCommand(.selectTabInPanel(panelID: selection.panelID, index: selection.index))
         }
         syncNativeLayoutForVisibleTerminal(force: true)
-        if requestPtyReplayForVisibleTerminal(force: true) {
+        if requestPtyReplayForVisibleTerminalIfCacheIsEmpty() {
             needsReplayAfterSessionStart = false
         }
     }
@@ -558,7 +560,7 @@ final class CmxConnectionStore: ObservableObject {
     func terminalScreenDidAppear() {
         terminalScreenVisible = true
         syncNativeLayoutForVisibleTerminal(force: true)
-        if requestPtyReplayForVisibleTerminal(force: true) {
+        if requestPtyReplayForVisibleTerminalIfCacheIsEmpty() {
             needsReplayAfterSessionStart = false
         }
     }
@@ -699,7 +701,7 @@ final class CmxConnectionStore: ObservableObject {
     }
 
     func terminalSize(for terminalID: UInt64) -> CmxTerminalSize {
-        terminal(matching: terminalID)?.size ?? .phoneDefault
+        localTerminalSizesByID[terminalID] ?? terminal(matching: terminalID)?.size ?? .phoneDefault
     }
 
     func renderSize(for terminalID: UInt64) -> CmxTerminalSize? {
@@ -739,27 +741,21 @@ final class CmxConnectionStore: ObservableObject {
     func updateTerminalSize(terminalID: UInt64, size: CmxTerminalSize) {
         guard size.cols > 0, size.rows > 0 else { return }
         guard terminalID != Self.placeholderTerminalID else { return }
-        var didUpdateStoredTerminal = false
-        for workspaceIndex in workspaces.indices {
-            for spaceIndex in workspaces[workspaceIndex].spaces.indices {
-                guard let terminalIndex = workspaces[workspaceIndex].spaces[spaceIndex].terminals
-                    .firstIndex(where: { $0.id == terminalID }) else { continue }
-                if workspaces[workspaceIndex].spaces[spaceIndex].terminals[terminalIndex].size != size {
-                    workspaces[workspaceIndex].spaces[spaceIndex].terminals[terminalIndex].size = size
-                }
-                didUpdateStoredTerminal = true
-                break
+        let previousRenderSize = renderSize(for: terminalID)
+        if terminalSize(for: terminalID) != size {
+            localTerminalSizesByID[terminalID] = size
+            if previousRenderSize != renderSize(for: terminalID) {
+                terminalLayoutRevision += 1
             }
-            if didUpdateStoredTerminal { break }
         }
         if terminalScreenVisible, terminalID == selectedTerminal.id {
-            let didSendLayout = sendNativeLayout(
+            sendNativeLayout(
                 terminalID: terminalID,
                 size: size,
                 force: false
             )
-            if didSendLayout || outputChunksByTerminalID[terminalID, default: []].isEmpty {
-                requestPtyReplayForVisibleTerminal(force: true)
+            if outputChunksByTerminalID[terminalID, default: []].isEmpty {
+                requestPtyReplayForVisibleTerminal()
             }
         }
     }
@@ -1064,6 +1060,7 @@ final class CmxConnectionStore: ObservableObject {
             )
         }
         if workspaces.isEmpty {
+            localTerminalSizesByID = [:]
             outputChunksByTerminalID = [:]
             cachedOutputByteCountByTerminalID = [:]
             nextOutputChunkID = 1
@@ -1101,7 +1098,7 @@ final class CmxConnectionStore: ObservableObject {
         guard terminalScreenVisible else { return }
         syncNativeLayoutForVisibleTerminal(force: didChangeSelectedTerminal || didChangeActiveWorkspace)
         if didChangeSelectedTerminal || didChangeActiveWorkspace || didChangeSelectedRenderSize || needsReplayAfterSessionStart {
-            if requestPtyReplayForVisibleTerminal(force: true) {
+            if requestPtyReplayForVisibleTerminalIfCacheIsEmpty() {
                 needsReplayAfterSessionStart = false
             }
         }
@@ -1111,6 +1108,7 @@ final class CmxConnectionStore: ObservableObject {
         nodes = snapshot.nodes
         guard !isConnecting, !isConnected else { return }
         workspaces = snapshot.workspaces
+        localTerminalSizesByID = [:]
         effectiveTerminalSizesByID = [:]
         outputChunksByTerminalID = [:]
         cachedOutputByteCountByTerminalID = [:]
@@ -1206,6 +1204,7 @@ final class CmxConnectionStore: ObservableObject {
         selectedWorkspaceID = 0
         selectedSpaceID = 0
         selectedTerminalID = Self.placeholderTerminalID
+        localTerminalSizesByID = [:]
         effectiveTerminalSizesByID = [:]
         outputChunksByTerminalID = [:]
         cachedOutputByteCountByTerminalID = [:]
@@ -1272,7 +1271,7 @@ final class CmxConnectionStore: ObservableObject {
         guard terminal.id != Self.placeholderTerminalID else { return false }
         let request = ReplayRequestKey(
             terminalID: terminal.id,
-            size: renderSize(for: terminal.id) ?? terminal.size,
+            size: renderSize(for: terminal.id) ?? terminalSize(for: terminal.id),
             outputRevision: terminalOutputRevision
         )
         if !force, lastReplayRequest == request {
@@ -1284,6 +1283,14 @@ final class CmxConnectionStore: ObservableObject {
         #endif
         terminalSession?.requestPtyReplay(terminalID: terminal.id)
         return terminalSession != nil
+    }
+
+    @discardableResult
+    private func requestPtyReplayForVisibleTerminalIfCacheIsEmpty() -> Bool {
+        let terminal = selectedTerminal
+        guard terminal.id != Self.placeholderTerminalID else { return false }
+        guard outputChunksByTerminalID[terminal.id, default: []].isEmpty else { return false }
+        return requestPtyReplayForVisibleTerminal()
     }
 
     private func effectiveTerminalSizes(from snapshot: CmxNativeSnapshot) -> [UInt64: CmxTerminalSize] {

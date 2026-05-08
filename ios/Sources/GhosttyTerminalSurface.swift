@@ -843,6 +843,7 @@ public final class GhosttyTerminalSurfaceView: UIView {
     private let bridge = GhosttySurfaceBridge()
     private var displayLink: CADisplayLink?
     private var lastReportedSize: TerminalGridSize?
+    private var lastReportedMaximumViewportSize: TerminalGridSize?
     private var hasFedInitialOutput = false
     private var needsDraw = false
     private var pinchAccumulatedScale: CGFloat = 1
@@ -858,8 +859,9 @@ public final class GhosttyTerminalSurfaceView: UIView {
     private var outputFlushScheduled = false
     private var forcedGridSize: (cols: Int, rows: Int)?
     private var followsLiveOutput = true
+    private var pendingScrollToActiveArea = false
+    private var pendingBlankSurfaceProbe = false
     private var accessibilityTranscript = ""
-    private var shouldFocusInputWhenAttached = false
     #if DEBUG
     var onOutputProcessedForTesting: (() -> Void)?
     var onFontZoomAppliedForTesting: ((Float32) -> Void)?
@@ -947,10 +949,6 @@ public final class GhosttyTerminalSurfaceView: UIView {
             syncSurfaceGeometry()
             ghostty_surface_set_occlusion(surface, true)
             ghostty_surface_set_focus(surface, true)
-            if shouldFocusInputWhenAttached {
-                shouldFocusInputWhenAttached = false
-                focusInput()
-            }
         } else {
             ghostty_surface_set_focus(surface, false)
             ghostty_surface_set_occlusion(surface, false)
@@ -1014,22 +1012,20 @@ public final class GhosttyTerminalSurfaceView: UIView {
                     UInt(buffer.count)
                 )
             }
-            if shouldScrollToActiveArea {
-                Self.performBindingAction(Self.scrollToBottomAction, on: surface)
-            }
             DispatchQueue.main.async {
                 guard let self else { return }
                 guard self.surface == surface,
                       self.outputGate.isCurrent(generation) else { return }
+                self.pendingScrollToActiveArea = self.pendingScrollToActiveArea || shouldScrollToActiveArea
                 if marksInitialOutput {
                     self.hasFedInitialOutput = true
                 }
                 self.appendAccessibilityTranscript(accessibilityText)
                 self.needsDraw = true
-                self.renderSurfaceNow(surface)
                 if Self.shouldProbeBlankSurfaceAfterOutput(payload, accessibilityText: accessibilityText) {
-                    _ = self.requestServerReplayIfBlank()
+                    self.pendingBlankSurfaceProbe = true
                 }
+                self.startDisplayLink()
                 #if DEBUG
                 self.onOutputProcessedForTesting?()
                 #endif
@@ -1051,12 +1047,60 @@ public final class GhosttyTerminalSurfaceView: UIView {
         if data.range(of: Data([0x1B, 0x63])) != nil {
             return false
         }
+        guard containsPrintableTerminalText(data) else {
+            return false
+        }
         guard accessibilityText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return false
         }
         return data.range(of: Data("\u{1B}[2J".utf8)) != nil
             || data.range(of: Data("\u{1B}[?1049h".utf8)) != nil
             || data.range(of: Data("\u{1B}[?1049l".utf8)) != nil
+    }
+
+    private nonisolated static func containsPrintableTerminalText(_ data: Data) -> Bool {
+        let bytes = Array(data)
+        var index = 0
+        while index < bytes.count {
+            let byte = bytes[index]
+            if byte == 0x1B {
+                index += 1
+                guard index < bytes.count else { break }
+                let introducer = bytes[index]
+                index += 1
+                if introducer == 0x5B {
+                    while index < bytes.count {
+                        let controlByte = bytes[index]
+                        index += 1
+                        if controlByte >= 0x40 && controlByte <= 0x7E {
+                            break
+                        }
+                    }
+                } else if introducer == 0x5D {
+                    while index < bytes.count {
+                        let controlByte = bytes[index]
+                        index += 1
+                        if controlByte == 0x07 {
+                            break
+                        }
+                        if controlByte == 0x1B, index < bytes.count, bytes[index] == 0x5C {
+                            index += 1
+                            break
+                        }
+                    }
+                }
+                continue
+            }
+            if byte == 0x09 || byte == 0x0A || byte == 0x0D {
+                index += 1
+                continue
+            }
+            if byte >= 0x20 {
+                return true
+            }
+            index += 1
+        }
+        return false
     }
 
     @discardableResult
@@ -1076,6 +1120,8 @@ public final class GhosttyTerminalSurfaceView: UIView {
         lastReportedSize = nil
         pendingOutputBuffer.removeAll(keepingCapacity: true)
         outputFlushScheduled = false
+        pendingScrollToActiveArea = false
+        pendingBlankSurfaceProbe = false
         clearAccessibilityTranscript()
         followsLiveOutput = true
         let generation = outputGate.advance()
@@ -1098,6 +1144,8 @@ public final class GhosttyTerminalSurfaceView: UIView {
         lastReportedSize = nil
         pendingOutputBuffer.removeAll(keepingCapacity: true)
         outputFlushScheduled = false
+        pendingScrollToActiveArea = false
+        pendingBlankSurfaceProbe = false
         clearAccessibilityTranscript()
         followsLiveOutput = true
         let generation = outputGate.advance()
@@ -1167,6 +1215,7 @@ public final class GhosttyTerminalSurfaceView: UIView {
     public func clearForcedViewSize() {
         guard forcedGridSize != nil else { return }
         forcedGridSize = nil
+        lastReportedMaximumViewportSize = nil
         syncSurfaceGeometry(reportResize: true, forceReport: true)
     }
 
@@ -1209,15 +1258,6 @@ public final class GhosttyTerminalSurfaceView: UIView {
         #endif
         followsLiveOutput = true
         inputProxy.becomeFirstResponder()
-    }
-
-    public func requestInputFocus() {
-        guard window != nil else {
-            shouldFocusInputWhenAttached = true
-            return
-        }
-        shouldFocusInputWhenAttached = false
-        focusInput()
     }
 
     func updateHostPlatform(_ platform: CmxHostPlatform) {
@@ -1323,6 +1363,8 @@ public final class GhosttyTerminalSurfaceView: UIView {
         outputGate.advance()
         pendingOutputBuffer.removeAll(keepingCapacity: true)
         outputFlushScheduled = false
+        pendingScrollToActiveArea = false
+        pendingBlankSurfaceProbe = false
         clearAccessibilityTranscript()
         pendingFontSizeApplication = nil
         isApplyingFontSize = false
@@ -1751,7 +1793,14 @@ public final class GhosttyTerminalSurfaceView: UIView {
     private func reportMaximumViewportGridSizeIfForced() {
         guard forcedGridSize != nil,
               let maximumGridSize = maximumViewportGridSize() else { return }
-        delegate?.ghosttyTerminalSurfaceView(self, didMeasureMaximumViewport: maximumGridSize)
+        guard maximumGridSize != lastReportedMaximumViewportSize else { return }
+        lastReportedMaximumViewportSize = maximumGridSize
+        Task { @MainActor [weak self] in
+            guard let self,
+                  self.forcedGridSize != nil,
+                  self.maximumViewportGridSize() == maximumGridSize else { return }
+            self.delegate?.ghosttyTerminalSurfaceView(self, didMeasureMaximumViewport: maximumGridSize)
+        }
     }
 
     private func nextMobileFontSize(from fontSize: Float32, after direction: TerminalFontZoomDirection) -> Float32 {
@@ -1788,7 +1837,15 @@ public final class GhosttyTerminalSurfaceView: UIView {
         applyPendingPinchFontSizeIfNeeded()
         if needsDraw {
             needsDraw = false
-            renderSurfaceNow(surface)
+            if pendingScrollToActiveArea {
+                pendingScrollToActiveArea = false
+                Self.performBindingAction(Self.scrollToBottomAction, on: surface)
+            }
+            refreshSurface(surface)
+            if pendingBlankSurfaceProbe {
+                pendingBlankSurfaceProbe = false
+                _ = requestServerReplayIfBlank()
+            }
         }
         stopDisplayLinkIfIdle()
     }
@@ -2529,6 +2586,7 @@ struct CmxGhosttyTerminalView: UIViewRepresentable {
     @ObservedObject var store: CmxConnectionStore
     let terminalID: UInt64
     let renderSize: CmxTerminalSize?
+    let layoutRevision: Int
     let outputRevision: Int
     let hostPlatform: CmxHostPlatform
     @Binding var visibleGridSize: TerminalGridSize?
@@ -2607,6 +2665,9 @@ struct CmxGhosttyTerminalView: UIViewRepresentable {
         private var lastAppliedOutputID = 0
         private var visibleGridSize: Binding<TerminalGridSize?>
         private var surfaceResetNonce: Binding<Int>
+        private var lastPublishedVisibleGridSize: TerminalGridSize?
+        private var pendingVisibleGridSize: TerminalGridSize?
+        private var visibleGridSizePublishScheduled = false
 
         init(
             visibleGridSize: Binding<TerminalGridSize?>,
@@ -2642,22 +2703,21 @@ struct CmxGhosttyTerminalView: UIViewRepresentable {
             if didChangeTerminal || didChangeSurface {
                 lastAppliedOutputID = 0
                 lastAppliedRenderSize = nil
-                visibleGridSize.wrappedValue = nil
+                publishVisibleGridSize(nil)
                 // `resetForTerminalReuse` force-reports the visible grid. Keep
                 // the coordinator's terminal ID current first, otherwise iPad
                 // relaunches can publish their real 53x52 grid against the
                 // seeded demo tab and leave the live cmx tab pinned to 80x24.
                 surfaceView.resetForTerminalReuse()
-                surfaceView.requestInputFocus()
             }
             if didChangeTerminal || didChangeSurface || lastAppliedRenderSize != renderSize {
                 if let renderSize {
                     surfaceView.applyViewSize(cols: renderSize.cols, rows: renderSize.rows)
-                    visibleGridSize.wrappedValue = surfaceView.currentGridSize()
+                    publishVisibleGridSize(surfaceView.currentGridSize())
                 } else {
                     surfaceView.clearForcedViewSize()
                     surfaceView.reportCurrentGridSize()
-                    visibleGridSize.wrappedValue = surfaceView.currentGridSize()
+                    publishVisibleGridSize(surfaceView.currentGridSize())
                 }
                 lastAppliedRenderSize = renderSize
             }
@@ -2675,9 +2735,6 @@ struct CmxGhosttyTerminalView: UIViewRepresentable {
             if !pendingOutput.isEmpty {
                 surfaceView.processOutput(pendingOutput)
             }
-            if store.isConnected, didChangeTerminal || didChangeSurface {
-                store.requestPtyReplay(terminalID: terminalID)
-            }
         }
 
         func ghosttyTerminalSurfaceView(_ surfaceView: GhosttyTerminalSurfaceView, didProduceInput data: Data) {
@@ -2687,7 +2744,7 @@ struct CmxGhosttyTerminalView: UIViewRepresentable {
 
         func ghosttyTerminalSurfaceView(_ surfaceView: GhosttyTerminalSurfaceView, didResize size: TerminalGridSize) {
             guard let terminalID else { return }
-            visibleGridSize.wrappedValue = size
+            publishVisibleGridSize(size)
             store?.updateTerminalSize(
                 terminalID: terminalID,
                 size: CmxTerminalSize(cols: size.columns, rows: size.rows)
@@ -2713,6 +2770,22 @@ struct CmxGhosttyTerminalView: UIViewRepresentable {
         func ghosttyTerminalSurfaceViewDidRequestSurfaceReset(_ surfaceView: GhosttyTerminalSurfaceView) {
             guard self.surfaceView === surfaceView else { return }
             surfaceResetNonce.wrappedValue += 1
+        }
+
+        private func publishVisibleGridSize(_ size: TerminalGridSize?) {
+            guard size != lastPublishedVisibleGridSize else { return }
+            pendingVisibleGridSize = size
+            guard !visibleGridSizePublishScheduled else { return }
+            visibleGridSizePublishScheduled = true
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                visibleGridSizePublishScheduled = false
+                let nextSize = pendingVisibleGridSize
+                pendingVisibleGridSize = nil
+                guard nextSize != lastPublishedVisibleGridSize else { return }
+                lastPublishedVisibleGridSize = nextSize
+                visibleGridSize.wrappedValue = nextSize
+            }
         }
     }
 }

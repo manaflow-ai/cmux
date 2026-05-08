@@ -53,7 +53,7 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
                 accessibilityText: "live output\n"
             )
         )
-        XCTAssertTrue(
+        XCTAssertFalse(
             GhosttyTerminalSurfaceView.shouldProbeBlankSurfaceAfterOutput(
                 Data("\u{1B}[2J\u{1B}[H".utf8),
                 accessibilityText: ""
@@ -61,7 +61,13 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
         )
         XCTAssertTrue(
             GhosttyTerminalSurfaceView.shouldProbeBlankSurfaceAfterOutput(
-                Data("\u{1B}[?1049h\u{1B}[2J\u{1B}[H".utf8),
+                Data("\u{1B}[2J\u{1B}[Hreplayed content".utf8),
+                accessibilityText: ""
+            )
+        )
+        XCTAssertTrue(
+            GhosttyTerminalSurfaceView.shouldProbeBlankSurfaceAfterOutput(
+                Data("\u{1B}[?1049h\u{1B}[2J\u{1B}[Halt content".utf8),
                 accessibilityText: ""
             )
         )
@@ -573,8 +579,7 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
 
         await fulfillment(of: [cachedBacklogRendered], timeout: 5.0)
         XCTAssertTrue((surfaceView.accessibilityRenderedTextForTesting() ?? "").contains("stale-before-attach"))
-        XCTAssertEqual(session.requestedPtyReplayTerminalIDs.last, 41)
-        XCTAssertFalse(session.requestedPtyReplayTerminalIDs.isEmpty)
+        XCTAssertTrue(session.requestedPtyReplayTerminalIDs.isEmpty)
         let freshReplayRendered = expectation(description: "fresh replay rendered")
         freshReplayRendered.assertForOverFulfill = false
         surfaceView.onOutputProcessedForTesting = {
@@ -593,7 +598,50 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
         XCTAssertTrue(rendered.contains("fresh-after-attach"))
     }
 
-    func testCoordinatorResizeDoesNotRequestSurfaceReset() throws {
+    func testCoordinatorAttachRequestsReplayWhenCachedOutputIsEmpty() throws {
+        let sessionFactory = SurfaceAttachRecordingTerminalSessionFactory()
+        let store = CmxConnectionStore(
+            terminalSessionFactory: sessionFactory,
+            startHiveDiscoveryOnInit: false,
+            launchTicket: nil,
+            launchAutoconnect: false
+        )
+        store.ticketText = """
+        {
+          "version": 1,
+          "alpn": "/cmux/cmx/3",
+          "endpoint": { "id": "endpoint-public-key", "addrs": [] },
+          "auth": { "mode": "direct" }
+        }
+        """
+        store.connect()
+        let session = sessionFactory.session
+        session.delegate?.terminalSession(session, didReceive: .welcome(serverVersion: "3", sessionID: "ios-test"))
+        session.delegate?.terminalSession(session, didReceive: .nativeSnapshot(Self.singleTabSnapshot(tabID: 41)))
+        store.terminalScreenDidAppear()
+        session.clearRequestedPtyReplays()
+
+        var visibleGridSize: TerminalGridSize?
+        var surfaceResetNonce = 0
+        let coordinator = CmxGhosttyTerminalView.Coordinator(
+            visibleGridSize: Binding(
+                get: { visibleGridSize },
+                set: { visibleGridSize = $0 }
+            ),
+            surfaceResetNonce: Binding(
+                get: { surfaceResetNonce },
+                set: { surfaceResetNonce = $0 }
+            )
+        )
+        let surfaceView = GhosttyTerminalSurfaceView(runtime: try GhosttyRuntime.shared(), delegate: coordinator)
+        surfaceViews.append(SurfaceViewTeardownHandle(surfaceView))
+
+        coordinator.apply(store: store, terminalID: 41, renderSize: nil, hostPlatform: .macOS, to: surfaceView)
+
+        XCTAssertEqual(session.requestedPtyReplayTerminalIDs, [41])
+    }
+
+    func testCoordinatorResizeDoesNotRequestSurfaceReset() async throws {
         let sessionFactory = SurfaceAttachRecordingTerminalSessionFactory()
         let store = CmxConnectionStore(
             terminalSessionFactory: sessionFactory,
@@ -637,6 +685,7 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
         )
 
         XCTAssertEqual(surfaceResetNonce, 0)
+        await Task.yield()
         XCTAssertEqual(visibleGridSize, TerminalGridSize(columns: 30, rows: 25, pixelWidth: 900, pixelHeight: 1_200))
     }
 

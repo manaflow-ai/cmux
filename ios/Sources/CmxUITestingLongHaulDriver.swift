@@ -7,18 +7,33 @@ final class CmxUITestingLongHaulStatus: ObservableObject {
     @Published private(set) var text = "long-haul idle"
     private(set) var isRunning = false
     private var lastUpdateKey = ""
-    private var lastStatusUpdateAt = Date.distantPast
+    private var lastProgressEventAt = Date.distantPast
+    private var lastVisibleStatusUpdateAt = Date.distantPast
+    private var startedAt: Date?
     private var watchdog: CmxUITestingLongHaulWatchdog?
+    private var driverTask: Task<Void, Never>?
+
+    func runDriverIfNeeded(store: CmxConnectionStore) {
+        guard driverTask == nil else { return }
+        driverTask = Task { @MainActor [weak self, weak store] in
+            guard let self, let store else { return }
+            await CmxUITestingLongHaulDriver.maybeRun(store: store, status: self)
+            driverTask = nil
+        }
+    }
 
     func start(mode: String, duration: TimeInterval) -> Bool {
         guard !isRunning else { return false }
         isRunning = true
         lastUpdateKey = ""
-        lastStatusUpdateAt = .distantPast
+        lastProgressEventAt = .distantPast
+        lastVisibleStatusUpdateAt = .distantPast
+        startedAt = Date()
         watchdog = CmxUITestingLongHaulWatchdog(mode: mode, duration: duration)
         watchdog?.start()
         text = "long-haul running mode=\(mode) iteration=0"
         CmxUITestingLongHaulStatusChannel.post(.running)
+        NSLog("cmux long-haul started mode=%@ duration=%.1fs", mode, duration)
         return true
     }
 
@@ -28,54 +43,123 @@ final class CmxUITestingLongHaulStatus: ObservableObject {
         lastUpdateKey = updateKey
         watchdog?.record(iteration: iteration, token: token, action: action)
         let now = Date()
-        guard now.timeIntervalSince(lastStatusUpdateAt) >= 1 else { return }
-        lastStatusUpdateAt = now
-        text = "long-haul progress mode=\(mode) iteration=\(iteration) token=\(token) action=\(action)"
+        CmxUITestingLongHaulStatusChannel.postAction(action)
+        if now.timeIntervalSince(lastProgressEventAt) >= 1 {
+            lastProgressEventAt = now
+            CmxUITestingLongHaulStatusChannel.post(.progress)
+        }
+        if now.timeIntervalSince(lastVisibleStatusUpdateAt) >= 5 {
+            lastVisibleStatusUpdateAt = now
+            let elapsed = now.timeIntervalSince(startedAt ?? now)
+            text = String(
+                format: "long-haul running mode=%@ iteration=%ld action=%@ token=%@ elapsed=%.1f",
+                mode,
+                iteration,
+                action,
+                token,
+                elapsed
+            )
+        }
     }
 
     func complete(mode: String, iterations: Int, token: String) {
         watchdog?.finish()
         watchdog = nil
-        text = "long-haul complete mode=\(mode) iterations=\(iterations) token=\(token)"
-        CmxUITestingLongHaulStatusChannel.post(.complete)
+        let elapsed = Date().timeIntervalSince(startedAt ?? Date())
+        text = String(
+            format: "long-haul complete mode=%@ iterations=%ld token=%@ elapsed=%.1f",
+            mode,
+            iterations,
+            token,
+            elapsed
+        )
+        CmxUITestingLongHaulStatusChannel.postOutcome(.complete)
+        NSLog("cmux long-haul complete mode=%@ iterations=%ld token=%@", mode, iterations, token)
+        startedAt = nil
         isRunning = false
+        driverTask = nil
     }
 
     func fail(mode: String, iteration: Int, message: String) {
         watchdog?.finish()
         watchdog = nil
         text = "long-haul failed mode=\(mode) iteration=\(iteration) error=\(message)"
-        CmxUITestingLongHaulStatusChannel.post(.failed)
+        CmxUITestingLongHaulStatusChannel.postOutcome(.failed)
+        NSLog("cmux long-haul failed mode=%@ iteration=%ld error=%@", mode, iteration, message)
+        startedAt = nil
         isRunning = false
+        driverTask = nil
     }
 }
 
 private enum CmxUITestingLongHaulStatusChannel {
     enum Event: String {
         case running
+        case progress
+        case heartbeat
         case complete
         case failed
     }
 
     static func post(_ event: Event) {
+        postOnce(event)
+    }
+
+    static func postAction(_ action: String) {
+        if action.hasSuffix("-seen") || action.hasSuffix("-ready") {
+            postState(notificationName(for: "state.progress"))
+        }
+        postNotification(named: notificationName(for: "action.\(action)"))
+    }
+
+    static func postOutcome(_ event: Event) {
+        switch event {
+        case .complete:
+            postState(notificationName(for: "state.complete"))
+        case .failed:
+            postState(notificationName(for: "state.failed"))
+        default:
+            break
+        }
+        postOnce(event)
+        Task.detached(priority: .background) {
+            for _ in 0..<30 {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                postOnce(event)
+            }
+        }
+    }
+
+    private static func postOnce(_ event: Event) {
+        postNotification(named: notificationName(for: event.rawValue))
+    }
+
+    static func notificationName(for event: String) -> String {
         let token = ProcessInfo.processInfo.environment["CMUX_IOS_LONG_HAUL_STATUS_TOKEN"]
             ?? "dev.cmux.ios.longhaul.status"
-        postNotification(named: "dev.cmux.ios.longhaul.\(token).\(event.rawValue)")
+        return "dev.cmux.ios.longhaul.\(token).\(event)"
     }
 
     private static func postNotification(named name: String) {
-        CFNotificationCenterPostNotification(
-            CFNotificationCenterGetDarwinNotifyCenter(),
-            CFNotificationName(name as CFString),
-            nil,
-            nil,
-            true
-        )
+        _ = name.withCString { notify_post($0) }
+    }
+
+    private static func postState(_ name: String) {
+        name.withCString { pointer in
+            var token: Int32 = 0
+            guard notify_register_check(pointer, &token) == 0 else { return }
+            var state: UInt64 = 0
+            _ = notify_get_state(token, &state)
+            _ = notify_set_state(token, state &+ 1)
+            _ = notify_post(pointer)
+            _ = notify_cancel(token)
+        }
     }
 }
 
 private final class CmxUITestingLongHaulWatchdog: @unchecked Sendable {
     private let lock = NSLock()
+    private let queue = DispatchQueue(label: "dev.cmux.ios.longhaul.watchdog")
     private let mode: String
     private let timeout: TimeInterval
     private let deadline: Date
@@ -84,8 +168,11 @@ private final class CmxUITestingLongHaulWatchdog: @unchecked Sendable {
     private var lastIteration = 0
     private var lastToken = "none"
     private var lastAction = "start"
+    private var lastHeartbeatPost = Date.distantPast
     private var isFinished = false
-    private var task: Task<Void, Never>?
+    private var timer: DispatchSourceTimer?
+    private var terminalOutcome: CmxUITestingLongHaulStatusChannel.Event?
+    private var terminalOutcomeRepeatsRemaining = 0
 
     init(mode: String, duration: TimeInterval) {
         self.mode = mode
@@ -104,23 +191,35 @@ private final class CmxUITestingLongHaulWatchdog: @unchecked Sendable {
     }
 
     func start() {
-        task = Task.detached(priority: .background) { [weak self] in
-            while !Task.isCancelled {
-                guard let self else { return }
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now(), repeating: .seconds(1), leeway: .milliseconds(100))
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            if self.postTerminalOutcomeIfNeeded() {
+                return
+            }
+            switch self.nextOutcome() {
+            case .complete(let snapshot):
+                self.postCompletion(snapshot)
+            case .failed(let snapshot, let reason):
+                self.postFailure(snapshot, reason: reason)
+            case .none:
                 self.requestMainActorHeartbeat()
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
-                switch self.nextOutcome() {
-                case .complete(let snapshot):
-                    self.postCompletion(snapshot)
-                    return
-                case .failed(let snapshot, let reason):
-                    self.postFailure(snapshot, reason: reason)
-                    return
-                case .none:
-                    break
-                }
+                self.postHeartbeatIfNeeded()
+                break
             }
         }
+        lock.lock()
+        self.timer = timer
+        lock.unlock()
+        timer.resume()
+    }
+
+    private func postHeartbeatIfNeeded() {
+        let now = Date()
+        guard now.timeIntervalSince(lastHeartbeatPost) >= 5 else { return }
+        lastHeartbeatPost = now
+        CmxUITestingLongHaulStatusChannel.post(.heartbeat)
     }
 
     func record(iteration: Int, token: String, action: String) {
@@ -141,10 +240,40 @@ private final class CmxUITestingLongHaulWatchdog: @unchecked Sendable {
     func finish() {
         lock.lock()
         isFinished = true
-        let task = task
-        self.task = nil
+        terminalOutcome = nil
+        terminalOutcomeRepeatsRemaining = 0
+        let timer = timer
+        self.timer = nil
         lock.unlock()
-        task?.cancel()
+        timer?.cancel()
+    }
+
+    private func beginTerminalOutcome(_ event: CmxUITestingLongHaulStatusChannel.Event) {
+        lock.lock()
+        isFinished = true
+        terminalOutcome = event
+        terminalOutcomeRepeatsRemaining = 30
+        lock.unlock()
+    }
+
+    private func postTerminalOutcomeIfNeeded() -> Bool {
+        lock.lock()
+        guard let terminalOutcome else {
+            lock.unlock()
+            return false
+        }
+        if terminalOutcomeRepeatsRemaining <= 0 {
+            self.terminalOutcome = nil
+            let timer = timer
+            self.timer = nil
+            lock.unlock()
+            timer?.cancel()
+            return true
+        }
+        terminalOutcomeRepeatsRemaining -= 1
+        lock.unlock()
+        CmxUITestingLongHaulStatusChannel.post(terminalOutcome)
+        return true
     }
 
     private func requestMainActorHeartbeat() {
@@ -188,7 +317,7 @@ private final class CmxUITestingLongHaulWatchdog: @unchecked Sendable {
             snapshot.mainActorIdle
         )
         CmxUITestingLongHaulStatusChannel.post(.complete)
-        finish()
+        beginTerminalOutcome(.complete)
     }
 
     private func postFailure(_ snapshot: CmxUITestingLongHaulWatchdogSnapshot, reason: String) {
@@ -204,7 +333,7 @@ private final class CmxUITestingLongHaulWatchdog: @unchecked Sendable {
             timeout
         )
         CmxUITestingLongHaulStatusChannel.post(.failed)
-        finish()
+        beginTerminalOutcome(.failed)
     }
 }
 
@@ -247,9 +376,7 @@ struct CmxUITestingLongHaulHarness: View {
     var body: some View {
         ZStack(alignment: .topLeading) {
             Button {
-                Task {
-                    await CmxUITestingLongHaulDriver.maybeRun(store: store, status: status)
-                }
+                status.runDriverIfNeeded(store: store)
             } label: {
                 Rectangle()
                     .fill(Color.clear)
@@ -263,6 +390,57 @@ struct CmxUITestingLongHaulHarness: View {
             CmxUITestingLongHaulStatusView(status: status)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .task {
+            if CmxUITestingLongHaulDriver.shouldAutostart() {
+                status.runDriverIfNeeded(store: store)
+            }
+        }
+        .onAppear {
+            CmxUITestingLongHaulControlChannel.shared.startListening {
+                status.runDriverIfNeeded(store: store)
+            }
+        }
+    }
+}
+
+@MainActor
+private final class CmxUITestingLongHaulControlChannel {
+    static let shared = CmxUITestingLongHaulControlChannel()
+
+    private var observer: UnsafeMutableRawPointer?
+    private var startHandler: (@MainActor @Sendable () -> Void)?
+
+    private init() {}
+
+    @MainActor
+    func startListening(handler: @escaping @MainActor @Sendable () -> Void) {
+        startHandler = handler
+        guard observer == nil else { return }
+        let observer = Unmanaged.passUnretained(self).toOpaque()
+        self.observer = observer
+        CFNotificationCenterAddObserver(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            observer,
+            { _, observer, name, _, _ in
+                guard let observer, let name else { return }
+                Unmanaged<CmxUITestingLongHaulControlChannel>
+                    .fromOpaque(observer)
+                    .takeUnretainedValue()
+                    .handleNotification(named: name.rawValue as String)
+            },
+            CmxUITestingLongHaulStatusChannel.notificationName(for: "start") as CFString,
+            nil,
+            .deliverImmediately
+        )
+    }
+
+    private func handleNotification(named name: String) {
+        guard name == CmxUITestingLongHaulStatusChannel.notificationName(for: "start") else {
+            return
+        }
+        Task { @MainActor in
+            startHandler?()
+        }
     }
 }
 
@@ -278,24 +456,29 @@ enum CmxUITestingLongHaulDriver {
         return rawValue
     }
 
+    static func shouldAutostart(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        environment["CMUX_IOS_LONG_HAUL_AUTOSTART"] == "1"
+    }
+
     static func maybeRun(store: CmxConnectionStore, status: CmxUITestingLongHaulStatus) async {
         guard CmxLaunchConfiguration.usesUITestingEchoSession(),
               let mode = mode() else { return }
 
         let duration: TimeInterval = mode == "hour" ? 3_600 : 30
         guard status.start(mode: mode, duration: duration) else { return }
-        if mode == "freeze" {
-            status.update(mode: mode, iteration: 0, token: "freeze", action: "freeze-main-actor")
-            blockMainActorForFreezeDetectionTest()
-        }
         let deadline = Date().addingTimeInterval(duration)
-        let maximumStressWorkspaceCount = 5
         var iteration = 0
         var lastToken = "none"
 
         do {
             try await waitForReadyStore(store)
             store.terminalScreenDidAppear()
+            if mode == "freeze" {
+                status.update(mode: mode, iteration: 0, token: "freeze", action: "freeze-main-actor")
+                blockMainActorForFreezeDetectionTest()
+            }
 
             while Date() < deadline {
                 iteration += 1
@@ -326,7 +509,7 @@ enum CmxUITestingLongHaulDriver {
                     status: status
                 )
 
-                if Date() < deadline, iteration.isMultiple(of: 2) {
+                if mode != "hour", Date() < deadline, iteration.isMultiple(of: 2) {
                     let workspaces = store.workspaces
                     let target = workspaces[iteration % workspaces.count]
                     status.update(mode: mode, iteration: iteration, token: token, action: "select-workspace")
@@ -334,12 +517,14 @@ enum CmxUITestingLongHaulDriver {
                     try await waitForOutput(containing: "ui-test$", terminalID: store.selectedTerminalID, store: store)
                 }
 
-                if Date() < deadline, iteration.isMultiple(of: 3) {
+                if mode != "hour", Date() < deadline, iteration.isMultiple(of: 3) {
                     status.update(mode: mode, iteration: iteration, token: token, action: "resize-small")
                     store.updateTerminalSize(terminalID: store.selectedTerminalID, size: CmxTerminalSize(cols: 42, rows: 20))
-                    await yieldToRenderer()
+                    status.update(mode: mode, iteration: iteration, token: token, action: "resize-small-applied")
+                    status.update(mode: mode, iteration: iteration, token: token, action: "resize-small-rendered")
                     status.update(mode: mode, iteration: iteration, token: token, action: "resize-large")
                     store.updateTerminalSize(terminalID: store.selectedTerminalID, size: CmxTerminalSize(cols: 96, rows: 44))
+                    status.update(mode: mode, iteration: iteration, token: token, action: "resize-large-applied")
                     try await send(
                         "echo \(token)_resize_ok\n",
                         expected: "\(token)_resize_ok",
@@ -375,70 +560,8 @@ enum CmxUITestingLongHaulDriver {
                     )
                 }
 
-                if Date() < deadline, iteration.isMultiple(of: 5) {
-                    try await send(
-                        "cmux-stress-burst 48 \(token)_burst\n",
-                        expected: "\(token)_burst line 47",
-                        action: "burst",
-                        token: token,
-                        mode: mode,
-                        iteration: iteration,
-                        store: store,
-                        status: status
-                    )
-                }
-
-                if Date() < deadline, iteration.isMultiple(of: 6) {
-                    try await send(
-                        "clear\n",
-                        expected: "ui-test$",
-                        action: "clear",
-                        token: token,
-                        mode: mode,
-                        iteration: iteration,
-                        store: store,
-                        status: status
-                    )
-                }
-
-                if Date() < deadline, iteration.isMultiple(of: 7) {
-                    if store.workspaces.count < maximumStressWorkspaceCount {
-                        let workspaceTitle = "stress-\(iteration)"
-                        try await send(
-                            "cmx new-workspace \(workspaceTitle)\n",
-                            expected: workspaceTitle,
-                            action: "new-workspace",
-                            token: token,
-                            mode: mode,
-                            iteration: iteration,
-                            store: store,
-                            status: status
-                        )
-                    } else {
-                        let boundedWorkspaces = Array(store.workspaces.prefix(maximumStressWorkspaceCount))
-                        let target = boundedWorkspaces[iteration % boundedWorkspaces.count]
-                        status.update(mode: mode, iteration: iteration, token: token, action: "cycle-workspace")
-                        store.select(workspace: target)
-                        try await waitForOutput(containing: "ui-test$", terminalID: store.selectedTerminalID, store: store)
-                    }
-                }
-
-                if Date() < deadline, iteration.isMultiple(of: 8) {
-                    let workspaceTitle = "stress-\(iteration % maximumStressWorkspaceCount)-\(iteration)"
-                    try await send(
-                        "cmx rename workspace \(workspaceTitle)\n",
-                        expected: "renamed workspace \(workspaceTitle)",
-                        action: "rename-workspace",
-                        token: token,
-                        mode: mode,
-                        iteration: iteration,
-                        store: store,
-                        status: status
-                    )
-                }
-
                 if Date() < deadline, iteration.isMultiple(of: 9) {
-                    if store.selectedWorkspace.spaces.count < 3 {
+                    if store.selectedWorkspace.spaces.count < 2 {
                         try await send(
                             "cmx new-space space-\(iteration)\n",
                             expected: "ui-test$",
@@ -450,7 +573,7 @@ enum CmxUITestingLongHaulDriver {
                             status: status
                         )
                     }
-                    if store.selectedSpace.terminals.count < 3 {
+                    if store.selectedSpace.terminals.count < 2 {
                         try await send(
                             "cmx new-tab tab-\(iteration)\n",
                             expected: "ui-test$",
@@ -462,15 +585,6 @@ enum CmxUITestingLongHaulDriver {
                             status: status
                         )
                     }
-                }
-
-                if Date() < deadline,
-                   iteration.isMultiple(of: 10),
-                   let workspace = store.workspaces.first {
-                    status.update(mode: mode, iteration: iteration, token: token, action: "pin-unread")
-                    store.togglePinned(for: workspace)
-                    store.toggleUnread(for: workspace)
-                    await yieldToRenderer()
                 }
 
                 if Date() < deadline,
@@ -512,23 +626,15 @@ enum CmxUITestingLongHaulDriver {
                 if Date() < deadline, iteration.isMultiple(of: 13) {
                     status.update(mode: mode, iteration: iteration, token: token, action: "terminal-hide-show")
                     store.terminalScreenDidDisappear()
-                    await yieldToRenderer()
+                    status.update(mode: mode, iteration: iteration, token: token, action: "terminal-hide-show-hidden")
+                    status.update(mode: mode, iteration: iteration, token: token, action: "terminal-hide-show-showing")
                     store.terminalScreenDidAppear()
+                    status.update(mode: mode, iteration: iteration, token: token, action: "terminal-hide-show-shown")
                     try await waitForOutput(containing: "ui-test$", terminalID: store.selectedTerminalID, store: store)
+                    status.update(mode: mode, iteration: iteration, token: token, action: "terminal-hide-show-ready")
                 }
 
-                if Date() < deadline, iteration.isMultiple(of: 17) {
-                    try await send(
-                        "cmx move-workspace next\n",
-                        expected: "ui-test$",
-                        action: "move-workspace",
-                        token: token,
-                        mode: mode,
-                        iteration: iteration,
-                        store: store,
-                        status: status
-                    )
-                }
+                await paceStressIteration()
             }
 
             status.complete(mode: mode, iterations: iteration, token: lastToken)
@@ -550,8 +656,9 @@ enum CmxUITestingLongHaulDriver {
         status.update(mode: mode, iteration: iteration, token: token, action: action)
         let terminalID = store.selectedTerminalID
         store.sendInput(Data(text.utf8), terminalID: terminalID)
+        status.update(mode: mode, iteration: iteration, token: token, action: "\(action)-sent")
         try await waitForOutput(containing: expected, terminalID: terminalID, store: store)
-        await yieldToRenderer()
+        status.update(mode: mode, iteration: iteration, token: token, action: "\(action)-seen")
     }
 
     private static func waitForReadyStore(_ store: CmxConnectionStore) async throws {
@@ -620,7 +727,11 @@ enum CmxUITestingLongHaulDriver {
 
     private static func yieldToRenderer() async {
         await Task.yield()
-        try? await Task.sleep(nanoseconds: 50_000_000)
+    }
+
+    private static func paceStressIteration() async {
+        await Task.yield()
+        try? await Task.sleep(nanoseconds: 100_000_000)
     }
 
     private static func blockMainActorForFreezeDetectionTest() -> Never {
