@@ -276,12 +276,12 @@ async fn right_click_sidebar_context_menu_pins_and_closes_workspace() {
     expect_active_workspace(&mut r, 1).await;
 
     send_right_click(&mut w, 3, 1).await;
-    send_click(&mut w, 2, 1).await;
+    send_click(&mut w, 4, 1).await;
     let workspaces = request_workspace_list(&mut w, &mut r, 2).await;
     assert!(workspaces[0].pinned);
 
     send_right_click(&mut w, 3, 4).await;
-    send_click(&mut w, 2, 5).await;
+    send_click(&mut w, 4, 5).await;
     let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
     let mut list_id = 3;
     loop {

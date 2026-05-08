@@ -544,17 +544,18 @@ fn render_cell_bg_color(
 /// is already blank when we arrive; and `emit_ansi` writes every cell
 /// on every frame, so there's no stale content to clear.
 ///
-/// We also prepend `CSI ?25 l` to hide the cursor for the duration of
-/// the paint. Without that the host terminal can render intermediate
-/// flushes of the per-cell writes and the user sees the cursor
-/// streaking through the bottom of the frame as cells are emitted row
-/// by row. The paired show (`CSI ?25 h`) + CUP is emitted by the
-/// caller once the frame is complete.
+/// We also wrap the frame in synchronized-update mode (`CSI ?2026 h/l`)
+/// and prepend `CSI ?25 l` to hide the cursor for the duration of the
+/// paint. Without that the host terminal can render intermediate flushes
+/// of the per-cell writes, which shows row-by-row tearing during sidebar
+/// selection changes and cursor streaking through the bottom of the
+/// frame. The paired show (`CSI ?25 h`) + CUP is emitted by the caller
+/// once the frame is complete.
 #[must_use]
 pub fn emit_ansi(frame: &Frame) -> Vec<u8> {
     let mut out: Vec<u8> =
         Vec::with_capacity(usize::from(frame.rows) * usize::from(frame.cols) * 4);
-    out.extend_from_slice(b"\x1b[?25l\x1b[H");
+    out.extend_from_slice(b"\x1b[?2026h\x1b[?25l\x1b[H");
 
     let mut cur = Cell::default();
 
@@ -626,7 +627,7 @@ pub fn emit_ansi(frame: &Frame) -> Vec<u8> {
         }
     }
 
-    out.extend_from_slice(b"\x1b[0m");
+    out.extend_from_slice(b"\x1b[0m\x1b[?2026l");
     out
 }
 
@@ -777,20 +778,21 @@ mod tests {
         )
         .unwrap();
         let bytes = emit_ansi(&frame);
-        // Cursor hide + home first so the cursor doesn't streak through
+        // Synchronized update + cursor hide + home first so selection
+        // changes land as one frame and the cursor doesn't streak through
         // cells as they're emitted; the caller re-shows at the real
         // position. The CSI H CSI 2J preamble was dropped because it
         // produced visible flicker on bursty TUI startup — alt-screen
         // already gives us a blank buffer.
-        assert!(bytes.starts_with(b"\x1b[?25l\x1b[H"));
+        assert!(bytes.starts_with(b"\x1b[?2026h\x1b[?25l\x1b[H"));
         assert!(
             !bytes.starts_with(b"\x1b[H\x1b[2J"),
             "2J preamble snuck back in"
         );
         let as_str = String::from_utf8_lossy(&bytes);
         assert!(as_str.contains("ABC"), "missing content. output:\n{as_str}");
-        // Final SGR reset.
-        assert!(bytes.ends_with(b"\x1b[0m"));
+        // Final SGR reset + synchronized update end.
+        assert!(bytes.ends_with(b"\x1b[0m\x1b[?2026l"));
     }
 
     #[test]

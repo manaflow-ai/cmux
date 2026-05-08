@@ -144,8 +144,45 @@ pub struct SidebarItem {
 
 #[derive(Debug, Clone)]
 pub struct SidebarContextMenuSpec {
-    pub workspace_index: usize,
+    pub anchor: SidebarContextMenuAnchor,
     pub pinned: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SidebarContextMenuAnchor {
+    pub col: u16,
+    pub row: u16,
+}
+
+impl SidebarContextMenuAnchor {
+    pub fn from_point_in_rect(rect: Rect, col: u16, row: u16) -> Option<Self> {
+        if col < rect.col
+            || col >= rect.col.saturating_add(rect.cols)
+            || row < rect.row
+            || row >= rect.row.saturating_add(rect.rows)
+        {
+            return None;
+        }
+        Some(Self {
+            col: col.saturating_sub(rect.col),
+            row: row.saturating_sub(rect.row),
+        })
+    }
+
+    pub fn menu_rect(self, width: u16, content_rows: u16) -> Option<Rect> {
+        if width == 0 || content_rows < SIDEBAR_CONTEXT_MENU_ROWS {
+            return None;
+        }
+        let cols = SIDEBAR_CONTEXT_MENU_WIDTH.min(width);
+        let max_col = width.saturating_sub(cols);
+        let max_row = content_rows.saturating_sub(SIDEBAR_CONTEXT_MENU_ROWS);
+        Some(Rect {
+            col: self.col.min(max_col),
+            row: self.row.min(max_row),
+            cols,
+            rows: SIDEBAR_CONTEXT_MENU_ROWS,
+        })
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1059,7 +1096,6 @@ const SIDEBAR_ITEM_BLOCK_ROWS: u16 = 3;
 const SIDEBAR_ITEM_ROW_STRIDE: u16 = SIDEBAR_ITEM_BLOCK_ROWS;
 const SIDEBAR_NEW_BUTTON_TOP_PADDING_ROWS: u16 = 1;
 const SIDEBAR_NEW_BUTTON_LABEL: &str = "[new]";
-const SIDEBAR_CONTEXT_MENU_COL: u16 = 1;
 const SIDEBAR_CONTEXT_MENU_WIDTH: u16 = 8;
 const SIDEBAR_CONTEXT_MENU_ROWS: u16 = 2;
 const SIDEBAR_CONTEXT_MENU_BG: RgbColor = RgbColor {
@@ -1175,7 +1211,7 @@ fn paint_sidebar(frame: &mut Frame, spec: &SidebarSpec) {
     }
 
     if let Some(menu) = spec.context_menu.as_ref() {
-        paint_sidebar_context_menu(frame, width, content_end, spec.scroll_offset, menu);
+        paint_sidebar_context_menu(frame, width, content_end, menu);
     }
 }
 
@@ -1200,41 +1236,13 @@ fn sidebar_new_button_row(visible_count: usize) -> u16 {
     }
 }
 
-fn sidebar_context_menu_rect(
-    width: u16,
-    content_rows: u16,
-    scroll_offset: usize,
-    workspace_index: usize,
-) -> Option<Rect> {
-    if width <= SIDEBAR_CONTEXT_MENU_COL || content_rows < SIDEBAR_CONTEXT_MENU_ROWS {
-        return None;
-    }
-    let visible_index = workspace_index.checked_sub(scroll_offset)?;
-    if visible_index >= sidebar_workspace_capacity_for_rows(content_rows) {
-        return None;
-    }
-    let desired_row = (visible_index as u16)
-        .saturating_mul(SIDEBAR_ITEM_ROW_STRIDE)
-        .saturating_add(1);
-    let max_row = content_rows.saturating_sub(SIDEBAR_CONTEXT_MENU_ROWS);
-    Some(Rect {
-        col: SIDEBAR_CONTEXT_MENU_COL,
-        row: desired_row.min(max_row),
-        cols: SIDEBAR_CONTEXT_MENU_WIDTH.min(width - SIDEBAR_CONTEXT_MENU_COL),
-        rows: SIDEBAR_CONTEXT_MENU_ROWS,
-    })
-}
-
 fn paint_sidebar_context_menu(
     frame: &mut Frame,
     width: u16,
     content_rows: u16,
-    scroll_offset: usize,
     menu: &SidebarContextMenuSpec,
 ) {
-    let Some(rect) =
-        sidebar_context_menu_rect(width, content_rows, scroll_offset, menu.workspace_index)
-    else {
+    let Some(rect) = menu.anchor.menu_rect(width, content_rows) else {
         return;
     };
     let pin_label = if menu.pinned { "unpin" } else { "pin" };
@@ -2143,6 +2151,39 @@ mod tests {
     }
 
     #[test]
+    fn sidebar_selected_background_includes_padding_rows() {
+        let mut frame = Frame::new(16, 9);
+        paint_sidebar(
+            &mut frame,
+            &SidebarSpec {
+                width: 16,
+                items: vec![
+                    SidebarItem {
+                        title: "ws-1".into(),
+                        pinned: false,
+                        color_rgb: None,
+                    },
+                    SidebarItem {
+                        title: "ws-2".into(),
+                        pinned: false,
+                        color_rgb: None,
+                    },
+                ],
+                active: 1,
+                focused: false,
+                scroll_offset: 0,
+                context_menu: None,
+            },
+        );
+
+        assert_eq!(frame.cells[2][0].bg, StyleColor::None);
+        assert_eq!(frame.cells[3][0].bg, StyleColor::Rgb(SIDEBAR_SELECTED_BG));
+        assert_eq!(frame.cells[4][1].grapheme, "w");
+        assert_eq!(frame.cells[4][0].bg, StyleColor::Rgb(SIDEBAR_SELECTED_BG));
+        assert_eq!(frame.cells[5][0].bg, StyleColor::Rgb(SIDEBAR_SELECTED_BG));
+    }
+
+    #[test]
     fn sidebar_overflow_renders_new_button_and_scroll_indicators() {
         let mut frame = Frame::new(16, 12);
         paint_sidebar(
@@ -2188,6 +2229,7 @@ mod tests {
         assert_eq!(frame.cells[2][0].bg, StyleColor::None);
         assert_eq!(frame.cells[3][0].bg, StyleColor::Rgb(SIDEBAR_SELECTED_BG));
         assert_eq!(frame.cells[4][1].grapheme, "t");
+        assert_eq!(frame.cells[4][0].bg, StyleColor::Rgb(SIDEBAR_SELECTED_BG));
         assert_eq!(frame.cells[5][0].bg, StyleColor::Rgb(SIDEBAR_SELECTED_BG));
         assert_eq!(frame.cells[7][1].grapheme, "f");
         assert_eq!(frame.cells[9][0].bg, StyleColor::None);
@@ -2197,7 +2239,7 @@ mod tests {
     }
 
     #[test]
-    fn sidebar_context_menu_renders_pin_and_close_actions() {
+    fn sidebar_context_menu_renders_relative_to_click_anchor() {
         let mut frame = Frame::new(16, 12);
         paint_sidebar(
             &mut frame,
@@ -2219,22 +2261,22 @@ mod tests {
                 focused: false,
                 scroll_offset: 0,
                 context_menu: Some(SidebarContextMenuSpec {
-                    workspace_index: 1,
+                    anchor: SidebarContextMenuAnchor { col: 4, row: 6 },
                     pinned: false,
                 }),
             },
         );
 
         assert_eq!(
-            frame.cells[4][1].bg,
+            frame.cells[6][4].bg,
             StyleColor::Rgb(SIDEBAR_CONTEXT_MENU_BG)
         );
-        assert_eq!(frame.cells[4][2].grapheme, "p");
+        assert_eq!(frame.cells[6][5].grapheme, "p");
         assert_eq!(
-            frame.cells[5][1].bg,
+            frame.cells[7][4].bg,
             StyleColor::Rgb(SIDEBAR_CONTEXT_MENU_BG)
         );
-        assert_eq!(frame.cells[5][2].grapheme, "c");
+        assert_eq!(frame.cells[7][5].grapheme, "c");
     }
 
     #[test]

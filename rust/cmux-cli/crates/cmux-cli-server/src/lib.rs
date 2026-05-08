@@ -143,8 +143,8 @@ use crate::native_terminal::{
 };
 use crate::render::{
     BorderSpec, ChromeSpec, LineSelection, LogicalLineSelection, PaneChrome, RenderBroker,
-    RenderTabInit, SidebarContextMenuSpec, SidebarItem, SidebarSpec, StatusSpec, TabBarSpec,
-    TabBarStyle, TabId, TabPill, TerminalProbeKind,
+    RenderTabInit, SidebarContextMenuAnchor, SidebarContextMenuSpec, SidebarItem, SidebarSpec,
+    StatusSpec, TabBarSpec, TabBarStyle, TabId, TabPill, TerminalProbeKind,
 };
 use crate::snapshot::{PanelSnapshot, Snapshot, SpaceSnapshot, TabSnapshot, WorkspaceSnapshot};
 use crate::terminal_query::TerminalQueryScanner;
@@ -2689,6 +2689,7 @@ struct WindowState {
 #[derive(Debug, Clone, Copy)]
 struct SidebarContextMenuState {
     workspace_id: u64,
+    anchor: SidebarContextMenuAnchor,
 }
 
 impl WindowState {
@@ -3887,10 +3888,6 @@ const SIDEBAR_ITEM_BLOCK_ROWS: u16 = 3;
 const SIDEBAR_ITEM_ROW_STRIDE: u16 = SIDEBAR_ITEM_BLOCK_ROWS;
 const SIDEBAR_NEW_BUTTON_TOP_PADDING_ROWS: u16 = 1;
 const SIDEBAR_NEW_BUTTON_ROWS: u16 = 1;
-const SIDEBAR_CONTEXT_MENU_COL: u16 = 1;
-const SIDEBAR_CONTEXT_MENU_WIDTH: u16 = 8;
-const SIDEBAR_CONTEXT_MENU_ROWS: u16 = 2;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SidebarHit {
     Workspace(usize),
@@ -3934,27 +3931,16 @@ fn sidebar_new_button_relative_row(item_count: usize, capacity: usize) -> u16 {
     }
 }
 
-fn sidebar_context_menu_rect(
+fn sidebar_context_menu_viewport_rect(
     sidebar: Rect,
-    workspace_index: usize,
-    scroll_offset: usize,
+    anchor: SidebarContextMenuAnchor,
 ) -> Option<Rect> {
-    if sidebar.cols <= SIDEBAR_CONTEXT_MENU_COL || sidebar.rows < SIDEBAR_CONTEXT_MENU_ROWS {
-        return None;
-    }
-    let visible_index = workspace_index.checked_sub(scroll_offset)?;
-    if visible_index >= sidebar_workspace_capacity(sidebar) {
-        return None;
-    }
-    let desired_row = (visible_index as u16)
-        .saturating_mul(SIDEBAR_ITEM_ROW_STRIDE)
-        .saturating_add(1);
-    let max_row = sidebar.rows.saturating_sub(SIDEBAR_CONTEXT_MENU_ROWS);
+    let relative = anchor.menu_rect(sidebar.cols, sidebar.rows)?;
     Some(Rect {
-        col: sidebar.col.saturating_add(SIDEBAR_CONTEXT_MENU_COL),
-        row: sidebar.row.saturating_add(desired_row.min(max_row)),
-        cols: SIDEBAR_CONTEXT_MENU_WIDTH.min(sidebar.cols - SIDEBAR_CONTEXT_MENU_COL),
-        rows: SIDEBAR_CONTEXT_MENU_ROWS,
+        col: sidebar.col.saturating_add(relative.col),
+        row: sidebar.row.saturating_add(relative.row),
+        cols: relative.cols,
+        rows: relative.rows,
     })
 }
 
@@ -3962,10 +3948,9 @@ fn hit_test_sidebar_context_menu(
     col: u16,
     row: u16,
     sidebar: Rect,
-    workspace_index: usize,
-    scroll_offset: usize,
+    anchor: SidebarContextMenuAnchor,
 ) -> Option<SidebarContextMenuAction> {
-    let rect = sidebar_context_menu_rect(sidebar, workspace_index, scroll_offset)?;
+    let rect = sidebar_context_menu_viewport_rect(sidebar, anchor)?;
     if col < rect.col
         || col >= rect.col.saturating_add(rect.cols)
         || row < rect.row
@@ -4585,7 +4570,7 @@ async fn build_chrome_spec(
             .iter()
             .position(|w| w.id == menu.workspace_id)
             .map(|workspace_index| SidebarContextMenuSpec {
-                workspace_index,
+                anchor: menu.anchor,
                 pinned: workspaces[workspace_index].pinned,
             })
     });
@@ -7129,15 +7114,8 @@ async fn handle_window_mouse(
         MouseKind::Down => {
             let (ws_items, _) = daemon.workspace_list_with_active(window.active_ws_id).await;
             if let Some(menu) = window.sidebar_context_menu
-                && let Some(workspace_index) =
-                    ws_items.iter().position(|w| w.id == menu.workspace_id)
-                && let Some(action) = hit_test_sidebar_context_menu(
-                    col,
-                    row,
-                    sidebar,
-                    workspace_index,
-                    window.sidebar_scroll,
-                )
+                && ws_items.iter().any(|w| w.id == menu.workspace_id)
+                && let Some(action) = hit_test_sidebar_context_menu(col, row, sidebar, menu.anchor)
             {
                 window.sidebar_context_menu = None;
                 match action {
@@ -7362,10 +7340,12 @@ async fn handle_window_mouse(
             let (ws_items, _) = daemon.workspace_list_with_active(window.active_ws_id).await;
             let sidebar_hit =
                 hit_test_sidebar(col, row, sidebar, ws_items.len(), window.sidebar_scroll);
-            window.sidebar_context_menu = match sidebar_hit {
-                Some(SidebarHit::Workspace(idx)) => {
+            let anchor = SidebarContextMenuAnchor::from_point_in_rect(sidebar, col, row);
+            window.sidebar_context_menu = match (sidebar_hit, anchor) {
+                (Some(SidebarHit::Workspace(idx)), Some(anchor)) => {
                     ws_items.get(idx).map(|workspace| SidebarContextMenuState {
                         workspace_id: workspace.id,
+                        anchor,
                     })
                 }
                 _ => None,
@@ -8478,16 +8458,17 @@ mod tests {
     #[test]
     fn sidebar_context_menu_hit_tests_pin_and_close_rows() {
         let (sidebar, _space_bar, _top, _pane, _bottom, _status) = chrome_layout((120, 24));
+        let anchor = SidebarContextMenuAnchor::from_point_in_rect(sidebar, 7, 10).unwrap();
 
         assert_eq!(
-            hit_test_sidebar_context_menu(2, 4, sidebar, 1, 0),
+            hit_test_sidebar_context_menu(8, 10, sidebar, anchor),
             Some(SidebarContextMenuAction::TogglePin)
         );
         assert_eq!(
-            hit_test_sidebar_context_menu(2, 5, sidebar, 1, 0),
+            hit_test_sidebar_context_menu(8, 11, sidebar, anchor),
             Some(SidebarContextMenuAction::Close)
         );
-        assert_eq!(hit_test_sidebar_context_menu(2, 6, sidebar, 1, 0), None);
+        assert_eq!(hit_test_sidebar_context_menu(2, 4, sidebar, anchor), None);
     }
 
     #[test]
