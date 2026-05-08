@@ -127,6 +127,50 @@ enum FileDropTextDropController {
         return true
     }
 
+    @discardableResult
+    static func performTerminalFileDrop(
+        workspace: Workspace,
+        panelId: UUID,
+        hostedView: GhosttySurfaceScrollView,
+        urls: [URL],
+        window: NSWindow?
+    ) -> Bool {
+        performPanelTextDrop(
+            workspace: workspace,
+            panelId: panelId,
+            focusIntent: .terminal(.surface),
+            window: window,
+            insert: {
+                hostedView.handleDroppedURLs(urls)
+            }
+        )
+    }
+
+    @discardableResult
+    static func performTerminalFileDrop(
+        terminal: GhosttyNSView,
+        urls: [URL]
+    ) -> Bool {
+        guard let workspaceId = terminal.tabId,
+              let terminalSurfaceId = terminal.terminalSurface?.id,
+              let workspace = AppDelegate.shared?.workspaceFor(tabId: workspaceId),
+              let panelId = panelIdForTerminalDropFocus(
+                terminalSurfaceId: terminalSurfaceId,
+                workspace: workspace
+              ) else {
+            return terminal.handleDroppedFileURLs(urls)
+        }
+        return performPanelTextDrop(
+            workspace: workspace,
+            panelId: panelId,
+            focusIntent: .terminal(.surface),
+            window: terminal.window,
+            insert: {
+                terminal.handleDroppedFileURLs(urls)
+            }
+        )
+    }
+
     static func focusPanelAfterSuccessfulTextDrop(
         workspace: Workspace,
         panelId: UUID,

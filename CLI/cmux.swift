@@ -2313,8 +2313,9 @@ struct CMUXCLI {
             let response = try client.sendV2(method: "system.capabilities")
             print(jsonString(formatIDs(response, mode: idFormat)))
 
-        case "auth":
-            let sub = commandArgs.first?.lowercased() ?? "status"
+        case "auth", "login", "logout":
+            let authArgs = command == "auth" ? commandArgs : [command] + commandArgs
+            let sub = authArgs.first?.lowercased() ?? "status"
             switch sub {
             case "status":
                 let response = try client.sendV2(method: "auth.status")
@@ -8305,6 +8306,18 @@ struct CMUXCLI {
             status   Print whether the user is signed in (add `cmux --json` for JSON).
             login    Open the sign-in popup on the cmux web app and wait for it to finish.
             logout   Clear the current session.
+            """
+        case "login":
+            return """
+            Usage: cmux login
+
+            Alias for `cmux auth login`.
+            """
+        case "logout":
+            return """
+            Usage: cmux logout
+
+            Alias for `cmux auth logout`.
             """
         case "vm", "cloud":
             return """
@@ -20361,6 +20374,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           capabilities
           events [--after <seq>] [--cursor-file <path>] [--name <event>] [--category <category>] [--reconnect] [--limit <n>] [--no-ack] [--no-heartbeat]
           auth <status|login|logout>
+          login | logout                                      (aliases for auth login/logout)
           vm <new|ls|rm|exec|shell|ssh> [args...]    (alias: cloud)
           rpc <method> [json-params]
           identify [--workspace <id|ref|index>] [--surface <id|ref|index>] [--no-caller]
