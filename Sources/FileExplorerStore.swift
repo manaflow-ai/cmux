@@ -310,12 +310,30 @@ final class LocalFileExplorerProvider: FileExplorerProvider {
 
 // MARK: - SSH Provider
 
-final class SSHFileExplorerProvider: FileExplorerProvider {
+// Captured by async SSH tasks; mutable availability/root state is guarded by stateLock.
+final class SSHFileExplorerProvider: FileExplorerProvider, @unchecked Sendable {
+    private struct State: Sendable {
+        var homePath: String
+        var isAvailable: Bool
+    }
+
     let connection: SSHFileExplorerConnection
     let displayTarget: String
     private let transport: SSHFileExplorerTransport
-    private(set) var homePath: String
-    private(set) var isAvailable: Bool
+    private let stateLock = NSLock()
+    private var state: State
+
+    var homePath: String {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return state.homePath
+    }
+
+    var isAvailable: Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return state.isAvailable
+    }
 
     var destination: String { connection.destination }
     var port: Int? { connection.port }
@@ -343,8 +361,7 @@ final class SSHFileExplorerProvider: FileExplorerProvider {
             return "\(destination):\(port)"
         }()
         self.transport = transport
-        self.homePath = homePath
-        self.isAvailable = isAvailable
+        self.state = State(homePath: homePath, isAvailable: isAvailable)
     }
 
     init(
@@ -357,14 +374,15 @@ final class SSHFileExplorerProvider: FileExplorerProvider {
         self.connection = connection
         self.displayTarget = displayTarget
         self.transport = transport
-        self.homePath = homePath
-        self.isAvailable = isAvailable
+        self.state = State(homePath: homePath, isAvailable: isAvailable)
     }
 
     func updateAvailability(_ available: Bool, homePath: String?) {
-        self.isAvailable = available
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        state.isAvailable = available
         if let homePath {
-            self.homePath = homePath
+            state.homePath = homePath
         }
     }
 
@@ -978,9 +996,10 @@ final class FileExplorerStore: ObservableObject {
             return
         }
 
-        if !sshProvider.homePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        let currentHomePath = sshProvider.homePath
+        if !currentHomePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             setRootStatusMessage(nil)
-            setRootPath(sshProvider.homePath)
+            setRootPath(currentHomePath)
             return
         }
 
