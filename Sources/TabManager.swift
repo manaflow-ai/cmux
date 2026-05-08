@@ -1853,12 +1853,11 @@ class TabManager: ObservableObject {
 
         agentPIDProbeInFlight = true
         agentPIDProbeQueue.async { [weak self] in
-            let now = Date()
             let results = requests.map { request in
                 SidebarAgentPIDProbeResult(
                     workspaceId: request.workspaceId,
                     key: request.key,
-                    state: SidebarAgentProcessProbe.processState(for: request.pid, now: now)
+                    state: SidebarAgentProcessProbe.processState(for: request.pid)
                 )
             }
             DispatchQueue.main.async { [weak self] in
@@ -1885,7 +1884,9 @@ class TabManager: ObservableObject {
                   tab.agentPIDs[result.key] == result.state.pid else {
                 continue
             }
-            tab.agentProcessStates[result.key] = result.state
+            if tab.agentProcessStates[result.key] != result.state {
+                tab.agentProcessStates[result.key] = result.state
+            }
         }
 
         for tab in tabs {
@@ -5200,8 +5201,7 @@ class TabManager: ObservableObject {
         workspace.agentProcessStates[registration.statusKey] = SidebarAgentProcessState(
             pid: pid_t(matchedPID),
             isAlive: true,
-            activity: .running,
-            updatedAt: Date()
+            activity: .running
         )
         let remainingAgentPIDs = Set(workspace.agentPIDs.values.compactMap { $0 > 0 ? Int($0) : nil })
         PortScanner.shared.refreshAgentPorts(workspaceId: workspace.id, agentPIDs: remainingAgentPIDs)

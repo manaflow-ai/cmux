@@ -117,7 +117,6 @@ struct SidebarAgentProcessState: Equatable, Sendable {
     let pid: pid_t
     let isAlive: Bool
     let activity: SidebarAgentFallbackActivity
-    let updatedAt: Date
 }
 
 nonisolated enum SidebarAgentProcessProbe {
@@ -140,7 +139,7 @@ nonisolated enum SidebarAgentProcessProbe {
     ) -> SidebarStatusEntry? {
         let state = (processState?.pid == pid)
             ? processState
-            : SidebarAgentProcessState(pid: pid, isAlive: true, activity: .running, updatedAt: .distantPast)
+            : SidebarAgentProcessState(pid: pid, isAlive: true, activity: .running)
         guard let state, state.isAlive else { return nil }
 
         if let explicitEntry {
@@ -168,12 +167,12 @@ nonisolated enum SidebarAgentProcessProbe {
 
     /// Performs kernel process probes. Call from a utility queue and publish the
     /// returned cache value; sidebar rendering must use `effectiveStatusEntry`.
-    static func processState(for pid: pid_t, now: Date = Date()) -> SidebarAgentProcessState {
+    static func processState(for pid: pid_t) -> SidebarAgentProcessState {
         let alive = isProcessAlive(pid)
         let activity: SidebarAgentFallbackActivity = alive && isLikelyBlockedOnTerminalRead(pid)
             ? .needsInput
             : .running
-        return SidebarAgentProcessState(pid: pid, isAlive: alive, activity: activity, updatedAt: now)
+        return SidebarAgentProcessState(pid: pid, isAlive: alive, activity: activity)
     }
 
     private static func entry(

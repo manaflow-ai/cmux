@@ -16065,8 +16065,7 @@ class TerminalController {
                     tab.agentProcessStates[key] = SidebarAgentProcessState(
                         pid: pidValue,
                         isAlive: true,
-                        activity: .running,
-                        updatedAt: Date()
+                        activity: .running
                     )
                     controller.refreshTrackedAgentPorts(for: tab)
                 }
@@ -16087,8 +16086,7 @@ class TerminalController {
                 tab.agentProcessStates[key] = SidebarAgentProcessState(
                     pid: pidValue,
                     isAlive: true,
-                    activity: .running,
-                    updatedAt: Date()
+                    activity: .running
                 )
                 controller.refreshTrackedAgentPorts(for: tab)
             }
@@ -16135,8 +16133,7 @@ class TerminalController {
             tab.agentProcessStates[key] = SidebarAgentProcessState(
                 pid: pid,
                 isAlive: true,
-                activity: .running,
-                updatedAt: Date()
+                activity: .running
             )
             controller.refreshTrackedAgentPorts(for: tab)
         }
