@@ -91,6 +91,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     override func tearDown() {
+        #if DEBUG
+        KeyboardShortcutSettings.shortcutLookupObserver = nil
+        #endif
         KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
         AppDelegate.shared?.shortcutLayoutCharacterProvider = KeyboardLayout.character(forKeyCode:modifierFlags:)
         AppDelegate.shared?.debugCloseMainWindowConfirmationHandler = nil
@@ -4412,6 +4415,99 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     // MARK: - Non-Latin keyboard layout shortcut tests
+
+    func testExampleShortcutRoutingConsultsConfiguredShortcutSettings() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        let cases: [(action: KeyboardShortcutSettings.Action, modifiers: NSEvent.ModifierFlags, key: String, keyCode: UInt16)] = [
+            (
+                .toggleFileExplorer,
+                [.command, .option],
+                "b",
+                11
+            ),
+            (
+                .focusRightSidebar,
+                [.command, .shift],
+                "e",
+                14
+            ),
+            (
+                .findInDirectory,
+                [.command, .shift],
+                "f",
+                3
+            ),
+        ]
+
+        for testCase in cases {
+            var observedActions: [KeyboardShortcutSettings.Action] = []
+            #if DEBUG
+            KeyboardShortcutSettings.shortcutLookupObserver = { action in
+                observedActions.append(action)
+            }
+            #else
+            XCTFail("shortcutLookupObserver is only available in DEBUG")
+            #endif
+
+            guard let event = makeKeyDownEvent(
+                key: testCase.key,
+                modifiers: testCase.modifiers,
+                keyCode: testCase.keyCode,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct \(testCase.action.rawValue) shortcut event")
+                return
+            }
+
+            #if DEBUG
+            _ = appDelegate.debugHandleCustomShortcut(event: event)
+            #else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            #endif
+
+            XCTAssertTrue(
+                observedActions.contains(testCase.action),
+                "\(testCase.action.rawValue) routing must read KeyboardShortcutSettings.shortcut(for:) instead of matching a literal combo"
+            )
+        }
+    }
+
+    func testBrowserFindCommandPreflightConsultsConfiguredFindInDirectoryShortcut() {
+        #if DEBUG
+        var observedActions: [KeyboardShortcutSettings.Action] = []
+        KeyboardShortcutSettings.shortcutLookupObserver = { action in
+            observedActions.append(action)
+        }
+
+        let event = makeKeyEvent(
+            modifierFlags: [.command, .shift],
+            characters: "f",
+            charactersIgnoringModifiers: "f",
+            keyCode: 3
+        )
+
+        _ = shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(event)
+
+        XCTAssertTrue(
+            observedActions.contains(.findInDirectory),
+            "Browser find command preflight must read the configured Find in Directory shortcut instead of hardcoding Cmd+Shift+F"
+        )
+        #else
+        XCTFail("shortcutLookupObserver is only available in DEBUG")
+        #endif
+    }
 
     func testBrowserFirstFindShortcutRoutingRecognizesBrowserLocalFindCommandFamily() {
         let cases: [(name: String, modifiers: NSEvent.ModifierFlags, chars: String, keyCode: UInt16)] = [
