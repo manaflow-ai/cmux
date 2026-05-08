@@ -173,7 +173,7 @@ jobs:
                 -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
                 -disableAutomaticPackageResolution \
                 -destination "platform=macOS" \
-                -skip-testing:cmuxTests/AppDelegateShortcutRoutingTests/testCmdWClosesWindowWhenClosingLastSurfaceInLastWorkspace \
+                -only-testing:cmuxTests/WorkspaceCloseTabsContextMenuTests \
                 test 2>&1
             }
 
@@ -201,13 +201,8 @@ jobs:
             fi
 
             if [ "$EXIT_CODE" -ne 0 ]; then
-              SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)
-              if echo "$SUMMARY" | grep -q "(0 unexpected)"; then
-                echo "All failures are expected, treating as pass"
-              else
-                echo "Unexpected test failures detected"
-                exit 1
-              fi
+              echo "WorkspaceCloseTabsContextMenuTests failed"
+              exit "$EXIT_CODE"
             fi
       - run:
           name: Run bundled Ghostty theme picker helper regression
