@@ -269,8 +269,8 @@ struct SSHFileExplorerConnection: Equatable, Sendable {
 }
 
 protocol SSHFileExplorerTransport: AnyObject {
-    func resolveHomePath(connection: SSHFileExplorerConnection) async throws -> String
-    func listDirectory(
+    nonisolated func resolveHomePath(connection: SSHFileExplorerConnection) async throws -> String
+    nonisolated func listDirectory(
         path: String,
         connection: SSHFileExplorerConnection,
         showHidden: Bool
