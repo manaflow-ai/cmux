@@ -1485,6 +1485,7 @@ class TerminalController {
         "feed.question.reply",
         "feed.exit_plan.reply",
         "system.top",
+        "browser.snapshot",
         "browser.wait",
         "__cmx.vm.auth_context",
     ]
@@ -1587,6 +1588,8 @@ class TerminalController {
             return v2Result(id: request.id, v2FeedExitPlanReply(params: request.params))
         case "system.top":
             return v2Result(id: request.id, v2SystemTop(params: request.params))
+        case "browser.snapshot":
+            return v2Result(id: request.id, v2BrowserSnapshot(params: request.params))
         case "browser.wait":
             return v2Result(id: request.id, v2BrowserWait(params: request.params))
         case "__cmx.vm.auth_context":
@@ -8350,11 +8353,12 @@ class TerminalController {
 
     // MARK: - V2 Browser Methods
 
-    private func v2BrowserWithPanel(
+    private nonisolated func v2BrowserWithPanel(
         params: [String: Any],
         _ body: (_ tabManager: TabManager, _ workspace: Workspace, _ surfaceId: UUID, _ browserPanel: BrowserPanel) -> V2CallResult
     ) -> V2CallResult {
         var result: V2CallResult = .err(code: "internal_error", message: "Browser operation failed", data: nil)
+        var resolved: (tabManager: TabManager, workspace: Workspace, surfaceId: UUID, browserPanel: BrowserPanel)?
         v2MainSync {
             guard let tabManager = v2ResolveTabManager(params: params) else {
                 result = .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -8370,17 +8374,17 @@ class TerminalController {
                 return
             }
             if let browserPanel = ws.browserPanel(for: surfaceId) {
-                result = body(tabManager, ws, surfaceId, browserPanel)
+                resolved = (tabManager, ws, surfaceId, browserPanel)
                 return
             }
             if let panelId = ws.panelIdFromSurfaceId(TabID(uuid: surfaceId)),
                let browserPanel = ws.browserPanel(for: panelId) {
-                result = body(tabManager, ws, panelId, browserPanel)
+                resolved = (tabManager, ws, panelId, browserPanel)
                 return
             }
             if let tabID = v2UInt64(params, keys: ["numericTabId", "numericId", "browser_id", "browserId"]),
-               let resolved = ws.desktopCmxBrowserPanel(forCmxTabID: tabID) {
-                result = body(tabManager, ws, resolved.panelID, resolved.panel)
+               let browserResolution = ws.desktopCmxBrowserPanel(forCmxTabID: tabID) {
+                resolved = (tabManager, ws, browserResolution.panelID, browserResolution.panel)
                 return
             }
             result = .err(code: "invalid_params", message: "Surface is not a browser", data: ["surface_id": surfaceId.uuidString])
@@ -8398,6 +8402,9 @@ class TerminalController {
             )
 #endif
                 return
+        }
+        if let resolved {
+            return body(resolved.tabManager, resolved.workspace, resolved.surfaceId, resolved.browserPanel)
         }
         return result
     }
@@ -9399,7 +9406,7 @@ class TerminalController {
         }
     }
 
-    private func v2BrowserSnapshot(params: [String: Any]) -> V2CallResult {
+    private nonisolated func v2BrowserSnapshot(params: [String: Any]) -> V2CallResult {
         let interactiveOnly = v2Bool(params, "interactive") ?? false
         let includeCursor = v2Bool(params, "cursor") ?? false
         let compact = v2Bool(params, "compact") ?? false
@@ -9407,6 +9414,14 @@ class TerminalController {
         let scopeSelector = v2String(params, "selector")
 
         return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
+            let workspaceId = v2MainSync { ws.id }
+            let webView = v2MainSync { browserPanel.webView }
+            let refsForPayload = v2MainSync {
+                (
+                    workspace: self.v2Ref(kind: .workspace, uuid: workspaceId),
+                    surface: self.v2Ref(kind: .surface, uuid: surfaceId)
+                )
+            }
             let interactiveLiteral = interactiveOnly ? "true" : "false"
             let cursorLiteral = includeCursor ? "true" : "false"
             let compactLiteral = compact ? "true" : "false"
@@ -9586,7 +9601,7 @@ class TerminalController {
             })()
             """
 
-            switch v2RunBrowserJavaScript(browserPanel.webView, surfaceId: surfaceId, script: script, timeout: 10.0, useEval: false) {
+            switch v2RunBrowserJavaScript(webView, surfaceId: surfaceId, script: script, timeout: 10.0, useEval: false) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
@@ -9601,41 +9616,47 @@ class TerminalController {
                 let html = (dict["html"] as? String) ?? ""
                 let entries = (dict["entries"] as? [[String: Any]]) ?? []
 
-                var refs: [String: [String: Any]] = [:]
-                var treeLines: [String] = []
-                var seenSelectors: Set<String> = []
+                let renderedEntries = v2MainSync {
+                    var refs: [String: [String: Any]] = [:]
+                    var treeLines: [String] = []
+                    var seenSelectors: Set<String> = []
 
-                for entry in entries {
-                    guard let selector = entry["selector"] as? String,
-                          !selector.isEmpty,
-                          !seenSelectors.contains(selector) else {
-                        continue
+                    for entry in entries {
+                        guard let selector = entry["selector"] as? String,
+                              !selector.isEmpty,
+                              !seenSelectors.contains(selector) else {
+                            continue
+                        }
+                        seenSelectors.insert(selector)
+
+                        let roleRaw = (entry["role"] as? String) ?? "generic"
+                        let role = roleRaw.isEmpty ? "generic" : roleRaw
+                        let name = ((entry["name"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                        let depth = max(0, (entry["depth"] as? Int) ?? ((entry["depth"] as? NSNumber)?.intValue ?? 0))
+
+                        let refToken = self.v2BrowserAllocateElementRef(surfaceId: surfaceId, selector: selector)
+                        let shortRef = refToken.hasPrefix("@") ? String(refToken.dropFirst()) : refToken
+
+                        var refInfo: [String: Any] = ["role": role]
+                        if !name.isEmpty {
+                            refInfo["name"] = name
+                        }
+                        refs[shortRef] = refInfo
+
+                        let indent = String(repeating: "  ", count: depth)
+                        var line = "\(indent)- \(role)"
+                        if !name.isEmpty {
+                            let cleanName = name.replacingOccurrences(of: "\"", with: "'")
+                            line += " \"\(cleanName)\""
+                        }
+                        line += " [ref=\(shortRef)]"
+                        treeLines.append(line)
                     }
-                    seenSelectors.insert(selector)
 
-                    let roleRaw = (entry["role"] as? String) ?? "generic"
-                    let role = roleRaw.isEmpty ? "generic" : roleRaw
-                    let name = ((entry["name"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                    let depth = max(0, (entry["depth"] as? Int) ?? ((entry["depth"] as? NSNumber)?.intValue ?? 0))
-
-                    let refToken = v2BrowserAllocateElementRef(surfaceId: surfaceId, selector: selector)
-                    let shortRef = refToken.hasPrefix("@") ? String(refToken.dropFirst()) : refToken
-
-                    var refInfo: [String: Any] = ["role": role]
-                    if !name.isEmpty {
-                        refInfo["name"] = name
-                    }
-                    refs[shortRef] = refInfo
-
-                    let indent = String(repeating: "  ", count: depth)
-                    var line = "\(indent)- \(role)"
-                    if !name.isEmpty {
-                        let cleanName = name.replacingOccurrences(of: "\"", with: "'")
-                        line += " \"\(cleanName)\""
-                    }
-                    line += " [ref=\(shortRef)]"
-                    treeLines.append(line)
+                    return (refs: refs, treeLines: treeLines)
                 }
+                let refs = renderedEntries.refs
+                let treeLines = renderedEntries.treeLines
 
                 let titleForTree = title.isEmpty ? "page" : title.replacingOccurrences(of: "\"", with: "'")
                 var snapshotLines = ["- document \"\(titleForTree)\""]
@@ -9656,10 +9677,10 @@ class TerminalController {
                 let snapshotText = snapshotLines.joined(separator: "\n")
 
                 var payload: [String: Any] = [
-                    "workspace_id": ws.id.uuidString,
-                    "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                    "workspace_id": workspaceId.uuidString,
+                    "workspace_ref": refsForPayload.workspace,
                     "surface_id": surfaceId.uuidString,
-                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                    "surface_ref": refsForPayload.surface,
                     "snapshot": snapshotText,
                     "title": title,
                     "url": url,
