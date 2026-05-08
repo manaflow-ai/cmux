@@ -3,7 +3,8 @@ import SwiftUI
 @main
 struct CMuxMobileApp: App {
     @StateObject private var connectionStore = CmxConnectionStore(
-        launchTicketStore: CmxKeychainLaunchTicketStateStore()
+        launchTicketStore: CmxKeychainLaunchTicketStateStore(),
+        startLifecycleObserversOnInit: true
     )
     #if DEBUG
     @StateObject private var longHaulStatus = CmxUITestingLongHaulStatus()

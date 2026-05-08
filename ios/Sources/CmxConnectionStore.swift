@@ -228,6 +228,7 @@ final class CmxConnectionStore: ObservableObject {
         hiveDiscoveryEndpoint: URL? = CmxLaunchConfiguration.hiveDiscoveryEndpoint(),
         terminalSessionFactory: any CmxTerminalSessionMaking = CmxDefaultTerminalSessionFactory(),
         startHiveDiscoveryOnInit: Bool = true,
+        startLifecycleObserversOnInit: Bool = false,
         launchTicket: String? = CmxLaunchConfiguration.ticket(),
         launchAutoconnect: Bool = CmxLaunchConfiguration.shouldAutoconnect()
     ) {
@@ -259,7 +260,9 @@ final class CmxConnectionStore: ObservableObject {
             restoreCachedHiveDiscoveryIfAvailable()
         }
         seedTerminalOutput()
-        startLifecycleObservers()
+        if startLifecycleObserversOnInit {
+            startLifecycleObservers()
+        }
         if startHiveDiscoveryOnInit {
             refreshHiveDiscoveryIfPossible()
         }
