@@ -3892,6 +3892,25 @@ struct CMUXCLI {
         return nil
     }
 
+    private func stringFromAny(_ value: Any?) -> String? {
+        if let s = value as? String { return s }
+        if let n = value as? NSNumber { return n.stringValue }
+        return nil
+    }
+
+    private func canonicalHandle(from item: [String: Any]) -> String? {
+        stringFromAny(item["ref"]) ?? stringFromAny(item["id"])
+    }
+
+    private func canonicalHandle(from items: [[String: Any]], matching target: String) -> String? {
+        for item in items {
+            if stringFromAny(item["id"]) == target || stringFromAny(item["ref"]) == target {
+                return canonicalHandle(from: item)
+            }
+        }
+        return nil
+    }
+
     private func doubleFromAny(_ value: Any?) -> Double? {
         if let d = value as? Double { return d }
         if let f = value as? Float { return Double(f) }
@@ -3945,8 +3964,11 @@ struct CMUXCLI {
 
         let listed = try client.sendV2(method: "window.list")
         let windows = listed["windows"] as? [[String: Any]] ?? []
+        if let exactHandle = canonicalHandle(from: windows, matching: trimmed) {
+            return exactHandle
+        }
         for item in windows where intFromAny(item["index"]) == wantedIndex {
-            return (item["ref"] as? String) ?? (item["id"] as? String)
+            return canonicalHandle(from: item)
         }
         throw CLIError(message: "Window index not found")
     }
@@ -3978,8 +4000,11 @@ struct CMUXCLI {
         }
         let listed = try client.sendV2(method: "workspace.list", params: params)
         let items = listed["workspaces"] as? [[String: Any]] ?? []
+        if let exactHandle = canonicalHandle(from: items, matching: trimmed) {
+            return exactHandle
+        }
         for item in items where intFromAny(item["index"]) == wantedIndex {
-            return (item["ref"] as? String) ?? (item["id"] as? String)
+            return canonicalHandle(from: item)
         }
         throw CLIError(message: "Workspace index not found")
     }
@@ -4012,8 +4037,11 @@ struct CMUXCLI {
         }
         let listed = try client.sendV2(method: "pane.list", params: params)
         let items = listed["panes"] as? [[String: Any]] ?? []
+        if let exactHandle = canonicalHandle(from: items, matching: trimmed) {
+            return exactHandle
+        }
         for item in items where intFromAny(item["index"]) == wantedIndex {
-            return (item["ref"] as? String) ?? (item["id"] as? String)
+            return canonicalHandle(from: item)
         }
         throw CLIError(message: "Pane index not found")
     }
@@ -4046,8 +4074,11 @@ struct CMUXCLI {
         }
         let listed = try client.sendV2(method: "surface.list", params: params)
         let items = listed["surfaces"] as? [[String: Any]] ?? []
+        if let exactHandle = canonicalHandle(from: items, matching: trimmed) {
+            return exactHandle
+        }
         for item in items where intFromAny(item["index"]) == wantedIndex {
-            return (item["ref"] as? String) ?? (item["id"] as? String)
+            return canonicalHandle(from: item)
         }
         throw CLIError(message: "Surface index not found")
     }

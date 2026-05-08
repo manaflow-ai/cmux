@@ -24334,12 +24334,16 @@ fn compatibility_panel_entry_from_target<'a>(
     if let Some(index) = compatibility_index_ref(target, "pane") {
         return panels.get(index);
     }
+    if let Some(panel) = panels
+        .iter()
+        .find(|panel| panel.panel_id.to_string() == target)
+    {
+        return Some(panel);
+    }
     if let Ok(index) = target.parse::<usize>() {
         return panels.get(index);
     }
-    panels
-        .iter()
-        .find(|panel| panel.panel_id.to_string() == target)
+    None
 }
 
 fn compatibility_surface_entries(snapshot: &NativeSnapshot) -> Vec<CompatibilitySurfaceEntry<'_>> {

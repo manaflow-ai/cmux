@@ -349,6 +349,13 @@ class cmux:
         if not s:
             return None
         if s.isdigit():
+            params: Dict[str, Any] = {}
+            if workspace_id:
+                params["workspace_id"] = workspace_id
+            items = (self._call("pane.list", params) or {}).get("panes") or []
+            for row in items:
+                if str(row.get("id")) == s or str(row.get("ref")) == s:
+                    return str(row.get("id"))
             return self._resolve_pane_id(int(s), workspace_id=workspace_id)
         if _looks_like_ref(s, "pane"):
             return s
