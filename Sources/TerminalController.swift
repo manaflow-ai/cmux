@@ -1485,6 +1485,7 @@ class TerminalController {
         "feed.question.reply",
         "feed.exit_plan.reply",
         "system.top",
+        "browser.wait",
         "__cmx.vm.auth_context",
     ]
 
@@ -1586,6 +1587,8 @@ class TerminalController {
             return v2Result(id: request.id, v2FeedExitPlanReply(params: request.params))
         case "system.top":
             return v2Result(id: request.id, v2SystemTop(params: request.params))
+        case "browser.wait":
+            return v2Result(id: request.id, v2BrowserWait(params: request.params))
         case "__cmx.vm.auth_context":
             return socketWorkerCloudVMResponse(method: request.method, id: request.id, params: request.params)
         case let method where method.hasPrefix("vm."):
@@ -3956,13 +3959,13 @@ class TerminalController {
 
     // MARK: - V2 Param Parsing
 
-    func v2String(_ params: [String: Any], _ key: String) -> String? {
+    nonisolated func v2String(_ params: [String: Any], _ key: String) -> String? {
         guard let raw = params[key] as? String else { return nil }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    func v2StringArray(_ params: [String: Any], _ key: String) -> [String]? {
+    nonisolated func v2StringArray(_ params: [String: Any], _ key: String) -> [String]? {
         if let raw = params[key] as? [String] {
             let normalized = raw
                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -3982,7 +3985,7 @@ class TerminalController {
         return nil
     }
 
-    private func v2StringMap(_ params: [String: Any], _ key: String) -> [String: String]? {
+    private nonisolated func v2StringMap(_ params: [String: Any], _ key: String) -> [String: String]? {
         guard let raw = params[key] else { return nil }
         if let dict = raw as? [String: String] {
             return dict
@@ -3998,12 +4001,12 @@ class TerminalController {
         return nil
     }
 
-    private func v2ActionKey(_ params: [String: Any], _ key: String = "action") -> String? {
+    private nonisolated func v2ActionKey(_ params: [String: Any], _ key: String = "action") -> String? {
         guard let action = v2String(params, key) else { return nil }
         return action.lowercased().replacingOccurrences(of: "-", with: "_")
     }
 
-    private func v2RawString(_ params: [String: Any], _ key: String) -> String? {
+    private nonisolated func v2RawString(_ params: [String: Any], _ key: String) -> String? {
         params[key] as? String
     }
 
@@ -4024,7 +4027,7 @@ class TerminalController {
         }
         return v2ResolveHandleRef(trimmed)
     }
-    func v2Bool(_ params: [String: Any], _ key: String) -> Bool? {
+    nonisolated func v2Bool(_ params: [String: Any], _ key: String) -> Bool? {
         if let b = params[key] as? Bool { return b }
         if let n = params[key] as? NSNumber { return n.boolValue }
         if let s = params[key] as? String {
@@ -4053,7 +4056,7 @@ class TerminalController {
         }
         return nil
     }
-    private func v2Int(_ params: [String: Any], _ key: String) -> Int? {
+    private nonisolated func v2Int(_ params: [String: Any], _ key: String) -> Int? {
         if let i = params[key] as? Int { return i }
         if let n = params[key] as? NSNumber { return n.intValue }
         if let s = params[key] as? String { return Int(s) }
@@ -8399,7 +8402,7 @@ class TerminalController {
         return result
     }
 
-    private func v2JSONLiteral(_ value: Any) -> String {
+    private nonisolated func v2JSONLiteral(_ value: Any) -> String {
         if let data = try? JSONSerialization.data(withJSONObject: [value], options: []),
            let text = String(data: data, encoding: .utf8),
            text.count >= 2 {
@@ -8441,7 +8444,7 @@ class TerminalController {
         case failure(String)
     }
 
-    private func v2RunJavaScript(
+    private nonisolated func v2RunJavaScript(
         _ webView: WKWebView,
         script: String,
         timeout: TimeInterval = 5.0,
@@ -8496,7 +8499,7 @@ class TerminalController {
         return .success(outcome.0)
     }
 
-    private func v2AwaitCallback<T>(
+    private nonisolated func v2AwaitCallback<T>(
         timeout: TimeInterval,
         start: (@escaping (T) -> Void) -> Void
     ) -> T? {
@@ -8544,7 +8547,7 @@ class TerminalController {
         return result
     }
 
-    private func v2WaitForBrowserCondition(
+    private nonisolated func v2WaitForBrowserCondition(
         _ webView: WKWebView,
         surfaceId: UUID,
         conditionScript: String,
@@ -8629,7 +8632,7 @@ class TerminalController {
         }
     }
 
-    private func v2BrowserSelector(_ params: [String: Any]) -> String? {
+    private nonisolated func v2BrowserSelector(_ params: [String: Any]) -> String? {
         v2String(params, "selector")
             ?? v2String(params, "sel")
             ?? v2String(params, "element_ref")
@@ -8668,7 +8671,7 @@ class TerminalController {
         v2BrowserFrameSelectorBySurface[surfaceId]
     }
 
-    private func v2RunBrowserJavaScript(
+    private nonisolated func v2RunBrowserJavaScript(
         _ webView: WKWebView,
         surfaceId: UUID,
         script: String,
@@ -8677,7 +8680,10 @@ class TerminalController {
     ) -> V2JavaScriptResult {
         let scriptLiteral = v2JSONLiteral(script)
         let framePrelude: String
-        if let frameSelector = v2BrowserCurrentFrameSelector(surfaceId: surfaceId) {
+        let currentFrameSelector = v2MainSync {
+            self.v2BrowserCurrentFrameSelector(surfaceId: surfaceId)
+        }
+        if let frameSelector = currentFrameSelector {
             let selectorLiteral = v2JSONLiteral(frameSelector)
             framePrelude = """
             let __cmuxDoc = document;
@@ -9674,7 +9680,7 @@ class TerminalController {
         }
     }
 
-    private func v2BrowserWait(params: [String: Any]) -> V2CallResult {
+    private nonisolated func v2BrowserWait(params: [String: Any]) -> V2CallResult {
         let timeoutMs = max(1, v2Int(params, "timeout_ms") ?? 5_000)
         let selectorRaw = v2BrowserSelector(params)
 
@@ -9708,7 +9714,10 @@ class TerminalController {
 
         var setupResult: V2CallResult?
         var workspaceId: UUID?
+        var workspaceRefOut: Any = NSNull()
         var surfaceIdOut: UUID?
+        var surfaceRefOut: Any = NSNull()
+        var resolvedSelector: String?
         var webView: WKWebView?
 
         v2MainSync {
@@ -9730,7 +9739,16 @@ class TerminalController {
                 return
             }
             workspaceId = ws.id
+            workspaceRefOut = self.v2Ref(kind: .workspace, uuid: ws.id)
             surfaceIdOut = surfaceId
+            surfaceRefOut = self.v2Ref(kind: .surface, uuid: surfaceId)
+            if let selectorRaw {
+                guard let selector = self.v2BrowserResolveSelector(selectorRaw, surfaceId: surfaceId) else {
+                    setupResult = .err(code: "not_found", message: "Element reference not found", data: ["selector": selectorRaw])
+                    return
+                }
+                resolvedSelector = selector
+            }
             webView = browserPanel.webView
         }
 
@@ -9743,7 +9761,7 @@ class TerminalController {
 
         let conditionScript: String
         if let selectorRaw {
-            guard let selector = v2BrowserResolveSelector(selectorRaw, surfaceId: surfaceIdOut) else {
+            guard let selector = resolvedSelector else {
                 return .err(code: "not_found", message: "Element reference not found", data: ["selector": selectorRaw])
             }
             let literal = v2JSONLiteral(selector)
@@ -9760,9 +9778,9 @@ class TerminalController {
         ) {
             return .ok([
                 "workspace_id": workspaceId.uuidString,
-                "workspace_ref": self.v2Ref(kind: .workspace, uuid: workspaceId),
+                "workspace_ref": workspaceRefOut,
                 "surface_id": surfaceIdOut.uuidString,
-                "surface_ref": self.v2Ref(kind: .surface, uuid: surfaceIdOut),
+                "surface_ref": surfaceRefOut,
                 "waited": true
             ])
         }
