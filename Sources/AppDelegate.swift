@@ -14182,6 +14182,14 @@ private extension NSWindow {
         }
 
         if let ghosttyView = firstResponderGhosttyView {
+            if ghosttyView.shouldRouteTextInputKeyEquivalentToKeyDown(event) {
+                ghosttyView.keyDown(with: event)
+#if DEBUG
+                cmuxDebugLog("  → terminal text-input key equivalent routed to keyDown")
+#endif
+                return true
+            }
+
             // If the IME is composing and the key has no Cmd modifier, don't intercept —
             // let it flow through normal AppKit event dispatch so the input method can
             // process it. Cmd-based shortcuts should still work during composition since

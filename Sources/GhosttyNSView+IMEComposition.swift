@@ -138,6 +138,20 @@ extension GhosttyNSView {
         }
     }
 
+    /// Returns true when a window-level key-equivalent probe should re-enter
+    /// the terminal's keyDown path so AppKit's text input context sees the key
+    /// before terminal bindings or cursor escape sequences do.
+    func shouldRouteTextInputKeyEquivalentToKeyDown(_ event: NSEvent) -> Bool {
+        shouldRouteTextInputKeyEquivalentToKeyDown(event, inputSourceId: nil)
+    }
+
+    func shouldRouteTextInputKeyEquivalentToKeyDown(_ event: NSEvent, inputSourceId: String?) -> Bool {
+        guard event.type == .keyDown else { return false }
+        guard shouldKeepIMECompositionCommandInsideTextInput(event) else { return false }
+        if hasMarkedText() { return true }
+        return isInputMethodSource(inputSourceId ?? KeyboardLayout.id)
+    }
+
     /// Returns true for active-composition command keys that belong to AppKit's
     /// text input manager even when marked text itself does not change.
     func shouldKeepIMECompositionCommandInsideTextInput(_ event: NSEvent) -> Bool {
