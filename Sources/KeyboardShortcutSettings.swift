@@ -15,6 +15,14 @@ enum KeyboardShortcutSettings {
     static var shortcutLookupObserver: ((Action) -> Void)?
     #endif
 
+    static var publicShortcutActions: [Action] {
+        Action.allCases.filter(\.isPublicShortcutAction)
+    }
+
+    static var settingsVisibleActions: [Action] {
+        publicShortcutActions.filter { $0 != .showHideAllWindows }
+    }
+
     enum ShortcutRecordingRejection: Equatable {
         case bareKeyNotAllowed
         case conflictsWithAction(Action)
@@ -187,6 +195,19 @@ enum KeyboardShortcutSettings {
 
         var defaultsKey: String { "shortcut.\(rawValue)" }
 
+        var isPublicShortcutAction: Bool {
+            switch self {
+            case .switchRightSidebarToFiles,
+                 .switchRightSidebarToFind,
+                 .switchRightSidebarToSessions,
+                 .switchRightSidebarToFeed,
+                 .switchRightSidebarToDock:
+                return false
+            default:
+                return true
+            }
+        }
+
         var defaultShortcut: StoredShortcut {
             switch self {
             case .openSettings:
@@ -230,17 +251,15 @@ enum KeyboardShortcutSettings {
             case .jumpToUnread:
                 return StoredShortcut(key: "u", command: true, shift: true, option: false, control: false)
             case .focusRightSidebar:
-                return StoredShortcut(key: "e", command: true, shift: true, option: false, control: false)
-            case .switchRightSidebarToFiles:
-                return StoredShortcut(key: "1", command: false, shift: false, option: false, control: true)
-            case .switchRightSidebarToFind:
-                return StoredShortcut(key: "2", command: false, shift: false, option: false, control: true)
-            case .switchRightSidebarToSessions:
-                return StoredShortcut(key: "3", command: false, shift: false, option: false, control: true)
-            case .switchRightSidebarToFeed:
-                return StoredShortcut(key: "4", command: false, shift: false, option: false, control: true)
-            case .switchRightSidebarToDock:
-                return StoredShortcut(key: "5", command: false, shift: false, option: false, control: true)
+                return StoredShortcut(key: "b", command: true, shift: false, option: true, control: false)
+            case .switchRightSidebarToFiles,
+                 .switchRightSidebarToFind,
+                 .switchRightSidebarToSessions,
+                 .switchRightSidebarToFeed,
+                 .switchRightSidebarToDock:
+                // Legacy cmux.json bindings still resolve, but these mode
+                // switches do not ship as public default shortcuts.
+                return .unbound
             case .triggerFlash:
                 return StoredShortcut(key: "h", command: true, shift: true, option: false, control: false)
             case .nextSidebarTab:
@@ -291,7 +310,7 @@ enum KeyboardShortcutSettings {
             case .selectWorkspaceByNumber:
                 return StoredShortcut(key: "1", command: true, shift: false, option: false, control: false)
             case .toggleFileExplorer:
-                return StoredShortcut(key: "b", command: true, shift: false, option: true, control: false)
+                return StoredShortcut(key: "e", command: true, shift: true, option: false, control: false)
             case .saveFilePreview:
                 return StoredShortcut(key: "s", command: true, shift: false, option: false, control: false)
             case .openBrowser:

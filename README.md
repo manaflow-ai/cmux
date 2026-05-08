@@ -157,8 +157,8 @@ For more info on how to configure cmux, [head over to our docs](https://cmux.com
 | ⌘ ⇧ R | Rename workspace |
 | ⌥ ⌘ E | Edit workspace description |
 | ⌘ B | Toggle sidebar |
-| ⌘ ⇧ E | Focus right sidebar |
-| ⌃ 1 / ⌃ 2 / ⌃ 3 | Switch Files / Sessions / Feed when the right sidebar is focused |
+| ⌘ ⇧ E | Toggle file explorer |
+| ⌥ ⌘ B | Focus right sidebar |
 
 ### Surfaces
 
@@ -209,8 +209,9 @@ Command palette navigation shortcuts, including ⌃ P, are also customizable and
 | Shortcut | Action |
 |----------|--------|
 | ⌘ F | Find |
+| ⌘ ⇧ F | Find in directory |
 | ⌘ G / ⌘ ⇧ G | Find next / previous |
-| ⌘ ⇧ F | Hide find bar |
+| ⌥ ⌘ ⇧ F | Hide find bar |
 | ⌘ E | Use selection for find |
 
 ### Terminal

@@ -4433,15 +4433,15 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let cases: [(action: KeyboardShortcutSettings.Action, modifiers: NSEvent.ModifierFlags, key: String, keyCode: UInt16)] = [
             (
                 .toggleFileExplorer,
-                [.command, .option],
-                "b",
-                11
-            ),
-            (
-                .focusRightSidebar,
                 [.command, .shift],
                 "e",
                 14
+            ),
+            (
+                .focusRightSidebar,
+                [.command, .option],
+                "b",
+                11
             ),
             (
                 .findInDirectory,
