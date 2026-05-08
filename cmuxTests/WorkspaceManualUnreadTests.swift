@@ -21,10 +21,14 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         store.replaceNotificationsForTesting([])
 
         XCTAssertEqual(store.unreadCount(forTabId: workspaceId), 0)
+        XCTAssertTrue(store.canMarkWorkspaceUnread(forTabIds: [workspaceId]))
+        XCTAssertFalse(store.canMarkWorkspaceRead(forTabIds: [workspaceId]))
 
         store.markUnread(forTabId: workspaceId)
 
         XCTAssertGreaterThan(store.unreadCount(forTabId: workspaceId), 0)
+        XCTAssertTrue(store.canMarkWorkspaceRead(forTabIds: [workspaceId]))
+        XCTAssertFalse(store.canMarkWorkspaceUnread(forTabIds: [workspaceId]))
 
         store.markRead(forTabId: workspaceId)
 

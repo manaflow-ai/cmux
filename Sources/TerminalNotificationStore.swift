@@ -701,6 +701,7 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
     @Published private(set) var notificationMenuSnapshot = NotificationMenuSnapshotBuilder.make(notifications: [])
+    @Published private(set) var manualUnreadWorkspaceIds: Set<UUID> = []
     @Published private(set) var focusedReadIndicatorByTabId: [UUID: UUID] = [:]
     @Published private(set) var authorizationState: NotificationAuthorizationState = .unknown
     private var suppressNotificationDiffPublishing = false
@@ -876,7 +877,19 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func unreadCount(forTabId tabId: UUID) -> Int {
-        indexes.unreadCountByTabId[tabId] ?? 0
+        (indexes.unreadCountByTabId[tabId] ?? 0) + (manualUnreadWorkspaceIds.contains(tabId) ? 1 : 0)
+    }
+
+    func workspaceIsUnread(forTabId tabId: UUID) -> Bool {
+        unreadCount(forTabId: tabId) > 0
+    }
+
+    func canMarkWorkspaceRead(forTabIds tabIds: [UUID]) -> Bool {
+        tabIds.contains { workspaceIsUnread(forTabId: $0) }
+    }
+
+    func canMarkWorkspaceUnread(forTabIds tabIds: [UUID]) -> Bool {
+        tabIds.contains { !workspaceIsUnread(forTabId: $0) }
     }
 
     func hasUnreadNotification(forTabId tabId: UUID, surfaceId: UUID?) -> Bool {
@@ -962,6 +975,7 @@ final class TerminalNotificationStore: ObservableObject {
             isRead: false
         )
         updated.insert(notification, at: 0)
+        manualUnreadWorkspaceIds.remove(tabId)
         notifications = updated
         if let cooldownKey, resolvedCooldownInterval != nil {
             lastNotificationDateByCooldownKey[cooldownKey] = now
@@ -995,6 +1009,7 @@ final class TerminalNotificationStore: ObservableObject {
                 idsToClear.append(updated[index].id.uuidString)
             }
         }
+        manualUnreadWorkspaceIds.remove(tabId)
         if !idsToClear.isEmpty {
             notifications = updated
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
@@ -1029,7 +1044,10 @@ final class TerminalNotificationStore: ObservableObject {
             }
         }
         if didChange {
+            manualUnreadWorkspaceIds.remove(tabId)
             notifications = updated
+        } else if !workspaceIsUnread(forTabId: tabId) {
+            manualUnreadWorkspaceIds.insert(tabId)
         }
     }
 
@@ -1060,6 +1078,7 @@ final class TerminalNotificationStore: ObservableObject {
                 idsToClear.append(updated[index].id.uuidString)
             }
         }
+        manualUnreadWorkspaceIds.removeAll()
         if !idsToClear.isEmpty {
             notifications = updated
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
@@ -1084,9 +1103,10 @@ final class TerminalNotificationStore: ObservableObject {
 
     func clearAll(discardQueuedNotifications: Bool = true) {
         if discardQueuedNotifications { TerminalMutationBus.shared.discardPendingNotifications() }
-        guard !notifications.isEmpty || !focusedReadIndicatorByTabId.isEmpty else { return }
+        guard !notifications.isEmpty || !focusedReadIndicatorByTabId.isEmpty || !manualUnreadWorkspaceIds.isEmpty else { return }
         let ids = notifications.map { $0.id.uuidString }
         replaceNotificationsForClear([])
+        manualUnreadWorkspaceIds.removeAll()
         focusedReadIndicatorByTabId.removeAll()
         CmuxEventBus.shared.publishNotificationCleared(ids: ids, workspaceId: nil, surfaceId: nil)
         center.removeDeliveredNotificationsOffMain(withIdentifiers: ids)
@@ -1129,6 +1149,7 @@ final class TerminalNotificationStore: ObservableObject {
                 updated.append(notification)
             }
         }
+        manualUnreadWorkspaceIds.remove(tabId)
         guard !idsToClear.isEmpty else { return }
         replaceNotificationsForClear(updated)
         clearFocusedReadIndicator(forTabId: tabId)
@@ -1438,6 +1459,7 @@ final class TerminalNotificationStore: ObservableObject {
     func replaceNotificationsForTesting(_ notifications: [TerminalNotification]) {
         TerminalMutationBus.shared.discardPendingNotifications()
         self.notifications = notifications
+        manualUnreadWorkspaceIds.removeAll()
         focusedReadIndicatorByTabId.removeAll()
     }
 #endif
