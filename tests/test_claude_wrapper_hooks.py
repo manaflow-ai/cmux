@@ -685,7 +685,7 @@ def test_live_socket_explicit_key_list_is_additive_to_vertex_auto_preserve(failu
         "CLAUDE_CODE_USE_VERTEX": "1",
         "ANTHROPIC_MODEL": "claude-sonnet-4-5@20250929",
     }
-    code, auth_env, real_argv, stderr = run_wrapper_auth_env(
+    code, auth_env, _, stderr = run_wrapper_auth_env(
         argv=["hello"],
         inherited_env=inherited,
     )
