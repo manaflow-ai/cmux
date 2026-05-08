@@ -12087,12 +12087,14 @@ async fn run_window_command(
                 Err(e) => return (err_result(e), None, false),
             };
             close_workspace_tabs(&ws).await;
+            daemon.clone().remove_workspace(ws.id).await;
             (ok_result(), None, false)
         }
         Command::CloseWorkspaceById { workspace_id } => {
             match daemon.workspace_by_id(workspace_id).await {
                 Some(ws) => {
                     close_workspace_tabs(&ws).await;
+                    daemon.clone().remove_workspace(ws.id).await;
                     (ok_result(), None, false)
                 }
                 None => (
@@ -14676,6 +14678,7 @@ async fn compatibility_workspace_create_v2(
             compatibility_apply_workspace_layout(daemon, &workspace, layout, cwd.clone()).await
     {
         close_workspace_tabs(&workspace).await;
+        daemon.clone().remove_workspace(workspace.id).await;
         daemon.set_active_workspace(previous_active.clone());
         return Err(error);
     }
