@@ -962,7 +962,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 do {
                     try await AuthManager.shared.handleCallbackURL(url)
                 } catch {
+#if DEBUG
                     NSLog("auth.callback failed: %@", "\(error)")
+#endif
                 }
             }
         }
@@ -7727,7 +7729,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
 #endif
                 cleanupObservers()
+#if DEBUG
                 NSLog("Command send: surface not ready after 3.0s")
+#endif
             }
         }
     }
@@ -7888,6 +7892,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "pendingSurfaces=\(loadStats.pendingSurfaces) expectedSurfaces=\(expectedSurfaceCount)"
             )
 
+#if DEBUG
             NSLog(
                 "Debug stress workspaces: created=%d panesPerWorkspace=%d tabsPerPane=%d expectedSurfaces=%d layoutFailures=%d pendingSurfaces=%d createMs=%.2f loadMs=%.2f loadedPanels=%d failedPanels=%d totalMs=%.2f workspaceAvgMs=%.2f workspaceWorstMs=%.2f waitAttempts=%d",
                 self.debugStressWorkspaceCount,
@@ -7905,6 +7910,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 worstWorkspaceMs,
                 loadStats.attempts
             )
+#endif
         }
     }
 
@@ -13027,7 +13033,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ])
 
             if registerStatus != noErr {
+#if DEBUG
                 NSLog("LaunchServices registration failed (status: \(registerStatus)) for \(normalizedURL.path)")
+#endif
             }
         }
     }

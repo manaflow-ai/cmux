@@ -1734,13 +1734,17 @@ class GhosttyApp {
         // Initialize Ghostty library first
         let result = ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv)
         if result != GHOSTTY_SUCCESS {
+#if DEBUG
             print("Failed to initialize ghostty: \(result)")
+#endif
             return
         }
 
         // Load config
         guard let primaryConfig = ghostty_config_new() else {
+#if DEBUG
             print("Failed to create ghostty config")
+#endif
             return
         }
 
@@ -1862,7 +1866,9 @@ class GhosttyApp {
             ghostty_config_free(primaryConfig)
 
             guard let fallbackConfig = ghostty_config_new() else {
+#if DEBUG
                 print("Failed to create ghostty fallback config")
+#endif
                 return
             }
 
@@ -1895,7 +1901,9 @@ class GhosttyApp {
                 Self.initLog("ghostty_app_new(fallback) failed")
                 Self.dumpConfigDiagnostics(fallbackConfig, label: "fallback")
                 #endif
+#if DEBUG
                 print("Failed to create ghostty app")
+#endif
                 ghostty_config_free(fallbackConfig)
                 return
             }
@@ -4960,10 +4968,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
         #endif
 
         guard let app = GhosttyApp.shared.app else {
+#if DEBUG
             print("Ghostty app not initialized")
-            #if DEBUG
             Self.surfaceLog("createSurface FAILED surface=\(id.uuidString): ghostty app not initialized")
-            #endif
+#endif
             return
         }
 
@@ -5214,8 +5222,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
         if surface == nil {
             surfaceCallbackContext?.release()
             surfaceCallbackContext = nil
+#if DEBUG
             print("Failed to create ghostty surface")
-            #if DEBUG
             Self.surfaceLog("createSurface FAILED surface=\(id.uuidString): ghostty_surface_new returned nil")
             if let cfg = GhosttyApp.shared.config {
                 let count = Int(ghostty_config_diagnostics_count(cfg))
@@ -5228,7 +5236,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             } else {
                 Self.surfaceLog("createSurface diagnostics: config=nil")
             }
-            #endif
+#endif
             return
         }
         guard let createdSurface = surface else { return }
@@ -5979,7 +5987,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     fileprivate static func focusLog(_ message: String) {
         guard focusDebugEnabled else { return }
         FocusLogStore.shared.append(message)
+#if DEBUG
         NSLog("[FOCUSDBG] %@", message)
+#endif
     }
 
     weak var terminalSurface: TerminalSurface?
