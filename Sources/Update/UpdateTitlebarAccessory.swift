@@ -1374,7 +1374,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         containerView.wantsLayer = true
         containerView.layer?.masksToBounds = false
         hostingView.translatesAutoresizingMaskIntoConstraints = true
-        hostingView.autoresizingMask = [.width, .height]
+        hostingView.autoresizingMask = []
         containerView.addSubview(hostingView)
 
         userDefaultsObserver = NotificationCenter.default.addObserver(

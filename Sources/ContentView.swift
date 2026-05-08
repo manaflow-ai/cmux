@@ -2,6 +2,7 @@ import AppKit
 import Bonsplit
 import Combine
 import ImageIO
+import Observation
 import SwiftUI
 import ObjectiveC
 import UniformTypeIdentifiers
@@ -1021,7 +1022,6 @@ struct ContentView: View {
     @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
     @EnvironmentObject var fileExplorerState: FileExplorerState
     @Environment(\.colorScheme) private var colorScheme
-    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @AppStorage("titlebarControlsStyle") private var titlebarControlsStyleRawValue = TitlebarControlsStyle.classic.rawValue
     @AppStorage(ShortcutHintDebugSettings.titlebarHintXKey) private var titlebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultTitlebarHintX
     @AppStorage(ShortcutHintDebugSettings.titlebarHintYKey) private var titlebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultTitlebarHintY
@@ -1043,7 +1043,7 @@ struct ContentView: View {
     @State private var isFullScreen: Bool = false
     @State private var observedWindow: NSWindow?
     @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
-    @StateObject private var rightSidebarToggleShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
+    @State private var rightSidebarToggleShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @StateObject private var fileExplorerStore = FileExplorerStore()
     @StateObject private var sessionIndexStore = SessionIndexStore()
     @StateObject private var selectedWorkspaceDirectoryObserver = SelectedWorkspaceDirectoryObserver()
@@ -1055,6 +1055,7 @@ struct ContentView: View {
     @State private var workspaceHandoffFallbackTask: Task<Void, Never>?
     @State private var didApplyUITestSidebarSelection = false
     @State private var titlebarThemeGeneration: UInt64 = 0
+    @State private var rightSidebarShortcutRefreshTick = 0
     @State private var sidebarDraggedTabId: UUID?
     @State private var titlebarTextUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
     @State private var sidebarResizerCursorReleaseWorkItem: DispatchWorkItem?
@@ -2287,7 +2288,7 @@ struct ContentView: View {
 
     private var rightSidebarTitlebarToggle: some View {
         let config = titlebarControlsConfig
-        let _ = keyboardShortcutSettingsObserver.revision
+        let _ = rightSidebarShortcutRefreshTick
         let shortcut = KeyboardShortcutSettings.shortcut(for: .toggleFileExplorer)
         let showsShortcutHint = shortcut.command && (alwaysShowShortcutHints || rightSidebarToggleShortcutHintMonitor.isModifierPressed)
         return TitlebarControlButton(
@@ -2340,7 +2341,7 @@ struct ContentView: View {
         if config.buttonBackground {
             icon
                 .background(
-                    RoundedRectangle(cornerRadius: config.buttonCornerRadius, style: .continuous)
+                    RoundedRectangle(cornerRadius: config.buttonCornerRadius)
                         .fill(Color(nsColor: .controlBackgroundColor).opacity(0.7))
                 )
         } else {
@@ -3272,6 +3273,10 @@ struct ContentView: View {
 
         view = AnyView(view.onChange(of: titlebarDebugChromeSnapshot) { _, _ in
             applyTitlebarDebugChromeChange()
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: KeyboardShortcutSettings.didChangeNotification)) { _ in
+            rightSidebarShortcutRefreshTick &+= 1
         })
 
         view = AnyView(view.onChange(of: tabManager.tabs.map(\.id)) { _ in
@@ -9310,7 +9315,7 @@ struct VerticalTabsSidebar: View {
     @Binding var selection: SidebarSelection
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
-    @StateObject private var modifierKeyMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
+    @State private var modifierKeyMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @StateObject private var dragAutoScrollController = SidebarDragAutoScrollController()
     @StateObject private var dragFailsafeMonitor = SidebarDragFailsafeMonitor()
     @StateObject private var tabItemSettingsStore = SidebarTabItemSettingsStore()
@@ -10609,18 +10614,19 @@ enum ShortcutHintModifierActivation {
 }
 
 @MainActor
-final class WindowScopedShortcutHintModifierMonitor: ObservableObject {
-    @Published private(set) var isModifierPressed = false
+@Observable
+final class WindowScopedShortcutHintModifierMonitor {
+    private(set) var isModifierPressed = false
 
     private let activation: ShortcutHintModifierActivation
     private let allowsHintsForWindow: (NSWindow) -> Bool
-    private weak var hostWindow: NSWindow?
-    private var hostWindowDidBecomeKeyObserver: NSObjectProtocol?
-    private var hostWindowDidResignKeyObserver: NSObjectProtocol?
-    private var flagsMonitor: Any?
-    private var keyDownMonitor: Any?
-    private var appResignObserver: NSObjectProtocol?
-    private var pendingShowWorkItem: DispatchWorkItem?
+    @ObservationIgnored private weak var hostWindow: NSWindow?
+    @ObservationIgnored private var hostWindowDidBecomeKeyObserver: NSObjectProtocol?
+    @ObservationIgnored private var hostWindowDidResignKeyObserver: NSObjectProtocol?
+    @ObservationIgnored private var flagsMonitor: Any?
+    @ObservationIgnored private var keyDownMonitor: Any?
+    @ObservationIgnored private var appResignObserver: NSObjectProtocol?
+    @ObservationIgnored private var pendingShowWorkItem: DispatchWorkItem?
 
     init(
         activation: ShortcutHintModifierActivation = .commandOrControl,

@@ -462,7 +462,7 @@ final class WindowDecorationsController {
                 button.setFrameOrigin(nextOrigin)
             }
             state.baseOrigin = baseOrigin
-            state.appliedFrame = button.frame
+            state.appliedFrame = NSRect(origin: nextOrigin, size: button.frame.size)
         }
     }
 
