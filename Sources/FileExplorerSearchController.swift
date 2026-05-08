@@ -332,19 +332,21 @@ final class FileSearchController: FileSearchControlling {
             let stdoutHandle = stdout.fileHandleForReading
             let stderrHandle = stderr.fileHandleForReading
             searchTask = Task { [weak self, pipeline, terminationSignal] in
-                let controller = self
+                let applyUpdate: @Sendable (FileSearchPipelineUpdate, Int) async -> Void = { [weak self] update, generation in
+                    await self?.applyPipelineUpdate(update, generation: generation)
+                }
                 async let stdoutDone: Void = Self.streamStdout(
                     from: stdoutHandle,
                     pipeline: pipeline,
                     generation: searchGeneration,
-                    controller: controller
+                    applyUpdate: applyUpdate
                 )
                 async let stderrDone: Void = Self.streamStderr(from: stderrHandle, pipeline: pipeline)
                 guard let status = await terminationSignal.wait() else { return }
                 _ = await (stdoutDone, stderrDone)
                 guard !Task.isCancelled else { return }
                 let update = await pipeline.finish(status: status)
-                controller?.finish(generation: searchGeneration, update: update)
+                self?.finish(generation: searchGeneration, update: update)
             }
         } catch {
             process.standardOutput = nil
@@ -413,13 +415,13 @@ final class FileSearchController: FileSearchControlling {
         from handle: FileHandle,
         pipeline: FileSearchOutputPipeline,
         generation: Int,
-        controller: FileSearchController?
+        applyUpdate: @Sendable (FileSearchPipelineUpdate, Int) async -> Void
     ) async {
         do {
             for try await line in handle.bytes.lines {
                 try Task.checkCancellation()
                 guard let update = await pipeline.consumeStdoutLine(line) else { continue }
-                await controller?.applyPipelineUpdate(update, generation: generation)
+                await applyUpdate(update, generation)
                 if update.shouldStopProcess {
                     return
                 }
