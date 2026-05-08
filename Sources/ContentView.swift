@@ -1022,6 +1022,12 @@ struct ContentView: View {
     @EnvironmentObject var fileExplorerState: FileExplorerState
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage("titlebarControlsStyle") private var titlebarControlsStyleRawValue = TitlebarControlsStyle.classic.rawValue
+    @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey) private var leftTitlebarControlsLeadingInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset
+    @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey) private var leftTitlebarControlsTopInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset
+    @AppStorage(MinimalModeTitlebarDebugSettings.rightToggleTrailingInsetKey) private var rightTitlebarToggleTrailingInset = MinimalModeTitlebarDebugSettings.defaultRightToggleTrailingInset
+    @AppStorage(MinimalModeTitlebarDebugSettings.rightToggleTopInsetKey) private var rightTitlebarToggleTopInset = MinimalModeTitlebarDebugSettings.defaultRightToggleTopInset
+    @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightsXOffsetKey) private var trafficLightsXOffset = MinimalModeTitlebarDebugSettings.defaultTrafficLightsXOffset
+    @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightsYOffsetKey) private var trafficLightsYOffset = MinimalModeTitlebarDebugSettings.defaultTrafficLightsYOffset
     @State private var sidebarWidth: CGFloat = 200
     @State private var hoveredResizerHandles: Set<SidebarResizerHandle> = []
     @State private var isResizerDragging = false
@@ -2245,6 +2251,35 @@ struct ContentView: View {
         (TitlebarControlsStyle(rawValue: titlebarControlsStyleRawValue) ?? .classic).config
     }
 
+    private var titlebarDebugChromeSnapshot: MinimalModeTitlebarDebugSnapshot {
+        MinimalModeTitlebarDebugSnapshot(
+            leftControlsLeadingInset: MinimalModeTitlebarDebugSettings.clamped(
+                leftTitlebarControlsLeadingInset,
+                range: MinimalModeTitlebarDebugSettings.horizontalInsetRange
+            ),
+            leftControlsTopInset: MinimalModeTitlebarDebugSettings.clamped(
+                leftTitlebarControlsTopInset,
+                range: MinimalModeTitlebarDebugSettings.topInsetRange
+            ),
+            rightToggleTrailingInset: MinimalModeTitlebarDebugSettings.clamped(
+                rightTitlebarToggleTrailingInset,
+                range: MinimalModeTitlebarDebugSettings.horizontalInsetRange
+            ),
+            rightToggleTopInset: MinimalModeTitlebarDebugSettings.clamped(
+                rightTitlebarToggleTopInset,
+                range: MinimalModeTitlebarDebugSettings.topInsetRange
+            ),
+            trafficLightsXOffset: MinimalModeTitlebarDebugSettings.clamped(
+                trafficLightsXOffset,
+                range: MinimalModeTitlebarDebugSettings.trafficLightOffsetRange
+            ),
+            trafficLightsYOffset: MinimalModeTitlebarDebugSettings.clamped(
+                trafficLightsYOffset,
+                range: MinimalModeTitlebarDebugSettings.trafficLightYOffsetRange
+            )
+        )
+    }
+
     private var rightSidebarTitlebarToggle: some View {
         let config = titlebarControlsConfig
         return TitlebarControlButton(
@@ -2333,8 +2368,17 @@ struct ContentView: View {
     }
 
     private func syncTrafficLightInset() {
-        let inset: CGFloat = (isMinimalMode && !sidebarState.isVisible && !isFullScreen) ? 80 : 0
+        let inset: CGFloat = (isMinimalMode && !sidebarState.isVisible && !isFullScreen)
+            ? MinimalModeTitlebarDebugSettings.trafficLightTabBarLeadingInset()
+            : 0
         tabManager.syncWorkspaceTabBarLeadingInset(inset)
+    }
+
+    private func applyTitlebarDebugChromeChange() {
+        if let observedWindow {
+            AppDelegate.shared?.applyWindowDecorations(to: observedWindow)
+        }
+        syncTrafficLightInset()
     }
 
     private func schedulePortalGeometrySynchronize() {
@@ -2641,8 +2685,24 @@ struct ContentView: View {
                 }
                 .overlay(alignment: .topTrailing) {
                     rightSidebarTitlebarToggle
-                        .padding(.top, MinimalModeSidebarTitlebarControlsMetrics.topInset)
-                        .padding(.trailing, MinimalModeSidebarTitlebarControlsMetrics.trailingInset)
+                        .padding(
+                            .top,
+                            CGFloat(
+                                MinimalModeTitlebarDebugSettings.clamped(
+                                    rightTitlebarToggleTopInset,
+                                    range: MinimalModeTitlebarDebugSettings.topInsetRange
+                                )
+                            )
+                        )
+                        .padding(
+                            .trailing,
+                            CGFloat(
+                                MinimalModeTitlebarDebugSettings.clamped(
+                                    rightTitlebarToggleTrailingInset,
+                                    range: MinimalModeTitlebarDebugSettings.horizontalInsetRange
+                                )
+                            )
+                        )
                 }
                 .frame(minWidth: CGFloat(SessionPersistencePolicy.minimumWindowWidth), minHeight: CGFloat(SessionPersistencePolicy.minimumWindowHeight))
                 .background(Color.clear)
@@ -3182,6 +3242,10 @@ struct ContentView: View {
             schedulePortalGeometrySynchronize()
             updateSidebarResizerBandState()
             syncTrafficLightInset()
+        })
+
+        view = AnyView(view.onChange(of: titlebarDebugChromeSnapshot) { _, _ in
+            applyTitlebarDebugChromeChange()
         })
 
         view = AnyView(view.onChange(of: tabManager.tabs.map(\.id)) { _ in
@@ -9233,6 +9297,10 @@ struct VerticalTabsSidebar: View {
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
     @AppStorage("sidebarMatchTerminalBackground")
     private var sidebarMatchTerminalBackground = false
+    @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey)
+    private var leftTitlebarControlsLeadingInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset
+    @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey)
+    private var leftTitlebarControlsTopInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset
 
     private let tabRowSpacing: CGFloat = 2
     private var sidebarTitlebarInteractionHeight: CGFloat {
@@ -9502,8 +9570,24 @@ struct VerticalTabsSidebar: View {
                             },
                             onNewTab: onNewTab
                         )
-                            .padding(.leading, MinimalModeSidebarTitlebarControlsMetrics.leadingInset)
-                            .padding(.top, MinimalModeSidebarTitlebarControlsMetrics.topInset)
+                            .padding(
+                                .leading,
+                                CGFloat(
+                                    MinimalModeTitlebarDebugSettings.clamped(
+                                        leftTitlebarControlsLeadingInset,
+                                        range: MinimalModeTitlebarDebugSettings.horizontalInsetRange
+                                    )
+                                )
+                            )
+                            .padding(
+                                .top,
+                                CGFloat(
+                                    MinimalModeTitlebarDebugSettings.clamped(
+                                        leftTitlebarControlsTopInset,
+                                        range: MinimalModeTitlebarDebugSettings.topInsetRange
+                                    )
+                                )
+                            )
                     }
                 }
                 .background(Color.clear)
@@ -15006,7 +15090,7 @@ private struct TitlebarLeadingInsetReader: NSViewRepresentable {
         DispatchQueue.main.async {
             guard let window = nsView.window else { return }
             // Start past the traffic lights
-            var leading: CGFloat = 78
+            var leading = MinimalModeTitlebarDebugSettings.trafficLightTitlebarLeadingInset()
             // Add width of all left-aligned titlebar accessories
             for accessory in window.titlebarAccessoryViewControllers
                 where accessory.layoutAttribute == .leading || accessory.layoutAttribute == .left {

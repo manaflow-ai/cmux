@@ -1295,6 +1295,7 @@ private final class TitlebarShortcutHintModifierMonitor: ObservableObject {
 struct TitlebarControlsLayoutSnapshot: Equatable {
     let contentSize: NSSize
     let containerHeight: CGFloat
+    let xOffset: CGFloat
     let yOffset: CGFloat
 }
 
@@ -1322,6 +1323,7 @@ func titlebarControlsShouldApplyLayout(
     return abs(previous.contentSize.width - next.contentSize.width) > tolerance
         || abs(previous.contentSize.height - next.contentSize.height) > tolerance
         || abs(previous.containerHeight - next.containerHeight) > tolerance
+        || abs(previous.xOffset - next.xOffset) > tolerance
         || abs(previous.yOffset - next.yOffset) > tolerance
 }
 
@@ -1383,6 +1385,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             self?.applyWorkspaceTitlebarVisibility()
             if self?.showsWorkspaceTitlebar == true {
                 self?.restoreSizeAfterMinimalMode()
+                self?.scheduleSizeUpdate()
             }
         }
 
@@ -1460,10 +1463,14 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             } ?? contentSize.height
         }()
         let containerHeight = max(contentSize.height, titlebarHeight)
+        let debugSnapshot = MinimalModeTitlebarDebugSettings.snapshot()
+        let xOffset = CGFloat(debugSnapshot.leftControlsLeadingInset - MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset)
         let yOffset = max(0, (containerHeight - contentSize.height) / 2.0)
+            + CGFloat(MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset - debugSnapshot.leftControlsTopInset)
         let nextLayoutSnapshot = TitlebarControlsLayoutSnapshot(
             contentSize: contentSize,
             containerHeight: containerHeight,
+            xOffset: xOffset,
             yOffset: yOffset
         )
         guard titlebarControlsShouldApplyLayout(
@@ -1473,9 +1480,10 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             return
         }
         lastAppliedLayoutSnapshot = nextLayoutSnapshot
-        preferredContentSize = NSSize(width: contentSize.width, height: containerHeight)
-        containerView.frame = NSRect(x: 0, y: 0, width: contentSize.width, height: containerHeight)
-        hostingView.frame = NSRect(x: 0, y: yOffset, width: contentSize.width, height: contentSize.height)
+        let containerWidth = contentSize.width + abs(xOffset)
+        preferredContentSize = NSSize(width: containerWidth, height: containerHeight)
+        containerView.frame = NSRect(x: 0, y: 0, width: containerWidth, height: containerHeight)
+        hostingView.frame = NSRect(x: xOffset, y: yOffset, width: contentSize.width, height: contentSize.height)
     }
 
     private func applyWorkspaceTitlebarVisibility() {
