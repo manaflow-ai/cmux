@@ -2487,11 +2487,16 @@ struct ContentView: View {
                 fileExplorerStore.applyWorkspaceRoot(.none)
                 return
             }
+            let unavailableDetail = tab.remoteConnectionDetail ?? tab.remoteDaemonStatus.detail
 
             #if DEBUG
+            let hasUnavailableDetail = unavailableDetail?.isEmpty == false
             cmuxDebugLog(
                 "fileExplorer.sync remote state=\(tab.remoteConnectionState.rawValue) " +
-                "dest=\(config.destination) target=\(config.displayTarget)"
+                "hasDestination=\(config.destination.isEmpty ? 0 : 1) " +
+                "hasDisplayTarget=\(config.displayTarget.isEmpty ? 0 : 1) " +
+                "hasIdentityFile=\(config.identityFile == nil ? 0 : 1) " +
+                "hasDetail=\(hasUnavailableDetail ? 1 : 0)"
             )
             #endif
 
@@ -2506,7 +2511,7 @@ struct ContentView: View {
                     ),
                     displayTarget: config.displayTarget,
                     isAvailable: tab.remoteConnectionState == .connected,
-                    unavailableDetail: tab.remoteConnectionDetail ?? tab.remoteDaemonStatus.detail
+                    unavailableDetail: unavailableDetail
                 )
             )
             return

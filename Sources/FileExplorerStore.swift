@@ -432,7 +432,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
     }
 
     // Keeps the child process reachable from the cancellation handler while
-    // the blocking wait runs on a detached thread.
+    // the blocking wait runs off Swift's cooperative executor.
     private final class SSHCommandProcess: @unchecked Sendable {
         private let process = Process()
         private let outPipe = Pipe()
@@ -490,9 +490,11 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
     private static func runSSHCommand(connection: SSHFileExplorerConnection, command: String) async throws -> String {
         let commandProcess = SSHCommandProcess(connection: connection, command: command)
         let result = try await withTaskCancellationHandler {
-            try await Task.detached(priority: .userInitiated) {
-                try commandProcess.run()
-            }.value
+            try await withCheckedThrowingContinuation { continuation in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    continuation.resume(with: Result { try commandProcess.run() })
+                }
+            }
         } onCancel: {
             commandProcess.terminate()
         }
