@@ -19092,7 +19092,9 @@ async fn compatibility_browser_get_title_v2(
         .await
         .map_err(|error| error.to_string())?;
     let workspace_ref = ctx.workspace.external_id.clone();
+    let surface_id = compat_tab_id_from_tab(&ctx.tab);
     let surface_ref = compat_tab_ref_from_tab(&ctx.tab);
+    let tab_ref = compat_tab_handle_ref_from_tab(&ctx.tab);
     let title = browser
         .title
         .or_else(|| Some(ctx.tab.title.load_full().as_ref().clone()))
@@ -19101,8 +19103,10 @@ async fn compatibility_browser_get_title_v2(
         "workspace_id": workspace_ref,
         "workspace_ref": workspace_ref,
         "numericWorkspaceId": ctx.workspace.id,
-        "surface_id": surface_ref,
+        "surface_id": surface_id,
         "surface_ref": surface_ref,
+        "tab_id": surface_id,
+        "tab_ref": tab_ref,
         "numericId": tab_id,
         "numericTabId": tab_id,
         "title": title,
@@ -19524,7 +19528,9 @@ fn compatibility_browser_worker_params(
     window_ref: Option<&str>,
 ) -> serde_json::Map<String, serde_json::Value> {
     let tab_id = ctx.tab.id;
+    let surface_id = compat_tab_id_from_tab(&ctx.tab);
     let surface_ref = compat_tab_ref_from_tab(&ctx.tab);
+    let tab_ref = compat_tab_handle_ref_from_tab(&ctx.tab);
     let workspace_ref = ctx.workspace.external_id.clone();
     let mut worker_params = params.as_object().cloned().unwrap_or_default();
     if let Some(window_ref) = window_ref {
@@ -19551,13 +19557,14 @@ fn compatibility_browser_worker_params(
     );
     worker_params.insert(
         "surface_id".to_string(),
-        serde_json::Value::String(surface_ref.clone()),
+        serde_json::Value::String(surface_id.clone()),
     );
     worker_params.insert(
         "surface_ref".to_string(),
         serde_json::Value::String(surface_ref.clone()),
     );
-    worker_params.insert("tab_id".to_string(), serde_json::Value::String(surface_ref));
+    worker_params.insert("tab_id".to_string(), serde_json::Value::String(surface_id));
+    worker_params.insert("tab_ref".to_string(), serde_json::Value::String(tab_ref));
     worker_params.insert("numericId".to_string(), serde_json::json!(tab_id));
     worker_params.insert("numericTabId".to_string(), serde_json::json!(tab_id));
     worker_params.insert(
@@ -23182,7 +23189,9 @@ fn compatibility_apply_browser_context_to_result(
         return;
     };
     let workspace_ref = ctx.workspace.external_id.clone();
+    let surface_id = compat_tab_id_from_tab(&ctx.tab);
     let surface_ref = compat_tab_ref_from_tab(&ctx.tab);
+    let tab_ref = compat_tab_handle_ref_from_tab(&ctx.tab);
     object.insert(
         "workspace_id".to_string(),
         serde_json::Value::String(workspace_ref.clone()),
@@ -23197,12 +23206,14 @@ fn compatibility_apply_browser_context_to_result(
     );
     object.insert(
         "surface_id".to_string(),
-        serde_json::Value::String(surface_ref.clone()),
+        serde_json::Value::String(surface_id.clone()),
     );
     object.insert(
         "surface_ref".to_string(),
         serde_json::Value::String(surface_ref),
     );
+    object.insert("tab_id".to_string(), serde_json::Value::String(surface_id));
+    object.insert("tab_ref".to_string(), serde_json::Value::String(tab_ref));
     object.insert("numericId".to_string(), serde_json::json!(ctx.tab.id));
     object.insert("numericTabId".to_string(), serde_json::json!(ctx.tab.id));
 }
