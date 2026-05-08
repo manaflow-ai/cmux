@@ -3884,7 +3884,7 @@ enum BrowserWindowPortalRegistry {
     static func scheduleExternalGeometrySynchronize(for window: NSWindow) {
         portalsByWindowId[ObjectIdentifier(window)]?.scheduleExternalGeometrySynchronize()
     }
-    static func synchronizeExternalGeometryNow(for window: NSWindow) { portalsByWindowId[ObjectIdentifier(window)]?.synchronizeAllEntriesFromExternalGeometryChange() }
+
     static func scheduleExternalGeometrySynchronizeForAllWindows() {
         for portal in portalsByWindowId.values {
             portal.scheduleExternalGeometrySynchronize()

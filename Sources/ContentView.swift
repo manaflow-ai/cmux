@@ -2423,26 +2423,16 @@ struct ContentView: View {
         syncTrafficLightInset()
     }
 
-    private func synchronizePortalGeometry(immediately: Bool = false) {
+    private func synchronizePortalGeometry() {
         if let observedWindow {
-            if immediately {
-                observedWindow.contentView?.superview?.layoutSubtreeIfNeeded()
-                observedWindow.contentView?.layoutSubtreeIfNeeded()
-                TerminalWindowPortalRegistry.synchronizeExternalGeometryNow(for: observedWindow)
-                BrowserWindowPortalRegistry.synchronizeExternalGeometryNow(for: observedWindow)
-            } else {
-                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: observedWindow)
-                BrowserWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: observedWindow)
-            }
+            TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: observedWindow)
+            BrowserWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: observedWindow)
         } else {
             TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
             BrowserWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
         }
     }
 
-    private func synchronizeSidebarPortalGeometry() {
-        synchronizePortalGeometry()
-    }
     private func refreshWindowChromeMetrics(for window: NSWindow) {
         // Keep native measurements around for minimal WindowGroup safe-area cancellation.
         // Standard mode uses cmux's visual chrome height for layout.
@@ -3272,7 +3262,7 @@ struct ContentView: View {
             syncTrafficLightInset()
         })
         view = AnyView(view.onChange(of: sidebarState.portalGeometrySyncRevision) { _, _ in
-            synchronizeSidebarPortalGeometry()
+            synchronizePortalGeometry()
         })
         view = AnyView(view.onChange(of: fileExplorerState.isVisible) { _, isVisible in
             if !isVisible {
@@ -3280,7 +3270,7 @@ struct ContentView: View {
             }
         })
         view = AnyView(view.onChange(of: fileExplorerState.portalGeometrySyncRevision) { _, _ in
-            synchronizeSidebarPortalGeometry()
+            synchronizePortalGeometry()
         })
         view = AnyView(view.onChange(of: sidebarMatchTerminalBackground) { _ in
             tabManager.applyWindowBackdropModeForAllTabs(reason: "sidebarMatchTerminalBackgroundChanged")
