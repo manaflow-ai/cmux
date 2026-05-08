@@ -108,7 +108,6 @@ private actor FileSearchOutputPipeline {
     private let rootPath: String
     private let maxResults: Int
     private let snapshotInterval: TimeInterval
-    private var stdoutBuffer = Data()
     private var stderrBuffer = Data()
     private var results: [FileSearchResult] = []
     private var lastSnapshotEmissionDate = Date.distantPast
@@ -118,44 +117,6 @@ private actor FileSearchOutputPipeline {
         self.rootPath = rootPath
         self.maxResults = maxResults
         self.snapshotInterval = snapshotInterval
-    }
-
-    func consumeStdout(_ data: Data) -> FileSearchPipelineUpdate? {
-        guard !isFinished else { return nil }
-        stdoutBuffer.append(data)
-        var didAppendResult = false
-
-        while let newlineIndex = stdoutBuffer.firstIndex(of: 10) {
-            let lineData = stdoutBuffer[..<newlineIndex]
-            stdoutBuffer.removeSubrange(...newlineIndex)
-            guard let line = String(data: lineData, encoding: .utf8),
-                  let result = FileSearchRipgrepParser.parseMatchLine(line, rootPath: rootPath) else {
-                continue
-            }
-            results.append(result)
-            didAppendResult = true
-            if results.count >= maxResults {
-                return FileSearchPipelineUpdate(
-                    results: results,
-                    status: .limited(maxResults),
-                    isSearching: false,
-                    shouldStopProcess: true
-                )
-            }
-        }
-
-        guard didAppendResult else { return nil }
-        let now = Date()
-        guard now.timeIntervalSince(lastSnapshotEmissionDate) >= snapshotInterval else {
-            return nil
-        }
-        lastSnapshotEmissionDate = now
-        return FileSearchPipelineUpdate(
-            results: results,
-            status: .searching,
-            isSearching: true,
-            shouldStopProcess: false
-        )
     }
 
     func consumeStdoutLine(_ line: String) -> FileSearchPipelineUpdate? {
