@@ -3711,7 +3711,8 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             window.displayIfNeeded()
         }
 
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        drainMainQueue()
+        drainMainQueue()
 
         let shiftedAnchorFrameInWindow = anchor.convert(anchor.bounds, to: nil)
         XCTAssertGreaterThan(
@@ -3907,6 +3908,101 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             accuracy: 0.5,
             "Interactive sidebar resizes should not land a second delayed terminal resize on the next queue turn"
         )
+    }
+
+    func testHiddenPortalEntrySkipsGhosttyRefreshDuringGeometrySync() throws {
+#if DEBUG
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 760, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let visibleContainer = NSView(frame: NSRect(x: 40, y: 60, width: 300, height: 180))
+        let hiddenContainer = NSView(frame: NSRect(x: 40, y: 60, width: 300, height: 180))
+        contentView.addSubview(visibleContainer)
+        contentView.addSubview(hiddenContainer)
+
+        let visibleAnchor = NSView(frame: visibleContainer.bounds)
+        visibleAnchor.autoresizingMask = [.width, .height]
+        visibleContainer.addSubview(visibleAnchor)
+
+        let hiddenAnchor = NSView(frame: hiddenContainer.bounds)
+        hiddenAnchor.autoresizingMask = [.width, .height]
+        hiddenContainer.addSubview(hiddenAnchor)
+
+        let visibleSurface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hiddenSurface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+
+        TerminalWindowPortalRegistry.bind(
+            hostedView: visibleSurface.hostedView,
+            to: visibleAnchor,
+            visibleInUI: true,
+            expectedSurfaceId: visibleSurface.id,
+            expectedGeneration: visibleSurface.portalBindingGeneration()
+        )
+        TerminalWindowPortalRegistry.bind(
+            hostedView: hiddenSurface.hostedView,
+            to: hiddenAnchor,
+            visibleInUI: false,
+            expectedSurfaceId: hiddenSurface.id,
+            expectedGeneration: hiddenSurface.portalBindingGeneration()
+        )
+        TerminalWindowPortalRegistry.synchronizeForAnchor(visibleAnchor)
+        TerminalWindowPortalRegistry.synchronizeForAnchor(hiddenAnchor)
+        realizeWindowLayout(window)
+
+        let originalHiddenFrame = hiddenSurface.hostedView.frame
+        visibleSurface.resetDebugForceRefreshCount()
+        hiddenSurface.resetDebugForceRefreshCount()
+
+        visibleContainer.frame.size.width += 80
+        hiddenContainer.frame.size.width += 80
+        visibleAnchor.frame.size.width += 80
+        visibleAnchor.bounds.size.width += 80
+        hiddenAnchor.frame.size.width += 80
+        hiddenAnchor.bounds.size.width += 80
+        TerminalWindowPortalRegistry.synchronizeForAnchor(visibleAnchor)
+        TerminalWindowPortalRegistry.synchronizeForAnchor(hiddenAnchor)
+
+        XCTAssertGreaterThan(
+            visibleSurface.debugForceRefreshCount(),
+            0,
+            "Visible portal entries should refresh Ghostty when geometry changes"
+        )
+        XCTAssertEqual(
+            hiddenSurface.debugForceRefreshCount(),
+            0,
+            "Hidden portal entries should keep AppKit frame bookkeeping without forcing Ghostty redraws"
+        )
+        XCTAssertGreaterThan(
+            hiddenSurface.hostedView.frame.width,
+            originalHiddenFrame.width + 1,
+            "Hidden portal entries should still track their latest target frame for later reveal"
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
     }
 
     func testWindowScopedExternalGeometrySyncDoesNotRefreshOtherWindows() {
