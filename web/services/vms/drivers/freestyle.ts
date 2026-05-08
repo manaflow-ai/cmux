@@ -46,6 +46,7 @@ const CREATE_TIMEOUT_MS = 15 * 60 * 1000;
 const SNAPSHOT_TIMEOUT_MS = 15 * 60 * 1000;
 const EXEC_OVERHEAD_TIMEOUT_MS = 15_000;
 const MAX_EXEC_TIMEOUT_MS = 15 * 60 * 1000;
+const FREESTYLE_ACTIVE_STATES = new Set(["starting", "running", "suspending"]);
 
 function client(timeoutMs = DEFAULT_TIMEOUT_MS): Freestyle {
   const longFetch: typeof fetch = (input, init) =>
@@ -78,6 +79,34 @@ function mapStatus(state: string | null | undefined): VMStatus {
 
 export class FreestyleProvider implements VMProvider {
   readonly id = "freestyle" as const;
+
+  async listActiveVmIds(): Promise<readonly string[]> {
+    return withVmSpan(
+      "cmux.vm.provider.list_active",
+      {
+        "cmux.vm.provider": "freestyle",
+        "cmux.vm.operation": "list_active",
+        "cmux.timeout_ms": DEFAULT_TIMEOUT_MS,
+      },
+      async (span) => {
+        try {
+          const result = await client().vms.list();
+          const active = result.vms
+            .filter((vm) => !vm.deleted && FREESTYLE_ACTIVE_STATES.has(vm.state))
+            .map((vm) => vm.id);
+          setSpanAttributes(span, {
+            "cmux.vm.provider.active_count": active.length,
+            "cmux.vm.provider.total_count": result.totalCount,
+            "cmux.vm.provider.running_count": result.runningCount,
+            "cmux.vm.provider.starting_count": result.startingCount,
+          });
+          return active;
+        } catch (err) {
+          throw new ProviderError("freestyle", "listActiveVmIds", err);
+        }
+      },
+    );
+  }
 
   async create(options: CreateOptions): Promise<VMHandle> {
     const image = options.image.trim();

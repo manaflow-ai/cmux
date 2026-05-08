@@ -48,6 +48,7 @@ const { DELETE } = await import("../app/api/vm/[id]/route");
 const attachRoute = await import("../app/api/vm/[id]/attach-endpoint/route");
 const execRoute = await import("../app/api/vm/[id]/exec/route");
 const sshRoute = await import("../app/api/vm/[id]/ssh-endpoint/route");
+const { VmLimitExceededError } = await import("../services/vms/errors");
 
 beforeEach(() => {
   restoreVmEnv();
@@ -112,6 +113,10 @@ describe("VM REST auth", () => {
   });
 
   test("authenticated provisioning runs the Effect VM workflow", async () => {
+    const listTeams = mock(async () => [{
+      id: "team-1",
+      clientReadOnlyMetadata: { cmuxVmPlan: "pro" },
+    }]);
     getUser.mockResolvedValue({
       id: "user-1",
       displayName: null,
@@ -120,10 +125,7 @@ describe("VM REST auth", () => {
         id: "team-1",
         clientReadOnlyMetadata: { cmuxVmPlan: "pro" },
       },
-      listTeams: async () => [{
-        id: "team-1",
-        clientReadOnlyMetadata: { cmuxVmPlan: "pro" },
-      }],
+      listTeams,
     });
     runVmWorkflow.mockResolvedValue({
       providerVmId: "provider-vm-1",
@@ -158,6 +160,7 @@ describe("VM REST auth", () => {
       imageVersion: null,
       idempotencyKey: "idem-1",
     });
+    expect(listTeams).not.toHaveBeenCalled();
     expect(runVmWorkflow).toHaveBeenCalled();
   });
 
@@ -189,6 +192,16 @@ describe("VM REST auth", () => {
   });
 
   test("uses the native client's requested Stack team for billing", async () => {
+    const listTeams = mock(async () => [
+      {
+        id: "team-1",
+        clientReadOnlyMetadata: { cmuxVmPlan: "pro" },
+      },
+      {
+        id: "team-2",
+        clientReadOnlyMetadata: { cmuxVmPlan: "free" },
+      },
+    ]);
     getUser.mockResolvedValue({
       id: "user-1",
       displayName: null,
@@ -197,16 +210,7 @@ describe("VM REST auth", () => {
         id: "team-1",
         clientReadOnlyMetadata: { cmuxVmPlan: "pro" },
       },
-      listTeams: async () => [
-        {
-          id: "team-1",
-          clientReadOnlyMetadata: { cmuxVmPlan: "pro" },
-        },
-        {
-          id: "team-2",
-          clientReadOnlyMetadata: { cmuxVmPlan: "free" },
-        },
-      ],
+      listTeams,
     });
     runVmWorkflow.mockResolvedValue({
       providerVmId: "provider-vm-team-2",
@@ -235,6 +239,94 @@ describe("VM REST auth", () => {
       billingPlanId: "free",
       maxActiveVms: 1,
     }));
+    expect(listTeams).toHaveBeenCalledTimes(1);
+  });
+
+  test("validates requested Stack team from body before using it for billing", async () => {
+    const listTeams = mock(async () => [
+      {
+        id: "team-1",
+        clientReadOnlyMetadata: { cmuxVmPlan: "pro" },
+      },
+      {
+        id: "team-2",
+        clientReadOnlyMetadata: { cmuxVmPlan: "free" },
+      },
+    ]);
+    getUser.mockResolvedValue({
+      id: "user-1",
+      displayName: null,
+      primaryEmail: "user@example.com",
+      selectedTeam: {
+        id: "team-1",
+        clientReadOnlyMetadata: { cmuxVmPlan: "pro" },
+      },
+      listTeams,
+    });
+    runVmWorkflow.mockResolvedValue({
+      providerVmId: "provider-vm-team-2",
+      provider: "freestyle",
+      image: "snapshot-test",
+      imageVersion: null,
+      createdAt: 1_777_000_000_000,
+    });
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test", billingTeamId: "team-2" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
+      billingCustomerType: "team",
+      billingTeamId: "team-2",
+      billingPlanId: "free",
+    }));
+    expect(listTeams).toHaveBeenCalledTimes(1);
+  });
+
+  test("maps active VM limit failures to 402", async () => {
+    getUser.mockResolvedValue({
+      id: "user-1",
+      displayName: null,
+      primaryEmail: "user@example.com",
+      selectedTeam: {
+        id: "team-1",
+        clientReadOnlyMetadata: { cmuxVmPlan: "free" },
+      },
+      listTeams: async () => [{
+        id: "team-1",
+        clientReadOnlyMetadata: { cmuxVmPlan: "free" },
+      }],
+    });
+    runVmWorkflow.mockResolvedValue(Promise.reject(
+      new VmLimitExceededError({
+        kind: "active_vms",
+        billingTeamId: "team-1",
+        limit: 5,
+      }),
+    ));
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test" }),
+      }),
+    );
+
+    expect(response.status).toBe(402);
+    expect(await response.json()).toMatchObject({
+      error: "vm_active_limit_exceeded",
+      limit: 5,
+      billingTeamId: "team-1",
+    });
   });
 
   test("rejects a requested Stack team the caller does not belong to", async () => {
@@ -254,6 +346,41 @@ describe("VM REST auth", () => {
 
     expect(response.status).toBe(403);
     expect(await response.json()).toMatchObject({ error: "vm_billing_team_not_found" });
+    expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
+  test("rejects a body-requested Stack team the caller does not belong to", async () => {
+    const listTeams = mock(async () => [
+      {
+        id: "team-1",
+        clientReadOnlyMetadata: { cmuxVmPlan: "pro" },
+      },
+    ]);
+    getUser.mockResolvedValue({
+      id: "user-1",
+      displayName: null,
+      primaryEmail: "user@example.com",
+      selectedTeam: {
+        id: "team-1",
+        clientReadOnlyMetadata: { cmuxVmPlan: "pro" },
+      },
+      listTeams,
+    });
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test", billingTeamId: "team-other" }),
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({ error: "vm_billing_team_not_found" });
+    expect(listTeams).toHaveBeenCalledTimes(1);
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 

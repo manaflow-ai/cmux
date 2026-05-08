@@ -18,6 +18,11 @@ export type AuthedTeam = {
   billingPlanId: string | null;
 };
 
+export type VerifyRequestOptions = {
+  readonly requestedBillingTeamId?: string | null;
+  readonly includeTeams?: "auto" | "all" | "selected";
+};
+
 /**
  * Verify the caller's Stack Auth session. Accepts either a cookie (browser path) or a
  * `Authorization: Bearer <access>` + `X-Stack-Refresh-Token: <refresh>` pair from the
@@ -25,7 +30,10 @@ export type AuthedTeam = {
  *
  * Returns the resolved user or null if unauthenticated.
  */
-export async function verifyRequest(request: Request): Promise<AuthedUser | null> {
+export async function verifyRequest(
+  request: Request,
+  options: VerifyRequestOptions = {},
+): Promise<AuthedUser | null> {
   if (!isStackConfigured()) {
     return null;
   }
@@ -42,7 +50,7 @@ export async function verifyRequest(request: Request): Promise<AuthedUser | null
         tokenStore: { accessToken, refreshToken },
       });
       if (user) {
-        return await authedUserFromStackUser(user);
+        return await authedUserFromStackUser(user, options);
       }
     }
   }
@@ -50,14 +58,22 @@ export async function verifyRequest(request: Request): Promise<AuthedUser | null
   // Fall back to the Next.js cookie flow (when browser hits the route).
   const user = await stackServerApp.getUser({ tokenStore: request as unknown as { headers: { get(name: string): string | null } } });
   if (user) {
-    return await authedUserFromStackUser(user);
+    return await authedUserFromStackUser(user, options);
   }
   return null;
 }
 
-async function authedUserFromStackUser(user: StackUserLike): Promise<AuthedUser> {
+async function authedUserFromStackUser(
+  user: StackUserLike,
+  options: VerifyRequestOptions,
+): Promise<AuthedUser> {
   const selectedTeam = teamLike(user.selectedTeam);
-  const listedTeams = typeof user.listTeams === "function"
+  const requestedTeamId = normalizedOptionalString(options.requestedBillingTeamId);
+  const includeTeams = options.includeTeams ?? "auto";
+  const shouldListTeams = typeof user.listTeams === "function" &&
+    (includeTeams === "all" ||
+      (includeTeams === "auto" && (!selectedTeam || (requestedTeamId && selectedTeam.id !== requestedTeamId))));
+  const listedTeams = shouldListTeams && typeof user.listTeams === "function"
     ? (await user.listTeams()).map(teamLike).filter((team): team is TeamLike => !!team)
     : [];
   const teamIds = uniqueStrings([
@@ -115,6 +131,11 @@ function planIdFromMetadata(metadata: unknown): string | null {
   const value = (metadata as { cmuxVmPlan?: unknown; cmuxPlan?: unknown }).cmuxVmPlan ??
     (metadata as { cmuxPlan?: unknown }).cmuxPlan;
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function normalizedOptionalString(value: string | null | undefined): string | null {
+  const normalized = value?.trim();
+  return normalized ? normalized : null;
 }
 
 function uniqueStrings(values: readonly (string | undefined)[]): readonly string[] {

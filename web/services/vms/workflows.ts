@@ -77,7 +77,10 @@ export function createVm(input: {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const billing = yield* VmBillingGateway;
-    const create = yield* repo.beginCreate(input);
+    const liveActiveProviderVmIds = input.provider === "freestyle" && providers.listActiveVmIds
+      ? yield* providers.listActiveVmIds(input.provider)
+      : null;
+    const create = yield* repo.beginCreate({ ...input, liveActiveProviderVmIds });
 
     if (!create.inserted) {
       const existing = create.vm;
@@ -154,24 +157,24 @@ export function createVm(input: {
       ),
     );
 
-    yield* recordCreditEvent(repo, create.vm, "vm.create.credit.reserved", creditReservation)
-      .pipe(Effect.catchAll(() => Effect.void));
+    const preProviderAudit = Effect.all([
+      recordCreditEvent(repo, create.vm, "vm.create.credit.reserved", creditReservation),
+      repo.recordUsageEvent({
+        userId: input.userId,
+        billingTeamId: input.billingTeamId,
+        billingPlanId: input.billingPlanId,
+        vmId: create.vm.id,
+        eventType: "vm.create.requested",
+        provider: input.provider,
+        imageId: input.image,
+        metadata: {
+          idempotencyKeySet: !!input.idempotencyKey,
+          imageVersion: input.imageVersion ?? null,
+        },
+      }),
+    ], { discard: true, concurrency: 2 }).pipe(Effect.catchAll(() => Effect.void));
 
-    yield* repo.recordUsageEvent({
-      userId: input.userId,
-      billingTeamId: input.billingTeamId,
-      billingPlanId: input.billingPlanId,
-      vmId: create.vm.id,
-      eventType: "vm.create.requested",
-      provider: input.provider,
-      imageId: input.image,
-      metadata: {
-        idempotencyKeySet: !!input.idempotencyKey,
-        imageVersion: input.imageVersion ?? null,
-      },
-    }).pipe(Effect.catchAll(() => Effect.void));
-
-    const handle = yield* providers.create(input.provider, { image: input.image }).pipe(
+    const providerCreate = providers.create(input.provider, { image: input.image }).pipe(
       Effect.tapError((err) =>
         Effect.all([
           refundCredit(billing, repo, create.vm, creditReservation),
@@ -193,6 +196,7 @@ export function createVm(input: {
         ], { discard: true }).pipe(Effect.catchAll(() => Effect.void))
       ),
     );
+    const [handle] = yield* Effect.all([providerCreate, preProviderAudit], { concurrency: 2 });
 
     const running = yield* repo
       .markCreateRunning({

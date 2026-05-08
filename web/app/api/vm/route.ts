@@ -76,6 +76,9 @@ export async function GET(request: Request): Promise<Response> {
       }));
       return jsonResponse({ vms });
     },
+    () => ({
+      requestedBillingTeamId: requestedVmTeamIdFromRequest(request),
+    }),
   );
 }
 
@@ -252,5 +255,29 @@ export async function POST(request: Request): Promise<Response> {
         createdAt: created.createdAt,
       });
     },
+    vmCreateAuthOptions,
   );
+}
+
+async function vmCreateAuthOptions(request: Request) {
+  return {
+    requestedBillingTeamId: requestedVmTeamIdFromRequest(request) ??
+      await requestedVmTeamIdFromBody(request),
+  };
+}
+
+async function requestedVmTeamIdFromBody(request: Request): Promise<string | null> {
+  try {
+    const rawText = await request.clone().text();
+    if (rawText.length === 0) return null;
+    const raw = JSON.parse(rawText);
+    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null;
+    const candidate = raw as Record<string, unknown>;
+    const bodyBillingTeamId = candidate.billingTeamId ?? candidate.teamId;
+    return typeof bodyBillingTeamId === "string" && bodyBillingTeamId.trim()
+      ? bodyBillingTeamId.trim()
+      : null;
+  } catch {
+    return null;
+  }
 }

@@ -14,6 +14,9 @@ import {
 import { VmProviderOperationError } from "./errors";
 
 export type VmProviderGatewayShape = {
+  readonly listActiveVmIds?: (
+    provider: ProviderId,
+  ) => Effect.Effect<readonly string[] | null, VmProviderOperationError>;
   readonly create: (provider: ProviderId, options: CreateOptions) => Effect.Effect<VMHandle, VmProviderOperationError>;
   readonly destroy: (provider: ProviderId, vmId: string) => Effect.Effect<void, VmProviderOperationError>;
   readonly exec: (
@@ -51,6 +54,11 @@ function providerEffect<A>(
 }
 
 export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
+  listActiveVmIds: (provider) =>
+    providerEffect(provider, "listActiveVmIds", () => {
+      const vmProvider = getProvider(provider);
+      return vmProvider.listActiveVmIds ? vmProvider.listActiveVmIds() : Promise.resolve(null);
+    }),
   create: (provider, options) =>
     providerEffect(provider, "create", () => getProvider(provider).create(options)),
   destroy: (provider, vmId) =>
