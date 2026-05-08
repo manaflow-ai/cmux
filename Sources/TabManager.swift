@@ -9,6 +9,25 @@ import Combine
 // The old Tab class is replaced by Workspace
 typealias Tab = Workspace
 
+private struct SidebarAgentTitleRegistration {
+    let statusKey: String
+    let processNameNeedles: [String]
+
+    static func detect(title: String) -> SidebarAgentTitleRegistration? {
+        let normalized = title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else { return nil }
+
+        if normalized.hasPrefix("codex-") {
+            return SidebarAgentTitleRegistration(
+                statusKey: "codex",
+                processNameNeedles: ["codex", "node"]
+            )
+        }
+
+        return nil
+    }
+}
+
 enum NewWorkspacePlacement: String, CaseIterable, Identifiable {
     case top
     case afterCurrent
@@ -922,6 +941,7 @@ class TabManager: ObservableObject {
     private nonisolated static let workspacePullRequestPollJitterFraction = 0.10
     private nonisolated static let workspacePullRequestProbeTimeout: TimeInterval = 5.0
     private nonisolated static let mergedPullRequestBadgeStaleAfter: TimeInterval = 14 * 24 * 60 * 60
+    private nonisolated static let agentPIDSweepInterval: TimeInterval = 2
     @Published var selectedTabId: UUID? {
         willSet {
 #if DEBUG
@@ -1116,12 +1136,12 @@ class TabManager: ObservableObject {
 
     // MARK: - Agent PID Sweep
 
-    /// Periodically checks agent PIDs associated with status entries.
-    /// If a process has exited (SIGKILL, crash, etc.), clears the stale status entry.
+    /// Periodically checks registered agent PIDs.
+    /// If a process has exited (SIGKILL, crash, etc.), clears the stale sidebar entry.
     /// This is the safety net for cases where no hook fires (e.g. SIGKILL).
     private func startAgentPIDSweepTimer() {
         let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
-        timer.schedule(deadline: .now() + 30, repeating: 30)
+        timer.schedule(deadline: .now() + Self.agentPIDSweepInterval, repeating: Self.agentPIDSweepInterval)
         timer.setEventHandler { [weak self] in
             guard let self else { return }
             DispatchQueue.main.async { [weak self] in
@@ -1815,11 +1835,7 @@ class TabManager: ObservableObject {
                     keysToRemove.append(key)
                     continue
                 }
-                // kill(pid, 0) probes process liveness without sending a signal.
-                // ESRCH = process doesn't exist (stale). EPERM = process exists
-                // but we lack permission (not stale, keep tracking).
-                errno = 0
-                if kill(pid, 0) == -1, POSIXErrorCode(rawValue: errno) == .ESRCH {
+                if !SidebarAgentProcessProbe.isProcessAlive(pid) {
                     keysToRemove.append(key)
                 }
             }
@@ -1835,6 +1851,8 @@ class TabManager: ObservableObject {
                 AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tab.id)
             }
         }
+
+        registerAgentPIDsFromTerminalTitlesIfNeeded()
     }
 
     private func gitProbeDirectory(for workspace: Workspace, panelId: UUID) -> String? {
@@ -5022,11 +5040,92 @@ class TabManager: ObservableObject {
     private func enqueuePanelTitleUpdate(tabId: UUID, panelId: UUID, title: String) {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        registerAgentPIDFromTerminalTitleIfNeeded(tabId: tabId, panelId: panelId, title: trimmed)
         let key = PanelTitleUpdateKey(tabId: tabId, panelId: panelId)
         pendingPanelTitleUpdates[key] = trimmed
         panelTitleUpdateCoalescer.signal { [weak self] in
             self?.flushPendingPanelTitleUpdates()
         }
+    }
+
+    private func registerAgentPIDsFromTerminalTitlesIfNeeded() {
+        let titleCandidates = tabs.flatMap { tab in
+            tab.panelTitles.compactMap { panelId, title -> (Workspace, UUID, String, SidebarAgentTitleRegistration)? in
+                guard tab.panels[panelId] != nil,
+                      let registration = SidebarAgentTitleRegistration.detect(title: title),
+                      tab.agentPIDs[registration.statusKey] == nil else {
+                    return nil
+                }
+                return (tab, panelId, title, registration)
+            }
+        }
+        guard !titleCandidates.isEmpty else { return }
+
+        let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
+        for (tab, panelId, _, registration) in titleCandidates {
+            registerAgentPID(
+                registration,
+                workspace: tab,
+                panelId: panelId,
+                processSnapshot: processSnapshot
+            )
+        }
+    }
+
+    private func registerAgentPIDFromTerminalTitleIfNeeded(tabId: UUID, panelId: UUID, title: String) {
+        guard let registration = SidebarAgentTitleRegistration.detect(title: title),
+              let tab = tabs.first(where: { $0.id == tabId }),
+              tab.panels[panelId] != nil,
+              tab.agentPIDs[registration.statusKey] == nil else {
+            return
+        }
+
+        let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
+        registerAgentPID(
+            registration,
+            workspace: tab,
+            panelId: panelId,
+            processSnapshot: processSnapshot
+        )
+    }
+
+    private func registerAgentPID(
+        _ registration: SidebarAgentTitleRegistration,
+        workspace: Workspace,
+        panelId: UUID,
+        processSnapshot: CmuxTopProcessSnapshot
+    ) {
+        var rootPIDs = processSnapshot.pids(forCMUXSurfaceID: panelId)
+        if let ttyName = workspace.surfaceTTYNames[panelId] {
+            rootPIDs.formUnion(processSnapshot.pids(forTTYName: ttyName))
+        }
+        guard !rootPIDs.isEmpty else { return }
+
+        let candidatePIDs = processSnapshot.expandedPIDs(rootPIDs: rootPIDs)
+        let matchedPID = candidatePIDs
+            .compactMap { pid -> (pid: Int, info: CmuxTopProcessInfo)? in
+                guard let info = processSnapshot.processInfo(for: pid) else { return nil }
+                return (pid, info)
+            }
+            .filter { candidate in
+                let haystack = ([candidate.info.name, candidate.info.path].compactMap { $0 })
+                    .joined(separator: " ")
+                    .lowercased()
+                return registration.processNameNeedles.contains { haystack.contains($0) }
+            }
+            .sorted { lhs, rhs in
+                if lhs.info.parentPID != rhs.info.parentPID {
+                    return rootPIDs.contains(lhs.info.parentPID) && !rootPIDs.contains(rhs.info.parentPID)
+                }
+                return lhs.pid < rhs.pid
+            }
+            .first?
+            .pid
+
+        guard let matchedPID, matchedPID > 0 else { return }
+        workspace.agentPIDs[registration.statusKey] = pid_t(matchedPID)
+        let remainingAgentPIDs = Set(workspace.agentPIDs.values.compactMap { $0 > 0 ? Int($0) : nil })
+        PortScanner.shared.refreshAgentPorts(workspaceId: workspace.id, agentPIDs: remainingAgentPIDs)
     }
 
     private func flushPendingPanelTitleUpdates() {

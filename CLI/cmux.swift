@@ -13929,12 +13929,13 @@ struct CMUXCLI {
                 )
             }
 
+            let status = claudeNotificationSidebarStatus(subtitle: summary.subtitle)
             _ = try? setClaudeStatus(
                 client: client,
                 workspaceId: workspaceId,
-                value: "Needs input",
-                icon: "bell.fill",
-                color: "#4C8DFF"
+                value: status.value,
+                icon: status.icon,
+                color: status.color
             )
             let response = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
             print(response)
@@ -15304,6 +15305,17 @@ struct CMUXCLI {
             return ("Attention", message)
         }
         return ("Attention", "Claude needs your attention")
+    }
+
+    private func claudeNotificationSidebarStatus(subtitle: String) -> (value: String, icon: String, color: String) {
+        switch subtitle.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "permission", "attention", "error":
+            return ("Needs input", "bell.fill", "#4C8DFF")
+        case "completed", "waiting":
+            return ("Idle", "pause.circle.fill", "#8E8E93")
+        default:
+            return ("Needs input", "bell.fill", "#4C8DFF")
+        }
     }
 
     private func firstString(in object: [String: Any], keys: [String]) -> String? {

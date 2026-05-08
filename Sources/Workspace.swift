@@ -83,6 +83,125 @@ enum SidebarMetadataFormat: String {
     case markdown
 }
 
+private enum SidebarAgentFallbackActivity {
+    case running
+    case needsInput
+
+    var value: String {
+        switch self {
+        case .running:
+            String(localized: "sidebar.agentStatus.running", defaultValue: "Running")
+        case .needsInput:
+            String(localized: "sidebar.agentStatus.needsInput", defaultValue: "Needs input")
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .running:
+            "bolt.fill"
+        case .needsInput:
+            "bell.fill"
+        }
+    }
+
+    var color: String {
+        switch self {
+        case .running, .needsInput:
+            "#4C8DFF"
+        }
+    }
+}
+
+nonisolated enum SidebarAgentProcessProbe {
+    private static let fallbackPriority = -100
+
+    static func isProcessAlive(_ pid: pid_t) -> Bool {
+        guard pid > 0 else { return false }
+        errno = 0
+        if kill(pid, 0) == 0 {
+            return true
+        }
+        return POSIXErrorCode(rawValue: errno) == .EPERM
+    }
+
+    static func effectiveStatusEntry(
+        key: String,
+        pid: pid_t,
+        explicitEntry: SidebarStatusEntry?
+    ) -> SidebarStatusEntry? {
+        guard isProcessAlive(pid) else { return nil }
+        let inferredActivity: SidebarAgentFallbackActivity = isLikelyBlockedOnTerminalRead(pid)
+            ? .needsInput
+            : .running
+
+        if let explicitEntry {
+            guard isRunningStatus(explicitEntry.value),
+                  inferredActivity == .needsInput else {
+                return explicitEntry
+            }
+            return entry(
+                key: key,
+                activity: inferredActivity,
+                priority: explicitEntry.priority,
+                timestamp: explicitEntry.timestamp,
+                url: explicitEntry.url
+            )
+        }
+
+        return entry(
+            key: key,
+            activity: inferredActivity,
+            priority: fallbackPriority,
+            timestamp: Date(timeIntervalSince1970: 0),
+            url: nil
+        )
+    }
+
+    private static func entry(
+        key: String,
+        activity: SidebarAgentFallbackActivity,
+        priority: Int,
+        timestamp: Date,
+        url: URL?
+    ) -> SidebarStatusEntry {
+        SidebarStatusEntry(
+            key: key,
+            value: activity.value,
+            icon: activity.icon,
+            color: activity.color,
+            url: url,
+            priority: priority,
+            format: .plain,
+            timestamp: timestamp
+        )
+    }
+
+    private static func isRunningStatus(_ value: String) -> Bool {
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized == "running"
+            || normalized == SidebarAgentFallbackActivity.running.value.lowercased()
+    }
+
+    private static func isLikelyBlockedOnTerminalRead(_ pid: pid_t) -> Bool {
+        guard let info = bsdInfo(for: pid),
+              Int32(info.pbi_status) == SSLEEP,
+              info.e_tdev > 0,
+              info.pbi_pgid > 0,
+              info.e_tpgid == info.pbi_pgid else {
+            return false
+        }
+        return true
+    }
+
+    private static func bsdInfo(for pid: pid_t) -> proc_bsdinfo? {
+        var info = proc_bsdinfo()
+        let expectedSize = MemoryLayout<proc_bsdinfo>.stride
+        let size = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, Int32(expectedSize))
+        return size == expectedSize ? info : nil
+    }
+}
+
 private struct SessionPaneRestoreEntry {
     let paneId: PaneID
     let snapshot: SessionPaneLayoutSnapshot
@@ -7259,9 +7378,9 @@ final class Workspace: Identifiable, ObservableObject {
     }()
     nonisolated(unsafe) static var runSSHControlMasterCommandOverrideForTesting: (([String]) -> Void)?
     private var panelShellActivityStates: [UUID: PanelShellActivityState] = [:]
-    /// PIDs associated with agent status entries (e.g. claude_code), keyed by status key.
-    /// Used for stale-session detection: if the PID is dead, the status entry is cleared.
-    var agentPIDs: [String: pid_t] = [:]
+    /// PIDs associated with agent sidebar entries (e.g. claude_code), keyed by status key.
+    /// Hooks, PTY-title discovery, and explicit socket registration all feed this map.
+    @Published var agentPIDs: [String: pid_t] = [:]
     private var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
 #if DEBUG
     private var debugSessionSnapshotScrollbackFallbackPanelIds: Set<UUID> = []
@@ -7306,6 +7425,7 @@ final class Workspace: Identifiable, ObservableObject {
                 .eraseToAnyPublisher(),
             sidebarObservationSignal($panelDirectories),
             sidebarObservationSignal($statusEntries),
+            sidebarObservationSignal($agentPIDs),
             sidebarObservationSignal($metadataBlocks),
             sidebarObservationSignal($logEntries),
             sidebarObservationSignal($progress),
@@ -8961,11 +9081,23 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func sidebarStatusEntriesInDisplayOrder() -> [SidebarStatusEntry] {
-        statusEntries.values.sorted { lhs, rhs in
+        sidebarStatusEntriesByKey().values.sorted { lhs, rhs in
             if lhs.priority != rhs.priority { return lhs.priority > rhs.priority }
             if lhs.timestamp != rhs.timestamp { return lhs.timestamp > rhs.timestamp }
             return lhs.key < rhs.key
         }
+    }
+
+    func sidebarStatusEntriesByKey() -> [String: SidebarStatusEntry] {
+        var entries = statusEntries
+        for (key, pid) in agentPIDs {
+            entries[key] = SidebarAgentProcessProbe.effectiveStatusEntry(
+                key: key,
+                pid: pid,
+                explicitEntry: entries[key]
+            )
+        }
+        return entries
     }
 
     func sidebarMetadataBlocksInDisplayOrder() -> [SidebarMetadataBlock] {

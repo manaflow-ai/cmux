@@ -3590,7 +3590,12 @@ class TerminalController {
         }
 
         for key in workspace.agentPIDs.keys.sorted() where !seenKeys.contains(key) {
-            let pid = workspace.agentPIDs[key].flatMap { $0 > 0 ? Int($0) : nil }
+            guard let rawPid = workspace.agentPIDs[key],
+                  rawPid > 0,
+                  SidebarAgentProcessProbe.isProcessAlive(rawPid) else {
+                continue
+            }
+            let pid = Int(rawPid)
             tags.append([
                 "kind": "tag",
                 "id": v2TopTagIdentifier(workspaceId: workspace.id, key: key),

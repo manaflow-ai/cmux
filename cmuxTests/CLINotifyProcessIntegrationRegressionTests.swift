@@ -176,4 +176,78 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testClaudeNotificationIdlePromptSetsIdleStatus() throws {
+        let state = try runClaudeNotificationHook(message: "idle_prompt")
+        XCTAssertTrue(
+            state.commands.contains { $0.contains("set_status claude_code Idle") },
+            "Expected idle_prompt notification to set Idle, saw \(state.commands)"
+        )
+        XCTAssertFalse(
+            state.commands.contains { $0.contains("set_status claude_code Needs input") },
+            "idle_prompt must not be routed as Needs input: \(state.commands)"
+        )
+    }
+
+    func testClaudeNotificationPermissionRequestSetsNeedsInputStatus() throws {
+        let state = try runClaudeNotificationHook(message: "permission_request")
+        XCTAssertTrue(
+            state.commands.contains { $0.contains("set_status claude_code Needs input") },
+            "Expected permission_request notification to set Needs input, saw \(state.commands)"
+        )
+    }
+
+    private func runClaudeNotificationHook(message: String) throws -> MockSocketServerState {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("claude-note")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-notification-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            if let payload = self.jsonObject(line) {
+                guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                    return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+                }
+                if method == "surface.list" {
+                    return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+                }
+                return self.v2Response(id: id, ok: true, result: [:])
+            }
+            return "OK"
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let hookInput = #"{"session_id":"claude-notification-session","cwd":"\#(root.path)","hook_event_name":"Notification","message":"\#(message)"}"#
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["claude-hook", "notification"],
+            environment: environment,
+            standardInput: hookInput,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK\n")
+        return state
+    }
+
 }
