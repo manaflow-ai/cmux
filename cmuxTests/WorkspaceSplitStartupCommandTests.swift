@@ -18,6 +18,131 @@ private func workspaceSplitNodes(in node: ExternalTreeNode) -> [ExternalSplitNod
 
 @MainActor
 final class WorkspaceSplitStartupCommandTests: XCTestCase {
+    func testNonXCTestStartupPlanKeepsConfiguredCommand() {
+        let plan = TerminalSurface.debugResolveStartupPlanForTesting(
+            configuredCommand: "  /bin/zsh  ",
+            baseWaitAfterCommand: false,
+            environment: [:],
+            runtimeXCTestDetected: false
+        )
+
+        XCTAssertEqual(plan.command, "/bin/zsh")
+        XCTAssertFalse(plan.usesManualIO)
+        XCTAssertFalse(plan.waitAfterCommand)
+    }
+
+    func testDefaultXCTestStartupPlanUsesManualIOWithoutCommand() {
+        let plan = TerminalSurface.debugResolveStartupPlanForTesting(
+            environment: ["XCTestConfigurationFilePath": "/tmp/cmux.xctest"],
+            runtimeXCTestDetected: false
+        )
+
+        XCTAssertNil(plan.command)
+        XCTAssertTrue(plan.usesManualIO)
+        XCTAssertTrue(plan.waitAfterCommand)
+    }
+
+    func testExplicitInitialCommandWinsUnderXCTest() {
+        let plan = TerminalSurface.debugResolveStartupPlanForTesting(
+            initialCommand: "  /tmp/cmux-command.sh  ",
+            configuredCommand: "/usr/bin/login",
+            environment: ["XCTestConfigurationFilePath": "/tmp/cmux.xctest"],
+            runtimeXCTestDetected: false
+        )
+
+        XCTAssertEqual(plan.command, "/tmp/cmux-command.sh")
+        XCTAssertFalse(plan.usesManualIO)
+        XCTAssertTrue(plan.waitAfterCommand)
+    }
+
+    func testXCTestStartupPlanOverridesConfiguredCommandByDefault() {
+        let plan = TerminalSurface.debugResolveStartupPlanForTesting(
+            configuredCommand: "  /usr/bin/login  ",
+            environment: ["XCTestConfigurationFilePath": "/tmp/cmux.xctest"],
+            runtimeXCTestDetected: false
+        )
+
+        XCTAssertEqual(plan.command, "/usr/bin/true")
+        XCTAssertFalse(plan.usesManualIO)
+        XCTAssertTrue(plan.waitAfterCommand)
+    }
+
+    func testXCTestTerminalCommandOverrideCanBeDisabledForCommandSpecificTests() {
+        let plan = TerminalSurface.debugResolveStartupPlanForTesting(
+            configuredCommand: "  /usr/bin/login  ",
+            environment: [
+                "XCTestConfigurationFilePath": "/tmp/cmux.xctest",
+                "CMUX_XCTEST_DISABLE_TERMINAL_COMMAND_OVERRIDE": "1",
+            ],
+            runtimeXCTestDetected: false
+        )
+
+        XCTAssertEqual(plan.command, "/usr/bin/login")
+        XCTAssertFalse(plan.usesManualIO)
+        XCTAssertFalse(plan.waitAfterCommand)
+    }
+
+    func testExplicitUITestModeDoesNotOverrideConfiguredCommand() {
+        let plan = TerminalSurface.debugResolveStartupPlanForTesting(
+            configuredCommand: "  /usr/bin/login  ",
+            environment: ["CMUX_UI_TEST_MODE": "1"],
+            runtimeXCTestDetected: false
+        )
+
+        XCTAssertEqual(plan.command, "/usr/bin/login")
+        XCTAssertFalse(plan.usesManualIO)
+        XCTAssertFalse(plan.waitAfterCommand)
+    }
+
+    func testExplicitUITestModeSuppressesXCTestStartupOverride() {
+        let plan = TerminalSurface.debugResolveStartupPlanForTesting(
+            configuredCommand: "  /usr/bin/login  ",
+            environment: [
+                "CMUX_UI_TEST_MODE": "1",
+                "XCTestConfigurationFilePath": "/tmp/cmux.xctest",
+            ],
+            runtimeXCTestDetected: false
+        )
+
+        XCTAssertEqual(plan.command, "/usr/bin/login")
+        XCTAssertFalse(plan.usesManualIO)
+        XCTAssertFalse(plan.waitAfterCommand)
+    }
+
+    func testExplicitUITestModeWithoutConfiguredCommandKeepsShellStartup() {
+        let plan = TerminalSurface.debugResolveStartupPlanForTesting(
+            environment: ["CMUX_UI_TEST_MODE": "1"],
+            runtimeXCTestDetected: false
+        )
+
+        XCTAssertNil(plan.command)
+        XCTAssertFalse(plan.usesManualIO)
+        XCTAssertFalse(plan.waitAfterCommand)
+    }
+
+    func testUnrelatedUITestFixtureFlagDoesNotOverrideConfiguredCommand() {
+        let plan = TerminalSurface.debugResolveStartupPlanForTesting(
+            configuredCommand: "  /usr/bin/login  ",
+            environment: ["CMUX_UI_TEST_FOCUS_SHORTCUTS": "1"],
+            runtimeXCTestDetected: false
+        )
+
+        XCTAssertEqual(plan.command, "/usr/bin/login")
+        XCTAssertFalse(plan.usesManualIO)
+        XCTAssertFalse(plan.waitAfterCommand)
+    }
+
+    func testRuntimeXCTestDetectorEnablesManualIOWithoutEnvironmentMarkers() {
+        let plan = TerminalSurface.debugResolveStartupPlanForTesting(
+            environment: [:],
+            runtimeXCTestDetected: true
+        )
+
+        XCTAssertNil(plan.command)
+        XCTAssertTrue(plan.usesManualIO)
+        XCTAssertTrue(plan.waitAfterCommand)
+    }
+
     func testTabManagerSplitCarriesRequestedWorkingDirectoryAndStartupCommand() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,

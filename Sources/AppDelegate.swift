@@ -13412,6 +13412,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 store.clearNotifications(forTabId: tab.id)
             }
         }
+        removed.tabManager.teardownForMainWindowClose()
+        forgetRecoverableMainWindowRoute(windowId: removed.windowId)
 
         if tabManager === removed.tabManager {
             // Repoint "active" pointers to any remaining main terminal window.

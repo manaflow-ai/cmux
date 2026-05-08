@@ -4129,6 +4129,25 @@ class TabManager: ObservableObject {
         }
     }
 
+    /// Tear down every workspace owned by this window before the window graph is
+    /// released. Relying on ARC alone can leave live Ghostty child processes in
+    /// long-running XCTest bundles while AppKit/SwiftUI still unwind views.
+    func teardownForMainWindowClose() {
+        let closingTabs = tabs
+        for workspace in closingTabs {
+            clearWorkspaceGitProbes(workspaceId: workspace.id)
+            clearWorkspacePullRequestTracking(workspaceId: workspace.id)
+            sidebarSelectedWorkspaceIds.remove(workspace.id)
+            AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
+            workspace.teardownAllPanels()
+            workspace.teardownRemoteConnection()
+            unwireClosedBrowserTracking(for: workspace)
+            workspace.owningTabManager = nil
+        }
+        tabs.removeAll(keepingCapacity: false)
+        selectedTabId = nil
+    }
+
     /// Detach a workspace from this window without closing its panels.
     /// Used by the socket API for cross-window moves.
     @discardableResult

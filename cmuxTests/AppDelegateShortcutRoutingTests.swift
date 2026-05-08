@@ -110,7 +110,62 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 KeyboardShortcutSettings.resetShortcut(for: action)
             }
         }
+        AppDelegate.shared?.debugRefreshConfiguredShortcutChordActionsForTesting()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         super.tearDown()
+    }
+
+    func testMainWindowCloseTearsDownOwnedWorkspacePanels() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        guard let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let initialPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected test window with an initial workspace panel")
+            closeWindow(withId: windowId)
+            return
+        }
+
+        XCTAssertFalse(workspace.panels.isEmpty)
+
+#if DEBUG
+        let runtimeSurfaceWasCreated = waitForRuntimeSurface(
+            id: initialPanelId,
+            windowId: windowId,
+            timeout: 3.0
+        )
+        let runtimeSurfaceFreed = runtimeSurfaceWasCreated
+            ? expectation(description: "Deferred Ghostty surface free should run for \(initialPanelId)")
+            : nil
+        var fulfilledRuntimeSurfaceFree = false
+        let previousRuntimeSurfaceFreeObserver = TerminalSurface.debugRuntimeSurfaceFreeObserver
+        TerminalSurface.debugRuntimeSurfaceFreeObserver = { surfaceId in
+            previousRuntimeSurfaceFreeObserver?(surfaceId)
+            guard surfaceId == initialPanelId, !fulfilledRuntimeSurfaceFree else { return }
+            fulfilledRuntimeSurfaceFree = true
+            runtimeSurfaceFreed?.fulfill()
+        }
+        defer {
+            TerminalSurface.debugRuntimeSurfaceFreeObserver = previousRuntimeSurfaceFreeObserver
+        }
+#endif
+
+        closeWindow(withId: windowId)
+
+        XCTAssertTrue(workspace.panels.isEmpty)
+        XCTAssertNil(TerminalSurfaceRegistry.shared.surface(id: initialPanelId)?.surface)
+        XCTAssertNil(appDelegate.recoverableMainWindowRoute(windowId: windowId))
+        XCTAssertNil(appDelegate.tabManagerFor(windowId: windowId))
+
+#if DEBUG
+        if let runtimeSurfaceFreed {
+            wait(for: [runtimeSurfaceFreed], timeout: 5.0)
+        }
+#endif
     }
 
     func testShortcutMonitorIgnoresSystemDefinedEvents() {
@@ -293,6 +348,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             fallbackPath: nil,
             startWatching: false
         )
+        appDelegate.debugRefreshConfiguredShortcutChordActionsForTesting()
 
         window.makeKeyAndOrderFront(nil)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
@@ -4672,6 +4728,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         defer { closeWindow(withId: windowId) }
 
         guard let window = window(withId: windowId),
+              let contentView = window.contentView,
               let manager = appDelegate.tabManagerFor(windowId: windowId),
               let workspace = manager.selectedWorkspace,
               let panelId = workspace.focusedPanelId,
@@ -4680,6 +4737,11 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             XCTFail("Expected focused terminal surface")
             return
         }
+
+        let driftResponder = FocusableTestView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        let overlayHost = contentView.superview ?? contentView
+        overlayHost.addSubview(driftResponder)
+        defer { driftResponder.removeFromSuperview() }
 
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
@@ -4693,14 +4755,13 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             "Expected terminal surface to own first responder before repair test"
         )
 
-        XCTAssertTrue(window.makeFirstResponder(nil), "Expected test to clear the window first responder")
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertTrue(window.makeFirstResponder(driftResponder), "Expected test to move focus away from the terminal surface")
 
         XCTAssertFalse(
             terminalPanel.hostedView.isSurfaceViewFirstResponder(),
             "Expected terminal surface to lose first responder before repaired typing"
         )
-        XCTAssertTrue(window.firstResponder == nil || window.firstResponder is NSWindow, "Expected a broken key-routing responder")
+        XCTAssertTrue(window.firstResponder === driftResponder, "Expected a broken key-routing responder")
 
 #if DEBUG
         var forwardedKeyDownCount = 0
@@ -5217,13 +5278,20 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         defer { closeWindow(withId: windowId) }
 
         guard let window = window(withId: windowId),
+              let contentView = window.contentView,
               let manager = appDelegate.tabManagerFor(windowId: windowId),
               let workspace = manager.selectedWorkspace,
               let panelId = workspace.focusedPanelId,
-              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+              let terminalPanel = workspace.terminalPanel(for: panelId),
+              let terminalView = surfaceView(in: terminalPanel.hostedView) else {
             XCTFail("Expected focused terminal surface")
             return
         }
+
+        let driftResponder = FocusableTestView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        let overlayHost = contentView.superview ?? contentView
+        overlayHost.addSubview(driftResponder)
+        defer { driftResponder.removeFromSuperview() }
 
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
@@ -5343,13 +5411,20 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         defer { closeWindow(withId: windowId) }
 
         guard let window = window(withId: windowId),
+              let contentView = window.contentView,
               let manager = appDelegate.tabManagerFor(windowId: windowId),
               let workspace = manager.selectedWorkspace,
               let panelId = workspace.focusedPanelId,
-              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+              let terminalPanel = workspace.terminalPanel(for: panelId),
+              let terminalView = surfaceView(in: terminalPanel.hostedView) else {
             XCTFail("Expected focused terminal surface")
             return
         }
+
+        let driftResponder = FocusableTestView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        let overlayHost = contentView.superview ?? contentView
+        overlayHost.addSubview(driftResponder)
+        defer { driftResponder.removeFromSuperview() }
 
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
@@ -5358,15 +5433,28 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         terminalPanel.hostedView.moveFocus()
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
+        let surfaceAttachDeadline = Date(timeIntervalSinceNow: 3.0)
+        while terminalView.terminalSurface == nil, Date() < surfaceAttachDeadline {
+            terminalPanel.hostedView.layoutSubtreeIfNeeded()
+            window.contentView?.layoutSubtreeIfNeeded()
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        }
+
+        XCTAssertTrue(terminalView.terminalSurface === terminalPanel.surface, "Expected Ghostty view to be associated with the focused terminal surface")
+
         let searchState = TerminalSurface.SearchState(needle: "")
         terminalPanel.surface.searchState = searchState
         terminalPanel.hostedView.setSearchOverlay(searchState: searchState)
 
-        var searchField = findEditableTextField(in: terminalPanel.hostedView)
-        let searchMountDeadline = Date(timeIntervalSinceNow: 1.0)
+        var searchField = terminalPanel.hostedView.debugMountedSearchFieldForTesting(surface: terminalPanel.surface)
+        let searchMountDeadline = Date(timeIntervalSinceNow: 8.0)
         while searchField == nil, Date() < searchMountDeadline {
+            terminalPanel.hostedView.needsLayout = true
+            terminalPanel.hostedView.layoutSubtreeIfNeeded()
+            terminalPanel.hostedView.displayIfNeeded()
+            window.contentView?.layoutSubtreeIfNeeded()
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-            searchField = findEditableTextField(in: terminalPanel.hostedView)
+            searchField = terminalPanel.hostedView.debugMountedSearchFieldForTesting(surface: terminalPanel.surface)
         }
 
         guard let searchField else {
@@ -5386,7 +5474,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             "Expected terminal search field to own first responder before drift"
         )
 
-        XCTAssertTrue(window.makeFirstResponder(nil), "Expected test to clear the window first responder")
+        XCTAssertTrue(window.makeFirstResponder(driftResponder), "Expected test to move focus away from the terminal search field")
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
         XCTAssertFalse(
@@ -5549,18 +5637,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         return nil
     }
 
-    private func findEditableTextField(in view: NSView) -> NSTextField? {
-        if let field = view as? NSTextField, field.isEditable {
-            return field
-        }
-        for subview in view.subviews {
-            if let field = findEditableTextField(in: subview) {
-                return field
-            }
-        }
-        return nil
-    }
-
     private func firstResponderOwnsTextField(_ firstResponder: NSResponder?, textField: NSTextField) -> Bool {
         if firstResponder === textField {
             return true
@@ -5587,6 +5663,18 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         guard let window = window(withId: windowId) else { return }
         window.performClose(nil)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+    }
+
+    private func waitForRuntimeSurface(id surfaceId: UUID, windowId: UUID, timeout: TimeInterval) -> Bool {
+        guard let window = window(withId: windowId) else { return false }
+        window.makeKeyAndOrderFront(nil)
+        let deadline = Date(timeIntervalSinceNow: timeout)
+        while TerminalSurfaceRegistry.shared.surface(id: surfaceId)?.surface == nil, Date() < deadline {
+            window.contentView?.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        }
+        return TerminalSurfaceRegistry.shared.surface(id: surfaceId)?.surface != nil
     }
 
     private func restoreDefaultsValue(_ value: Any?, forKey key: String, defaults: UserDefaults) {

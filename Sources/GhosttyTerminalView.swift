@@ -4224,6 +4224,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     /// state unless the workspace focus path requests it.
     private var desiredFocusState: Bool = false
 #if DEBUG
+    static var debugRuntimeSurfaceFreeObserver: ((UUID) -> Void)?
     private var needsConfirmCloseOverrideForTesting: Bool?
     private var runtimeSurfaceFreedOutOfBandForTesting = false
     private let debugForceRefreshCountLock = NSLock()
@@ -4344,6 +4345,118 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
         return merged
     }
+
+#if DEBUG
+    struct DebugStartupPlan: Equatable {
+        let command: String?
+        let usesManualIO: Bool
+        let waitAfterCommand: Bool
+    }
+
+    private static func runtimeXCTestDetected() -> Bool {
+        if Bundle.allBundles.contains(where: { bundle in
+            let path = bundle.bundlePath
+            return path.hasSuffix(".xctest") || path.contains(".xctest/")
+        }) {
+            return true
+        }
+        return NSClassFromString("XCTestCase") != nil || NSClassFromString("XCTest.XCTestCase") != nil
+    }
+
+    private static func isRunningUnderXCTest(
+        _ environment: [String: String],
+        runtimeDetector: () -> Bool = runtimeXCTestDetected
+    ) -> Bool {
+        let indicators = [
+            "XCTestConfigurationFilePath",
+            "XCTestBundlePath",
+            "XCTestSessionIdentifier",
+            "XCInjectBundle",
+            "XCInjectBundleInto",
+        ]
+        if indicators.contains(where: { key in
+            guard let value = environment[key] else { return false }
+            return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }) {
+            return true
+        }
+        if environment["DYLD_INSERT_LIBRARIES"]?.contains("libXCTest") == true {
+            return true
+        }
+        return runtimeDetector()
+    }
+
+    private static func isRunningUnderUITestHarness(_ environment: [String: String]) -> Bool {
+        environment.keys.contains { $0.hasPrefix("CMUX_UI_TEST_") }
+    }
+
+    private static func xctestTerminalCommandOverride(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        runtimeDetector: () -> Bool = runtimeXCTestDetected
+    ) -> String? {
+        guard !isRunningUnderUITestHarness(environment) else { return nil }
+        guard isRunningUnderXCTest(environment, runtimeDetector: runtimeDetector) else { return nil }
+        if environment["CMUX_XCTEST_DISABLE_TERMINAL_COMMAND_OVERRIDE"] == "1" {
+            return nil
+        }
+        let command = environment["CMUX_XCTEST_TERMINAL_COMMAND"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return command?.isEmpty == false ? command : "/usr/bin/true"
+    }
+
+    private static func resolvedStartupPlan(
+        initialCommand: String?,
+        configuredCommand: String?,
+        baseWaitAfterCommand: Bool,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        runtimeDetector: () -> Bool = runtimeXCTestDetected
+    ) -> DebugStartupPlan {
+        let requestedInitialCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedInitialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
+        let requestedConfiguredCommand = configuredCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedConfiguredCommand = (requestedConfiguredCommand?.isEmpty == false) ? requestedConfiguredCommand : nil
+        let xctestCommandOverride = Self.xctestTerminalCommandOverride(
+            environment: environment,
+            runtimeDetector: runtimeDetector
+        )
+        let shouldUseXCTestManualIO = xctestCommandOverride != nil
+            && resolvedInitialCommand == nil
+            && resolvedConfiguredCommand == nil
+        let command: String? = {
+            if let resolvedInitialCommand {
+                return resolvedInitialCommand
+            }
+            if shouldUseXCTestManualIO {
+                return nil
+            }
+            if let xctestCommandOverride {
+                return xctestCommandOverride
+            }
+            return resolvedConfiguredCommand
+        }()
+        return DebugStartupPlan(
+            command: command,
+            usesManualIO: shouldUseXCTestManualIO,
+            waitAfterCommand: baseWaitAfterCommand || xctestCommandOverride != nil
+        )
+    }
+
+    static func debugResolveStartupPlanForTesting(
+        initialCommand: String? = nil,
+        configuredCommand: String? = nil,
+        baseWaitAfterCommand: Bool = false,
+        environment: [String: String] = [:],
+        runtimeXCTestDetected: Bool = false
+    ) -> DebugStartupPlan {
+        resolvedStartupPlan(
+            initialCommand: initialCommand,
+            configuredCommand: configuredCommand,
+            baseWaitAfterCommand: baseWaitAfterCommand,
+            environment: environment,
+            runtimeDetector: { runtimeXCTestDetected }
+        )
+    }
+#endif
 
     func isAttached(to view: GhosttyNSView) -> Bool {
         attachedView === view && surface != nil
@@ -4653,6 +4766,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
             // Keep free behavior aligned with deinit: perform the runtime teardown on
             // the next main-actor turn so SIGHUP delivery is deterministic but non-reentrant.
             ghostty_surface_free(surfaceToFree)
+#if DEBUG
+            Self.debugRuntimeSurfaceFreeObserver?(id)
+#endif
             callbackContext?.release()
         }
     }
@@ -5044,12 +5160,29 @@ final class TerminalSurface: Identifiable, ObservableObject {
             }
             return baseConfig.workingDirectory
         }()
+        #if DEBUG
+        let startupPlan = Self.resolvedStartupPlan(
+            initialCommand: initialCommand,
+            configuredCommand: baseConfig.command,
+            baseWaitAfterCommand: baseConfig.waitAfterCommand
+        )
+        if startupPlan.usesManualIO {
+            surfaceConfig.io_mode = GHOSTTY_SURFACE_IO_MANUAL
+        }
+        surfaceConfig.wait_after_command = startupPlan.waitAfterCommand
+        let resolvedCommand = startupPlan.command
+        #else
+        let configuredCommand = baseConfig.command?.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedCommand: String? = {
             if let initialCommand, !initialCommand.isEmpty {
                 return initialCommand
             }
-            return baseConfig.command
+            if let command = configuredCommand, !command.isEmpty {
+                return command
+            }
+            return nil
         }()
+        #endif
         let resolvedInitialInput: String? = {
             if let initialInput, !initialInput.isEmpty {
                 return initialInput
@@ -10565,6 +10698,19 @@ final class GhosttySurfaceScrollView: NSView {
         }
         return findEditableSearchField(in: overlay)
     }
+
+#if DEBUG
+    func debugMountedSearchFieldForTesting(surface: TerminalSurface? = nil) -> NSTextField? {
+        if let surface, surfaceView.terminalSurface !== surface {
+            return nil
+        }
+        return mountedSearchFieldIfAvailable()
+    }
+
+    func debugSearchOverlayReadyForTesting(surface: TerminalSurface? = nil) -> Bool {
+        debugMountedSearchFieldForTesting(surface: surface) != nil
+    }
+#endif
 
     private func mountedSearchFieldOwnsResponder(
         _ responder: NSResponder?,
