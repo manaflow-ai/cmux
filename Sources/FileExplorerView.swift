@@ -596,11 +596,17 @@ final class FileExplorerContainerView: NSView {
     private var currentRootPath = ""
     private var currentProviderIsLocal = false
     private var currentContentRevision = 0
-    private var isSearchVisible = false
+    private var isSearchVisible = false {
+        didSet {
+            if !isSearchVisible {
+                cancelPendingSearchRefresh()
+            }
+        }
+    }
     private var presentation: FileExplorerPanelPresentation
     private let coordinator: FileExplorerPanelView.Coordinator
-    private var searchDebounceTask: Task<Void, Never>?
-    private let searchDebounceDelay: UInt64 = 200_000_000
+    private var searchDebounceWorkItem: DispatchWorkItem?
+    private let searchDebounceDelaySeconds: TimeInterval = 0.2
     private let searchBarVisibleHeight: CGFloat = 48
 
 #if DEBUG
@@ -1032,29 +1038,29 @@ final class FileExplorerContainerView: NSView {
 
     private func scheduleSearchRefresh() {
         guard isSearchVisible else { return }
-        searchDebounceTask?.cancel()
+        searchDebounceWorkItem?.cancel()
 #if DEBUG
         dlog("file.search.debounce.schedule queryLen=\(searchField.stringValue.count) delayMs=200")
 #endif
-        searchDebounceTask = Task { @MainActor [weak self] in
-            do {
-                try await Task.sleep(nanoseconds: self?.searchDebounceDelay ?? 200_000_000)
-            } catch {
-                return
-            }
-            guard !Task.isCancelled else { return }
+        var workItem: DispatchWorkItem!
+        workItem = DispatchWorkItem { [weak self] in
+            guard !workItem.isCancelled else { return }
+            MainActor.assumeIsolated {
+                guard let self, self.searchDebounceWorkItem === workItem else { return }
+                self.searchDebounceWorkItem = nil
 #if DEBUG
-            if let self {
                 dlog("file.search.debounce.fire queryLen=\(self.searchField.stringValue.count) delayMs=200")
-            }
 #endif
-            self?.refreshSearchIfNeeded()
+                self.refreshSearchIfNeeded()
+            }
         }
+        searchDebounceWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + searchDebounceDelaySeconds, execute: workItem)
     }
 
     private func cancelPendingSearchRefresh() {
-        searchDebounceTask?.cancel()
-        searchDebounceTask = nil
+        searchDebounceWorkItem?.cancel()
+        searchDebounceWorkItem = nil
     }
 
     private func updateSearchLayout(hasContent: Bool? = nil, isLoading: Bool? = nil) {
@@ -1101,7 +1107,7 @@ final class FileExplorerContainerView: NSView {
         }
 
         if nextResults.count > previousResults.count &&
-            Array(nextResults.prefix(previousResults.count)) == previousResults {
+            nextResults.starts(with: previousResults) {
             let insertedRange = previousResults.count..<nextResults.count
             searchResultsView.insertRows(at: IndexSet(integersIn: insertedRange), withAnimation: [])
             return
@@ -1336,8 +1342,10 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
     func controlTextDidChange(_ notification: Notification) {
         guard notification.object as? NSTextField === searchField else { return }
         scrollSearchFieldEditorToInsertionPoint()
-        Task { @MainActor [weak self] in
-            self?.scrollSearchFieldEditorToInsertionPoint()
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated {
+                self?.scrollSearchFieldEditorToInsertionPoint()
+            }
         }
 #if DEBUG
         let now = ProcessInfo.processInfo.systemUptime
