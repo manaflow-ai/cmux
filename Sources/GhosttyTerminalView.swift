@@ -4434,11 +4434,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
             && resolvedInitialCommand == nil
             && resolvedConfiguredCommand == nil
         let command: String? = {
-            if let resolvedInitialCommand {
-                return resolvedInitialCommand
-            }
             if shouldUseXCTestManualIO {
                 return nil
+            }
+            if let resolvedInitialCommand {
+                return resolvedInitialCommand
             }
             if let xctestCommandOverride {
                 return xctestCommandOverride

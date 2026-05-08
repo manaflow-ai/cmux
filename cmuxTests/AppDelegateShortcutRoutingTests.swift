@@ -136,10 +136,13 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertFalse(workspace.panels.isEmpty)
 
 #if DEBUG
-        _ = waitForRuntimeSurface(
-            id: initialPanelId,
-            windowId: windowId,
-            timeout: 3.0
+        XCTAssertTrue(
+            waitForRuntimeSurface(
+                id: initialPanelId,
+                windowId: windowId,
+                timeout: 3.0
+            ),
+            "Expected initial terminal surface to attach before closing the window"
         )
 #endif
 
