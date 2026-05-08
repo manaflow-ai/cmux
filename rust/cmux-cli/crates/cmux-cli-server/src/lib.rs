@@ -13963,25 +13963,29 @@ async fn process_compatibility_v2_json(daemon: &Arc<Daemon>, line: &str) -> Stri
                     .ok_or_else(|| "Missing url".to_string())?;
                 let (tab_id, browser) =
                     compatibility_browser_navigate(daemon, target.as_deref(), url).await?;
-                compatibility_browser_state_json(daemon, tab_id, browser).await
+                compatibility_browser_state_json_with_post_snapshot(daemon, &params, tab_id, browser)
+                    .await
             }
             "browser.back" => {
                 let target = compatibility_browser_ref_param(&params);
                 let (tab_id, browser) =
                     compatibility_browser_back(daemon, target.as_deref()).await?;
-                compatibility_browser_state_json(daemon, tab_id, browser).await
+                compatibility_browser_state_json_with_post_snapshot(daemon, &params, tab_id, browser)
+                    .await
             }
             "browser.forward" => {
                 let target = compatibility_browser_ref_param(&params);
                 let (tab_id, browser) =
                     compatibility_browser_forward(daemon, target.as_deref()).await?;
-                compatibility_browser_state_json(daemon, tab_id, browser).await
+                compatibility_browser_state_json_with_post_snapshot(daemon, &params, tab_id, browser)
+                    .await
             }
             "browser.reload" => {
                 let target = compatibility_browser_ref_param(&params);
                 let (tab_id, browser) =
                     compatibility_browser_reload(daemon, target.as_deref()).await?;
-                compatibility_browser_state_json(daemon, tab_id, browser).await
+                compatibility_browser_state_json_with_post_snapshot(daemon, &params, tab_id, browser)
+                    .await
             }
             "browser.url.get" => {
                 let target = compatibility_browser_ref_param(&params);
@@ -19078,6 +19082,119 @@ async fn compatibility_browser_state_json(
         "webviewFocused": webview_focused,
         "browser": browser,
     }))
+}
+
+async fn compatibility_browser_state_json_with_post_snapshot(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+    tab_id: TabId,
+    browser: NativeBrowserInfo,
+) -> std::result::Result<serde_json::Value, String> {
+    let mut payload = compatibility_browser_state_json(daemon, tab_id, browser).await?;
+    compatibility_browser_append_post_snapshot(daemon, params, tab_id, &mut payload).await?;
+    Ok(payload)
+}
+
+async fn compatibility_browser_append_post_snapshot(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+    tab_id: TabId,
+    payload: &mut serde_json::Value,
+) -> std::result::Result<(), String> {
+    let snapshot_after =
+        compatibility_bool_param(params, &["snapshot_after", "snapshotAfter"]).unwrap_or(false);
+    if !snapshot_after {
+        return Ok(());
+    }
+
+    let ctx = compatibility_resolve_tab_context_by_tab_id(daemon, tab_id).await?;
+    let surface_id = compat_tab_id_from_tab(&ctx.tab);
+    let surface_ref = compat_tab_ref_from_tab(&ctx.tab);
+    let tab_ref = compat_tab_handle_ref_from_tab(&ctx.tab);
+    let mut snapshot_params = serde_json::Map::new();
+    snapshot_params.insert(
+        "surface_id".to_string(),
+        serde_json::Value::String(surface_id.clone()),
+    );
+    snapshot_params.insert(
+        "surface_ref".to_string(),
+        serde_json::Value::String(surface_ref),
+    );
+    snapshot_params.insert("tab_id".to_string(), serde_json::Value::String(surface_id));
+    snapshot_params.insert("tab_ref".to_string(), serde_json::Value::String(tab_ref));
+    snapshot_params.insert("numericId".to_string(), serde_json::json!(tab_id));
+    snapshot_params.insert("numericTabId".to_string(), serde_json::json!(tab_id));
+    snapshot_params.insert(
+        "interactive".to_string(),
+        serde_json::json!(
+            compatibility_bool_param(params, &["snapshot_interactive", "snapshotInteractive"])
+                .unwrap_or(true)
+        ),
+    );
+    snapshot_params.insert(
+        "cursor".to_string(),
+        serde_json::json!(
+            compatibility_bool_param(params, &["snapshot_cursor", "snapshotCursor"])
+                .unwrap_or(false)
+        ),
+    );
+    snapshot_params.insert(
+        "compact".to_string(),
+        serde_json::json!(
+            compatibility_bool_param(params, &["snapshot_compact", "snapshotCompact"])
+                .unwrap_or(true)
+        ),
+    );
+    snapshot_params.insert(
+        "max_depth".to_string(),
+        serde_json::json!(
+            compatibility_usize_param(params, &["snapshot_max_depth", "snapshotMaxDepth"])
+                .unwrap_or(10)
+        ),
+    );
+    if let Some(selector) =
+        compatibility_string_param(params, &["snapshot_selector", "snapshotSelector"])
+        && !selector.trim().is_empty()
+    {
+        snapshot_params.insert("selector".to_string(), serde_json::Value::String(selector));
+    }
+
+    let snapshot_result = compatibility_browser_worker_v2(
+        daemon,
+        "browser.snapshot",
+        &serde_json::Value::Object(snapshot_params),
+    )
+    .await;
+    let Some(object) = payload.as_object_mut() else {
+        return Ok(());
+    };
+    match snapshot_result {
+        Ok(snapshot) => {
+            if let Some(value) = snapshot.get("snapshot").cloned() {
+                object.insert("post_action_snapshot".to_string(), value);
+            }
+            if let Some(value) = snapshot.get("refs").cloned() {
+                object.insert("post_action_refs".to_string(), value);
+            }
+            if let Some(value) = snapshot.get("title").cloned() {
+                object.insert("post_action_title".to_string(), value);
+            }
+            if let Some(value) = snapshot.get("url").cloned() {
+                object.insert("post_action_url".to_string(), value);
+            }
+        }
+        Err(message) => {
+            object.insert(
+                "post_action_snapshot_error".to_string(),
+                serde_json::json!({
+                    "code": "method_failed",
+                    "message": message,
+                    "data": null,
+                }),
+            );
+        }
+    }
+    Ok(())
 }
 
 async fn compatibility_browser_get_title_v2(
