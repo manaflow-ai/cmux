@@ -5182,8 +5182,13 @@ class TabManager: ObservableObject {
                 return registration.processNameNeedles.contains { haystack.contains($0) }
             }
             .sorted { lhs, rhs in
+                let lhsParentIsRoot = rootPIDs.contains(lhs.info.parentPID)
+                let rhsParentIsRoot = rootPIDs.contains(rhs.info.parentPID)
+                if lhsParentIsRoot != rhsParentIsRoot {
+                    return lhsParentIsRoot
+                }
                 if lhs.info.parentPID != rhs.info.parentPID {
-                    return rootPIDs.contains(lhs.info.parentPID) && !rootPIDs.contains(rhs.info.parentPID)
+                    return lhs.info.parentPID < rhs.info.parentPID
                 }
                 return lhs.pid < rhs.pid
             }
