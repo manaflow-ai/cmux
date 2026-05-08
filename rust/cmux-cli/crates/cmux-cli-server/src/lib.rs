@@ -13384,13 +13384,13 @@ async fn process_compatibility_line(daemon: &Arc<Daemon>, line: &str) -> String 
             "OK {\"backend\":\"cmx-rust\",\"frames\":0,\"dirty\":0,\"appIsActive\":true}"
                 .to_string()
         }
-        "layout_debug" => match compatibility_native_snapshot(daemon)
-            .await
-            .map(|snapshot| compatibility_snapshot_json(&snapshot))
-        {
-            Ok(snapshot) => format!("OK {snapshot}"),
-            Err(error) => legacy_error(error),
-        },
+        "layout_debug" => {
+            let params = serde_json::Value::Null;
+            match compatibility_debug_layout_snapshot_json(daemon, &params).await {
+                Ok(snapshot) => format!("OK {snapshot}"),
+                Err(error) => legacy_error(error),
+            }
+        }
         "bonsplit_underflow_count" | "empty_panel_count" => "OK 0".to_string(),
         "reset_bonsplit_underflow_count" | "reset_empty_panel_count" => "OK".to_string(),
         "flash_count" => match compatibility_flash_count(daemon, args).await {
@@ -13695,11 +13695,7 @@ async fn process_compatibility_v2_json(daemon: &Arc<Daemon>, line: &str) -> Stri
             "debug.terminal.render_stats" => {
                 compatibility_debug_terminal_render_stats_v2(daemon, &params).await
             }
-            "debug.layout" => compatibility_native_snapshot_for_params(daemon, &params)
-                .await
-                .map(|snapshot| {
-                    serde_json::json!({ "layout": compatibility_snapshot_json(&snapshot) })
-                }),
+            "debug.layout" => compatibility_debug_layout_v2(daemon, &params).await,
             "debug.portal.stats" => Ok(serde_json::json!({
                 "hosts": [],
                 "host_count": 0,
@@ -13719,9 +13715,7 @@ async fn process_compatibility_v2_json(daemon: &Arc<Daemon>, line: &str) -> Stri
             "debug.notification.focus" => {
                 compatibility_focus_notification_v2(daemon, &params).await
             }
-            "debug.panel_snapshot" => {
-                compatibility_panel_snapshot_v2(daemon, &params).await
-            }
+            "debug.panel_snapshot" => compatibility_panel_snapshot_v2(daemon, &params).await,
             "debug.panel_snapshot.reset" => {
                 compatibility_panel_snapshot_reset_v2(daemon, &params).await
             }
@@ -13736,16 +13730,14 @@ async fn process_compatibility_v2_json(daemon: &Arc<Daemon>, line: &str) -> Stri
             "workspace.list" => compatibility_workspace_list_for_params(daemon, &params)
                 .await
                 .map(|(workspaces, active)| compatibility_workspaces_json(&workspaces, active)),
-            "workspace.current" => {
-                compatibility_workspace_list_for_params(daemon, &params)
-                    .await
-                    .map(|(workspaces, active)| {
-                        workspaces
-                            .get(active)
-                            .map(compatibility_workspace_json)
-                            .unwrap_or(serde_json::Value::Null)
-                    })
-            }
+            "workspace.current" => compatibility_workspace_list_for_params(daemon, &params)
+                .await
+                .map(|(workspaces, active)| {
+                    workspaces
+                        .get(active)
+                        .map(compatibility_workspace_json)
+                        .unwrap_or(serde_json::Value::Null)
+                }),
             "workspace.create" => compatibility_workspace_create_v2(daemon, &params).await,
             "workspace.select" => compatibility_workspace_select_v2(daemon, &params).await,
             "workspace.close" => compatibility_workspace_close_v2(daemon, &params).await,
@@ -13991,29 +13983,37 @@ async fn process_compatibility_v2_json(daemon: &Arc<Daemon>, line: &str) -> Stri
                     .ok_or_else(|| "Missing url".to_string())?;
                 let (tab_id, browser) =
                     compatibility_browser_navigate(daemon, target.as_deref(), url).await?;
-                compatibility_browser_state_json_with_post_snapshot(daemon, &params, tab_id, browser)
-                    .await
+                compatibility_browser_state_json_with_post_snapshot(
+                    daemon, &params, tab_id, browser,
+                )
+                .await
             }
             "browser.back" => {
                 let target = compatibility_browser_ref_param(&params);
                 let (tab_id, browser) =
                     compatibility_browser_back(daemon, target.as_deref()).await?;
-                compatibility_browser_state_json_with_post_snapshot(daemon, &params, tab_id, browser)
-                    .await
+                compatibility_browser_state_json_with_post_snapshot(
+                    daemon, &params, tab_id, browser,
+                )
+                .await
             }
             "browser.forward" => {
                 let target = compatibility_browser_ref_param(&params);
                 let (tab_id, browser) =
                     compatibility_browser_forward(daemon, target.as_deref()).await?;
-                compatibility_browser_state_json_with_post_snapshot(daemon, &params, tab_id, browser)
-                    .await
+                compatibility_browser_state_json_with_post_snapshot(
+                    daemon, &params, tab_id, browser,
+                )
+                .await
             }
             "browser.reload" => {
                 let target = compatibility_browser_ref_param(&params);
                 let (tab_id, browser) =
                     compatibility_browser_reload(daemon, target.as_deref()).await?;
-                compatibility_browser_state_json_with_post_snapshot(daemon, &params, tab_id, browser)
-                    .await
+                compatibility_browser_state_json_with_post_snapshot(
+                    daemon, &params, tab_id, browser,
+                )
+                .await
             }
             "browser.url.get" => {
                 let target = compatibility_browser_ref_param(&params);
@@ -14827,6 +14827,85 @@ async fn compatibility_native_snapshot_for_params(
                 .map_err(|error| error.to_string())
         }
     }
+}
+
+async fn compatibility_debug_layout_snapshot_json(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let window_id = compatibility_window_ref_for_params(daemon, params).await?;
+    let mut window = WindowState::new_for_compatibility(daemon, window_id.as_deref()).await;
+    if let Some(target) = compatibility_workspace_ref_param(params) {
+        let workspace_id = compatibility_workspace_id_from_ref(daemon, &target).await?;
+        window.set_active_workspace_id(workspace_id);
+        window.add_workspace_member(workspace_id);
+    }
+
+    let snapshot = build_native_snapshot(daemon, &mut window)
+        .await
+        .map_err(|error| error.to_string())?;
+    let workspace = daemon
+        .workspace_by_id(snapshot.active_workspace_id)
+        .await
+        .ok_or_else(|| format!("Workspace not found: {}", snapshot.active_workspace_id))?;
+    let space = workspace
+        .space_by_id(snapshot.active_space_id)
+        .await
+        .ok_or_else(|| format!("Space not found: {}", snapshot.active_space_id))?;
+    let viewport = *space.last_viewport.lock().await;
+    let leaves = window_panel_layouts(&space, &mut window, viewport)
+        .await
+        .map_err(|error| error.to_string())?;
+    let panes = leaves
+        .into_iter()
+        .map(|leaf| {
+            let focused = leaf.panel_id == snapshot.focused_panel_id;
+            serde_json::json!({
+                "paneId": leaf.panel_id.to_string(),
+                "pane_id": leaf.panel_id.to_string(),
+                "panelId": leaf.panel_id.to_string(),
+                "panel_id": leaf.panel_id.to_string(),
+                "numericPaneId": leaf.panel_id,
+                "numericPanelId": leaf.panel_id,
+                "surfaceId": leaf.active_tab_id.to_string(),
+                "surface_id": leaf.active_tab_id.to_string(),
+                "tabId": leaf.active_tab_id.to_string(),
+                "tab_id": leaf.active_tab_id.to_string(),
+                "focused": focused,
+                "active": focused,
+                "frame": {
+                    "x": leaf.inner.col,
+                    "y": leaf.inner.row,
+                    "width": leaf.inner.cols,
+                    "height": leaf.inner.rows,
+                    "col": leaf.inner.col,
+                    "row": leaf.inner.row,
+                    "cols": leaf.inner.cols,
+                    "rows": leaf.inner.rows,
+                },
+            })
+        })
+        .collect::<Vec<_>>();
+
+    let mut payload = compatibility_snapshot_json(&snapshot);
+    if let Some(object) = payload.as_object_mut() {
+        object.insert(
+            "layout".to_string(),
+            serde_json::json!({
+                "panes": panes,
+            }),
+        );
+    }
+    Ok(payload)
+}
+
+async fn compatibility_debug_layout_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    compatibility_debug_layout_snapshot_json(daemon, params)
+        .await
+        .map(|layout| serde_json::json!({ "layout": layout }))
 }
 
 async fn compatibility_system_capabilities_v2(
