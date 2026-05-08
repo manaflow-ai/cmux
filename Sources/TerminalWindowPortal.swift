@@ -769,16 +769,17 @@ final class WindowTerminalPortal: NSObject {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             let performSync = {
-                if self.externalGeometrySyncGeneration != generation {
-                    self.hasExternalGeometrySyncScheduled = false
-                    let followUpRequiresImmediate = self.pendingExternalGeometrySyncRequiresImmediate
-                    self.pendingExternalGeometrySyncRequiresImmediate = false
-                    self.scheduleExternalGeometrySynchronize(forceImmediate: followUpRequiresImmediate)
-                    return
-                }
+                // Even if newer requests arrived, perform one sync on this safe
+                // post-layout turn. During rapid sidebar toggles, skipping every
+                // superseded generation starves Ghostty until the key burst ends.
+                let wasSuperseded = self.externalGeometrySyncGeneration != generation
+                let followUpRequiresImmediate = self.pendingExternalGeometrySyncRequiresImmediate
                 self.hasExternalGeometrySyncScheduled = false
                 self.pendingExternalGeometrySyncRequiresImmediate = false
                 self.synchronizeAllEntriesFromExternalGeometryChange()
+                if wasSuperseded {
+                    self.scheduleExternalGeometrySynchronize(forceImmediate: followUpRequiresImmediate)
+                }
             }
             if requiresSettledLayout {
                 DispatchQueue.main.async(execute: performSync)
