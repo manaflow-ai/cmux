@@ -157,6 +157,45 @@ final class MobileSyncModelTests: XCTestCase {
         XCTAssertEqual(status.socketPayload["enabled"] as? Bool, false)
     }
 
+    func testOverlayGeometryUsesTopAlignedEffectiveGrid() {
+        let snapshot = TerminalSizeOverlaySnapshot(
+            localSize: TerminalGridSize(columns: 100, rows: 40),
+            effectiveSize: TerminalGridSize(columns: 80, rows: 24),
+            surfaceKind: .iPad,
+            deviceName: "iPad",
+            activeAttachmentCount: 1
+        )
+
+        let geometry = TerminalSizeOverlayGeometry.resolve(
+            containerSize: CGSize(width: 1000, height: 800),
+            cellSize: CGSize(width: 10, height: 20),
+            snapshot: snapshot
+        )
+
+        XCTAssertTrue(geometry.isVisible)
+        XCTAssertEqual(geometry.containerRect, CGRect(x: 0, y: 0, width: 1000, height: 800))
+        XCTAssertEqual(geometry.activeRect, CGRect(x: 0, y: 320, width: 800, height: 480))
+    }
+
+    func testOverlayGeometryIsHiddenWhenEffectiveSizeMatchesLocalSize() {
+        let snapshot = TerminalSizeOverlaySnapshot(
+            localSize: TerminalGridSize(columns: 100, rows: 40),
+            effectiveSize: TerminalGridSize(columns: 100, rows: 40),
+            surfaceKind: .iPad,
+            deviceName: "iPad",
+            activeAttachmentCount: 1
+        )
+
+        let geometry = TerminalSizeOverlayGeometry.resolve(
+            containerSize: CGSize(width: 1000, height: 800),
+            cellSize: CGSize(width: 10, height: 20),
+            snapshot: snapshot
+        )
+
+        XCTAssertFalse(geometry.isVisible)
+        XCTAssertEqual(geometry, .hidden)
+    }
+
     func testSnapshotsFromTabManagerContainSelectedWorkspaceAndTerminal() throws {
         _ = NSApplication.shared
         let manager = TabManager()

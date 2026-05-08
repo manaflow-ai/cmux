@@ -778,6 +778,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var feedSidebarUITestObservers: [NSObjectProtocol] = []
     private var didSetupPortalStatsUITestDiagnostics = false
     private var portalStatsUITestObservers: [NSObjectProtocol] = []
+    private var didSetupMobileSizeOverlayUITest = false
+    private var mobileSizeOverlayUITestSnapshot: TerminalSizeOverlaySnapshot?
+    private var mobileSizeOverlayUITestObservers: [NSObjectProtocol] = []
+    private var mobileSizeOverlayUITestCancellables: [AnyCancellable] = []
     private struct UITestRenderDiagnosticsSnapshot {
         let panelId: UUID
         let drawCount: Int
@@ -1247,6 +1251,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             payload["targetDisplayMoveSucceeded"] = movedWindow ? "1" : "0"
         }
         appendUITestRenderDiagnosticsIfNeeded(&payload, environment: env)
+        appendUITestMobileSizeOverlayDiagnosticsIfNeeded(&payload, environment: env)
         appendUITestSocketDiagnosticsIfNeeded(&payload, environment: env)
         appendUITestPortalDiagnosticsIfNeeded(&payload, environment: env)
 
@@ -1369,6 +1374,69 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         payload["renderDesiredFocus"] = renderState.desiredFocus ? "1" : "0"
         payload["renderIsFirstResponder"] = renderState.isFirstResponder ? "1" : "0"
         payload["renderDiagnosticsUpdatedAt"] = String(format: "%.6f", ProcessInfo.processInfo.systemUptime)
+    }
+
+    private func appendUITestMobileSizeOverlayDiagnosticsIfNeeded(
+        _ payload: inout [String: String],
+        environment env: [String: String]
+    ) {
+        guard env["CMUX_UI_TEST_MOBILE_SIZE_OVERLAY_SETUP"] == "1" else { return }
+
+        guard let tabManager,
+              let tabId = tabManager.selectedTabId,
+              let workspace = tabManager.tabs.first(where: { $0.id == tabId }) else {
+            payload["mobileSizeOverlaySnapshotPresent"] = "0"
+            payload["mobileSizeOverlayGeometryVisible"] = "0"
+            return
+        }
+
+        let terminalPanels = workspace.panels.values.compactMap { $0 as? TerminalPanel }
+        if let snapshot = mobileSizeOverlayUITestSnapshot {
+            for panel in terminalPanels {
+                panel.surface.setMobileSizeOverlaySnapshot(snapshot)
+            }
+        }
+
+        let terminalPanel: TerminalPanel? = {
+            if let focusedPanelId = workspace.focusedPanelId,
+               let terminalPanel = workspace.terminalPanel(for: focusedPanelId) {
+                return terminalPanel
+            }
+            if let focusedTerminalPanel = workspace.focusedTerminalPanel {
+                return focusedTerminalPanel
+            }
+            if let terminalPanel = terminalPanels.first(where: {
+                $0.surface.debugMobileSizeOverlayGeometry().isVisible
+            }) {
+                return terminalPanel
+            }
+            if let surfaceIdString = payload["mobileSizeOverlaySurfaceId"],
+               let surfaceId = UUID(uuidString: surfaceIdString),
+               let terminalPanel = workspace.terminalPanel(for: surfaceId) {
+                return terminalPanel
+            }
+            if let terminalPanel = terminalPanels.first(where: {
+                $0.surface.debugMobileSizeOverlaySnapshot() != nil
+            }) {
+                return terminalPanel
+            }
+            return terminalPanels.first
+        }()
+
+        guard let terminalPanel else {
+            payload["mobileSizeOverlaySnapshotPresent"] = "0"
+            payload["mobileSizeOverlayGeometryVisible"] = "0"
+            return
+        }
+
+        let snapshot = terminalPanel.surface.debugMobileSizeOverlaySnapshot()
+        let geometry = terminalPanel.surface.debugMobileSizeOverlayGeometry()
+        payload["mobileSizeOverlayDiagnosticsSurfaceId"] = terminalPanel.id.uuidString
+        payload["mobileSizeOverlaySnapshotPresent"] = snapshot == nil ? "0" : "1"
+        payload["mobileSizeOverlayGeometryVisible"] = geometry.isVisible ? "1" : "0"
+        payload["mobileSizeOverlayGeometryWidth"] = Self.uiTestStringValue(geometry.activeRect.width)
+        payload["mobileSizeOverlayGeometryHeight"] = Self.uiTestStringValue(geometry.activeRect.height)
+        payload["mobileSizeOverlayLabelText"] = terminalPanel.surface.debugMobileSizeOverlayLabelText()
     }
 
     private func currentUITestRenderDiagnostics() -> UITestRenderDiagnosticsSnapshot? {
@@ -1574,6 +1642,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         setupMultiWindowNotificationsUITestIfNeeded()
         setupDisplayResolutionUITestDiagnosticsIfNeeded()
         setupPortalStatsUITestDiagnosticsIfNeeded()
+        setupMobileSizeOverlayUITestIfNeeded()
 
         let env = ProcessInfo.processInfo.environment
         if isRunningUnderXCTest(env) || env["CMUX_UI_TEST_MODE"] == "1" {
@@ -1583,6 +1652,172 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
 #if DEBUG
+    private func setupMobileSizeOverlayUITestIfNeeded() {
+        guard !didSetupMobileSizeOverlayUITest else { return }
+        let env = ProcessInfo.processInfo.environment
+        guard env["CMUX_UI_TEST_MOBILE_SIZE_OVERLAY_SETUP"] == "1" else { return }
+        didSetupMobileSizeOverlayUITest = true
+        guard let tabManager else {
+            writeMobileSizeOverlayUITestData(["mobileSizeOverlayError": "missing_tab_manager"])
+            return
+        }
+
+        let localColumns = Int(env["CMUX_UI_TEST_MOBILE_SIZE_OVERLAY_LOCAL_COLUMNS"] ?? "") ?? 120
+        let localRows = Int(env["CMUX_UI_TEST_MOBILE_SIZE_OVERLAY_LOCAL_ROWS"] ?? "") ?? 40
+        let effectiveColumns = Int(env["CMUX_UI_TEST_MOBILE_SIZE_OVERLAY_COLUMNS"] ?? "") ?? 80
+        let effectiveRows = Int(env["CMUX_UI_TEST_MOBILE_SIZE_OVERLAY_ROWS"] ?? "") ?? 24
+        guard let localSize = TerminalGridSize(validatingColumns: localColumns, rows: localRows),
+              let effectiveSize = TerminalGridSize(validatingColumns: effectiveColumns, rows: effectiveRows) else {
+            writeMobileSizeOverlayUITestData(["mobileSizeOverlayError": "invalid_size"])
+            return
+        }
+
+        let kindRaw = env["CMUX_UI_TEST_MOBILE_SIZE_OVERLAY_KIND"] ?? TerminalAttachmentSurfaceKind.iPad.rawValue
+        guard let surfaceKind = TerminalAttachmentSurfaceKind(rawValue: kindRaw) else {
+            writeMobileSizeOverlayUITestData([
+                "mobileSizeOverlayError": "invalid_kind",
+                "mobileSizeOverlayKind": kindRaw,
+            ])
+            return
+        }
+
+        let snapshot = TerminalSizeOverlaySnapshot(
+            localSize: localSize,
+            effectiveSize: effectiveSize,
+            surfaceKind: surfaceKind,
+            deviceName: env["CMUX_UI_TEST_MOBILE_SIZE_OVERLAY_DEVICE_NAME"] ?? "iPad",
+            activeAttachmentCount: 1
+        )
+        mobileSizeOverlayUITestSnapshot = snapshot
+        var didFinish = false
+
+        func cleanup() {
+            for observer in mobileSizeOverlayUITestObservers {
+                NotificationCenter.default.removeObserver(observer)
+            }
+            mobileSizeOverlayUITestObservers.removeAll()
+            mobileSizeOverlayUITestCancellables.forEach { $0.cancel() }
+            mobileSizeOverlayUITestCancellables.removeAll()
+        }
+
+        func attemptApply(reason: String) {
+            guard !didFinish else { return }
+            guard let workspace = tabManager.selectedWorkspace else {
+                writeMobileSizeOverlayUITestData([
+                    "mobileSizeOverlayApplied": "0",
+                    "mobileSizeOverlayLastAttempt": reason,
+                    "mobileSizeOverlayError": "missing_workspace",
+                ])
+                return
+            }
+            let terminalPanels = workspace.panels.values.compactMap { $0 as? TerminalPanel }
+            guard !terminalPanels.isEmpty else {
+                writeMobileSizeOverlayUITestData([
+                    "mobileSizeOverlayApplied": "0",
+                    "mobileSizeOverlayLastAttempt": reason,
+                    "mobileSizeOverlayWorkspaceId": workspace.id.uuidString,
+                    "mobileSizeOverlayError": "missing_terminal",
+                ])
+                return
+            }
+
+            var reportedPanel = terminalPanels.first
+            var reportedGeometry = TerminalSizeOverlayGeometry(
+                containerRect: .zero,
+                activeRect: .zero,
+                isVisible: false
+            )
+            for panel in terminalPanels {
+                panel.surface.setMobileSizeOverlaySnapshot(snapshot)
+                let geometry = panel.surface.debugMobileSizeOverlayGeometry()
+                if geometry.isVisible || panel.id == workspace.focusedPanelId {
+                    reportedPanel = panel
+                    reportedGeometry = geometry
+                    if geometry.isVisible {
+                        break
+                    }
+                }
+            }
+            guard let reportedPanel else {
+                return
+            }
+            writeMobileSizeOverlayUITestData([
+                "mobileSizeOverlayApplied": "1",
+                "mobileSizeOverlayLastAttempt": reason,
+                "mobileSizeOverlayWorkspaceId": workspace.id.uuidString,
+                "mobileSizeOverlaySurfaceId": reportedPanel.id.uuidString,
+                "mobileSizeOverlaySurfaceIds": terminalPanels.map { $0.id.uuidString }.joined(separator: ","),
+                "mobileSizeOverlayVisible": snapshot.isRemotelyConstrained ? "1" : "0",
+                "mobileSizeOverlayGeometryVisible": reportedGeometry.isVisible ? "1" : "0",
+                "mobileSizeOverlayGeometryWidth": Self.uiTestStringValue(reportedGeometry.activeRect.width),
+                "mobileSizeOverlayGeometryHeight": Self.uiTestStringValue(reportedGeometry.activeRect.height),
+                "mobileSizeOverlayLabelText": reportedPanel.surface.debugMobileSizeOverlayLabelText(),
+            ])
+            guard reportedGeometry.isVisible else { return }
+            didFinish = true
+            cleanup()
+        }
+
+        func scheduleRetry(attempt: Int) {
+            guard !didFinish, attempt <= 40 else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                attemptApply(reason: "retry_\(attempt)")
+                scheduleRetry(attempt: attempt + 1)
+            }
+        }
+
+        attemptApply(reason: "initial")
+        guard !didFinish else { return }
+
+        mobileSizeOverlayUITestObservers.append(NotificationCenter.default.addObserver(
+            forName: .mainWindowContextsDidChange,
+            object: self,
+            queue: .main
+        ) { _ in
+            Task { @MainActor in
+                attemptApply(reason: "main_window_contexts")
+            }
+        })
+        mobileSizeOverlayUITestObservers.append(NotificationCenter.default.addObserver(
+            forName: .terminalSurfaceDidBecomeReady,
+            object: nil,
+            queue: .main
+        ) { _ in
+            Task { @MainActor in
+                attemptApply(reason: "surface_ready")
+            }
+        })
+        mobileSizeOverlayUITestCancellables.append(tabManager.$selectedTabId.dropFirst().sink { _ in
+            Task { @MainActor in
+                attemptApply(reason: "selected_tab")
+            }
+        })
+        mobileSizeOverlayUITestCancellables.append(tabManager.$tabs.dropFirst().sink { _ in
+            Task { @MainActor in
+                attemptApply(reason: "tabs")
+            }
+        })
+        if let workspace = tabManager.selectedWorkspace {
+            mobileSizeOverlayUITestCancellables.append(workspace.$panels.dropFirst().sink { _ in
+                Task { @MainActor in
+                    attemptApply(reason: "panels")
+                }
+            })
+        }
+        scheduleRetry(attempt: 1)
+    }
+
+    private func writeMobileSizeOverlayUITestData(_ updates: [String: String]) {
+        let env = ProcessInfo.processInfo.environment
+        guard let path = env["CMUX_UI_TEST_DIAGNOSTICS_PATH"], !path.isEmpty else { return }
+        var payload = loadUITestDiagnostics(at: path)
+        for (key, value) in updates {
+            payload[key] = value
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
+        try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
+    }
+
     private func setupTerminalCmdClickUITestIfNeeded() {
         guard !didSetupTerminalCmdClickUITest else { return }
 
