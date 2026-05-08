@@ -240,14 +240,7 @@ describe("VM Effect workflows", () => {
 
     let createCalls = 0;
     const provider: VmProviderGatewayShape = {
-      listActiveVmIds: () =>
-        Effect.succeed([
-          "provider-vm-live-limit-1",
-          "provider-vm-live-limit-2",
-          "provider-vm-live-limit-3",
-          "provider-vm-live-limit-4",
-          "provider-vm-live-limit-5",
-        ]),
+      activeVmIds: (_provider, vmIds) => Effect.succeed(vmIds),
       create: () =>
         Effect.sync(() => {
           createCalls += 1;
@@ -287,6 +280,60 @@ describe("VM Effect workflows", () => {
     expect(createCalls).toBe(0);
   });
 
+  dbTest("skips Freestyle provider reconciliation while DB active count is below limit", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    await sql`
+      insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status)
+      select 'user-workflow-below-limit-owner', 'team-workflow-below-limit', 'free', 'freestyle',
+        'provider-vm-below-limit-' || n::text, 'snapshot-test', 'running'
+      from generate_series(1, 4) as n
+    `;
+
+    let reconciliationCalls = 0;
+    let createCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      activeVmIds: (_provider, vmIds) =>
+        Effect.sync(() => {
+          reconciliationCalls += 1;
+          return vmIds;
+        }),
+      create: () =>
+        Effect.sync(() => {
+          createCalls += 1;
+          return {
+            provider: "freestyle" as const,
+            providerVmId: "provider-vm-below-limit-new",
+            status: "running" as const,
+            image: "snapshot-test",
+            createdAt: Date.now(),
+          };
+        }),
+      destroy: () => Effect.void,
+      exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
+      openAttach: () => Effect.fail(new Error("unused") as never),
+      openSSH: () => Effect.fail(new Error("unused") as never),
+      revokeSSHIdentity: () => Effect.void,
+    };
+
+    const created = await Effect.runPromise(
+      createVm({
+        userId: "user-workflow-below-limit-new",
+        billingCustomerType: "team",
+        billingTeamId: "team-workflow-below-limit",
+        billingPlanId: "free",
+        maxActiveVms: 5,
+        provider: "freestyle",
+        image: "snapshot-test",
+        idempotencyKey: "below-limit-new-1",
+      }).pipe(Effect.provide(providerLayer(provider))),
+    );
+
+    expect(created.providerVmId).toBe("provider-vm-below-limit-new");
+    expect(reconciliationCalls).toBe(0);
+    expect(createCalls).toBe(1);
+  });
+
   dbTest("ignores stale Freestyle DB rows missing from live provider state", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
@@ -299,13 +346,8 @@ describe("VM Effect workflows", () => {
 
     let createCalls = 0;
     const provider: VmProviderGatewayShape = {
-      listActiveVmIds: () =>
-        Effect.succeed([
-          "provider-vm-stale-1",
-          "provider-vm-stale-2",
-          "provider-vm-stale-3",
-          "provider-vm-stale-4",
-        ]),
+      activeVmIds: (_provider, vmIds) =>
+        Effect.succeed(vmIds.filter((vmId) => vmId !== "provider-vm-stale-5")),
       create: () =>
         Effect.sync(() => {
           createCalls += 1;

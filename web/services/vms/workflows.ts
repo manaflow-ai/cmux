@@ -21,11 +21,12 @@ import {
   VmCreateFailedError,
   VmCreateInProgressError,
   VmNotFoundError,
+  isVmLimitExceededError,
   vmWorkflowErrorCause,
   type VmWorkflowError,
 } from "./errors";
 import { isProviderNotFoundError } from "./providerErrors";
-import { VmProviderGateway, VmProviderGatewayLive } from "./providerGateway";
+import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
 import {
   VmRepository,
   VmRepositoryLive,
@@ -77,10 +78,30 @@ export function createVm(input: {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const billing = yield* VmBillingGateway;
-    const liveActiveProviderVmIds = input.provider === "freestyle" && providers.listActiveVmIds
-      ? yield* providers.listActiveVmIds(input.provider)
-      : null;
-    const create = yield* repo.beginCreate({ ...input, liveActiveProviderVmIds });
+    const liveActiveProviderVmIds = yield* reconcileActiveProviderVmIdsForLimit(input, repo, providers);
+    const create = yield* repo.beginCreate({ ...input, liveActiveProviderVmIds }).pipe(
+      Effect.catchAll((err) => {
+        if (
+          liveActiveProviderVmIds === null &&
+          isVmLimitExceededError(err) &&
+          input.provider === "freestyle" &&
+          providers.activeVmIds
+        ) {
+          return Effect.gen(function* () {
+            const retriedLiveActiveProviderVmIds = yield* reconcileActiveProviderVmIdsForLimit(
+              { ...input, force: true },
+              repo,
+              providers,
+            );
+            return yield* repo.beginCreate({
+              ...input,
+              liveActiveProviderVmIds: retriedLiveActiveProviderVmIds,
+            });
+          });
+        }
+        return Effect.fail(err);
+      }),
+    );
 
     if (!create.inserted) {
       const existing = create.vm;
@@ -235,6 +256,34 @@ export function createVm(input: {
     }).pipe(Effect.catchAll(() => Effect.void));
 
     return vmEntryFromRow(running);
+  });
+}
+
+function reconcileActiveProviderVmIdsForLimit(
+  input: {
+    readonly userId: string;
+    readonly billingTeamId: string;
+    readonly provider: ProviderId;
+    readonly maxActiveVms: number;
+    readonly force?: boolean;
+  },
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+) {
+  const activeVmIds = providers.activeVmIds;
+  if (input.provider !== "freestyle" || !activeVmIds) {
+    return Effect.succeed(null);
+  }
+  return Effect.gen(function* () {
+    const candidateProviderVmIds = yield* repo.listActiveProviderVmIdsForLimit({
+      userId: input.userId,
+      billingTeamId: input.billingTeamId,
+      provider: input.provider,
+    });
+    if (!input.force && candidateProviderVmIds.length < input.maxActiveVms) {
+      return null;
+    }
+    return yield* activeVmIds(input.provider, candidateProviderVmIds);
   });
 }
 

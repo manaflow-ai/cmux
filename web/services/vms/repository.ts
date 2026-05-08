@@ -1,4 +1,4 @@
-import { and, desc, eq, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -21,6 +21,11 @@ export type BillingGrantClaim =
 
 export type VmRepositoryShape = {
   readonly listUserVms: (userId: string, billingTeamId?: string | null) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
+  readonly listActiveProviderVmIdsForLimit: (input: {
+    readonly userId: string;
+    readonly billingTeamId: string;
+    readonly provider: ProviderId;
+  }) => Effect.Effect<readonly string[], VmDatabaseError>;
   readonly claimBillingGrant: (input: {
     readonly billingCustomerType: string;
     readonly billingCustomerId: string;
@@ -131,6 +136,28 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
           : and(eq(cloudVms.userId, userId), ne(cloudVms.status, "destroyed"))
         )
         .orderBy(desc(cloudVms.createdAt));
+    }),
+
+  listActiveProviderVmIdsForLimit: (input) =>
+    dbEffect("listActiveProviderVmIdsForLimit", async () => {
+      const db = cloudDb();
+      const rows = await db
+        .select({ providerVmId: cloudVms.providerVmId })
+        .from(cloudVms)
+        .where(
+          and(
+            eq(cloudVms.provider, input.provider),
+            isNotNull(cloudVms.providerVmId),
+            inArray(cloudVms.status, ["provisioning", "running", "paused"]),
+            or(
+              eq(cloudVms.billingTeamId, input.billingTeamId),
+              and(isNull(cloudVms.billingTeamId), eq(cloudVms.userId, input.userId)),
+            ),
+          ),
+        );
+      return rows
+        .map((row) => row.providerVmId)
+        .filter((providerVmId): providerVmId is string => typeof providerVmId === "string");
     }),
 
   claimBillingGrant: (input) =>

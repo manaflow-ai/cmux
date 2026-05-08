@@ -26,6 +26,7 @@ import {
   shellQuote,
   type ReusableRpcLease,
 } from "./wsLease";
+import { isProviderNotFoundError } from "../providerErrors";
 
 // Freestyle VMs reach the outside world only via their SSH gateway, which terminates on
 // `vm-ssh.freestyle.sh:22`. `ssh <vmId>+<user>@vm-ssh.freestyle.sh` authenticates against
@@ -80,29 +81,41 @@ function mapStatus(state: string | null | undefined): VMStatus {
 export class FreestyleProvider implements VMProvider {
   readonly id = "freestyle" as const;
 
-  async listActiveVmIds(): Promise<readonly string[]> {
+  async activeVmIds(vmIds: readonly string[]): Promise<readonly string[]> {
     return withVmSpan(
-      "cmux.vm.provider.list_active",
+      "cmux.vm.provider.active_vm_ids",
       {
         "cmux.vm.provider": "freestyle",
-        "cmux.vm.operation": "list_active",
+        "cmux.vm.operation": "active_vm_ids",
+        "cmux.vm.provider.candidate_count": vmIds.length,
         "cmux.timeout_ms": DEFAULT_TIMEOUT_MS,
       },
       async (span) => {
+        const uniqueVmIds = [...new Set(vmIds.map((id) => id.trim()).filter(Boolean))];
+        if (uniqueVmIds.length === 0) {
+          setSpanAttributes(span, { "cmux.vm.provider.active_count": 0 });
+          return [];
+        }
         try {
-          const result = await client().vms.list();
-          const active = result.vms
-            .filter((vm) => !vm.deleted && FREESTYLE_ACTIVE_STATES.has(vm.state))
-            .map((vm) => vm.id);
+          const fs = client();
+          const active = (await Promise.all(
+            uniqueVmIds.map(async (vmId) => {
+              try {
+                const info = await fs.vms.ref({ vmId }).getInfo();
+                return FREESTYLE_ACTIVE_STATES.has(info.state) ? vmId : null;
+              } catch (err) {
+                if (isProviderNotFoundError(err)) return null;
+                throw err;
+              }
+            }),
+          )).filter((vmId): vmId is string => !!vmId);
           setSpanAttributes(span, {
             "cmux.vm.provider.active_count": active.length,
-            "cmux.vm.provider.total_count": result.totalCount,
-            "cmux.vm.provider.running_count": result.runningCount,
-            "cmux.vm.provider.starting_count": result.startingCount,
+            "cmux.vm.provider.candidate_count": uniqueVmIds.length,
           });
           return active;
         } catch (err) {
-          throw new ProviderError("freestyle", "listActiveVmIds", err);
+          throw new ProviderError("freestyle", "activeVmIds", err);
         }
       },
     );

@@ -237,7 +237,7 @@ describe("VM REST auth", () => {
       billingCustomerType: "team",
       billingTeamId: "team-2",
       billingPlanId: "free",
-      maxActiveVms: 1,
+      maxActiveVms: 5,
     }));
     expect(listTeams).toHaveBeenCalledTimes(1);
   });
