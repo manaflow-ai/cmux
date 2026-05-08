@@ -8,6 +8,7 @@ nonisolated private let cmxIrohSessionLogger = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "dev.cmux.ios",
     category: "terminal-session"
 )
+nonisolated private let cmxIrohSessionSignposter = OSSignposter(logger: cmxIrohSessionLogger)
 
 nonisolated private func cmuxIrohSessionDebugLog(_ message: String) {
     cmxIrohSessionLogger.debug("\(message, privacy: .public)")
@@ -16,15 +17,20 @@ nonisolated private func cmuxIrohSessionDebugLog(_ message: String) {
 
 @MainActor
 final class CmxIrohTerminalSession: CmxTerminalSession {
-    private static let heartbeatInterval: TimeInterval = 5
-    private static let maximumMainActorBatchMessages = 256
-    private static let maximumMainActorBatchBytes = 256 * 1024
+    nonisolated private static let heartbeatInterval: TimeInterval = 5
+    nonisolated private static let maximumMainActorBatchMessages = 256
+    nonisolated private static let maximumMainActorBatchBytes = 256 * 1024
+    nonisolated private static let maximumQueuedMainActorMessages = 4096
+    nonisolated private static let maximumQueuedMainActorBytes = 8 * 1024 * 1024
 
     weak var delegate: CmxTerminalSessionDelegate?
 
     private let ticket: String
     private let pairingSecret: String?
-    nonisolated private let incomingMessageBuffer = CmxIrohIncomingMessageBuffer()
+    nonisolated private let incomingMessageBuffer = CmxIrohIncomingMessageBuffer(
+        maxQueuedMessages: maximumQueuedMainActorMessages,
+        maxQueuedBytes: maximumQueuedMainActorBytes
+    )
     private var handle: OpaquePointer?
     private var retainedSelf: UnsafeMutableRawPointer?
     private var heartbeatTimer: Timer?
@@ -137,7 +143,26 @@ final class CmxIrohTerminalSession: CmxTerminalSession {
     }
 
     nonisolated fileprivate func enqueueMessageEvent(_ data: Data) {
-        guard incomingMessageBuffer.enqueue(data) else { return }
+        let result = incomingMessageBuffer.enqueue(data)
+        #if DEBUG
+        if result.didOverflow {
+            cmuxIrohSessionDebugLog(
+                "transport.incomingQueue.overflow messages=\(result.queuedMessages) bytes=\(result.queuedBytes)"
+            )
+            cmxIrohSessionSignposter.emitEvent("incoming-queue-overflow")
+        } else {
+            cmuxIrohSessionDebugLog(
+                "transport.incomingQueue.enqueue messages=\(result.queuedMessages) bytes=\(result.queuedBytes)"
+            )
+        }
+        #endif
+        if result.didOverflow {
+            Task { @MainActor [weak self] in
+                self?.failTransport(CmxIrohTerminalSessionError.incomingBacklogExceeded)
+            }
+            return
+        }
+        guard result.shouldScheduleDrain else { return }
         Task { @MainActor [weak self] in
             self?.drainMessageEvents()
         }
@@ -172,11 +197,24 @@ final class CmxIrohTerminalSession: CmxTerminalSession {
     }
 
     private func drainMessageEvents() {
+        #if DEBUG
+        let signpostID = cmxIrohSessionSignposter.makeSignpostID()
+        let signpostState = cmxIrohSessionSignposter.beginInterval("incoming-message-drain", id: signpostID)
+        defer {
+            cmxIrohSessionSignposter.endInterval("incoming-message-drain", signpostState)
+        }
+        #endif
         let batch = incomingMessageBuffer.dequeueBatch(
             maxMessages: Self.maximumMainActorBatchMessages,
             maxBytes: Self.maximumMainActorBatchBytes
         )
         guard !batch.messages.isEmpty else { return }
+        #if DEBUG
+        let batchBytes = batch.messages.reduce(0) { $0 + $1.count }
+        cmuxIrohSessionDebugLog(
+            "transport.incomingQueue.drain batchMessages=\(batch.messages.count) batchBytes=\(batchBytes) remainingMessages=\(batch.queuedMessages) remainingBytes=\(batch.queuedBytes)"
+        )
+        #endif
 
         var decodedMessages: [CmxServerMessage] = []
         decodedMessages.reserveCapacity(batch.messages.count)
@@ -298,26 +336,73 @@ private let cmxIrohClientCallback: CmxIrohClientCallback = { userData, kind, dat
     }
 }
 
-private final class CmxIrohIncomingMessageBuffer: @unchecked Sendable {
-    private let lock = NSLock()
-    private var messages: [Data] = []
-    private var drainScheduled = false
-
-    func enqueue(_ data: Data) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        messages.append(data)
-        guard !drainScheduled else { return false }
-        drainScheduled = true
-        return true
+nonisolated final class CmxIrohIncomingMessageBuffer: @unchecked Sendable {
+    struct EnqueueResult: Equatable {
+        var shouldScheduleDrain: Bool
+        var didOverflow: Bool
+        var queuedMessages: Int
+        var queuedBytes: Int
     }
 
-    func dequeueBatch(maxMessages: Int, maxBytes: Int) -> (messages: [Data], hasMore: Bool) {
+    struct DrainBatch: Equatable {
+        var messages: [Data]
+        var hasMore: Bool
+        var queuedMessages: Int
+        var queuedBytes: Int
+    }
+
+    private let lock = NSLock()
+    private let maxQueuedMessages: Int
+    private let maxQueuedBytes: Int
+    private var messages: [Data] = []
+    private var queuedBytes = 0
+    private var drainScheduled = false
+
+    init(maxQueuedMessages: Int, maxQueuedBytes: Int) {
+        self.maxQueuedMessages = max(1, maxQueuedMessages)
+        self.maxQueuedBytes = max(1, maxQueuedBytes)
+    }
+
+    func enqueue(_ data: Data) -> EnqueueResult {
+        lock.lock()
+        defer { lock.unlock() }
+        if messages.count >= maxQueuedMessages || queuedBytes + data.count > maxQueuedBytes {
+            messages.removeAll(keepingCapacity: false)
+            queuedBytes = 0
+            drainScheduled = false
+            return EnqueueResult(
+                shouldScheduleDrain: false,
+                didOverflow: true,
+                queuedMessages: 0,
+                queuedBytes: 0
+            )
+        }
+
+        messages.append(data)
+        queuedBytes += data.count
+        guard !drainScheduled else {
+            return EnqueueResult(
+                shouldScheduleDrain: false,
+                didOverflow: false,
+                queuedMessages: messages.count,
+                queuedBytes: queuedBytes
+            )
+        }
+        drainScheduled = true
+        return EnqueueResult(
+            shouldScheduleDrain: true,
+            didOverflow: false,
+            queuedMessages: messages.count,
+            queuedBytes: queuedBytes
+        )
+    }
+
+    func dequeueBatch(maxMessages: Int, maxBytes: Int) -> DrainBatch {
         lock.lock()
         defer { lock.unlock() }
         guard !messages.isEmpty else {
             drainScheduled = false
-            return ([], false)
+            return DrainBatch(messages: [], hasMore: false, queuedMessages: 0, queuedBytes: 0)
         }
 
         var batchCount = 0
@@ -333,13 +418,20 @@ private final class CmxIrohIncomingMessageBuffer: @unchecked Sendable {
 
         let batch = Array(messages.prefix(batchCount))
         messages.removeFirst(batchCount)
+        queuedBytes = max(0, queuedBytes - batchBytes)
         drainScheduled = !messages.isEmpty
-        return (batch, !messages.isEmpty)
+        return DrainBatch(
+            messages: batch,
+            hasMore: !messages.isEmpty,
+            queuedMessages: messages.count,
+            queuedBytes: queuedBytes
+        )
     }
 
     func cancelScheduledDrain() {
         lock.lock()
         messages.removeAll(keepingCapacity: false)
+        queuedBytes = 0
         drainScheduled = false
         lock.unlock()
     }
@@ -351,6 +443,7 @@ enum CmxIrohTerminalSessionError: LocalizedError, Equatable {
     case remoteError(String)
     case unknownEvent
     case heartbeatTimedOut
+    case incomingBacklogExceeded
 
     var errorDescription: String? {
         switch self {
@@ -367,6 +460,11 @@ enum CmxIrohTerminalSessionError: LocalizedError, Equatable {
             String(localized: "iroh.error.unknown_event", defaultValue: "The terminal connection sent an unknown event.")
         case .heartbeatTimedOut:
             String(localized: "iroh.error.heartbeat_timeout", defaultValue: "The terminal connection stopped responding.")
+        case .incomingBacklogExceeded:
+            String(
+                localized: "terminal.error.incoming_backlog_exceeded",
+                defaultValue: "The terminal connection sent data faster than this device could render it."
+            )
         }
     }
 }

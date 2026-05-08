@@ -8,7 +8,7 @@ final class CmxWorkspacePresentationTests: XCTestCase {
 
         XCTAssertTrue(store.workspaces.isEmpty)
         XCTAssertTrue(store.visibleWorkspaces(matching: "").isEmpty)
-        XCTAssertEqual(store.terminalDetailPresentation, .noWorkspaces)
+        XCTAssertEqual(store.terminalDetailPresentation, .notConnected)
     }
 
     func testVisibleWorkspacesSortsMostRecentAcrossMachinesRegardlessPinned() {
@@ -100,7 +100,7 @@ final class CmxWorkspacePresentationTests: XCTestCase {
         XCTAssertEqual(store.selectedSpace.terminals.map(\.id), [41, 42])
         XCTAssertEqual(store.selectedTerminal.title, "shell")
         XCTAssertTrue(store.canRenderSelectedTerminal)
-        XCTAssertEqual(store.terminalDetailPresentation, .loadingTerminal)
+        XCTAssertEqual(store.terminalDetailPresentation, .notConnected)
     }
 
     func testNativeSnapshotAllowsZeroValuedRustTabID() {
@@ -175,7 +175,7 @@ final class CmxWorkspacePresentationTests: XCTestCase {
         XCTAssertTrue(store.selectedSpace.terminals.isEmpty)
         XCTAssertEqual(store.selectedTerminal.title, "cmx")
         XCTAssertEqual(store.terminalSize(for: store.selectedTerminal.id), .phoneDefault)
-        XCTAssertEqual(store.terminalDetailPresentation, .noTerminal)
+        XCTAssertEqual(store.terminalDetailPresentation, .notConnected)
     }
 
     func testInactiveWorkspaceWithKnownTerminalsPresentsLoadingUntilNativeSnapshotActivatesIt() {
@@ -227,7 +227,34 @@ final class CmxWorkspacePresentationTests: XCTestCase {
 
         XCTAssertEqual(store.selectedWorkspace.title, "agent runs")
         XCTAssertFalse(store.canRenderSelectedTerminal)
+        XCTAssertEqual(store.terminalDetailPresentation, .notConnected)
+    }
+
+    func testDisconnectedStorePresentsNotConnectedEvenWithCachedTerminalState() {
+        let sessionFactory = WorkspacePresentationTerminalSessionFactory()
+        let store = CmxConnectionStore(
+            terminalSessionFactory: sessionFactory,
+            launchTicket: nil,
+            launchAutoconnect: false
+        )
+        store.ticketText = Self.directTicketJSON()
+
+        store.connect()
+        sessionFactory.session.delegate?.terminalSession(
+            sessionFactory.session,
+            didReceive: .welcome(serverVersion: "test", sessionID: "session")
+        )
+        sessionFactory.session.delegate?.terminalSession(
+            sessionFactory.session,
+            didReceive: .nativeSnapshot(Self.nativeSnapshot(title: "main"))
+        )
         XCTAssertEqual(store.terminalDetailPresentation, .loadingTerminal)
+
+        store.disconnect()
+
+        XCTAssertFalse(store.workspaces.isEmpty)
+        XCTAssertTrue(store.canRenderSelectedTerminal)
+        XCTAssertEqual(store.terminalDetailPresentation, .notConnected)
     }
 
     func testEmptyNativeSnapshotDoesNotReplaceExistingWorkspaceList() {
@@ -322,6 +349,17 @@ final class CmxWorkspacePresentationTests: XCTestCase {
             focusedPanelID: 0,
             focusedTabID: 0
         )
+    }
+
+    private static func directTicketJSON() -> String {
+        """
+        {
+          "version": 1,
+          "alpn": "/cmux/cmx/3",
+          "endpoint": { "id": "endpoint-public-key", "addrs": [] },
+          "auth": { "mode": "direct" }
+        }
+        """
     }
 
     private static func presentationSnapshot() -> CmxHiveDiscoverySnapshot {

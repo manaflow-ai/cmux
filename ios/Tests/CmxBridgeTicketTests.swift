@@ -328,7 +328,7 @@ final class CmxBridgeTicketTests: XCTestCase {
         XCTAssertEqual(store.ticketText, "ticket")
         XCTAssertTrue(store.workspaces.isEmpty)
         XCTAssertFalse(store.canRenderSelectedTerminal)
-        XCTAssertEqual(store.terminalDetailPresentation, .noWorkspaces)
+        XCTAssertEqual(store.terminalDetailPresentation, .notConnected)
         XCTAssertFalse(store.visibleWorkspaces(matching: "").contains { $0.title == "agent runs" })
     }
 
@@ -357,7 +357,7 @@ final class CmxBridgeTicketTests: XCTestCase {
 
         XCTAssertTrue(store.workspaces.isEmpty)
         XCTAssertFalse(store.canRenderSelectedTerminal)
-        XCTAssertEqual(store.terminalDetailPresentation, .noWorkspaces)
+        XCTAssertEqual(store.terminalDetailPresentation, .notConnected)
         XCTAssertFalse(store.visibleWorkspaces(matching: "").contains { $0.title == "agent runs" })
     }
 
@@ -726,6 +726,139 @@ final class CmxBridgeTicketTests: XCTestCase {
 
         XCTAssertEqual(store.terminalOutputRevision, revisionBeforePTY + 1)
         XCTAssertEqual(store.outputChunks(for: 41).last?.data, Data("live".utf8))
+    }
+
+    @MainActor
+    func testControlOnlyPtyBytesDoNotPresentBlankTerminalAsReady() throws {
+        let sessionFactory = RecordingTerminalSessionFactory()
+        let store = CmxConnectionStore(
+            authSessionStore: MemoryStackAuthSessionStore(),
+            pairingSecretClient: RecordingPairingSecretClient(),
+            terminalSessionFactory: sessionFactory
+        )
+        store.ticketText = """
+        {
+          "version": 1,
+          "alpn": "/cmux/cmx/3",
+          "endpoint": { "id": "endpoint-public-key", "addrs": [] },
+          "auth": { "mode": "direct" }
+        }
+        """
+        store.connect()
+        sessionFactory.session.delegate?.terminalSession(
+            sessionFactory.session,
+            didReceive: .nativeSnapshot(CmxNativeSnapshot(
+                workspaces: [
+                    CmxNativeWorkspaceInfo(
+                        id: 11,
+                        title: "main",
+                        spaceCount: 1,
+                        tabCount: 1,
+                        terminalCount: 1,
+                        pinned: false,
+                        color: nil
+                    ),
+                ],
+                activeWorkspace: 0,
+                activeWorkspaceID: 11,
+                spaces: [
+                    CmxNativeSpaceInfo(id: 21, title: "space-1", paneCount: 1, terminalCount: 1),
+                ],
+                activeSpace: 0,
+                activeSpaceID: 21,
+                panels: .leaf(
+                    panelID: 31,
+                    tabs: [
+                        CmxNativeTabInfo(id: 41, title: "shell", hasActivity: false, bellCount: 0),
+                    ],
+                    active: 0,
+                    activeTabID: 41
+                ),
+                focusedPanelID: 31,
+                focusedTabID: 41
+            ))
+        )
+
+        sessionFactory.session.delegate?.terminalSession(
+            sessionFactory.session,
+            didReceive: .ptyBytes(tabID: 41, data: Data("\u{1B}[2J\u{1B}[H".utf8))
+        )
+
+        XCTAssertFalse(store.outputChunks(for: 41).isEmpty)
+        XCTAssertFalse(store.selectedTerminalOutputIsReady)
+        XCTAssertEqual(store.terminalDetailPresentation, .loadingTerminal)
+
+        sessionFactory.session.delegate?.terminalSession(
+            sessionFactory.session,
+            didReceive: .ptyBytes(tabID: 41, data: Data("shell prompt\r\n".utf8))
+        )
+
+        XCTAssertTrue(store.selectedTerminalOutputIsReady)
+        XCTAssertEqual(store.terminalDetailPresentation, .terminal)
+    }
+
+    @MainActor
+    func testReconnectDoesNotSeedBlankTerminalOutput() throws {
+        let sessionFactory = ReconnectingRecordingTerminalSessionFactory()
+        let store = CmxConnectionStore(
+            authSessionStore: MemoryStackAuthSessionStore(),
+            pairingSecretClient: RecordingPairingSecretClient(),
+            terminalSessionFactory: sessionFactory
+        )
+        store.ticketText = """
+        {
+          "version": 1,
+          "alpn": "/cmux/cmx/3",
+          "endpoint": { "id": "endpoint-public-key", "addrs": [] },
+          "auth": { "mode": "direct" }
+        }
+        """
+        store.connect()
+        let firstSession = try XCTUnwrap(sessionFactory.latestSession)
+        firstSession.delegate?.terminalSession(
+            firstSession,
+            didReceive: .nativeSnapshot(CmxNativeSnapshot(
+                workspaces: [
+                    CmxNativeWorkspaceInfo(
+                        id: 11,
+                        title: "main",
+                        spaceCount: 1,
+                        tabCount: 1,
+                        terminalCount: 1,
+                        pinned: false,
+                        color: nil
+                    ),
+                ],
+                activeWorkspace: 0,
+                activeWorkspaceID: 11,
+                spaces: [
+                    CmxNativeSpaceInfo(id: 21, title: "space-1", paneCount: 1, terminalCount: 1),
+                ],
+                activeSpace: 0,
+                activeSpaceID: 21,
+                panels: .leaf(
+                    panelID: 31,
+                    tabs: [
+                        CmxNativeTabInfo(id: 41, title: "shell", hasActivity: false, bellCount: 0),
+                    ],
+                    active: 0,
+                    activeTabID: 41
+                ),
+                focusedPanelID: 31,
+                focusedTabID: 41
+            ))
+        )
+        firstSession.delegate?.terminalSession(
+            firstSession,
+            didReceive: .ptyBytes(tabID: 41, data: Data("cached prompt\r\n".utf8))
+        )
+        XCTAssertTrue(store.selectedTerminalOutputIsReady)
+
+        store.connect()
+
+        XCTAssertTrue(store.outputChunks(for: 41).isEmpty)
+        XCTAssertFalse(store.selectedTerminalOutputIsReady)
+        XCTAssertEqual(store.terminalDetailPresentation, .loadingTerminal)
     }
 
     @MainActor

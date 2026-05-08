@@ -23,6 +23,7 @@
 		6AB7A10AC70BC7A211F4BA25 /* CmxGhosttyTerminalSurfaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA700DAAB5080FB8C0F49011 /* CmxGhosttyTerminalSurfaceTests.swift */; };
 		6F690A4EFBB9693BFFA77F64 /* CmxBridgeTicket.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6B883D20F5E53B38079E582 /* CmxBridgeTicket.swift */; };
 		79761B08A1BFAB4EC092CE21 /* CmxMobileModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B2EF5DAE490DB7EA55F4735 /* CmxMobileModels.swift */; };
+		7E5E30CB5D5D286E22271775 /* CmxIrohTerminalSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7E5FC067C40D7D5A687904B /* CmxIrohTerminalSessionTests.swift */; };
 		886902B7DC6223EF64777313 /* CmxUITestingLongHaulDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C19247781636B76F31D55E80 /* CmxUITestingLongHaulDriver.swift */; };
 		8BDDF4D2E3FDC3536A819744 /* CmxLaunchConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CAC0519CCDE0B798949BDDB /* CmxLaunchConfiguration.swift */; };
 		9919666CBAC0B860BDF328C3 /* CmxHiveDiscoveryClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = C72B6DC1AA9FA2A324DF330E /* CmxHiveDiscoveryClient.swift */; };
@@ -89,6 +90,7 @@
 		C72B6DC1AA9FA2A324DF330E /* CmxHiveDiscoveryClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmxHiveDiscoveryClient.swift; sourceTree = "<group>"; };
 		CA00BE7804F5E833C3AC6783 /* CmxPairingAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmxPairingAuth.swift; sourceTree = "<group>"; };
 		D7012AB519D0E628DFC5968B /* CmxBridgeTicketTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmxBridgeTicketTests.swift; sourceTree = "<group>"; };
+		D7E5FC067C40D7D5A687904B /* CmxIrohTerminalSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmxIrohTerminalSessionTests.swift; sourceTree = "<group>"; };
 		DE3612A4F23C4449FD140F98 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		E8A01489CC17D9CC711CEC7E /* CmxStackAuthSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmxStackAuthSession.swift; sourceTree = "<group>"; };
 		EA700DAAB5080FB8C0F49011 /* CmxGhosttyTerminalSurfaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmxGhosttyTerminalSurfaceTests.swift; sourceTree = "<group>"; };
@@ -155,6 +157,7 @@
 				D7012AB519D0E628DFC5968B /* CmxBridgeTicketTests.swift */,
 				EA700DAAB5080FB8C0F49011 /* CmxGhosttyTerminalSurfaceTests.swift */,
 				F947D53965AE6472FB23E312 /* CmxHiveDiscoveryClientTests.swift */,
+				D7E5FC067C40D7D5A687904B /* CmxIrohTerminalSessionTests.swift */,
 				9BB7530110ACCA8D612E4AB8 /* CmxPairingAuthTests.swift */,
 				A530CA69638B5047244BB585 /* CmxProtocolTests.swift */,
 				B1FAC02225FC5A6C2FDD551C /* CmxRivetPairingSecretClientTests.swift */,
@@ -365,6 +368,7 @@
 				046A1E8ABAFA1BDCA717F665 /* CmxBridgeTicketTests.swift in Sources */,
 				6AB7A10AC70BC7A211F4BA25 /* CmxGhosttyTerminalSurfaceTests.swift in Sources */,
 				F1C5D5B20D7D55EFE3D7C52C /* CmxHiveDiscoveryClientTests.swift in Sources */,
+				7E5E30CB5D5D286E22271775 /* CmxIrohTerminalSessionTests.swift in Sources */,
 				9A08A168FB76F15214E7FEFD /* CmxPairingAuthTests.swift in Sources */,
 				3F6B7E0B59FAA1567D655E91 /* CmxProtocolTests.swift in Sources */,
 				BF322D7B349910F850E291C9 /* CmxRivetPairingSecretClientTests.swift in Sources */,

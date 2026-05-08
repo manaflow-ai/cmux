@@ -681,6 +681,16 @@ private struct TerminalDetailView: View {
 
                 VStack(spacing: 0) {
                     switch store.terminalDetailPresentation {
+                    case .notConnected:
+                        TerminalEmptyPane(
+                            title: String(localized: "terminal.not_connected.title", defaultValue: "Not Connected"),
+                            bodyText: String(
+                                localized: "terminal.not_connected.body",
+                                defaultValue: "Connect to a session to view terminals."
+                            ),
+                            revision: store.terminalAppearanceRevision
+                        )
+                        .frame(width: proxy.size.width, height: visibleHeight)
                     case .terminal:
                         TerminalPane(terminal: store.selectedTerminal)
                             .id(terminalSurfaceIdentity)
@@ -745,18 +755,24 @@ private struct TerminalDetailView: View {
         .toolbarColorScheme(TerminalThemeChrome.toolbarColorScheme(revision: store.terminalAppearanceRevision), for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .principal) {
-                TerminalPickerMenu(
-                    workspaces: store.workspaces,
-                    selectedWorkspace: store.selectedWorkspace,
-                    selectedWorkspaceID: store.selectedWorkspaceID,
-                    selectedSpaceID: store.selectedSpaceID,
-                    selectedTerminalID: store.selectedTerminalID,
-                    latencyText: store.latencyText,
-                    revision: store.terminalAppearanceRevision,
-                    selectWorkspace: { store.select(workspace: $0) },
-                    selectSpace: { store.select(space: $0) },
-                    selectTerminal: { space, terminal in store.select(space: space); store.select(terminal: terminal) }
-                )
+                if store.terminalDetailPresentation == .notConnected {
+                    Text(String(localized: "terminal.not_connected.title", defaultValue: "Not Connected"))
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(TerminalThemeChrome.foreground(revision: store.terminalAppearanceRevision))
+                } else {
+                    TerminalPickerMenu(
+                        workspaces: store.workspaces,
+                        selectedWorkspace: store.selectedWorkspace,
+                        selectedWorkspaceID: store.selectedWorkspaceID,
+                        selectedSpaceID: store.selectedSpaceID,
+                        selectedTerminalID: store.selectedTerminalID,
+                        latencyText: store.latencyText,
+                        revision: store.terminalAppearanceRevision,
+                        selectWorkspace: { store.select(workspace: $0) },
+                        selectSpace: { store.select(space: $0) },
+                        selectTerminal: { space, terminal in store.select(space: space); store.select(terminal: terminal) }
+                    )
+                }
             }
         }
         .onAppear {

@@ -223,6 +223,18 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "ターミナルを読み込み中" } }
       }
     },
+    "terminal.not_connected.body" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Connect to a session to view terminals." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ターミナルを表示するにはセッションに接続してください。" } }
+      }
+    },
+    "terminal.not_connected.title" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Not Connected" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "未接続" } }
+      }
+    },
     "demo.row.bridge_command" : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "$ cmux bridge --socket $CMX_SOCKET_PATH" } },
@@ -467,6 +479,12 @@
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "The terminal connection stopped responding." } },
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "ターミナル接続が応答しなくなりました。" } }
+      }
+    },
+    "terminal.error.incoming_backlog_exceeded" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The terminal connection sent data faster than this device could render it." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ターミナル接続のデータ量が、このデバイスで描画できる速度を超えました。" } }
       }
     },
     "nav.workspaces" : {

@@ -4,6 +4,7 @@ import OSLog
 import UIKit
 
 enum CmxTerminalDetailPresentation: Equatable {
+    case notConnected
     case loadingWorkspaces
     case noWorkspaces
     case noTerminal
@@ -312,7 +313,7 @@ final class CmxConnectionStore: ObservableObject {
         workspaces.isEmpty
             && nativeSnapshot == nil
             && errorText == nil
-            && (ticket != nil || isConnecting || isConnected)
+            && (isConnecting || isConnected)
     }
 
     var canRenderSelectedTerminal: Bool {
@@ -321,10 +322,14 @@ final class CmxConnectionStore: ObservableObject {
 
     var selectedTerminalOutputIsReady: Bool {
         guard canRenderSelectedTerminal else { return false }
-        return !outputChunksByTerminalID[selectedTerminalID, default: []].isEmpty
+        return outputChunksByTerminalID[selectedTerminalID, default: []]
+            .contains { Self.containsRenderableTerminalOutput($0.data) }
     }
 
     var terminalDetailPresentation: CmxTerminalDetailPresentation {
+        guard isConnecting || isConnected else {
+            return .notConnected
+        }
         if workspaces.isEmpty {
             if isAwaitingInitialWorkspaceSnapshot {
                 return .loadingWorkspaces
@@ -820,6 +825,7 @@ final class CmxConnectionStore: ObservableObject {
     }
 
     private func appendOutput(_ data: Data, terminalID: UInt64) {
+        guard !data.isEmpty else { return }
         let chunk = CmxTerminalOutputChunk(id: nextOutputChunkID, data: data)
         nextOutputChunkID += 1
         outputChunksByTerminalID[terminalID, default: []].append(chunk)
@@ -872,7 +878,68 @@ final class CmxConnectionStore: ObservableObject {
 
     private func clearTerminal(_ terminalID: UInt64) {
         clearCachedOutput(for: terminalID)
-        appendOutput(Data("\u{001B}[2J\u{001B}[H".utf8), terminalID: terminalID)
+    }
+
+    private static func containsRenderableTerminalOutput(_ data: Data) -> Bool {
+        let bytes = [UInt8](data)
+        var index = 0
+        while index < bytes.count {
+            let byte = bytes[index]
+            switch byte {
+            case 0x1B:
+                index = skipTerminalEscapeSequence(in: bytes, startingAt: index)
+            case 0x21...0x7E, 0xC2...0xF4:
+                return true
+            default:
+                index += 1
+            }
+        }
+        return false
+    }
+
+    private static func skipTerminalEscapeSequence(in bytes: [UInt8], startingAt escapeIndex: Int) -> Int {
+        let nextIndex = escapeIndex + 1
+        guard nextIndex < bytes.count else { return bytes.count }
+        let introducer = bytes[nextIndex]
+        switch introducer {
+        case 0x5B:
+            return skipTerminalCsiSequence(in: bytes, startingAt: nextIndex + 1)
+        case 0x5D, 0x50, 0x5E, 0x5F, 0x58:
+            return skipTerminalStringEscapeSequence(in: bytes, startingAt: nextIndex + 1)
+        case 0x28, 0x29, 0x2A, 0x2B, 0x2D, 0x2E, 0x2F:
+            return min(nextIndex + 2, bytes.count)
+        default:
+            return nextIndex + 1
+        }
+    }
+
+    private static func skipTerminalCsiSequence(in bytes: [UInt8], startingAt startIndex: Int) -> Int {
+        var index = startIndex
+        while index < bytes.count {
+            let byte = bytes[index]
+            index += 1
+            if (0x40...0x7E).contains(byte) {
+                return index
+            }
+        }
+        return index
+    }
+
+    private static func skipTerminalStringEscapeSequence(in bytes: [UInt8], startingAt startIndex: Int) -> Int {
+        var index = startIndex
+        while index < bytes.count {
+            let byte = bytes[index]
+            if byte == 0x07 {
+                return index + 1
+            }
+            if byte == 0x1B,
+               index + 1 < bytes.count,
+               bytes[index + 1] == 0x5C {
+                return index + 2
+            }
+            index += 1
+        }
+        return index
     }
 
     private func clearCachedOutput(for terminalID: UInt64) {
