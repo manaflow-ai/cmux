@@ -22,7 +22,8 @@ import AppKit
 
 func makeWindow() {
     let window = NSWindow()
-    window.identifier = NSUserInterfaceItemIdentifier("cmux.newWindow")
+    window.identifier =
+        NSUserInterfaceItemIdentifier("cmux.newWindow")
 }
 SWIFT
 
@@ -34,10 +35,35 @@ grep -q "cmux.newWindow" "$TMP_DIR/missing.out"
 
 cat > "$TMP_DIR/Sources/cmuxApp.swift" <<'SWIFT'
 private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
+    // "cmux.newWindow",
+    "cmux.settings",
+]
+SWIFT
+
+if python3 scripts/lint_auxiliary_window_close_shortcuts.py --repo-root "$TMP_DIR" >"$TMP_DIR/commented-owner.out" 2>&1; then
+    echo "Expected commented-out auxiliary-window close owner to be ignored" >&2
+    exit 1
+fi
+grep -q "cmux.newWindow" "$TMP_DIR/commented-owner.out"
+
+cat > "$TMP_DIR/Sources/cmuxApp.swift" <<'SWIFT'
+private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     // MARK: - Main Windows [user-closable]
     "cmux.newWindow",
     "cmux.settings",
 ]
+SWIFT
+
+python3 scripts/lint_auxiliary_window_close_shortcuts.py --repo-root "$TMP_DIR"
+
+cat > "$TMP_DIR/Sources/NewWindow.swift" <<'SWIFT'
+import AppKit
+
+func makeWindow() {
+    let window = NSWindow()
+    // window.identifier = NSUserInterfaceItemIdentifier("cmux.commentOnly")
+    _ = window
+}
 SWIFT
 
 python3 scripts/lint_auxiliary_window_close_shortcuts.py --repo-root "$TMP_DIR"

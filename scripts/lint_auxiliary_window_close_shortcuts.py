@@ -24,6 +24,11 @@ IDENTIFIER_ASSIGNMENT_RE = re.compile(
     r"""\b[A-Za-z_][A-Za-z0-9_]*\.identifier\s*=\s*NSUserInterfaceItemIdentifier\("(?P<identifier>cmux\.[^"]+)"\)"""
 )
 STRING_LITERAL_RE = re.compile(r'"(?P<identifier>cmux\.[^"]+)"')
+LINE_COMMENT_RE = re.compile(r"//[^\n]*")
+
+
+def strip_line_comments(text: str) -> str:
+    return LINE_COMMENT_RE.sub("", text)
 
 
 def load_close_owner_identifiers(repo_root: pathlib.Path) -> set[str]:
@@ -55,7 +60,7 @@ def load_close_owner_identifiers(repo_root: pathlib.Path) -> set[str]:
     if list_end < 0:
         raise ValueError(f"could not parse {OWNER_LIST_NAME} in {OWNER_LIST_PATH}")
 
-    list_body = text[list_start:list_end]
+    list_body = strip_line_comments(text[list_start:list_end])
     return {match.group("identifier") for match in STRING_LITERAL_RE.finditer(list_body)}
 
 
@@ -70,11 +75,11 @@ def collect_window_identifier_assignments(
             continue
         for path in sorted(root_path.rglob("*.swift")):
             rel_path = path.relative_to(repo_root).as_posix()
-            with path.open("r", encoding="utf-8", errors="replace") as handle:
-                for line_number, line in enumerate(handle, start=1):
-                    for match in IDENTIFIER_ASSIGNMENT_RE.finditer(line):
-                        identifier = match.group("identifier")
-                        assignments.setdefault(identifier, []).append(f"{rel_path}:{line_number}")
+            text = strip_line_comments(path.read_text(encoding="utf-8", errors="replace"))
+            for match in IDENTIFIER_ASSIGNMENT_RE.finditer(text):
+                identifier = match.group("identifier")
+                line_number = text.count("\n", 0, match.start()) + 1
+                assignments.setdefault(identifier, []).append(f"{rel_path}:{line_number}")
     return assignments
 
 
