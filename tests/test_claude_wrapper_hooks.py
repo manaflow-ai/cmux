@@ -259,11 +259,17 @@ keys=(
   ANTHROPIC_API_KEY
   ANTHROPIC_AUTH_TOKEN
   ANTHROPIC_BASE_URL
+  ANTHROPIC_BEDROCK_BASE_URL
   ANTHROPIC_MODEL
   ANTHROPIC_SMALL_FAST_MODEL
+  ANTHROPIC_VERTEX_BASE_URL
+  ANTHROPIC_VERTEX_PROJECT_ID
+  AWS_PROFILE
+  AWS_REGION
   CLAUDE_CODE_USE_BEDROCK
   CLAUDE_CODE_USE_VERTEX
   CLAUDE_CONFIG_DIR
+  CLOUD_ML_REGION
 )
 for key in "${keys[@]}"; do
   if [[ ${!key+x} ]]; then
@@ -508,6 +514,138 @@ def test_live_socket_preserves_only_listed_claude_auth_keys(failures: list[str])
     expect("--session-id" not in real_argv, f"listed auth env: expected no injected session id, got {real_argv}", failures)
 
 
+def test_live_socket_auto_preserves_vertex_auth_when_truthy(failures: list[str]) -> None:
+    # Regression for https://github.com/manaflow-ai/cmux/issues/3641.
+    inherited = {
+        "CLAUDE_CODE_USE_VERTEX": "1",
+        "ANTHROPIC_MODEL": "claude-sonnet-4-5@20250929",
+        "ANTHROPIC_SMALL_FAST_MODEL": "claude-haiku-4-5@20251001",
+        "ANTHROPIC_VERTEX_PROJECT_ID": "my-gcp-project",
+        "ANTHROPIC_VERTEX_BASE_URL": "https://us-east5-aiplatform.googleapis.com",
+        "CLOUD_ML_REGION": "us-east5",
+    }
+    code, auth_env, real_argv, stderr = run_wrapper_auth_env(
+        argv=["hello"],
+        inherited_env=inherited,
+    )
+    expect(code == 0, f"vertex auto-preserve: wrapper exited {code}: {stderr}", failures)
+    expect(
+        auth_env.get("CLAUDE_CODE_USE_VERTEX") == "1",
+        f"vertex auto-preserve: expected CLAUDE_CODE_USE_VERTEX=1 preserved, got {auth_env.get('CLAUDE_CODE_USE_VERTEX')!r}",
+        failures,
+    )
+    expect(
+        auth_env.get("ANTHROPIC_MODEL") == "claude-sonnet-4-5@20250929",
+        f"vertex auto-preserve: expected Vertex ANTHROPIC_MODEL preserved, got {auth_env.get('ANTHROPIC_MODEL')!r}",
+        failures,
+    )
+    expect(
+        auth_env.get("ANTHROPIC_SMALL_FAST_MODEL") == "claude-haiku-4-5@20251001",
+        f"vertex auto-preserve: expected Vertex ANTHROPIC_SMALL_FAST_MODEL preserved, got {auth_env.get('ANTHROPIC_SMALL_FAST_MODEL')!r}",
+        failures,
+    )
+    expect(
+        auth_env.get("ANTHROPIC_VERTEX_PROJECT_ID") == "my-gcp-project",
+        f"vertex auto-preserve: expected ANTHROPIC_VERTEX_PROJECT_ID preserved, got {auth_env.get('ANTHROPIC_VERTEX_PROJECT_ID')!r}",
+        failures,
+    )
+    expect(
+        auth_env.get("ANTHROPIC_VERTEX_BASE_URL") == "https://us-east5-aiplatform.googleapis.com",
+        f"vertex auto-preserve: expected ANTHROPIC_VERTEX_BASE_URL preserved, got {auth_env.get('ANTHROPIC_VERTEX_BASE_URL')!r}",
+        failures,
+    )
+    expect(
+        auth_env.get("CLOUD_ML_REGION") == "us-east5",
+        f"vertex auto-preserve: expected CLOUD_ML_REGION preserved, got {auth_env.get('CLOUD_ML_REGION')!r}",
+        failures,
+    )
+    expect(
+        "--session-id" in real_argv,
+        f"vertex auto-preserve: expected session injection, got {real_argv}",
+        failures,
+    )
+
+
+def test_live_socket_auto_preserves_bedrock_auth_when_truthy(failures: list[str]) -> None:
+    # Regression for https://github.com/manaflow-ai/cmux/issues/3638.
+    inherited = {
+        "CLAUDE_CODE_USE_BEDROCK": "1",
+        "ANTHROPIC_MODEL": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        "ANTHROPIC_SMALL_FAST_MODEL": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        "ANTHROPIC_BEDROCK_BASE_URL": "https://bedrock-runtime.us-west-2.amazonaws.com",
+        "AWS_REGION": "us-west-2",
+        "AWS_PROFILE": "bedrock-prod",
+    }
+    code, auth_env, real_argv, stderr = run_wrapper_auth_env(
+        argv=["hello"],
+        inherited_env=inherited,
+    )
+    expect(code == 0, f"bedrock auto-preserve: wrapper exited {code}: {stderr}", failures)
+    expect(
+        auth_env.get("CLAUDE_CODE_USE_BEDROCK") == "1",
+        f"bedrock auto-preserve: expected CLAUDE_CODE_USE_BEDROCK=1 preserved, got {auth_env.get('CLAUDE_CODE_USE_BEDROCK')!r}",
+        failures,
+    )
+    expect(
+        auth_env.get("ANTHROPIC_MODEL") == "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        f"bedrock auto-preserve: expected Bedrock ANTHROPIC_MODEL preserved, got {auth_env.get('ANTHROPIC_MODEL')!r}",
+        failures,
+    )
+    expect(
+        auth_env.get("ANTHROPIC_SMALL_FAST_MODEL") == "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        f"bedrock auto-preserve: expected Bedrock ANTHROPIC_SMALL_FAST_MODEL preserved, got {auth_env.get('ANTHROPIC_SMALL_FAST_MODEL')!r}",
+        failures,
+    )
+    expect(
+        auth_env.get("ANTHROPIC_BEDROCK_BASE_URL") == "https://bedrock-runtime.us-west-2.amazonaws.com",
+        f"bedrock auto-preserve: expected ANTHROPIC_BEDROCK_BASE_URL preserved, got {auth_env.get('ANTHROPIC_BEDROCK_BASE_URL')!r}",
+        failures,
+    )
+    expect(
+        auth_env.get("AWS_REGION") == "us-west-2",
+        f"bedrock auto-preserve: expected AWS_REGION preserved, got {auth_env.get('AWS_REGION')!r}",
+        failures,
+    )
+    expect(
+        auth_env.get("AWS_PROFILE") == "bedrock-prod",
+        f"bedrock auto-preserve: expected AWS_PROFILE preserved, got {auth_env.get('AWS_PROFILE')!r}",
+        failures,
+    )
+    expect(
+        "--session-id" in real_argv,
+        f"bedrock auto-preserve: expected session injection, got {real_argv}",
+        failures,
+    )
+
+
+def test_live_socket_does_not_auto_preserve_when_vertex_value_is_falsy(failures: list[str]) -> None:
+    inherited = {
+        "CLAUDE_CODE_USE_VERTEX": "0",
+        "CLAUDE_CODE_USE_BEDROCK": "",
+        "ANTHROPIC_MODEL": "stale-model",
+    }
+    code, auth_env, _, stderr = run_wrapper_auth_env(
+        argv=["hello"],
+        inherited_env=inherited,
+    )
+    expect(code == 0, f"falsy vertex: wrapper exited {code}: {stderr}", failures)
+    expect(
+        auth_env.get("CLAUDE_CODE_USE_VERTEX") == "__UNSET__",
+        f"falsy vertex: expected CLAUDE_CODE_USE_VERTEX=0 to be cleared, got {auth_env.get('CLAUDE_CODE_USE_VERTEX')!r}",
+        failures,
+    )
+    expect(
+        auth_env.get("CLAUDE_CODE_USE_BEDROCK") == "__UNSET__",
+        f"falsy vertex: expected empty CLAUDE_CODE_USE_BEDROCK to be cleared, got {auth_env.get('CLAUDE_CODE_USE_BEDROCK')!r}",
+        failures,
+    )
+    expect(
+        auth_env.get("ANTHROPIC_MODEL") == "__UNSET__",
+        f"falsy vertex: expected ANTHROPIC_MODEL cleared (no live Vertex/Bedrock backend), got {auth_env.get('ANTHROPIC_MODEL')!r}",
+        failures,
+    )
+
+
 def test_live_socket_enforces_heap_cap_for_space_separated_flag(failures: list[str]) -> None:
     existing = "--max-old-space-size 2048 --trace-warnings"
     restored = "--max-old-space-size=2048 --trace-warnings"
@@ -662,6 +800,9 @@ def main() -> int:
     test_live_socket_normalizes_subrouter_claude_config_dir(failures)
     test_live_socket_preserves_claude_auth_for_resume_launch(failures)
     test_live_socket_preserves_only_listed_claude_auth_keys(failures)
+    test_live_socket_auto_preserves_vertex_auth_when_truthy(failures)
+    test_live_socket_auto_preserves_bedrock_auth_when_truthy(failures)
+    test_live_socket_does_not_auto_preserve_when_vertex_value_is_falsy(failures)
     test_live_socket_enforces_heap_cap_for_space_separated_flag(failures)
     test_live_socket_tmpdir_failure_skips_node_options_injection(failures)
     test_live_socket_preserves_explicit_bypass_availability_flag(failures)
