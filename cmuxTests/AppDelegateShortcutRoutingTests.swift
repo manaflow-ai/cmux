@@ -2791,6 +2791,61 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(workspace.panels.count, panelCountBefore)
     }
 
+    func testCmdCommaOpensSettingsFromWindowWithoutTerminalShortcutContext() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        let auxiliaryWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        auxiliaryWindow.isReleasedWhenClosed = false
+        auxiliaryWindow.identifier = NSUserInterfaceItemIdentifier("cmux.shortcut-routing-test")
+        auxiliaryWindow.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        defer {
+            auxiliaryWindow.orderOut(nil)
+            auxiliaryWindow.close()
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        }
+
+        var settingsOpenCount = 0
+#if DEBUG
+        SettingsWindowPresenter.resetForTests()
+        defer { SettingsWindowPresenter.resetForTests() }
+#endif
+        SettingsWindowPresenter.configure(openWindow: {
+            settingsOpenCount += 1
+        })
+
+        guard let event = makeKeyDownEvent(
+            key: ",",
+            modifiers: [.command],
+            keyCode: 43,
+            windowNumber: auxiliaryWindow.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+, event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(
+            appDelegate.debugHandleCustomShortcut(event: event),
+            "Cmd+, should remain app-scoped when the key event comes from a non-terminal window"
+        )
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        XCTAssertEqual(settingsOpenCount, 1)
+    }
+
     func testCmdIStillTriggersShowNotificationsShortcut() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
