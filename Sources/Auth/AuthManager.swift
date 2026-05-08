@@ -57,6 +57,12 @@ enum AuthManagerError: LocalizedError {
     }
 }
 
+enum AuthSignInAwaitResult: Equatable, Sendable {
+    case signedIn
+    case cancelled
+    case timedOut
+}
+
 protocol StackAuthTokenStoreProtocol: TokenStoreProtocol, Sendable {
     func seed(accessToken: String, refreshToken: String) async
     func clear() async
@@ -184,25 +190,35 @@ final class AuthManager: ObservableObject {
 
     private var loginPollTask: Task<Void, Never>?
     private var webAuthSession: ASWebAuthenticationSession?
+    private var webAuthSessionID: UUID?
 
     func beginSignIn() {
+        if isLoading, webAuthSession != nil {
+            return
+        }
+
         loginPollTask?.cancel()
-        webAuthSession?.cancel()
-        webAuthSession = nil
+        cancelActiveWebAuthSession(setLoading: false)
         isLoading = true
 
         let signInURL = AuthEnvironment.signInURL()
         let callbackScheme = AuthEnvironment.callbackScheme
+        let sessionID = UUID()
+        webAuthSessionID = sessionID
 
         let session = ASWebAuthenticationSession(
             url: signInURL,
             callbackURLScheme: callbackScheme
-        ) { [weak self] callbackURL, error in
+        ) { [weak self, sessionID] callbackURL, error in
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                guard self.webAuthSessionID == sessionID else { return }
                 defer {
-                    self.isLoading = false
-                    self.webAuthSession = nil
+                    if self.webAuthSessionID == sessionID {
+                        self.isLoading = false
+                        self.webAuthSession = nil
+                        self.webAuthSessionID = nil
+                    }
                 }
                 if let error {
                     NSLog("auth.webauth failed: %@", "\(error)")
@@ -223,7 +239,11 @@ final class AuthManager: ObservableObject {
             webAuthSession = session
         } else {
             NSLog("auth.webauth: session.start() returned false")
-            isLoading = false
+            if webAuthSessionID == sessionID {
+                isLoading = false
+                webAuthSession = nil
+                webAuthSessionID = nil
+            }
         }
     }
 
@@ -232,10 +252,16 @@ final class AuthManager: ObservableObject {
     /// authenticated, when the sign-in attempt settles unsuccessfully (popup
     /// dismissed/cancelled/error), or when the deadline elapses. No polling
     /// — the $isAuthenticated / $isLoading AsyncPublishers drive the wait.
-    func beginSignInAndAwait(timeout: TimeInterval) async -> Bool {
-        if isAuthenticated { return true }
-        beginSignIn()
-        return await waitForSignInSettled(timeout: timeout)
+    func beginSignInAndAwait(timeout: TimeInterval) async -> AuthSignInAwaitResult {
+        if isAuthenticated { return .signedIn }
+        if !isLoading || webAuthSession == nil {
+            beginSignIn()
+        }
+        let result = await waitForSignInSettled(timeout: timeout)
+        if result == .timedOut {
+            cancelActiveWebAuthSession(setLoading: true)
+        }
+        return result
     }
 
     /// Signs out and awaits the state to flip. signOut() is already async and
@@ -247,36 +273,46 @@ final class AuthManager: ObservableObject {
         return await waitForAuthState(target: false, timeout: timeout)
     }
 
-    private func waitForSignInSettled(timeout: TimeInterval) async -> Bool {
-        await withTaskGroup(of: Bool.self) { group in
+    private func waitForSignInSettled(timeout: TimeInterval) async -> AuthSignInAwaitResult {
+        await withTaskGroup(of: AuthSignInAwaitResult.self) { group in
             group.addTask { @MainActor [weak self] in
-                guard let self else { return false }
+                guard let self else { return .cancelled }
                 for await value in self.$isAuthenticated.values {
-                    if value { return true }
+                    if value { return .signedIn }
                 }
-                return false
+                return .cancelled
             }
             group.addTask { @MainActor [weak self] in
-                guard let self else { return false }
+                guard let self else { return .cancelled }
                 // Wait for isLoading to flip false after we started the
                 // popup. If authentication hasn't succeeded by then the
                 // user cancelled/errored and we can resolve early.
                 for await loading in self.$isLoading.values {
-                    if !loading && !self.isAuthenticated { return false }
-                    if self.isAuthenticated { return true }
+                    if !loading && !self.isAuthenticated { return .cancelled }
+                    if self.isAuthenticated { return .signedIn }
                 }
-                return false
+                return .cancelled
             }
             group.addTask {
                 let maxSeconds: Double = 24 * 60 * 60
                 let clamped = max(0, min(timeout, maxSeconds))
                 try? await Task.sleep(nanoseconds: UInt64(clamped * 1_000_000_000))
-                return false
+                return .timedOut
             }
-            let first = await group.next() ?? false
+            let first = await group.next() ?? .cancelled
             group.cancelAll()
             return first
         }
+    }
+
+    private func cancelActiveWebAuthSession(setLoading: Bool) {
+        let session = webAuthSession
+        webAuthSession = nil
+        webAuthSessionID = nil
+        if setLoading {
+            isLoading = false
+        }
+        session?.cancel()
     }
 
     private func waitForAuthState(target: Bool, timeout: TimeInterval) async -> Bool {

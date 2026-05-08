@@ -1535,17 +1535,20 @@ class TerminalController {
             semaphore.wait()
             return v2Ok(id: request.id, result: v2AuthStatusPayload(timedOut: false))
         case "auth.begin_sign_in":
-            let timeoutSeconds = (request.params["timeout_seconds"] as? Double) ?? 300
+            let timeoutSeconds = Self.socketWorkerDouble(request.params["timeout_seconds"]) ?? 300
             let semaphore = DispatchSemaphore(value: 0)
-            nonisolated(unsafe) var signedIn = false
+            nonisolated(unsafe) var signInResult: AuthSignInAwaitResult = .cancelled
             Task { @MainActor in
-                signedIn = await AuthManager.shared.beginSignInAndAwait(
+                signInResult = await AuthManager.shared.beginSignInAndAwait(
                     timeout: timeoutSeconds
                 )
                 semaphore.signal()
             }
             semaphore.wait()
-            return v2Ok(id: request.id, result: v2AuthStatusPayload(timedOut: !signedIn))
+            return v2Ok(
+                id: request.id,
+                result: v2AuthStatusPayload(timedOut: signInResult == .timedOut)
+            )
         case "auth.sign_out":
             let semaphore = DispatchSemaphore(value: 0)
             Task { @MainActor in
@@ -1571,6 +1574,16 @@ class TerminalController {
         default:
             return v2Error(id: request.id, code: "method_not_found", message: "Unknown method")
         }
+    }
+
+    private nonisolated static func socketWorkerDouble(_ raw: Any?) -> Double? {
+        if let double = raw as? Double { return double }
+        if let float = raw as? Float { return Double(float) }
+        if let number = raw as? NSNumber { return number.doubleValue }
+        if let string = raw as? String {
+            return Double(string.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        return nil
     }
 
     private nonisolated func startAcceptSource(listenerSocket: Int32, generation: UInt64) {
