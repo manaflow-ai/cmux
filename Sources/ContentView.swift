@@ -2297,7 +2297,7 @@ struct ContentView: View {
     private var rightSidebarTitlebarToggle: some View {
         let config = titlebarControlsConfig
         let _ = rightSidebarShortcutRefreshTick
-        let shortcut = KeyboardShortcutSettings.shortcut(for: .toggleFileExplorer)
+        let shortcut = KeyboardShortcutSettings.shortcut(for: .toggleRightSidebar)
         let showsShortcutHint = titlebarShortcutHintShouldShow(
             shortcut: shortcut,
             alwaysShowShortcutHints: alwaysShowShortcutHints,
@@ -2317,7 +2317,7 @@ struct ContentView: View {
             titlebarControlIcon(systemName: "sidebar.right", config: config)
         }
         .safeHelp(
-            KeyboardShortcutSettings.Action.toggleFileExplorer.tooltip(
+            KeyboardShortcutSettings.Action.toggleRightSidebar.tooltip(
                 String(localized: "titlebar.rightSidebar.tooltip", defaultValue: "Show or hide the right sidebar")
             )
         )
@@ -2336,7 +2336,7 @@ struct ContentView: View {
                                 + CGFloat(ShortcutHintDebugSettings.clamped(titlebarShortcutHintYOffset))
                         )
                         .shortcutHintTransition()
-                        .accessibilityIdentifier("titlebarShortcutHint.toggleFileExplorer")
+                        .accessibilityIdentifier("titlebarShortcutHint.toggleRightSidebar")
                 }
             }
             .allowsHitTesting(false)
@@ -6560,9 +6560,9 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.toggleSidebar",
-                title: constant(String(localized: "command.toggleSidebar.title", defaultValue: "Toggle Sidebar")),
+                title: constant(String(localized: "command.toggleLeftSidebar.title", defaultValue: "Toggle Left Sidebar")),
                 subtitle: constant(String(localized: "command.toggleSidebar.subtitle", defaultValue: "Layout")),
-                keywords: ["toggle", "sidebar", "layout"]
+                keywords: ["toggle", "sidebar", "left", "layout"]
             )
         )
         contributions.append(contentsOf: Self.commandPaletteRightSidebarModeCommandContributions())
