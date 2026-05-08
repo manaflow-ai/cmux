@@ -372,7 +372,8 @@ class TerminalController {
         color: String?,
         url: URL?,
         priority: Int,
-        format: SidebarMetadataFormat
+        format: SidebarMetadataFormat,
+        protocolValue: String?
     ) -> Bool {
         guard let current else { return true }
         return current.key != key ||
@@ -381,7 +382,15 @@ class TerminalController {
             current.color != color ||
             current.url != url ||
             current.priority != priority ||
-            current.format != format
+            current.format != format ||
+            current.protocolValue != protocolValue
+    }
+
+    nonisolated static func sidebarStatusProtocolValue(_ value: String) -> String {
+        value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: " ", with: "_")
     }
 
     nonisolated static func shouldReplaceMetadataBlock(
@@ -16019,6 +16028,7 @@ class TerminalController {
             }
             return nil
         }()
+        let protocolValue = Self.sidebarStatusProtocolValue(value)
 
         scheduleSidebarMutation(target: target) { _, tab in
             guard Self.shouldReplaceStatusEntry(
@@ -16029,7 +16039,8 @@ class TerminalController {
                 color: color,
                 url: parsedURL,
                 priority: priority,
-                format: format
+                format: format,
+                protocolValue: protocolValue
             ) else {
                 // Still update PID tracking even if the status display hasn't changed.
                 if let pidValue {
@@ -16045,7 +16056,8 @@ class TerminalController {
                 url: parsedURL,
                 priority: priority,
                 format: format,
-                timestamp: Date()
+                timestamp: Date(),
+                protocolValue: protocolValue
             )
             if let pidValue {
                 tab.setAgentPID(key: key, pid: pidValue)

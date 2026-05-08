@@ -70,7 +70,7 @@ nonisolated enum SidebarAgentProcessProbe {
         guard let state, state.isAlive else { return nil }
 
         if let explicitEntry {
-            guard isRunningProtocolStatus(explicitEntry.value),
+            guard explicitEntry.protocolValue.map(isRunningProtocolStatus) == true,
                   state.activity == .needsInput else {
                 return explicitEntry
             }
@@ -117,7 +117,8 @@ nonisolated enum SidebarAgentProcessProbe {
             url: url,
             priority: priority,
             format: .plain,
-            timestamp: timestamp
+            timestamp: timestamp,
+            protocolValue: activity.protocolValue
         )
     }
 

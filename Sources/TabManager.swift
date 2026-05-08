@@ -9,37 +9,6 @@ import Combine
 // The old Tab class is replaced by Workspace
 typealias Tab = Workspace
 
-private struct SidebarAgentTitleRegistration {
-    let statusKey: String
-    let processNameNeedles: [String]
-
-    static func detect(title: String) -> SidebarAgentTitleRegistration? {
-        let normalized = title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !normalized.isEmpty else { return nil }
-
-        if normalized.hasPrefix("codex-") {
-            return SidebarAgentTitleRegistration(
-                statusKey: "codex",
-                processNameNeedles: ["codex", "node"]
-            )
-        }
-
-        return nil
-    }
-}
-
-private struct SidebarAgentPIDProbeRequest: Sendable {
-    let workspaceId: UUID
-    let key: String
-    let pid: pid_t
-}
-
-private struct SidebarAgentPIDProbeResult: Sendable {
-    let workspaceId: UUID
-    let key: String
-    let state: SidebarAgentProcessState
-}
-
 enum NewWorkspacePlacement: String, CaseIterable, Identifiable {
     case top
     case afterCurrent
@@ -1849,17 +1818,14 @@ class TabManager: ObservableObject {
         guard !agentPIDProbeInFlight else { return }
         let requests = collectAgentPIDProbeRequests()
         scheduleAgentPIDDiscoveryFromTerminalTitlesIfNeeded()
-        guard !requests.isEmpty else { return }
+        guard !requests.isEmpty else {
+            applyAgentPIDProbeResults([])
+            return
+        }
 
         agentPIDProbeInFlight = true
         agentPIDProbeQueue.async {
-            let results = requests.map { request in
-                SidebarAgentPIDProbeResult(
-                    workspaceId: request.workspaceId,
-                    key: request.key,
-                    state: SidebarAgentProcessProbe.processState(for: request.pid)
-                )
-            }
+            let results = SidebarAgentStatusService.probeResults(for: requests)
             DispatchQueue.main.async {
                 self.agentPIDProbeInFlight = false
                 self.applyAgentPIDProbeResults(results)
@@ -1903,13 +1869,14 @@ class TabManager: ObservableObject {
                 keysToRemove.insert(key)
             }
             if !keysToRemove.isEmpty {
+                let stalePanelIds = Set(keysToRemove.compactMap { tab.agentPanelIds[$0] })
                 for key in keysToRemove.sorted() {
                     tab.clearAgentPID(key: key, refreshPorts: false)
                 }
                 tab.refreshTrackedAgentPorts()
-                // Also clear stale notifications (e.g. "Doing well, thanks!")
-                // left behind when Claude was killed without SessionEnd firing.
-                AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tab.id)
+                for panelId in stalePanelIds {
+                    AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tab.id, surfaceId: panelId)
+                }
             }
         }
     }
@@ -5110,7 +5077,7 @@ class TabManager: ObservableObject {
         tabs.flatMap { tab in
             tab.panelTitles.compactMap { panelId, title -> (Workspace, UUID, SidebarAgentTitleRegistration)? in
                 guard tab.panels[panelId] != nil,
-                      let registration = SidebarAgentTitleRegistration.detect(title: title),
+                      let registration = SidebarAgentStatusService.titleRegistration(for: title),
                       tab.agentPIDs[registration.statusKey] == nil else {
                     return nil
                 }
@@ -5156,7 +5123,10 @@ class TabManager: ObservableObject {
 
         var registeredKeys: Set<String> = []
         for (tab, panelId, registration) in titleCandidates {
-            let registrationKey = "\(tab.id.uuidString):\(registration.statusKey)"
+            let registrationKey = SidebarAgentStatusService.registrationDeduplicationKey(
+                workspaceId: tab.id,
+                statusKey: registration.statusKey
+            )
             guard !registeredKeys.contains(registrationKey),
                   tab.agentPIDs[registration.statusKey] == nil else {
                 continue
@@ -5179,34 +5149,14 @@ class TabManager: ObservableObject {
         }
         guard !rootPIDs.isEmpty else { return false }
 
-        let candidatePIDs = processSnapshot.expandedPIDs(rootPIDs: rootPIDs)
-        let matchedPID = candidatePIDs
-            .compactMap { pid -> (pid: Int, info: CmuxTopProcessInfo)? in
-                guard let info = processSnapshot.processInfo(for: pid) else { return nil }
-                return (pid, info)
-            }
-            .filter { candidate in
-                let haystack = ([candidate.info.name, candidate.info.path].compactMap { $0 })
-                    .joined(separator: " ")
-                    .lowercased()
-                return registration.processNameNeedles.contains { haystack.contains($0) }
-            }
-            .sorted { lhs, rhs in
-                let lhsParentIsRoot = rootPIDs.contains(lhs.info.parentPID)
-                let rhsParentIsRoot = rootPIDs.contains(rhs.info.parentPID)
-                if lhsParentIsRoot != rhsParentIsRoot {
-                    return lhsParentIsRoot
-                }
-                if lhs.info.parentPID != rhs.info.parentPID {
-                    return lhs.info.parentPID < rhs.info.parentPID
-                }
-                return lhs.pid < rhs.pid
-            }
-            .first?
-            .pid
-
-        guard let matchedPID, matchedPID > 0 else { return false }
-        workspace.setAgentPID(key: registration.statusKey, panelId: panelId, pid: pid_t(matchedPID))
+        guard let matchedPID = SidebarAgentStatusService.matchedPID(
+            for: registration,
+            rootPIDs: rootPIDs,
+            processSnapshot: processSnapshot
+        ) else {
+            return false
+        }
+        workspace.setAgentPID(key: registration.statusKey, panelId: panelId, pid: matchedPID)
         return true
     }
 
@@ -5216,7 +5166,7 @@ class TabManager: ObservableObject {
         pendingPanelTitleUpdates.removeAll(keepingCapacity: true)
         var shouldDiscoverAgentPID = false
         for (key, title) in updates {
-            if SidebarAgentTitleRegistration.detect(title: title) != nil {
+            if SidebarAgentStatusService.titleRegistration(for: title) != nil {
                 shouldDiscoverAgentPID = true
             }
             updatePanelTitle(tabId: key.tabId, panelId: key.panelId, title: title)

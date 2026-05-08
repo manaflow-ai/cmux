@@ -6,6 +6,7 @@ import WebKit
 import ObjectiveC.runtime
 import Bonsplit
 import UserNotifications
+import Darwin
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -1009,8 +1010,7 @@ final class SidebarAgentPIDFallbackTests: XCTestCase {
         try process.run()
         defer {
             if process.isRunning {
-                process.terminate()
-                process.waitUntilExit()
+                terminateAndWait(process)
             }
         }
 
@@ -1021,13 +1021,67 @@ final class SidebarAgentPIDFallbackTests: XCTestCase {
         XCTAssertEqual(liveEntries.map(\.key), ["codex"])
         XCTAssertEqual(liveEntries.first?.value, "Running")
 
-        process.terminate()
-        process.waitUntilExit()
+        terminateAndWait(process)
         workspace.updateAgentProcessState(
             key: "codex",
             state: SidebarAgentProcessProbe.processState(for: process.processIdentifier)
         )
 
         XCTAssertTrue(workspace.sidebarStatusEntriesInDisplayOrder().isEmpty)
+    }
+
+    func testNeedsInputHeuristicUsesProtocolValueInsteadOfDisplayText() {
+        let processState = SidebarAgentProcessState(
+            pid: 123,
+            isAlive: true,
+            activity: .needsInput
+        )
+        let localizedRunningEntry = SidebarStatusEntry(
+            key: "codex",
+            value: "実行中",
+            icon: "bolt.fill",
+            color: "#4C8DFF",
+            protocolValue: nil
+        )
+
+        let preservedEntry = SidebarAgentProcessProbe.effectiveStatusEntry(
+            key: "codex",
+            pid: 123,
+            explicitEntry: localizedRunningEntry,
+            processState: processState
+        )
+        XCTAssertEqual(preservedEntry?.value, localizedRunningEntry.value)
+        XCTAssertNil(preservedEntry?.protocolValue)
+
+        let protocolRunningEntry = SidebarStatusEntry(
+            key: "codex",
+            value: "Running",
+            icon: "bolt.fill",
+            color: "#4C8DFF",
+            protocolValue: "running"
+        )
+
+        let overriddenEntry = SidebarAgentProcessProbe.effectiveStatusEntry(
+            key: "codex",
+            pid: 123,
+            explicitEntry: protocolRunningEntry,
+            processState: processState
+        )
+        XCTAssertEqual(overriddenEntry?.protocolValue, "needs_input")
+    }
+
+    private func terminateAndWait(_ process: Process, file: StaticString = #filePath, line: UInt = #line) {
+        guard process.isRunning else { return }
+
+        let expectation = XCTestExpectation(description: "agent process exits")
+        process.terminationHandler = { _ in
+            expectation.fulfill()
+        }
+        process.terminate()
+
+        if XCTWaiter.wait(for: [expectation], timeout: 5) != .completed {
+            _ = Darwin.kill(process.processIdentifier, SIGKILL)
+            XCTFail("Timed out waiting for agent process to exit", file: file, line: line)
+        }
     }
 }

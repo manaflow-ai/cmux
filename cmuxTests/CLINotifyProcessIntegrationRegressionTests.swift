@@ -188,6 +188,18 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testClaudeNotificationCompletionSetsIdleStatus() throws {
+        let state = try runClaudeNotificationHook(message: "completion")
+        XCTAssertTrue(
+            state.commands.contains { $0.contains("set_status claude_code Idle") },
+            "Expected completion notification to set Idle, saw \(state.commands)"
+        )
+        XCTAssertFalse(
+            state.commands.contains { $0.contains("set_status claude_code Needs input") },
+            "completion must not be routed as Needs input: \(state.commands)"
+        )
+    }
+
     func testClaudeNotificationPermissionRequestSetsNeedsInputStatus() throws {
         let state = try runClaudeNotificationHook(message: "permission_request")
         XCTAssertTrue(

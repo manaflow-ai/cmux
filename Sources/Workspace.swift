@@ -49,6 +49,7 @@ struct SidebarStatusEntry: Equatable {
     let priority: Int
     let format: SidebarMetadataFormat
     let timestamp: Date
+    let protocolValue: String?
 
     init(
         key: String,
@@ -58,7 +59,8 @@ struct SidebarStatusEntry: Equatable {
         url: URL? = nil,
         priority: Int = 0,
         format: SidebarMetadataFormat = .plain,
-        timestamp: Date = Date()
+        timestamp: Date = Date(),
+        protocolValue: String? = nil
     ) {
         self.key = key
         self.value = value
@@ -68,6 +70,7 @@ struct SidebarStatusEntry: Equatable {
         self.priority = priority
         self.format = format
         self.timestamp = timestamp
+        self.protocolValue = protocolValue
     }
 }
 
@@ -273,10 +276,7 @@ extension Workspace {
         // Status entries and agent PIDs are ephemeral runtime state tied to running
         // processes (e.g. claude_code "Running"). Don't restore them across app
         // restarts because the processes that set them are gone.
-        statusEntries.removeAll()
-        agentPIDs.removeAll()
-        agentProcessStates.removeAll()
-        agentListeningPorts.removeAll()
+        clearAllAgentRuntimeState()
         logEntries = snapshot.logEntries.map { entry in
             SidebarLogEntry(
                 message: entry.message,
@@ -7266,6 +7266,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// Last known process state for agent PIDs. Updated by the TabManager probe timer,
     /// never by sidebar render projection.
     @Published private(set) var agentProcessStates: [String: SidebarAgentProcessState] = [:]
+    private(set) var agentPanelIds: [String: UUID] = [:]
     private var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
 #if DEBUG
     private var debugSessionSnapshotScrollbackFallbackPanelIds: Set<UUID> = []
@@ -7298,6 +7299,9 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         agentPIDs[key] = pid
+        if let panelId {
+            agentPanelIds[key] = panelId
+        }
         if agentProcessStates[key]?.pid != pid || agentProcessStates[key]?.isAlive != true {
             agentProcessStates[key] = SidebarAgentProcessState(
                 pid: pid,
@@ -7328,6 +7332,7 @@ final class Workspace: Identifiable, ObservableObject {
         let removedStatus = statusEntries.removeValue(forKey: key) != nil
         let removedPID = agentPIDs.removeValue(forKey: key) != nil
         let removedState = agentProcessStates.removeValue(forKey: key) != nil
+        agentPanelIds.removeValue(forKey: key)
 
         if refreshPorts, removedPID || removedState {
             refreshTrackedAgentPorts()
@@ -7339,6 +7344,21 @@ final class Workspace: Identifiable, ObservableObject {
     func refreshTrackedAgentPorts() {
         let remainingAgentPIDs = Set(agentPIDs.values.compactMap { $0 > 0 ? Int($0) : nil })
         PortScanner.shared.refreshAgentPorts(workspaceId: id, agentPIDs: remainingAgentPIDs)
+    }
+
+    func clearAllAgentRuntimeState(refreshPorts: Bool = true) {
+        let keys = Set(statusEntries.keys)
+            .union(agentPIDs.keys)
+            .union(agentProcessStates.keys)
+            .union(agentPanelIds.keys)
+        for key in keys {
+            clearAgentPID(key: key, refreshPorts: false)
+        }
+        agentPanelIds.removeAll()
+        agentListeningPorts.removeAll()
+        if refreshPorts {
+            refreshTrackedAgentPorts()
+        }
     }
 
     lazy var sidebarImmediateObservationPublisher: AnyPublisher<Void, Never> = {
@@ -8748,10 +8768,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func resetSidebarContext(reason: String = "unspecified") {
-        statusEntries.removeAll()
-        agentPIDs.removeAll()
-        agentProcessStates.removeAll()
-        agentListeningPorts.removeAll()
+        clearAllAgentRuntimeState()
         latestSubmittedMessage = nil
         logEntries.removeAll()
         progress = nil
