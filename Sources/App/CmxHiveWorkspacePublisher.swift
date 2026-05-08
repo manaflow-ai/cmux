@@ -595,19 +595,19 @@ private final class CmxNativeBridgeSocketAdapter {
     private static let maximumFrameBytes = 64 * 1024 * 1024
     private static let pollIntervalMilliseconds: Int32 = 1_000
     private static let replayInterval: TimeInterval = 1
-
     weak var appDelegate: AppDelegate?
     let nodeID: String
     let socketPath: String
-
+    private let terminalController: TerminalController
     private let stateLock = NSLock()
     private let acceptQueue = DispatchQueue(label: "com.cmux.hive.native-bridge.accept")
     private var serverSocket: Int32 = -1
     private var running = false
 
-    init(appDelegate: AppDelegate, nodeID: String) {
+    @MainActor init(appDelegate: AppDelegate, nodeID: String) {
         self.appDelegate = appDelegate
         self.nodeID = nodeID
+        terminalController = TerminalController.shared
         let bundle = Bundle.main.bundleIdentifier ?? "cmux"
         let key = "\(bundle):\(nodeID)"
         socketPath = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
@@ -820,7 +820,7 @@ private final class CmxNativeBridgeSocketAdapter {
     private func sendInput(_ data: Data, to terminalID: UInt64) {
         guard !data.isEmpty else { return }
         let text = String(decoding: data, as: UTF8.self)
-        _ = TerminalController.shared.v2MainSync {
+        _ = terminalController.v2MainSync {
             guard let terminalPanel = self.terminalPanel(for: terminalID) else { return false }
             terminalPanel.sendInput(text)
             return true
@@ -828,9 +828,9 @@ private final class CmxNativeBridgeSocketAdapter {
     }
 
     private func terminalText(for terminalID: UInt64, lineLimit: Int?) -> String? {
-        TerminalController.shared.v2MainSync {
+        terminalController.v2MainSync {
             guard let terminalPanel = self.terminalPanel(for: terminalID) else { return nil }
-            return TerminalController.shared.readTerminalTextForSnapshot(
+            return self.terminalController.readTerminalTextForSnapshot(
                 terminalPanel: terminalPanel,
                 includeScrollback: false,
                 lineLimit: lineLimit
@@ -851,7 +851,7 @@ private final class CmxNativeBridgeSocketAdapter {
     }
 
     private func currentSnapshot(activeWorkspaceIndex requestedIndex: Int) -> CmxNativeBridgeSnapshot {
-        TerminalController.shared.v2MainSync {
+        terminalController.v2MainSync {
             guard let appDelegate = self.appDelegate else {
                 return CmxNativeBridgeSnapshot.empty
             }

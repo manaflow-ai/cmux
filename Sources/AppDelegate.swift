@@ -1098,7 +1098,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         installShortcutDefaultsObserver()
         SystemWideHotkeyController.shared.start()
         NSApp.servicesProvider = self
-        CmxHiveWorkspacePublisher.shared.start(appDelegate: self)
+        MainActor.assumeIsolated { CmxHiveWorkspacePublisher.shared.start(appDelegate: self) }
 
         scheduleInitialMainWindowBootstrap(debugSource: "didFinishLaunching")
 #if DEBUG
@@ -1492,7 +1492,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
         stopSessionAutosaveTimer()
         CloudVMActionLauncher.shared.terminateAll()
-        CmxHiveWorkspacePublisher.shared.stop()
+        MainActor.assumeIsolated { CmxHiveWorkspacePublisher.shared.stop() }
         TerminalController.shared.stop()
         VSCodeServeWebController.shared.stop()
         BrowserProfileStore.shared.flushPendingSaves()
@@ -2604,7 +2604,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if Self.shouldSaveSessionSnapshotOnRestoreCompletion(isManualReopen: isManualReopen) {
             _ = saveSessionSnapshot(includeScrollback: false)
         }
-        CmxHiveWorkspacePublisher.shared.schedulePublish()
+        MainActor.assumeIsolated { CmxHiveWorkspacePublisher.shared.schedulePublish() }
     }
 
     func hiveRestoreStateForPublisher() -> (restoreState: String, snapshotMode: String) {
