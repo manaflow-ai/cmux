@@ -1535,7 +1535,10 @@ class TerminalController {
             semaphore.wait()
             return v2Ok(id: request.id, result: v2AuthStatusPayload(timedOut: false))
         case "auth.begin_sign_in":
-            let timeoutSeconds = Self.socketWorkerDouble(request.params["timeout_seconds"]) ?? 300
+            let parsedTimeoutSeconds = Self.socketWorkerDouble(request.params["timeout_seconds"]) ?? 300
+            let timeoutSeconds = parsedTimeoutSeconds.isFinite
+                ? min(max(parsedTimeoutSeconds, 1), 3600)
+                : 300
             let semaphore = DispatchSemaphore(value: 0)
             nonisolated(unsafe) var signInResult: AuthSignInAwaitResult = .cancelled
             Task { @MainActor in

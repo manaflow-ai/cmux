@@ -575,7 +575,19 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       set_plist_env "$INFO_PLIST" CMUX_API_BASE_URL "$CMUX_DEV_ORIGIN"
       set_plist_env "$INFO_PLIST" CMUX_VM_API_BASE_URL "$CMUX_DEV_ORIGIN"
       set_plist_env "$INFO_PLIST" CMUX_AUTH_CALLBACK_SCHEME "$CMUX_AUTH_CALLBACK_SCHEME_VALUE"
-      /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:1:CFBundleURLSchemes:0 ${CMUX_AUTH_CALLBACK_SCHEME_VALUE}" "$INFO_PLIST" 2>/dev/null || true
+      AUTH_URL_INDEX=""
+      for ((URL_TYPE_INDEX = 0; ; URL_TYPE_INDEX++)); do
+        URL_TYPE_NAME="$(/usr/libexec/PlistBuddy -c "Print :CFBundleURLTypes:${URL_TYPE_INDEX}:CFBundleURLName" "$INFO_PLIST" 2>/dev/null)" || break
+        if [[ "$URL_TYPE_NAME" == *.auth ]]; then
+          AUTH_URL_INDEX="$URL_TYPE_INDEX"
+          break
+        fi
+      done
+      if [[ -z "$AUTH_URL_INDEX" ]]; then
+        echo "error: auth CFBundleURLTypes entry not found in $INFO_PLIST" >&2
+        exit 1
+      fi
+      /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:${AUTH_URL_INDEX}:CFBundleURLSchemes:0 ${CMUX_AUTH_CALLBACK_SCHEME_VALUE}" "$INFO_PLIST"
       if [[ -S "$CMUXD_SOCKET" ]]; then
         for PID in $(lsof -t "$CMUXD_SOCKET" 2>/dev/null); do
           kill "$PID" 2>/dev/null || true

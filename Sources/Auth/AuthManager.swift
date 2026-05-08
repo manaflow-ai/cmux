@@ -36,20 +36,49 @@ private final class AuthPresentationContext: NSObject, ASWebAuthenticationPresen
             window.orderFront(nil)
         }
         if !NSApp.isActive {
-            var activationEvents = NotificationCenter.default
-                .notifications(named: NSApplication.didBecomeActiveNotification, object: NSApp)
-                .makeAsyncIterator()
-            let didRequestActivation = NSRunningApplication.current.activate(
-                options: [.activateAllWindows, .activateIgnoringOtherApps]
-            )
-            if didRequestActivation, !NSApp.isActive {
-                _ = await activationEvents.next()
-            }
+            await requestApplicationActivation()
         }
         window.makeKeyAndOrderFront(nil)
         cmuxDebugLog(
             "auth.webauth.prepare active=\(NSApp.isActive ? 1 : 0) visible=\(window.isVisible ? 1 : 0) key=\(window.isKeyWindow ? 1 : 0) main=\(window.isMainWindow ? 1 : 0)"
         )
+    }
+
+    @MainActor
+    private static func requestApplicationActivation() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            var observer: NSObjectProtocol?
+            var didResume = false
+
+            func resumeOnce() {
+                guard !didResume else { return }
+                didResume = true
+                if let observer {
+                    NotificationCenter.default.removeObserver(observer)
+                }
+                continuation.resume()
+            }
+
+            observer = NotificationCenter.default.addObserver(
+                forName: NSApplication.didBecomeActiveNotification,
+                object: NSApp,
+                queue: .main
+            ) { _ in
+                resumeOnce()
+            }
+
+            let didRequestActivation = NSRunningApplication.current.activate(
+                options: [.activateAllWindows, .activateIgnoringOtherApps]
+            )
+            if !didRequestActivation || NSApp.isActive {
+                resumeOnce()
+                return
+            }
+
+            DispatchQueue.main.async {
+                resumeOnce()
+            }
+        }
     }
 
     @MainActor
@@ -264,7 +293,7 @@ final class AuthManager: ObservableObject {
         }
 
         loginPollTask?.cancel()
-        cancelActiveWebAuthSession(setLoading: false)
+        cancelActiveWebAuthSession(clearLoading: false)
         isLoading = true
 
         let signInURL = AuthEnvironment.signInURL()
@@ -338,7 +367,7 @@ final class AuthManager: ObservableObject {
         }
         let result = await waitForSignInSettled(timeout: timeout)
         if result == .timedOut, attempt.startedNewSession, let sessionID = attempt.sessionID {
-            cancelActiveWebAuthSession(sessionID: sessionID, setLoading: true)
+            cancelActiveWebAuthSession(sessionID: sessionID, clearLoading: true)
         }
         return result
     }
@@ -384,7 +413,7 @@ final class AuthManager: ObservableObject {
         }
     }
 
-    private func cancelActiveWebAuthSession(sessionID: UUID? = nil, setLoading: Bool) {
+    private func cancelActiveWebAuthSession(sessionID: UUID? = nil, clearLoading: Bool) {
         if let sessionID, webAuthSessionID != sessionID {
             return
         }
@@ -392,7 +421,7 @@ final class AuthManager: ObservableObject {
         webAuthSession = nil
         webAuthSessionID = nil
         webAuthSignInURL = nil
-        if setLoading {
+        if clearLoading {
             isLoading = false
         }
         session?.cancel()
