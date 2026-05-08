@@ -7053,6 +7053,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
 #if DEBUG
     // Test-only accessors for keyTextAccumulator to verify CJK IME composition behavior.
+    static var debugTextInputEventHandler: ((GhosttyNSView, NSEvent) -> Bool)?
+
     func setKeyTextAccumulatorForTesting(_ value: [String]?) {
         keyTextAccumulator = value
     }
@@ -7471,19 +7473,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         // Capture the keyboard layout ID before interpretation so we can
         // detect if an IME changed it (e.g. toggling input methods).
-        // We only check when not already in a preedit state.
-        let keyboardIdBefore: String? = if (!markedTextBefore) {
-            KeyboardLayout.id
-        } else {
-            nil
-        }
+        let keyboardIdBefore = KeyboardLayout.id
 
         // Let the input system handle the event (for IME, dead keys, etc.)
 #if DEBUG
         let interpretTimingStart = CmuxTypingTiming.start()
         let interpretPhaseStart = ProcessInfo.processInfo.systemUptime
 #endif
-        interpretKeyEvents([translationEvent])
+        let textInputHandledEvent = handleTextInputKeyEvent(translationEvent)
 #if DEBUG
         interpretMs = (ProcessInfo.processInfo.systemUptime - interpretPhaseStart) * 1000.0
         CmuxTypingTiming.logDuration(
@@ -7521,7 +7518,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             before: markedStateBefore,
             after: (markedText.string, markedSelectedRange),
             accumulatedText: accumulatedText,
-            event: translationEvent
+            event: translationEvent,
+            textInputHandledEvent: textInputHandledEvent,
+            inputSourceId: keyboardIdBefore
         ) {
             imeSuppressedKeyUpKeyCodes.insert(event.keyCode)
             return
@@ -7709,6 +7708,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         // Rendering is driven by Ghostty's wakeups/renderer.
+    }
+
+    @discardableResult
+    private func handleTextInputKeyEvent(_ event: NSEvent) -> Bool {
+#if DEBUG
+        if let debugTextInputEventHandler = Self.debugTextInputEventHandler {
+            return debugTextInputEventHandler(self, event)
+        }
+#endif
+        guard let inputContext else {
+            interpretKeyEvents([event])
+            return false
+        }
+        return inputContext.handleEvent(event)
     }
 
     @discardableResult

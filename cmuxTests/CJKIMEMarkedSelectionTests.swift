@@ -284,6 +284,74 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         )
     }
 
+    func testDownArrowCanOpenZhuyinCandidatesBeforeMarkedTextIsMirrored() throws {
+        let hostedTerminal = try makeHostedTerminalWindow()
+        let terminalSurface = hostedTerminal.surface
+        let window = hostedTerminal.window
+        let surfaceView = hostedTerminal.surfaceView
+        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+        let previousInputSourceOverride = KeyboardLayout.debugInputSourceIdOverride
+        let previousInterpretHook = cjkIMEInterpretKeyEventsHook
+        defer {
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
+            KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
+            cjkIMEInterpretKeyEventsHook = previousInterpretHook
+            window.orderOut(nil)
+            withExtendedLifetime(terminalSurface) {}
+        }
+
+        KeyboardLayout.debugInputSourceIdOverride = "com.apple.inputmethod.TCIM.Zhuyin"
+        installCJKIMEInterpretKeyEventsSwizzle()
+        cjkIMEInterpretKeyEventsHook = { candidateView, _ in
+            guard candidateView === surfaceView else { return false }
+            return true
+        }
+
+        var forwardedPressKeyCodes: [UInt32] = []
+        var forwardedReleaseKeyCodes: [UInt32] = []
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            previousKeyEventObserver?(keyEvent)
+            if keyEvent.action == GHOSTTY_ACTION_PRESS {
+                forwardedPressKeyCodes.append(keyEvent.keycode)
+            } else if keyEvent.action == GHOSTTY_ACTION_RELEASE {
+                forwardedReleaseKeyCodes.append(keyEvent.keycode)
+            }
+        }
+
+        let keyDown = try keyEvent(
+            text: "\u{F701}",
+            keyCode: UInt16(kVK_DownArrow),
+            windowNumber: window.windowNumber
+        )
+        let keyUp = try keyEvent(
+            type: .keyUp,
+            text: "\u{F701}",
+            keyCode: UInt16(kVK_DownArrow),
+            windowNumber: window.windowNumber
+        )
+
+        window.makeFirstResponder(surfaceView)
+        withExtendedLifetime(terminalSurface) {
+            surfaceView.keyDown(with: keyDown)
+            surfaceView.keyUp(with: keyUp)
+        }
+
+        XCTAssertFalse(
+            surfaceView.hasMarkedText(),
+            "Opening Zhuyin candidates can be handled by the IME before it mirrors marked text"
+        )
+        XCTAssertEqual(
+            forwardedPressKeyCodes,
+            [],
+            "A Zhuyin-handled Down arrow must stay with AppKit so it can open the candidate list"
+        )
+        XCTAssertEqual(
+            forwardedReleaseKeyCodes,
+            [],
+            "A Zhuyin-handled Down arrow keyUp must not leave an unmatched terminal release"
+        )
+    }
+
     func testArrowStillForwardsToTerminalWhenNoCompositionIsActive() throws {
         let hostedTerminal = try makeHostedTerminalWindow()
         let terminalSurface = hostedTerminal.surface
@@ -421,6 +489,51 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
                 markedTextAfter: "",
                 markedSelectionAfter: NSRange(location: NSNotFound, length: 0),
                 accumulatedText: []
+            )
+        )
+    }
+
+    func testSuppressesInputMethodHandledKeyWithoutMarkedText() throws {
+        let view = GhosttyNSView(frame: .zero)
+        let event = try keyEvent(
+            text: "\u{F701}",
+            keyCode: UInt16(kVK_DownArrow),
+            windowNumber: 0
+        )
+
+        XCTAssertTrue(
+            view.shouldSuppressGhosttyKeyForwardingAfterIMEHandlingForTesting(
+                markedTextBefore: "",
+                markedSelectionBefore: NSRange(location: NSNotFound, length: 0),
+                markedTextAfter: "",
+                markedSelectionAfter: NSRange(location: NSNotFound, length: 0),
+                accumulatedText: [],
+                event: event,
+                textInputHandledEvent: true,
+                inputSourceId: "com.apple.inputmethod.TCIM.Zhuyin"
+            )
+        )
+    }
+
+    func testAllowsDeferredNumpadFallbackWithoutMarkedText() throws {
+        let view = GhosttyNSView(frame: .zero)
+        let event = try keyEvent(
+            text: "1",
+            keyCode: 83,
+            modifierFlags: [.numericPad],
+            windowNumber: 0
+        )
+
+        XCTAssertFalse(
+            view.shouldSuppressGhosttyKeyForwardingAfterIMEHandlingForTesting(
+                markedTextBefore: "",
+                markedSelectionBefore: NSRange(location: NSNotFound, length: 0),
+                markedTextAfter: "",
+                markedSelectionAfter: NSRange(location: NSNotFound, length: 0),
+                accumulatedText: [],
+                event: event,
+                textInputHandledEvent: true,
+                inputSourceId: "com.apple.inputmethod.TCIM.Pinyin"
             )
         )
     }

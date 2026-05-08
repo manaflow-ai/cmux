@@ -35,13 +35,23 @@ extension GhosttyNSView {
         before: (text: String, selection: NSRange),
         after: (text: String, selection: NSRange),
         accumulatedText: [String],
-        event: NSEvent? = nil
+        event: NSEvent? = nil,
+        textInputHandledEvent: Bool = false,
+        inputSourceId: String? = nil
     ) -> Bool {
         guard accumulatedText.isEmpty else { return false }
 
         let hadMarkedTextBefore = !before.text.isEmpty
         let hasMarkedTextAfter = !after.text.isEmpty
-        guard hadMarkedTextBefore || hasMarkedTextAfter else { return false }
+        guard hadMarkedTextBefore || hasMarkedTextAfter else {
+            // Some IMEs, including Traditional Chinese Zhuyin, can handle a
+            // command key against their private preedit buffer before they call
+            // setMarkedText on the client. Keep handled no-output input-method
+            // events out of the terminal so keys such as Down can open
+            // candidates instead of moving the shell cursor.
+            guard textInputHandledEvent, isInputMethodSource(inputSourceId) else { return false }
+            return !shouldAllowDeferredNumpadIMEFallback(event)
+        }
 
         if before.text != after.text {
             return true
@@ -53,6 +63,24 @@ extension GhosttyNSView {
 
         guard let event else { return false }
         return shouldKeepIMECompositionCommandInsideTextInput(event)
+    }
+
+    func isInputMethodSource(_ sourceId: String?) -> Bool {
+        guard let sourceId else { return false }
+        return sourceId.localizedCaseInsensitiveContains("inputmethod")
+    }
+
+    func shouldAllowDeferredNumpadIMEFallback(_ event: NSEvent?) -> Bool {
+        guard let event,
+              let text = event.characters,
+              !text.isEmpty,
+              text.allSatisfy(\.isNumber) else {
+            return false
+        }
+        let flags = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.function, .capsLock])
+        return flags == [.numericPad]
     }
 
     /// Returns true for active-composition command keys that belong to AppKit's
@@ -81,13 +109,17 @@ extension GhosttyNSView {
         markedTextAfter: String,
         markedSelectionAfter: NSRange,
         accumulatedText: [String],
-        event: NSEvent? = nil
+        event: NSEvent? = nil,
+        textInputHandledEvent: Bool = false,
+        inputSourceId: String? = nil
     ) -> Bool {
         shouldSuppressGhosttyKeyForwardingAfterIMEHandling(
             before: (markedTextBefore, markedSelectionBefore),
             after: (markedTextAfter, markedSelectionAfter),
             accumulatedText: accumulatedText,
-            event: event
+            event: event,
+            textInputHandledEvent: textInputHandledEvent,
+            inputSourceId: inputSourceId
         )
     }
 #endif
