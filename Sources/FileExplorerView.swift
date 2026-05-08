@@ -100,18 +100,17 @@ struct FileExplorerPanelView: NSViewRepresentable {
             observationCancellable = store.objectWillChange
                 .debounce(for: .milliseconds(50), scheduler: RunLoop.main)
                 .sink { [weak self] _ in
-                    self?.reloadIfNeeded()
+                    Task { @MainActor [weak self] in
+                        self?.reloadIfNeeded()
+                    }
                 }
         }
 
+        @MainActor
         func reloadIfNeeded() {
             guard let outlineView else { return }
 
-            // Update empty state vs tree visibility. Coordinator callbacks are delivered on the main
-            // run loop; keep this synchronous so outline and container visibility stay in the same pass.
-            MainActor.assumeIsolated {
-                containerView?.updateVisibility(hasContent: !store.rootPath.isEmpty, isLoading: store.isRootLoading)
-            }
+            containerView?.updateVisibility(hasContent: !store.rootPath.isEmpty, isLoading: store.isRootLoading)
 
             let newCount = store.rootNodes.count
             withProgrammaticOutlineUpdate {
