@@ -14647,7 +14647,8 @@ async fn compatibility_workspace_create_v2(
     let cwd = compatibility_string_param(params, &["working_directory", "workingDirectory", "cwd"])
         .map(PathBuf::from);
     let description = compatibility_string_param(params, &["description"]);
-    let layout = compatibility_workspace_layout_param(params)?;
+    let layout =
+        compatibility_workspace_layout_param(params).map_err(compatibility_invalid_params_error)?;
     let initial_env = if layout.is_none() {
         compatibility_initial_env_param(params)?
     } else {
