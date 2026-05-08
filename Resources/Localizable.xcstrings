@@ -18626,6 +18626,482 @@
         }
       }
     },
+    "dialog.sshURL.blocked.ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.blocked.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux SSH Link Blocked"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux SSH リンクをブロックしました"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.launchFailed.exit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ssh exited with status %d."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ssh はステータス %d で終了しました。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.launchFailed.launch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ssh could not be launched."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ssh を起動できませんでした。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.launchFailed.missingCLI": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The bundled cmux CLI is missing from this app build."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアプリビルドに同梱されている cmux CLI が見つかりません。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.launchFailed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't Open SSH Link"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH リンクを開けませんでした"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャンセル"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.checkbox": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I trust this SSH target and want cmux to connect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この SSH 接続先を信頼し、cmux で接続することに同意します。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.commandLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command preview:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンドのプレビュー:"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.targetLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH target: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 接続先: %@"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.error.destinationContainsUnsafeCharacters": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH host or user contains unsupported or hidden characters, so cmux refused to use it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH ホストまたはユーザーに未対応の文字または隠れた文字が含まれているため、cmux は使用を拒否しました。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.error.destinationTooLong": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH target is too long. The maximum length is %lld characters."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 接続先が長すぎます。最大長は %lld 文字です。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.error.missingDestination": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The link did not include an SSH host."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクに SSH ホストが含まれていません。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.error.multipleLinks": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only one SSH link can be opened at a time."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一度に開ける SSH リンクは 1 つだけです。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.error.titleContainsControlCharacters": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The workspace title contains hidden control or formatting characters, so cmux refused to use it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース名に隠れた制御文字または書式制御文字が含まれているため、cmux は使用を拒否しました。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.error.titleTooLong": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The workspace title is too long. The maximum length is %lld characters."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース名が長すぎます。最大長は %lld 文字です。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.error.invalidIntegerParameter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH link included an invalid integer value for parameter: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH リンクのパラメータに無効な整数値が含まれています: %@"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.error.invalidHostKeyPolicy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH link included an invalid host key policy for parameter: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH リンクのパラメータに無効なホストキー確認ポリシーが含まれています: %@"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.error.destinationStartsWithDash": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH host or user cannot start with a dash."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH ホストまたはユーザーをダッシュで始めることはできません。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.error.conflictingDestinationParameters": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The link included conflicting SSH target fields."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクに競合する SSH 接続先フィールドが含まれています。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.error.conflictingTitleParameters": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The link included both title and name. Use only one workspace title field."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクに title と name の両方が含まれています。ワークスペース名のフィールドは 1 つだけ使用してください。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.error.duplicateParameter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH link repeated a parameter: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH リンクで同じパラメータが繰り返されています: %@"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.error.unsupportedParameter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH link included an unsupported parameter: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH リンクに未対応のパラメータが含まれています: %@"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.error.invalidPort": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH port must be between 1 and 65535."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH ポートは 1 から 65535 の範囲で指定してください。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.error.invalidBooleanParameter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH link included an invalid boolean value for parameter: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH リンクのパラメータに無効な真偽値が含まれています: %@"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A %@:// link is asking cmux to open an SSH workspace. cmux cannot verify which website or app opened this link.\n\nSSH may use your local SSH config, keys, agent settings, ProxyCommand, LocalCommand, and forwarding rules for this target. External links cannot supply arbitrary SSH options. Only continue if you trust this SSH target."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@:// リンクが SSH ワークスペースを開くよう cmux に要求しています。cmux は、このリンクを開いた Web サイトやアプリを確認できません。\n\nSSH はこの接続先に対して、ローカルの SSH 設定、鍵、エージェント設定、ProxyCommand、LocalCommand、ポート転送ルールを使用する場合があります。外部リンクは任意の SSH オプションを指定できません。この SSH 接続先を信頼している場合のみ続行してください。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.run": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open an SSH Connection From an External Link?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "外部リンクから SSH 接続を開きますか？"
+          }
+        }
+      }
+    },
     "dialog.cmuxConfig.confirmCommand.messageWithCommand": {
       "extractionState": "manual",
       "localizations": {
