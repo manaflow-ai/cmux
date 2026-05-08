@@ -276,6 +276,7 @@ extension Workspace {
         // Status entries and agent PIDs are ephemeral runtime state tied to running
         // processes (e.g. claude_code "Running"). Don't restore them across app
         // restarts because the processes that set them are gone.
+        statusEntries.removeAll()
         clearAllAgentRuntimeState()
         logEntries = snapshot.logEntries.map { entry in
             SidebarLogEntry(
@@ -7326,12 +7327,16 @@ final class Workspace: Identifiable, ObservableObject {
     @discardableResult
     func clearAgentPID(
         key: String,
-        panelId _: UUID? = nil,
+        panelId: UUID? = nil,
         refreshPorts: Bool = true
     ) -> Bool {
+        let effectivePanelId = panelId ?? agentPanelIds[key]
         let removedStatus = statusEntries.removeValue(forKey: key) != nil
         let removedPID = agentPIDs.removeValue(forKey: key) != nil
         let removedState = agentProcessStates.removeValue(forKey: key) != nil
+        if (removedStatus || removedPID || removedState), let effectivePanelId {
+            AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, surfaceId: effectivePanelId)
+        }
         agentPanelIds.removeValue(forKey: key)
 
         if refreshPorts, removedPID || removedState {
@@ -7347,8 +7352,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func clearAllAgentRuntimeState(refreshPorts: Bool = true) {
-        let keys = Set(statusEntries.keys)
-            .union(agentPIDs.keys)
+        let keys = Set(agentPIDs.keys)
             .union(agentProcessStates.keys)
             .union(agentPanelIds.keys)
         for key in keys {
@@ -8768,6 +8772,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func resetSidebarContext(reason: String = "unspecified") {
+        statusEntries.removeAll()
         clearAllAgentRuntimeState()
         latestSubmittedMessage = nil
         logEntries.removeAll()

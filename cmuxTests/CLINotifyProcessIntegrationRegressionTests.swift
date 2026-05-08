@@ -206,6 +206,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             state.commands.contains { $0.contains("set_status claude_code Needs input") },
             "Expected permission_request notification to set Needs input, saw \(state.commands)"
         )
+        XCTAssertFalse(
+            state.commands.contains { $0.contains("set_status claude_code Idle") },
+            "permission_request must not be routed as Idle: \(state.commands)"
+        )
     }
 
     private func runClaudeNotificationHook(message: String) throws -> MockSocketServerState {

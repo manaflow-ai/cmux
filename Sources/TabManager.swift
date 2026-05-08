@@ -1824,7 +1824,7 @@ class TabManager: ObservableObject {
         }
 
         agentPIDProbeInFlight = true
-        agentPIDProbeQueue.async { [weak self] in
+        agentPIDProbeQueue.async {
             let results = SidebarAgentStatusService.probeResults(for: requests)
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
@@ -1870,18 +1870,15 @@ class TabManager: ObservableObject {
                 keysToRemove.insert(key)
             }
             if !keysToRemove.isEmpty {
-                let stalePanelIds = Set(keysToRemove.compactMap { tab.agentPanelIds[$0] })
                 let hasUnpanelledKey = keysToRemove.contains { tab.agentPanelIds[$0] == nil }
                 for key in keysToRemove.sorted() {
                     tab.clearAgentPID(key: key, refreshPorts: false)
                 }
                 tab.refreshTrackedAgentPorts()
                 if hasUnpanelledKey {
+                    // Hook-registered agents do not carry panel IDs, so preserve
+                    // the tab-wide notification cleanup used before PID fallback.
                     AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tab.id)
-                } else {
-                    for panelId in stalePanelIds {
-                        AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tab.id, surfaceId: panelId)
-                    }
                 }
             }
         }
@@ -5103,19 +5100,19 @@ class TabManager: ObservableObject {
             return
         }
 
-        agentPIDDiscoveryLastStartedAt = now
         agentPIDDiscoveryInFlight = true
-        agentPIDDiscoveryQueue.async { [weak self] in
+        agentPIDDiscoveryQueue.async {
             let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.agentPIDDiscoveryInFlight = false
-                self.registerAgentPIDsFromTerminalTitlesIfNeeded(processSnapshot: processSnapshot)
+                let didRegister = self.registerAgentPIDsFromTerminalTitlesIfNeeded(processSnapshot: processSnapshot)
+                self.agentPIDDiscoveryLastStartedAt = didRegister ? Date() : nil
             }
         }
     }
 
-    private func registerAgentPIDsFromTerminalTitlesIfNeeded(processSnapshot: CmuxTopProcessSnapshot) {
+    private func registerAgentPIDsFromTerminalTitlesIfNeeded(processSnapshot: CmuxTopProcessSnapshot) -> Bool {
         let titleCandidates = agentTitleRegistrationCandidates()
             .sorted { lhs, rhs in
                 if lhs.0.id != rhs.0.id {
@@ -5126,9 +5123,10 @@ class TabManager: ObservableObject {
                 }
                 return lhs.2.statusKey < rhs.2.statusKey
             }
-        guard !titleCandidates.isEmpty else { return }
+        guard !titleCandidates.isEmpty else { return false }
 
         var registeredKeys: Set<String> = []
+        var didRegisterAny = false
         for (tab, panelId, registration) in titleCandidates {
             let registrationKey = SidebarAgentStatusService.registrationDeduplicationKey(
                 workspaceId: tab.id,
@@ -5140,8 +5138,10 @@ class TabManager: ObservableObject {
             }
             if registerAgentPID(registration, workspace: tab, panelId: panelId, processSnapshot: processSnapshot) {
                 registeredKeys.insert(registrationKey)
+                didRegisterAny = true
             }
         }
+        return didRegisterAny
     }
 
     private func registerAgentPID(
