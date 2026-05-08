@@ -1201,6 +1201,11 @@ final class TerminalNotificationStore: ObservableObject {
     ) {
         if discardQueuedNotifications { TerminalMutationBus.shared.discardPendingNotifications(forTabId: tabId, surfaceId: surfaceId) }
         let hadFocusedReadIndicator = focusedReadIndicatorByTabId[tabId].map { $0 == surfaceId } ?? false
+        if let surfaceId {
+            // Mirror the tab-wide overload's bell cleanup so the surface badge
+            // doesn't outlive its notification clear path.
+            clearBell(forTabId: tabId, surfaceId: surfaceId)
+        }
         var updated: [TerminalNotification] = []
         updated.reserveCapacity(notifications.count)
         var idsToClear: [String] = []
