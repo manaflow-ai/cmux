@@ -6983,8 +6983,8 @@ struct ContentView: View {
                 commandId: "palette.toggleRightSidebar",
                 title: { context in
                     context.bool(CommandPaletteContextKeys.rightSidebarVisible)
-                        ? String(localized: "command.hideRightSidebar.title", defaultValue: "Hide Right Sidebar")
-                        : String(localized: "command.showRightSidebar.title", defaultValue: "Show Right Sidebar")
+                        ? String(localized: "menu.view.hideRightSidebar", defaultValue: "Hide Right Sidebar")
+                        : String(localized: "menu.view.showRightSidebar", defaultValue: "Show Right Sidebar")
                 },
                 subtitle: constant(String(localized: "command.toggleSidebar.subtitle", defaultValue: "Layout")),
                 keywords: ["toggle", "right", "sidebar", "files", "find", "dock", "feed", "sessions", "layout", "hide", "close", "show"]

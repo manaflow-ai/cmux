@@ -5681,8 +5681,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         focusFirstItem: Bool = true,
         preferredWindow: NSWindow? = nil
     ) -> Bool {
+        // Only consider closing when the resolved context owns its own
+        // FileExplorerState. The global `fileExplorerState` cache may belong
+        // to a different (recently-deactivated) window, so falling back to it
+        // here would let us close window A's sidebar based on window B's
+        // focus state.
         if let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow),
-           let state = context.fileExplorerState ?? fileExplorerState {
+           let state = context.fileExplorerState {
             let coordinator = context.keyboardFocusCoordinator
             let sidebarFocused = state.isVisible && coordinator.focusToggleDestination() == .terminal
             let modeMatches = requestedMode == nil || state.mode == requestedMode
