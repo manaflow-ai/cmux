@@ -1029,7 +1029,7 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                             remoteConnectionState,
                             remoteConnectionDetail
                         ) = values
-                        Snapshot(
+                        return Snapshot(
                             workspaceId: workspace.id,
                             currentDirectory: currentDirectory,
                             remoteConfiguration: remoteConfiguration,
