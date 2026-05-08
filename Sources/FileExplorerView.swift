@@ -601,7 +601,7 @@ final class FileExplorerContainerView: NSView {
     private let coordinator: FileExplorerPanelView.Coordinator
     private var searchDebounceTask: Task<Void, Never>?
     private let searchDebounceDelay: UInt64 = 200_000_000
-    private let searchStatusWidth: CGFloat = 128
+    private let searchBarVisibleHeight: CGFloat = 48
 
 #if DEBUG
     private var debugLastSearchTextChangeUptime: TimeInterval = 0
@@ -646,6 +646,9 @@ final class FileExplorerContainerView: NSView {
         searchField.placeholderString = String(localized: "fileExplorer.search.placeholder", defaultValue: "Search files")
         searchField.font = .systemFont(ofSize: 12, weight: .regular)
         searchField.focusRingType = .none
+        searchField.cell?.usesSingleLineMode = true
+        searchField.cell?.isScrollable = true
+        searchField.cell?.lineBreakMode = .byClipping
         searchField.setContentHuggingPriority(.defaultLow, for: .horizontal)
         searchField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         searchField.delegate = self
@@ -673,6 +676,7 @@ final class FileExplorerContainerView: NSView {
         searchStatusLabel.textColor = .secondaryLabelColor
         searchStatusLabel.lineBreakMode = .byTruncatingTail
         searchStatusLabel.maximumNumberOfLines = 1
+        searchStatusLabel.alignment = .left
         searchStatusLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
         searchStatusLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         searchBarView.addSubview(searchStatusLabel)
@@ -787,8 +791,6 @@ final class FileExplorerContainerView: NSView {
         }
 
         searchBarHeightConstraint = searchBarView.heightAnchor.constraint(equalToConstant: 0)
-        let searchStatusWidthConstraint = searchStatusLabel.widthAnchor.constraint(equalToConstant: searchStatusWidth)
-        searchStatusWidthConstraint.priority = .defaultHigh
         NSLayoutConstraint.activate([
             headerView.topAnchor.constraint(equalTo: topAnchor),
             headerView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -800,14 +802,14 @@ final class FileExplorerContainerView: NSView {
             searchBarHeightConstraint,
 
             searchField.leadingAnchor.constraint(equalTo: searchBarView.leadingAnchor, constant: 8),
-            searchField.centerYAnchor.constraint(equalTo: searchBarView.centerYAnchor),
+            searchField.trailingAnchor.constraint(equalTo: searchBarView.trailingAnchor, constant: -8),
+            searchField.topAnchor.constraint(equalTo: searchBarView.topAnchor, constant: 4),
             searchField.heightAnchor.constraint(equalToConstant: 24),
-            searchField.widthAnchor.constraint(greaterThanOrEqualToConstant: 80),
+            searchField.widthAnchor.constraint(greaterThanOrEqualToConstant: 120),
 
-            searchStatusLabel.leadingAnchor.constraint(equalTo: searchField.trailingAnchor, constant: 8),
-            searchStatusLabel.trailingAnchor.constraint(equalTo: searchBarView.trailingAnchor, constant: -8),
-            searchStatusLabel.centerYAnchor.constraint(equalTo: searchField.centerYAnchor),
-            searchStatusWidthConstraint,
+            searchStatusLabel.leadingAnchor.constraint(equalTo: searchField.leadingAnchor, constant: 4),
+            searchStatusLabel.trailingAnchor.constraint(equalTo: searchField.trailingAnchor),
+            searchStatusLabel.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 2),
 
             scrollView.topAnchor.constraint(equalTo: searchBarView.bottomAnchor),
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -1060,7 +1062,7 @@ final class FileExplorerContainerView: NSView {
         let effectiveIsLoading = isLoading ?? false
         let showSearch = isSearchVisible && effectiveHasContent && !effectiveIsLoading
         searchBarView.isHidden = !showSearch
-        searchBarHeightConstraint.constant = showSearch ? RightSidebarChromeMetrics.secondaryBarHeight : 0
+        searchBarHeightConstraint.constant = showSearch ? searchBarVisibleHeight : 0
         searchScrollView.isHidden = !showSearch
         scrollView.isHidden = showSearch || !effectiveHasContent || effectiveIsLoading
         needsLayout = true
@@ -1333,6 +1335,10 @@ final class FileExplorerContainerView: NSView {
 extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSource, NSTableViewDelegate, NSMenuDelegate {
     func controlTextDidChange(_ notification: Notification) {
         guard notification.object as? NSTextField === searchField else { return }
+        scrollSearchFieldEditorToInsertionPoint()
+        Task { @MainActor [weak self] in
+            self?.scrollSearchFieldEditorToInsertionPoint()
+        }
 #if DEBUG
         let now = ProcessInfo.processInfo.systemUptime
         let gapMs = debugLastSearchTextChangeUptime > 0
@@ -1348,6 +1354,14 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         )
 #endif
         scheduleSearchRefresh()
+    }
+
+    private func scrollSearchFieldEditorToInsertionPoint() {
+        guard let editor = searchField.currentEditor() else { return }
+        let selection = editor.selectedRange
+        let textLength = (editor.string as NSString).length
+        let cursorLocation = min(selection.location + selection.length, textLength)
+        editor.scrollRangeToVisible(NSRange(location: cursorLocation, length: 0))
     }
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
