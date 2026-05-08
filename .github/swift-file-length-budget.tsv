@@ -7,7 +7,7 @@
 15966	Sources/ContentView.swift
 15901	Sources/AppDelegate.swift
 13650	Sources/GhosttyTerminalView.swift
-10622	Sources/Panels/BrowserPanel.swift
+10633	Sources/Panels/BrowserPanel.swift
 8279	Sources/cmuxApp.swift
 7863	Sources/TabManager.swift
 6794	Sources/Panels/BrowserPanelView.swift
@@ -24,7 +24,7 @@
 2917	Sources/CmuxConfig.swift
 2863	cmuxTests/WindowAndDragTests.swift
 2609	Sources/SessionIndexView.swift
-2491	Sources/Panels/CmuxWebView.swift
+2514	Sources/Panels/CmuxWebView.swift
 2317	cmuxTests/TabManagerUnitTests.swift
 2230	Sources/KeyboardShortcutSettings.swift
 2202	Packages/CMUXCmxProtocol/Sources/CMUXCmxProtocol/CmxProtocol.swift

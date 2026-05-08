@@ -360,10 +360,11 @@ final class CmuxWebView: WKWebView {
     /// BrowserPanelView updates this as pane focus state changes.
     var allowsFirstResponderAcquisition: Bool = true
     private var pointerFocusAllowanceDepth: Int = 0
+    private var explicitFocusAllowanceDepth: Int = 0
     private var pasteAsPlainTextTargetAvailable = false
     private var lastPasteAsPlainTextPerformKeyEventTimestamp: TimeInterval?
     var allowsFirstResponderAcquisitionEffective: Bool {
-        allowsFirstResponderAcquisition || pointerFocusAllowanceDepth > 0
+        allowsFirstResponderAcquisition || pointerFocusAllowanceDepth > 0 || explicitFocusAllowanceDepth > 0
     }
     var debugPointerFocusAllowanceDepth: Int { pointerFocusAllowanceDepth }
 
@@ -456,6 +457,28 @@ final class CmuxWebView: WKWebView {
             cmuxDebugLog(
                 "browser.focus.pointerAllowance.exit web=\(ObjectIdentifier(self)) " +
                 "depth=\(pointerFocusAllowanceDepth)"
+            )
+#endif
+        }
+        return body()
+    }
+
+    /// Temporarily permits focus acquisition for explicit app/socket focus commands
+    /// while keeping background WebKit autofocus blocked.
+    func withExplicitFocusAllowance<T>(_ body: () -> T) -> T {
+        explicitFocusAllowanceDepth += 1
+#if DEBUG
+        cmuxDebugLog(
+            "browser.focus.explicitAllowance.enter web=\(ObjectIdentifier(self)) " +
+            "depth=\(explicitFocusAllowanceDepth)"
+        )
+#endif
+        defer {
+            explicitFocusAllowanceDepth = max(0, explicitFocusAllowanceDepth - 1)
+#if DEBUG
+            cmuxDebugLog(
+                "browser.focus.explicitAllowance.exit web=\(ObjectIdentifier(self)) " +
+                "depth=\(explicitFocusAllowanceDepth)"
             )
 #endif
         }

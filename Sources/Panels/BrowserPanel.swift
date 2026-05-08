@@ -3383,6 +3383,16 @@ final class BrowserPanel: Panel, ObservableObject {
 
     // MARK: - Panel Protocol
 
+    @discardableResult
+    private func makeExplicitWebViewFirstResponder(in window: NSWindow) -> Bool {
+        if let cmuxWebView = webView as? CmuxWebView {
+            return cmuxWebView.withExplicitFocusAllowance {
+                window.makeFirstResponder(cmuxWebView)
+            }
+        }
+        return window.makeFirstResponder(webView)
+    }
+
     func focus() {
         if shouldSuppressWebViewFocus() {
             return
@@ -3424,16 +3434,17 @@ final class BrowserPanel: Panel, ObservableObject {
             return true
         }
 
-        guard window.makeFirstResponder(webView) else { return false }
+        guard makeExplicitWebViewFirstResponder(in: window) else { return false }
         // Prevent omnibar auto-focus from immediately stealing first responder back.
         suppressOmnibarAutofocus(for: 1.5)
         noteWebViewFocused()
 
-        DispatchQueue.main.async { [weak self, weak window, weak webView] in
+        Task { @MainActor [weak self, weak window, weak webView] in
             guard let self, let window, let webView else { return }
             guard webView.window === window else { return }
+            guard self.webView === webView else { return }
             if !Self.responderChainContains(window.firstResponder, target: webView),
-               window.makeFirstResponder(webView) {
+               self.makeExplicitWebViewFirstResponder(in: window) {
                 self.suppressOmnibarAutofocus(for: 1.5)
                 self.noteWebViewFocused()
             }
