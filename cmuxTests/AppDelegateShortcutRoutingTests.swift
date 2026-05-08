@@ -861,7 +861,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         XCTAssertEqual(
             KeyboardShortcutSettings.Action.toggleSidebar.label,
-            "Toggle Left Sidebar",
+            String(localized: "shortcut.toggleLeftSidebar.label", defaultValue: "Toggle Left Sidebar"),
             "Welcome should expose the shared left-sidebar toggle command"
         )
         XCTAssertEqual(
@@ -870,7 +870,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
         XCTAssertEqual(
             KeyboardShortcutSettings.Action.toggleRightSidebar.label,
-            "Toggle Right Sidebar",
+            String(localized: "shortcut.toggleRightSidebar.label", defaultValue: "Toggle Right Sidebar"),
             "Welcome should expose the shared right-sidebar toggle command, not a File Explorer-only action"
         )
         XCTAssertEqual(
