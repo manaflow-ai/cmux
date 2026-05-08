@@ -83,24 +83,48 @@ private struct FileSearchPipelineUpdate: Sendable {
 
 private actor FileSearchTerminationSignal {
     private var status: Int32?
-    private var continuations: [CheckedContinuation<Int32, Never>] = []
+    private var continuations: [UUID: CheckedContinuation<Int32?, Never>] = [:]
+    private var cancelledWaits = Set<UUID>()
 
     func complete(status: Int32) {
         guard self.status == nil else { return }
         self.status = status
-        let pendingContinuations = continuations
+        let pendingContinuations = Array(continuations.values)
         continuations.removeAll()
+        cancelledWaits.removeAll()
         for continuation in pendingContinuations {
             continuation.resume(returning: status)
         }
     }
 
-    func wait() async -> Int32 {
+    func wait() async -> Int32? {
         if let status {
             return status
         }
-        return await withCheckedContinuation { continuation in
-            continuations.append(continuation)
+        let waitID = UUID()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if let status {
+                    continuation.resume(returning: status)
+                } else if cancelledWaits.remove(waitID) != nil {
+                    continuation.resume(returning: nil)
+                } else {
+                    continuations[waitID] = continuation
+                }
+            }
+        } onCancel: {
+            Task {
+                await self.cancelWait(id: waitID)
+            }
+        }
+    }
+
+    private func cancelWait(id: UUID) {
+        guard status == nil else { return }
+        if let continuation = continuations.removeValue(forKey: id) {
+            continuation.resume(returning: nil)
+        } else {
+            cancelledWaits.insert(id)
         }
     }
 }
@@ -316,7 +340,7 @@ final class FileSearchController: FileSearchControlling {
                     controller: controller
                 )
                 async let stderrDone: Void = Self.streamStderr(from: stderrHandle, pipeline: pipeline)
-                let status = await terminationSignal.wait()
+                guard let status = await terminationSignal.wait() else { return }
                 _ = await (stdoutDone, stderrDone)
                 guard !Task.isCancelled else { return }
                 let update = await pipeline.finish(status: status)
