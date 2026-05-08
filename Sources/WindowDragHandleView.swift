@@ -1200,11 +1200,9 @@ struct TitlebarDoubleClickRegionModifier: ViewModifier {
     var doubleClickBehavior: TitlebarDoubleClickBehavior = .standardAction
 
     func body(content: Content) -> some View {
-        ZStack {
-            WindowDragHandleView(doubleClickBehavior: doubleClickBehavior)
-            content
-        }
-        .background(TitlebarDoubleClickMonitorView(doubleClickBehavior: doubleClickBehavior))
+        content
+            .background(WindowDragHandleView(doubleClickBehavior: doubleClickBehavior))
+            .background(TitlebarDoubleClickMonitorView(doubleClickBehavior: doubleClickBehavior))
     }
 }
 
