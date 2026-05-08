@@ -30,12 +30,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from cmux import cmux, cmuxError
 
 
-def surface_id_for_index(client: cmux, index: int) -> str:
-    surfaces = client.list_surfaces()
+def surface_id_for_index(client: cmux, index: int, workspace: Optional[str] = None) -> str:
+    surfaces = client.list_surfaces(workspace=workspace) if workspace else client.list_surfaces()
     for entry in surfaces:
         if entry[0] == index:
             return entry[1]
-    raise RuntimeError(f"Surface index {index} not found")
+    raise RuntimeError(f"Surface index {index} not found in workspace={workspace}")
 
 
 def focused_surface_id(client: cmux, workspace: Optional[str] = None) -> str:
@@ -52,11 +52,11 @@ def focused_surface_id(client: cmux, workspace: Optional[str] = None) -> str:
     raise RuntimeError(f"No focused surface found in workspace={workspace}; surfaces={surfaces}")
 
 
-def first_two_terminal_indices(client: cmux) -> tuple[int, int]:
-    health = client.surface_health()
+def first_two_terminal_indices(client: cmux, workspace: Optional[str] = None) -> tuple[int, int]:
+    health = client.surface_health(workspace=workspace) if workspace else client.surface_health()
     terms = [h["index"] for h in health if h.get("type") == "terminal"]
     if len(terms) < 2:
-        raise RuntimeError(f"Expected >=2 terminal surfaces, got {health}")
+        raise RuntimeError(f"Expected >=2 terminal surfaces in workspace={workspace}, got {health}")
     return terms[0], terms[1]
 
 
@@ -122,10 +122,10 @@ def main() -> int:
             if len(ws_b_surfaces) < 2:
                 print(f"FAIL: Expected workspace B to have 2 surfaces after split; got {ws_b_surfaces}")
                 return 1
-            term1_idx, term2_idx = first_two_terminal_indices(client)
-            ws_b_surface_focused = surface_id_for_index(client, term1_idx)
-            ws_b_surface_other = surface_id_for_index(client, term2_idx)
-            client.focus_surface(term1_idx)
+            term1_idx, term2_idx = first_two_terminal_indices(client, workspace=ws_b)
+            ws_b_surface_focused = surface_id_for_index(client, term1_idx, workspace=ws_b)
+            ws_b_surface_other = surface_id_for_index(client, term2_idx, workspace=ws_b)
+            client.focus_surface(ws_b_surface_focused)
             time.sleep(0.2)
 
             # Move back to A so neither surface in B is visible. Ring both.
@@ -150,7 +150,7 @@ def main() -> int:
                 return 1
 
             # --- Scenario 4: direct focus on the other surface clears its bell.
-            client.focus_surface(term2_idx)
+            client.focus_surface(ws_b_surface_other)
             if not wait_for_bell(client, ws_b_surface_other, present=False):
                 print(f"FAIL: Bell did not clear after focus_surface on the bonsplit tab; bells={client.list_bell_surfaces()}")
                 return 1

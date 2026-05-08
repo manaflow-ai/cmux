@@ -8005,20 +8005,28 @@ class TerminalController {
     /// bell from the terminal action callback so tests exercise the actual
     /// production logic, not a mocked shortcut.
     private func v2BellSimulate(params: [String: Any]) -> V2CallResult {
-        guard let tabManager = v2ResolveTabManager(params: params) else {
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
-        }
         guard let surfaceId = v2UUID(params, "surface_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
         }
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to simulate bell", data: nil)
         v2MainSync {
-            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
-                result = .err(code: "not_found", message: "Workspace not found", data: nil)
-                return
+            // Try the resolved-via-params tab manager first (handles the explicit
+            // `workspace_id` case and the active-window default). If that manager
+            // doesn't actually own the target surface, fall back to a global
+            // lookup so background-window surfaces aren't reported as not_found
+            // — same pattern as other surface_id-only routes in this file.
+            var ws: Workspace? = nil
+            if let preferredManager = v2ResolveTabManager(params: params),
+               let preferredWorkspace = v2ResolveWorkspace(params: params, tabManager: preferredManager),
+               preferredWorkspace.panels[surfaceId] != nil {
+                ws = preferredWorkspace
+            } else if let located = AppDelegate.shared?.locateSurface(surfaceId: surfaceId),
+                      let owningWorkspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }) {
+                ws = owningWorkspace
             }
-            guard ws.panels[surfaceId] != nil else {
+
+            guard let workspace = ws else {
                 result = .err(
                     code: "not_found",
                     message: "Surface not found",
@@ -8026,11 +8034,12 @@ class TerminalController {
                 )
                 return
             }
-            GhosttyApp.recordBellForTitleIndicator(tabId: ws.id, surfaceId: surfaceId)
-            let suppressed = !TerminalNotificationStore.shared.hasBell(forTabId: ws.id, surfaceId: surfaceId)
+
+            GhosttyApp.recordBellForTitleIndicator(tabId: workspace.id, surfaceId: surfaceId)
+            let suppressed = !TerminalNotificationStore.shared.hasBell(forTabId: workspace.id, surfaceId: surfaceId)
             result = .ok([
-                "workspace_id": ws.id.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                "workspace_id": workspace.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
                 "surface_id": surfaceId.uuidString,
                 "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
                 "suppressed": suppressed,

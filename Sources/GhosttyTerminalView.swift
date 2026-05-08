@@ -3367,13 +3367,29 @@ class GhosttyApp {
     /// no badge is needed. Centralizes the suppression logic at the bell
     /// handling layer, keeping `TerminalNotificationStore` a pure write sink.
     /// Also reused by the `bell.simulate` socket command for test coverage.
+    ///
+    /// "Visible" requires:
+    ///   * the surface is selected in its owning workspace, AND
+    ///   * the surface is the focused pane in that workspace, AND
+    ///   * the owning workspace's window is the active cmux window.
+    ///     `AppFocusState.isOwningWindowActive(_:)` requires both the app
+    ///     being active and the specific window being key/main, so a bell
+    ///     from a background-window surface in a multi-window session does
+    ///     not mis-suppress.
     @MainActor
     static func recordBellForTitleIndicator(tabId: UUID, surfaceId: UUID) {
-        let owningManager = AppDelegate.shared?.tabManagerFor(tabId: tabId)
-            ?? AppDelegate.shared?.tabManager
+        let app = AppDelegate.shared
+        let owningManager = app?.tabManagerFor(tabId: tabId) ?? app?.tabManager
+
+        let owningWindow: NSWindow? = {
+            guard let app, let owningManager,
+                  let windowId = app.windowId(for: owningManager) else { return nil }
+            return app.mainWindow(for: windowId)
+        }()
+
         let isCurrentlyVisible = owningManager?.selectedTabId == tabId
             && owningManager?.focusedSurfaceId(for: tabId) == surfaceId
-            && AppFocusState.isAppActive()
+            && AppFocusState.isOwningWindowActive(owningWindow)
         guard !isCurrentlyVisible else { return }
         TerminalNotificationStore.shared.noteBellRang(tabId: tabId, surfaceId: surfaceId)
     }

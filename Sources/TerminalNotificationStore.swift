@@ -620,6 +620,24 @@ enum AppFocusState {
         }
         return false
     }
+
+    /// Returns true when `window` is the cmux window the user is currently
+    /// looking at. Used by features (like the bell-features=title indicator)
+    /// that need to know whether a specific window is in the foreground —
+    /// `isAppActive()` alone is not enough in multi-window sessions, since
+    /// it's true even when the surface's window is in the background.
+    ///
+    /// Honors `overrideIsFocused` so socket-driven tests (which can't fake
+    /// real AppKit key-window state) still get deterministic behavior;
+    /// tests run with a single cmux window, so any active app implies the
+    /// owning window is the active one.
+    static func isOwningWindowActive(_ window: NSWindow?) -> Bool {
+        if overrideIsFocused != nil {
+            return isAppActive()
+        }
+        guard NSApp.isActive, let window else { return false }
+        return window.isKeyWindow || window.isMainWindow
+    }
 }
 
 enum NotificationAuthorizationState: Equatable {
