@@ -49,6 +49,7 @@ grep -q "cmux.newWindow" "$TMP_DIR/commented-owner.out"
 cat > "$TMP_DIR/Sources/cmuxApp.swift" <<'SWIFT'
 private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     // MARK: - Main Windows [user-closable]
+    // This comment intentionally contains a lone ] bracket.
     "cmux.newWindow",
     "cmux.settings",
 ]

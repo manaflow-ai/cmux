@@ -38,21 +38,22 @@ def load_close_owner_identifiers(repo_root: pathlib.Path) -> set[str]:
     except FileNotFoundError:
         raise ValueError(f"missing {OWNER_LIST_PATH}") from None
 
+    parse_text = strip_line_comments(text)
     marker = f"private let {OWNER_LIST_NAME}"
-    marker_index = text.find(marker)
+    marker_index = parse_text.find(marker)
     if marker_index < 0:
         raise ValueError(f"missing {OWNER_LIST_NAME} in {OWNER_LIST_PATH}")
 
-    list_start = text.find("[", marker_index)
+    list_start = parse_text.find("[", marker_index)
     if list_start < 0:
         raise ValueError(f"could not parse {OWNER_LIST_NAME} in {OWNER_LIST_PATH}")
 
     depth = 0
     list_end = -1
-    for index in range(list_start, len(text)):
-        if text[index] == "[":
+    for index in range(list_start, len(parse_text)):
+        if parse_text[index] == "[":
             depth += 1
-        elif text[index] == "]":
+        elif parse_text[index] == "]":
             depth -= 1
             if depth == 0:
                 list_end = index
@@ -60,7 +61,7 @@ def load_close_owner_identifiers(repo_root: pathlib.Path) -> set[str]:
     if list_end < 0:
         raise ValueError(f"could not parse {OWNER_LIST_NAME} in {OWNER_LIST_PATH}")
 
-    list_body = strip_line_comments(text[list_start:list_end])
+    list_body = parse_text[list_start:list_end]
     return {match.group("identifier") for match in STRING_LITERAL_RE.finditer(list_body)}
 
 
