@@ -50,7 +50,14 @@ function availableBaseRefs() {
 }
 
 function committedChangedFiles() {
-  for (const baseRef of availableBaseRefs()) {
+  const baseRefs = availableBaseRefs();
+  if (baseRefs.length === 0) {
+    throw new Error(
+      "token-audit: no base ref available; fetch the target branch or set GITHUB_BASE_SHA/GITHUB_BASE_REF"
+    );
+  }
+
+  for (const baseRef of baseRefs) {
     const files = git(["diff", "--name-only", "--diff-filter=ACMRT", `${baseRef}...HEAD`], {
       allowFailure: true,
     });
@@ -58,7 +65,7 @@ function committedChangedFiles() {
       return files;
     }
   }
-  return git(["show", "--name-only", "--format=", "--diff-filter=ACMRT", "HEAD"]);
+  throw new Error(`token-audit: unable to diff against base refs: ${baseRefs.join(", ")}`);
 }
 
 function changedStylesheets() {
@@ -70,7 +77,7 @@ function changedStylesheets() {
 }
 
 function stripCssComments(source) {
-  return source.replace(/\/\*[\s\S]*?\*\//g, "");
+  return source.replace(/\/\*[\s\S]*?\*\//g, (comment) => comment.replace(/[^\r\n]/g, ""));
 }
 
 const rawValuePatterns = [

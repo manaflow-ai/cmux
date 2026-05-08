@@ -2607,6 +2607,13 @@ final class BrowserPanel: Panel, ObservableObject {
 
     private static func releaseWebsiteDataStore(forRemoteWorkspace identifier: UUID) {
         guard var existing = remoteWorkspaceWebsiteDataStores[identifier] else { return }
+        guard existing.referenceCount > 0 else {
+#if DEBUG
+            assertionFailure("Remote workspace website data store lease underflow for \(identifier)")
+#endif
+            remoteWorkspaceWebsiteDataStores.removeValue(forKey: identifier)
+            return
+        }
         existing.referenceCount -= 1
         if existing.referenceCount > 0 {
             remoteWorkspaceWebsiteDataStores[identifier] = existing
