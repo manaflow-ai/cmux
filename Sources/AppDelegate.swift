@@ -5226,7 +5226,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func mainWindowContext(forWindowId windowId: UUID?) -> MainWindowContext? {
         guard let windowId else { return nil }
-        return mainWindowContexts.values.first { context in
+        return Array(mainWindowContexts.values).first { context in
             context.windowId == windowId && resolvedWindow(for: context) != nil
         }
     }
@@ -5252,7 +5252,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
            let activeContext = liveMainWindowContext(for: activeManager) {
             return activeContext.tabManager
         }
-        return mainWindowContexts.values.first { context in
+        return Array(mainWindowContexts.values).first { context in
             resolvedWindow(for: context) != nil
         }?.tabManager
     }
@@ -5978,7 +5978,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func hasVisibleMainTerminalWindow() -> Bool {
-        mainWindowContexts.values.contains { context in
+        Array(mainWindowContexts.values).contains { context in
             guard let window = resolvedWindow(for: context) else { return false }
             return window.isVisible && !window.isMiniaturized && window.alphaValue > 0.001
         }
@@ -6641,7 +6641,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         pruneWindowlessMainWindowContexts()
-        let fallback = mainWindowContexts.values.first(where: { resolvedWindow(for: $0) != nil })
+        let fallback = Array(mainWindowContexts.values).first(where: { resolvedWindow(for: $0) != nil })
         #if DEBUG
         logWorkspaceCreationRouting(
             phase: "choose",

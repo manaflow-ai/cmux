@@ -6,14 +6,21 @@ const path = require("node:path");
 
 const stylesheetExtensions = new Set([".css", ".scss", ".sass", ".less"]);
 
-function git(args) {
+function git(args, options = {}) {
   try {
     return execFileSync("git", args, { encoding: "utf8" })
       .split(/\r?\n/)
       .map((line) => line.trim())
       .filter(Boolean);
-  } catch {
-    return [];
+  } catch (error) {
+    if (options.allowFailure) {
+      return null;
+    }
+    console.error(`token-audit: git ${args.join(" ")} failed`);
+    if (error.stderr) {
+      console.error(String(error.stderr).trim());
+    }
+    throw error;
   }
 }
 
@@ -25,8 +32,38 @@ function isStylesheet(file) {
   return stylesheetExtensions.has(path.extname(file));
 }
 
+function baseRefCandidates() {
+  return unique([
+    process.env.GITHUB_BASE_SHA,
+    process.env.GITHUB_BASE_REF ? `origin/${process.env.GITHUB_BASE_REF}` : null,
+    process.env.GITHUB_BASE_REF,
+    process.env.BASE_REF,
+    "origin/main",
+    "main",
+  ].filter(Boolean));
+}
+
+function availableBaseRefs() {
+  return baseRefCandidates().filter((candidate) =>
+    git(["rev-parse", "--verify", `${candidate}^{commit}`], { allowFailure: true }) !== null
+  );
+}
+
+function committedChangedFiles() {
+  for (const baseRef of availableBaseRefs()) {
+    const files = git(["diff", "--name-only", "--diff-filter=ACMRT", `${baseRef}...HEAD`], {
+      allowFailure: true,
+    });
+    if (files !== null) {
+      return files;
+    }
+  }
+  return git(["show", "--name-only", "--format=", "--diff-filter=ACMRT", "HEAD"]);
+}
+
 function changedStylesheets() {
   return unique([
+    ...committedChangedFiles(),
     ...git(["diff", "--name-only", "--diff-filter=ACMRT", "HEAD"]),
     ...git(["ls-files", "--others", "--exclude-standard"]),
   ]).filter((file) => isStylesheet(file) && existsSync(file) && statSync(file).isFile());
