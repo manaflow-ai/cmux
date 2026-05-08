@@ -601,6 +601,15 @@ final class FileExplorerContainerView: NSView {
     private let coordinator: FileExplorerPanelView.Coordinator
     private var searchDebounceTask: Task<Void, Never>?
     private let searchDebounceDelay: UInt64 = 200_000_000
+    private let searchStatusWidth: CGFloat = 128
+
+#if DEBUG
+    private var debugLastSearchTextChangeUptime: TimeInterval = 0
+    private var debugLastSearchLayoutFieldWidth: CGFloat = -1
+    private var debugLastSearchLayoutStatusWidth: CGFloat = -1
+    private var debugLastLoggedSearchResultCount = -1
+    private var debugLastLoggedSearchStatus = ""
+#endif
 
     init(
         coordinator: FileExplorerPanelView.Coordinator,
@@ -637,6 +646,8 @@ final class FileExplorerContainerView: NSView {
         searchField.placeholderString = String(localized: "fileExplorer.search.placeholder", defaultValue: "Search files")
         searchField.font = .systemFont(ofSize: 12, weight: .regular)
         searchField.focusRingType = .none
+        searchField.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        searchField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         searchField.delegate = self
         searchField.onCancel = { [weak self] in
             self?.closeSearchAndFocusOutline()
@@ -662,6 +673,7 @@ final class FileExplorerContainerView: NSView {
         searchStatusLabel.textColor = .secondaryLabelColor
         searchStatusLabel.lineBreakMode = .byTruncatingTail
         searchStatusLabel.maximumNumberOfLines = 1
+        searchStatusLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
         searchStatusLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         searchBarView.addSubview(searchStatusLabel)
 
@@ -775,6 +787,8 @@ final class FileExplorerContainerView: NSView {
         }
 
         searchBarHeightConstraint = searchBarView.heightAnchor.constraint(equalToConstant: 0)
+        let searchStatusWidthConstraint = searchStatusLabel.widthAnchor.constraint(equalToConstant: searchStatusWidth)
+        searchStatusWidthConstraint.priority = .defaultHigh
         NSLayoutConstraint.activate([
             headerView.topAnchor.constraint(equalTo: topAnchor),
             headerView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -788,11 +802,12 @@ final class FileExplorerContainerView: NSView {
             searchField.leadingAnchor.constraint(equalTo: searchBarView.leadingAnchor, constant: 8),
             searchField.centerYAnchor.constraint(equalTo: searchBarView.centerYAnchor),
             searchField.heightAnchor.constraint(equalToConstant: 24),
+            searchField.widthAnchor.constraint(greaterThanOrEqualToConstant: 80),
 
             searchStatusLabel.leadingAnchor.constraint(equalTo: searchField.trailingAnchor, constant: 8),
             searchStatusLabel.trailingAnchor.constraint(equalTo: searchBarView.trailingAnchor, constant: -8),
             searchStatusLabel.centerYAnchor.constraint(equalTo: searchField.centerYAnchor),
-            searchStatusLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 140),
+            searchStatusWidthConstraint,
 
             scrollView.topAnchor.constraint(equalTo: searchBarView.bottomAnchor),
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -843,8 +858,14 @@ final class FileExplorerContainerView: NSView {
     }
 
     override func layout() {
+#if DEBUG
+        let debugLayoutStart = ProcessInfo.processInfo.systemUptime
+#endif
         super.layout()
         registerWithKeyboardFocusCoordinatorIfNeeded()
+#if DEBUG
+        logSearchLayoutIfNeeded(startedAt: debugLayoutStart, reason: "layout")
+#endif
     }
 
     func updateHeader(store: FileExplorerStore) {
@@ -991,6 +1012,14 @@ final class FileExplorerContainerView: NSView {
     private func refreshSearchIfNeeded() {
         guard isSearchVisible else { return }
         cancelPendingSearchRefresh()
+#if DEBUG
+        dlog(
+            "file.search.request queryLen=\(searchField.stringValue.count) " +
+            "rootReady=\(currentRootPath.isEmpty ? 0 : 1) local=\(currentProviderIsLocal ? 1 : 0) " +
+            "revision=\(currentContentRevision) results=\(searchSnapshot.results.count) " +
+            "fieldW=\(debugSearchNumber(searchField.frame.width)) statusW=\(debugSearchNumber(searchStatusLabel.frame.width))"
+        )
+#endif
         searchController.search(
             query: searchField.stringValue,
             rootPath: currentRootPath,
@@ -1002,6 +1031,9 @@ final class FileExplorerContainerView: NSView {
     private func scheduleSearchRefresh() {
         guard isSearchVisible else { return }
         searchDebounceTask?.cancel()
+#if DEBUG
+        dlog("file.search.debounce.schedule queryLen=\(searchField.stringValue.count) delayMs=200")
+#endif
         searchDebounceTask = Task { @MainActor [weak self] in
             do {
                 try await Task.sleep(nanoseconds: self?.searchDebounceDelay ?? 200_000_000)
@@ -1009,6 +1041,11 @@ final class FileExplorerContainerView: NSView {
                 return
             }
             guard !Task.isCancelled else { return }
+#if DEBUG
+            if let self {
+                dlog("file.search.debounce.fire queryLen=\(self.searchField.stringValue.count) delayMs=200")
+            }
+#endif
             self?.refreshSearchIfNeeded()
         }
     }
@@ -1030,11 +1067,24 @@ final class FileExplorerContainerView: NSView {
     }
 
     private func applySearchSnapshot(_ snapshot: FileSearchSnapshot) {
+#if DEBUG
+        let debugApplyStart = ProcessInfo.processInfo.systemUptime
+        let previousStatusName = debugSearchStatusName(searchSnapshot.status)
+        let previousStatusTextLength = searchStatusLabel.stringValue.count
+#endif
         let previousSelectedRow = searchResultsView.selectedRow
         let previousResults = searchSnapshot.results
         searchSnapshot = snapshot
         searchStatusLabel.stringValue = statusText(for: snapshot)
         applySearchResultsUpdate(previousResults: previousResults, nextResults: snapshot.results)
+#if DEBUG
+        logSearchSnapshot(
+            snapshot,
+            startedAt: debugApplyStart,
+            previousStatusName: previousStatusName,
+            previousStatusTextLength: previousStatusTextLength
+        )
+#endif
 
         guard !snapshot.results.isEmpty else { return }
         let selectedRow = previousSelectedRow >= 0
@@ -1098,6 +1148,98 @@ final class FileExplorerContainerView: NSView {
             )
         }
     }
+
+#if DEBUG
+    private func debugSearchNumber(_ value: CGFloat) -> String {
+        String(format: "%.1f", Double(value))
+    }
+
+    private func debugSearchNumber(_ value: Double) -> String {
+        String(format: "%.1f", value)
+    }
+
+    private func debugSearchStatusName(_ status: FileSearchSnapshot.Status) -> String {
+        switch status {
+        case .idle:
+            return "idle"
+        case .unsupported:
+            return "unsupported"
+        case .searching:
+            return "searching"
+        case .noMatches:
+            return "noMatches"
+        case .matches:
+            return "matches"
+        case .limited(let limit):
+            return "limited(\(limit))"
+        case .failed:
+            return "failed"
+        }
+    }
+
+    private func logSearchLayoutIfNeeded(startedAt: TimeInterval, reason: String) {
+        guard isSearchVisible else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        let fieldWidth = searchField.frame.width
+        let statusWidth = searchStatusLabel.frame.width
+        let firstLayout = debugLastSearchLayoutFieldWidth < 0 || debugLastSearchLayoutStatusWidth < 0
+        let fieldDelta = debugLastSearchLayoutFieldWidth >= 0
+            ? abs(fieldWidth - debugLastSearchLayoutFieldWidth)
+            : 0
+        let statusDelta = debugLastSearchLayoutStatusWidth >= 0
+            ? abs(statusWidth - debugLastSearchLayoutStatusWidth)
+            : 0
+        let layoutMs = max(0, (now - startedAt) * 1000)
+        let widthChanged = fieldDelta > 0.5 || statusDelta > 0.5
+        let slowLayout = layoutMs >= 8
+        guard firstLayout || widthChanged || slowLayout else { return }
+
+        debugLastSearchLayoutFieldWidth = fieldWidth
+        debugLastSearchLayoutStatusWidth = statusWidth
+        let sinceKeyMs = debugLastSearchTextChangeUptime > 0
+            ? debugSearchNumber((now - debugLastSearchTextChangeUptime) * 1000)
+            : "n/a"
+        dlog(
+            "file.search.layout reason=\(reason) fieldW=\(debugSearchNumber(fieldWidth)) " +
+            "statusW=\(debugSearchNumber(statusWidth)) fieldDelta=\(debugSearchNumber(fieldDelta)) " +
+            "statusDelta=\(debugSearchNumber(statusDelta)) layoutMs=\(debugSearchNumber(layoutMs)) " +
+            "sinceKeyMs=\(sinceKeyMs) queryLen=\(searchField.stringValue.count) " +
+            "results=\(searchSnapshot.results.count) status=\(debugSearchStatusName(searchSnapshot.status))"
+        )
+    }
+
+    private func logSearchSnapshot(
+        _ snapshot: FileSearchSnapshot,
+        startedAt: TimeInterval,
+        previousStatusName: String,
+        previousStatusTextLength: Int
+    ) {
+        let now = ProcessInfo.processInfo.systemUptime
+        let applyMs = max(0, (now - startedAt) * 1000)
+        let statusName = debugSearchStatusName(snapshot.status)
+        let resultDelta = debugLastLoggedSearchResultCount >= 0
+            ? abs(snapshot.results.count - debugLastLoggedSearchResultCount)
+            : snapshot.results.count
+        let shouldLog = statusName != debugLastLoggedSearchStatus ||
+            resultDelta >= 50 ||
+            applyMs >= 4
+        guard shouldLog else { return }
+
+        debugLastLoggedSearchStatus = statusName
+        debugLastLoggedSearchResultCount = snapshot.results.count
+        let sinceKeyMs = debugLastSearchTextChangeUptime > 0
+            ? debugSearchNumber((now - debugLastSearchTextChangeUptime) * 1000)
+            : "n/a"
+        dlog(
+            "file.search.snapshot status=\(statusName) previousStatus=\(previousStatusName) " +
+            "results=\(snapshot.results.count) isSearching=\(snapshot.isSearching ? 1 : 0) " +
+            "applyMs=\(debugSearchNumber(applyMs)) sinceKeyMs=\(sinceKeyMs) " +
+            "fieldW=\(debugSearchNumber(searchField.frame.width)) statusW=\(debugSearchNumber(searchStatusLabel.frame.width)) " +
+            "statusIntrinsicW=\(debugSearchNumber(searchStatusLabel.intrinsicContentSize.width)) " +
+            "statusTextLen=\(searchStatusLabel.stringValue.count) previousStatusTextLen=\(previousStatusTextLength)"
+        )
+    }
+#endif
 
     private func closeSearchAndFocusOutline() {
         if presentation == .find {
@@ -1191,6 +1333,20 @@ final class FileExplorerContainerView: NSView {
 extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSource, NSTableViewDelegate, NSMenuDelegate {
     func controlTextDidChange(_ notification: Notification) {
         guard notification.object as? NSTextField === searchField else { return }
+#if DEBUG
+        let now = ProcessInfo.processInfo.systemUptime
+        let gapMs = debugLastSearchTextChangeUptime > 0
+            ? debugSearchNumber((now - debugLastSearchTextChangeUptime) * 1000)
+            : "n/a"
+        debugLastSearchTextChangeUptime = now
+        dlog(
+            "file.search.input.changed queryLen=\(searchField.stringValue.count) gapMs=\(gapMs) " +
+            "fieldW=\(debugSearchNumber(searchField.frame.width)) statusW=\(debugSearchNumber(searchStatusLabel.frame.width)) " +
+            "statusIntrinsicW=\(debugSearchNumber(searchStatusLabel.intrinsicContentSize.width)) " +
+            "results=\(searchSnapshot.results.count) status=\(debugSearchStatusName(searchSnapshot.status)) " +
+            "fr=\(fileExplorerDebugResponder(window?.firstResponder))"
+        )
+#endif
         scheduleSearchRefresh()
     }
 
