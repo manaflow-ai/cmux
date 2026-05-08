@@ -1282,7 +1282,8 @@ Tagged build/smoke evidence from `feat-desktop-cmx-backend`:
 - Added a manual `Desktop CMX tests_v2` GitHub Actions workflow at
   `.github/workflows/desktop-cmx-tests-v2.yml`. It checks out a selected ref,
   downloads the GhosttyKit xcframework for the checked-out submodule SHA,
-  starts the repo virtual display helper, and invokes
+  installs the Rust 1.94 toolchain required by `rust/cmux-cli`, starts the repo
+  virtual display helper, and invokes
   `scripts/run-tests-v2.sh` with
   `CMUX_TESTS_V2_ALLOW_NON_VM=1`,
   `CMUX_TESTS_V2_DESKTOP_CMX_BACKEND=1`, and a dispatch-time
@@ -1309,8 +1310,8 @@ Tagged build/smoke evidence from `feat-desktop-cmx-backend`:
   artifacts. The default `only_testing` list runs
   `BonsplitTabDragUITests/testCmxBackendMinimalModeKeepsTabReorderWorking` and
   `BonsplitTabDragUITests/testCmxBackendMinimalModeDragToSplitCreatesPane`
-  under a virtual display. The workflow builds the Rust `cmx` binary before
-  `xcodebuild test`, and the XCUITest launch harness passes
+  under a virtual display. The workflow installs Rust 1.94, builds the Rust
+  `cmx` binary before `xcodebuild test`, and the XCUITest launch harness passes
   `CMUX_DESKTOP_CMX_EXECUTABLE`, tagged socket/debug-log paths, and
   `CMUXTERM_REPO_ROOT` into the launched app. It publishes downloadable
   `.xcresult`, tagged debug log, and `/tmp/cmux-cmx-ui-bonsplit-cmx-*`
@@ -1325,8 +1326,9 @@ Tagged build/smoke evidence from `feat-desktop-cmx-backend`:
   bootstrap/relay/forwarding/reconnect/port/proxy/shell-integration fixtures.
   The workflow defaults to `warp-macos-15-arm64-6x` for the Docker-heavy path
   while keeping Depot runners selectable for targeted investigation. It
-  installs Go with `actions/setup-go` and provisions Docker through Colima when
-  Docker is absent on the selected macOS runner, trying VZ first and
+  installs Go with `actions/setup-go`, installs Rust 1.94 for the `cmx` build,
+  and provisions Docker through Colima when Docker is absent on the selected
+  macOS runner, trying VZ first and
   deleting/retrying with QEMU if the VZ VM cannot start. It then fails early if
   those tools still cannot run so a skipped fixture cannot be mistaken for
   remote proof. It uploads the same tagged CMX diagnostics directory as the

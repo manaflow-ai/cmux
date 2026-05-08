@@ -54,6 +54,8 @@ jobs:
   remote-fixtures:
     runs-on: ${{ inputs.runner || 'warp-macos-15-arm64-6x' }}
     timeout-minutes: 90
+    env:
+      RUSTUP_TOOLCHAIN: 1.94.0
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -157,6 +159,13 @@ jobs:
 
       - name: Install zig
         run: ./scripts/install-zig-ci.sh 0.15.2
+
+      - name: Install Rust
+        run: |
+          set -euo pipefail
+          rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
+          rustc --version
+          cargo --version
 
       - name: Create virtual display
         run: |
