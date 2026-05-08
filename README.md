@@ -158,7 +158,7 @@ For more info on how to configure cmux, [head over to our docs](https://cmux.com
 | ⌥ ⌘ E | Edit workspace description |
 | ⌘ B | Toggle sidebar |
 | ⌘ ⇧ E | Toggle file explorer |
-| ⌥ ⌘ B | Focus right sidebar |
+| ⌥ ⌘ B | Toggle right sidebar |
 
 ### Surfaces
 

@@ -76,7 +76,7 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "renameWorkspace", combos: [["⌘", "⇧", "R"]], description: { en: "Rename workspace", ja: "ワークスペース名を変更" } },
       { id: "editWorkspaceDescription", combos: [["⌥", "⌘", "E"]], description: { en: "Edit workspace description", ja: "ワークスペースの説明を編集" } },
       { id: "toggleFileExplorer", combos: [["⌘", "⇧", "E"]], description: { en: "Toggle file explorer", ja: "ファイルエクスプローラを切り替え" } },
-      { id: "focusRightSidebar", combos: [["⌥", "⌘", "B"]], description: { en: "Focus right sidebar", ja: "右サイドバーにフォーカス" } },
+      { id: "focusRightSidebar", combos: [["⌥", "⌘", "B"]], description: { en: "Toggle right sidebar", ja: "右サイドバーを切り替え" } },
       {
         id: "navigateRightSidebarRows",
         combos: [["J / K"], ["⌃", "N / P"], ["H / L"]],

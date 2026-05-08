@@ -331,6 +331,8 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
     }
 
     func testRightSidebarAndFindShortcutDefaultsMatchSettingsSurface() {
+        XCTAssertEqual(KeyboardShortcutSettings.Action.focusRightSidebar.label, "Toggle Right Sidebar")
+
         let toggleFileExplorer = KeyboardShortcutSettings.Action.toggleFileExplorer.defaultShortcut
         XCTAssertEqual(toggleFileExplorer.key, "e")
         XCTAssertTrue(toggleFileExplorer.command)
