@@ -12881,7 +12881,7 @@ async fn run_window_command(
                 Err(e) => return (err_result(e), None, false),
             };
             let (text, cols, rows) = if scrollback {
-                match daemon.broker.extract_recent_text(tab.id, lines, true).await {
+                match compatibility_extract_recent_terminal_text(daemon, &tab, lines, true).await {
                     Some(recent) => (recent.text, recent.cols, recent.rows),
                     None => (String::new(), pane.cols, pane.rows),
                 }
@@ -13835,9 +13835,7 @@ async fn process_compatibility_v2_json(daemon: &Arc<Daemon>, line: &str) -> Stri
                 let scrollback = compatibility_bool_param(&params, &["scrollback"])
                     .unwrap_or(false)
                     || lines.is_some();
-                let target = compatibility_surface_ref_param(&params);
-                compatibility_read_terminal_text_v2(daemon, target.as_deref(), lines, scrollback)
-                    .await
+                compatibility_read_terminal_text_v2(daemon, &params, lines, scrollback).await
             }
             "notification.create" | "notification.create_for_caller" => {
                 let title = compatibility_string_param(&params, &["title"])
@@ -17519,26 +17517,98 @@ async fn compatibility_read_screen(
     }
 }
 
+fn compatibility_pty_replay_text(tab: &Tab, lines: Option<usize>) -> String {
+    let bytes = tab
+        .pty_replay_chunks()
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+    if bytes.is_empty() {
+        return String::new();
+    }
+    let text = String::from_utf8_lossy(&bytes).into_owned();
+    let Some(line_count) = lines else {
+        return text;
+    };
+    if line_count == 0 {
+        return String::new();
+    }
+    let mut recent = text.lines().rev().take(line_count).collect::<Vec<_>>();
+    recent.reverse();
+    recent.join("\n")
+}
+
+fn compatibility_append_text_if_missing(text: &mut String, extra: &str) {
+    let extra = extra.trim_end();
+    if extra.trim().is_empty() {
+        return;
+    }
+    if text.contains(extra) {
+        return;
+    }
+    if !text.is_empty() && !text.ends_with('\n') {
+        text.push('\n');
+    }
+    text.push_str(extra);
+}
+
+async fn compatibility_extract_recent_terminal_text(
+    daemon: &Arc<Daemon>,
+    tab: &Arc<Tab>,
+    lines: Option<usize>,
+    scrollback: bool,
+) -> Option<crate::render::RecentText> {
+    let mut recent = daemon
+        .broker
+        .extract_recent_text(tab.id, lines, scrollback)
+        .await
+        .unwrap_or(crate::render::RecentText {
+            text: String::new(),
+            cols: 80,
+            rows: 24,
+        });
+
+    if scrollback {
+        if let Some(visible) = daemon
+            .broker
+            .extract_recent_text(tab.id, lines, false)
+            .await
+        {
+            compatibility_append_text_if_missing(&mut recent.text, &visible.text);
+            recent.cols = recent.cols.max(visible.cols);
+            recent.rows = recent.rows.max(visible.rows);
+        }
+        let replay = compatibility_pty_replay_text(tab, lines);
+        compatibility_append_text_if_missing(&mut recent.text, &replay);
+    }
+
+    Some(recent)
+}
+
 async fn compatibility_read_terminal_text_v2(
     daemon: &Arc<Daemon>,
-    target: Option<&str>,
+    params: &serde_json::Value,
     lines: Option<usize>,
     scrollback: bool,
 ) -> std::result::Result<serde_json::Value, String> {
-    let Some(target) = target.filter(|target| !target.trim().is_empty()) else {
+    let target = compatibility_surface_ref_param(params);
+    let has_explicit_context = target
+        .as_deref()
+        .is_some_and(|target| !target.trim().is_empty())
+        || compatibility_workspace_scope_param(params).is_some();
+    if !has_explicit_context {
         let text = compatibility_read_screen(daemon, lines, scrollback).await?;
         return Ok(serde_json::json!({ "text": text }));
-    };
-    let ctx = compatibility_resolve_tab_context_by_target(daemon, target).await?;
+    }
+
+    let ctx = compatibility_resolve_tab_context_for_params(daemon, params).await?;
     if ctx.tab.kind != SnapshotTabKind::Terminal {
         return Err(format!(
             "Surface is not a terminal: {}",
             compat_tab_ref_from_tab(&ctx.tab)
         ));
     }
-    let recent = daemon
-        .broker
-        .extract_recent_text(ctx.tab.id, lines, scrollback)
+    let recent = compatibility_extract_recent_terminal_text(daemon, &ctx.tab, lines, scrollback)
         .await
         .ok_or_else(|| format!("Surface not found: {}", compat_tab_ref_from_tab(&ctx.tab)))?;
     let workspace_ref = ctx.workspace.external_id.clone();
