@@ -212,6 +212,18 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testClaudeNotificationGenericInputMessageStaysNeedsInput() throws {
+        let state = try runClaudeNotificationHook(message: "needs_input")
+        XCTAssertTrue(
+            state.commands.contains { $0.contains("set_status claude_code Needs input") },
+            "Expected generic input notification to remain Needs input, saw \(state.commands)"
+        )
+        XCTAssertFalse(
+            state.commands.contains { $0.contains("set_status claude_code Idle") },
+            "Generic input notification must not be routed as Idle: \(state.commands)"
+        )
+    }
+
     private func runClaudeNotificationHook(message: String) throws -> MockSocketServerState {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("claude-note-\(message)")

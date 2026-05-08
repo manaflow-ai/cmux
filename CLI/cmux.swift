@@ -13899,6 +13899,7 @@ struct CMUXCLI {
                 client: client
             )
             sendClaudeFeedTelemetry(workspaceId: workspaceId)
+            let sidebarStatus = claudeNotificationSidebarStatus(subtitle: summary.subtitle)
             if let mappedSession,
                let savedBody = mappedSession.lastBody, !savedBody.isEmpty,
                summary.body.contains("needs your attention") || summary.body.contains("needs your input") {
@@ -13929,13 +13930,12 @@ struct CMUXCLI {
                 )
             }
 
-            let status = claudeNotificationSidebarStatus(subtitle: summary.subtitle)
             _ = try? setClaudeStatus(
                 client: client,
                 workspaceId: workspaceId,
-                value: status.value,
-                icon: status.icon,
-                color: status.color
+                value: sidebarStatus.value,
+                icon: sidebarStatus.icon,
+                color: sidebarStatus.color
             )
             let response = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
             print(response)
@@ -15296,7 +15296,7 @@ struct CMUXCLI {
             let body = message.isEmpty ? "Task completed" : message
             return ("Completed", body)
         }
-        if lower.contains("idle") || lower.contains("wait") || lower.contains("input") || lower.contains("idle_prompt") {
+        if lower.contains("idle") || lower.contains("wait") || lower.contains("idle_prompt") {
             let body = message.isEmpty ? "Waiting for input" : message
             return ("Waiting", body)
         }
