@@ -7302,6 +7302,8 @@ final class Workspace: Identifiable, ObservableObject {
         agentPIDs[key] = pid
         if let panelId {
             agentPanelIds[key] = panelId
+        } else {
+            agentPanelIds.removeValue(forKey: key)
         }
         if agentProcessStates[key]?.pid != pid || agentProcessStates[key]?.isAlive != true {
             agentProcessStates[key] = SidebarAgentProcessState(

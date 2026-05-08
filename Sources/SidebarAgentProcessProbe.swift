@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 
-enum SidebarAgentFallbackActivity: Equatable, Sendable {
+nonisolated enum SidebarAgentFallbackActivity: Equatable, Sendable {
     case running
     case needsInput
 
@@ -40,7 +40,7 @@ enum SidebarAgentFallbackActivity: Equatable, Sendable {
     }
 }
 
-struct SidebarAgentProcessState: Equatable, Sendable {
+nonisolated struct SidebarAgentProcessState: Equatable, Sendable {
     let pid: pid_t
     let isAlive: Bool
     let activity: SidebarAgentFallbackActivity

@@ -1005,6 +1005,7 @@ class TabManager: ObservableObject {
         let panelId: UUID
     }
     private var pendingPanelTitleUpdates: [PanelTitleUpdateKey: String] = [:]
+    private var panelAgentTitleRegistrations: [PanelTitleUpdateKey: SidebarAgentTitleRegistration] = [:]
     private let panelTitleUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
     private var recentlyClosedBrowsers = RecentlyClosedBrowserStack(capacity: 20)
     private let initialWorkspaceGitProbeQueue = DispatchQueue(
@@ -5071,6 +5072,9 @@ class TabManager: ObservableObject {
         guard !trimmed.isEmpty else { return }
         let key = PanelTitleUpdateKey(tabId: tabId, panelId: panelId)
         pendingPanelTitleUpdates[key] = trimmed
+        if let registration = SidebarAgentStatusService.titleRegistration(for: trimmed) {
+            panelAgentTitleRegistrations[key] = registration
+        }
         panelTitleUpdateCoalescer.signal { [weak self] in
             self?.flushPendingPanelTitleUpdates()
         }
@@ -5078,9 +5082,11 @@ class TabManager: ObservableObject {
 
     private func agentTitleRegistrationCandidates() -> [(Workspace, UUID, SidebarAgentTitleRegistration)] {
         tabs.flatMap { tab in
-            tab.panelTitles.compactMap { panelId, title -> (Workspace, UUID, SidebarAgentTitleRegistration)? in
-                guard tab.panels[panelId] != nil,
-                      let registration = SidebarAgentStatusService.titleRegistration(for: title),
+            tab.panels.keys.compactMap { panelId -> (Workspace, UUID, SidebarAgentTitleRegistration)? in
+                let key = PanelTitleUpdateKey(tabId: tab.id, panelId: panelId)
+                let registration = tab.panelTitles[panelId].flatMap(SidebarAgentStatusService.titleRegistration)
+                    ?? panelAgentTitleRegistrations[key]
+                guard let registration,
                       tab.agentPIDs[registration.statusKey] == nil else {
                     return nil
                 }
@@ -5138,6 +5144,7 @@ class TabManager: ObservableObject {
             }
             if registerAgentPID(registration, workspace: tab, panelId: panelId, processSnapshot: processSnapshot) {
                 registeredKeys.insert(registrationKey)
+                panelAgentTitleRegistrations.removeValue(forKey: PanelTitleUpdateKey(tabId: tab.id, panelId: panelId))
                 didRegisterAny = true
             }
         }
@@ -5171,11 +5178,8 @@ class TabManager: ObservableObject {
         guard !pendingPanelTitleUpdates.isEmpty else { return }
         let updates = pendingPanelTitleUpdates
         pendingPanelTitleUpdates.removeAll(keepingCapacity: true)
-        var shouldDiscoverAgentPID = false
+        let shouldDiscoverAgentPID = updates.keys.contains { panelAgentTitleRegistrations[$0] != nil }
         for (key, title) in updates {
-            if SidebarAgentStatusService.titleRegistration(for: title) != nil {
-                shouldDiscoverAgentPID = true
-            }
             updatePanelTitle(tabId: key.tabId, panelId: key.panelId, title: title)
         }
         if shouldDiscoverAgentPID {
@@ -7485,6 +7489,7 @@ extension TabManager {
         // Clear non-@Published state without touching tabs/selectedTabId yet.
         lastFocusedPanelByTab.removeAll()
         pendingPanelTitleUpdates.removeAll()
+        panelAgentTitleRegistrations.removeAll()
         tabHistory.removeAll()
         historyIndex = -1
         isNavigatingHistory = false

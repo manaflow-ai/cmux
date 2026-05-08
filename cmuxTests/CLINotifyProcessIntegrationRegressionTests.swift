@@ -214,7 +214,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
     private func runClaudeNotificationHook(message: String) throws -> MockSocketServerState {
         let cliPath = try bundledCLIPath()
-        let socketPath = makeSocketPath("claude-note")
+        let socketPath = makeSocketPath("claude-note-\(message)")
         let listenerFD = try bindUnixSocket(at: socketPath)
         let state = MockSocketServerState()
         let root = FileManager.default.temporaryDirectory
