@@ -2423,9 +2423,13 @@ struct ContentView: View {
         syncTrafficLightInset()
     }
 
-    private func synchronizePortalGeometry() {
+    private func synchronizePortalGeometry(forceImmediateTerminalSync: Bool = false) {
         if let observedWindow {
-            TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: observedWindow)
+            if forceImmediateTerminalSync {
+                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeImmediately(for: observedWindow)
+            } else {
+                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: observedWindow)
+            }
             BrowserWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: observedWindow)
         } else {
             TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
@@ -3262,7 +3266,7 @@ struct ContentView: View {
             syncTrafficLightInset()
         })
         view = AnyView(view.onChange(of: sidebarState.portalGeometrySyncRevision) { _, _ in
-            synchronizePortalGeometry()
+            synchronizePortalGeometry(forceImmediateTerminalSync: true)
         })
         view = AnyView(view.onChange(of: fileExplorerState.isVisible) { _, isVisible in
             if !isVisible {
@@ -3270,7 +3274,7 @@ struct ContentView: View {
             }
         })
         view = AnyView(view.onChange(of: fileExplorerState.portalGeometrySyncRevision) { _, _ in
-            synchronizePortalGeometry()
+            synchronizePortalGeometry(forceImmediateTerminalSync: true)
         })
         view = AnyView(view.onChange(of: sidebarMatchTerminalBackground) { _ in
             tabManager.applyWindowBackdropModeForAllTabs(reason: "sidebarMatchTerminalBackgroundChanged")

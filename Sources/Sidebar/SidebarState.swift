@@ -1,5 +1,6 @@
-import Combine
+import AppKit
 import CoreGraphics
+import SwiftUI
 
 final class SidebarState: ObservableObject {
     @Published private(set) var portalGeometrySyncRevision: UInt64 = 0
@@ -18,7 +19,27 @@ final class SidebarState: ObservableObject {
 
     func setVisible(_ nextValue: Bool) {
         guard isVisible != nextValue else { return }
-        isVisible = nextValue
+
+        // Keep left and right sidebar visibility mutations under the same
+        // animation-suppression contract. Shortcut handlers also suppress
+        // animations, but non-shortcut callers should not be able to reintroduce
+        // animated Bonsplit frames that leave hosted terminals chasing layout.
+        NSAnimationContext.beginGrouping()
+        CATransaction.begin()
+        defer {
+            CATransaction.commit()
+            NSAnimationContext.endGrouping()
+        }
+
+        NSAnimationContext.current.duration = 0
+        NSAnimationContext.current.allowsImplicitAnimation = false
+        CATransaction.setDisableActions(true)
+
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            isVisible = nextValue
+        }
         portalGeometrySyncRevision &+= 1
     }
 }

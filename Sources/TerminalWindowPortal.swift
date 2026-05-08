@@ -765,9 +765,13 @@ final class WindowTerminalPortal: NSObject {
             return
         }
         hasExternalGeometrySyncScheduled = true
-        let requiresSettledLayout = !(hostView.inLiveResize || window?.inLiveResize == true || forceImmediate)
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            let shouldSyncImmediately =
+                forceImmediate ||
+                self.pendingExternalGeometrySyncRequiresImmediate ||
+                self.hostView.inLiveResize ||
+                self.window?.inLiveResize == true
             let performSync = {
                 // Even if newer requests arrived, perform one sync on this safe
                 // post-layout turn. During rapid sidebar toggles, skipping every
@@ -781,10 +785,10 @@ final class WindowTerminalPortal: NSObject {
                     self.scheduleExternalGeometrySynchronize(forceImmediate: followUpRequiresImmediate)
                 }
             }
-            if requiresSettledLayout {
-                DispatchQueue.main.async(execute: performSync)
-            } else {
+            if shouldSyncImmediately {
                 performSync()
+            } else {
+                DispatchQueue.main.async(execute: performSync)
             }
         }
     }
@@ -2001,6 +2005,10 @@ enum TerminalWindowPortalRegistry {
 
     static func scheduleExternalGeometrySynchronize(for window: NSWindow) {
         existingPortal(for: window)?.scheduleExternalGeometrySynchronize()
+    }
+
+    static func scheduleExternalGeometrySynchronizeImmediately(for window: NSWindow) {
+        existingPortal(for: window)?.scheduleExternalGeometrySynchronize(forceImmediate: true)
     }
 
     static func beginInteractiveGeometryResize() {
