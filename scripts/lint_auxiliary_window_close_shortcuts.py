@@ -29,7 +29,7 @@ LINE_COMMENT_RE = re.compile(r"//[^\n]*")
 
 
 def strip_line_comments(text: str) -> str:
-    text = BLOCK_COMMENT_RE.sub("", text)
+    text = BLOCK_COMMENT_RE.sub(lambda match: "\n" * match.group(0).count("\n"), text)
     return LINE_COMMENT_RE.sub("", text)
 
 

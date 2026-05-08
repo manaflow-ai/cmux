@@ -20,6 +20,10 @@ SWIFT
 cat > "$TMP_DIR/Sources/NewWindow.swift" <<'SWIFT'
 import AppKit
 
+/*
+window.identifier = NSUserInterfaceItemIdentifier("cmux.blockCommentOnly")
+*/
+
 func makeWindow() {
     let window = NSWindow()
     window.identifier =
@@ -32,6 +36,7 @@ if python3 scripts/lint_auxiliary_window_close_shortcuts.py --repo-root "$TMP_DI
     exit 1
 fi
 grep -q "cmux.newWindow" "$TMP_DIR/missing.out"
+grep -q "Sources/NewWindow.swift:9" "$TMP_DIR/missing.out"
 
 cat > "$TMP_DIR/Sources/cmuxApp.swift" <<'SWIFT'
 private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
