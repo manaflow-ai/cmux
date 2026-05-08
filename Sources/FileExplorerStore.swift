@@ -391,7 +391,6 @@ final class SSHFileExplorerProvider: FileExplorerProvider, @unchecked Sendable {
             throw FileExplorerError.providerUnavailable
         }
         let home = try await transport.resolveHomePath(connection: connection)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !home.isEmpty else {
             throw FileExplorerError.sshCommandFailed("remote HOME was empty")
         }
