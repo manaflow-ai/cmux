@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 struct FileSearchResult: Equatable, Sendable {
@@ -377,12 +378,11 @@ final class FileSearchController: FileSearchControlling {
         searchTask = nil
         pipeline = nil
         if process.isRunning {
-            Task.detached(priority: .utility) {
-                process.terminate()
-            }
+            _ = Darwin.kill(process.processIdentifier, SIGTERM)
         }
     }
 
+    @concurrent
     private nonisolated static func streamStdout(
         from handle: FileHandle,
         pipeline: FileSearchOutputPipeline,
@@ -405,6 +405,7 @@ final class FileSearchController: FileSearchControlling {
         }
     }
 
+    @concurrent
     private nonisolated static func streamStderr(
         from handle: FileHandle,
         pipeline: FileSearchOutputPipeline

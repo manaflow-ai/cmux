@@ -595,6 +595,8 @@ final class FileExplorerContainerView: NSView {
     private var currentRootPath = ""
     private var currentProviderIsLocal = false
     private var currentContentRevision = 0
+    private let searchDebounceSubject = PassthroughSubject<Int, Never>()
+    private var searchDebounceCancellable: AnyCancellable?
     private var searchDebounceGeneration = 0
     private var isSearchVisible = false {
         didSet {
@@ -605,8 +607,7 @@ final class FileExplorerContainerView: NSView {
     }
     private var presentation: FileExplorerPanelPresentation
     private let coordinator: FileExplorerPanelView.Coordinator
-    private var searchDebounceWorkItem: DispatchWorkItem?
-    private let searchDebounceDelaySeconds: TimeInterval = 0.2
+    private let searchDebounceDelayMilliseconds = 200
     private let searchBarVisibleHeight: CGFloat = 48
 
 #if DEBUG
@@ -637,6 +638,7 @@ final class FileExplorerContainerView: NSView {
         self.coordinator = coordinator
 
         super.init(frame: .zero)
+        configureSearchDebounce()
 
         // Header
         headerView.translatesAutoresizingMaskIntoConstraints = false
@@ -1036,32 +1038,40 @@ final class FileExplorerContainerView: NSView {
         )
     }
 
+    private func configureSearchDebounce() {
+        searchDebounceCancellable = searchDebounceSubject
+            .debounce(for: .milliseconds(searchDebounceDelayMilliseconds), scheduler: RunLoop.main)
+            .sink { [weak self] debounceGeneration in
+                Task { @MainActor [weak self] in
+                    guard let self,
+                          self.isSearchVisible,
+                          self.searchDebounceGeneration == debounceGeneration else { return }
+#if DEBUG
+                    dlog(
+                        "file.search.debounce.fire queryLen=\(self.searchField.stringValue.count) " +
+                        "delayMs=\(self.searchDebounceDelayMilliseconds)"
+                    )
+#endif
+                    self.refreshSearchIfNeeded()
+                }
+            }
+    }
+
     private func scheduleSearchRefresh() {
         guard isSearchVisible else { return }
-        searchDebounceWorkItem?.cancel()
         searchDebounceGeneration += 1
         let debounceGeneration = searchDebounceGeneration
 #if DEBUG
-        dlog("file.search.debounce.schedule queryLen=\(searchField.stringValue.count) delayMs=200")
+        dlog(
+            "file.search.debounce.schedule queryLen=\(searchField.stringValue.count) " +
+            "delayMs=\(searchDebounceDelayMilliseconds)"
+        )
 #endif
-        let workItem = DispatchWorkItem { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self, self.searchDebounceGeneration == debounceGeneration else { return }
-                self.searchDebounceWorkItem = nil
-#if DEBUG
-                dlog("file.search.debounce.fire queryLen=\(self.searchField.stringValue.count) delayMs=200")
-#endif
-                self.refreshSearchIfNeeded()
-            }
-        }
-        searchDebounceWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + searchDebounceDelaySeconds, execute: workItem)
+        searchDebounceSubject.send(debounceGeneration)
     }
 
     private func cancelPendingSearchRefresh() {
         searchDebounceGeneration += 1
-        searchDebounceWorkItem?.cancel()
-        searchDebounceWorkItem = nil
     }
 
     private func updateSearchLayout(hasContent: Bool? = nil, isLoading: Bool? = nil) {
