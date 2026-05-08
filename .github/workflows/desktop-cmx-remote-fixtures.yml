@@ -1,0 +1,208 @@
+name: Desktop CMX remote fixtures
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch or SHA to test
+        required: false
+        default: ""
+      test_filter:
+        description: Space-separated remote tests_v2 files or globs
+        required: false
+        default: >-
+          test_remote_rust_state.py
+          test_ssh_remote_cli_metadata.py
+          test_ssh_remote_daemon_resize_stdio.py
+          test_ssh_remote_docker_bootstrap_nonlogin_shell.py
+          test_ssh_remote_cli_relay.py
+          test_ssh_remote_docker_forwarding.py
+          test_ssh_remote_docker_reconnect.py
+          test_ssh_remote_port_detection.py
+          test_ssh_remote_proxy_bind_conflict.py
+          test_ssh_remote_shell_integration.py
+      run_external_ssh:
+        description: Also run external SSH host fixtures from repository secrets
+        required: false
+        default: false
+        type: boolean
+      external_ssh_filter:
+        description: Space-separated external SSH tests_v2 files or globs
+        required: false
+        default: >-
+          test_ssh_remote_browser_favicon_uses_proxy.py
+          test_ssh_remote_browser_move_rebinds_proxy.py
+          test_ssh_remote_interactive_cmux_command_regression.py
+          test_ssh_remote_last_surface_clears_remote_state.py
+          test_ssh_remote_resize_scrollback_regression.py
+          test_ssh_remote_second_session_mux_regression.py
+          test_ssh_remote_shortcuts_stay_remote.py
+      runner:
+        description: Runner OS
+        required: false
+        default: "depot-macos-latest"
+        type: choice
+        options:
+          - depot-macos-latest
+          - depot-macos-14
+
+jobs:
+  remote-fixtures:
+    runs-on: ${{ inputs.runner || 'depot-macos-latest' }}
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          submodules: recursive
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
+            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
+          else
+            XCODE_APP="$(ls -d /Applications/Xcode*.app 2>/dev/null | head -n 1 || true)"
+            if [ -n "$XCODE_APP" ]; then
+              XCODE_DIR="$XCODE_APP/Contents/Developer"
+            else
+              echo "No Xcode.app found under /Applications" >&2
+              exit 1
+            fi
+          fi
+          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
+          export DEVELOPER_DIR="$XCODE_DIR"
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-path
+
+      - name: Require remote fixture tools
+        run: |
+          set -euo pipefail
+          if ! command -v docker >/dev/null 2>&1; then
+            echo "Docker is required for Desktop CMX remote fixture proof." >&2
+            exit 1
+          fi
+          docker info
+
+          if ! command -v go >/dev/null 2>&1; then
+            echo "Go is required for cmuxd-remote stdio fixture proof." >&2
+            exit 1
+          fi
+          go version
+
+      - name: Download pre-built GhosttyKit.xcframework
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          GHOSTTY_SHA=$(git -C ghostty rev-parse HEAD)
+          TAG="xcframework-$GHOSTTY_SHA"
+          URL="https://github.com/manaflow-ai/ghostty/releases/download/$TAG/GhosttyKit.xcframework.tar.gz"
+          echo "Downloading xcframework for ghostty $GHOSTTY_SHA"
+          MAX_RETRIES=30
+          RETRY_DELAY=20
+          for i in $(seq 1 $MAX_RETRIES); do
+            if curl -fSL -o GhosttyKit.xcframework.tar.gz "$URL"; then
+              echo "Download succeeded on attempt $i"
+              break
+            fi
+            if [ "$i" -eq "$MAX_RETRIES" ]; then
+              echo "Failed to download xcframework after $MAX_RETRIES attempts" >&2
+              exit 1
+            fi
+            echo "Attempt $i/$MAX_RETRIES failed, retrying in ${RETRY_DELAY}s..."
+            sleep "$RETRY_DELAY"
+          done
+          tar xzf GhosttyKit.xcframework.tar.gz
+          rm GhosttyKit.xcframework.tar.gz
+          test -d GhosttyKit.xcframework
+
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh 0.15.2
+
+      - name: Create virtual display
+        run: |
+          set -euo pipefail
+          clang -framework Foundation -framework CoreGraphics \
+            -o /tmp/create-virtual-display scripts/create-virtual-display.m
+          /tmp/create-virtual-display &
+          VDISPLAY_PID=$!
+          echo "VDISPLAY_PID=$VDISPLAY_PID" >> "$GITHUB_ENV"
+          sleep 3
+          kill -0 "$VDISPLAY_PID"
+
+      - name: Run CMX-backed remote fixtures
+        env:
+          CMUX_TESTS_V2_ALLOW_NON_VM: "1"
+          CMUX_TESTS_V2_DESKTOP_CMX_BACKEND: "1"
+          CMUX_TESTS_V2_FAIL_ON_SKIP: "1"
+          CMUX_TESTS_V2_DIAGNOSTICS_DIR: /tmp/desktop-cmx-remote-fixtures-diagnostics
+          CMUX_TESTS_V2_FILTER: ${{ inputs.test_filter }}
+          CMUX_SSH_TEST_DOCKER_BIND_ADDR: "127.0.0.1"
+          CMUX_SSH_TEST_DOCKER_HOST: "127.0.0.1"
+        run: ./scripts/run-tests-v2.sh
+
+      - name: Prepare external SSH fixture env
+        if: ${{ inputs.run_external_ssh }}
+        env:
+          CMUX_SSH_TEST_HOST_SECRET: ${{ secrets.CMUX_SSH_TEST_HOST }}
+          CMUX_SSH_TEST_PORT_SECRET: ${{ secrets.CMUX_SSH_TEST_PORT }}
+          CMUX_SSH_TEST_IDENTITY_B64_SECRET: ${{ secrets.CMUX_SSH_TEST_IDENTITY_B64 }}
+          CMUX_SSH_TEST_OPTIONS_SECRET: ${{ secrets.CMUX_SSH_TEST_OPTIONS }}
+          CMUX_SSH_TEST_WEB_PORT_SECRET: ${{ secrets.CMUX_SSH_TEST_WEB_PORT }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CMUX_SSH_TEST_HOST_SECRET:-}" ]; then
+            echo "CMUX_SSH_TEST_HOST secret is required when run_external_ssh is true." >&2
+            exit 1
+          fi
+
+          {
+            echo "CMUX_SSH_TEST_HOST=$CMUX_SSH_TEST_HOST_SECRET"
+            if [ -n "${CMUX_SSH_TEST_PORT_SECRET:-}" ]; then
+              echo "CMUX_SSH_TEST_PORT=$CMUX_SSH_TEST_PORT_SECRET"
+            fi
+            if [ -n "${CMUX_SSH_TEST_OPTIONS_SECRET:-}" ]; then
+              echo "CMUX_SSH_TEST_OPTIONS=$CMUX_SSH_TEST_OPTIONS_SECRET"
+            fi
+            if [ -n "${CMUX_SSH_TEST_WEB_PORT_SECRET:-}" ]; then
+              echo "CMUX_SSH_TEST_WEB_PORT=$CMUX_SSH_TEST_WEB_PORT_SECRET"
+            fi
+          } >> "$GITHUB_ENV"
+
+          if [ -n "${CMUX_SSH_TEST_IDENTITY_B64_SECRET:-}" ]; then
+            identity_path="$RUNNER_TEMP/cmux-ssh-test-identity"
+            printf '%s' "$CMUX_SSH_TEST_IDENTITY_B64_SECRET" | base64 --decode > "$identity_path"
+            chmod 0600 "$identity_path"
+            echo "CMUX_SSH_TEST_IDENTITY=$identity_path" >> "$GITHUB_ENV"
+          fi
+
+      - name: Run CMX-backed external SSH fixtures
+        if: ${{ inputs.run_external_ssh }}
+        env:
+          CMUX_TESTS_V2_ALLOW_NON_VM: "1"
+          CMUX_TESTS_V2_DESKTOP_CMX_BACKEND: "1"
+          CMUX_TESTS_V2_FAIL_ON_SKIP: "1"
+          CMUX_TESTS_V2_DIAGNOSTICS_DIR: /tmp/desktop-cmx-external-ssh-diagnostics
+          CMUX_TESTS_V2_FILTER: ${{ inputs.external_ssh_filter }}
+        run: ./scripts/run-tests-v2.sh
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: desktop-cmx-remote-fixtures-diagnostics
+          path: |
+            /tmp/desktop-cmx-remote-fixtures-diagnostics
+            /tmp/desktop-cmx-external-ssh-diagnostics
+          if-no-files-found: warn
+
+      - name: Cleanup virtual display
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -n "${VDISPLAY_PID:-}" ]; then
+            kill "$VDISPLAY_PID" >/dev/null 2>&1 || true
+          fi
+          rm -f /tmp/create-virtual-display

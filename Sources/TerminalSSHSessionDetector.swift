@@ -34,16 +34,11 @@ struct DetectedSSHSession: Equatable {
             } catch {
                 result = .failure(error)
             }
-            DispatchQueue.main.async {
-                if operation.isCancelled {
-                    if case .success(let remotePaths) = result {
-                        session.cleanupUploadedRemotePathsAsync(remotePaths)
-                    }
-                    completion(.failure(TerminalImageTransferExecutionError.cancelled))
-                } else {
-                    completion(result)
-                }
-            }
+            session.completeDroppedFileUploadOnMain(
+                result,
+                operation: operation,
+                completion: completion
+            )
         }
     }
 
@@ -56,6 +51,24 @@ struct DetectedSSHSession: Equatable {
             operation: TerminalImageTransferOperation(),
             completion: completion
         )
+    }
+
+    private func completeDroppedFileUploadOnMain(
+        _ result: Result<[String], Error>,
+        operation: TerminalImageTransferOperation,
+        completion: @escaping (Result<[String], Error>) -> Void
+    ) {
+        let session = self
+        Task { @MainActor in
+            if operation.isCancelled {
+                if case .success(let remotePaths) = result {
+                    session.cleanupUploadedRemotePathsAsync(remotePaths)
+                }
+                completion(.failure(TerminalImageTransferExecutionError.cancelled))
+            } else {
+                completion(result)
+            }
+        }
     }
 
 #if DEBUG
@@ -85,6 +98,9 @@ struct DetectedSSHSession: Equatable {
         operation: TerminalImageTransferOperation
     ) throws -> [String] {
         guard !fileURLs.isEmpty else { return [] }
+        if WorkspaceRemoteSessionController.desktopCmxRemoteDropUploadEnabled() {
+            return try uploadDroppedFilesWithDesktopCmxBackend(fileURLs, operation: operation)
+        }
 
         var uploadedRemotePaths: [String] = []
         do {
@@ -118,6 +134,57 @@ struct DetectedSSHSession: Equatable {
             return uploadedRemotePaths
         } catch {
             cleanupUploadedRemotePaths(uploadedRemotePaths)
+            throw error
+        }
+    }
+
+    private func uploadDroppedFilesWithDesktopCmxBackend(
+        _ fileURLs: [URL],
+        operation: TerminalImageTransferOperation
+    ) throws -> [String] {
+        let localPaths = try fileURLs.map { localURL in
+            try operation.throwIfCancelled()
+            let normalizedLocalURL = localURL.standardizedFileURL
+            guard normalizedLocalURL.isFileURL else {
+                throw NSError(domain: "cmux.detected-ssh.drop", code: 1, userInfo: [
+                    NSLocalizedDescriptionKey: "dropped item is not a file URL",
+                ])
+            }
+            return normalizedLocalURL.path
+        }
+        guard !localPaths.isEmpty else { return [] }
+
+        let operationID = UUID().uuidString.lowercased()
+        operation.installCancellationHandler {
+            WorkspaceRemoteSessionController.cancelDesktopCmxDropUpload(
+                method: "terminal.detected_ssh.cancel_drop_upload",
+                params: ["operation_id": operationID]
+            )
+        }
+        defer { operation.clearCancellationHandler() }
+        try operation.throwIfCancelled()
+
+        do {
+            let result = try WorkspaceRemoteSessionController.desktopCmxSocketV2Request(
+                method: "terminal.detected_ssh.upload_dropped_files",
+                params: desktopCmxDropUploadParams(
+                    operationID: operationID,
+                    localPaths: localPaths
+                ),
+                timeout: max(60, TimeInterval(localPaths.count * 50 + 10))
+            )
+            try operation.throwIfCancelled()
+            guard let remotePaths = result["remote_paths"] as? [String] else {
+                throw NSError(domain: "cmux.detected-ssh.drop", code: 4, userInfo: [
+                    NSLocalizedDescriptionKey: "cmx response did not include remote_paths",
+                ])
+            }
+            return remotePaths
+        } catch {
+            WorkspaceRemoteSessionController.cancelDesktopCmxDropUpload(
+                method: "terminal.detected_ssh.cancel_drop_upload",
+                params: ["operation_id": operationID]
+            )
             throw error
         }
     }
@@ -222,6 +289,15 @@ struct DetectedSSHSession: Equatable {
 
     private func cleanupUploadedRemotePaths(_ remotePaths: [String]) {
         guard !remotePaths.isEmpty else { return }
+        if WorkspaceRemoteSessionController.desktopCmxRemoteDropUploadEnabled() {
+            _ = try? WorkspaceRemoteSessionController.desktopCmxSocketV2Request(
+                method: "terminal.detected_ssh.cleanup_dropped_files",
+                params: desktopCmxDropUploadParams(remotePaths: remotePaths),
+                timeout: 15
+            )
+            return
+        }
+
         let cleanupScript = "rm -f -- " + remotePaths.map(Self.shellSingleQuoted).joined(separator: " ")
         let cleanupCommand = "sh -c \(Self.shellSingleQuoted(cleanupScript))"
         _ = try? Self.runProcess(
@@ -237,6 +313,52 @@ struct DetectedSSHSession: Equatable {
         DispatchQueue.global(qos: .utility).async {
             session.cleanupUploadedRemotePaths(remotePaths)
         }
+    }
+
+    private func desktopCmxDropUploadParams(
+        operationID: String? = nil,
+        localPaths: [String]? = nil,
+        remotePaths: [String]? = nil
+    ) -> [String: Any] {
+        var params: [String: Any] = [
+            "destination": destination,
+            "use_ipv4": useIPv4,
+            "use_ipv6": useIPv6,
+            "forward_agent": forwardAgent,
+            "compression_enabled": compressionEnabled,
+            "ssh_options": sshOptions,
+        ]
+        if let port {
+            params["port"] = port
+        }
+        if let identityFile = nonEmpty(identityFile) {
+            params["identity_file"] = identityFile
+        }
+        if let configFile = nonEmpty(configFile) {
+            params["config_file"] = configFile
+        }
+        if let jumpHost = nonEmpty(jumpHost) {
+            params["jump_host"] = jumpHost
+        }
+        if let controlPath = nonEmpty(controlPath) {
+            params["control_path"] = controlPath
+        }
+        if let operationID {
+            params["operation_id"] = operationID
+        }
+        if let localPaths {
+            params["local_paths"] = localPaths
+        }
+        if let remotePaths {
+            params["remote_paths"] = remotePaths
+        }
+        return params
+    }
+
+    private func nonEmpty(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let trimmed, !trimmed.isEmpty else { return nil }
+        return trimmed
     }
 
     private struct CommandResult {

@@ -15,21 +15,31 @@
 //! Spaces; each Space owns a recursive pane tree, and each leaf pane owns a
 //! terminal stack. Clients stream their focused workspace/space/pane/terminal.
 //!
-//! Persistence (M6): on clean shutdown, the daemon snapshots workspace +
-//! tab structure (title + cwd only; no scrollback) to JSON. On startup, if
-//! `ServerOptions::snapshot_path` exists, the daemon restores the structure
-//! and respawns shells in each recorded cwd.
+//! Persistence (M6): the daemon debounced-autosaves workspace + tab structure
+//! plus a bounded PTY replay buffer to JSON, and saves again on clean shutdown.
+//! On startup, if `ServerOptions::snapshot_path` exists, the daemon restores
+//! the structure, replays the last terminal bytes for graphical clients, and
+//! respawns shells in each recorded cwd.
 //!
 //! Disk-backed scrollback (M6 finalisation) and richer copy mode commands are
 //! later milestones.
 
 mod ghostty_theme;
 mod native_terminal;
+mod remote_daemon_manifest;
+mod remote_daemon_proxy;
+mod remote_ssh_bootstrap;
+mod remote_ssh_drop_upload;
+mod remote_ssh_ports;
+mod remote_ssh_relay;
 pub mod render;
 pub mod snapshot;
 mod terminal_query;
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
+use std::env;
+use std::fs;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
@@ -50,6 +60,14 @@ const NATIVE_GRID_FRAME_MS: u64 = 16;
 const PTY_REPLAY_MAX_BYTES: usize = 4 * 1024 * 1024;
 const LIBGHOSTTY_PTY_REPLAY_RESET: &[u8] = b"\x1bc";
 const CLIENT_VIEW_STALE_TIMEOUT_MS: u64 = 15_000;
+const SNAPSHOT_AUTOSAVE_DEBOUNCE_MS: u64 = 200;
+const PTY_REPLAY_SNAPSHOT_WAKE_MIN_INTERVAL_MS: u64 = 1_000;
+const NATIVE_COMPATIBILITY_RPC_TIMEOUT_MS: u64 = 15_000;
+const NATIVE_COMPATIBILITY_BRIDGE_WAIT_MS: u64 = 1_500;
+const CMUX_SOCKET_MODE_ENV: &str = "CMUX_SOCKET_MODE";
+const CMUX_SOCKET_PASSWORD_ENV: &str = "CMUX_SOCKET_PASSWORD";
+const CMUX_SOCKET_PASSWORD_FILE_ENV: &str = "CMUX_SOCKET_PASSWORD_FILE";
+const CMX_EXIT_WHEN_PARENT_PID_EXITS_ENV: &str = "CMX_EXIT_WHEN_PARENT_PID_EXITS";
 
 fn flash_is_on(deadline_ms: u64, now_ms: u64) -> bool {
     if deadline_ms <= now_ms {
@@ -86,6 +104,41 @@ fn workspace_space_id(workspace_id: u64, local_id: u64) -> u64 {
         .saturating_add(local_id)
 }
 
+fn cmx_external_uuid(namespace: u16, id: u64) -> String {
+    let high = (id >> 52) & 0x0fff;
+    let middle = (id >> 40) & 0x0fff;
+    let low = id & 0x00ff_ffff_ffff;
+    format!("c0de{namespace:04x}-c0de-4{high:03x}-8{middle:03x}-{low:012x}")
+}
+
+fn cmx_external_uuid_id(external_id: &str, namespace: u16) -> Option<u64> {
+    let mut parts = external_id.split('-');
+    let prefix = parts.next()?;
+    let marker = parts.next()?;
+    let high = parts.next()?.strip_prefix('4')?;
+    let middle = parts.next()?.strip_prefix('8')?;
+    let low = parts.next()?;
+    if parts.next().is_some() || prefix != format!("c0de{namespace:04x}") || marker != "c0de" {
+        return None;
+    }
+    let high = u64::from_str_radix(high, 16).ok()?;
+    let middle = u64::from_str_radix(middle, 16).ok()?;
+    let low = u64::from_str_radix(low, 16).ok()?;
+    Some((high << 52) | (middle << 40) | low)
+}
+
+fn workspace_external_id(id: u64) -> String {
+    cmx_external_uuid(1, id)
+}
+
+fn tab_external_id(id: u64) -> String {
+    cmx_external_uuid(2, id)
+}
+
+fn window_external_id(id: u64) -> String {
+    cmx_external_uuid(3, id)
+}
+
 /// Accept `#RRGGBB` or `RRGGBB` (case-insensitive) and return the
 /// normalised `#RRGGBB` form. Returns `None` for any other shape —
 /// keeps the set-color command strict about what it stores so
@@ -120,17 +173,20 @@ use cmux_cli_core::probe;
 use cmux_cli_core::settings::{self, InputHandler, KeybindTable};
 use cmux_cli_protocol::{
     AttachedClientInfo, AttachedClientKind, BufferInfo, ClientMsg, CodecError, Command,
-    CommandData, CommandResult, NativePanelNode, NativeSnapshot, NativeSplitDirection,
+    CommandData, CommandResult, NativeBrowserFocusRequest, NativeBrowserInfo,
+    NativeBrowserProxyContext, NativeGitBranchInfo, NativePanelNode, NativePullRequestInfo,
+    NativeSidebarLogEntry, NativeSidebarMetadataBlock, NativeSidebarProgressState,
+    NativeSidebarStatusEntry, NativeSnapshot, NativeSplitDirection, NativeTabKind,
     NativeTerminalCursor, NativeTerminalFont, NativeTerminalRenderer, NativeTerminalThemeSet,
     NativeTerminalViewport, PROTOCOL_VERSION, ServerMsg, SpaceInfo, SplitDropEdge, SplitPathStep,
     TabInfo, TerminalColorReport, Viewport, WorkspaceInfo, read_msg, write_msg,
 };
 use futures_util::{SinkExt, StreamExt};
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
-use tokio::io::BufReader;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::{TcpStream, UnixListener, UnixStream};
-use tokio::sync::{Mutex, broadcast, mpsc, watch};
+use tokio::sync::{Mutex, Notify, broadcast, mpsc, oneshot, watch};
 use tokio::task;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{WebSocketStream, accept_async};
@@ -146,7 +202,12 @@ use crate::render::{
     RenderTabInit, SidebarItem, SidebarSpec, StatusSpec, TabBarSpec, TabBarStyle, TabId, TabPill,
     TerminalProbeKind,
 };
-use crate::snapshot::{PanelSnapshot, Snapshot, SpaceSnapshot, TabSnapshot, WorkspaceSnapshot};
+use crate::snapshot::{
+    BrowserProxySnapshot, BrowserSnapshot, NativeWindowSnapshot, PanelSnapshot, Snapshot,
+    SnapshotGitBranch, SnapshotPullRequest, SnapshotSidebarLogEntry, SnapshotSidebarMetadataBlock,
+    SnapshotSidebarProgressState, SnapshotSidebarStatusEntry, SnapshotTabKind, SpaceSnapshot,
+    TabSnapshot, WorkspaceSnapshot,
+};
 use crate::terminal_query::TerminalQueryScanner;
 
 /// Width reserved for the vertical workspace sidebar (columns). When the
@@ -156,11 +217,16 @@ const SIDEBAR_WIDTH: u16 = 16;
 /// Viewport widths under this threshold hide the sidebar entirely so the
 /// pane has room to breathe on narrow terminals.
 const SIDEBAR_MIN_TERMINAL_COLS: u16 = 60;
+const TERMINAL_CLEAR_HISTORY_SEQUENCE: &[u8] = b"\x1b[H\x1b[2J\x1b[3J";
 
 /// Server configuration.
 #[derive(Debug, Clone)]
 pub struct ServerOptions {
     pub socket_path: PathBuf,
+    /// Optional second Unix socket that serves the same cmx command protocol.
+    /// Desktop cutover uses this for the existing `CMUX_SOCKET_PATH` contract
+    /// while Swift uses `socket_path` for the native desktop connection.
+    pub compatibility_socket_path: Option<PathBuf>,
     pub shell: String,
     pub cwd: Option<PathBuf>,
     pub initial_viewport: (u16, u16),
@@ -248,20 +314,43 @@ async fn run_inner(
             ("colorterm", std::env::var("COLORTERM").unwrap_or_default()),
         ],
     );
-    if opts.socket_path.exists() {
-        std::fs::remove_file(&opts.socket_path).ok();
+    let listener = bind_unix_listener(&opts.socket_path)?;
+    if compatibility_socket_mode_from_env() == CompatibilitySocketMode::Off
+        && let Some(path) = opts.compatibility_socket_path.as_ref()
+    {
+        fs::remove_file(path).ok();
     }
-    if let Some(parent) = opts.socket_path.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("create parent {}", parent.display()))?;
-    }
-
-    let listener = UnixListener::bind(&opts.socket_path)
-        .with_context(|| format!("bind {}", opts.socket_path.display()))?;
+    let compatibility_listener = opts
+        .compatibility_socket_path
+        .as_ref()
+        .filter(|path| *path != &opts.socket_path)
+        .filter(|_| compatibility_socket_mode_from_env() != CompatibilitySocketMode::Off)
+        .map(|path| {
+            let listener = bind_unix_listener(path)?;
+            apply_compatibility_socket_permissions(path)?;
+            Ok::<(PathBuf, UnixListener), anyhow::Error>((path.clone(), listener))
+        })
+        .transpose()?;
 
     let broker = Arc::new(RenderBroker::spawn().context("spawn render broker thread")?);
     let daemon = Daemon::start(&opts, broker).await?;
     let mut shutdown_rx = daemon.shutdown_rx.clone();
+    let snapshot_autosave_task = daemon.clone().spawn_snapshot_autosaver();
+    let parent_monitor_task = parent_pid_from_env().map(|parent_pid| {
+        let shutdown_tx = daemon.shutdown_tx.clone();
+        task::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_millis(500));
+            loop {
+                interval.tick().await;
+                if process_is_alive(parent_pid) {
+                    continue;
+                }
+                tracing::info!(parent_pid, "cmx parent process exited; shutting down");
+                shutdown_tx.send(true).ok();
+                return;
+            }
+        })
+    });
 
     // Start a settings watcher if configured. The watcher reloads the
     // KeybindTable used by all subsequent input handlers.
@@ -309,6 +398,56 @@ async fn run_inner(
         });
     }
 
+    let compatibility_accept_task =
+        compatibility_listener.map(|(compatibility_socket_path, compatibility_listener)| {
+            let compat_daemon = daemon.clone();
+            let mut compat_shutdown_rx = daemon.shutdown_rx.clone();
+            task::spawn(async move {
+                tracing::info!(
+                    path = %compatibility_socket_path.display(),
+                    "cmx compatibility socket listening"
+                );
+                probe::log_event(
+                    "server",
+                    "compatibility_listening",
+                    &[("socket", compatibility_socket_path.display().to_string())],
+                );
+                loop {
+                    tokio::select! {
+                        biased;
+                        changed = compat_shutdown_rx.changed() => {
+                            if changed.is_err() || *compat_shutdown_rx.borrow() {
+                                return;
+                            }
+                        }
+                        accept = compatibility_listener.accept() => {
+                            match accept {
+                                Ok((stream, _)) => {
+                                    probe::log_event("server", "compatibility_client_accept", &[]);
+                                    let daemon = compat_daemon.clone();
+                                    task::spawn(async move {
+                                        if let Err(e) =
+                                            handle_compatibility_client(
+                                                daemon,
+                                                stream,
+                                                HeartbeatConfig::default(),
+                                            ).await
+                                        {
+                                            tracing::warn!(error = ?e, "compatibility client handler error");
+                                        }
+                                    });
+                                }
+                                Err(e) => {
+                                    tracing::warn!(error = ?e, "compatibility accept failed");
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                }
+            })
+        });
+
     tracing::info!(path = %opts.socket_path.display(), "cmx server listening");
     probe::log_event(
         "server",
@@ -350,9 +489,62 @@ async fn run_inner(
     {
         tracing::warn!(error = %e, "snapshot save failed");
     }
+    if let Some(task) = snapshot_autosave_task {
+        task.abort();
+    }
+    if let Some(task) = parent_monitor_task {
+        task.abort();
+    }
+    if let Some(task) = compatibility_accept_task {
+        task.abort();
+    }
     daemon.kill_all_tabs().await;
 
     result
+}
+
+fn parent_pid_from_env() -> Option<u32> {
+    env::var(CMX_EXIT_WHEN_PARENT_PID_EXITS_ENV)
+        .ok()
+        .and_then(|raw| raw.trim().parse::<u32>().ok())
+        .filter(|pid| *pid > 0)
+}
+
+#[cfg(unix)]
+fn process_is_alive(pid: u32) -> bool {
+    let result = unsafe { libc::kill(pid as libc::pid_t, 0) };
+    if result == 0 {
+        return true;
+    }
+
+    std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
+}
+
+#[cfg(not(unix))]
+fn process_is_alive(_pid: u32) -> bool {
+    true
+}
+
+fn bind_unix_listener(path: &std::path::Path) -> Result<UnixListener> {
+    if path.exists() {
+        std::fs::remove_file(path).ok();
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("create parent {}", parent.display()))?;
+    }
+
+    UnixListener::bind(path).with_context(|| format!("bind {}", path.display()))
+}
+
+fn apply_compatibility_socket_permissions(path: &Path) -> Result<()> {
+    let mode = if compatibility_socket_mode_from_env() == CompatibilitySocketMode::AllowAll {
+        0o666
+    } else {
+        0o600
+    };
+    fs::set_permissions(path, fs::Permissions::from_mode(mode))
+        .with_context(|| format!("chmod {mode:o} {}", path.display()))
 }
 
 #[derive(Debug, Clone)]
@@ -360,6 +552,9 @@ struct TabSpawnOptions {
     shell: String,
     fallback_cwd: Option<PathBuf>,
     initial_viewport: (u16, u16),
+    terminal_cursor: Option<NativeTerminalCursor>,
+    shell_integration: ghostty_theme::TerminalShellIntegration,
+    extra_env: BTreeMap<String, String>,
 }
 
 // ------------------------------- Tab -----------------------------------
@@ -378,6 +573,14 @@ impl PtyReplayBuffer {
             byte_len: 0,
             chunks: VecDeque::new(),
         }
+    }
+
+    fn with_chunks(max_bytes: usize, chunks: Vec<Vec<u8>>) -> Self {
+        let mut replay = Self::new(max_bytes);
+        for chunk in chunks {
+            replay.record(&chunk);
+        }
+        replay
     }
 
     fn record(&mut self, data: &[u8]) {
@@ -407,14 +610,62 @@ impl PtyReplayBuffer {
     }
 }
 
-fn record_pty_replay(replay: &Arc<StdMutex<PtyReplayBuffer>>, chunk: &[u8]) {
+fn record_pty_replay(replay: &Arc<StdMutex<PtyReplayBuffer>>, chunk: &[u8]) -> bool {
     if let Ok(mut replay) = replay.lock() {
         replay.record(chunk);
+        return true;
+    }
+    false
+}
+
+fn encode_pty_replay_chunks(chunks: Vec<Vec<u8>>) -> Vec<String> {
+    use base64::Engine;
+    chunks
+        .into_iter()
+        .filter(|chunk| !chunk.is_empty())
+        .map(|chunk| base64::engine::general_purpose::STANDARD.encode(chunk))
+        .collect()
+}
+
+fn decode_pty_replay_chunks(snapshot: &TabSnapshot) -> Vec<Vec<u8>> {
+    use base64::Engine;
+    snapshot
+        .pty_replay_base64
+        .iter()
+        .filter_map(|chunk| {
+            match base64::engine::general_purpose::STANDARD.decode(chunk.as_bytes()) {
+                Ok(bytes) if !bytes.is_empty() => Some(bytes),
+                Ok(_) => None,
+                Err(error) => {
+                    tracing::warn!(
+                        error = %error,
+                        tab_title = %snapshot.title,
+                        "skipping invalid PTY replay chunk in snapshot"
+                    );
+                    None
+                }
+            }
+        })
+        .collect()
+}
+
+#[derive(Debug, Clone, Copy)]
+struct NoopChildKiller;
+
+impl portable_pty::ChildKiller for NoopChildKiller {
+    fn kill(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    fn clone_killer(&self) -> Box<dyn portable_pty::ChildKiller + Send + Sync> {
+        Box::new(*self)
     }
 }
 
 pub struct Tab {
     pub id: u64,
+    pub external_id: String,
+    pub kind: SnapshotTabKind,
     /// Tab title. `ArcSwap` lets the render thread push updates
     /// from OSC 0/2 sequences without locking, and async callers
     /// load a cloned `Arc<String>` without awaiting.
@@ -423,10 +674,22 @@ pub struct Tab {
     /// the PTY remain useful by default, but must not undo `cmx
     /// rename-tab`.
     explicit_title: Arc<AtomicBool>,
+    pinned: Arc<AtomicBool>,
     pub cwd: Mutex<Option<PathBuf>>,
+    git_branch: StdMutex<Option<SnapshotGitBranch>>,
+    pull_request: StdMutex<Option<SnapshotPullRequest>>,
+    tty_name: StdMutex<Option<String>>,
+    shell_state: StdMutex<Option<String>>,
+    ports_kick_generation: AtomicU64,
+    listening_ports: StdMutex<Vec<u16>>,
+    browser: Arc<StdMutex<Option<BrowserSnapshot>>>,
     output_tx: broadcast::Sender<Vec<u8>>,
     pty_replay: Arc<StdMutex<PtyReplayBuffer>>,
+    restored_pty_replay_pending: AtomicBool,
     pty_tx: Arc<mpsc::UnboundedSender<PtyOp>>,
+    pending_pty_rx: StdMutex<Option<mpsc::UnboundedReceiver<PtyOp>>>,
+    terminal_started: AtomicBool,
+    alive_tx: watch::Sender<bool>,
     alive_rx: watch::Receiver<bool>,
     /// True while the program inside the PTY has mouse tracking enabled
     /// (CSI ?1000/1002/1003 h). Published by the render thread after every
@@ -470,6 +733,344 @@ impl Tab {
             Err(_) => Vec::new(),
         }
     }
+
+    fn browser_snapshot(&self) -> Option<BrowserSnapshot> {
+        match self.browser.lock() {
+            Ok(browser) => browser.clone(),
+            Err(_) => None,
+        }
+    }
+
+    fn native_kind(&self) -> NativeTabKind {
+        match self.kind {
+            SnapshotTabKind::Terminal => NativeTabKind::Terminal,
+            SnapshotTabKind::Browser => NativeTabKind::Browser,
+        }
+    }
+
+    fn native_browser_info(&self) -> Option<NativeBrowserInfo> {
+        self.browser_snapshot()
+            .map(|browser| native_browser_info_from_snapshot(&browser))
+    }
+
+    fn git_branch_snapshot(&self) -> Option<SnapshotGitBranch> {
+        match self.git_branch.lock() {
+            Ok(git_branch) => git_branch.clone(),
+            Err(_) => None,
+        }
+    }
+
+    fn native_git_branch_info(&self) -> Option<NativeGitBranchInfo> {
+        self.git_branch_snapshot()
+            .map(|git_branch| NativeGitBranchInfo {
+                branch: git_branch.branch,
+                is_dirty: git_branch.is_dirty,
+            })
+    }
+
+    fn set_git_branch(&self, git_branch: Option<SnapshotGitBranch>) -> Result<()> {
+        match self.git_branch.lock() {
+            Ok(mut current) => {
+                *current = git_branch;
+                Ok(())
+            }
+            Err(_) => bail!("tab {} git branch state is poisoned", self.id),
+        }
+    }
+
+    fn pull_request_snapshot(&self) -> Option<SnapshotPullRequest> {
+        match self.pull_request.lock() {
+            Ok(pull_request) => pull_request.clone(),
+            Err(_) => None,
+        }
+    }
+
+    fn native_pull_request_info(&self) -> Option<NativePullRequestInfo> {
+        self.pull_request_snapshot()
+            .map(|pull_request| NativePullRequestInfo {
+                number: pull_request.number,
+                label: pull_request.label,
+                url: pull_request.url,
+                status: pull_request.status,
+                branch: pull_request.branch,
+                is_stale: pull_request.is_stale,
+            })
+    }
+
+    fn set_pull_request(&self, pull_request: Option<SnapshotPullRequest>) -> Result<()> {
+        match self.pull_request.lock() {
+            Ok(mut current) => {
+                *current = pull_request;
+                Ok(())
+            }
+            Err(_) => bail!("tab {} pull request state is poisoned", self.id),
+        }
+    }
+
+    fn tty_name_snapshot(&self) -> Option<String> {
+        match self.tty_name.lock() {
+            Ok(tty_name) => tty_name.clone(),
+            Err(_) => None,
+        }
+    }
+
+    fn set_tty_name(&self, tty_name: Option<String>) -> Result<()> {
+        match self.tty_name.lock() {
+            Ok(mut current) => {
+                *current = tty_name;
+                Ok(())
+            }
+            Err(_) => bail!("tab {} tty state is poisoned", self.id),
+        }
+    }
+
+    fn shell_state_snapshot(&self) -> Option<String> {
+        match self.shell_state.lock() {
+            Ok(shell_state) => shell_state.clone(),
+            Err(_) => None,
+        }
+    }
+
+    fn set_shell_state(&self, shell_state: Option<String>) -> Result<()> {
+        match self.shell_state.lock() {
+            Ok(mut current) => {
+                *current = shell_state;
+                Ok(())
+            }
+            Err(_) => bail!("tab {} shell state is poisoned", self.id),
+        }
+    }
+
+    fn set_ports_kick_generation(&self, generation: u64) {
+        self.ports_kick_generation
+            .store(generation, Ordering::Relaxed);
+    }
+
+    fn kick_ports(&self) -> u64 {
+        self.ports_kick_generation
+            .fetch_add(1, Ordering::Relaxed)
+            .saturating_add(1)
+    }
+
+    fn listening_ports_snapshot(&self) -> Vec<u16> {
+        match self.listening_ports.lock() {
+            Ok(ports) => ports.clone(),
+            Err(_) => Vec::new(),
+        }
+    }
+
+    fn set_listening_ports(&self, ports: Vec<u16>) -> Result<()> {
+        match self.listening_ports.lock() {
+            Ok(mut current) => {
+                *current = ports;
+                Ok(())
+            }
+            Err(_) => bail!("tab {} listening port state is poisoned", self.id),
+        }
+    }
+
+    fn update_browser_info(&self, browser: NativeBrowserInfo) -> Result<()> {
+        if self.kind != SnapshotTabKind::Browser {
+            bail!("tab {} is not a browser tab", self.id);
+        }
+        let snapshot = browser_snapshot_from_native(browser);
+        if let Some(title) = snapshot
+            .title
+            .as_ref()
+            .or(snapshot.url_string.as_ref())
+            .filter(|title| !title.trim().is_empty())
+        {
+            self.title.store(Arc::new(title.clone()));
+        }
+        match self.browser.lock() {
+            Ok(mut current) => {
+                *current = Some(snapshot);
+                Ok(())
+            }
+            Err(_) => bail!("browser tab {} state is poisoned", self.id),
+        }
+    }
+
+    fn current_browser_info(&self) -> Result<NativeBrowserInfo> {
+        if self.kind != SnapshotTabKind::Browser {
+            bail!("tab {} is not a browser tab", self.id);
+        }
+        let snapshot = self
+            .browser_snapshot()
+            .ok_or_else(|| anyhow!("browser tab {} has no browser state", self.id))?;
+        Ok(native_browser_info_from_snapshot(&snapshot))
+    }
+
+    fn navigate_browser(&self, url: String) -> Result<NativeBrowserInfo> {
+        let url = clean_browser_url(url)?;
+        self.update_browser_snapshot(|snapshot| {
+            if let Some(current) = clean_browser_url_option(snapshot.url_string.as_deref())
+                && current != url
+            {
+                snapshot.back_history_url_strings.push(current);
+            }
+            snapshot.url_string = Some(url.clone());
+            snapshot.title = Some(url);
+            snapshot.should_render_webview = true;
+            snapshot.forward_history_url_strings.clear();
+        })
+    }
+
+    fn browser_back(&self) -> Result<NativeBrowserInfo> {
+        self.update_browser_snapshot(|snapshot| {
+            let Some(target) = snapshot.back_history_url_strings.pop() else {
+                return;
+            };
+            if let Some(current) = clean_browser_url_option(snapshot.url_string.as_deref())
+                && current != target
+            {
+                snapshot.forward_history_url_strings.insert(0, current);
+            }
+            snapshot.url_string = Some(target.clone());
+            snapshot.title = Some(target);
+            snapshot.should_render_webview = true;
+        })
+    }
+
+    fn browser_forward(&self) -> Result<NativeBrowserInfo> {
+        self.update_browser_snapshot(|snapshot| {
+            if snapshot.forward_history_url_strings.is_empty() {
+                return;
+            }
+            let target = snapshot.forward_history_url_strings.remove(0);
+            if let Some(current) = clean_browser_url_option(snapshot.url_string.as_deref())
+                && current != target
+            {
+                snapshot.back_history_url_strings.push(current);
+            }
+            snapshot.url_string = Some(target.clone());
+            snapshot.title = Some(target);
+            snapshot.should_render_webview = true;
+        })
+    }
+
+    fn browser_reload(&self) -> Result<NativeBrowserInfo> {
+        self.update_browser_snapshot(|snapshot| {
+            snapshot.reload_generation = snapshot.reload_generation.saturating_add(1);
+            if snapshot.url_string.is_some() {
+                snapshot.should_render_webview = true;
+            }
+        })
+    }
+
+    fn update_browser_snapshot(
+        &self,
+        mutate: impl FnOnce(&mut BrowserSnapshot),
+    ) -> Result<NativeBrowserInfo> {
+        if self.kind != SnapshotTabKind::Browser {
+            bail!("tab {} is not a browser tab", self.id);
+        }
+        let mut browser = self
+            .browser
+            .lock()
+            .map_err(|_| anyhow!("browser tab {} state is poisoned", self.id))?;
+        let snapshot = browser.get_or_insert_with(BrowserSnapshot::default);
+        mutate(snapshot);
+        if let Some(title) = snapshot
+            .title
+            .as_ref()
+            .or(snapshot.url_string.as_ref())
+            .filter(|title| !title.trim().is_empty())
+        {
+            self.title.store(Arc::new(title.clone()));
+        }
+        Ok(native_browser_info_from_snapshot(snapshot))
+    }
+
+    fn take_restored_pty_replay_pending(&self) -> bool {
+        self.restored_pty_replay_pending
+            .swap(false, Ordering::Relaxed)
+    }
+}
+
+fn browser_snapshot_from_native(browser: NativeBrowserInfo) -> BrowserSnapshot {
+    BrowserSnapshot {
+        url_string: browser.url,
+        title: browser.title,
+        profile_id: browser.profile_id,
+        should_render_webview: browser.should_render_webview,
+        page_zoom: browser.page_zoom,
+        developer_tools_visible: browser.developer_tools_visible,
+        back_history_url_strings: browser.back_history_url_strings,
+        forward_history_url_strings: browser.forward_history_url_strings,
+        proxy: browser
+            .proxy
+            .map(|proxy| crate::snapshot::BrowserProxySnapshot {
+                host: proxy.host,
+                port: proxy.port,
+                target: proxy.target,
+            }),
+        reload_generation: browser.reload_generation,
+    }
+}
+
+fn native_browser_info_from_snapshot(browser: &BrowserSnapshot) -> NativeBrowserInfo {
+    NativeBrowserInfo {
+        url: browser.url_string.clone(),
+        title: browser.title.clone(),
+        profile_id: browser.profile_id.clone(),
+        should_render_webview: browser.should_render_webview,
+        page_zoom: browser.page_zoom,
+        developer_tools_visible: browser.developer_tools_visible,
+        back_history_url_strings: browser.back_history_url_strings.clone(),
+        forward_history_url_strings: browser.forward_history_url_strings.clone(),
+        proxy: browser
+            .proxy
+            .clone()
+            .map(|proxy| NativeBrowserProxyContext {
+                host: proxy.host,
+                port: proxy.port,
+                target: proxy.target,
+            }),
+        reload_generation: browser.reload_generation,
+    }
+}
+
+fn clean_browser_url(url: String) -> Result<String> {
+    let url = url.trim();
+    if url.is_empty() {
+        bail!("missing browser URL");
+    }
+    Ok(url.to_string())
+}
+
+fn clean_browser_url_option(url: Option<&str>) -> Option<String> {
+    url.map(str::trim)
+        .filter(|url| !url.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn browser_tab_title(url: Option<&str>) -> String {
+    url.map(str::trim)
+        .filter(|url| !url.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| "Browser".to_string())
+}
+
+fn spawn_browser_tab(
+    id: TabId,
+    url: Option<String>,
+    proxy: Option<BrowserProxySnapshot>,
+) -> Arc<Tab> {
+    let title = browser_tab_title(url.as_deref());
+    let browser = BrowserSnapshot {
+        url_string: url.clone(),
+        title: Some(title.clone()),
+        profile_id: None,
+        should_render_webview: url.is_some(),
+        page_zoom: None,
+        developer_tools_visible: false,
+        back_history_url_strings: Vec::new(),
+        forward_history_url_strings: Vec::new(),
+        proxy,
+        reload_generation: 0,
+    };
+    Tab::spawn_browser(id, None, &title, Some(browser))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -518,9 +1119,108 @@ fn is_multiplexer_term_program(term_program: &str) -> bool {
     matches!(term_program.trim(), "tmux" | "screen")
 }
 
+fn apply_ghostty_shell_environment(cmd: &mut CommandBuilder, shell: &str, opts: &TabSpawnOptions) {
+    if let Some(features) = opts
+        .shell_integration
+        .ghostty_shell_features(opts.terminal_cursor.as_ref())
+    {
+        cmd.env("GHOSTTY_SHELL_FEATURES", features);
+    }
+    cmd.env("CMUX_GHOSTTY_CURSOR_RESET", "1");
+
+    let shell_name = Path::new(shell)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(shell)
+        .trim();
+    if !opts.shell_integration.mode.enables_shell(shell_name) {
+        return;
+    }
+    let Some(integration_dir) = cmux_shell_integration_dir() else {
+        return;
+    };
+    let Some(integration_dir_str) = integration_dir.to_str() else {
+        return;
+    };
+
+    cmd.env("CMUX_SHELL_INTEGRATION", "1");
+    cmd.env("CMUX_SHELL_INTEGRATION_DIR", integration_dir_str);
+
+    if let Some(bin_dir) = cmux_bundle_bin_dir(&integration_dir)
+        && let Some(bin_dir) = bin_dir.to_str()
+    {
+        cmd.env("GHOSTTY_BIN_DIR", bin_dir);
+    }
+
+    match shell_name {
+        "zsh" => {
+            cmd.env("CMUX_LOAD_GHOSTTY_ZSH_INTEGRATION", "1");
+            if let Ok(zdotdir) = std::env::var("ZDOTDIR")
+                && !zdotdir.trim().is_empty()
+            {
+                cmd.env("CMUX_ZSH_ZDOTDIR", zdotdir);
+            }
+            cmd.env("ZDOTDIR", integration_dir_str);
+        }
+        "bash" => {
+            cmd.env("CMUX_LOAD_GHOSTTY_BASH_INTEGRATION", "1");
+            cmd.env("PROMPT_COMMAND", CMUX_BASH_SHELL_INTEGRATION_PROMPT_COMMAND);
+        }
+        _ => {}
+    }
+}
+
+const CMUX_BASH_SHELL_INTEGRATION_PROMPT_COMMAND: &str = r#"unset PROMPT_COMMAND; if [[ "${CMUX_LOAD_GHOSTTY_BASH_INTEGRATION:-0}" == "1" && -n "${GHOSTTY_RESOURCES_DIR:-}" ]]; then _cmux_ghostty_bash="$GHOSTTY_RESOURCES_DIR/shell-integration/bash/ghostty.bash"; [[ -r "$_cmux_ghostty_bash" ]] && source "$_cmux_ghostty_bash"; fi; if [[ "${CMUX_SHELL_INTEGRATION:-1}" != "0" && -n "${CMUX_SHELL_INTEGRATION_DIR:-}" ]]; then _cmux_bash_integration="$CMUX_SHELL_INTEGRATION_DIR/cmux-bash-integration.bash"; [[ -r "$_cmux_bash_integration" ]] && source "$_cmux_bash_integration"; fi; unset _cmux_ghostty_bash _cmux_bash_integration; if declare -F _cmux_prompt_command >/dev/null 2>&1; then _cmux_prompt_command; fi"#;
+
+fn cmux_shell_integration_dir() -> Option<PathBuf> {
+    for resources_dir in candidate_bundle_resources_dirs() {
+        let path = resources_dir.join("shell-integration");
+        if path.is_dir() {
+            return Some(path);
+        }
+    }
+
+    if let Ok(path) = std::env::var("CMUX_SHELL_INTEGRATION_DIR") {
+        let path = PathBuf::from(path);
+        if path.is_dir() {
+            return Some(path);
+        }
+    }
+    None
+}
+
+fn cmux_bundle_bin_dir(shell_integration_dir: &Path) -> Option<PathBuf> {
+    let path = shell_integration_dir.parent()?.join("bin");
+    path.is_dir().then_some(path)
+}
+
+fn candidate_bundle_resources_dirs() -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(resources) = exe.parent().and_then(Path::parent)
+    {
+        paths.push(resources.to_path_buf());
+    }
+    if let Ok(ghostty_resources) = std::env::var("GHOSTTY_RESOURCES_DIR")
+        && let Some(resources) = Path::new(&ghostty_resources).parent()
+    {
+        paths.push(resources.to_path_buf());
+    }
+    paths
+}
+
 fn should_skip_child_env(key: &str, value: &str) -> bool {
     matches!(key, "TMUX" | "TMUX_PANE" | "STY")
         || (key == "TERM_PROGRAM" && is_multiplexer_term_program(value))
+        || matches!(
+            key,
+            "GHOSTTY_SHELL_FEATURES"
+                | "CMUX_SHELL_INTEGRATION"
+                | "CMUX_SHELL_INTEGRATION_DIR"
+                | "CMUX_LOAD_GHOSTTY_ZSH_INTEGRATION"
+                | "CMUX_LOAD_GHOSTTY_BASH_INTEGRATION"
+                | "CMUX_ZSH_ZDOTDIR"
+        )
 }
 
 fn child_term_override_for_environment(
@@ -565,7 +1265,64 @@ impl CommandDetector {
     }
 }
 
+fn send_initial_tab_input(tab: &Arc<Tab>, initial_input: Option<Vec<u8>>) {
+    let Some(input) = initial_input else {
+        return;
+    };
+    if input.is_empty() {
+        return;
+    }
+    let pty_tx = tab.pty_tx.clone();
+    task::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        pty_tx.send(PtyOp::Write(input)).ok();
+    });
+}
+
 impl Tab {
+    fn spawn_browser(
+        id: u64,
+        external_id: Option<String>,
+        title: &str,
+        browser: Option<BrowserSnapshot>,
+    ) -> Arc<Self> {
+        let (output_tx, _) = broadcast::channel::<Vec<u8>>(1);
+        let (pty_tx_raw, _pty_rx) = mpsc::unbounded_channel::<PtyOp>();
+        let (alive_tx, alive_rx) = watch::channel(true);
+        let (_mouse_tracking_tx, mouse_tracking_rx) = watch::channel(false);
+        let (_alternate_screen_tx, alternate_screen_rx) = watch::channel(false);
+        Arc::new(Self {
+            id,
+            external_id: external_id.unwrap_or_else(|| tab_external_id(id)),
+            kind: SnapshotTabKind::Browser,
+            title: Arc::new(arc_swap::ArcSwap::new(Arc::new(title.to_string()))),
+            explicit_title: Arc::new(AtomicBool::new(true)),
+            pinned: Arc::new(AtomicBool::new(false)),
+            cwd: Mutex::new(None),
+            git_branch: StdMutex::new(None),
+            pull_request: StdMutex::new(None),
+            tty_name: StdMutex::new(None),
+            shell_state: StdMutex::new(None),
+            ports_kick_generation: AtomicU64::new(0),
+            listening_ports: StdMutex::new(Vec::new()),
+            browser: Arc::new(StdMutex::new(browser)),
+            output_tx,
+            pty_replay: Arc::new(StdMutex::new(PtyReplayBuffer::new(0))),
+            restored_pty_replay_pending: AtomicBool::new(false),
+            pty_tx: Arc::new(pty_tx_raw),
+            pending_pty_rx: StdMutex::new(None),
+            terminal_started: AtomicBool::new(true),
+            alive_tx,
+            alive_rx,
+            mouse_tracking: mouse_tracking_rx,
+            alternate_screen: alternate_screen_rx,
+            has_activity: Arc::new(AtomicBool::new(false)),
+            bell_count: Arc::new(AtomicU64::new(0)),
+            flash_until_ms: Arc::new(AtomicU64::new(0)),
+            child_killer: StdMutex::new(Box::new(NoopChildKiller)),
+        })
+    }
+
     fn spawn(
         id: u64,
         workspace_id: u64,
@@ -574,7 +1331,142 @@ impl Tab {
         explicit_title: bool,
         opts: &TabSpawnOptions,
         broker: &Arc<RenderBroker>,
+        snapshot_notifier: SnapshotNotifier,
     ) -> Result<Arc<Self>> {
+        Self::spawn_with_replay(
+            id,
+            workspace_id,
+            title,
+            cwd,
+            explicit_title,
+            opts,
+            broker,
+            Vec::new(),
+            SnapshotTabKind::Terminal,
+            None,
+            None,
+            snapshot_notifier,
+        )
+    }
+
+    fn restore_terminal_placeholder(
+        id: u64,
+        workspace_id: u64,
+        title: &str,
+        cwd: Option<PathBuf>,
+        explicit_title: bool,
+        opts: &TabSpawnOptions,
+        broker: &Arc<RenderBroker>,
+        restored_pty_replay_chunks: Vec<Vec<u8>>,
+        external_id: Option<String>,
+    ) -> Arc<Self> {
+        let resolved_external_id = external_id.unwrap_or_else(|| tab_external_id(id));
+        let effective_cwd = cwd.or_else(|| opts.fallback_cwd.clone());
+        let (output_tx, _) = broadcast::channel::<Vec<u8>>(1024);
+        let has_restored_pty_replay = !restored_pty_replay_chunks.is_empty();
+        let pty_replay = Arc::new(StdMutex::new(PtyReplayBuffer::with_chunks(
+            PTY_REPLAY_MAX_BYTES,
+            restored_pty_replay_chunks,
+        )));
+        let (pty_tx_raw, pty_rx) = mpsc::unbounded_channel::<PtyOp>();
+        let pty_tx = Arc::new(pty_tx_raw);
+        let (alive_tx, alive_rx) = watch::channel(true);
+        let (mouse_tracking_tx, mouse_tracking_rx) = watch::channel(false);
+        let (alternate_screen_tx, alternate_screen_rx) = watch::channel(false);
+        let title_arc: Arc<arc_swap::ArcSwap<String>> =
+            Arc::new(arc_swap::ArcSwap::new(Arc::new(title.to_string())));
+        let explicit_title = Arc::new(AtomicBool::new(explicit_title));
+
+        broker.add_tab(RenderTabInit {
+            id,
+            cols: opts.initial_viewport.0,
+            rows: opts.initial_viewport.1,
+            pty_response_tx: Arc::downgrade(&pty_tx),
+            mouse_tracking_tx,
+            alternate_screen_tx,
+            title: title_arc.clone(),
+            explicit_title: explicit_title.clone(),
+        });
+        if has_restored_pty_replay {
+            for chunk in pty_replay
+                .lock()
+                .map(|replay| replay.chunks())
+                .unwrap_or_default()
+            {
+                broker.pty_bytes(id, chunk);
+            }
+        }
+        probe::log_event(
+            "server",
+            "tab_restore_placeholder",
+            &[
+                ("tab_id", id.to_string()),
+                ("workspace_id", workspace_id.to_string()),
+                (
+                    "cwd",
+                    effective_cwd
+                        .as_ref()
+                        .map_or_else(|| "-".into(), |p| p.display().to_string()),
+                ),
+                (
+                    "replay_chunks",
+                    pty_replay
+                        .lock()
+                        .map(|replay| replay.chunks().len())
+                        .unwrap_or(0)
+                        .to_string(),
+                ),
+            ],
+        );
+
+        Arc::new(Self {
+            id,
+            external_id: resolved_external_id,
+            kind: SnapshotTabKind::Terminal,
+            title: title_arc,
+            explicit_title,
+            pinned: Arc::new(AtomicBool::new(false)),
+            cwd: Mutex::new(effective_cwd),
+            git_branch: StdMutex::new(None),
+            pull_request: StdMutex::new(None),
+            tty_name: StdMutex::new(None),
+            shell_state: StdMutex::new(None),
+            ports_kick_generation: AtomicU64::new(0),
+            listening_ports: StdMutex::new(Vec::new()),
+            browser: Arc::new(StdMutex::new(None)),
+            output_tx,
+            pty_replay,
+            restored_pty_replay_pending: AtomicBool::new(has_restored_pty_replay),
+            pty_tx,
+            pending_pty_rx: StdMutex::new(Some(pty_rx)),
+            terminal_started: AtomicBool::new(false),
+            alive_tx,
+            alive_rx,
+            mouse_tracking: mouse_tracking_rx,
+            alternate_screen: alternate_screen_rx,
+            has_activity: Arc::new(AtomicBool::new(false)),
+            bell_count: Arc::new(AtomicU64::new(0)),
+            flash_until_ms: Arc::new(AtomicU64::new(0)),
+            child_killer: StdMutex::new(Box::new(NoopChildKiller)),
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn spawn_with_replay(
+        id: u64,
+        workspace_id: u64,
+        title: &str,
+        cwd: Option<PathBuf>,
+        explicit_title: bool,
+        opts: &TabSpawnOptions,
+        broker: &Arc<RenderBroker>,
+        restored_pty_replay_chunks: Vec<Vec<u8>>,
+        kind: SnapshotTabKind,
+        browser: Option<BrowserSnapshot>,
+        external_id: Option<String>,
+        snapshot_notifier: SnapshotNotifier,
+    ) -> Result<Arc<Self>> {
+        let resolved_external_id = external_id.unwrap_or_else(|| tab_external_id(id));
         let spawn_start_ms = probe::mono_ms();
         probe::log_event(
             "server",
@@ -630,6 +1522,12 @@ impl Tab {
             }
             cmd.env(k, v);
         }
+        for (key, value) in &opts.extra_env {
+            if key.is_empty() || compatibility_initial_env_key_is_protected(key) {
+                continue;
+            }
+            cmd.env(key, value);
+        }
         // cmx presents a real terminal model to child processes. If the server
         // is launched from a non-interactive harness, TERM is often `dumb`;
         // don't pass that through to shells because it disables the user's
@@ -657,6 +1555,7 @@ impl Tab {
                 ],
             );
         }
+        apply_ghostty_shell_environment(&mut cmd, &opts.shell, opts);
         // Publish identity env vars so programs running inside a tab
         // (Claude Code, `cmx send`, status scripts, etc.) can identify
         // which workspace/tab they live in without walking the socket.
@@ -664,8 +1563,12 @@ impl Tab {
         // work across both surfaces; `CMX_*` is a cmx-native alias.
         cmd.env("CMUX_WORKSPACE_ID", workspace_id.to_string());
         cmd.env("CMUX_TAB_ID", id.to_string());
+        cmd.env("CMUX_PANEL_ID", resolved_external_id.clone());
+        cmd.env("CMUX_SURFACE_ID", resolved_external_id.clone());
         cmd.env("CMX_WORKSPACE_ID", workspace_id.to_string());
         cmd.env("CMX_TAB_ID", id.to_string());
+        cmd.env("CMX_PANEL_ID", resolved_external_id.clone());
+        cmd.env("CMX_SURFACE_ID", resolved_external_id.clone());
         // Put the running cmx binary's directory at the FRONT of PATH
         // so `cmx notify`, `cmx send`, etc. just work inside any tab
         // without the user having to install the binary globally.
@@ -707,10 +1610,15 @@ impl Tab {
         let reader = master.try_clone_reader().context("clone pty reader")?;
 
         let (output_tx, _) = broadcast::channel::<Vec<u8>>(1024);
-        let pty_replay = Arc::new(StdMutex::new(PtyReplayBuffer::new(PTY_REPLAY_MAX_BYTES)));
+        let has_restored_pty_replay = !restored_pty_replay_chunks.is_empty();
+        let pty_replay = Arc::new(StdMutex::new(PtyReplayBuffer::with_chunks(
+            PTY_REPLAY_MAX_BYTES,
+            restored_pty_replay_chunks,
+        )));
         let (pty_tx_raw, mut pty_rx) = mpsc::unbounded_channel::<PtyOp>();
         let pty_tx = Arc::new(pty_tx_raw);
         let (alive_tx, alive_rx) = watch::channel(true);
+        let alive_tx_reader = alive_tx.clone();
 
         let (mouse_tracking_tx, mouse_tracking_rx) = watch::channel(false);
         let (alternate_screen_tx, alternate_screen_rx) = watch::channel(false);
@@ -730,6 +1638,15 @@ impl Tab {
             title: title_arc.clone(),
             explicit_title: explicit_title.clone(),
         });
+        if has_restored_pty_replay {
+            for chunk in pty_replay
+                .lock()
+                .map(|replay| replay.chunks())
+                .unwrap_or_default()
+            {
+                broker.pty_bytes(id, chunk);
+            }
+        }
 
         let output_broadcast = output_tx.clone();
         let broker_reader = Arc::clone(broker);
@@ -749,6 +1666,7 @@ impl Tab {
         let codex_output_seq_reader = codex_output_seq.clone();
         let pty_tx_reader = Arc::downgrade(&pty_tx);
         let pty_replay_reader = Arc::clone(&pty_replay);
+        let pty_replay_snapshot_wake = PtyReplaySnapshotWake::new(snapshot_notifier);
         task::spawn_blocking(move || {
             use std::io::Read;
             let mut reader = reader;
@@ -830,7 +1748,9 @@ impl Tab {
                             let end = probe.current_end.min(data.len());
                             if end > offset {
                                 let chunk = data[offset..end].to_vec();
-                                record_pty_replay(&pty_replay_reader, &chunk);
+                                if record_pty_replay(&pty_replay_reader, &chunk) {
+                                    pty_replay_snapshot_wake.wake_if_due();
+                                }
                                 broker_reader.pty_bytes(id, chunk.clone());
                                 let _ = output_broadcast.send(chunk);
                                 offset = end;
@@ -881,14 +1801,17 @@ impl Tab {
                         }
                         if offset < data.len() {
                             let chunk = data[offset..].to_vec();
-                            record_pty_replay(&pty_replay_reader, &chunk);
+                            if record_pty_replay(&pty_replay_reader, &chunk) {
+                                pty_replay_snapshot_wake.wake_if_due();
+                            }
                             broker_reader.pty_bytes(id, chunk.clone());
                             let _ = output_broadcast.send(chunk);
                         }
                     }
                 }
             }
-            let _ = alive_tx.send(false);
+            pty_replay_snapshot_wake.wake_now();
+            let _ = alive_tx_reader.send(false);
         });
 
         let codex_enter_ms_writer = codex_enter_ms.clone();
@@ -986,12 +1909,26 @@ impl Tab {
 
         Ok(Arc::new(Self {
             id,
+            external_id: resolved_external_id,
+            kind,
             title: title_arc,
             explicit_title,
+            pinned: Arc::new(AtomicBool::new(false)),
             cwd: Mutex::new(effective_cwd),
+            git_branch: StdMutex::new(None),
+            pull_request: StdMutex::new(None),
+            tty_name: StdMutex::new(None),
+            shell_state: StdMutex::new(None),
+            ports_kick_generation: AtomicU64::new(0),
+            listening_ports: StdMutex::new(Vec::new()),
+            browser: Arc::new(StdMutex::new(browser)),
             output_tx,
             pty_replay,
+            restored_pty_replay_pending: AtomicBool::new(has_restored_pty_replay),
             pty_tx,
+            pending_pty_rx: StdMutex::new(None),
+            terminal_started: AtomicBool::new(true),
+            alive_tx,
             alive_rx,
             mouse_tracking: mouse_tracking_rx,
             alternate_screen: alternate_screen_rx,
@@ -1002,10 +1939,469 @@ impl Tab {
         }))
     }
 
+    async fn ensure_terminal_started(
+        &self,
+        workspace_id: u64,
+        opts: TabSpawnOptions,
+        broker: &Arc<RenderBroker>,
+        snapshot_notifier: SnapshotNotifier,
+    ) -> Result<()> {
+        if self.kind != SnapshotTabKind::Terminal {
+            return Ok(());
+        }
+        if self
+            .terminal_started
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return Ok(());
+        }
+
+        let mut pty_rx = match self.pending_pty_rx.lock() {
+            Ok(mut pending) => match pending.take() {
+                Some(rx) => rx,
+                None => return Ok(()),
+            },
+            Err(_) => {
+                self.terminal_started.store(false, Ordering::Release);
+                bail!("tab {} pending PTY receiver is poisoned", self.id);
+            }
+        };
+
+        let id = self.id;
+        let spawn_start_ms = probe::mono_ms();
+        let effective_cwd = {
+            let mut cwd = self.cwd.lock().await;
+            if cwd.is_none() {
+                *cwd = opts.fallback_cwd.clone();
+            }
+            cwd.clone()
+        };
+        probe::log_event(
+            "server",
+            "tab_lazy_spawn_start",
+            &[
+                ("tab_id", id.to_string()),
+                ("workspace_id", workspace_id.to_string()),
+                ("shell", opts.shell.clone()),
+                (
+                    "cwd",
+                    effective_cwd
+                        .as_ref()
+                        .map_or_else(|| "-".into(), |p| p.display().to_string()),
+                ),
+                (
+                    "viewport",
+                    format!("{}x{}", opts.initial_viewport.0, opts.initial_viewport.1),
+                ),
+            ],
+        );
+
+        let pty_system = native_pty_system();
+        let openpty_start_ms = probe::mono_ms();
+        let pair = match pty_system.openpty(PtySize {
+            cols: opts.initial_viewport.0,
+            rows: opts.initial_viewport.1,
+            pixel_width: 0,
+            pixel_height: 0,
+        }) {
+            Ok(pair) => pair,
+            Err(error) => {
+                self.restore_pending_pty_rx(pty_rx);
+                return Err(anyhow!(error).context("openpty"));
+            }
+        };
+        probe::log_event(
+            "server",
+            "tab_openpty_done",
+            &[
+                ("tab_id", id.to_string()),
+                (
+                    "elapsed_ms",
+                    probe::mono_ms()
+                        .saturating_sub(openpty_start_ms)
+                        .to_string(),
+                ),
+                ("lazy", "1".to_string()),
+            ],
+        );
+
+        let mut cmd = CommandBuilder::new(&opts.shell);
+        if let Some(cwd) = &effective_cwd {
+            cmd.cwd(cwd);
+        }
+        for (k, v) in std::env::vars() {
+            if should_skip_child_env(&k, &v) {
+                continue;
+            }
+            cmd.env(k, v);
+        }
+        for (key, value) in &opts.extra_env {
+            if key.is_empty() || compatibility_initial_env_key_is_protected(key) {
+                continue;
+            }
+            cmd.env(key, value);
+        }
+        let term = std::env::var("TERM").ok();
+        let term_program = std::env::var("TERM_PROGRAM").ok();
+        if let Some(fallback_term) =
+            child_term_override_for_environment(term.as_deref(), term_program.as_deref())
+        {
+            cmd.env("TERM", fallback_term);
+            if std::env::var("COLORTERM")
+                .ok()
+                .is_none_or(|value| value.trim().is_empty())
+            {
+                cmd.env("COLORTERM", "truecolor");
+            }
+            probe::log_event(
+                "server",
+                "tab_env_terminal_fallback",
+                &[
+                    ("tab_id", id.to_string()),
+                    ("server_term", term.unwrap_or_default()),
+                    ("term_program", term_program.unwrap_or_default()),
+                    ("fallback_term", fallback_term.to_string()),
+                    ("lazy", "1".to_string()),
+                ],
+            );
+        }
+        apply_ghostty_shell_environment(&mut cmd, &opts.shell, &opts);
+        cmd.env("CMUX_WORKSPACE_ID", workspace_id.to_string());
+        cmd.env("CMUX_TAB_ID", id.to_string());
+        cmd.env("CMUX_PANEL_ID", self.external_id.clone());
+        cmd.env("CMUX_SURFACE_ID", self.external_id.clone());
+        cmd.env("CMX_WORKSPACE_ID", workspace_id.to_string());
+        cmd.env("CMX_TAB_ID", id.to_string());
+        cmd.env("CMX_PANEL_ID", self.external_id.clone());
+        cmd.env("CMX_SURFACE_ID", self.external_id.clone());
+        if let Ok(self_path) = std::env::current_exe()
+            && let Some(self_dir) = self_path.parent()
+        {
+            let parent_path = std::env::var("PATH").unwrap_or_default();
+            let new_path = if parent_path.is_empty() {
+                self_dir.display().to_string()
+            } else {
+                format!("{}:{parent_path}", self_dir.display())
+            };
+            cmd.env("PATH", new_path);
+        }
+
+        let spawn_command_start_ms = probe::mono_ms();
+        let child = match pair.slave.spawn_command(cmd) {
+            Ok(child) => child,
+            Err(error) => {
+                self.restore_pending_pty_rx(pty_rx);
+                return Err(anyhow!(error).context("spawn shell"));
+            }
+        };
+        probe::log_event(
+            "server",
+            "tab_spawn_command_done",
+            &[
+                ("tab_id", id.to_string()),
+                (
+                    "elapsed_ms",
+                    probe::mono_ms()
+                        .saturating_sub(spawn_command_start_ms)
+                        .to_string(),
+                ),
+                (
+                    "total_elapsed_ms",
+                    probe::mono_ms().saturating_sub(spawn_start_ms).to_string(),
+                ),
+                ("lazy", "1".to_string()),
+            ],
+        );
+        if let Ok(mut killer) = self.child_killer.lock() {
+            *killer = child.clone_killer();
+        }
+        drop(pair.slave);
+
+        let master = pair.master;
+        let reader = match master.try_clone_reader() {
+            Ok(reader) => reader,
+            Err(error) => {
+                self.restore_pending_pty_rx(pty_rx);
+                return Err(anyhow!(error).context("clone pty reader"));
+            }
+        };
+
+        let output_broadcast = self.output_tx.clone();
+        let broker_reader = Arc::clone(broker);
+        let activity_in_reader = self.has_activity.clone();
+        let bell_in_reader = self.bell_count.clone();
+        let pty_read_seq: Arc<AtomicU64> = Arc::new(AtomicU64::new(0));
+        let codex_enter_ms: Arc<AtomicU64> = Arc::new(AtomicU64::new(0));
+        let codex_output_seq: Arc<AtomicU64> = Arc::new(AtomicU64::new(0));
+        let pty_read_seq_reader = pty_read_seq.clone();
+        let codex_enter_ms_reader = codex_enter_ms.clone();
+        let codex_output_seq_reader = codex_output_seq.clone();
+        let pty_tx_reader = Arc::downgrade(&self.pty_tx);
+        let pty_replay_reader = Arc::clone(&self.pty_replay);
+        let pty_replay_snapshot_wake = PtyReplaySnapshotWake::new(snapshot_notifier);
+        let alive_tx_reader = self.alive_tx.clone();
+        task::spawn_blocking(move || {
+            use std::io::Read;
+            let mut reader = reader;
+            let mut buf = [0u8; 8192];
+            let mut terminal_query_scanner = TerminalQueryScanner::default();
+            loop {
+                match reader.read(&mut buf) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => {
+                        let data = &buf[..n];
+                        let read_seq = pty_read_seq_reader.fetch_add(1, Ordering::Relaxed) + 1;
+                        let pending_codex_ms = codex_enter_ms_reader.load(Ordering::Relaxed);
+                        let codex_seq = if pending_codex_ms > 0 {
+                            codex_output_seq_reader.fetch_add(1, Ordering::Relaxed) + 1
+                        } else {
+                            0
+                        };
+                        let is_interesting = probe::verbose_enabled()
+                            || read_seq <= 12
+                            || probe::has_terminal_color_sequences(data)
+                            || probe::contains_alt_screen(data)
+                            || probe::contains_ascii_case_insensitive(data, b"codex")
+                            || (pending_codex_ms > 0 && codex_seq <= 80);
+                        if is_interesting {
+                            probe::log_event(
+                                "server",
+                                "pty_read",
+                                &[
+                                    ("tab_id", id.to_string()),
+                                    ("read_seq", read_seq.to_string()),
+                                    ("bytes", n.to_string()),
+                                    (
+                                        "since_spawn_ms",
+                                        probe::mono_ms().saturating_sub(spawn_start_ms).to_string(),
+                                    ),
+                                    (
+                                        "since_codex_enter_ms",
+                                        if pending_codex_ms > 0 {
+                                            probe::mono_ms()
+                                                .saturating_sub(pending_codex_ms)
+                                                .to_string()
+                                        } else {
+                                            "-".into()
+                                        },
+                                    ),
+                                    ("summary", probe::terminal_bytes_summary(data)),
+                                    ("lazy", "1".to_string()),
+                                ],
+                            );
+                        }
+                        if pending_codex_ms > 0 && probe::contains_alt_screen(data) {
+                            probe::log_event(
+                                "server",
+                                "codex_alt_screen_seen",
+                                &[
+                                    ("tab_id", id.to_string()),
+                                    (
+                                        "elapsed_ms",
+                                        probe::mono_ms()
+                                            .saturating_sub(pending_codex_ms)
+                                            .to_string(),
+                                    ),
+                                    ("read_seq", read_seq.to_string()),
+                                ],
+                            );
+                            codex_enter_ms_reader.store(0, Ordering::Relaxed);
+                        }
+                        let bells = data.iter().filter(|&&b| b == 0x07).count();
+                        if bells > 0 {
+                            bell_in_reader.fetch_add(bells as u64, Ordering::Relaxed);
+                        }
+                        activity_in_reader.store(true, Ordering::Relaxed);
+                        let probes = terminal_query_scanner.ingest(data);
+                        let mut offset = 0usize;
+                        for probe in probes {
+                            let end = probe.current_end.min(data.len());
+                            if end > offset {
+                                let chunk = data[offset..end].to_vec();
+                                if record_pty_replay(&pty_replay_reader, &chunk) {
+                                    pty_replay_snapshot_wake.wake_if_due();
+                                }
+                                broker_reader.pty_bytes(id, chunk.clone());
+                                let _ = output_broadcast.send(chunk);
+                                offset = end;
+                            }
+                            let kind = probe.kind;
+                            let Some(bytes) = broker_reader.terminal_probe_response(id, kind)
+                            else {
+                                if probe::verbose_enabled() || pending_codex_ms > 0 {
+                                    probe::log_event(
+                                        "server",
+                                        "terminal_response_unavailable",
+                                        &[
+                                            ("tab_id", id.to_string()),
+                                            ("query", kind.as_str().to_string()),
+                                        ],
+                                    );
+                                }
+                                continue;
+                            };
+                            let response = TerminalResponse {
+                                kind: kind.into(),
+                                bytes,
+                            };
+                            if probe::verbose_enabled() || pending_codex_ms > 0 {
+                                probe::log_event(
+                                    "server",
+                                    "terminal_response",
+                                    &[
+                                        ("tab_id", id.to_string()),
+                                        ("query", response.kind.as_str().to_string()),
+                                        (
+                                            "since_codex_enter_ms",
+                                            if pending_codex_ms > 0 {
+                                                probe::mono_ms()
+                                                    .saturating_sub(pending_codex_ms)
+                                                    .to_string()
+                                            } else {
+                                                "-".into()
+                                            },
+                                        ),
+                                        ("response", probe::preview_bytes(&response.bytes, 80)),
+                                    ],
+                                );
+                            }
+                            if let Some(pty_tx) = pty_tx_reader.upgrade() {
+                                let _ = pty_tx.send(PtyOp::TerminalResponse(response));
+                            }
+                        }
+                        if offset < data.len() {
+                            let chunk = data[offset..].to_vec();
+                            if record_pty_replay(&pty_replay_reader, &chunk) {
+                                pty_replay_snapshot_wake.wake_if_due();
+                            }
+                            broker_reader.pty_bytes(id, chunk.clone());
+                            let _ = output_broadcast.send(chunk);
+                        }
+                    }
+                }
+            }
+            pty_replay_snapshot_wake.wake_now();
+            let _ = alive_tx_reader.send(false);
+        });
+
+        let codex_enter_ms_writer = codex_enter_ms.clone();
+        let codex_output_seq_writer = codex_output_seq.clone();
+        task::spawn_blocking(move || {
+            use std::io::Write;
+            let master = master;
+            let mut writer = match master.take_writer() {
+                Ok(w) => w,
+                Err(e) => {
+                    tracing::error!(error = %e, "take_writer failed");
+                    return;
+                }
+            };
+            let mut detector = CommandDetector::default();
+            while let Some(op) = pty_rx.blocking_recv() {
+                match op {
+                    PtyOp::Write(bytes) => {
+                        let write_start_ms = probe::mono_ms();
+                        let completed_line = detector.push_input(&bytes);
+                        let contains_codex =
+                            completed_line.as_ref().is_some_and(|line| {
+                                probe::contains_ascii_case_insensitive(line.as_bytes(), b"codex")
+                            }) || probe::contains_ascii_case_insensitive(&bytes, b"codex");
+                        if contains_codex {
+                            let enter_ms = probe::mono_ms();
+                            codex_enter_ms_writer.store(enter_ms, Ordering::Relaxed);
+                            codex_output_seq_writer.store(0, Ordering::Relaxed);
+                            probe::log_event(
+                                "server",
+                                "codex_command_enter",
+                                &[
+                                    ("tab_id", id.to_string()),
+                                    (
+                                        "line",
+                                        completed_line
+                                            .clone()
+                                            .unwrap_or_else(|| probe::preview_bytes(&bytes, 160)),
+                                    ),
+                                    ("bytes", bytes.len().to_string()),
+                                    ("lazy", "1".to_string()),
+                                ],
+                            );
+                        } else if probe::verbose_enabled() {
+                            probe::log_event(
+                                "server",
+                                "pty_write",
+                                &[
+                                    ("tab_id", id.to_string()),
+                                    ("bytes", bytes.len().to_string()),
+                                    ("preview", probe::preview_bytes(&bytes, 80)),
+                                    ("lazy", "1".to_string()),
+                                ],
+                            );
+                        }
+                        if writer.write_all(&bytes).is_err() {
+                            break;
+                        }
+                        let _ = writer.flush();
+                        if contains_codex {
+                            probe::log_event(
+                                "server",
+                                "codex_command_write_done",
+                                &[
+                                    ("tab_id", id.to_string()),
+                                    (
+                                        "elapsed_ms",
+                                        probe::mono_ms().saturating_sub(write_start_ms).to_string(),
+                                    ),
+                                ],
+                            );
+                        }
+                    }
+                    PtyOp::TerminalResponse(response) => {
+                        if writer.write_all(&response.bytes).is_err() {
+                            break;
+                        }
+                        let _ = writer.flush();
+                    }
+                    PtyOp::Resize(size) => {
+                        if probe::verbose_enabled() {
+                            probe::log_event(
+                                "server",
+                                "pty_resize",
+                                &[
+                                    ("tab_id", id.to_string()),
+                                    ("cols", size.cols.to_string()),
+                                    ("rows", size.rows.to_string()),
+                                    ("lazy", "1".to_string()),
+                                ],
+                            );
+                        }
+                        let _ = master.resize(size);
+                    }
+                }
+            }
+        });
+
+        Ok(())
+    }
+
+    fn restore_pending_pty_rx(&self, pty_rx: mpsc::UnboundedReceiver<PtyOp>) {
+        if let Ok(mut pending) = self.pending_pty_rx.lock()
+            && pending.is_none()
+        {
+            *pending = Some(pty_rx);
+        }
+        self.terminal_started.store(false, Ordering::Release);
+    }
+
+    fn terminal_started(&self) -> bool {
+        self.terminal_started.load(Ordering::Acquire)
+    }
+
     fn kill_child(&self) {
         if let Ok(mut killer) = self.child_killer.lock() {
             let _ = killer.kill();
         }
+        let _ = self.alive_tx.send(false);
     }
 }
 
@@ -1173,6 +2569,61 @@ impl PanelNode {
         }
     }
 
+    fn preferred_browser_target_panel(&self, source_panel_id: PanelId) -> Option<PanelId> {
+        let candidates = self.right_sibling_candidate_panels(source_panel_id)?;
+        let layouts = chrome_layout_panel_leaves((1000, 1000), self);
+        let source = layouts
+            .iter()
+            .find(|layout| layout.panel_id == source_panel_id)?;
+        let source_center_y = source.inner.row as i32 * 2 + source.inner.rows as i32;
+        let source_right = source.inner.col.saturating_add(source.inner.cols);
+        candidates
+            .into_iter()
+            .filter(|panel_id| *panel_id != source_panel_id)
+            .filter_map(|panel_id| {
+                let layout = layouts.iter().find(|layout| layout.panel_id == panel_id)?;
+                let center_y = layout.inner.row as i32 * 2 + layout.inner.rows as i32;
+                let dy = (center_y - source_center_y).unsigned_abs();
+                let dx = layout.inner.col.abs_diff(source_right);
+                Some((panel_id, dy, dx, layout.inner.col))
+            })
+            .min_by_key(|(panel_id, dy, dx, col)| (*dy, *dx, *col, *panel_id))
+            .map(|(panel_id, _, _, _)| panel_id)
+    }
+
+    fn right_sibling_candidate_panels(&self, source_panel_id: PanelId) -> Option<Vec<PanelId>> {
+        match self {
+            Self::Leaf(_) => None,
+            Self::Split {
+                direction,
+                first,
+                second,
+                ..
+            } => {
+                if first.contains_panel(source_panel_id) {
+                    if let Some(nested) = first.right_sibling_candidate_panels(source_panel_id) {
+                        return Some(nested);
+                    }
+                    if *direction == SplitDirection::Horizontal {
+                        let panels = second
+                            .leaves()
+                            .into_iter()
+                            .map(|leaf| leaf.id)
+                            .collect::<Vec<_>>();
+                        if !panels.is_empty() {
+                            return Some(panels);
+                        }
+                    }
+                    None
+                } else if second.contains_panel(source_panel_id) {
+                    second.right_sibling_candidate_panels(source_panel_id)
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
     fn set_active_tab(&mut self, panel_id: PanelId, tab_id: TabId) -> bool {
         let Some(panel) = self.find_panel_mut(panel_id) else {
             return false;
@@ -1190,6 +2641,24 @@ impl PanelNode {
         };
         panel.tabs.push(tab_id);
         panel.active_tab = Some(tab_id);
+        true
+    }
+
+    fn insert_tab_to_panel(
+        &mut self,
+        panel_id: PanelId,
+        tab_id: TabId,
+        index: usize,
+        focus: bool,
+    ) -> bool {
+        let Some(panel) = self.find_panel_mut(panel_id) else {
+            return false;
+        };
+        let insertion = index.min(panel.tabs.len());
+        panel.tabs.insert(insertion, tab_id);
+        if focus || panel.active_tab.is_none() {
+            panel.active_tab = Some(tab_id);
+        }
         true
     }
 
@@ -1292,12 +2761,58 @@ impl PanelNode {
         Ok(())
     }
 
+    fn active_tab_id_for_panel(&self, panel_id: PanelId) -> Result<TabId> {
+        let Some(panel) = self.find_panel(panel_id) else {
+            bail!("no panel {panel_id}");
+        };
+        panel
+            .active_tab
+            .filter(|id| panel.tabs.contains(id))
+            .or_else(|| panel.tabs.first().copied())
+            .ok_or_else(|| anyhow!("panel {panel_id} has no tabs"))
+    }
+
+    fn replace_tab_id_in_panel(
+        &mut self,
+        panel_id: PanelId,
+        old_tab_id: TabId,
+        new_tab_id: TabId,
+    ) -> Result<()> {
+        let Some(panel) = self.find_panel_mut(panel_id) else {
+            bail!("no panel {panel_id}");
+        };
+        let Some(index) = panel.tabs.iter().position(|id| *id == old_tab_id) else {
+            bail!("tab {old_tab_id} not found in panel {panel_id}");
+        };
+        panel.tabs[index] = new_tab_id;
+        if panel.active_tab == Some(old_tab_id) {
+            panel.active_tab = Some(new_tab_id);
+        }
+        Ok(())
+    }
+
+    fn swap_active_tabs(
+        &mut self,
+        source_panel_id: PanelId,
+        target_panel_id: PanelId,
+    ) -> Result<(TabId, TabId)> {
+        if source_panel_id == target_panel_id {
+            bail!("source and target panes must be different");
+        }
+        let source_tab_id = self.active_tab_id_for_panel(source_panel_id)?;
+        let target_tab_id = self.active_tab_id_for_panel(target_panel_id)?;
+        self.replace_tab_id_in_panel(source_panel_id, source_tab_id, target_tab_id)?;
+        self.replace_tab_id_in_panel(target_panel_id, target_tab_id, source_tab_id)?;
+        Ok((source_tab_id, target_tab_id))
+    }
+
     fn move_tab_to_panel(
         &mut self,
         from_panel_id: PanelId,
         from: usize,
         to_panel_id: PanelId,
         to: usize,
+        focus: bool,
     ) -> Result<TabId> {
         if from_panel_id == to_panel_id {
             let Some(panel) = self.find_panel_mut(from_panel_id) else {
@@ -1318,7 +2833,9 @@ impl PanelNode {
             }
             .min(panel.tabs.len());
             panel.tabs.insert(adjusted, tab_id);
-            panel.active_tab = Some(tab_id);
+            if focus {
+                panel.active_tab = Some(tab_id);
+            }
             return Ok(tab_id);
         }
 
@@ -1345,7 +2862,9 @@ impl PanelNode {
         };
         let insertion = to.min(target.tabs.len());
         target.tabs.insert(insertion, tab_id);
-        target.active_tab = Some(tab_id);
+        if focus {
+            target.active_tab = Some(tab_id);
+        }
         Ok(tab_id)
     }
 
@@ -1648,6 +3167,11 @@ fn snapshot_panel_to_node(snapshot: &PanelSnapshot, tab_ids: &[TabId]) -> Option
     }
 }
 
+struct DetachedTab {
+    tab: Arc<Tab>,
+    emptied_space: bool,
+}
+
 fn panel_node_to_snapshot(
     node: &PanelNode,
     tab_index_by_id: &HashMap<TabId, usize>,
@@ -1702,6 +3226,8 @@ pub struct Space {
     next_tab_id: Arc<AtomicU64>,
     last_viewport: Mutex<(u16, u16)>,
     broker: Arc<RenderBroker>,
+    model_notifier: ModelNotifier,
+    snapshot_notifier: SnapshotNotifier,
     next_panel_id: AtomicU64,
     /// When true AND split mode is on, only the active tab's leaf is
     /// rendered, it fills the whole pane area. Toggling off restores the
@@ -1713,7 +3239,10 @@ pub struct Space {
 
 pub struct Workspace {
     pub id: u64,
+    pub external_id: String,
     pub title: Mutex<String>,
+    pub description: Mutex<Option<String>>,
+    pub latest_submitted_message: Mutex<Option<String>>,
     spaces: Mutex<Vec<Arc<Space>>>,
     dead_tx: watch::Sender<bool>,
     dead_rx: watch::Receiver<bool>,
@@ -1721,6 +3250,8 @@ pub struct Workspace {
     next_tab_id: Arc<AtomicU64>,
     next_space_id: AtomicU64,
     broker: Arc<RenderBroker>,
+    model_notifier: ModelNotifier,
+    snapshot_notifier: SnapshotNotifier,
     /// Pinned workspaces don't auto-close when their last tab
     /// exits — a fresh shell is spawned instead so the workspace
     /// survives `exit` / `C-d`. Matches the macOS cmux app's
@@ -1732,6 +3263,19 @@ pub struct Workspace {
     /// compositor parses it once per frame into an RGB triple for
     /// the sidebar tint. `None` = default sidebar styling.
     color: Mutex<Option<String>>,
+    /// Last structured `workspace.remote.status` payload, serialized as JSON.
+    /// Native desktop code currently performs SSH/proxy side effects; Rust owns
+    /// the durable query state, non-connecting configure state, and updates from
+    /// native command responses and explicit native-client status publications.
+    remote_status_json: Mutex<Option<String>>,
+    /// Non-secret remote configuration that Rust can safely replay for simple
+    /// reconnects. Secret-bearing relay/websocket/foreground-auth fields are
+    /// deliberately not stored here.
+    remote_config_json: Mutex<Option<String>>,
+    status_entries: Mutex<BTreeMap<String, SnapshotSidebarStatusEntry>>,
+    metadata_blocks: Mutex<BTreeMap<String, SnapshotSidebarMetadataBlock>>,
+    log_entries: Mutex<Vec<SnapshotSidebarLogEntry>>,
+    progress: Mutex<Option<SnapshotSidebarProgressState>>,
 }
 
 #[allow(dead_code)]
@@ -1741,19 +3285,26 @@ impl Space {
         id: SpaceId,
         title: &str,
         seed_cwd: Option<PathBuf>,
+        seed_env: BTreeMap<String, String>,
+        seed_initial_input: Option<Vec<u8>>,
         next_tab_id: Arc<AtomicU64>,
         spawn_opts: TabSpawnOptions,
         broker: Arc<RenderBroker>,
+        model_notifier: ModelNotifier,
+        snapshot_notifier: SnapshotNotifier,
     ) -> Result<Arc<Self>> {
         let tab_id = next_tab_id.fetch_add(1, Ordering::Relaxed);
+        let mut seed_spawn_opts = spawn_opts.clone();
+        seed_spawn_opts.extra_env = seed_env;
         let tab = Tab::spawn(
             tab_id,
             workspace_id,
             "sh",
             seed_cwd,
             false,
-            &spawn_opts,
+            &seed_spawn_opts,
             &broker,
+            snapshot_notifier.clone(),
         )?;
         let (active_tab_tx, active_tab_rx) = watch::channel(tab.clone());
         let (dead_tx, dead_rx) = watch::channel(false);
@@ -1771,12 +3322,52 @@ impl Space {
             next_tab_id,
             last_viewport: Mutex::new(spawn_opts.initial_viewport),
             broker,
+            model_notifier,
+            snapshot_notifier,
+            next_panel_id: AtomicU64::new(1),
+            zoomed: AtomicBool::new(false),
+            default_panel_id: AtomicU64::new(0),
+        });
+        send_initial_tab_input(&tab, seed_initial_input);
+        space.clone().spawn_tab_reaper(tab);
+        Ok(space)
+    }
+
+    fn new_with_existing_tab(
+        workspace_id: u64,
+        id: SpaceId,
+        title: &str,
+        tab: Arc<Tab>,
+        next_tab_id: Arc<AtomicU64>,
+        spawn_opts: TabSpawnOptions,
+        broker: Arc<RenderBroker>,
+        model_notifier: ModelNotifier,
+        snapshot_notifier: SnapshotNotifier,
+    ) -> Arc<Self> {
+        let (active_tab_tx, active_tab_rx) = watch::channel(tab.clone());
+        let (dead_tx, dead_rx) = watch::channel(false);
+        let space = Arc::new(Self {
+            id,
+            workspace_id,
+            title: Mutex::new(title.to_string()),
+            panels: Mutex::new(PanelNode::root(tab.id)),
+            tabs: Mutex::new(vec![tab.clone()]),
+            active_tab_tx,
+            active_tab_rx,
+            dead_tx,
+            dead_rx,
+            spawn_opts: spawn_opts.clone(),
+            next_tab_id,
+            last_viewport: Mutex::new(spawn_opts.initial_viewport),
+            broker,
+            model_notifier,
+            snapshot_notifier,
             next_panel_id: AtomicU64::new(1),
             zoomed: AtomicBool::new(false),
             default_panel_id: AtomicU64::new(0),
         });
         space.clone().spawn_tab_reaper(tab);
-        Ok(space)
+        space
     }
 
     fn from_snapshot(
@@ -1786,19 +3377,37 @@ impl Space {
         next_tab_id: Arc<AtomicU64>,
         spawn_opts: TabSpawnOptions,
         broker: Arc<RenderBroker>,
+        model_notifier: ModelNotifier,
+        snapshot_notifier: SnapshotNotifier,
     ) -> Result<Arc<Self>> {
         let mut tabs: Vec<Arc<Tab>> = Vec::with_capacity(snap.tabs.len());
         for t in &snap.tabs {
             let tab_id = next_tab_id.fetch_add(1, Ordering::Relaxed);
-            let tab = Tab::spawn(
-                tab_id,
-                workspace_id,
-                &t.title,
-                t.cwd.clone(),
-                t.explicit_title,
-                &spawn_opts,
-                &broker,
-            )?;
+            let tab = match t.kind {
+                SnapshotTabKind::Terminal => Tab::restore_terminal_placeholder(
+                    tab_id,
+                    workspace_id,
+                    &t.title,
+                    t.cwd.clone(),
+                    t.explicit_title,
+                    &spawn_opts,
+                    &broker,
+                    decode_pty_replay_chunks(t),
+                    t.external_id.clone(),
+                ),
+                SnapshotTabKind::Browser => {
+                    Tab::spawn_browser(tab_id, t.external_id.clone(), &t.title, t.browser.clone())
+                }
+            };
+            tab.pinned.store(t.pinned, Ordering::Relaxed);
+            tab.has_activity.store(t.has_activity, Ordering::Relaxed);
+            tab.bell_count.store(t.bell_count, Ordering::Relaxed);
+            tab.set_git_branch(t.git_branch.clone())?;
+            tab.set_pull_request(t.pull_request.clone())?;
+            tab.set_tty_name(t.tty_name.clone())?;
+            tab.set_shell_state(t.shell_state.clone())?;
+            tab.set_ports_kick_generation(t.ports_kick_generation);
+            tab.set_listening_ports(normalize_ports(t.listening_ports.clone()))?;
             tabs.push(tab);
         }
         if tabs.is_empty() {
@@ -1811,6 +3420,7 @@ impl Space {
                 false,
                 &spawn_opts,
                 &broker,
+                snapshot_notifier.clone(),
             )?;
             tabs.push(tab);
         }
@@ -1854,12 +3464,16 @@ impl Space {
             next_tab_id,
             last_viewport: Mutex::new(spawn_opts.initial_viewport),
             broker,
+            model_notifier,
+            snapshot_notifier,
             next_panel_id: AtomicU64::new(next_panel_id),
             zoomed: AtomicBool::new(false),
             default_panel_id: AtomicU64::new(default_panel_id),
         });
         for tab in tabs {
-            space.clone().spawn_tab_reaper(tab);
+            if tab.kind == SnapshotTabKind::Terminal {
+                space.clone().spawn_tab_reaper(tab);
+            }
         }
         Ok(space)
     }
@@ -1878,20 +3492,24 @@ impl Space {
     }
 
     async fn remove_tab(self: Arc<Self>, tab_id: u64) {
-        let existed = {
+        let removed_tab = {
             let mut tabs = self.tabs.lock().await;
-            let before = tabs.len();
-            tabs.retain(|t| t.id != tab_id);
-            tabs.len() != before
+            tabs.iter()
+                .position(|t| t.id == tab_id)
+                .map(|index| tabs.remove(index))
         };
-        if !existed {
+        let Some(removed_tab) = removed_tab else {
             return;
+        };
+        if removed_tab.kind == SnapshotTabKind::Terminal && !removed_tab.terminal_started() {
+            let _ = removed_tab.alive_tx.send(false);
         }
         let removal = {
             let mut panels = self.panels.lock().await;
             panels.remove_tab(tab_id)
         };
         self.broker.remove_tab(tab_id);
+        self.model_notifier.wake();
         if removal.empty {
             self.dead_tx.send(true).ok();
             return;
@@ -1915,12 +3533,58 @@ impl Space {
         }
     }
 
+    async fn detach_tab(self: Arc<Self>, tab_id: u64) -> Result<DetachedTab> {
+        let tab = {
+            let mut tabs = self.tabs.lock().await;
+            let Some(index) = tabs.iter().position(|tab| tab.id == tab_id) else {
+                bail!("no tab {tab_id}");
+            };
+            tabs.remove(index)
+        };
+        let removal = {
+            let mut panels = self.panels.lock().await;
+            panels.remove_tab(tab_id)
+        };
+        if !removal.removed {
+            bail!("tab {tab_id} was not attached to a panel");
+        }
+        if let Some(focus) = removal.focus {
+            self.default_panel_id
+                .store(focus.panel_id, Ordering::Relaxed);
+        }
+        let active_removed = self.active_tab_rx.borrow().id == tab_id;
+        if active_removed && !removal.empty {
+            let next = if let Some(focus) = removal.focus {
+                self.tab_by_id(focus.tab_id).await
+            } else {
+                self.first_tab().await
+            };
+            if let Some(next) = next {
+                self.active_tab_tx.send(next).ok();
+            }
+        } else {
+            wake_space_repaint(&self);
+        }
+        Ok(DetachedTab {
+            tab,
+            emptied_space: removal.empty,
+        })
+    }
+
     async fn new_tab(self: Arc<Self>) -> Result<Arc<Tab>> {
         let panel_id = self.default_panel_id().await.unwrap_or(0);
-        self.new_tab_in_panel(panel_id).await
+        self.new_tab_in_panel(panel_id, None, None).await
     }
 
     async fn spawn_shell_tab(&self, cwd: Option<PathBuf>) -> Result<Arc<Tab>> {
+        self.spawn_shell_tab_with_env(cwd, BTreeMap::new()).await
+    }
+
+    async fn spawn_shell_tab_with_env(
+        &self,
+        cwd: Option<PathBuf>,
+        extra_env: BTreeMap<String, String>,
+    ) -> Result<Arc<Tab>> {
         let id = self.next_tab_id.fetch_add(1, Ordering::Relaxed);
         let viewport = *self.last_viewport.lock().await;
         let title = format!("term-{}", local_tab_index(self.workspace_id, id));
@@ -1928,6 +3592,9 @@ impl Space {
             shell: self.spawn_opts.shell.clone(),
             fallback_cwd: self.spawn_opts.fallback_cwd.clone(),
             initial_viewport: viewport,
+            terminal_cursor: self.spawn_opts.terminal_cursor.clone(),
+            shell_integration: self.spawn_opts.shell_integration,
+            extra_env,
         };
         Tab::spawn(
             id,
@@ -1937,11 +3604,50 @@ impl Space {
             false,
             &spawn_opts,
             &self.broker,
+            self.snapshot_notifier.clone(),
         )
     }
 
-    async fn new_tab_in_panel(self: Arc<Self>, panel_id: PanelId) -> Result<Arc<Tab>> {
-        let tab = self.spawn_shell_tab(None).await?;
+    async fn ensure_terminal_started_for_viewport(&self, tab: &Arc<Tab>, cols: u16, rows: u16) {
+        if tab.kind != SnapshotTabKind::Terminal || tab.terminal_started() {
+            return;
+        }
+        let mut spawn_opts = self.spawn_opts.clone();
+        spawn_opts.initial_viewport = (cols.max(1), rows.max(1));
+        if let Err(error) = tab
+            .ensure_terminal_started(
+                self.workspace_id,
+                spawn_opts,
+                &self.broker,
+                self.snapshot_notifier.clone(),
+            )
+            .await
+        {
+            tracing::warn!(
+                tab_id = tab.id,
+                workspace_id = self.workspace_id,
+                error = %error,
+                "failed to start restored terminal"
+            );
+            probe::log_event(
+                "server",
+                "tab_lazy_spawn_failed",
+                &[
+                    ("tab_id", tab.id.to_string()),
+                    ("workspace_id", self.workspace_id.to_string()),
+                    ("error", error.to_string()),
+                ],
+            );
+        }
+    }
+
+    async fn new_tab_in_panel(
+        self: Arc<Self>,
+        panel_id: PanelId,
+        cwd: Option<PathBuf>,
+        initial_input: Option<Vec<u8>>,
+    ) -> Result<Arc<Tab>> {
+        let tab = self.spawn_shell_tab(cwd).await?;
         {
             let mut tabs = self.tabs.lock().await;
             tabs.push(tab.clone());
@@ -1956,7 +3662,56 @@ impl Space {
         tab.has_activity.store(false, Ordering::Relaxed);
         self.active_tab_tx.send(tab.clone()).ok();
         self.clone().spawn_tab_reaper(tab.clone());
+        send_initial_tab_input(&tab, initial_input);
         Ok(tab)
+    }
+
+    async fn new_browser_tab_in_panel(
+        self: Arc<Self>,
+        panel_id: PanelId,
+        url: Option<String>,
+        proxy: Option<BrowserProxySnapshot>,
+    ) -> Result<Arc<Tab>> {
+        let id = self.next_tab_id.fetch_add(1, Ordering::Relaxed);
+        let tab = spawn_browser_tab(id, url, proxy);
+        {
+            let mut tabs = self.tabs.lock().await;
+            tabs.push(tab.clone());
+        }
+        {
+            let mut panels = self.panels.lock().await;
+            if !panels.add_tab_to_panel(panel_id, tab.id) {
+                bail!("no panel {panel_id}");
+            }
+        }
+        self.default_panel_id.store(panel_id, Ordering::Relaxed);
+        self.active_tab_tx.send(tab.clone()).ok();
+        Ok(tab)
+    }
+
+    async fn split_browser_panel(
+        self: Arc<Self>,
+        panel_id: PanelId,
+        direction: SplitDirection,
+        url: Option<String>,
+        proxy: Option<BrowserProxySnapshot>,
+    ) -> Result<(PanelId, Arc<Tab>)> {
+        let new_panel_id = self.next_panel_id.fetch_add(1, Ordering::Relaxed);
+        let id = self.next_tab_id.fetch_add(1, Ordering::Relaxed);
+        let tab = spawn_browser_tab(id, url, proxy);
+        {
+            let mut panels = self.panels.lock().await;
+            if !panels.split_panel(panel_id, direction, new_panel_id, tab.id) {
+                bail!("no panel {panel_id}");
+            }
+        }
+        {
+            let mut tabs = self.tabs.lock().await;
+            tabs.push(tab.clone());
+        }
+        self.default_panel_id.store(new_panel_id, Ordering::Relaxed);
+        self.active_tab_tx.send(tab.clone()).ok();
+        Ok((new_panel_id, tab))
     }
 
     async fn select_tab(&self, index: usize) -> Result<Arc<Tab>> {
@@ -1994,8 +3749,49 @@ impl Space {
 
     async fn close_active_tab(&self) -> Result<()> {
         let active = self.active_tab_rx.borrow().clone();
+        if active.kind == SnapshotTabKind::Browser || !active.terminal_started() {
+            return Ok(());
+        }
         active.pty_tx.send(PtyOp::Write(vec![0x04])).ok(); // Ctrl-D
         Ok(())
+    }
+
+    async fn close_tab_by_id(self: Arc<Self>, tab_id: TabId) -> Result<()> {
+        let tab = self
+            .tab_by_id(tab_id)
+            .await
+            .ok_or_else(|| anyhow!("no tab {tab_id}"))?;
+        if tab.kind == SnapshotTabKind::Browser {
+            self.remove_tab(tab_id).await;
+        } else if !tab.terminal_started() {
+            self.remove_tab(tab_id).await;
+        } else {
+            tab.pty_tx.send(PtyOp::Write(vec![0x04])).ok();
+        }
+        Ok(())
+    }
+
+    async fn force_close_tab_by_id(self: Arc<Self>, tab_id: TabId) -> Result<()> {
+        let tab = self
+            .tab_by_id(tab_id)
+            .await
+            .ok_or_else(|| anyhow!("no tab {tab_id}"))?;
+        tab.kill_child();
+        self.remove_tab(tab_id).await;
+        Ok(())
+    }
+
+    async fn close_all_tabs(self: Arc<Self>) {
+        let tabs = self.tabs.lock().await.clone();
+        for tab in tabs {
+            if tab.kind == SnapshotTabKind::Browser {
+                self.clone().remove_tab(tab.id).await;
+            } else if !tab.terminal_started() {
+                self.clone().remove_tab(tab.id).await;
+            } else {
+                tab.pty_tx.send(PtyOp::Write(vec![0x04])).ok();
+            }
+        }
     }
 
     /// Reorder tabs: remove the tab at `from`, re-insert at `to`.
@@ -2011,24 +3807,83 @@ impl Space {
         self.panels.lock().await.move_tab(panel_id, from, to)
     }
 
+    async fn swap_active_tabs(
+        &self,
+        source_panel_id: PanelId,
+        target_panel_id: PanelId,
+    ) -> Result<(Arc<Tab>, Arc<Tab>)> {
+        let (source_tab_id, target_tab_id) = self
+            .panels
+            .lock()
+            .await
+            .swap_active_tabs(source_panel_id, target_panel_id)?;
+        let source_tab = self
+            .tab_by_id(source_tab_id)
+            .await
+            .ok_or_else(|| anyhow!("no tab {source_tab_id}"))?;
+        let target_tab = self
+            .tab_by_id(target_tab_id)
+            .await
+            .ok_or_else(|| anyhow!("no tab {target_tab_id}"))?;
+        Ok((source_tab, target_tab))
+    }
+
     async fn move_tab_to_panel(
         &self,
         from_panel_id: PanelId,
         from: usize,
         to_panel_id: PanelId,
         to: usize,
+        focus: bool,
     ) -> Result<Arc<Tab>> {
-        let tab_id =
-            self.panels
-                .lock()
-                .await
-                .move_tab_to_panel(from_panel_id, from, to_panel_id, to)?;
+        let tab_id = self.panels.lock().await.move_tab_to_panel(
+            from_panel_id,
+            from,
+            to_panel_id,
+            to,
+            focus,
+        )?;
         let tab = self
             .tab_by_id(tab_id)
             .await
             .ok_or_else(|| anyhow!("no tab {tab_id}"))?;
-        tab.has_activity.store(false, Ordering::Relaxed);
-        self.default_panel_id.store(to_panel_id, Ordering::Relaxed);
+        if focus {
+            tab.has_activity.store(false, Ordering::Relaxed);
+            self.default_panel_id.store(to_panel_id, Ordering::Relaxed);
+        }
+        Ok(tab)
+    }
+
+    async fn insert_existing_tab_in_panel(
+        self: Arc<Self>,
+        panel_id: PanelId,
+        tab: Arc<Tab>,
+        index: usize,
+        focus: bool,
+    ) -> Result<Arc<Tab>> {
+        {
+            let mut tabs = self.tabs.lock().await;
+            tabs.push(tab.clone());
+        }
+        let inserted = {
+            let mut panels = self.panels.lock().await;
+            panels.insert_tab_to_panel(panel_id, tab.id, index, focus)
+        };
+        if !inserted {
+            let mut tabs = self.tabs.lock().await;
+            tabs.retain(|existing| existing.id != tab.id);
+            bail!("no panel {panel_id}");
+        }
+        if focus {
+            tab.has_activity.store(false, Ordering::Relaxed);
+            self.default_panel_id.store(panel_id, Ordering::Relaxed);
+            self.active_tab_tx.send(tab.clone()).ok();
+        } else {
+            wake_space_repaint(&self);
+        }
+        if tab.kind == SnapshotTabKind::Terminal {
+            self.clone().spawn_tab_reaper(tab.clone());
+        }
         Ok(tab)
     }
 
@@ -2038,6 +3893,7 @@ impl Space {
         from: usize,
         target_panel_id: PanelId,
         edge: PanelEdge,
+        focus: bool,
     ) -> Result<(PanelId, Arc<Tab>)> {
         let (moving_tab_id, needs_replacement) = {
             let panels = self.panels.lock().await;
@@ -2094,8 +3950,10 @@ impl Space {
             .tab_by_id(tab_id)
             .await
             .ok_or_else(|| anyhow!("no tab {tab_id}"))?;
-        tab.has_activity.store(false, Ordering::Relaxed);
-        self.default_panel_id.store(new_panel_id, Ordering::Relaxed);
+        if focus {
+            tab.has_activity.store(false, Ordering::Relaxed);
+            self.default_panel_id.store(new_panel_id, Ordering::Relaxed);
+        }
         Ok((new_panel_id, tab))
     }
 
@@ -2128,10 +3986,11 @@ impl Space {
         };
         let tabs = self.tabs.lock().await;
         let by_id: HashMap<TabId, Arc<Tab>> = tabs.iter().map(|t| (t.id, t.clone())).collect();
-        self.tab_list_locked(&tab_ids, &by_id, active_id)
+        drop(tabs);
+        self.tab_list_locked(&tab_ids, &by_id, active_id).await
     }
 
-    fn tab_list_locked(
+    async fn tab_list_locked(
         &self,
         tab_ids: &[TabId],
         by_id: &HashMap<TabId, Arc<Tab>>,
@@ -2155,11 +4014,24 @@ impl Space {
             } else {
                 t.has_activity.load(Ordering::Relaxed)
             };
+            let metadata = native_tab_metadata(t).await;
             infos.push(TabInfo {
                 id: t.id,
+                external_id: Some(t.external_id.clone()),
+                kind: t.native_kind(),
                 title,
+                explicit_title: t.explicit_title.load(Ordering::Relaxed),
+                pinned: t.pinned.load(Ordering::Relaxed),
                 has_activity,
                 bell_count: t.bell_count.load(Ordering::Relaxed),
+                cwd: metadata.cwd,
+                git_branch: metadata.git_branch,
+                pull_request: metadata.pull_request,
+                tty_name: metadata.tty_name,
+                shell_state: metadata.shell_state,
+                ports_kick_generation: metadata.ports_kick_generation,
+                listening_ports: metadata.listening_ports,
+                browser: t.native_browser_info(),
             });
         }
         (infos, active)
@@ -2265,10 +4137,13 @@ impl Space {
     async fn resize_panel_tabs(&self, panes: &[(TabId, Rect)]) {
         let tabs = self.tabs.lock().await;
         let by_id: HashMap<TabId, Arc<Tab>> = tabs.iter().map(|t| (t.id, t.clone())).collect();
+        drop(tabs);
         for (tab_id, leaf) in panes {
             let Some(tab) = by_id.get(tab_id) else {
                 continue;
             };
+            self.ensure_terminal_started_for_viewport(tab, leaf.cols, leaf.rows)
+                .await;
             tab.pty_tx
                 .send(PtyOp::Resize(PtySize {
                     cols: leaf.cols,
@@ -2316,9 +4191,11 @@ impl Space {
         self: Arc<Self>,
         panel_id: PanelId,
         direction: SplitDirection,
+        cwd: Option<PathBuf>,
+        initial_input: Option<Vec<u8>>,
     ) -> Result<(PanelId, Arc<Tab>)> {
         let new_panel_id = self.next_panel_id.fetch_add(1, Ordering::Relaxed);
-        let tab = self.spawn_shell_tab(None).await?;
+        let tab = self.spawn_shell_tab(cwd).await?;
         {
             let mut panels = self.panels.lock().await;
             if !panels.split_panel(panel_id, direction, new_panel_id, tab.id) {
@@ -2333,6 +4210,7 @@ impl Space {
         tab.has_activity.store(false, Ordering::Relaxed);
         self.active_tab_tx.send(tab.clone()).ok();
         self.clone().spawn_tab_reaper(tab.clone());
+        send_initial_tab_input(&tab, initial_input);
         Ok((new_panel_id, tab))
     }
 
@@ -2387,9 +4265,22 @@ impl Space {
             let cwd = t.cwd.lock().await.clone();
             let explicit_title = t.explicit_title.load(Ordering::Relaxed);
             out.push(TabSnapshot {
+                external_id: Some(t.external_id.clone()),
+                kind: t.kind,
                 title,
                 cwd,
                 explicit_title,
+                pinned: t.pinned.load(Ordering::Relaxed),
+                has_activity: t.has_activity.load(Ordering::Relaxed),
+                bell_count: t.bell_count.load(Ordering::Relaxed),
+                git_branch: t.git_branch_snapshot(),
+                pull_request: t.pull_request_snapshot(),
+                tty_name: t.tty_name_snapshot(),
+                shell_state: t.shell_state_snapshot(),
+                ports_kick_generation: t.ports_kick_generation.load(Ordering::Relaxed),
+                listening_ports: t.listening_ports_snapshot(),
+                pty_replay_base64: encode_pty_replay_chunks(t.pty_replay_chunks()),
+                browser: t.browser_snapshot(),
             });
         }
         let title = self.title.lock().await.clone();
@@ -2417,8 +4308,12 @@ impl Workspace {
         id: u64,
         title: &str,
         seed_cwd: Option<PathBuf>,
+        seed_env: BTreeMap<String, String>,
+        seed_initial_input: Option<Vec<u8>>,
         spawn_opts: TabSpawnOptions,
         broker: Arc<RenderBroker>,
+        model_notifier: ModelNotifier,
+        snapshot_notifier: SnapshotNotifier,
     ) -> Result<Arc<Self>> {
         let next_tab_id = Arc::new(AtomicU64::new(workspace_tab_id(id, 0)));
         let space = Space::new_with_seed_tab(
@@ -2426,14 +4321,21 @@ impl Workspace {
             workspace_space_id(id, 0),
             "space-1",
             seed_cwd,
+            seed_env,
+            seed_initial_input,
             next_tab_id.clone(),
             spawn_opts.clone(),
             broker.clone(),
+            model_notifier.clone(),
+            snapshot_notifier.clone(),
         )?;
         let (dead_tx, dead_rx) = watch::channel(false);
         let ws = Arc::new(Self {
             id,
+            external_id: workspace_external_id(id),
             title: Mutex::new(title.to_string()),
+            description: Mutex::new(None),
+            latest_submitted_message: Mutex::new(None),
             spaces: Mutex::new(vec![space.clone()]),
             dead_tx,
             dead_rx,
@@ -2441,11 +4343,69 @@ impl Workspace {
             next_tab_id,
             next_space_id: AtomicU64::new(1),
             broker,
+            model_notifier,
+            snapshot_notifier,
             pinned: AtomicBool::new(false),
             color: Mutex::new(None),
+            remote_status_json: Mutex::new(None),
+            remote_config_json: Mutex::new(None),
+            status_entries: Mutex::new(BTreeMap::new()),
+            metadata_blocks: Mutex::new(BTreeMap::new()),
+            log_entries: Mutex::new(Vec::new()),
+            progress: Mutex::new(None),
         });
         ws.clone().spawn_space_reaper(space);
         Ok(ws)
+    }
+
+    fn new_with_existing_tab(
+        id: u64,
+        title: &str,
+        tab: Arc<Tab>,
+        spawn_opts: TabSpawnOptions,
+        broker: Arc<RenderBroker>,
+        model_notifier: ModelNotifier,
+        snapshot_notifier: SnapshotNotifier,
+    ) -> Arc<Self> {
+        let next_tab_id = Arc::new(AtomicU64::new(workspace_tab_id(id, 0)));
+        let space = Space::new_with_existing_tab(
+            id,
+            workspace_space_id(id, 0),
+            "space-1",
+            tab,
+            next_tab_id.clone(),
+            spawn_opts.clone(),
+            broker.clone(),
+            model_notifier.clone(),
+            snapshot_notifier.clone(),
+        );
+        let (dead_tx, dead_rx) = watch::channel(false);
+        let ws = Arc::new(Self {
+            id,
+            external_id: workspace_external_id(id),
+            title: Mutex::new(title.to_string()),
+            description: Mutex::new(None),
+            latest_submitted_message: Mutex::new(None),
+            spaces: Mutex::new(vec![space.clone()]),
+            dead_tx,
+            dead_rx,
+            spawn_opts,
+            next_tab_id,
+            next_space_id: AtomicU64::new(1),
+            broker,
+            model_notifier,
+            snapshot_notifier,
+            pinned: AtomicBool::new(false),
+            color: Mutex::new(None),
+            remote_status_json: Mutex::new(None),
+            remote_config_json: Mutex::new(None),
+            status_entries: Mutex::new(BTreeMap::new()),
+            metadata_blocks: Mutex::new(BTreeMap::new()),
+            log_entries: Mutex::new(Vec::new()),
+            progress: Mutex::new(None),
+        });
+        ws.clone().spawn_space_reaper(space);
+        ws
     }
 
     fn from_snapshot(
@@ -2453,6 +4413,8 @@ impl Workspace {
         snap: &WorkspaceSnapshot,
         spawn_opts: TabSpawnOptions,
         broker: Arc<RenderBroker>,
+        model_notifier: ModelNotifier,
+        snapshot_notifier: SnapshotNotifier,
     ) -> Result<Arc<Self>> {
         let next_tab_id = Arc::new(AtomicU64::new(workspace_tab_id(id, 0)));
         let mut spaces: Vec<Arc<Space>> = Vec::new();
@@ -2471,6 +4433,8 @@ impl Workspace {
                 next_tab_id.clone(),
                 spawn_opts.clone(),
                 broker.clone(),
+                model_notifier.clone(),
+                snapshot_notifier.clone(),
             )?);
         } else {
             for (idx, space_snap) in snap.spaces.iter().enumerate() {
@@ -2481,13 +4445,21 @@ impl Workspace {
                     next_tab_id.clone(),
                     spawn_opts.clone(),
                     broker.clone(),
+                    model_notifier.clone(),
+                    snapshot_notifier.clone(),
                 )?);
             }
         }
         let (dead_tx, dead_rx) = watch::channel(false);
         let ws = Arc::new(Self {
             id,
+            external_id: snap
+                .external_id
+                .clone()
+                .unwrap_or_else(|| workspace_external_id(id)),
             title: Mutex::new(snap.title.clone()),
+            description: Mutex::new(snap.description.clone()),
+            latest_submitted_message: Mutex::new(snap.latest_submitted_message.clone()),
             spaces: Mutex::new(spaces.clone()),
             dead_tx,
             dead_rx,
@@ -2495,8 +4467,28 @@ impl Workspace {
             next_tab_id,
             next_space_id: AtomicU64::new(spaces.len() as u64),
             broker,
+            model_notifier,
+            snapshot_notifier,
             pinned: AtomicBool::new(snap.pinned),
             color: Mutex::new(snap.color.clone()),
+            remote_status_json: Mutex::new(snap.remote_status_json.clone()),
+            remote_config_json: Mutex::new(snap.remote_config_json.clone()),
+            status_entries: Mutex::new(
+                snap.status_entries
+                    .iter()
+                    .cloned()
+                    .map(|entry| (entry.key.clone(), entry))
+                    .collect(),
+            ),
+            metadata_blocks: Mutex::new(
+                snap.metadata_blocks
+                    .iter()
+                    .cloned()
+                    .map(|block| (block.key.clone(), block))
+                    .collect(),
+            ),
+            log_entries: Mutex::new(snap.log_entries.clone()),
+            progress: Mutex::new(snap.progress.clone()),
         });
         for space in spaces {
             ws.clone().spawn_space_reaper(space);
@@ -2537,6 +4529,7 @@ impl Workspace {
                 self.dead_tx.send(true).ok();
             }
         }
+        self.model_notifier.wake();
     }
 
     async fn first_space(&self) -> Option<Arc<Space>> {
@@ -2579,7 +4572,10 @@ impl Workspace {
             }
             let title = space.title.lock().await.clone();
             let tabs = space.tabs.lock().await;
-            let terminal_count = tabs.len();
+            let terminal_count = tabs
+                .iter()
+                .filter(|tab| tab.kind == SnapshotTabKind::Terminal)
+                .count();
             let pane_count = space.panels.lock().await.leaves().len();
             drop(tabs);
             infos.push(SpaceInfo {
@@ -2593,6 +4589,21 @@ impl Workspace {
     }
 
     async fn total_terminal_count(&self) -> usize {
+        let spaces = self.spaces.lock().await.clone();
+        let mut count = 0usize;
+        for space in spaces {
+            count += space
+                .tabs
+                .lock()
+                .await
+                .iter()
+                .filter(|tab| tab.kind == SnapshotTabKind::Terminal)
+                .count();
+        }
+        count
+    }
+
+    async fn total_tab_count(&self) -> usize {
         let spaces = self.spaces.lock().await.clone();
         let mut count = 0usize;
         for space in spaces {
@@ -2610,9 +4621,13 @@ impl Workspace {
             space_id,
             &title,
             self.spawn_opts.fallback_cwd.clone(),
+            BTreeMap::new(),
+            None,
             self.next_tab_id.clone(),
             self.spawn_opts.clone(),
             self.broker.clone(),
+            self.model_notifier.clone(),
+            self.snapshot_notifier.clone(),
         )?;
         {
             let mut spaces = self.spaces.lock().await;
@@ -2629,9 +4644,26 @@ impl Workspace {
             out.push(space.snapshot().await);
         }
         let title = self.title.lock().await.clone();
+        let description = self.description.lock().await.clone();
+        let latest_submitted_message = self.latest_submitted_message.lock().await.clone();
         let color = self.color.lock().await.clone();
+        let remote_status_json = self.remote_status_json.lock().await.clone();
+        let remote_config_json = self.remote_config_json.lock().await.clone();
+        let status_entries = self.status_entries.lock().await.values().cloned().collect();
+        let metadata_blocks = self
+            .metadata_blocks
+            .lock()
+            .await
+            .values()
+            .cloned()
+            .collect();
+        let log_entries = self.log_entries.lock().await.clone();
+        let progress = self.progress.lock().await.clone();
         WorkspaceSnapshot {
+            external_id: Some(self.external_id.clone()),
             title,
+            description,
+            latest_submitted_message,
             active_space: 0,
             spaces: out,
             active_tab: 0,
@@ -2642,6 +4674,12 @@ impl Workspace {
             panel_tree: None,
             pinned: self.pinned.load(Ordering::Relaxed),
             color,
+            remote_status_json,
+            remote_config_json,
+            status_entries,
+            metadata_blocks,
+            log_entries,
+            progress,
         }
     }
 }
@@ -2660,6 +4698,88 @@ async fn workspace_activity_summary(ws: &Arc<Workspace>) -> (bool, u64) {
     (has_activity, bell_count)
 }
 
+async fn workspace_sidebar_state(
+    ws: &Arc<Workspace>,
+) -> (
+    Vec<NativeSidebarStatusEntry>,
+    Vec<NativeSidebarMetadataBlock>,
+    Vec<NativeSidebarLogEntry>,
+    Option<NativeSidebarProgressState>,
+) {
+    let status_entries = ws
+        .status_entries
+        .lock()
+        .await
+        .values()
+        .map(native_status_entry_from_snapshot)
+        .collect();
+    let metadata_blocks = ws
+        .metadata_blocks
+        .lock()
+        .await
+        .values()
+        .map(native_metadata_block_from_snapshot)
+        .collect();
+    let log_entries = ws
+        .log_entries
+        .lock()
+        .await
+        .iter()
+        .map(native_log_entry_from_snapshot)
+        .collect();
+    let progress = ws
+        .progress
+        .lock()
+        .await
+        .as_ref()
+        .map(native_progress_from_snapshot);
+    (status_entries, metadata_blocks, log_entries, progress)
+}
+
+fn native_status_entry_from_snapshot(
+    entry: &SnapshotSidebarStatusEntry,
+) -> NativeSidebarStatusEntry {
+    NativeSidebarStatusEntry {
+        key: entry.key.clone(),
+        value: entry.value.clone(),
+        icon: entry.icon.clone(),
+        color: entry.color.clone(),
+        url: entry.url.clone(),
+        priority: entry.priority,
+        format: entry.format.clone(),
+        updated_at_ms: entry.updated_at_ms,
+    }
+}
+
+fn native_metadata_block_from_snapshot(
+    block: &SnapshotSidebarMetadataBlock,
+) -> NativeSidebarMetadataBlock {
+    NativeSidebarMetadataBlock {
+        key: block.key.clone(),
+        markdown: block.markdown.clone(),
+        priority: block.priority,
+        updated_at_ms: block.updated_at_ms,
+    }
+}
+
+fn native_log_entry_from_snapshot(entry: &SnapshotSidebarLogEntry) -> NativeSidebarLogEntry {
+    NativeSidebarLogEntry {
+        message: entry.message.clone(),
+        level: entry.level.clone(),
+        source: entry.source.clone(),
+        updated_at_ms: entry.updated_at_ms,
+    }
+}
+
+fn native_progress_from_snapshot(
+    progress: &SnapshotSidebarProgressState,
+) -> NativeSidebarProgressState {
+    NativeSidebarProgressState {
+        value: progress.value,
+        label: progress.label.clone(),
+    }
+}
+
 async fn set_workspace_unread(ws: &Arc<Workspace>, unread: bool) {
     let spaces = ws.spaces.lock().await.clone();
     for space in spaces {
@@ -2670,11 +4790,21 @@ async fn set_workspace_unread(ws: &Arc<Workspace>, unread: bool) {
     }
 }
 
+fn command_workspace_description(description: Option<String>) -> Option<String> {
+    description.and_then(|value| {
+        let trimmed = value.trim();
+        (!trimmed.is_empty()).then(|| trimmed.to_string())
+    })
+}
+
 // ----------------------------- Window view -----------------------------
 
 #[derive(Debug, Clone)]
 struct WindowState {
+    external_window_id: String,
     active_ws_id: u64,
+    last_ws_id: Option<u64>,
+    workspace_ids: Option<Vec<u64>>,
     active_space_by_ws: HashMap<u64, SpaceId>,
     active_panel_by_space: HashMap<SpaceId, PanelId>,
     active_tab_by_panel: HashMap<PanelRef, TabId>,
@@ -2686,8 +4816,21 @@ struct WindowState {
 impl WindowState {
     async fn new(daemon: &Daemon) -> Self {
         let active_ws_id = daemon.active_ws_rx.borrow().id;
+        let external_window_id = daemon
+            .native_window_ids()
+            .await
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| window_external_id(0));
+        Self::new_with_window_id(active_ws_id, external_window_id)
+    }
+
+    fn new_with_window_id(active_ws_id: u64, external_window_id: String) -> Self {
         Self {
+            external_window_id,
             active_ws_id,
+            last_ws_id: None,
+            workspace_ids: None,
             active_space_by_ws: HashMap::new(),
             active_panel_by_space: HashMap::new(),
             active_tab_by_panel: HashMap::new(),
@@ -2697,9 +4840,77 @@ impl WindowState {
         }
     }
 
+    fn is_workspace_member(&self, workspace_id: u64) -> bool {
+        self.workspace_ids
+            .as_ref()
+            .is_none_or(|ids| ids.contains(&workspace_id))
+    }
+
+    fn add_workspace_member(&mut self, workspace_id: u64) {
+        let ids = self.workspace_ids.get_or_insert_with(Vec::new);
+        if !ids.contains(&workspace_id) {
+            ids.push(workspace_id);
+        }
+    }
+
+    fn set_active_workspace_id(&mut self, workspace_id: u64) {
+        if self.active_ws_id != workspace_id {
+            self.last_ws_id = Some(self.active_ws_id);
+            self.active_ws_id = workspace_id;
+        }
+    }
+
+    fn remove_workspace_member(&mut self, workspace_id: u64) {
+        if let Some(ids) = self.workspace_ids.as_mut() {
+            ids.retain(|id| *id != workspace_id);
+        }
+    }
+
+    async fn new_for_native_client(daemon: &Daemon, window_id: Option<String>) -> Self {
+        let active_ws_id = daemon.active_ws_rx.borrow().id;
+        if let Some(window_id) = window_id.as_deref().and_then(clean_window_ref) {
+            if let Some(window) = daemon.native_window_state(window_id).await {
+                return window;
+            }
+        }
+        let external_window_id = window_id
+            .as_deref()
+            .and_then(clean_window_ref)
+            .map(str::to_string)
+            .unwrap_or_else(|| window_external_id(0));
+        Self::new_with_window_id(active_ws_id, external_window_id)
+    }
+
+    async fn new_for_compatibility(daemon: &Arc<Daemon>, window_id: Option<&str>) -> Self {
+        let active_ws_id = daemon.active_ws_rx.borrow().id;
+        if let Some(window_id) = window_id.and_then(clean_window_ref) {
+            if let Some(window) = daemon.native_window_state(window_id).await {
+                return window;
+            }
+            return Self::new_with_window_id(active_ws_id, window_id.to_string());
+        }
+        if let Some(window_id) = daemon.native_window_ids().await.into_iter().next() {
+            if let Some(window) = daemon.native_window_state(&window_id).await {
+                return window;
+            }
+            return Self::new_with_window_id(active_ws_id, window_id);
+        }
+        Self::new_with_window_id(active_ws_id, window_external_id(0))
+    }
+
     async fn active_workspace(&mut self, daemon: &Daemon) -> Result<Arc<Workspace>> {
-        if let Some(ws) = daemon.workspace_by_id(self.active_ws_id).await {
+        if self.is_workspace_member(self.active_ws_id)
+            && let Some(ws) = daemon.workspace_by_id(self.active_ws_id).await
+        {
             return Ok(ws);
+        }
+        if let Some(ids) = self.workspace_ids.as_ref() {
+            for workspace_id in ids {
+                if let Some(ws) = daemon.workspace_by_id(*workspace_id).await {
+                    self.active_ws_id = ws.id;
+                    return Ok(ws);
+                }
+            }
         }
         let ws = daemon
             .first_workspace()
@@ -2707,11 +4918,6 @@ impl WindowState {
             .ok_or_else(|| anyhow!("no workspaces"))?;
         self.active_ws_id = ws.id;
         Ok(ws)
-    }
-
-    async fn active_workspace_index(&mut self, daemon: &Daemon) -> Result<usize> {
-        let ws = self.active_workspace(daemon).await?;
-        Ok(daemon.workspace_index(ws.id).await.unwrap_or(0))
     }
 
     async fn active_space(&mut self, ws: &Arc<Workspace>) -> Result<Arc<Space>> {
@@ -2747,6 +4953,39 @@ impl WindowState {
         Ok(tab)
     }
 
+    async fn sync_from_model_focus(&mut self, daemon: &Daemon) -> Result<()> {
+        let ws = { daemon.active_ws_rx.borrow().clone() };
+        self.active_ws_id = ws.id;
+        let space = if let Some(space_id) = self.active_space_by_ws.get(&ws.id).copied() {
+            match ws.space_by_id(space_id).await {
+                Some(space) => space,
+                None => ws.first_space().await.ok_or_else(|| anyhow!("no spaces"))?,
+            }
+        } else {
+            ws.first_space().await.ok_or_else(|| anyhow!("no spaces"))?
+        };
+
+        self.active_space_by_ws.insert(ws.id, space.id);
+        self.active_tab_by_panel
+            .retain(|panel_ref, _| panel_ref.space_id != space.id);
+
+        let panel_id = space
+            .default_panel_id()
+            .await
+            .ok_or_else(|| anyhow!("no panels"))?;
+        self.active_panel_by_space.insert(space.id, panel_id);
+        let tab = space.active_tab_in_panel(panel_id).await?;
+        tab.has_activity.store(false, Ordering::Relaxed);
+        self.active_tab_by_panel.insert(
+            PanelRef {
+                space_id: space.id,
+                panel_id,
+            },
+            tab.id,
+        );
+        Ok(())
+    }
+
     async fn active_panel(&mut self, space: &Arc<Space>) -> Result<PanelId> {
         if let Some(panel_id) = self.active_panel_by_space.get(&space.id).copied()
             && space.panels.lock().await.contains_panel(panel_id)
@@ -2762,13 +5001,36 @@ impl WindowState {
     }
 
     async fn select_workspace(&mut self, daemon: &Daemon, index: usize) -> Result<Arc<Workspace>> {
-        let ws = daemon.workspace_at(index).await?;
-        self.active_ws_id = ws.id;
+        let workspace_ids = self.workspace_ids.clone();
+        let ws = match workspace_ids {
+            Some(ids) => {
+                let workspace_id = *ids
+                    .get(index)
+                    .ok_or_else(|| anyhow!("no workspace at index {index}"))?;
+                daemon
+                    .workspace_by_id(workspace_id)
+                    .await
+                    .ok_or_else(|| anyhow!("no workspace at index {index}"))?
+            }
+            None => daemon.workspace_at(index).await?,
+        };
+        self.set_active_workspace_id(ws.id);
         Ok(ws)
     }
 
     async fn offset_workspace(&mut self, daemon: &Daemon, offset: i32) -> Result<Arc<Workspace>> {
-        let workspaces = daemon.workspaces.lock().await;
+        let workspaces = match self.workspace_ids.clone() {
+            Some(ids) => {
+                let mut out = Vec::with_capacity(ids.len());
+                for workspace_id in ids {
+                    if let Some(workspace) = daemon.workspace_by_id(workspace_id).await {
+                        out.push(workspace);
+                    }
+                }
+                out
+            }
+            None => daemon.workspaces.lock().await.clone(),
+        };
         if workspaces.is_empty() {
             bail!("no workspaces");
         }
@@ -2779,8 +5041,25 @@ impl WindowState {
         let len = workspaces.len() as i32;
         let next = ((current_idx as i32 + offset).rem_euclid(len)) as usize;
         let ws = workspaces[next].clone();
-        drop(workspaces);
-        self.active_ws_id = ws.id;
+        self.set_active_workspace_id(ws.id);
+        Ok(ws)
+    }
+
+    async fn select_last_workspace(&mut self, daemon: &Daemon) -> Result<Arc<Workspace>> {
+        let Some(last_id) = self.last_ws_id else {
+            bail!("no previous workspace in history");
+        };
+        if last_id == self.active_ws_id {
+            bail!("no previous workspace in history");
+        }
+        if !self.is_workspace_member(last_id) {
+            bail!("previous workspace is not in this window");
+        }
+        let ws = daemon
+            .workspace_by_id(last_id)
+            .await
+            .ok_or_else(|| anyhow!("previous workspace no longer exists"))?;
+        self.set_active_workspace_id(ws.id);
         Ok(ws)
     }
 
@@ -2899,15 +5178,98 @@ impl WindowState {
     }
 }
 
+fn repair_native_window_after_workspace_removed(
+    state: &mut WindowState,
+    workspace_id: u64,
+    all_workspace_ids: &[u64],
+) {
+    state.remove_workspace_member(workspace_id);
+    if state.is_workspace_member(state.active_ws_id) {
+        return;
+    }
+    let next_workspace_id = state
+        .workspace_ids
+        .as_ref()
+        .and_then(|ids| ids.first().copied())
+        .or_else(|| {
+            all_workspace_ids
+                .iter()
+                .copied()
+                .find(|candidate| *candidate != workspace_id)
+        })
+        .or_else(|| all_workspace_ids.first().copied());
+    if let Some(next_workspace_id) = next_workspace_id {
+        state.active_ws_id = next_workspace_id;
+        state.add_workspace_member(next_workspace_id);
+    }
+}
+
+fn restored_native_window_states(
+    snapshots: &[NativeWindowSnapshot],
+    workspaces: &[Arc<Workspace>],
+    fallback_workspace_id: u64,
+) -> HashMap<String, WindowState> {
+    let workspace_by_external_id = workspaces
+        .iter()
+        .map(|workspace| (workspace.external_id.as_str(), workspace.id))
+        .collect::<HashMap<_, _>>();
+    let workspace_by_index = workspaces
+        .iter()
+        .enumerate()
+        .map(|(index, workspace)| (index, workspace.id))
+        .collect::<HashMap<_, _>>();
+    let mut states = HashMap::new();
+    for snapshot in snapshots {
+        let Some(window_id) = clean_window_ref(&snapshot.external_window_id) else {
+            continue;
+        };
+        let workspace_id = snapshot
+            .active_workspace_external_id
+            .as_deref()
+            .and_then(|external_id| workspace_by_external_id.get(external_id).copied())
+            .or_else(|| {
+                snapshot
+                    .active_workspace_index
+                    .and_then(|index| workspace_by_index.get(&index).copied())
+            })
+            .unwrap_or(fallback_workspace_id);
+        let workspace_ids = snapshot
+            .workspace_external_ids
+            .iter()
+            .filter_map(|external_id| workspace_by_external_id.get(external_id.as_str()).copied())
+            .chain(
+                snapshot
+                    .workspace_indexes
+                    .iter()
+                    .filter_map(|index| workspace_by_index.get(index).copied()),
+            )
+            .fold(Vec::<u64>::new(), |mut ids, workspace_id| {
+                if !ids.contains(&workspace_id) {
+                    ids.push(workspace_id);
+                }
+                ids
+            });
+        let mut window_state = WindowState::new_with_window_id(workspace_id, window_id.to_string());
+        if !workspace_ids.is_empty() {
+            window_state.workspace_ids = Some(workspace_ids);
+        }
+        states.insert(window_id.to_string(), window_state);
+    }
+    states
+}
+
 // ------------------------------- Daemon --------------------------------
 
 pub struct Daemon {
     workspaces: Mutex<Vec<Arc<Workspace>>>,
     active_ws_tx: watch::Sender<Arc<Workspace>>,
     active_ws_rx: watch::Receiver<Arc<Workspace>>,
-    model_tx: watch::Sender<u64>,
+    last_ws_id: AtomicU64,
     model_rx: watch::Receiver<u64>,
-    model_version: AtomicU64,
+    model_version: Arc<AtomicU64>,
+    model_notifier: ModelNotifier,
+    snapshot_rx: watch::Receiver<u64>,
+    snapshot_notifier: SnapshotNotifier,
     client_views: Mutex<HashMap<String, ClientView>>,
     shutdown_tx: watch::Sender<bool>,
     pub shutdown_rx: watch::Receiver<bool>,
@@ -2920,6 +5282,16 @@ pub struct Daemon {
     /// User-configured shell command fired on every `cmx notify`.
     /// Swapped atomically by the settings watcher on hot reload.
     notification_command: arc_swap::ArcSwapOption<String>,
+    socket_path: PathBuf,
+    compatibility_socket_path: Option<PathBuf>,
+    restored_from_snapshot: bool,
+    compatibility_notifications: Mutex<Vec<CompatibilityNotification>>,
+    next_compatibility_notification_id: AtomicU64,
+    compatibility_app_focus_override: StdMutex<Option<bool>>,
+    compatibility_flash_counts: Mutex<HashMap<TabId, u64>>,
+    compatibility_panel_snapshots: Mutex<HashMap<TabId, CompatibilityPanelSnapshotState>>,
+    compatibility_unsupported_network_requests: Mutex<HashMap<TabId, Vec<serde_json::Value>>>,
+    compatibility_feed: Mutex<CompatibilityFeedState>,
     /// Transient message shown in the status bar in place of the
     /// usual `[workspace]` label, until `expires_ms` passes. Set by
     /// `Command::DisplayMessage`, read by `build_chrome_spec`.
@@ -2929,14 +5301,131 @@ pub struct Daemon {
     terminal_theme_override: Mutex<Option<NativeTerminalThemeSet>>,
     terminal_font: Option<NativeTerminalFont>,
     terminal_cursor: Option<NativeTerminalCursor>,
+    browser_focus_generation: AtomicU64,
+    browser_focus_request: StdMutex<Option<NativeBrowserFocusRequest>>,
+    browser_focus_states: StdMutex<HashMap<TabId, bool>>,
+    native_window_states: Mutex<HashMap<String, WindowState>>,
+    closed_native_window_ids: Mutex<HashSet<String>>,
+    native_compatibility_clients: Mutex<HashMap<String, NativeCompatibilityClient>>,
+    native_compatibility_pending: Mutex<HashMap<u64, oneshot::Sender<String>>>,
+    native_compatibility_notify: Notify,
+    next_native_compatibility_request_id: AtomicU64,
+    remote_daemon_metadata: remote_daemon_manifest::RemoteDaemonMetadata,
+    remote_daemon_proxy_sessions: Mutex<HashMap<u64, remote_daemon_proxy::RemoteDaemonProxyHandle>>,
+    remote_daemon_proxy_configs: Mutex<HashMap<u64, remote_daemon_proxy::RemoteDaemonProxyConfig>>,
+    remote_ssh_relay_sessions: Mutex<HashMap<u64, remote_ssh_relay::RemoteSshRelayHandle>>,
+    remote_ssh_relay_configs: Mutex<HashMap<u64, remote_ssh_relay::RemoteSshRelayConfig>>,
+    remote_ssh_port_poll_sessions: Mutex<HashMap<u64, task::JoinHandle<()>>>,
+    remote_ssh_drop_upload_sessions: Mutex<HashMap<String, watch::Sender<bool>>>,
+    remote_reconnect_sessions: Mutex<HashMap<u64, task::JoinHandle<()>>>,
+    remote_reconnect_attempts: Mutex<HashMap<u64, u32>>,
+    remote_ephemeral_configs: Mutex<HashMap<u64, serde_json::Value>>,
 }
 
 #[derive(Debug, Clone)]
 struct ClientView {
     kind: AttachedClientKind,
+    window_id: Option<String>,
     terminals: Vec<(TabId, Rect)>,
     updated_at_ms: u64,
     latency_ms: Option<u32>,
+}
+
+#[derive(Debug, Clone)]
+struct CompatibilityNotification {
+    id: String,
+    workspace_ref: String,
+    surface_ref: Option<String>,
+    is_read: bool,
+    title: String,
+    subtitle: String,
+    body: String,
+}
+
+#[derive(Debug, Clone)]
+struct CompatibilityPanelSnapshotState {
+    width: usize,
+    height: usize,
+    text: String,
+}
+
+#[derive(Debug, Default)]
+struct CompatibilityFeedState {
+    items: Vec<CompatibilityFeedItem>,
+    waiters: HashMap<String, oneshot::Sender<CompatibilityFeedDecision>>,
+}
+
+#[derive(Debug, Clone)]
+struct CompatibilityFeedItem {
+    id: String,
+    workstream_id: String,
+    source: String,
+    kind: String,
+    created_at_ms: u64,
+    updated_at_ms: u64,
+    cwd: Option<String>,
+    title: Option<String>,
+    request_id: Option<String>,
+    hook_event_name: String,
+    tool_name: Option<String>,
+    tool_input: Option<String>,
+    event: serde_json::Value,
+    status: CompatibilityFeedItemStatus,
+}
+
+#[derive(Debug, Clone)]
+enum CompatibilityFeedItemStatus {
+    Pending,
+    Resolved {
+        decision: CompatibilityFeedDecision,
+        at_ms: u64,
+    },
+    Expired {
+        at_ms: u64,
+    },
+    Telemetry,
+}
+
+#[derive(Debug, Clone)]
+enum CompatibilityFeedDecision {
+    Permission {
+        mode: String,
+    },
+    Question {
+        selections: Vec<String>,
+    },
+    ExitPlan {
+        mode: String,
+        feedback: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CompatibilitySocketMode {
+    Off,
+    CmuxOnly,
+    Automation,
+    Password,
+    AllowAll,
+}
+
+impl CompatibilitySocketMode {
+    fn requires_password(self) -> bool {
+        self == Self::Password
+    }
+}
+
+#[derive(Debug, Clone)]
+struct NativeCompatibilityRpcRequest {
+    request_id: u64,
+    request_json: String,
+}
+
+#[derive(Clone)]
+struct NativeCompatibilityClient {
+    tx: mpsc::UnboundedSender<NativeCompatibilityRpcRequest>,
+    window_id: Option<String>,
+    capabilities: Vec<String>,
 }
 
 fn prune_stale_client_views(views: &mut HashMap<String, ClientView>) {
@@ -2956,6 +5445,83 @@ struct Buffer {
     data: String,
 }
 
+#[derive(Clone)]
+struct ModelNotifier {
+    tx: watch::Sender<u64>,
+    version: Arc<AtomicU64>,
+}
+
+impl ModelNotifier {
+    fn new(tx: watch::Sender<u64>, version: Arc<AtomicU64>) -> Self {
+        Self { tx, version }
+    }
+
+    fn wake(&self) {
+        let next = self.version.fetch_add(1, Ordering::Relaxed) + 1;
+        self.tx.send(next).ok();
+    }
+}
+
+#[derive(Clone)]
+struct SnapshotNotifier {
+    tx: watch::Sender<u64>,
+    version: Arc<AtomicU64>,
+}
+
+impl SnapshotNotifier {
+    fn new(tx: watch::Sender<u64>, version: Arc<AtomicU64>) -> Self {
+        Self { tx, version }
+    }
+
+    fn wake(&self) {
+        let next = self.version.fetch_add(1, Ordering::Relaxed) + 1;
+        self.tx.send(next).ok();
+    }
+}
+
+#[derive(Clone)]
+struct PtyReplaySnapshotWake {
+    notifier: SnapshotNotifier,
+    last_wake_ms: Arc<AtomicU64>,
+}
+
+impl PtyReplaySnapshotWake {
+    fn new(notifier: SnapshotNotifier) -> Self {
+        Self {
+            notifier,
+            last_wake_ms: Arc::new(AtomicU64::new(0)),
+        }
+    }
+
+    fn wake_if_due(&self) {
+        let now_ms = now_unix_millis();
+        let mut last_ms = self.last_wake_ms.load(Ordering::Relaxed);
+        loop {
+            if now_ms.saturating_sub(last_ms) < PTY_REPLAY_SNAPSHOT_WAKE_MIN_INTERVAL_MS {
+                return;
+            }
+            match self.last_wake_ms.compare_exchange_weak(
+                last_ms,
+                now_ms,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => {
+                    self.notifier.wake();
+                    return;
+                }
+                Err(observed) => last_ms = observed,
+            }
+        }
+    }
+
+    fn wake_now(&self) {
+        self.last_wake_ms
+            .store(now_unix_millis(), Ordering::Relaxed);
+        self.notifier.wake();
+    }
+}
+
 /// Cap on how many buffers the server keeps. Configurable in M8.
 const MAX_BUFFERS: usize = 50;
 
@@ -2965,35 +5531,91 @@ const BUFFER_PREVIEW_CHARS: usize = 60;
 #[allow(dead_code)]
 impl Daemon {
     async fn start(opts: &ServerOptions, broker: Arc<RenderBroker>) -> Result<Arc<Self>> {
+        let terminal_cursor = {
+            let cursor = ghostty_theme::load_terminal_cursor();
+            ghostty_theme::cursor_has_any_setting(&cursor).then_some(cursor)
+        };
+        let shell_integration = ghostty_theme::load_terminal_shell_integration();
         let spawn_opts = TabSpawnOptions {
             shell: opts.shell.clone(),
             fallback_cwd: opts.cwd.clone(),
             initial_viewport: opts.initial_viewport,
+            terminal_cursor: terminal_cursor.clone(),
+            shell_integration,
+            extra_env: BTreeMap::new(),
         };
         let terminal_theme = ghostty_theme::load_terminal_theme()
             .as_ref()
             .map(active_terminal_theme_set_for_host);
         broker.set_default_colors(terminal_default_colors_from_theme(terminal_theme.as_ref()));
+        broker.set_default_cursor(terminal_cursor.clone());
+        let (model_tx, model_rx) = watch::channel(0);
+        let model_version = Arc::new(AtomicU64::new(0));
+        let model_notifier = ModelNotifier::new(model_tx.clone(), model_version.clone());
+        let (snapshot_tx, snapshot_rx) = watch::channel(0);
+        let snapshot_version = Arc::new(AtomicU64::new(0));
+        let snapshot_notifier =
+            SnapshotNotifier::new(snapshot_tx.clone(), snapshot_version.clone());
 
         // If a snapshot exists, load it. Otherwise, start fresh.
         let loaded: Option<Snapshot> = opts.snapshot_path.as_deref().and_then(snapshot::load);
+        let restored_from_snapshot = loaded.is_some();
 
-        let (workspaces, active_idx, next_id) = if let Some(snap) = loaded {
+        let (workspaces, active_idx, next_id) = if let Some(snap) = loaded.as_ref() {
             let mut workspaces = Vec::with_capacity(snap.workspaces.len());
             let mut next_id = 0u64;
+            let mut used_workspace_ids = HashSet::new();
+            let mut used_workspace_external_ids = HashSet::new();
             for ws_snap in &snap.workspaces {
-                let ws =
-                    Workspace::from_snapshot(next_id, ws_snap, spawn_opts.clone(), broker.clone())?;
+                let preferred_id = ws_snap
+                    .external_id
+                    .as_deref()
+                    .and_then(|external_id| cmx_external_uuid_id(external_id, 1));
+                let workspace_id = match preferred_id {
+                    Some(id) if !used_workspace_ids.contains(&id) => id,
+                    _ => {
+                        while used_workspace_ids.contains(&next_id) {
+                            next_id = next_id.saturating_add(1);
+                        }
+                        next_id
+                    }
+                };
+                used_workspace_ids.insert(workspace_id);
+                next_id = next_id.max(workspace_id.saturating_add(1));
+                let mut ws_snap = ws_snap.clone();
+                let preserve_external_id =
+                    ws_snap.external_id.as_deref().is_some_and(|external_id| {
+                        !used_workspace_external_ids.contains(external_id)
+                            && cmx_external_uuid_id(external_id, 1)
+                                .is_none_or(|id| id == workspace_id)
+                    });
+                if !preserve_external_id {
+                    ws_snap.external_id = Some(workspace_external_id(workspace_id));
+                }
+                if let Some(external_id) = ws_snap.external_id.clone() {
+                    used_workspace_external_ids.insert(external_id);
+                }
+                let ws = Workspace::from_snapshot(
+                    workspace_id,
+                    &ws_snap,
+                    spawn_opts.clone(),
+                    broker.clone(),
+                    model_notifier.clone(),
+                    snapshot_notifier.clone(),
+                )?;
                 workspaces.push(ws);
-                next_id += 1;
             }
             if workspaces.is_empty() {
                 let ws = Workspace::new_with_seed_space(
                     0,
                     "main",
                     spawn_opts.fallback_cwd.clone(),
+                    BTreeMap::new(),
+                    None,
                     spawn_opts.clone(),
                     broker.clone(),
+                    model_notifier.clone(),
+                    snapshot_notifier.clone(),
                 )?;
                 (vec![ws], 0, 1u64)
             } else {
@@ -3005,15 +5627,26 @@ impl Daemon {
                 0,
                 "main",
                 spawn_opts.fallback_cwd.clone(),
+                BTreeMap::new(),
+                None,
                 spawn_opts.clone(),
                 broker.clone(),
+                model_notifier.clone(),
+                snapshot_notifier.clone(),
             )?;
             (vec![ws], 0, 1u64)
         };
 
         let active_ws = workspaces[active_idx].clone();
+        let native_window_states = restored_native_window_states(
+            loaded
+                .as_ref()
+                .map(|snapshot| snapshot.native_windows.as_slice())
+                .unwrap_or(&[]),
+            &workspaces,
+            active_ws.id,
+        );
         let (active_ws_tx, active_ws_rx) = watch::channel(active_ws);
-        let (model_tx, model_rx) = watch::channel(0);
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
         let initial_settings = opts
@@ -3030,18 +5663,16 @@ impl Daemon {
             let font = ghostty_theme::load_terminal_font();
             ghostty_theme::font_has_any_setting(&font).then_some(font)
         };
-        let terminal_cursor = {
-            let cursor = ghostty_theme::load_terminal_cursor();
-            ghostty_theme::cursor_has_any_setting(&cursor).then_some(cursor)
-        };
-
         let daemon = Arc::new(Self {
             workspaces: Mutex::new(workspaces.clone()),
             active_ws_tx,
             active_ws_rx,
-            model_tx,
+            last_ws_id: AtomicU64::new(0),
             model_rx,
-            model_version: AtomicU64::new(0),
+            model_version,
+            model_notifier,
+            snapshot_rx,
+            snapshot_notifier,
             client_views: Mutex::new(HashMap::new()),
             shutdown_tx,
             shutdown_rx,
@@ -3052,12 +5683,42 @@ impl Daemon {
             keybinds_tx,
             keybinds_rx,
             notification_command,
+            socket_path: opts.socket_path.clone(),
+            compatibility_socket_path: opts.compatibility_socket_path.clone(),
+            restored_from_snapshot,
+            compatibility_notifications: Mutex::new(Vec::new()),
+            next_compatibility_notification_id: AtomicU64::new(1),
+            compatibility_app_focus_override: StdMutex::new(None),
+            compatibility_flash_counts: Mutex::new(HashMap::new()),
+            compatibility_panel_snapshots: Mutex::new(HashMap::new()),
+            compatibility_unsupported_network_requests: Mutex::new(HashMap::new()),
+            compatibility_feed: Mutex::new(CompatibilityFeedState::default()),
             display_message: Mutex::new(None),
             broker,
             terminal_theme,
             terminal_theme_override: Mutex::new(None),
             terminal_font,
             terminal_cursor,
+            browser_focus_generation: AtomicU64::new(0),
+            browser_focus_request: StdMutex::new(None),
+            browser_focus_states: StdMutex::new(HashMap::new()),
+            native_window_states: Mutex::new(native_window_states),
+            closed_native_window_ids: Mutex::new(HashSet::new()),
+            native_compatibility_clients: Mutex::new(HashMap::new()),
+            native_compatibility_pending: Mutex::new(HashMap::new()),
+            native_compatibility_notify: Notify::new(),
+            next_native_compatibility_request_id: AtomicU64::new(1),
+            remote_daemon_metadata: remote_daemon_manifest::RemoteDaemonMetadata::from_environment(
+            ),
+            remote_daemon_proxy_sessions: Mutex::new(HashMap::new()),
+            remote_daemon_proxy_configs: Mutex::new(HashMap::new()),
+            remote_ssh_relay_sessions: Mutex::new(HashMap::new()),
+            remote_ssh_relay_configs: Mutex::new(HashMap::new()),
+            remote_ssh_port_poll_sessions: Mutex::new(HashMap::new()),
+            remote_ssh_drop_upload_sessions: Mutex::new(HashMap::new()),
+            remote_reconnect_sessions: Mutex::new(HashMap::new()),
+            remote_reconnect_attempts: Mutex::new(HashMap::new()),
+            remote_ephemeral_configs: Mutex::new(HashMap::new()),
         });
         for ws in workspaces {
             daemon.clone().spawn_workspace_reaper(ws);
@@ -3066,12 +5727,83 @@ impl Daemon {
     }
 
     fn wake_model(&self) {
-        let next = self.model_version.fetch_add(1, Ordering::Relaxed) + 1;
-        self.model_tx.send(next).ok();
+        self.model_notifier.wake();
     }
 
     fn model_rx(&self) -> watch::Receiver<u64> {
         self.model_rx.clone()
+    }
+
+    fn snapshot_rx(&self) -> watch::Receiver<u64> {
+        self.snapshot_rx.clone()
+    }
+
+    fn spawn_snapshot_autosaver(self: Arc<Self>) -> Option<task::JoinHandle<()>> {
+        let path = self.snapshot_path.clone()?;
+        Some(task::spawn(async move {
+            let mut model_rx = self.model_rx();
+            let mut snapshot_rx = self.snapshot_rx();
+            let mut shutdown_rx = self.shutdown_rx.clone();
+            loop {
+                tokio::select! {
+                    biased;
+                    changed = shutdown_rx.changed() => {
+                        if changed.is_err() || *shutdown_rx.borrow() {
+                            if let Err(e) = self.save_snapshot(&path).await {
+                                tracing::warn!(error = %e, "snapshot autosave on shutdown failed");
+                            }
+                            return;
+                        }
+                    }
+                    changed = model_rx.changed() => {
+                        if changed.is_err() {
+                            return;
+                        }
+                    }
+                    changed = snapshot_rx.changed() => {
+                        if changed.is_err() {
+                            return;
+                        }
+                    }
+                }
+
+                loop {
+                    let debounce =
+                        tokio::time::sleep(Duration::from_millis(SNAPSHOT_AUTOSAVE_DEBOUNCE_MS));
+                    tokio::pin!(debounce);
+                    tokio::select! {
+                        biased;
+                        changed = shutdown_rx.changed() => {
+                            if changed.is_err() || *shutdown_rx.borrow() {
+                                if let Err(e) = self.save_snapshot(&path).await {
+                                    tracing::warn!(error = %e, "snapshot autosave on shutdown failed");
+                                }
+                                return;
+                            }
+                        }
+                        changed = model_rx.changed() => {
+                            if changed.is_err() {
+                                return;
+                            }
+                            continue;
+                        }
+                        changed = snapshot_rx.changed() => {
+                            if changed.is_err() {
+                                return;
+                            }
+                            continue;
+                        }
+                        _ = &mut debounce => {
+                            break;
+                        }
+                    }
+                }
+
+                if let Err(e) = self.save_snapshot(&path).await {
+                    tracing::warn!(error = %e, "snapshot autosave failed");
+                }
+            }
+        }))
     }
 
     async fn first_workspace(&self) -> Option<Arc<Workspace>> {
@@ -3105,36 +5837,90 @@ impl Daemon {
     }
 
     async fn workspace_list_with_active(&self, active_ws_id: u64) -> (Vec<WorkspaceInfo>, usize) {
+        self.workspace_list_with_active_filtered(active_ws_id, None)
+            .await
+    }
+
+    async fn workspace_list_with_active_filtered(
+        &self,
+        active_ws_id: u64,
+        workspace_filter: Option<&HashSet<u64>>,
+    ) -> (Vec<WorkspaceInfo>, usize) {
         let workspaces = self.workspaces.lock().await;
         let mut infos = Vec::with_capacity(workspaces.len());
         let mut active = 0usize;
-        for (i, w) in workspaces.iter().enumerate() {
+        for w in workspaces.iter() {
+            if workspace_filter.is_some_and(|filter| !filter.contains(&w.id)) {
+                continue;
+            }
             if w.id == active_ws_id {
-                active = i;
+                active = infos.len();
             }
             let title = w.title.lock().await.clone();
+            let description = w.description.lock().await.clone();
+            let latest_submitted_message = w.latest_submitted_message.lock().await.clone();
             let spaces = w.spaces.lock().await;
             let space_count = spaces.len();
+            let mut tab_count = 0usize;
             let mut terminal_count = 0usize;
             for space in spaces.iter() {
-                terminal_count += space.tabs.lock().await.len();
+                let tabs = space.tabs.lock().await;
+                tab_count += tabs.len();
+                terminal_count += tabs
+                    .iter()
+                    .filter(|tab| tab.kind == SnapshotTabKind::Terminal)
+                    .count();
             }
             drop(spaces);
             let (has_activity, bell_count) = workspace_activity_summary(w).await;
             let color = w.color.lock().await.clone();
+            let remote_status_json = w.remote_status_json.lock().await.clone();
+            let (status_entries, metadata_blocks, log_entries, progress) =
+                workspace_sidebar_state(w).await;
             infos.push(WorkspaceInfo {
                 id: w.id,
+                external_id: Some(w.external_id.clone()),
                 title,
+                description,
+                latest_submitted_message,
                 space_count,
-                tab_count: terminal_count,
+                tab_count,
                 terminal_count,
                 pinned: w.pinned.load(Ordering::Relaxed),
                 has_activity,
                 bell_count,
                 color,
+                remote_status_json,
+                status_entries,
+                metadata_blocks,
+                log_entries,
+                progress,
             });
         }
         (infos, active)
+    }
+
+    async fn workspace_id_set_for_window(&self, window: &WindowState) -> Option<HashSet<u64>> {
+        let ids = window.workspace_ids.as_ref()?;
+        Some(ids.iter().copied().collect())
+    }
+
+    async fn workspace_list_for_window(&self, window: &WindowState) -> (Vec<WorkspaceInfo>, usize) {
+        let filter = self.workspace_id_set_for_window(window).await;
+        self.workspace_list_with_active_filtered(window.active_ws_id, filter.as_ref())
+            .await
+    }
+
+    async fn workspace_list_for_window_id(&self, window_id: &str) -> (Vec<WorkspaceInfo>, usize) {
+        let active_ws_id = self.active_ws_rx.borrow().id;
+        let mut window = self
+            .native_window_state(window_id)
+            .await
+            .unwrap_or_else(|| {
+                WindowState::new_with_window_id(active_ws_id, window_id.to_string())
+            });
+        let _ = window.active_workspace(self).await;
+        self.workspace_list_for_window(&window).await
     }
 
     async fn update_client_view(
@@ -3158,6 +5944,7 @@ impl Daemon {
                     client_id.to_string(),
                     ClientView {
                         kind: AttachedClientKind::Tui,
+                        window_id: None,
                         terminals: panes,
                         updated_at_ms: now,
                         latency_ms,
@@ -3185,9 +5972,448 @@ impl Daemon {
         }
     }
 
+    async fn register_native_compatibility_client(
+        &self,
+        client_id: String,
+        tx: mpsc::UnboundedSender<NativeCompatibilityRpcRequest>,
+        window_id: Option<String>,
+        capabilities: Vec<String>,
+    ) {
+        self.native_compatibility_clients.lock().await.insert(
+            client_id,
+            NativeCompatibilityClient {
+                tx,
+                window_id,
+                capabilities,
+            },
+        );
+        self.native_compatibility_notify.notify_waiters();
+    }
+
+    async fn remove_native_compatibility_client(&self, client_id: &str) {
+        self.native_compatibility_clients
+            .lock()
+            .await
+            .remove(client_id);
+    }
+
+    async fn dispatch_native_compatibility_v2_request(
+        &self,
+        request_json: String,
+    ) -> std::result::Result<String, String> {
+        let request_id = self
+            .next_native_compatibility_request_id
+            .fetch_add(1, Ordering::Relaxed);
+        let (reply_tx, reply_rx) = oneshot::channel();
+        {
+            let mut pending = self.native_compatibility_pending.lock().await;
+            pending.insert(request_id, reply_tx);
+        }
+        let target = self.native_compatibility_target().await;
+        let target = if target.is_some() {
+            target
+        } else {
+            self.wait_for_native_compatibility_target().await
+        };
+        let Some(target) = target else {
+            self.native_compatibility_pending
+                .lock()
+                .await
+                .remove(&request_id);
+            return Err("no native desktop compatibility bridge is connected".to_string());
+        };
+        if target
+            .send(NativeCompatibilityRpcRequest {
+                request_id,
+                request_json,
+            })
+            .is_err()
+        {
+            self.native_compatibility_pending
+                .lock()
+                .await
+                .remove(&request_id);
+            return Err("native desktop compatibility bridge is disconnected".to_string());
+        }
+        match tokio::time::timeout(
+            Duration::from_millis(NATIVE_COMPATIBILITY_RPC_TIMEOUT_MS),
+            reply_rx,
+        )
+        .await
+        {
+            Ok(Ok(response_json)) => Ok(response_json),
+            Ok(Err(_)) => Err("native desktop compatibility bridge closed the request".to_string()),
+            Err(_) => {
+                self.native_compatibility_pending
+                    .lock()
+                    .await
+                    .remove(&request_id);
+                Err("native desktop compatibility bridge timed out".to_string())
+            }
+        }
+    }
+
+    async fn native_compatibility_target(
+        &self,
+    ) -> Option<mpsc::UnboundedSender<NativeCompatibilityRpcRequest>> {
+        let clients = self.native_compatibility_clients.lock().await;
+        clients
+            .iter()
+            .min_by(|(lhs, _), (rhs, _)| lhs.cmp(rhs))
+            .map(|(_, client)| client.tx.clone())
+    }
+
+    async fn native_compatibility_client_count(&self) -> usize {
+        self.native_compatibility_clients.lock().await.len()
+    }
+
+    async fn native_compatibility_client_summaries(&self) -> Vec<serde_json::Value> {
+        let clients = self.native_compatibility_clients.lock().await;
+        let mut summaries = clients
+            .iter()
+            .map(|(client_id, client)| {
+                serde_json::json!({
+                    "clientId": client_id,
+                    "windowId": client.window_id.clone(),
+                    "capabilities": client.capabilities.clone(),
+                })
+            })
+            .collect::<Vec<_>>();
+        summaries.sort_by(|lhs, rhs| {
+            lhs.get("clientId")
+                .and_then(serde_json::Value::as_str)
+                .cmp(&rhs.get("clientId").and_then(serde_json::Value::as_str))
+        });
+        summaries
+    }
+
+    async fn native_window_ids(&self) -> Vec<String> {
+        let mut window_ids = BTreeSet::new();
+        {
+            let clients = self.native_compatibility_clients.lock().await;
+            for client in clients.values() {
+                if let Some(window_id) = client.window_id.as_deref().and_then(clean_window_ref) {
+                    window_ids.insert(window_id.to_string());
+                }
+            }
+        }
+        {
+            let mut views = self.client_views.lock().await;
+            prune_stale_client_views(&mut views);
+            for view in views.values() {
+                if view.kind != AttachedClientKind::Native {
+                    continue;
+                }
+                if let Some(window_id) = view.window_id.as_deref().and_then(clean_window_ref) {
+                    window_ids.insert(window_id.to_string());
+                }
+            }
+        }
+        {
+            let states = self.native_window_states.lock().await;
+            for window_id in states.keys() {
+                if let Some(window_id) = clean_window_ref(window_id) {
+                    window_ids.insert(window_id.to_string());
+                }
+            }
+        }
+        {
+            let closed = self.closed_native_window_ids.lock().await;
+            window_ids.retain(|window_id| !closed.contains(window_id));
+        }
+        window_ids.into_iter().collect()
+    }
+
+    async fn update_native_window_state(&self, window: &WindowState) {
+        let Some(window_id) = clean_window_ref(&window.external_window_id) else {
+            return;
+        };
+        if self
+            .closed_native_window_ids
+            .lock()
+            .await
+            .contains(window_id)
+        {
+            return;
+        }
+        let mut states = self.native_window_states.lock().await;
+        let existing = states.get(window_id).cloned();
+        let mut next = window.clone();
+        if let Some(ids) = next.workspace_ids.as_mut() {
+            if let Some(existing_ids) = existing
+                .as_ref()
+                .and_then(|state| state.workspace_ids.as_ref())
+            {
+                for workspace_id in existing_ids {
+                    if !ids.contains(workspace_id) {
+                        ids.push(*workspace_id);
+                    }
+                }
+            }
+            let existing_members = existing
+                .as_ref()
+                .and_then(|state| state.workspace_ids.as_ref())
+                .map(|ids| ids.iter().copied().collect::<HashSet<_>>())
+                .unwrap_or_default();
+            let owned_by_other = states
+                .iter()
+                .filter(|(state_window_id, _)| state_window_id.as_str() != window_id)
+                .filter_map(|(_, state)| state.workspace_ids.as_ref())
+                .flat_map(|ids| ids.iter().copied())
+                .collect::<HashSet<_>>();
+            ids.retain(|workspace_id| {
+                !owned_by_other.contains(workspace_id) || existing_members.contains(workspace_id)
+            });
+            if !ids.contains(&next.active_ws_id) {
+                next.active_ws_id = existing
+                    .as_ref()
+                    .and_then(|state| {
+                        ids.contains(&state.active_ws_id)
+                            .then_some(state.active_ws_id)
+                    })
+                    .or_else(|| ids.first().copied())
+                    .unwrap_or(next.active_ws_id);
+            }
+            if let Some(existing) = existing.as_ref() {
+                if ids.contains(&existing.active_ws_id) {
+                    next.active_ws_id = existing.active_ws_id;
+                }
+                if existing
+                    .last_ws_id
+                    .is_some_and(|last_ws_id| ids.contains(&last_ws_id))
+                {
+                    next.last_ws_id = existing.last_ws_id;
+                }
+            }
+        }
+        states.insert(window_id.to_string(), next);
+    }
+
+    async fn native_window_state(&self, window_id: &str) -> Option<WindowState> {
+        let window_id = clean_window_ref(window_id)?;
+        if self
+            .closed_native_window_ids
+            .lock()
+            .await
+            .contains(window_id)
+        {
+            return None;
+        }
+        self.native_window_states
+            .lock()
+            .await
+            .get(window_id)
+            .cloned()
+    }
+
+    async fn set_native_window_active_workspace(&self, window_id: &str, workspace_id: u64) {
+        let all_workspace_ids = self
+            .workspaces
+            .lock()
+            .await
+            .iter()
+            .map(|workspace| workspace.id)
+            .collect::<Vec<_>>();
+        let Some(window_id) = clean_window_ref(window_id) else {
+            return;
+        };
+        if self
+            .closed_native_window_ids
+            .lock()
+            .await
+            .contains(window_id)
+        {
+            return;
+        }
+        let mut states = self.native_window_states.lock().await;
+        let state = states.entry(window_id.to_string()).or_insert_with(|| {
+            WindowState::new_with_window_id(workspace_id, window_id.to_string())
+        });
+        state.set_active_workspace_id(workspace_id);
+        state.add_workspace_member(workspace_id);
+        for (state_window_id, state) in states.iter_mut() {
+            if state_window_id == window_id {
+                continue;
+            }
+            repair_native_window_after_workspace_removed(state, workspace_id, &all_workspace_ids);
+        }
+        self.snapshot_notifier.wake();
+    }
+
+    async fn add_workspace_to_native_window(&self, window_id: &str, workspace_id: u64) {
+        self.ensure_native_window_memberships_initialized().await;
+        let all_workspace_ids = self
+            .workspaces
+            .lock()
+            .await
+            .iter()
+            .map(|workspace| workspace.id)
+            .collect::<Vec<_>>();
+        let Some(window_id) = clean_window_ref(window_id) else {
+            return;
+        };
+        if self
+            .closed_native_window_ids
+            .lock()
+            .await
+            .contains(window_id)
+        {
+            return;
+        }
+        let active_ws_id = self.active_ws_rx.borrow().id;
+        let mut states = self.native_window_states.lock().await;
+        let state = states.entry(window_id.to_string()).or_insert_with(|| {
+            WindowState::new_with_window_id(active_ws_id, window_id.to_string())
+        });
+        state.add_workspace_member(workspace_id);
+        for (state_window_id, state) in states.iter_mut() {
+            if state_window_id == window_id {
+                continue;
+            }
+            repair_native_window_after_workspace_removed(state, workspace_id, &all_workspace_ids);
+        }
+        self.snapshot_notifier.wake();
+    }
+
+    async fn ensure_native_window_memberships_initialized(&self) {
+        let workspace_ids = self
+            .workspaces
+            .lock()
+            .await
+            .iter()
+            .map(|workspace| workspace.id)
+            .collect::<Vec<_>>();
+        if workspace_ids.is_empty() {
+            return;
+        }
+        let workspace_id_set = workspace_ids.iter().copied().collect::<HashSet<_>>();
+        let mut states = self.native_window_states.lock().await;
+        if states.is_empty() || states.values().all(|window| window.workspace_ids.is_some()) {
+            return;
+        }
+        let mut assigned = HashSet::new();
+        for window in states.values_mut() {
+            match window.workspace_ids.as_mut() {
+                Some(ids) => {
+                    ids.retain(|workspace_id| workspace_id_set.contains(workspace_id));
+                    for workspace_id in ids.iter().copied() {
+                        assigned.insert(workspace_id);
+                    }
+                }
+                None => {
+                    let mut ids = Vec::new();
+                    if workspace_id_set.contains(&window.active_ws_id) {
+                        ids.push(window.active_ws_id);
+                        assigned.insert(window.active_ws_id);
+                    }
+                    window.workspace_ids = Some(ids);
+                }
+            }
+        }
+        let fallback_window_id = states.keys().min().cloned();
+        if let Some(fallback_window_id) = fallback_window_id
+            && let Some(fallback_window) = states.get_mut(&fallback_window_id)
+        {
+            for workspace_id in workspace_ids {
+                if assigned.insert(workspace_id) {
+                    fallback_window.add_workspace_member(workspace_id);
+                }
+            }
+        }
+        self.snapshot_notifier.wake();
+    }
+
+    async fn move_workspace_to_native_window(&self, window_id: &str, workspace_id: u64) {
+        self.ensure_native_window_memberships_initialized().await;
+        let all_workspace_ids = self
+            .workspaces
+            .lock()
+            .await
+            .iter()
+            .map(|workspace| workspace.id)
+            .collect::<Vec<_>>();
+        let Some(window_id) = clean_window_ref(window_id) else {
+            return;
+        };
+        let mut states = self.native_window_states.lock().await;
+        for (state_window_id, state) in states.iter_mut() {
+            if state_window_id == window_id {
+                state.set_active_workspace_id(workspace_id);
+                state.add_workspace_member(workspace_id);
+                continue;
+            }
+            repair_native_window_after_workspace_removed(state, workspace_id, &all_workspace_ids);
+        }
+        states.entry(window_id.to_string()).or_insert_with(|| {
+            let mut state = WindowState::new_with_window_id(workspace_id, window_id.to_string());
+            state.add_workspace_member(workspace_id);
+            state
+        });
+        self.snapshot_notifier.wake();
+    }
+
+    async fn register_native_window_state(&self, window_id: &str, workspace_id: u64) {
+        let Some(window_id) = clean_window_ref(window_id) else {
+            return;
+        };
+        self.closed_native_window_ids.lock().await.remove(window_id);
+        let mut states = self.native_window_states.lock().await;
+        let state = states.entry(window_id.to_string()).or_insert_with(|| {
+            WindowState::new_with_window_id(workspace_id, window_id.to_string())
+        });
+        state.add_workspace_member(workspace_id);
+        self.snapshot_notifier.wake();
+    }
+
+    async fn remove_native_window_state(&self, window_id: &str) {
+        let Some(window_id) = clean_window_ref(window_id) else {
+            return;
+        };
+        self.closed_native_window_ids
+            .lock()
+            .await
+            .insert(window_id.to_string());
+        self.native_window_states.lock().await.remove(window_id);
+        self.snapshot_notifier.wake();
+    }
+
+    async fn wait_for_native_compatibility_target(
+        &self,
+    ) -> Option<mpsc::UnboundedSender<NativeCompatibilityRpcRequest>> {
+        let start = Instant::now();
+        loop {
+            let notified = self.native_compatibility_notify.notified();
+            if let Some(target) = self.native_compatibility_target().await {
+                return Some(target);
+            }
+            let remaining = Duration::from_millis(NATIVE_COMPATIBILITY_BRIDGE_WAIT_MS)
+                .saturating_sub(start.elapsed());
+            if remaining.is_zero() {
+                return None;
+            }
+            let _ = tokio::time::timeout(remaining, notified).await;
+        }
+    }
+
+    async fn complete_native_compatibility_v2_request(
+        &self,
+        request_id: u64,
+        response_json: String,
+    ) {
+        let reply = self
+            .native_compatibility_pending
+            .lock()
+            .await
+            .remove(&request_id);
+        if let Some(reply) = reply {
+            let _ = reply.send(response_json);
+        }
+    }
+
     async fn update_client_native_view(
         &self,
         client_id: &str,
+        window_id: Option<&str>,
         terminals: Vec<NativeTerminalViewport>,
     ) {
         let panes: Vec<(TabId, Rect)> = terminals
@@ -3207,8 +6433,11 @@ impl Daemon {
         let changed = {
             let mut views = self.client_views.lock().await;
             let now = now_unix_millis();
+            let next_window_id = window_id.map(str::to_string);
             let changed = views.get(client_id).is_none_or(|view| {
-                view.kind != AttachedClientKind::Native || view.terminals != panes
+                view.kind != AttachedClientKind::Native
+                    || view.window_id != next_window_id
+                    || view.terminals != panes
             });
             if changed {
                 let latency_ms = views.get(client_id).and_then(|view| view.latency_ms);
@@ -3216,6 +6445,7 @@ impl Daemon {
                     client_id.to_string(),
                     ClientView {
                         kind: AttachedClientKind::Native,
+                        window_id: next_window_id,
                         terminals: panes,
                         updated_at_ms: now,
                         latency_ms,
@@ -3275,6 +6505,136 @@ impl Daemon {
             .or_else(|| self.terminal_theme.clone())
     }
 
+    async fn update_native_browser_info(
+        &self,
+        tab_id: TabId,
+        browser: NativeBrowserInfo,
+    ) -> Result<()> {
+        let tab = self
+            .tab_by_id(tab_id)
+            .await
+            .ok_or_else(|| anyhow!("no tab {tab_id}"))?;
+        tab.update_browser_info(browser)?;
+        self.wake_model();
+        self.snapshot_notifier.wake();
+        Ok(())
+    }
+
+    async fn update_native_browser_focus(
+        &self,
+        tab_id: TabId,
+        webview_focused: bool,
+    ) -> Result<()> {
+        let tab = self
+            .tab_by_id(tab_id)
+            .await
+            .ok_or_else(|| anyhow!("no tab {tab_id}"))?;
+        tab.current_browser_info()?;
+        let mut states = self
+            .browser_focus_states
+            .lock()
+            .map_err(|_| anyhow!("browser focus state is poisoned"))?;
+        states.insert(tab_id, webview_focused);
+        Ok(())
+    }
+
+    async fn browser_info(&self, tab_id: TabId) -> Result<NativeBrowserInfo> {
+        let tab = self
+            .tab_by_id(tab_id)
+            .await
+            .ok_or_else(|| anyhow!("no tab {tab_id}"))?;
+        tab.current_browser_info()
+    }
+
+    async fn browser_navigate(&self, tab_id: TabId, url: String) -> Result<NativeBrowserInfo> {
+        let tab = self
+            .tab_by_id(tab_id)
+            .await
+            .ok_or_else(|| anyhow!("no tab {tab_id}"))?;
+        let browser = tab.navigate_browser(url)?;
+        self.wake_model();
+        self.snapshot_notifier.wake();
+        Ok(browser)
+    }
+
+    async fn browser_back(&self, tab_id: TabId) -> Result<NativeBrowserInfo> {
+        let tab = self
+            .tab_by_id(tab_id)
+            .await
+            .ok_or_else(|| anyhow!("no tab {tab_id}"))?;
+        let browser = tab.browser_back()?;
+        self.wake_model();
+        self.snapshot_notifier.wake();
+        Ok(browser)
+    }
+
+    async fn browser_forward(&self, tab_id: TabId) -> Result<NativeBrowserInfo> {
+        let tab = self
+            .tab_by_id(tab_id)
+            .await
+            .ok_or_else(|| anyhow!("no tab {tab_id}"))?;
+        let browser = tab.browser_forward()?;
+        self.wake_model();
+        self.snapshot_notifier.wake();
+        Ok(browser)
+    }
+
+    async fn browser_reload(&self, tab_id: TabId) -> Result<NativeBrowserInfo> {
+        let tab = self
+            .tab_by_id(tab_id)
+            .await
+            .ok_or_else(|| anyhow!("no tab {tab_id}"))?;
+        let browser = tab.browser_reload()?;
+        self.wake_model();
+        self.snapshot_notifier.wake();
+        Ok(browser)
+    }
+
+    async fn request_browser_focus(&self, tab_id: TabId) -> Result<NativeBrowserFocusRequest> {
+        let tab = self
+            .tab_by_id(tab_id)
+            .await
+            .ok_or_else(|| anyhow!("no tab {tab_id}"))?;
+        tab.current_browser_info()?;
+        let request = NativeBrowserFocusRequest {
+            tab_id,
+            generation: self
+                .browser_focus_generation
+                .fetch_add(1, Ordering::Relaxed)
+                + 1,
+        };
+        {
+            let mut current = self
+                .browser_focus_request
+                .lock()
+                .map_err(|_| anyhow!("browser focus request state is poisoned"))?;
+            *current = Some(request.clone());
+        }
+        self.wake_model();
+        self.snapshot_notifier.wake();
+        Ok(request)
+    }
+
+    fn browser_focus_request(&self) -> Option<NativeBrowserFocusRequest> {
+        self.browser_focus_request
+            .lock()
+            .ok()
+            .and_then(|request| request.clone())
+    }
+
+    async fn browser_webview_focused(&self, tab_id: TabId) -> Result<bool> {
+        let tab = self
+            .tab_by_id(tab_id)
+            .await
+            .ok_or_else(|| anyhow!("no tab {tab_id}"))?;
+        tab.current_browser_info()?;
+        let states = self
+            .browser_focus_states
+            .lock()
+            .map_err(|_| anyhow!("browser focus state is poisoned"))?;
+        Ok(states.get(&tab_id).copied().unwrap_or(false))
+    }
+
     async fn client_latency_ms(&self, client_id: &str) -> Option<u32> {
         self.client_views
             .lock()
@@ -3303,15 +6663,18 @@ impl Daemon {
             }
         }
 
-        let workspaces = self.workspaces.lock().await;
+        let workspaces = self.workspaces.lock().await.clone();
         for ws in workspaces.iter() {
             let spaces = ws.spaces.lock().await.clone();
             for space in spaces {
-                let tabs = space.tabs.lock().await;
+                let tabs = space.tabs.lock().await.clone();
                 for tab in tabs.iter() {
                     let Some((cols, rows)) = sizes.get(&tab.id).copied() else {
                         continue;
                     };
+                    space
+                        .ensure_terminal_started_for_viewport(tab, cols, rows)
+                        .await;
                     tab.pty_tx
                         .send(PtyOp::Resize(PtySize {
                             cols,
@@ -3403,11 +6766,60 @@ impl Daemon {
             (empty, new_active)
         };
         if let Some(w) = new_active {
-            self.active_ws_tx.send(w).ok();
+            self.set_active_workspace(w);
         }
+        if let Some(handle) = self
+            .remote_daemon_proxy_sessions
+            .lock()
+            .await
+            .remove(&ws_id)
+        {
+            handle.stop();
+        }
+        if let Some(handle) = self.remote_ssh_relay_sessions.lock().await.remove(&ws_id) {
+            handle.stop();
+        }
+        if let Some(handle) = self
+            .remote_ssh_port_poll_sessions
+            .lock()
+            .await
+            .remove(&ws_id)
+        {
+            handle.abort();
+        }
+        self.remote_ssh_drop_upload_sessions
+            .lock()
+            .await
+            .retain(|operation_id, cancel_tx| {
+                let keep = !operation_id.starts_with(&format!("{ws_id}:"));
+                if !keep {
+                    let _ = cancel_tx.send(true);
+                }
+                keep
+            });
+        if let Some(handle) = self.remote_reconnect_sessions.lock().await.remove(&ws_id) {
+            handle.abort();
+        }
+        self.remote_reconnect_attempts.lock().await.remove(&ws_id);
+        self.remote_daemon_proxy_configs.lock().await.remove(&ws_id);
+        self.remote_ssh_relay_configs.lock().await.remove(&ws_id);
+        self.remote_ephemeral_configs.lock().await.remove(&ws_id);
         self.wake_model();
         if empty {
             self.shutdown_tx.send(true).ok();
+        }
+    }
+
+    fn set_active_workspace(&self, workspace: Arc<Workspace>) {
+        let current_id = self.active_ws_rx.borrow().id;
+        let changed = current_id != workspace.id;
+        if changed {
+            self.last_ws_id.store(current_id, Ordering::Relaxed);
+        }
+        self.active_ws_tx.send(workspace).ok();
+        if changed {
+            self.wake_model();
+            self.snapshot_notifier.wake();
         }
     }
 
@@ -3416,21 +6828,65 @@ impl Daemon {
         title: Option<String>,
         cwd: Option<PathBuf>,
     ) -> Result<Arc<Workspace>> {
+        self.new_workspace_with_initial(title, cwd, BTreeMap::new(), None)
+            .await
+    }
+
+    async fn new_workspace_with_initial(
+        self: Arc<Self>,
+        title: Option<String>,
+        cwd: Option<PathBuf>,
+        initial_env: BTreeMap<String, String>,
+        initial_input: Option<Vec<u8>>,
+    ) -> Result<Arc<Workspace>> {
         let id = self.next_ws_id.fetch_add(1, Ordering::Relaxed);
         let title = title.unwrap_or_else(|| format!("ws-{id}"));
         let ws = Workspace::new_with_seed_space(
             id,
             &title,
             cwd,
+            initial_env,
+            initial_input,
             self.spawn_opts.clone(),
             self.broker.clone(),
+            self.model_notifier.clone(),
+            self.snapshot_notifier.clone(),
         )?;
         {
             let mut workspaces = self.workspaces.lock().await;
             workspaces.push(ws.clone());
         }
-        self.active_ws_tx.send(ws.clone()).ok();
+        self.set_active_workspace(ws.clone());
         self.clone().spawn_workspace_reaper(ws.clone());
+        Ok(ws)
+    }
+
+    async fn new_workspace_with_existing_tab(
+        self: Arc<Self>,
+        title: Option<String>,
+        tab: Arc<Tab>,
+        activate: bool,
+    ) -> Result<Arc<Workspace>> {
+        let id = self.next_ws_id.fetch_add(1, Ordering::Relaxed);
+        let title = title.unwrap_or_else(|| format!("ws-{id}"));
+        let ws = Workspace::new_with_existing_tab(
+            id,
+            &title,
+            tab,
+            self.spawn_opts.clone(),
+            self.broker.clone(),
+            self.model_notifier.clone(),
+            self.snapshot_notifier.clone(),
+        );
+        {
+            let mut workspaces = self.workspaces.lock().await;
+            workspaces.push(ws.clone());
+        }
+        if activate {
+            self.set_active_workspace(ws.clone());
+        }
+        self.clone().spawn_workspace_reaper(ws.clone());
+        self.wake_model();
         Ok(ws)
     }
 
@@ -3441,7 +6897,7 @@ impl Daemon {
             .cloned()
             .ok_or_else(|| anyhow!("no workspace at index {index}"))?;
         drop(workspaces);
-        self.active_ws_tx.send(w.clone()).ok();
+        self.set_active_workspace(w.clone());
         Ok(w)
     }
 
@@ -3459,8 +6915,25 @@ impl Daemon {
         let next = ((current_idx as i32 + offset).rem_euclid(len)) as usize;
         let w = workspaces[next].clone();
         drop(workspaces);
-        self.active_ws_tx.send(w.clone()).ok();
+        self.set_active_workspace(w.clone());
         Ok(w)
+    }
+
+    async fn select_last_workspace(&self) -> Result<Arc<Workspace>> {
+        let last_id = self.last_ws_id.load(Ordering::Relaxed);
+        if last_id == 0 {
+            bail!("no previous workspace in history");
+        }
+        let current_id = self.active_ws_rx.borrow().id;
+        if last_id == current_id {
+            bail!("no previous workspace in history");
+        }
+        let workspace = self
+            .workspace_by_id(last_id)
+            .await
+            .ok_or_else(|| anyhow!("previous workspace no longer exists"))?;
+        self.set_active_workspace(workspace.clone());
+        Ok(workspace)
     }
 
     async fn close_active_workspace(&self) -> Result<()> {
@@ -3469,10 +6942,7 @@ impl Daemon {
         // workspace reaper will clean up.
         let spaces = active.spaces.lock().await.clone();
         for space in spaces {
-            let tabs = space.tabs.lock().await;
-            for tab in tabs.iter() {
-                tab.pty_tx.send(PtyOp::Write(vec![0x04])).ok();
-            }
+            space.close_all_tabs().await;
         }
         Ok(())
     }
@@ -3500,25 +6970,44 @@ impl Daemon {
                 active = i;
             }
             let title = w.title.lock().await.clone();
+            let description = w.description.lock().await.clone();
+            let latest_submitted_message = w.latest_submitted_message.lock().await.clone();
             let spaces = w.spaces.lock().await;
             let space_count = spaces.len();
+            let mut tab_count = 0usize;
             let mut terminal_count = 0usize;
             for space in spaces.iter() {
-                terminal_count += space.tabs.lock().await.len();
+                let tabs = space.tabs.lock().await;
+                tab_count += tabs.len();
+                terminal_count += tabs
+                    .iter()
+                    .filter(|tab| tab.kind == SnapshotTabKind::Terminal)
+                    .count();
             }
             drop(spaces);
             let (has_activity, bell_count) = workspace_activity_summary(w).await;
             let color = w.color.lock().await.clone();
+            let remote_status_json = w.remote_status_json.lock().await.clone();
+            let (status_entries, metadata_blocks, log_entries, progress) =
+                workspace_sidebar_state(w).await;
             infos.push(WorkspaceInfo {
                 id: w.id,
+                external_id: Some(w.external_id.clone()),
                 title,
+                description,
+                latest_submitted_message,
                 space_count,
-                tab_count: terminal_count,
+                tab_count,
                 terminal_count,
                 pinned: w.pinned.load(Ordering::Relaxed),
                 has_activity,
                 bell_count,
                 color,
+                remote_status_json,
+                status_entries,
+                metadata_blocks,
+                log_entries,
+                progress,
             });
         }
         (infos, active)
@@ -3617,16 +7106,49 @@ impl Daemon {
         let active_id = self.active_ws_rx.borrow().id;
         let mut out = Vec::with_capacity(workspaces.len());
         let mut active_idx = 0usize;
+        let mut workspace_snapshot_refs = HashMap::new();
         for (i, w) in workspaces.iter().enumerate() {
             if w.id == active_id {
                 active_idx = i;
             }
+            workspace_snapshot_refs.insert(w.id, (i, w.external_id.clone()));
             out.push(w.snapshot().await);
         }
+        let mut native_windows = self
+            .native_window_states
+            .lock()
+            .await
+            .iter()
+            .filter_map(|(window_id, window)| {
+                let (active_workspace_index, active_workspace_external_id) =
+                    workspace_snapshot_refs.get(&window.active_ws_id)?;
+                let mut workspace_external_ids = Vec::new();
+                let mut workspace_indexes = Vec::new();
+                if let Some(workspace_ids) = window.workspace_ids.as_ref() {
+                    for workspace_id in workspace_ids {
+                        if let Some((index, external_id)) =
+                            workspace_snapshot_refs.get(workspace_id)
+                        {
+                            workspace_external_ids.push(external_id.clone());
+                            workspace_indexes.push(*index);
+                        }
+                    }
+                }
+                Some(NativeWindowSnapshot {
+                    external_window_id: window_id.clone(),
+                    active_workspace_external_id: Some(active_workspace_external_id.clone()),
+                    active_workspace_index: Some(*active_workspace_index),
+                    workspace_external_ids,
+                    workspace_indexes,
+                })
+            })
+            .collect::<Vec<_>>();
+        native_windows.sort_by(|lhs, rhs| lhs.external_window_id.cmp(&rhs.external_window_id));
         let snap = Snapshot {
             version: 1,
             active_workspace: active_idx,
             workspaces: out,
+            native_windows,
         };
         snapshot::save(path, &snap)
     }
@@ -4344,8 +7866,7 @@ async fn build_chrome_spec(
         .active_workspace(daemon)
         .await
         .unwrap_or_else(|_| daemon.active_ws_rx.borrow().clone());
-    let active = window.active_workspace_index(daemon).await.unwrap_or(0);
-    let (workspaces, _) = daemon.workspace_list_with_active(active_ws.id).await;
+    let (workspaces, active) = daemon.workspace_list_for_window(window).await;
     let active_ws_title = active_ws.title.lock().await.clone();
     let latency_text = daemon
         .client_latency_ms(client_id)
@@ -5328,11 +8849,44 @@ async fn handle_client(
     heartbeat: HeartbeatConfig,
 ) -> Result<()> {
     let (read_half, write_half) = stream.into_split();
+    run_unix_session(daemon, BufReader::new(read_half), write_half, heartbeat).await
+}
+
+async fn run_unix_session(
+    daemon: Arc<Daemon>,
+    reader: BufReader<OwnedReadHalf>,
+    writer: OwnedWriteHalf,
+    heartbeat: HeartbeatConfig,
+) -> Result<()> {
     let session = Session::Unix(Box::new(UnixSession {
-        reader: Some(BufReader::new(read_half)),
-        writer: write_half,
+        reader: Some(reader),
+        writer,
     }));
     run_session(daemon, session, AuthPolicy::UnixFs, heartbeat).await
+}
+
+async fn handle_compatibility_client(
+    daemon: Arc<Daemon>,
+    stream: UnixStream,
+    heartbeat: HeartbeatConfig,
+) -> Result<()> {
+    let (read_half, write_half) = stream.into_split();
+    let mut reader = BufReader::new(read_half);
+    let buffered = reader
+        .fill_buf()
+        .await
+        .context("peek compatibility socket")?;
+    if compatibility_socket_looks_framed(buffered) {
+        return run_unix_session(daemon, reader, write_half, heartbeat).await;
+    }
+    handle_line_compatibility_client(daemon, reader, write_half).await
+}
+
+fn compatibility_socket_looks_framed(buffered: &[u8]) -> bool {
+    // New cmx clients start every frame with a 4-byte big-endian length.
+    // Every valid frame within MAX_FRAME_BYTES starts with 0. Legacy cmux
+    // clients start with printable text (`ping`) or JSON (`{...}`).
+    buffered.first().copied() == Some(0)
 }
 
 async fn handle_ws_client(
@@ -5376,6 +8930,27 @@ impl Drop for ClientViewRegistration {
         let client_id = self.client_id.clone();
         tokio::spawn(async move {
             daemon.remove_client_view(&client_id).await;
+        });
+    }
+}
+
+struct NativeCompatibilityRegistration {
+    daemon: Arc<Daemon>,
+    client_id: String,
+}
+
+impl NativeCompatibilityRegistration {
+    fn new(daemon: Arc<Daemon>, client_id: String) -> Self {
+        Self { daemon, client_id }
+    }
+}
+
+impl Drop for NativeCompatibilityRegistration {
+    fn drop(&mut self) {
+        let daemon = self.daemon.clone();
+        let client_id = self.client_id.clone();
+        tokio::spawn(async move {
+            daemon.remove_native_compatibility_client(&client_id).await;
         });
     }
 }
@@ -5574,7 +9149,16 @@ async fn run_session(
         .recv()
         .await?
         .ok_or_else(|| anyhow!("client disconnected before Hello"))?;
-    let (native, version, viewport, token, terminal_renderer) = match hello {
+    let (
+        native,
+        version,
+        viewport,
+        token,
+        terminal_renderer,
+        native_client_id,
+        native_window_id,
+        native_capabilities,
+    ) = match hello {
         ClientMsg::Hello {
             version,
             viewport,
@@ -5585,13 +9169,29 @@ async fn run_session(
             viewport,
             token,
             NativeTerminalRenderer::ServerGrid,
+            None,
+            None,
+            Vec::new(),
         ),
         ClientMsg::HelloNative {
             version,
             viewport,
             token,
             terminal_renderer,
-        } => (true, version, viewport, token, terminal_renderer),
+            client_id,
+            window_id,
+            capabilities,
+            ..
+        } => (
+            true,
+            version,
+            viewport,
+            token,
+            terminal_renderer,
+            client_id,
+            window_id,
+            capabilities,
+        ),
         _ => bail!("expected Hello, got {hello:?}"),
     };
 
@@ -5623,6 +9223,9 @@ async fn run_session(
             terminal_renderer,
             heartbeat,
             websocket_session,
+            native_client_id,
+            native_window_id,
+            native_capabilities,
         )
         .await;
     }
@@ -5870,7 +9473,10 @@ async fn run_session(
                         | ClientMsg::HelloNative { .. }
                         | ClientMsg::NativeInput { .. }
                         | ClientMsg::NativeLayout { .. }
-                        | ClientMsg::RequestPtyReplay { .. },
+                        | ClientMsg::RequestPtyReplay { .. }
+                        | ClientMsg::NativeBrowserUpdate { .. }
+                        | ClientMsg::NativeBrowserFocusUpdate { .. }
+                        | ClientMsg::NativeCompatibilityReply { .. },
                     ) => return Ok(()),
                 }
             }
@@ -5982,6 +9588,9 @@ async fn run_native_session(
     terminal_renderer: NativeTerminalRenderer,
     heartbeat: HeartbeatConfig,
     _websocket_session: bool,
+    native_client_id: Option<String>,
+    native_window_id: Option<String>,
+    native_capabilities: Vec<String>,
 ) -> Result<()> {
     let session_id = uuid::Uuid::new_v4().to_string();
     session
@@ -5996,7 +9605,7 @@ async fn run_native_session(
     let mut shutdown_rx = daemon.shutdown_rx.clone();
     let mut inbox = spawn_unix_inbox(&mut session);
     let mut model_rx = daemon.model_rx();
-    let mut window = WindowState::new(&daemon).await;
+    let mut window = WindowState::new_for_native_client(&daemon, native_window_id.clone()).await;
     let mut viewport_state = (viewport.cols, viewport.rows);
     let mut output_mux = NativeTerminalDirtyMux::new();
     let mut pty_mux = NativePtyOutputMux::new();
@@ -6004,6 +9613,28 @@ async fn run_native_session(
     let mut replayed_native_pty_tabs = HashSet::<TabId>::new();
     let mut has_native_layout = false;
     let _view_guard = ClientViewRegistration::new(daemon.clone(), session_id.clone());
+    let (native_compatibility_tx, mut native_compatibility_rx) = mpsc::unbounded_channel();
+    let _native_compatibility_tx_keepalive = native_compatibility_tx.clone();
+    let compatibility_client_id = native_client_id.unwrap_or_else(|| session_id.clone());
+    let supports_compatibility_bridge = native_capabilities
+        .iter()
+        .any(|capability| capability == "socket_compatibility_bridge");
+    let _compatibility_guard = if supports_compatibility_bridge {
+        daemon
+            .register_native_compatibility_client(
+                compatibility_client_id.clone(),
+                native_compatibility_tx,
+                native_window_id.clone(),
+                native_capabilities,
+            )
+            .await;
+        Some(NativeCompatibilityRegistration::new(
+            daemon.clone(),
+            compatibility_client_id,
+        ))
+    } else {
+        None
+    };
     // Native libghostty clients include iroh-backed iOS sessions, not just
     // websocket sessions. Keep their client-view registrations leased by
     // heartbeat so killed/reloaded devices cannot pin stale PTY sizes.
@@ -6049,6 +9680,11 @@ async fn run_native_session(
                 if changed.is_err() {
                     return Ok(());
                 }
+                if let Some(saved_window) = daemon.native_window_state(&window.external_window_id).await {
+                    window = saved_window;
+                } else if let Err(e) = window.sync_from_model_focus(&daemon).await {
+                    tracing::warn!(error = %e, "could not sync native client focus from model");
+                }
                 if let Err(e) = refresh_native_snapshot_for_renderer(
                     &mut session,
                     &daemon,
@@ -6062,6 +9698,17 @@ async fn run_native_session(
                 ).await {
                     tracing::warn!(error = %e, "could not refresh native client snapshot");
                 }
+            }
+            request = native_compatibility_rx.recv() => {
+                let Some(request) = request else {
+                    return Ok(());
+                };
+                session
+                    .send(&ServerMsg::NativeCompatibilityRequest {
+                        request_id: request.request_id,
+                        request_json: request.request_json,
+                    })
+                    .await?;
             }
             incoming = next_client_msg(&mut inbox, &mut session) => {
                 let incoming = incoming?;
@@ -6211,7 +9858,13 @@ async fn run_native_session(
                         if terminals.is_empty() {
                             daemon.remove_client_view(&session_id).await;
                         } else {
-                            daemon.update_client_native_view(&session_id, terminals).await;
+                            daemon
+                                .update_client_native_view(
+                                    &session_id,
+                                    native_window_id.as_deref(),
+                                    terminals,
+                                )
+                                .await;
                         }
                         if has_native_layout {
                             match terminal_renderer {
@@ -6240,6 +9893,55 @@ async fn run_native_session(
                         if terminal_renderer == NativeTerminalRenderer::Libghostty {
                             send_native_pty_replay_for_tab(&mut session, &daemon, tab_id).await?;
                         }
+                    }
+                    Some(ClientMsg::NativeBrowserUpdate { tab_id, browser }) => {
+                        match daemon.update_native_browser_info(tab_id, browser).await {
+                            Ok(()) => {
+                                refresh_native_snapshot_for_renderer(
+                                    &mut session,
+                                    &daemon,
+                                    &mut window,
+                                    terminal_renderer,
+                                    has_native_layout,
+                                    &mut output_mux,
+                                    &mut pty_mux,
+                                    &mut replayed_native_pty_tabs,
+                                    has_native_layout,
+                                )
+                                .await?;
+                            }
+                            Err(error) => {
+                                tracing::warn!(
+                                    tab_id,
+                                    error = %error,
+                                    "dropping native browser update"
+                                );
+                            }
+                        }
+                    }
+                    Some(ClientMsg::NativeBrowserFocusUpdate {
+                        tab_id,
+                        webview_focused,
+                    }) => {
+                        if let Err(error) = daemon
+                            .update_native_browser_focus(tab_id, webview_focused)
+                            .await
+                        {
+                            tracing::warn!(
+                                tab_id,
+                                webview_focused,
+                                error = %error,
+                                "dropping native browser focus update"
+                            );
+                        }
+                    }
+                    Some(ClientMsg::NativeCompatibilityReply {
+                        request_id,
+                        response_json,
+                    }) => {
+                        daemon
+                            .complete_native_compatibility_v2_request(request_id, response_json)
+                            .await;
                     }
                     Some(ClientMsg::Resize { viewport }) => {
                         viewport_state = (viewport.cols, viewport.rows);
@@ -6422,6 +10124,7 @@ async fn send_native_snapshot(
     send_terminal_grids: bool,
 ) -> Result<()> {
     let snapshot = build_native_snapshot(daemon, window).await?;
+    daemon.update_native_window_state(window).await;
     let mut visible_ids = Vec::new();
     collect_native_visible_tab_ids(&snapshot.panels, &mut visible_ids);
     let mut visible_tabs = Vec::with_capacity(visible_ids.len());
@@ -6452,6 +10155,7 @@ async fn send_visible_native_terminal_grid_snapshots(
     window: &mut WindowState,
 ) -> Result<()> {
     let snapshot = build_native_snapshot(daemon, window).await?;
+    daemon.update_native_window_state(window).await;
     let mut visible_ids = Vec::new();
     collect_native_visible_tab_ids(&snapshot.panels, &mut visible_ids);
     for tab_id in visible_ids {
@@ -6468,6 +10172,7 @@ async fn send_visible_native_pty_replay(
     replayed_tabs: &mut HashSet<TabId>,
 ) -> Result<()> {
     let snapshot = build_native_snapshot(daemon, window).await?;
+    daemon.update_native_window_state(window).await;
     let mut visible_ids = Vec::new();
     collect_native_visible_tab_ids(&snapshot.panels, &mut visible_ids);
     let visible_id_set: HashSet<TabId> = visible_ids.iter().copied().collect();
@@ -6507,19 +10212,45 @@ async fn send_native_pty_replay_chunks_for_tab(
     daemon: &Arc<Daemon>,
     tab: &Arc<Tab>,
 ) -> Result<()> {
-    let grid_replay = daemon.broker.grid_snapshot(tab.id).await.map(|snapshot| {
-        native_terminal_pty_replay_from_grid_snapshot(snapshot, *tab.alternate_screen.borrow())
-    });
+    let restored_replay = if tab.take_restored_pty_replay_pending() {
+        let chunks = tab.pty_replay_chunks();
+        (!chunks.is_empty()).then_some(chunks)
+    } else {
+        None
+    };
+    let grid_replay = if restored_replay.is_none() {
+        daemon.broker.grid_snapshot(tab.id).await.map(|snapshot| {
+            native_terminal_pty_replay_from_grid_snapshot(
+                snapshot,
+                *tab.alternate_screen.borrow(),
+                daemon.terminal_cursor.as_ref(),
+            )
+        })
+    } else {
+        None
+    };
 
     // PTY replay is a state replacement over an append-only byte stream.
-    // Reset libghostty first, then prefer the authoritative server grid so
-    // old resize history cannot append duplicate prompts on iOS reconnect.
+    // Reset libghostty first. A tab restored from disk gets one chance to
+    // replay its persisted byte buffer before fresh server-grid state takes
+    // over on later reconnects.
     session
         .send(&ServerMsg::PtyBytes {
             tab_id: tab.id,
             data: LIBGHOSTTY_PTY_REPLAY_RESET.to_vec(),
         })
         .await?;
+    if let Some(chunks) = restored_replay {
+        for chunk in chunks {
+            session
+                .send(&ServerMsg::PtyBytes {
+                    tab_id: tab.id,
+                    data: chunk,
+                })
+                .await?;
+        }
+        return Ok(());
+    }
     if let Some(replay) = grid_replay {
         session
             .send(&ServerMsg::PtyBytes {
@@ -6617,8 +10348,7 @@ async fn build_native_snapshot(
 ) -> Result<NativeSnapshot> {
     let ws = window.active_workspace(daemon).await?;
     let active_workspace_id = ws.id;
-    let (workspaces, active_workspace) =
-        daemon.workspace_list_with_active(active_workspace_id).await;
+    let (workspaces, active_workspace) = daemon.workspace_list_for_window(window).await;
     let space = window.active_space(&ws).await?;
     let active_space_id = space.id;
     let (spaces, active_space) = ws.space_list_with_active(active_space_id).await;
@@ -6637,10 +10367,17 @@ async fn build_native_snapshot(
     let tabs = space.tabs.lock().await;
     let by_id: HashMap<TabId, Arc<Tab>> = tabs.iter().map(|tab| (tab.id, tab.clone())).collect();
     drop(tabs);
-    let panels = native_panel_node_from_panel(&panel_tree, space.id, window, &by_id);
+    let mut tab_metadata = HashMap::with_capacity(by_id.len());
+    for (tab_id, tab) in &by_id {
+        tab_metadata.insert(*tab_id, native_tab_metadata(tab).await);
+    }
+    let panels = native_panel_node_from_panel(&panel_tree, space.id, window, &by_id, &tab_metadata);
     let attached_clients = daemon.attached_client_infos().await;
     let terminal_theme = daemon.native_terminal_theme().await;
     Ok(NativeSnapshot {
+        revision: daemon.model_version.load(Ordering::Relaxed),
+        window_id: Some(window.external_window_id.clone()),
+        native_window_ids: daemon.native_window_ids().await,
         workspaces,
         active_workspace,
         active_workspace_id,
@@ -6654,7 +10391,36 @@ async fn build_native_snapshot(
         terminal_theme: terminal_theme.map(Box::new),
         terminal_font: daemon.terminal_font.clone(),
         terminal_cursor: daemon.terminal_cursor.clone(),
+        browser_focus_request: daemon.browser_focus_request(),
     })
+}
+
+#[derive(Clone, Default)]
+struct NativeTabMetadata {
+    cwd: Option<String>,
+    git_branch: Option<NativeGitBranchInfo>,
+    pull_request: Option<NativePullRequestInfo>,
+    tty_name: Option<String>,
+    shell_state: Option<String>,
+    ports_kick_generation: u64,
+    listening_ports: Vec<u16>,
+}
+
+async fn native_tab_metadata(tab: &Tab) -> NativeTabMetadata {
+    NativeTabMetadata {
+        cwd: tab
+            .cwd
+            .lock()
+            .await
+            .as_ref()
+            .map(|cwd| cwd.display().to_string()),
+        git_branch: tab.native_git_branch_info(),
+        pull_request: tab.native_pull_request_info(),
+        tty_name: tab.tty_name_snapshot(),
+        shell_state: tab.shell_state_snapshot(),
+        ports_kick_generation: tab.ports_kick_generation.load(Ordering::Relaxed),
+        listening_ports: tab.listening_ports_snapshot(),
+    }
 }
 
 fn native_panel_node_from_panel(
@@ -6662,6 +10428,7 @@ fn native_panel_node_from_panel(
     space_id: SpaceId,
     window: &WindowState,
     tabs_by_id: &HashMap<TabId, Arc<Tab>>,
+    tab_metadata: &HashMap<TabId, NativeTabMetadata>,
 ) -> NativePanelNode {
     match node {
         PanelNode::Leaf(panel) => {
@@ -6687,15 +10454,28 @@ fn native_panel_node_from_panel(
                     active = idx;
                 }
                 let is_active = *tab_id == active_tab_id;
+                let metadata = tab_metadata.get(tab_id).cloned().unwrap_or_default();
                 infos.push(TabInfo {
                     id: tab.id,
+                    external_id: Some(tab.external_id.clone()),
+                    kind: tab.native_kind(),
                     title: tab.title.load_full().as_ref().clone(),
+                    explicit_title: tab.explicit_title.load(Ordering::Relaxed),
+                    pinned: tab.pinned.load(Ordering::Relaxed),
                     has_activity: if is_active {
                         false
                     } else {
                         tab.has_activity.load(Ordering::Relaxed)
                     },
                     bell_count: tab.bell_count.load(Ordering::Relaxed),
+                    cwd: metadata.cwd,
+                    git_branch: metadata.git_branch,
+                    pull_request: metadata.pull_request,
+                    tty_name: metadata.tty_name,
+                    shell_state: metadata.shell_state,
+                    ports_kick_generation: metadata.ports_kick_generation,
+                    listening_ports: metadata.listening_ports,
+                    browser: tab.native_browser_info(),
                 });
             }
             NativePanelNode::Leaf {
@@ -6717,10 +10497,18 @@ fn native_panel_node_from_panel(
             },
             ratio_permille: *ratio_permille,
             first: Box::new(native_panel_node_from_panel(
-                first, space_id, window, tabs_by_id,
+                first,
+                space_id,
+                window,
+                tabs_by_id,
+                tab_metadata,
             )),
             second: Box::new(native_panel_node_from_panel(
-                second, space_id, window, tabs_by_id,
+                second,
+                space_id,
+                window,
+                tabs_by_id,
+                tab_metadata,
             )),
         },
     }
@@ -6895,7 +10683,7 @@ async fn handle_window_mouse(
 
     match event {
         MouseKind::Down => {
-            let (ws_items, _) = daemon.workspace_list_with_active(window.active_ws_id).await;
+            let (ws_items, _) = daemon.workspace_list_for_window(window).await;
             let sidebar_hit = hit_test_sidebar(col, row, sidebar, ws_items.len());
             let spaces = active_ws.spaces.lock().await.clone();
             let space_titles: Vec<String> = {
@@ -6948,7 +10736,11 @@ async fn handle_window_mouse(
             if let Some(idx) = sidebar_hit {
                 window.sidebar_focused = false;
                 let ws = window.select_workspace(daemon, idx).await?;
-                daemon.active_ws_tx.send(ws).ok();
+                window.add_workspace_member(ws.id);
+                daemon
+                    .set_native_window_active_workspace(&window.external_window_id, ws.id)
+                    .await;
+                daemon.set_active_workspace(ws);
                 sync_window_view(
                     session,
                     daemon,
@@ -7156,6 +10948,12 @@ fn ok_result() -> CommandResult {
     CommandResult::Ok { data: None }
 }
 
+fn browser_state_result(tab_id: TabId, browser: NativeBrowserInfo) -> CommandResult {
+    CommandResult::Ok {
+        data: Some(CommandData::BrowserState { tab_id, browser }),
+    }
+}
+
 fn sidebar_mode_commands(bytes: &[u8]) -> Vec<Command> {
     let mut commands = Vec::new();
     for &byte in bytes {
@@ -7192,13 +10990,619 @@ fn err_result(message: impl ToString) -> CommandResult {
     }
 }
 
+fn command_cwd(cwd: Option<String>) -> Option<PathBuf> {
+    let cwd = cwd?.trim().to_string();
+    (!cwd.is_empty()).then(|| PathBuf::from(cwd))
+}
+
+fn command_initial_input(initial_input: Option<String>) -> Option<Vec<u8>> {
+    let input = initial_input?;
+    (!input.is_empty()).then(|| input.into_bytes())
+}
+
+#[derive(Debug, Clone)]
+enum CompatibilityLayoutNode {
+    Pane {
+        surfaces: Vec<CompatibilityLayoutSurface>,
+    },
+    Split {
+        direction: SplitDirection,
+        ratio_permille: u16,
+        first: Box<CompatibilityLayoutNode>,
+        second: Box<CompatibilityLayoutNode>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CompatibilityLayoutSurfaceKind {
+    Terminal,
+    Browser,
+}
+
+#[derive(Debug, Clone)]
+struct CompatibilityLayoutSurface {
+    kind: CompatibilityLayoutSurfaceKind,
+    name: Option<String>,
+    command: Option<String>,
+    cwd: Option<String>,
+    env: BTreeMap<String, String>,
+    url: Option<String>,
+    focus: bool,
+}
+
+#[derive(Debug, Clone)]
+struct CompatibilityLayoutLeafPlan {
+    panel_id: PanelId,
+    surfaces: Vec<CompatibilityLayoutSurface>,
+}
+
+#[derive(Debug, Clone)]
+enum CompatibilityPanelPlan {
+    Leaf {
+        leaf_index: usize,
+    },
+    Split {
+        direction: SplitDirection,
+        ratio_permille: u16,
+        first: Box<CompatibilityPanelPlan>,
+        second: Box<CompatibilityPanelPlan>,
+    },
+}
+
+#[derive(Debug, Clone)]
+struct CompatibilityMaterializedLeaf {
+    panel_id: PanelId,
+    tab_ids: Vec<TabId>,
+    active_tab: Option<TabId>,
+}
+
+fn compatibility_initial_env_key_is_protected(key: &str) -> bool {
+    matches!(key, "TERM" | "COLORTERM" | "TERM_PROGRAM")
+}
+
+fn compatibility_command_text_input(command: Option<&str>) -> Option<Vec<u8>> {
+    let command = command?;
+    if command.is_empty() {
+        return None;
+    }
+    let mut input = command.as_bytes().to_vec();
+    if !matches!(input.last(), Some(b'\n' | b'\r')) {
+        input.push(b'\n');
+    }
+    Some(input)
+}
+
+fn compatibility_initial_command_input(params: &serde_json::Value) -> Option<Vec<u8>> {
+    let command = compatibility_string_param(params, &["initial_command", "initialCommand"])?;
+    let command = command.trim();
+    (!command.is_empty())
+        .then(|| command.to_string())
+        .and_then(|command| compatibility_command_text_input(Some(&command)))
+}
+
+fn compatibility_initial_env_param(
+    params: &serde_json::Value,
+) -> std::result::Result<BTreeMap<String, String>, String> {
+    let Some(value) = params
+        .get("initial_env")
+        .or_else(|| params.get("initialEnv"))
+    else {
+        return Ok(BTreeMap::new());
+    };
+    compatibility_env_map(value, "initial_env")
+}
+
+fn compatibility_env_map(
+    value: &serde_json::Value,
+    label: &str,
+) -> std::result::Result<BTreeMap<String, String>, String> {
+    if value.is_null() {
+        return Ok(BTreeMap::new());
+    }
+    let object = value
+        .as_object()
+        .ok_or_else(|| format!("{label} must be an object of string values"))?;
+    let mut env = BTreeMap::new();
+    for (raw_key, value) in object {
+        let key = raw_key.trim();
+        if key.is_empty() {
+            continue;
+        }
+        let value = value
+            .as_str()
+            .ok_or_else(|| format!("{label}.{key} must be a string"))?;
+        env.insert(key.to_string(), value.to_string());
+    }
+    Ok(env)
+}
+
+fn compatibility_workspace_layout_param(
+    params: &serde_json::Value,
+) -> std::result::Result<Option<CompatibilityLayoutNode>, String> {
+    let Some(layout) = params.get("layout") else {
+        return Ok(None);
+    };
+    if layout.is_null() {
+        return Ok(None);
+    }
+    compatibility_parse_layout_node(layout).map(Some)
+}
+
+fn compatibility_parse_layout_node(
+    value: &serde_json::Value,
+) -> std::result::Result<CompatibilityLayoutNode, String> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| "layout must be a valid JSON object".to_string())?;
+    let has_pane = object.contains_key("pane");
+    let has_direction = object.contains_key("direction");
+    if has_pane && has_direction {
+        return Err("CmuxLayoutNode must not contain both 'pane' and 'direction' keys".to_string());
+    }
+    if has_pane {
+        let pane = object
+            .get("pane")
+            .and_then(serde_json::Value::as_object)
+            .ok_or_else(|| "layout pane must be an object".to_string())?;
+        let surfaces = pane
+            .get("surfaces")
+            .and_then(serde_json::Value::as_array)
+            .ok_or_else(|| "Pane node must contain a surfaces array".to_string())?;
+        if surfaces.is_empty() {
+            return Err("Pane node must contain at least one surface".to_string());
+        }
+        let mut parsed = Vec::with_capacity(surfaces.len());
+        for surface in surfaces {
+            parsed.push(compatibility_parse_layout_surface(surface)?);
+        }
+        return Ok(CompatibilityLayoutNode::Pane { surfaces: parsed });
+    }
+    if has_direction {
+        let direction = match object.get("direction").and_then(serde_json::Value::as_str) {
+            Some("horizontal") => SplitDirection::Horizontal,
+            Some("vertical") => SplitDirection::Vertical,
+            Some(value) => return Err(format!("Invalid split direction: {value}")),
+            None => return Err("Split node direction must be a string".to_string()),
+        };
+        let ratio_permille = compatibility_layout_split_ratio(object.get("split"))?;
+        let children = object
+            .get("children")
+            .and_then(serde_json::Value::as_array)
+            .ok_or_else(|| "Split node requires exactly 2 children".to_string())?;
+        if children.len() != 2 {
+            return Err(format!(
+                "Split node requires exactly 2 children, got {}",
+                children.len()
+            ));
+        }
+        let first = Box::new(compatibility_parse_layout_node(&children[0])?);
+        let second = Box::new(compatibility_parse_layout_node(&children[1])?);
+        return Ok(CompatibilityLayoutNode::Split {
+            direction,
+            ratio_permille,
+            first,
+            second,
+        });
+    }
+    Err("CmuxLayoutNode must contain either a 'pane' key or a 'direction' key".to_string())
+}
+
+fn compatibility_layout_split_ratio(
+    value: Option<&serde_json::Value>,
+) -> std::result::Result<u16, String> {
+    let Some(value) = value else {
+        return Ok(500);
+    };
+    if value.is_null() {
+        return Ok(500);
+    }
+    let split = value
+        .as_f64()
+        .ok_or_else(|| "split must be a number".to_string())?;
+    if !split.is_finite() {
+        return Err("split must be finite".to_string());
+    }
+    Ok(((split.clamp(0.1, 0.9) * 1000.0).round() as u16).clamp(100, 900))
+}
+
+fn compatibility_parse_layout_surface(
+    value: &serde_json::Value,
+) -> std::result::Result<CompatibilityLayoutSurface, String> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| "layout surface must be an object".to_string())?;
+    let kind = match object
+        .get("type")
+        .or_else(|| object.get("kind"))
+        .and_then(serde_json::Value::as_str)
+    {
+        Some("terminal") => CompatibilityLayoutSurfaceKind::Terminal,
+        Some("browser") => CompatibilityLayoutSurfaceKind::Browser,
+        Some(value) => return Err(format!("Invalid surface type: {value}")),
+        None => return Err("surface type must be a string".to_string()),
+    };
+    let env = match object.get("env") {
+        Some(value) => compatibility_env_map(value, "surface.env")?,
+        None => BTreeMap::new(),
+    };
+    Ok(CompatibilityLayoutSurface {
+        kind,
+        name: compatibility_layout_optional_string(object, "name")?,
+        command: compatibility_layout_optional_string(object, "command")?,
+        cwd: compatibility_layout_optional_string(object, "cwd")?,
+        env,
+        url: compatibility_layout_optional_string(object, "url")?,
+        focus: compatibility_layout_optional_bool(object, "focus")?.unwrap_or(false),
+    })
+}
+
+fn compatibility_layout_optional_string(
+    object: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> std::result::Result<Option<String>, String> {
+    match object.get(key) {
+        None | Some(serde_json::Value::Null) => Ok(None),
+        Some(value) => value
+            .as_str()
+            .map(|value| Some(value.to_string()))
+            .ok_or_else(|| format!("{key} must be a string")),
+    }
+}
+
+fn compatibility_layout_optional_bool(
+    object: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> std::result::Result<Option<bool>, String> {
+    match object.get(key) {
+        None | Some(serde_json::Value::Null) => Ok(None),
+        Some(value) => value
+            .as_bool()
+            .map(Some)
+            .ok_or_else(|| format!("{key} must be a boolean")),
+    }
+}
+
+fn compatibility_plan_layout_tree(
+    node: &CompatibilityLayoutNode,
+    panel_id: PanelId,
+    next_panel_id: &mut PanelId,
+    leaves: &mut Vec<CompatibilityLayoutLeafPlan>,
+) -> CompatibilityPanelPlan {
+    match node {
+        CompatibilityLayoutNode::Pane { surfaces } => {
+            let leaf_index = leaves.len();
+            leaves.push(CompatibilityLayoutLeafPlan {
+                panel_id,
+                surfaces: surfaces.clone(),
+            });
+            CompatibilityPanelPlan::Leaf { leaf_index }
+        }
+        CompatibilityLayoutNode::Split {
+            direction,
+            ratio_permille,
+            first,
+            second,
+        } => {
+            let second_panel_id = *next_panel_id;
+            *next_panel_id = next_panel_id.saturating_add(1);
+            let first = Box::new(compatibility_plan_layout_tree(
+                first,
+                panel_id,
+                next_panel_id,
+                leaves,
+            ));
+            let second = Box::new(compatibility_plan_layout_tree(
+                second,
+                second_panel_id,
+                next_panel_id,
+                leaves,
+            ));
+            CompatibilityPanelPlan::Split {
+                direction: *direction,
+                ratio_permille: *ratio_permille,
+                first,
+                second,
+            }
+        }
+    }
+}
+
+fn compatibility_materialize_panel_plan(
+    plan: &CompatibilityPanelPlan,
+    leaves: &[CompatibilityMaterializedLeaf],
+) -> PanelNode {
+    match plan {
+        CompatibilityPanelPlan::Leaf { leaf_index } => {
+            let leaf = &leaves[*leaf_index];
+            PanelNode::Leaf(Panel {
+                id: leaf.panel_id,
+                tabs: leaf.tab_ids.clone(),
+                active_tab: leaf.active_tab,
+            })
+        }
+        CompatibilityPanelPlan::Split {
+            direction,
+            ratio_permille,
+            first,
+            second,
+        } => PanelNode::Split {
+            direction: *direction,
+            ratio_permille: *ratio_permille,
+            first: Box::new(compatibility_materialize_panel_plan(first, leaves)),
+            second: Box::new(compatibility_materialize_panel_plan(second, leaves)),
+        },
+    }
+}
+
+fn compatibility_resolve_layout_cwd(cwd: Option<&str>, base_cwd: Option<&Path>) -> Option<PathBuf> {
+    let raw = cwd.map(str::trim).filter(|value| !value.is_empty());
+    let Some(raw) = raw else {
+        return base_cwd.map(Path::to_path_buf);
+    };
+    if raw == "." {
+        return base_cwd.map(Path::to_path_buf);
+    }
+    if raw == "~" {
+        return env::var_os("HOME").map(PathBuf::from);
+    }
+    if let Some(rest) = raw.strip_prefix("~/")
+        && let Some(home) = env::var_os("HOME")
+    {
+        return Some(PathBuf::from(home).join(rest));
+    }
+    let path = PathBuf::from(raw);
+    if path.is_absolute() {
+        Some(path)
+    } else {
+        base_cwd.map(|base| base.join(&path)).or(Some(path))
+    }
+}
+
+fn compatibility_apply_layout_tab_title(tab: &Arc<Tab>, name: Option<&str>) {
+    let Some(name) = name.map(str::trim).filter(|name| !name.is_empty()) else {
+        return;
+    };
+    tab.explicit_title.store(true, Ordering::Relaxed);
+    tab.title.store(Arc::new(name.to_string()));
+}
+
+async fn compatibility_spawn_layout_surface(
+    space: &Arc<Space>,
+    surface: &CompatibilityLayoutSurface,
+    base_cwd: Option<&Path>,
+    browser_proxy: Option<BrowserProxySnapshot>,
+) -> std::result::Result<Arc<Tab>, String> {
+    match surface.kind {
+        CompatibilityLayoutSurfaceKind::Terminal => {
+            let cwd = compatibility_resolve_layout_cwd(surface.cwd.as_deref(), base_cwd);
+            let tab = space
+                .spawn_shell_tab_with_env(cwd, surface.env.clone())
+                .await
+                .map_err(|error| error.to_string())?;
+            compatibility_apply_layout_tab_title(&tab, surface.name.as_deref());
+            send_initial_tab_input(
+                &tab,
+                compatibility_command_text_input(surface.command.as_deref()),
+            );
+            Ok(tab)
+        }
+        CompatibilityLayoutSurfaceKind::Browser => {
+            let id = space.next_tab_id.fetch_add(1, Ordering::Relaxed);
+            let url = surface
+                .url
+                .as_deref()
+                .map(str::trim)
+                .filter(|url| !url.is_empty())
+                .map(ToOwned::to_owned);
+            let tab = spawn_browser_tab(id, url, browser_proxy);
+            compatibility_apply_layout_tab_title(&tab, surface.name.as_deref());
+            Ok(tab)
+        }
+    }
+}
+
+async fn compatibility_apply_workspace_layout(
+    daemon: &Arc<Daemon>,
+    workspace: &Arc<Workspace>,
+    layout: &CompatibilityLayoutNode,
+    base_cwd: Option<PathBuf>,
+) -> std::result::Result<(), String> {
+    let space = workspace
+        .first_space()
+        .await
+        .ok_or_else(|| "workspace has no spaces".to_string())?;
+    let root_panel_id = space
+        .default_panel_id()
+        .await
+        .ok_or_else(|| "workspace has no panels".to_string())?;
+    let mut next_panel_id = space.next_panel_id.load(Ordering::Relaxed);
+    let mut leaf_plans = Vec::new();
+    let panel_plan =
+        compatibility_plan_layout_tree(layout, root_panel_id, &mut next_panel_id, &mut leaf_plans);
+    let browser_proxy = workspace_browser_proxy_snapshot(workspace).await;
+    let mut new_tabs: Vec<Arc<Tab>> = Vec::new();
+    let mut leaves = Vec::with_capacity(leaf_plans.len());
+    let mut focused: Option<(PanelId, TabId)> = None;
+    for leaf in leaf_plans {
+        let mut tab_ids = Vec::with_capacity(leaf.surfaces.len());
+        let mut active_tab = None;
+        for surface in &leaf.surfaces {
+            let tab = match compatibility_spawn_layout_surface(
+                &space,
+                surface,
+                base_cwd.as_deref(),
+                browser_proxy.clone(),
+            )
+            .await
+            {
+                Ok(tab) => tab,
+                Err(error) => {
+                    for tab in new_tabs {
+                        tab.kill_child();
+                        space.broker.remove_tab(tab.id);
+                    }
+                    return Err(error);
+                }
+            };
+            if active_tab.is_none() {
+                active_tab = Some(tab.id);
+            }
+            if surface.focus {
+                active_tab = Some(tab.id);
+                focused = Some((leaf.panel_id, tab.id));
+            }
+            tab_ids.push(tab.id);
+            new_tabs.push(tab);
+        }
+        leaves.push(CompatibilityMaterializedLeaf {
+            panel_id: leaf.panel_id,
+            tab_ids,
+            active_tab,
+        });
+    }
+    let fallback_focus = leaves
+        .iter()
+        .find_map(|leaf| leaf.active_tab.map(|tab_id| (leaf.panel_id, tab_id)))
+        .ok_or_else(|| "layout did not create any tabs".to_string())?;
+    let (focused_panel_id, focused_tab_id) = focused.unwrap_or(fallback_focus);
+    let panel_tree = compatibility_materialize_panel_plan(&panel_plan, &leaves);
+    let old_tabs = {
+        let mut tabs = space.tabs.lock().await;
+        std::mem::replace(&mut *tabs, new_tabs.clone())
+    };
+    {
+        let mut panels = space.panels.lock().await;
+        *panels = panel_tree;
+    }
+    space.next_panel_id.store(next_panel_id, Ordering::Relaxed);
+    space
+        .default_panel_id
+        .store(focused_panel_id, Ordering::Relaxed);
+    space.zoomed.store(false, Ordering::Relaxed);
+    if let Some(tab) = space.tab_by_id(focused_tab_id).await {
+        tab.has_activity.store(false, Ordering::Relaxed);
+        space.active_tab_tx.send(tab).ok();
+    }
+    for tab in &new_tabs {
+        if tab.kind == SnapshotTabKind::Terminal {
+            space.clone().spawn_tab_reaper(tab.clone());
+        }
+    }
+    for tab in old_tabs {
+        tab.kill_child();
+        space.broker.remove_tab(tab.id);
+    }
+    daemon.wake_model();
+    daemon.snapshot_notifier.wake();
+    Ok(())
+}
+
+fn command_workspace_color(color: Option<String>) -> Result<Option<String>> {
+    match color.as_deref().map(str::trim) {
+        None | Some("") => Ok(None),
+        Some(raw) => parse_hex_color(raw)
+            .or_else(|| workspace_palette_color(raw))
+            .map(Some)
+            .ok_or_else(|| {
+                anyhow!(
+                    "invalid color {raw:?} (want `#RRGGBB`, `RRGGBB`, or a named palette color)"
+                )
+            }),
+    }
+}
+
+fn command_workspace_remote_status_json(status_json: Option<String>) -> Result<Option<String>> {
+    let Some(raw) = status_json else {
+        return Ok(None);
+    };
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    let value: serde_json::Value =
+        serde_json::from_str(trimmed).context("remote status payload must be valid JSON")?;
+    if !value.is_object() {
+        bail!("remote status payload must be a JSON object");
+    }
+    Ok(Some(value.to_string()))
+}
+
+fn browser_proxy_snapshot_from_remote_status_json(
+    raw: Option<&str>,
+) -> Option<BrowserProxySnapshot> {
+    let value: serde_json::Value = serde_json::from_str(raw?).ok()?;
+    browser_proxy_snapshot_from_remote_status_value(&value)
+}
+
+fn browser_proxy_snapshot_from_remote_status_value(
+    value: &serde_json::Value,
+) -> Option<BrowserProxySnapshot> {
+    let proxy = value.get("proxy")?;
+    let host = proxy.get("host")?.as_str()?.trim();
+    if host.is_empty() {
+        return None;
+    }
+    let port = proxy
+        .get("port")
+        .and_then(|value| {
+            value
+                .as_u64()
+                .or_else(|| value.as_str()?.trim().parse::<u64>().ok())
+        })
+        .and_then(|port| u16::try_from(port).ok())?;
+    if port == 0 {
+        return None;
+    }
+    let target = proxy
+        .get("target")
+        .or_else(|| value.get("destination"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|target| !target.is_empty())
+        .map(ToOwned::to_owned);
+    Some(BrowserProxySnapshot {
+        host: host.to_string(),
+        port,
+        target,
+    })
+}
+
+async fn workspace_browser_proxy_snapshot(
+    workspace: &Arc<Workspace>,
+) -> Option<BrowserProxySnapshot> {
+    let remote_status_json = workspace.remote_status_json.lock().await.clone();
+    browser_proxy_snapshot_from_remote_status_json(remote_status_json.as_deref())
+}
+
+fn workspace_palette_color(name: &str) -> Option<String> {
+    const DEFAULT_PALETTE: &[(&str, &str)] = &[
+        ("Red", "#C0392B"),
+        ("Crimson", "#922B21"),
+        ("Orange", "#A04000"),
+        ("Amber", "#7D6608"),
+        ("Olive", "#4A5C18"),
+        ("Green", "#196F3D"),
+        ("Teal", "#006B6B"),
+        ("Aqua", "#0E6B8C"),
+        ("Blue", "#1565C0"),
+        ("Navy", "#1A5276"),
+        ("Indigo", "#283593"),
+        ("Purple", "#6A1B9A"),
+        ("Magenta", "#AD1457"),
+        ("Rose", "#880E4F"),
+        ("Brown", "#7B3F00"),
+        ("Charcoal", "#3E4B5E"),
+    ];
+    DEFAULT_PALETTE
+        .iter()
+        .find(|(palette_name, _)| palette_name.eq_ignore_ascii_case(name.trim()))
+        .map(|(_, hex)| (*hex).to_string())
+}
+
 async fn close_workspace_tabs(ws: &Arc<Workspace>) {
     let spaces = ws.spaces.lock().await.clone();
     for space in spaces {
-        let tabs = space.tabs.lock().await;
-        for tab in tabs.iter() {
-            tab.pty_tx.send(PtyOp::Write(vec![0x04])).ok();
-        }
+        space.close_all_tabs().await;
     }
 }
 
@@ -7222,12 +11626,157 @@ async fn run_window_command(
                 Ok(panel_id) => panel_id,
                 Err(e) => return (err_result(e), None, false),
             };
-            match space.clone().new_tab_in_panel(panel_id).await {
+            match space.clone().new_tab_in_panel(panel_id, None, None).await {
                 Ok(tab) => {
                     window.remember_tab(&ws, &space, panel_id, &tab);
                     daemon.wake_model();
                     (ok_result(), None, true)
                 }
+                Err(e) => (err_result(e), None, false),
+            }
+        }
+        Command::NewTabWithOptions { cwd, initial_input } => {
+            let ws = match window.active_workspace(daemon).await {
+                Ok(ws) => ws,
+                Err(e) => return (err_result(e), None, false),
+            };
+            let space = match window.active_space(&ws).await {
+                Ok(space) => space,
+                Err(e) => return (err_result(e), None, false),
+            };
+            let panel_id = match window.active_panel(&space).await {
+                Ok(panel_id) => panel_id,
+                Err(e) => return (err_result(e), None, false),
+            };
+            match space
+                .clone()
+                .new_tab_in_panel(
+                    panel_id,
+                    command_cwd(cwd),
+                    command_initial_input(initial_input),
+                )
+                .await
+            {
+                Ok(tab) => {
+                    window.remember_tab(&ws, &space, panel_id, &tab);
+                    daemon.wake_model();
+                    (ok_result(), None, true)
+                }
+                Err(e) => (err_result(e), None, false),
+            }
+        }
+        Command::NewBrowserTab { url } => {
+            let ws = match window.active_workspace(daemon).await {
+                Ok(ws) => ws,
+                Err(e) => return (err_result(e), None, false),
+            };
+            let space = match window.active_space(&ws).await {
+                Ok(space) => space,
+                Err(e) => return (err_result(e), None, false),
+            };
+            let panel_id = match window.active_panel(&space).await {
+                Ok(panel_id) => panel_id,
+                Err(e) => return (err_result(e), None, false),
+            };
+            let proxy = workspace_browser_proxy_snapshot(&ws).await;
+            match space
+                .clone()
+                .new_browser_tab_in_panel(panel_id, url, proxy)
+                .await
+            {
+                Ok(tab) => {
+                    window.remember_tab(&ws, &space, panel_id, &tab);
+                    daemon.wake_model();
+                    daemon.snapshot_notifier.wake();
+                    (ok_result(), None, true)
+                }
+                Err(e) => (err_result(e), None, false),
+            }
+        }
+        Command::NewBrowserSplit { url, vertical } => {
+            let ws = match window.active_workspace(daemon).await {
+                Ok(ws) => ws,
+                Err(e) => return (err_result(e), None, false),
+            };
+            let space = match window.active_space(&ws).await {
+                Ok(space) => space,
+                Err(e) => return (err_result(e), None, false),
+            };
+            let panel_id = match window.active_panel(&space).await {
+                Ok(panel_id) => panel_id,
+                Err(e) => return (err_result(e), None, false),
+            };
+            let direction = if vertical {
+                SplitDirection::Vertical
+            } else {
+                SplitDirection::Horizontal
+            };
+            let proxy = workspace_browser_proxy_snapshot(&ws).await;
+            match space
+                .clone()
+                .split_browser_panel(panel_id, direction, url, proxy)
+                .await
+            {
+                Ok((new_panel_id, tab)) => {
+                    space.zoomed.store(false, Ordering::Relaxed);
+                    window.remember_tab(&ws, &space, new_panel_id, &tab);
+                    if let Ok(leaves) = window_panel_layouts(&space, window, viewport).await {
+                        window.remember_pane_focus_anchor_for_panel(&space, &leaves, new_panel_id);
+                    }
+                    daemon.wake_model();
+                    daemon.snapshot_notifier.wake();
+                    (ok_result(), None, true)
+                }
+                Err(e) => (err_result(e), None, false),
+            }
+        }
+        Command::BrowserNavigate { url } => {
+            let (_ws, _space, tab, _, _, _) = match window_parts(daemon, window).await {
+                Ok(parts) => parts,
+                Err(e) => return (err_result(e), None, false),
+            };
+            match daemon.browser_navigate(tab.id, url).await {
+                Ok(browser) => (browser_state_result(tab.id, browser), None, true),
+                Err(e) => (err_result(e), None, false),
+            }
+        }
+        Command::BrowserBack => {
+            let (_ws, _space, tab, _, _, _) = match window_parts(daemon, window).await {
+                Ok(parts) => parts,
+                Err(e) => return (err_result(e), None, false),
+            };
+            match daemon.browser_back(tab.id).await {
+                Ok(browser) => (browser_state_result(tab.id, browser), None, true),
+                Err(e) => (err_result(e), None, false),
+            }
+        }
+        Command::BrowserForward => {
+            let (_ws, _space, tab, _, _, _) = match window_parts(daemon, window).await {
+                Ok(parts) => parts,
+                Err(e) => return (err_result(e), None, false),
+            };
+            match daemon.browser_forward(tab.id).await {
+                Ok(browser) => (browser_state_result(tab.id, browser), None, true),
+                Err(e) => (err_result(e), None, false),
+            }
+        }
+        Command::BrowserReload => {
+            let (_ws, _space, tab, _, _, _) = match window_parts(daemon, window).await {
+                Ok(parts) => parts,
+                Err(e) => return (err_result(e), None, false),
+            };
+            match daemon.browser_reload(tab.id).await {
+                Ok(browser) => (browser_state_result(tab.id, browser), None, true),
+                Err(e) => (err_result(e), None, false),
+            }
+        }
+        Command::BrowserGetUrl => {
+            let (_ws, _space, tab, _, _, _) = match window_parts(daemon, window).await {
+                Ok(parts) => parts,
+                Err(e) => return (err_result(e), None, false),
+            };
+            match daemon.browser_info(tab.id).await {
+                Ok(browser) => (browser_state_result(tab.id, browser), None, false),
                 Err(e) => (err_result(e), None, false),
             }
         }
@@ -7302,12 +11851,15 @@ async fn run_window_command(
             }
         }
         Command::CloseTab => {
-            let (_ws, _space, tab, _, _, _) = match window_parts(daemon, window).await {
+            let (_ws, space, tab, _, _, _) = match window_parts(daemon, window).await {
                 Ok(parts) => parts,
                 Err(e) => return (err_result(e), None, false),
             };
-            tab.pty_tx.send(PtyOp::Write(vec![0x04])).ok();
-            (ok_result(), None, false)
+            let is_browser = tab.kind == SnapshotTabKind::Browser;
+            match space.close_tab_by_id(tab.id).await {
+                Ok(()) => (ok_result(), None, is_browser),
+                Err(e) => (err_result(e), None, false),
+            }
         }
         Command::ListTabs => {
             let ws = match window.active_workspace(daemon).await {
@@ -7338,7 +11890,11 @@ async fn run_window_command(
                 .await
             {
                 Ok(ws) => {
-                    window.active_ws_id = ws.id;
+                    window.set_active_workspace_id(ws.id);
+                    window.add_workspace_member(ws.id);
+                    daemon
+                        .set_native_window_active_workspace(&window.external_window_id, ws.id)
+                        .await;
                     if let Some(space) = ws.first_space().await
                         && let Some(panel_id) = space.default_panel_id().await
                         && let Some(tab) = space.first_tab().await
@@ -7372,21 +11928,125 @@ async fn run_window_command(
         }
         Command::SelectWorkspace { index } => match window.select_workspace(daemon, index).await {
             Ok(ws) => {
-                daemon.active_ws_tx.send(ws).ok();
+                window.add_workspace_member(ws.id);
+                daemon
+                    .set_native_window_active_workspace(&window.external_window_id, ws.id)
+                    .await;
+                daemon.set_active_workspace(ws);
                 (ok_result(), None, true)
             }
             Err(e) => (err_result(e), None, false),
         },
+        Command::MoveWorkspaceToIndex {
+            workspace_id,
+            index,
+        } => match compatibility_move_workspace_to_index(daemon, workspace_id, index).await {
+            Ok(_) => (ok_result(), None, true),
+            Err(e) => (err_result(e), None, false),
+        },
+        Command::SetWorkspaceRemoteStatus {
+            workspace_id,
+            status_json,
+        } => {
+            let status_json = match command_workspace_remote_status_json(status_json) {
+                Ok(status_json) => status_json,
+                Err(e) => return (err_result(e), None, false),
+            };
+            match daemon.workspace_by_id(workspace_id).await {
+                Some(ws) => {
+                    *ws.remote_status_json.lock().await = status_json;
+                    daemon.wake_model();
+                    daemon.snapshot_notifier.wake();
+                    (ok_result(), None, true)
+                }
+                None => (
+                    err_result(format!("workspace {workspace_id} not found")),
+                    None,
+                    false,
+                ),
+            }
+        }
+        Command::RemoteDaemonStatus { go_os, go_arch } => (
+            CommandResult::Ok {
+                data: Some(CommandData::RemoteDaemonStatus {
+                    status: daemon
+                        .remote_daemon_metadata
+                        .status(go_os.as_deref(), go_arch.as_deref()),
+                }),
+            },
+            None,
+            false,
+        ),
+        Command::RemoteDaemonBootstrapPlan { go_os, go_arch } => {
+            let plan = daemon
+                .remote_daemon_metadata
+                .bootstrap_plan(go_os.as_deref(), go_arch.as_deref());
+            (
+                CommandResult::Ok {
+                    data: Some(CommandData::RemoteDaemonBootstrapPlan { plan }),
+                },
+                None,
+                false,
+            )
+        }
+        Command::RemoteDaemonSshBootstrap {
+            destination,
+            port,
+            identity_file,
+            ssh_options,
+        } => {
+            let config = remote_ssh_bootstrap::RemoteSshBootstrapConfig {
+                destination,
+                port,
+                identity_file,
+                ssh_options,
+            };
+            match remote_ssh_bootstrap::bootstrap_remote_daemon(
+                &daemon.remote_daemon_metadata,
+                &config,
+            )
+            .await
+            {
+                Ok(result) => (
+                    CommandResult::Ok {
+                        data: Some(CommandData::RemoteDaemonSshBootstrap {
+                            result: cmux_cli_protocol::RemoteDaemonSshBootstrapInfo {
+                                version: result.version,
+                                target_goos: result.target_goos,
+                                target_goarch: result.target_goarch,
+                                local_binary_path: result.local_binary_path,
+                                remote_path: result.remote_path,
+                                uploaded: result.uploaded,
+                                daemon_name: result.hello.name,
+                                daemon_version: result.hello.version,
+                                daemon_capabilities: result.hello.capabilities,
+                            },
+                        }),
+                    },
+                    None,
+                    false,
+                ),
+                Err(error) => (err_result(error.to_string()), None, false),
+            }
+        }
         Command::NextWorkspace => match window.offset_workspace(daemon, 1).await {
             Ok(ws) => {
-                daemon.active_ws_tx.send(ws).ok();
+                window.add_workspace_member(ws.id);
+                daemon
+                    .set_native_window_active_workspace(&window.external_window_id, ws.id)
+                    .await;
+                daemon.set_active_workspace(ws);
                 (ok_result(), None, true)
             }
             Err(e) => (err_result(e), None, false),
         },
         Command::PrevWorkspace => match window.offset_workspace(daemon, -1).await {
             Ok(ws) => {
-                daemon.active_ws_tx.send(ws).ok();
+                window.add_workspace_member(ws.id);
+                daemon
+                    .set_native_window_active_workspace(&window.external_window_id, ws.id)
+                    .await;
+                daemon.set_active_workspace(ws);
                 (ok_result(), None, true)
             }
             Err(e) => (err_result(e), None, false),
@@ -7429,8 +12089,33 @@ async fn run_window_command(
             close_workspace_tabs(&ws).await;
             (ok_result(), None, false)
         }
+        Command::CloseWorkspaceById { workspace_id } => {
+            match daemon.workspace_by_id(workspace_id).await {
+                Some(ws) => {
+                    close_workspace_tabs(&ws).await;
+                    (ok_result(), None, false)
+                }
+                None => (
+                    err_result(format!("workspace {workspace_id} not found")),
+                    None,
+                    false,
+                ),
+            }
+        }
+        Command::CloseWindowById { window_id } => {
+            let window_id = clean_window_ref(&window_id)
+                .unwrap_or(window_id.trim())
+                .trim()
+                .to_string();
+            if window_id.is_empty() {
+                return (err_result("window_id is required"), None, false);
+            }
+            daemon.remove_native_window_state(&window_id).await;
+            daemon.wake_model();
+            (ok_result(), None, true)
+        }
         Command::ListWorkspaces => {
-            let (workspaces, active) = daemon.workspace_list_with_active(window.active_ws_id).await;
+            let (workspaces, active) = daemon.workspace_list_for_window(window).await;
             (
                 CommandResult::Ok {
                     data: Some(CommandData::WorkspaceList { workspaces, active }),
@@ -7448,10 +12133,7 @@ async fn run_window_command(
                 Ok(space) => space,
                 Err(e) => return (err_result(e), None, false),
             };
-            let tabs = space.tabs.lock().await;
-            for tab in tabs.iter() {
-                tab.pty_tx.send(PtyOp::Write(vec![0x04])).ok();
-            }
+            space.close_all_tabs().await;
             (ok_result(), None, false)
         }
         Command::ListSpaces => {
@@ -7505,6 +12187,21 @@ async fn run_window_command(
             daemon.wake_model();
             (ok_result(), None, true)
         }
+        Command::SetTabTitleById {
+            tab_id,
+            title,
+            explicit,
+        } => match daemon.tab_by_id(tab_id).await {
+            Some(tab) => {
+                tab.explicit_title.store(explicit, Ordering::Relaxed);
+                if let Some(title) = title {
+                    tab.title.store(Arc::new(title));
+                }
+                daemon.wake_model();
+                (ok_result(), None, true)
+            }
+            None => (err_result(format!("tab {tab_id} not found")), None, false),
+        },
         Command::RenameWorkspace { title } => {
             let ws = match window.active_workspace(daemon).await {
                 Ok(ws) => ws,
@@ -7517,6 +12214,54 @@ async fn run_window_command(
             daemon.wake_model();
             (ok_result(), None, true)
         }
+        Command::RenameWorkspaceById {
+            workspace_id,
+            title,
+        } => match daemon.workspace_by_id(workspace_id).await {
+            Some(ws) => {
+                {
+                    let mut current = ws.title.lock().await;
+                    *current = title;
+                }
+                daemon.wake_model();
+                (ok_result(), None, true)
+            }
+            None => (
+                err_result(format!("workspace {workspace_id} not found")),
+                None,
+                false,
+            ),
+        },
+        Command::SetWorkspaceDescription { description } => {
+            let ws = match window.active_workspace(daemon).await {
+                Ok(ws) => ws,
+                Err(e) => return (err_result(e), None, false),
+            };
+            {
+                let mut current = ws.description.lock().await;
+                *current = command_workspace_description(description);
+            }
+            daemon.wake_model();
+            (ok_result(), None, true)
+        }
+        Command::SetWorkspaceDescriptionById {
+            workspace_id,
+            description,
+        } => match daemon.workspace_by_id(workspace_id).await {
+            Some(ws) => {
+                {
+                    let mut current = ws.description.lock().await;
+                    *current = command_workspace_description(description);
+                }
+                daemon.wake_model();
+                (ok_result(), None, true)
+            }
+            None => (
+                err_result(format!("workspace {workspace_id} not found")),
+                None,
+                false,
+            ),
+        },
         Command::RenameSpace { title } => {
             let ws = match window.active_workspace(daemon).await {
                 Ok(ws) => ws,
@@ -7533,7 +12278,7 @@ async fn run_window_command(
             daemon.wake_model();
             (ok_result(), None, true)
         }
-        Command::SplitHorizontal | Command::SplitVertical => {
+        Command::SplitHorizontal => {
             let ws = match window.active_workspace(daemon).await {
                 Ok(ws) => ws,
                 Err(e) => return (err_result(e), None, false),
@@ -7546,12 +12291,111 @@ async fn run_window_command(
                 Ok(panel_id) => panel_id,
                 Err(e) => return (err_result(e), None, false),
             };
-            let dir = match command {
-                Command::SplitHorizontal => SplitDirection::Horizontal,
-                Command::SplitVertical => SplitDirection::Vertical,
-                _ => SplitDirection::Horizontal,
+            match space
+                .clone()
+                .split_panel(panel_id, SplitDirection::Horizontal, None, None)
+                .await
+            {
+                Ok((new_panel_id, tab)) => {
+                    space.zoomed.store(false, Ordering::Relaxed);
+                    window.remember_tab(&ws, &space, new_panel_id, &tab);
+                    if let Ok(leaves) = window_panel_layouts(&space, window, viewport).await {
+                        window.remember_pane_focus_anchor_for_panel(&space, &leaves, new_panel_id);
+                    }
+                }
+                Err(e) => return (err_result(format!("split: {e}")), None, false),
+            }
+            daemon.wake_model();
+            (ok_result(), None, true)
+        }
+        Command::SplitHorizontalWithOptions { cwd, initial_input } => {
+            let ws = match window.active_workspace(daemon).await {
+                Ok(ws) => ws,
+                Err(e) => return (err_result(e), None, false),
             };
-            match space.clone().split_panel(panel_id, dir).await {
+            let space = match window.active_space(&ws).await {
+                Ok(space) => space,
+                Err(e) => return (err_result(e), None, false),
+            };
+            let panel_id = match window.active_panel(&space).await {
+                Ok(panel_id) => panel_id,
+                Err(e) => return (err_result(e), None, false),
+            };
+            match space
+                .clone()
+                .split_panel(
+                    panel_id,
+                    SplitDirection::Horizontal,
+                    command_cwd(cwd),
+                    command_initial_input(initial_input),
+                )
+                .await
+            {
+                Ok((new_panel_id, tab)) => {
+                    space.zoomed.store(false, Ordering::Relaxed);
+                    window.remember_tab(&ws, &space, new_panel_id, &tab);
+                    if let Ok(leaves) = window_panel_layouts(&space, window, viewport).await {
+                        window.remember_pane_focus_anchor_for_panel(&space, &leaves, new_panel_id);
+                    }
+                }
+                Err(e) => return (err_result(format!("split: {e}")), None, false),
+            }
+            daemon.wake_model();
+            (ok_result(), None, true)
+        }
+        Command::SplitVertical => {
+            let ws = match window.active_workspace(daemon).await {
+                Ok(ws) => ws,
+                Err(e) => return (err_result(e), None, false),
+            };
+            let space = match window.active_space(&ws).await {
+                Ok(space) => space,
+                Err(e) => return (err_result(e), None, false),
+            };
+            let panel_id = match window.active_panel(&space).await {
+                Ok(panel_id) => panel_id,
+                Err(e) => return (err_result(e), None, false),
+            };
+            match space
+                .clone()
+                .split_panel(panel_id, SplitDirection::Vertical, None, None)
+                .await
+            {
+                Ok((new_panel_id, tab)) => {
+                    space.zoomed.store(false, Ordering::Relaxed);
+                    window.remember_tab(&ws, &space, new_panel_id, &tab);
+                    if let Ok(leaves) = window_panel_layouts(&space, window, viewport).await {
+                        window.remember_pane_focus_anchor_for_panel(&space, &leaves, new_panel_id);
+                    }
+                }
+                Err(e) => return (err_result(format!("split: {e}")), None, false),
+            }
+            daemon.wake_model();
+            (ok_result(), None, true)
+        }
+        Command::SplitVerticalWithOptions { cwd, initial_input } => {
+            let ws = match window.active_workspace(daemon).await {
+                Ok(ws) => ws,
+                Err(e) => return (err_result(e), None, false),
+            };
+            let space = match window.active_space(&ws).await {
+                Ok(space) => space,
+                Err(e) => return (err_result(e), None, false),
+            };
+            let panel_id = match window.active_panel(&space).await {
+                Ok(panel_id) => panel_id,
+                Err(e) => return (err_result(e), None, false),
+            };
+            match space
+                .clone()
+                .split_panel(
+                    panel_id,
+                    SplitDirection::Vertical,
+                    command_cwd(cwd),
+                    command_initial_input(initial_input),
+                )
+                .await
+            {
                 Ok((new_panel_id, tab)) => {
                     space.zoomed.store(false, Ordering::Relaxed);
                     window.remember_tab(&ws, &space, new_panel_id, &tab);
@@ -7786,6 +12630,7 @@ async fn run_window_command(
             from,
             to_panel_id,
             to,
+            focus,
         } => {
             let ws = match window.active_workspace(daemon).await {
                 Ok(ws) => ws,
@@ -7796,12 +12641,14 @@ async fn run_window_command(
                 Err(e) => return (err_result(e), None, false),
             };
             match space
-                .move_tab_to_panel(from_panel_id, from, to_panel_id, to)
+                .move_tab_to_panel(from_panel_id, from, to_panel_id, to, focus)
                 .await
             {
                 Ok(tab) => {
-                    window.remember_tab(&ws, &space, to_panel_id, &tab);
-                    space.active_tab_tx.send(tab).ok();
+                    if focus {
+                        window.remember_tab(&ws, &space, to_panel_id, &tab);
+                        space.active_tab_tx.send(tab).ok();
+                    }
                     daemon.wake_model();
                     (ok_result(), None, true)
                 }
@@ -7813,6 +12660,7 @@ async fn run_window_command(
             from,
             target_panel_id,
             edge,
+            focus,
         } => {
             let ws = match window.active_workspace(daemon).await {
                 Ok(ws) => ws,
@@ -7830,13 +12678,15 @@ async fn run_window_command(
             };
             match space
                 .clone()
-                .move_tab_to_split(from_panel_id, from, target_panel_id, edge)
+                .move_tab_to_split(from_panel_id, from, target_panel_id, edge, focus)
                 .await
             {
                 Ok((new_panel_id, tab)) => {
                     space.zoomed.store(false, Ordering::Relaxed);
-                    window.remember_tab(&ws, &space, new_panel_id, &tab);
-                    space.active_tab_tx.send(tab).ok();
+                    if focus {
+                        window.remember_tab(&ws, &space, new_panel_id, &tab);
+                        space.active_tab_tx.send(tab).ok();
+                    }
                     daemon.wake_model();
                     (ok_result(), None, true)
                 }
@@ -7844,20 +12694,9 @@ async fn run_window_command(
             }
         }
         Command::SetWorkspaceColor { color } => {
-            let normalised = match color.as_deref().map(str::trim) {
-                None | Some("") => None,
-                Some(raw) => match parse_hex_color(raw) {
-                    Some(hex) => Some(hex),
-                    None => {
-                        return (
-                            err_result(format!(
-                                "invalid color {raw:?} (want `#RRGGBB` or `RRGGBB`)"
-                            )),
-                            None,
-                            false,
-                        );
-                    }
-                },
+            let normalised = match command_workspace_color(color) {
+                Ok(color) => color,
+                Err(e) => return (err_result(e), None, false),
             };
             let ws = match window.active_workspace(daemon).await {
                 Ok(ws) => ws,
@@ -7869,6 +12708,30 @@ async fn run_window_command(
             }
             daemon.wake_model();
             (ok_result(), None, true)
+        }
+        Command::SetWorkspaceColorById {
+            workspace_id,
+            color,
+        } => {
+            let normalised = match command_workspace_color(color) {
+                Ok(color) => color,
+                Err(e) => return (err_result(e), None, false),
+            };
+            match daemon.workspace_by_id(workspace_id).await {
+                Some(ws) => {
+                    {
+                        let mut current = ws.color.lock().await;
+                        *current = normalised;
+                    }
+                    daemon.wake_model();
+                    (ok_result(), None, true)
+                }
+                None => (
+                    err_result(format!("workspace {workspace_id} not found")),
+                    None,
+                    false,
+                ),
+            }
         }
         Command::DisplayMessage { text } => {
             let now_ms = now_unix_millis();
@@ -7981,32 +12844,36 @@ async fn run_window_command(
             daemon.wake_model();
             (ok_result(), None, true)
         }
-        Command::ReadScreen { lines } => {
+        Command::ReadScreen { lines, scrollback } => {
             let (_ws, _space, tab, pane) = match active_window_pane(daemon, window, viewport).await
             {
                 Ok(parts) => parts,
                 Err(e) => return (err_result(e), None, false),
             };
-            let end_row = pane.rows.saturating_sub(1);
-            let start_row = if let Some(n) = lines {
-                end_row.saturating_sub(n.saturating_sub(1).min(u16::MAX as usize) as u16)
+            let (text, cols, rows) = if scrollback {
+                match daemon.broker.extract_recent_text(tab.id, lines, true).await {
+                    Some(recent) => (recent.text, recent.cols, recent.rows),
+                    None => (String::new(), pane.cols, pane.rows),
+                }
             } else {
-                0
+                let end_row = pane.rows.saturating_sub(1);
+                let start_row = if let Some(n) = lines {
+                    end_row.saturating_sub(n.saturating_sub(1).min(u16::MAX as usize) as u16)
+                } else {
+                    0
+                };
+                let sel = crate::render::LineSelection {
+                    start_col: 0,
+                    start_row,
+                    end_col: pane.cols.saturating_sub(1),
+                    end_row,
+                };
+                let text = daemon.broker.extract_text(tab.id, sel, pane).await;
+                (text, pane.cols, end_row + 1 - start_row)
             };
-            let sel = crate::render::LineSelection {
-                start_col: 0,
-                start_row,
-                end_col: pane.cols.saturating_sub(1),
-                end_row,
-            };
-            let text = daemon.broker.extract_text(tab.id, sel, pane).await;
             (
                 CommandResult::Ok {
-                    data: Some(CommandData::ScreenText {
-                        text,
-                        cols: pane.cols,
-                        rows: end_row + 1 - start_row,
-                    }),
+                    data: Some(CommandData::ScreenText { text, cols, rows }),
                 },
                 None,
                 false,
@@ -8070,6 +12937,14519 @@ async fn run_command(daemon: &Arc<Daemon>, command: Command) -> (CommandResult, 
     (reply, side_effect)
 }
 
+async fn handle_line_compatibility_client(
+    daemon: Arc<Daemon>,
+    mut reader: BufReader<OwnedReadHalf>,
+    mut writer: OwnedWriteHalf,
+) -> Result<()> {
+    let mut line = String::new();
+    let auth_config = CompatibilitySocketAuthConfig::from_environment();
+    let mut authenticated = !auth_config.requires_password();
+    loop {
+        line.clear();
+        let bytes = reader
+            .read_line(&mut line)
+            .await
+            .context("read compatibility line")?;
+        if bytes == 0 {
+            return Ok(());
+        }
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let response = if let Some(response) =
+            compatibility_socket_auth_response_if_needed(trimmed, &auth_config, &mut authenticated)
+        {
+            response
+        } else {
+            process_compatibility_line(&daemon, trimmed).await
+        };
+        writer
+            .write_all(response.as_bytes())
+            .await
+            .context("write compatibility response")?;
+        writer
+            .write_all(b"\n")
+            .await
+            .context("write compatibility newline")?;
+    }
+}
+
+#[derive(Debug, Clone)]
+struct CompatibilitySocketAuthConfig {
+    mode: CompatibilitySocketMode,
+    password: Option<String>,
+}
+
+impl CompatibilitySocketAuthConfig {
+    fn from_environment() -> Self {
+        Self {
+            mode: compatibility_socket_mode_from_env(),
+            password: compatibility_socket_password_from_env(),
+        }
+    }
+
+    fn requires_password(&self) -> bool {
+        self.mode.requires_password()
+    }
+}
+
+fn compatibility_socket_mode_from_env() -> CompatibilitySocketMode {
+    let raw = env::var(CMUX_SOCKET_MODE_ENV).unwrap_or_else(|_| "cmuxOnly".to_string());
+    match compatibility_socket_mode_normalized(&raw).as_str() {
+        "off" => CompatibilitySocketMode::Off,
+        "automation" => CompatibilitySocketMode::Automation,
+        "password" => CompatibilitySocketMode::Password,
+        "allowall" | "openaccess" | "fullopenaccess" => CompatibilitySocketMode::AllowAll,
+        "cmuxonly" | "" => CompatibilitySocketMode::CmuxOnly,
+        _ => CompatibilitySocketMode::CmuxOnly,
+    }
+}
+
+fn compatibility_socket_mode_normalized(raw: &str) -> String {
+    raw.trim().to_ascii_lowercase().replace(['_', '-'], "")
+}
+
+fn compatibility_socket_password_from_env() -> Option<String> {
+    if let Ok(password) = env::var(CMUX_SOCKET_PASSWORD_ENV)
+        && let Some(password) = non_empty_auth_secret(&password)
+    {
+        return Some(password);
+    }
+    let path = env::var(CMUX_SOCKET_PASSWORD_FILE_ENV).ok()?;
+    let contents = fs::read_to_string(path).ok()?;
+    non_empty_auth_secret(&contents)
+}
+
+fn non_empty_auth_secret(raw: &str) -> Option<String> {
+    let trimmed = raw.trim_matches(['\n', '\r']);
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
+}
+
+fn compatibility_socket_auth_response_if_needed(
+    line: &str,
+    auth_config: &CompatibilitySocketAuthConfig,
+    authenticated: &mut bool,
+) -> Option<String> {
+    if !auth_config.requires_password() {
+        return None;
+    }
+    if let Some(response) =
+        compatibility_socket_v2_auth_login_response(line, auth_config, authenticated)
+    {
+        return Some(response);
+    }
+    if let Some(response) =
+        compatibility_socket_v1_auth_login_response(line, auth_config, authenticated)
+    {
+        return Some(response);
+    }
+    if !*authenticated {
+        return Some(compatibility_socket_auth_required_response(line));
+    }
+    None
+}
+
+fn compatibility_socket_v1_auth_login_response(
+    line: &str,
+    auth_config: &CompatibilitySocketAuthConfig,
+    authenticated: &mut bool,
+) -> Option<String> {
+    let lowered = line.to_ascii_lowercase();
+    if lowered != "auth" && !lowered.starts_with("auth ") {
+        return None;
+    }
+    let provided = if lowered == "auth" {
+        ""
+    } else {
+        line.get(5..).unwrap_or("").trim()
+    };
+    if provided.is_empty() {
+        return Some("ERROR: Missing password. Usage: auth <password>".to_string());
+    }
+    let Some(expected) = auth_config.password.as_deref() else {
+        return Some(
+            "ERROR: Password mode is enabled but no socket password is configured in Settings."
+                .to_string(),
+        );
+    };
+    if provided != expected {
+        return Some("ERROR: Invalid password".to_string());
+    }
+    *authenticated = true;
+    Some("OK: Authenticated".to_string())
+}
+
+fn compatibility_socket_v2_auth_login_response(
+    line: &str,
+    auth_config: &CompatibilitySocketAuthConfig,
+    authenticated: &mut bool,
+) -> Option<String> {
+    if !line.starts_with('{') {
+        return None;
+    }
+    let request = serde_json::from_str::<serde_json::Value>(line).ok()?;
+    let method = request.get("method").and_then(serde_json::Value::as_str)?;
+    if method != "auth.login" {
+        return None;
+    }
+    let id = request
+        .get("id")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    let provided = request
+        .get("params")
+        .and_then(|params| params.get("password"))
+        .and_then(serde_json::Value::as_str);
+    let Some(provided) = provided else {
+        return Some(compatibility_v2_error(
+            id,
+            "invalid_params",
+            "auth.login requires params.password",
+        ));
+    };
+    let Some(expected) = auth_config.password.as_deref() else {
+        return Some(compatibility_v2_error(
+            id,
+            "auth_unconfigured",
+            "Password mode is enabled but no socket password is configured in Settings.",
+        ));
+    };
+    if provided != expected {
+        return Some(compatibility_v2_error(
+            id,
+            "auth_failed",
+            "Invalid password",
+        ));
+    }
+    *authenticated = true;
+    Some(compatibility_v2_ok(
+        id,
+        serde_json::json!({ "authenticated": true }),
+    ))
+}
+
+fn compatibility_socket_auth_required_response(line: &str) -> String {
+    let message = "Authentication required. Send auth <password> first.";
+    if line.starts_with('{') {
+        let id = serde_json::from_str::<serde_json::Value>(line)
+            .ok()
+            .and_then(|value| value.get("id").cloned())
+            .unwrap_or(serde_json::Value::Null);
+        return compatibility_v2_error(id, "auth_required", message);
+    }
+    "ERROR: Authentication required — send auth <password> first".to_string()
+}
+
+async fn process_compatibility_line(daemon: &Arc<Daemon>, line: &str) -> String {
+    if line.starts_with('{') {
+        return process_compatibility_v2_json(daemon, line).await;
+    }
+
+    let (command, args) = split_compatibility_command(line);
+    match command {
+        "ping" => "PONG".to_string(),
+        "auth" => "OK: Authentication not required".to_string(),
+        "help" => compatibility_help_text().to_string(),
+        "list_workspaces" => match compatibility_workspace_list(daemon).await {
+            Ok((workspaces, active)) => format_legacy_workspaces(&workspaces, active),
+            Err(error) => legacy_error(error),
+        },
+        "current_workspace" => match compatibility_workspace_list(daemon).await {
+            Ok((workspaces, active)) => workspaces
+                .get(active)
+                .map(compat_workspace_ref)
+                .unwrap_or_else(|| "ERROR: No workspace selected".to_string()),
+            Err(error) => legacy_error(error),
+        },
+        "new_workspace" => {
+            let title = non_empty_arg(args).map(str::to_string);
+            match compatibility_run_status(daemon, Command::NewWorkspace { title, cwd: None }).await
+            {
+                Ok(()) => match compatibility_workspace_list(daemon).await {
+                    Ok((workspaces, active)) => workspaces
+                        .get(active)
+                        .map(|workspace| format!("OK {}", compat_workspace_ref(workspace)))
+                        .unwrap_or_else(|| "OK".to_string()),
+                    Err(error) => legacy_error(error),
+                },
+                Err(error) => legacy_error(error),
+            }
+        }
+        "select_workspace" => {
+            let params = non_empty_arg(args)
+                .map(|target| serde_json::json!({ "workspace_id": target }))
+                .unwrap_or_else(|| serde_json::json!({}));
+            match compatibility_workspace_select_v2(daemon, &params).await {
+                Ok(_) => "OK".to_string(),
+                Err(error) => legacy_error(error),
+            }
+        }
+        "close_workspace" => {
+            let result = if args.trim().is_empty() {
+                compatibility_run_status(daemon, Command::CloseWorkspace).await
+            } else {
+                match compatibility_workspace_id_from_ref(daemon, args).await {
+                    Ok(workspace_id) => {
+                        compatibility_run_status(
+                            daemon,
+                            Command::CloseWorkspaceById { workspace_id },
+                        )
+                        .await
+                    }
+                    Err(error) => Err(error),
+                }
+            };
+            legacy_status(result)
+        }
+        "list_panes" => match compatibility_native_snapshot(daemon).await {
+            Ok(snapshot) => format_legacy_panes(&snapshot),
+            Err(error) => legacy_error(error),
+        },
+        "list_pane_surfaces" => match compatibility_native_snapshot(daemon).await {
+            Ok(snapshot) => format_legacy_pane_surfaces(&snapshot, args),
+            Err(error) => legacy_error(error),
+        },
+        "list_surfaces" => match compatibility_native_snapshot(daemon).await {
+            Ok(snapshot) => format_legacy_surfaces(&snapshot),
+            Err(error) => legacy_error(error),
+        },
+        "focus_pane" | "focus_surface_by_panel" => match compatibility_panel_id(daemon, args).await
+        {
+            Ok(panel_id) => legacy_status(
+                compatibility_run_status(daemon, Command::FocusPanel { panel_id }).await,
+            ),
+            Err(error) => legacy_error(error),
+        },
+        "focus_surface" => match compatibility_focus_surface(daemon, args).await {
+            Ok(()) => "OK".to_string(),
+            Err(error) => legacy_error(error),
+        },
+        "new_split" | "new_pane" => {
+            legacy_status(compatibility_run_status(daemon, compatibility_split_command(args)).await)
+        }
+        "new_surface" => match compatibility_new_surface_command(args) {
+            Ok(command) => match compatibility_run_status(daemon, command).await {
+                Ok(()) => match compatibility_native_snapshot(daemon).await {
+                    Ok(snapshot) => format!("OK {}", snapshot.focused_tab_id),
+                    Err(_) => "OK".to_string(),
+                },
+                Err(error) => legacy_error(error),
+            },
+            Err(error) => legacy_error(error),
+        },
+        "close_surface" => legacy_status(compatibility_run_status(daemon, Command::CloseTab).await),
+        "send" => legacy_status(
+            compatibility_run_status(
+                daemon,
+                Command::SendInput {
+                    data: unescape_compatibility_text(args),
+                },
+            )
+            .await,
+        ),
+        "send_key" => match compatibility_key_bytes(args) {
+            Ok(data) => {
+                legacy_status(compatibility_run_status(daemon, Command::SendKey { data }).await)
+            }
+            Err(error) => legacy_error(error),
+        },
+        "send_surface" => match compatibility_send_surface(daemon, args).await {
+            Ok(()) => "OK".to_string(),
+            Err(error) => legacy_error(error),
+        },
+        "send_key_surface" => match compatibility_send_key_surface(daemon, args).await {
+            Ok(()) => "OK".to_string(),
+            Err(error) => legacy_error(error),
+        },
+        "send_workspace" => match compatibility_send_workspace(daemon, args).await {
+            Ok(()) => "OK".to_string(),
+            Err(error) => legacy_error(error),
+        },
+        "notify" => match compatibility_notify_current(daemon, args).await {
+            Ok(()) => "OK".to_string(),
+            Err(error) => legacy_error(error),
+        },
+        "notify_surface" => match compatibility_notify_surface(daemon, args).await {
+            Ok(()) => "OK".to_string(),
+            Err(error) => legacy_error(error),
+        },
+        "notify_target" | "notify_target_async" => {
+            match compatibility_notify_target(daemon, args).await {
+                Ok(()) => "OK".to_string(),
+                Err(error) => legacy_error(error),
+            }
+        }
+        "list_notifications" => match compatibility_list_notifications(daemon).await {
+            Ok(output) => output,
+            Err(error) => legacy_error(error),
+        },
+        "clear_notifications" => match compatibility_clear_notifications(daemon, args).await {
+            Ok(()) => "OK".to_string(),
+            Err(error) => legacy_error(error),
+        },
+        "list_windows" => compatibility_legacy_window_list(daemon).await,
+        "current_window" => compatibility_current_window_id(daemon).await,
+        "new_window" => match compatibility_window_create_v2(daemon).await {
+            Ok(_) => "OK".to_string(),
+            Err(error) => legacy_error(error),
+        },
+        "focus_window" => {
+            let window_id = non_empty_arg(args).unwrap_or_default();
+            let params = serde_json::json!({ "window_id": window_id });
+            legacy_status(
+                compatibility_native_worker_v2(daemon, "window.focus", &params)
+                    .await
+                    .map(|_| ()),
+            )
+        }
+        "close_window" => {
+            let window_id = non_empty_arg(args).unwrap_or_default();
+            let params = serde_json::json!({ "window_id": window_id });
+            match compatibility_window_close_v2(daemon, &params).await {
+                Ok(_) => "OK".to_string(),
+                Err(error) => legacy_error(error),
+            }
+        }
+        "move_workspace_to_window" => {
+            let parts = args.split_whitespace().collect::<Vec<_>>();
+            if parts.len() < 2 {
+                "ERROR: Usage move_workspace_to_window <workspace_id> <window_id>".to_string()
+            } else {
+                let params = serde_json::json!({
+                    "workspace_id": parts[0],
+                    "window_id": parts[1],
+                    "focus": true,
+                });
+                match compatibility_workspace_move_to_window_v2(daemon, &params).await {
+                    Ok(_) => "OK".to_string(),
+                    Err(error) => legacy_error(error),
+                }
+            }
+        }
+        "set_app_focus" => match compatibility_set_app_focus_override(daemon, args) {
+            Ok(_) => "OK".to_string(),
+            Err(error) => legacy_error(error),
+        },
+        "simulate_app_active" | "activate_app" => {
+            compatibility_simulate_app_active(daemon).await;
+            "OK".to_string()
+        }
+        "is_terminal_focused" => "true".to_string(),
+        "set_agent_pid" => match compatibility_set_agent_pid(args) {
+            Ok(()) => "OK".to_string(),
+            Err(error) => legacy_error(error),
+        },
+        "clear_agent_pid" => match compatibility_clear_agent_pid(args) {
+            Ok(()) => "OK".to_string(),
+            Err(error) => legacy_error(error),
+        },
+        "reload_config" | "refresh_surfaces" => "OK".to_string(),
+        "surface_health" => match compatibility_surface_health_legacy(daemon, args).await {
+            Ok(output) => output,
+            Err(error) => legacy_error(error),
+        },
+        "render_stats" => {
+            "OK {\"backend\":\"cmx-rust\",\"frames\":0,\"dirty\":0,\"appIsActive\":true}"
+                .to_string()
+        }
+        "layout_debug" => match compatibility_native_snapshot(daemon)
+            .await
+            .map(|snapshot| compatibility_snapshot_json(&snapshot))
+        {
+            Ok(snapshot) => format!("OK {snapshot}"),
+            Err(error) => legacy_error(error),
+        },
+        "bonsplit_underflow_count" | "empty_panel_count" => "OK 0".to_string(),
+        "reset_bonsplit_underflow_count" | "reset_empty_panel_count" => "OK".to_string(),
+        "flash_count" => match compatibility_flash_count(daemon, args).await {
+            Ok(count) => format!("OK {count}"),
+            Err(error) => legacy_error(error),
+        },
+        "reset_flash_counts" => {
+            daemon.compatibility_flash_counts.lock().await.clear();
+            "OK".to_string()
+        }
+        "panel_snapshot" => match compatibility_panel_snapshot_legacy(daemon, args).await {
+            Ok(line) => line,
+            Err(error) => legacy_error(error),
+        },
+        "panel_snapshot_reset" => match compatibility_panel_snapshot_reset(daemon, args).await {
+            Ok(()) => "OK".to_string(),
+            Err(error) => legacy_error(error),
+        },
+        "set_shortcut"
+        | "simulate_shortcut"
+        | "simulate_type"
+        | "simulate_file_drop"
+        | "drag_surface_to_split"
+        | "seed_drag_pasteboard_fileurl"
+        | "seed_drag_pasteboard_tabtransfer"
+        | "seed_drag_pasteboard_sidebar_reorder"
+        | "seed_drag_pasteboard_types"
+        | "clear_drag_pasteboard"
+        | "drop_hit_test"
+        | "drag_hit_chain"
+        | "overlay_hit_gate"
+        | "overlay_drop_gate"
+        | "portal_hit_gate"
+        | "sidebar_overlay_gate"
+        | "terminal_drop_overlay_probe"
+        | "debug_right_sidebar_focus"
+        | "screenshot" => "OK".to_string(),
+        "focus_notification" => match compatibility_focus_notification_legacy(daemon, args).await {
+            Ok(()) => "OK".to_string(),
+            Err(error) => legacy_error(error),
+        },
+        "read_screen" | "read_terminal_text" => {
+            match compatibility_read_screen(daemon, compatibility_line_limit(args), false).await {
+                Ok(text) => text,
+                Err(error) => legacy_error(error),
+            }
+        }
+        "report_pwd" => match compatibility_report_pwd(daemon, args).await {
+            Ok(()) => "OK".to_string(),
+            Err(error) => legacy_error(error),
+        },
+        "report_git_branch" => match compatibility_report_git_branch(daemon, args).await {
+            Ok(()) => "OK".to_string(),
+            Err(error) => legacy_error(error),
+        },
+        "clear_git_branch" => match compatibility_clear_git_branch(daemon, args).await {
+            Ok(()) => "OK".to_string(),
+            Err(error) => legacy_error(error),
+        },
+        "report_ports" => match compatibility_report_ports(daemon, args).await {
+            Ok(()) => "OK".to_string(),
+            Err(error) => legacy_error(error),
+        },
+        "clear_ports" => match compatibility_clear_ports(daemon, args).await {
+            Ok(()) => "OK".to_string(),
+            Err(error) => legacy_error(error),
+        },
+        "report_tty" => match compatibility_report_tty(daemon, args).await {
+            Ok(()) => "OK".to_string(),
+            Err(error) => legacy_error(error),
+        },
+        "report_shell_state" => match compatibility_report_shell_state(daemon, args).await {
+            Ok(()) => "OK".to_string(),
+            Err(error) => legacy_error(error),
+        },
+        "ports_kick" => match compatibility_ports_kick(daemon, args).await {
+            Ok(_) => "OK".to_string(),
+            Err(error) => legacy_error(error),
+        },
+        "set_status" | "report_meta" => match compatibility_set_status(daemon, args).await {
+            Ok(()) => "OK".to_string(),
+            Err(error) => legacy_error(error),
+        },
+        "report_meta_block" => match compatibility_report_meta_block(daemon, args).await {
+            Ok(()) => "OK".to_string(),
+            Err(error) => legacy_error(error),
+        },
+        "clear_status" | "clear_meta" => match compatibility_clear_status(daemon, args).await {
+            Ok(()) => "OK".to_string(),
+            Err(error) => legacy_error(error),
+        },
+        "clear_meta_block" => match compatibility_clear_meta_block(daemon, args).await {
+            Ok(found) => {
+                if found {
+                    "OK".to_string()
+                } else {
+                    "OK (key not found)".to_string()
+                }
+            }
+            Err(error) => legacy_error(error),
+        },
+        "list_status" | "list_meta" => match compatibility_list_status(daemon, args).await {
+            Ok(output) => output,
+            Err(error) => legacy_error(error),
+        },
+        "list_meta_blocks" => match compatibility_list_meta_blocks(daemon, args).await {
+            Ok(output) => output,
+            Err(error) => legacy_error(error),
+        },
+        "set_progress" => match compatibility_set_progress(daemon, args).await {
+            Ok(()) => "OK".to_string(),
+            Err(error) => legacy_error(error),
+        },
+        "clear_progress" => match compatibility_clear_progress(daemon, args).await {
+            Ok(()) => "OK".to_string(),
+            Err(error) => legacy_error(error),
+        },
+        "log" => match compatibility_log(daemon, args).await {
+            Ok(()) => "OK".to_string(),
+            Err(error) => legacy_error(error),
+        },
+        "clear_log" => match compatibility_clear_log(daemon, args).await {
+            Ok(()) => "OK".to_string(),
+            Err(error) => legacy_error(error),
+        },
+        "list_log" => match compatibility_list_log(daemon, args).await {
+            Ok(output) => output,
+            Err(error) => legacy_error(error),
+        },
+        "sidebar_state" => match compatibility_sidebar_state(daemon, args).await {
+            Ok(output) => output,
+            Err(error) => legacy_error(error),
+        },
+        "reset_sidebar" => match compatibility_reset_sidebar(daemon, args).await {
+            Ok(()) => "OK".to_string(),
+            Err(error) => legacy_error(error),
+        },
+        "report_pr" | "report_review" => {
+            match compatibility_report_pull_request(daemon, args).await {
+                Ok(()) => "OK".to_string(),
+                Err(error) => legacy_error(error),
+            }
+        }
+        "clear_pr" => match compatibility_clear_pull_request(daemon, args).await {
+            Ok(()) => "OK".to_string(),
+            Err(error) => legacy_error(error),
+        },
+        "report_pr_action" => match compatibility_report_pull_request_action(daemon, args).await {
+            Ok(()) => "OK".to_string(),
+            Err(error) => legacy_error(error),
+        },
+        "open_browser" => {
+            let url = non_empty_arg(args).map(str::to_string);
+            match compatibility_run_status(
+                daemon,
+                Command::NewBrowserSplit {
+                    url,
+                    vertical: false,
+                },
+            )
+            .await
+            {
+                Ok(()) => match compatibility_native_snapshot(daemon).await {
+                    Ok(snapshot) => format!(
+                        "OK {}",
+                        compatibility_current_browser_surface_ref(&snapshot)
+                            .unwrap_or_else(|| snapshot.focused_tab_id.to_string())
+                    ),
+                    Err(_) => "OK".to_string(),
+                },
+                Err(error) => legacy_error(error),
+            }
+        }
+        "navigate" => match compatibility_browser_navigate_args(args) {
+            Ok((target, url)) => legacy_status(
+                compatibility_browser_navigate(daemon, target.as_deref(), url)
+                    .await
+                    .map(|_| ()),
+            ),
+            Err(error) => legacy_error(error),
+        },
+        "browser_back" => legacy_status(
+            compatibility_browser_back(
+                daemon,
+                compatibility_browser_target_from_args(args).as_deref(),
+            )
+            .await
+            .map(|_| ()),
+        ),
+        "browser_forward" => legacy_status(
+            compatibility_browser_forward(
+                daemon,
+                compatibility_browser_target_from_args(args).as_deref(),
+            )
+            .await
+            .map(|_| ()),
+        ),
+        "browser_reload" => legacy_status(
+            compatibility_browser_reload(
+                daemon,
+                compatibility_browser_target_from_args(args).as_deref(),
+            )
+            .await
+            .map(|_| ()),
+        ),
+        "get_url" => match compatibility_browser_get_url(daemon, args).await {
+            Ok(url) => url,
+            Err(error) => legacy_error(error),
+        },
+        "focus_webview" => legacy_status(
+            compatibility_browser_focus(
+                daemon,
+                compatibility_browser_target_from_args(args).as_deref(),
+            )
+            .await
+            .map(|_| ()),
+        ),
+        "is_webview_focused" => match compatibility_browser_webview_focused(
+            daemon,
+            compatibility_browser_target_from_args(args).as_deref(),
+        )
+        .await
+        {
+            Ok(focused) => focused.to_string(),
+            Err(error) => legacy_error(error),
+        },
+        _ => format!("ERROR: Unknown command '{command}'. Use 'help' for available commands."),
+    }
+}
+
+async fn process_compatibility_v2_json(daemon: &Arc<Daemon>, line: &str) -> String {
+    let request = match serde_json::from_str::<serde_json::Value>(line) {
+        Ok(value) => value,
+        Err(_) => {
+            return compatibility_v2_error(serde_json::Value::Null, "parse_error", "Invalid JSON");
+        }
+    };
+    let id = request
+        .get("id")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    let Some(method) = request.get("method").and_then(serde_json::Value::as_str) else {
+        return compatibility_v2_error(id, "invalid_request", "Missing method");
+    };
+    let params = request
+        .get("params")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
+
+    if !compatibility_v2_request_is_local(daemon, method, &params).await
+        && COMPATIBILITY_V2_METHODS.contains(&method)
+    {
+        return match daemon
+            .dispatch_native_compatibility_v2_request(line.to_string())
+            .await
+        {
+            Ok(response_json) => {
+                compatibility_apply_delegated_window_side_effect(
+                    daemon,
+                    method,
+                    &params,
+                    &response_json,
+                )
+                .await;
+                response_json
+            }
+            Err(error) => compatibility_v2_error(id, "desktop_bridge_unavailable", &error),
+        };
+    }
+
+    let result: std::result::Result<serde_json::Value, String> = async {
+        match method {
+            "system.ping" => Ok(serde_json::json!({ "pong": true })),
+            "system.capabilities" => compatibility_system_capabilities_v2(daemon).await,
+            "system.identify" => compatibility_system_identify_v2(daemon, &params).await,
+            "system.top" => compatibility_system_top_v2(daemon, &params).await,
+            "system.tree" => compatibility_system_tree_v2(daemon, &params).await,
+            "auth.login" => Ok(serde_json::json!({
+                "authenticated": true,
+                "required": compatibility_socket_mode_from_env().requires_password(),
+            })),
+            "window.list" => compatibility_window_list_v2(daemon).await,
+            "window.current" => Ok(compatibility_window_current_json(daemon).await),
+            "window.create" => compatibility_window_create_v2(daemon).await,
+            "window.close" => compatibility_window_close_v2(daemon, &params).await,
+            "window.focus" => compatibility_window_focus_v2(daemon, &params).await,
+            "vm.list" => compatibility_vm_list_v2(daemon).await,
+            "vm.create" => compatibility_vm_create_v2(daemon, &params).await,
+            "vm.destroy" => compatibility_vm_destroy_v2(daemon, &params).await,
+            "vm.exec" => compatibility_vm_exec_v2(daemon, &params).await,
+            "vm.ssh_info" => compatibility_vm_ssh_info_v2(daemon, &params).await,
+            "vm.attach_info" => compatibility_vm_attach_info_v2(daemon, &params).await,
+            "app.focus_override.set" => compatibility_app_focus_override_set_v2(daemon, &params),
+            "app.simulate_active" => compatibility_app_simulate_active_v2(daemon).await,
+            "debug.terminals" => compatibility_debug_terminals_v2(daemon).await,
+            "debug.terminal.is_focused" => {
+                compatibility_debug_terminal_is_focused_v2(daemon, &params).await
+            }
+            "debug.terminal.read_text" => {
+                compatibility_debug_terminal_read_text_v2(daemon, &params).await
+            }
+            "debug.terminal.render_stats" => {
+                compatibility_debug_terminal_render_stats_v2(daemon, &params).await
+            }
+            "debug.layout" => compatibility_native_snapshot_for_params(daemon, &params)
+                .await
+                .map(|snapshot| {
+                    serde_json::json!({ "layout": compatibility_snapshot_json(&snapshot) })
+                }),
+            "debug.portal.stats" => Ok(serde_json::json!({
+                "hosts": [],
+                "host_count": 0,
+                "surface_count": compatibility_surface_count(daemon).await.unwrap_or(0),
+            })),
+            "debug.bonsplit_underflow.count" | "debug.empty_panel.count" => {
+                Ok(serde_json::json!({ "count": 0 }))
+            }
+            "debug.bonsplit_underflow.reset" | "debug.empty_panel.reset" => {
+                Ok(serde_json::json!({}))
+            }
+            "debug.flash.count" => compatibility_debug_flash_count_v2(daemon, &params).await,
+            "debug.flash.reset" => {
+                daemon.compatibility_flash_counts.lock().await.clear();
+                Ok(serde_json::json!({}))
+            }
+            "debug.notification.focus" => {
+                compatibility_focus_notification_v2(daemon, &params).await
+            }
+            "debug.panel_snapshot" => {
+                compatibility_panel_snapshot_v2(daemon, &params).await
+            }
+            "debug.panel_snapshot.reset" => {
+                compatibility_panel_snapshot_reset_v2(daemon, &params).await
+            }
+            "feed.push" => compatibility_feed_push_v2(daemon, &params).await,
+            "feed.permission.reply" => {
+                compatibility_feed_permission_reply_v2(daemon, &params).await
+            }
+            "feed.question.reply" => compatibility_feed_question_reply_v2(daemon, &params).await,
+            "feed.exit_plan.reply" => compatibility_feed_exit_plan_reply_v2(daemon, &params).await,
+            "feed.jump" => compatibility_feed_jump_v2(daemon, &params).await,
+            "feed.list" => compatibility_feed_list_v2(daemon, &params).await,
+            "workspace.list" => compatibility_workspace_list_for_params(daemon, &params)
+                .await
+                .map(|(workspaces, active)| compatibility_workspaces_json(&workspaces, active)),
+            "workspace.current" => {
+                compatibility_workspace_list_for_params(daemon, &params)
+                    .await
+                    .map(|(workspaces, active)| {
+                        workspaces
+                            .get(active)
+                            .map(compatibility_workspace_json)
+                            .unwrap_or(serde_json::Value::Null)
+                    })
+            }
+            "workspace.create" => compatibility_workspace_create_v2(daemon, &params).await,
+            "workspace.select" => compatibility_workspace_select_v2(daemon, &params).await,
+            "workspace.close" => compatibility_workspace_close_v2(daemon, &params).await,
+            "workspace.move_to_window" => {
+                compatibility_workspace_move_to_window_v2(daemon, &params).await
+            }
+            "workspace.rename" => compatibility_workspace_rename_v2(daemon, &params).await,
+            "workspace.reorder" => compatibility_workspace_reorder_v2(daemon, &params).await,
+            "workspace.action" => compatibility_workspace_action_v2(daemon, &params).await,
+            "workspace.prompt_submit" => {
+                compatibility_workspace_prompt_submit_v2(daemon, &params).await
+            }
+            "workspace.equalize_splits" => {
+                compatibility_workspace_equalize_splits_v2(daemon, &params).await
+            }
+            "workspace.remote.configure" => {
+                compatibility_workspace_remote_configure_v2(daemon, &params).await
+            }
+            "workspace.remote.disconnect" => {
+                compatibility_workspace_remote_disconnect_v2(daemon, &params).await
+            }
+            "workspace.remote.foreground_auth_ready" => {
+                compatibility_workspace_remote_foreground_auth_ready_v2(daemon, &params).await
+            }
+            "workspace.remote.terminal_session_end" => {
+                compatibility_workspace_remote_terminal_session_end_v2(daemon, &params).await
+            }
+            "workspace.remote.reconnect" => {
+                compatibility_workspace_remote_reconnect_v2(daemon, &params).await
+            }
+            "workspace.remote.upload_dropped_files" => {
+                compatibility_workspace_remote_upload_dropped_files_v2(daemon, &params).await
+            }
+            "workspace.remote.cleanup_dropped_files" => {
+                compatibility_workspace_remote_cleanup_dropped_files_v2(daemon, &params).await
+            }
+            "workspace.remote.cancel_drop_upload" => {
+                compatibility_workspace_remote_cancel_drop_upload_v2(daemon, &params).await
+            }
+            "workspace.remote.status" => {
+                compatibility_workspace_remote_status_v2(daemon, &params).await
+            }
+            "terminal.detected_ssh.upload_dropped_files" => {
+                compatibility_terminal_detected_ssh_upload_dropped_files_v2(daemon, &params).await
+            }
+            "terminal.detected_ssh.cleanup_dropped_files" => {
+                compatibility_terminal_detected_ssh_cleanup_dropped_files_v2(daemon, &params).await
+            }
+            "terminal.detected_ssh.cancel_drop_upload" => {
+                compatibility_terminal_detected_ssh_cancel_drop_upload_v2(daemon, &params).await
+            }
+            "workspace.next" => compatibility_workspace_offset_v2(daemon, &params, 1).await,
+            "workspace.previous" => compatibility_workspace_offset_v2(daemon, &params, -1).await,
+            "workspace.last" => compatibility_workspace_last_v2(daemon, &params).await,
+            "session.restore_previous" => compatibility_session_restore_previous_v2(daemon).await,
+            "surface.list" => compatibility_native_snapshot_for_params(daemon, &params)
+                .await
+                .map(|snapshot| compatibility_surfaces_json(&snapshot)),
+            "surface.current" => compatibility_native_snapshot_for_params(daemon, &params)
+                .await
+                .map(|snapshot| compatibility_current_surface_json(&snapshot)),
+            "surface.focus" => compatibility_surface_focus_v2(daemon, &params).await,
+            "surface.create" => compatibility_surface_create_v2(daemon, &params).await,
+            "surface.split" | "pane.create" => compatibility_pane_create_v2(daemon, &params).await,
+            "surface.close" => compatibility_surface_close_v2(daemon, &params).await,
+            "surface.move" => compatibility_surface_move_v2(daemon, &params).await,
+            "surface.reorder" => compatibility_surface_reorder_v2(daemon, &params).await,
+            "surface.action" | "tab.action" => {
+                compatibility_tab_action_v2(daemon, method, &params).await
+            }
+            "surface.drag_to_split" => {
+                compatibility_surface_drag_to_split_v2(daemon, &params).await
+            }
+            "surface.split_off" => compatibility_surface_split_off_v2(daemon, &params).await,
+            "surface.refresh" => compatibility_surface_refresh_v2(daemon, &params).await,
+            "surface.clear_history" => {
+                compatibility_surface_clear_history_v2(daemon, &params).await
+            }
+            "surface.health" => compatibility_surface_health_v2(daemon, &params).await,
+            "surface.trigger_flash" => {
+                compatibility_surface_trigger_flash_v2(daemon, &params).await
+            }
+            "surface.send_text" => {
+                let text =
+                    compatibility_string_param(&params, &["text", "value"]).unwrap_or_default();
+                compatibility_surface_send_text_v2(daemon, &params, text).await
+            }
+            "surface.send_key" => {
+                let key = compatibility_string_param(&params, &["key", "keys"]).unwrap_or_default();
+                let data = compatibility_key_bytes(&key)?;
+                compatibility_surface_send_bytes_v2(daemon, &params, data).await
+            }
+            "surface.read_text" => {
+                let lines = compatibility_usize_param(&params, &["lines", "lineLimit"]);
+                let scrollback = compatibility_bool_param(&params, &["scrollback"])
+                    .unwrap_or(false)
+                    || lines.is_some();
+                let target = compatibility_surface_ref_param(&params);
+                compatibility_read_terminal_text_v2(daemon, target.as_deref(), lines, scrollback)
+                    .await
+            }
+            "notification.create" | "notification.create_for_caller" => {
+                let title = compatibility_string_param(&params, &["title"])
+                    .unwrap_or_else(|| "Notification".to_string());
+                let subtitle =
+                    compatibility_string_param(&params, &["subtitle"]).unwrap_or_default();
+                let body =
+                    compatibility_string_param(&params, &["body", "message"]).unwrap_or_default();
+                compatibility_notify_current_with_payload(daemon, title, subtitle, body)
+                    .await
+                    .map(|notification| compatibility_notification_json(&notification))
+            }
+            "notification.create_for_surface" => {
+                let target = compatibility_surface_ref_param(&params)
+                    .ok_or_else(|| "Missing surface_id".to_string())?;
+                let title = compatibility_string_param(&params, &["title"])
+                    .unwrap_or_else(|| "Notification".to_string());
+                let subtitle =
+                    compatibility_string_param(&params, &["subtitle"]).unwrap_or_default();
+                let body =
+                    compatibility_string_param(&params, &["body", "message"]).unwrap_or_default();
+                compatibility_notify_surface_with_payload(daemon, &target, title, subtitle, body)
+                    .await
+                    .map(|notification| compatibility_notification_json(&notification))
+            }
+            "notification.create_for_target" => {
+                let workspace = compatibility_string_param(
+                    &params,
+                    &["workspace_id", "workspaceId", "tab_id", "tabId"],
+                )
+                .ok_or_else(|| "Missing workspace_id".to_string())?;
+                let surface = compatibility_surface_ref_param(&params)
+                    .ok_or_else(|| "Missing surface_id".to_string())?;
+                let title = compatibility_string_param(&params, &["title"])
+                    .unwrap_or_else(|| "Notification".to_string());
+                let subtitle =
+                    compatibility_string_param(&params, &["subtitle"]).unwrap_or_default();
+                let body =
+                    compatibility_string_param(&params, &["body", "message"]).unwrap_or_default();
+                compatibility_record_notification(
+                    daemon,
+                    workspace,
+                    Some(surface),
+                    title,
+                    subtitle,
+                    body,
+                    None,
+                )
+                .await
+                .map(|notification| compatibility_notification_json(&notification))
+            }
+            "notification.list" => compatibility_notification_list_json(daemon).await,
+            "notification.clear" => compatibility_clear_notifications(daemon, "")
+                .await
+                .map(|()| serde_json::json!({ "cleared": true })),
+            "pane.list" => compatibility_native_snapshot_for_params(daemon, &params)
+                .await
+                .map(|snapshot| compatibility_panes_json(&snapshot)),
+            "pane.focus" => compatibility_pane_focus_v2(daemon, &params).await,
+            "pane.resize" => compatibility_pane_resize_v2(daemon, &params).await,
+            "pane.last" => compatibility_pane_last_v2(daemon, &params).await,
+            "pane.join" => compatibility_pane_join_v2(daemon, &params).await,
+            "pane.swap" => compatibility_pane_swap_v2(daemon, &params).await,
+            "pane.break" => compatibility_pane_break_v2(daemon, &params).await,
+            "surface.report_ports" => {
+                let ports = compatibility_ports_param(
+                    &params,
+                    &["ports", "listening_ports", "listeningPorts", "port"],
+                )?;
+                if ports.is_empty() {
+                    return Err("Missing ports".to_string());
+                }
+                let ctx = compatibility_resolve_tab_context_for_params(daemon, &params).await?;
+                ctx.tab
+                    .set_listening_ports(ports.clone())
+                    .map_err(|error| error.to_string())?;
+                let _ = compatibility_workspace_remote_publish_detected_ports_from_tabs(
+                    daemon,
+                    ctx.workspace.id,
+                )
+                .await;
+                daemon.wake_model();
+                daemon.snapshot_notifier.wake();
+                Ok(serde_json::json!({
+                    "accepted": true,
+                    "ports": ports,
+                    "workspace_id": ctx.workspace.external_id,
+                    "surface_id": ctx.tab.external_id,
+                }))
+            }
+            "surface.report_tty" => {
+                let tty_name = compatibility_string_param(&params, &["tty_name", "ttyName", "tty"])
+                    .ok_or_else(|| "Missing tty_name".to_string())?;
+                let ctx = compatibility_resolve_tab_context_for_params(daemon, &params).await?;
+                ctx.tab
+                    .set_tty_name(Some(tty_name.clone()))
+                    .map_err(|error| error.to_string())?;
+                compatibility_workspace_remote_spawn_ssh_port_scan_for_tab(
+                    daemon.clone(),
+                    ctx.tab.id,
+                );
+                daemon.wake_model();
+                daemon.snapshot_notifier.wake();
+                Ok(serde_json::json!({
+                    "accepted": true,
+                    "tty_name": tty_name,
+                    "workspace_id": ctx.workspace.external_id,
+                    "surface_id": ctx.tab.external_id,
+                }))
+            }
+            "surface.ports_kick" => {
+                let ctx = compatibility_resolve_tab_context_for_params(daemon, &params).await?;
+                let generation = ctx.tab.kick_ports();
+                compatibility_workspace_remote_spawn_ssh_port_scan_for_tab(
+                    daemon.clone(),
+                    ctx.tab.id,
+                );
+                daemon.wake_model();
+                daemon.snapshot_notifier.wake();
+                Ok(serde_json::json!({
+                    "accepted": true,
+                    "portsKickGeneration": generation,
+                    "workspace_id": ctx.workspace.external_id,
+                    "surface_id": ctx.tab.external_id,
+                }))
+            }
+            "pane.surfaces" => compatibility_native_snapshot_for_params(daemon, &params)
+                .await
+                .and_then(|snapshot| compatibility_pane_surfaces_json(&snapshot, &params)),
+            "browser.open_split" => {
+                let url = compatibility_string_param(&params, &["url"]);
+                let direction = compatibility_string_param(&params, &["direction", "edge"])
+                    .unwrap_or_else(|| "right".to_string());
+                let vertical =
+                    compatibility_bool_param(&params, &["vertical"]).unwrap_or_else(|| {
+                        matches!(direction.as_str(), "up" | "down" | "vertical" | "stacked")
+                    });
+                compatibility_browser_open_split_v2(daemon, &params, url, vertical).await
+            }
+            "browser.navigate" => {
+                let target = compatibility_browser_ref_param(&params);
+                let url = compatibility_string_param(&params, &["url"])
+                    .ok_or_else(|| "Missing url".to_string())?;
+                let (tab_id, browser) =
+                    compatibility_browser_navigate(daemon, target.as_deref(), url).await?;
+                compatibility_browser_state_json(daemon, tab_id, browser).await
+            }
+            "browser.back" => {
+                let target = compatibility_browser_ref_param(&params);
+                let (tab_id, browser) =
+                    compatibility_browser_back(daemon, target.as_deref()).await?;
+                compatibility_browser_state_json(daemon, tab_id, browser).await
+            }
+            "browser.forward" => {
+                let target = compatibility_browser_ref_param(&params);
+                let (tab_id, browser) =
+                    compatibility_browser_forward(daemon, target.as_deref()).await?;
+                compatibility_browser_state_json(daemon, tab_id, browser).await
+            }
+            "browser.reload" => {
+                let target = compatibility_browser_ref_param(&params);
+                let (tab_id, browser) =
+                    compatibility_browser_reload(daemon, target.as_deref()).await?;
+                compatibility_browser_state_json(daemon, tab_id, browser).await
+            }
+            "browser.url.get" => {
+                let target = compatibility_browser_ref_param(&params);
+                let (tab_id, browser) =
+                    compatibility_browser_info(daemon, target.as_deref()).await?;
+                compatibility_browser_state_json(daemon, tab_id, browser).await
+            }
+            "browser.get.title" => compatibility_browser_get_title_v2(daemon, &params).await,
+            "browser.state.save" => compatibility_browser_state_save_v2(daemon, &params).await,
+            "browser.state.load" => compatibility_browser_state_load_v2(daemon, &params).await,
+            "browser.focus_webview" => {
+                let target = compatibility_browser_ref_param(&params);
+                let request = compatibility_browser_focus(daemon, target.as_deref()).await?;
+                Ok(serde_json::json!({ "focused": true, "focusRequest": request }))
+            }
+            "browser.is_webview_focused" => {
+                let target = compatibility_browser_ref_param(&params);
+                compatibility_browser_webview_focused(daemon, target.as_deref())
+                    .await
+                    .map(|focused| serde_json::json!({ "focused": focused }))
+            }
+            "browser.tab.list" => compatibility_browser_tab_list_v2(daemon, &params).await,
+            "browser.tab.new" => compatibility_browser_tab_new_v2(daemon, &params).await,
+            "browser.tab.switch" => compatibility_browser_tab_switch_v2(daemon, &params).await,
+            "browser.tab.close" => compatibility_browser_tab_close_v2(daemon, &params).await,
+            "browser.input_keyboard" => {
+                compatibility_browser_input_keyboard_v2(daemon, &params).await
+            }
+            "browser.input_mouse" => compatibility_browser_input_mouse_v2(daemon, &params).await,
+            "browser.input_touch" => compatibility_browser_input_touch_v2(daemon, &params).await,
+            method if compatibility_v2_browser_worker_method(method) => {
+                compatibility_browser_worker_v2(daemon, method, &params).await
+            }
+            method if compatibility_v2_native_worker_method(method) => {
+                let result = compatibility_native_worker_v2(daemon, method, &params).await?;
+                compatibility_apply_window_side_effect_result(daemon, method, &params, &result)
+                    .await;
+                Ok(result)
+            }
+            "browser.network.route" | "browser.network.unroute" => {
+                compatibility_browser_record_unsupported_network_request(daemon, method, &params)
+                    .await
+            }
+            "browser.network.requests" => {
+                compatibility_browser_unsupported_network_requests(daemon, &params).await
+            }
+            "browser.viewport.set"
+            | "browser.geolocation.set"
+            | "browser.offline.set"
+            | "browser.trace.start"
+            | "browser.trace.stop"
+            | "browser.screencast.start"
+            | "browser.screencast.stop" => {
+                Err(compatibility_browser_unsupported_method_error(method))
+            }
+            _ => Err(format!(
+                "Method '{method}' is not yet served by the Rust compatibility socket"
+            )),
+        }
+    }
+    .await;
+
+    match result {
+        Ok(result) => compatibility_v2_ok(id, result),
+        Err(message) => compatibility_v2_error_from_message(id, &message),
+    }
+}
+
+const COMPATIBILITY_V2_METHODS: &[&str] = &[
+    "app.focus_override.set",
+    "app.simulate_active",
+    "auth.begin_sign_in",
+    "auth.login",
+    "auth.sign_out",
+    "auth.status",
+    "browser.addinitscript",
+    "browser.addscript",
+    "browser.addstyle",
+    "browser.back",
+    "browser.check",
+    "browser.click",
+    "browser.console.clear",
+    "browser.console.list",
+    "browser.cookies.clear",
+    "browser.cookies.get",
+    "browser.cookies.set",
+    "browser.dblclick",
+    "browser.dialog.accept",
+    "browser.dialog.dismiss",
+    "browser.download.wait",
+    "browser.errors.list",
+    "browser.eval",
+    "browser.fill",
+    "browser.find.alt",
+    "browser.find.first",
+    "browser.find.label",
+    "browser.find.last",
+    "browser.find.nth",
+    "browser.find.placeholder",
+    "browser.find.role",
+    "browser.find.testid",
+    "browser.find.text",
+    "browser.find.title",
+    "browser.focus",
+    "browser.focus_webview",
+    "browser.forward",
+    "browser.frame.main",
+    "browser.frame.select",
+    "browser.geolocation.set",
+    "browser.get.attr",
+    "browser.get.box",
+    "browser.get.count",
+    "browser.get.html",
+    "browser.get.styles",
+    "browser.get.text",
+    "browser.get.title",
+    "browser.get.value",
+    "browser.highlight",
+    "browser.hover",
+    "browser.input_keyboard",
+    "browser.input_mouse",
+    "browser.input_touch",
+    "browser.is.checked",
+    "browser.is.enabled",
+    "browser.is.visible",
+    "browser.is_webview_focused",
+    "browser.keydown",
+    "browser.keyup",
+    "browser.navigate",
+    "browser.network.requests",
+    "browser.network.route",
+    "browser.network.unroute",
+    "browser.offline.set",
+    "browser.open_split",
+    "browser.press",
+    "browser.reload",
+    "browser.screencast.start",
+    "browser.screencast.stop",
+    "browser.screenshot",
+    "browser.scroll",
+    "browser.scroll_into_view",
+    "browser.select",
+    "browser.snapshot",
+    "browser.state.load",
+    "browser.state.save",
+    "browser.storage.clear",
+    "browser.storage.get",
+    "browser.storage.set",
+    "browser.tab.close",
+    "browser.tab.list",
+    "browser.tab.new",
+    "browser.tab.switch",
+    "browser.trace.start",
+    "browser.trace.stop",
+    "browser.type",
+    "browser.uncheck",
+    "browser.url.get",
+    "browser.viewport.set",
+    "browser.wait",
+    "debug.app.activate",
+    "debug.bonsplit_underflow.count",
+    "debug.bonsplit_underflow.reset",
+    "debug.browser.address_bar_focused",
+    "debug.browser.favicon",
+    "debug.command_palette.rename_input.delete_backward",
+    "debug.command_palette.rename_input.interact",
+    "debug.command_palette.rename_input.select_all",
+    "debug.command_palette.rename_input.selection",
+    "debug.command_palette.rename_tab.open",
+    "debug.command_palette.results",
+    "debug.command_palette.selection",
+    "debug.command_palette.toggle",
+    "debug.command_palette.visible",
+    "debug.empty_panel.count",
+    "debug.empty_panel.reset",
+    "debug.flash.count",
+    "debug.flash.reset",
+    "debug.layout",
+    "debug.notification.focus",
+    "debug.panel_snapshot",
+    "debug.panel_snapshot.reset",
+    "debug.portal.stats",
+    "debug.right_sidebar.focus",
+    "debug.shortcut.set",
+    "debug.shortcut.simulate",
+    "debug.sidebar.visible",
+    "debug.terminal.is_focused",
+    "debug.terminal.read_text",
+    "debug.terminal.render_stats",
+    "debug.terminals",
+    "debug.type",
+    "debug.window.screenshot",
+    "feed.exit_plan.reply",
+    "feed.jump",
+    "feed.list",
+    "feed.permission.reply",
+    "feed.push",
+    "feed.question.reply",
+    "feedback.open",
+    "feedback.submit",
+    "file.open",
+    "markdown.open",
+    "notification.clear",
+    "notification.create",
+    "notification.create_for_caller",
+    "notification.create_for_surface",
+    "notification.create_for_target",
+    "notification.list",
+    "pane.break",
+    "pane.create",
+    "pane.focus",
+    "pane.join",
+    "pane.last",
+    "pane.list",
+    "pane.resize",
+    "pane.surfaces",
+    "pane.swap",
+    "session.restore_previous",
+    "settings.open",
+    "surface.action",
+    "surface.clear_history",
+    "surface.close",
+    "surface.create",
+    "surface.current",
+    "surface.drag_to_split",
+    "surface.focus",
+    "surface.health",
+    "surface.list",
+    "surface.move",
+    "surface.ports_kick",
+    "surface.read_text",
+    "surface.refresh",
+    "surface.reorder",
+    "surface.report_ports",
+    "surface.report_tty",
+    "surface.send_key",
+    "surface.send_text",
+    "surface.split",
+    "surface.split_off",
+    "surface.trigger_flash",
+    "system.capabilities",
+    "system.identify",
+    "system.ping",
+    "system.top",
+    "system.tree",
+    "terminal.detected_ssh.cancel_drop_upload",
+    "terminal.detected_ssh.cleanup_dropped_files",
+    "terminal.detected_ssh.upload_dropped_files",
+    "tab.action",
+    "vm.attach_info",
+    "vm.create",
+    "vm.destroy",
+    "vm.exec",
+    "vm.list",
+    "vm.ssh_info",
+    "window.close",
+    "window.create",
+    "window.current",
+    "window.focus",
+    "window.list",
+    "workspace.action",
+    "workspace.close",
+    "workspace.create",
+    "workspace.current",
+    "workspace.equalize_splits",
+    "workspace.last",
+    "workspace.list",
+    "workspace.move_to_window",
+    "workspace.next",
+    "workspace.previous",
+    "workspace.prompt_submit",
+    "workspace.remote.configure",
+    "workspace.remote.disconnect",
+    "workspace.remote.foreground_auth_ready",
+    "workspace.remote.cancel_drop_upload",
+    "workspace.remote.cleanup_dropped_files",
+    "workspace.remote.reconnect",
+    "workspace.remote.status",
+    "workspace.remote.terminal_session_end",
+    "workspace.remote.upload_dropped_files",
+    "workspace.rename",
+    "workspace.reorder",
+    "workspace.select",
+];
+
+const COMPATIBILITY_V2_CONDITIONALLY_LOCAL_METHODS: &[&str] =
+    &["surface.move", "workspace.move_to_window"];
+
+const COMPATIBILITY_V2_BROWSER_WORKER_METHODS: &[&str] = &[
+    "browser.addinitscript",
+    "browser.addscript",
+    "browser.addstyle",
+    "browser.check",
+    "browser.click",
+    "browser.console.clear",
+    "browser.console.list",
+    "browser.cookies.clear",
+    "browser.cookies.get",
+    "browser.cookies.set",
+    "browser.dblclick",
+    "browser.dialog.accept",
+    "browser.dialog.dismiss",
+    "browser.download.wait",
+    "browser.errors.list",
+    "browser.eval",
+    "browser.fill",
+    "browser.find.alt",
+    "browser.find.first",
+    "browser.find.label",
+    "browser.find.last",
+    "browser.find.nth",
+    "browser.find.placeholder",
+    "browser.find.role",
+    "browser.find.testid",
+    "browser.find.text",
+    "browser.find.title",
+    "browser.focus",
+    "browser.frame.main",
+    "browser.frame.select",
+    "browser.get.attr",
+    "browser.get.box",
+    "browser.get.count",
+    "browser.get.html",
+    "browser.get.styles",
+    "browser.get.text",
+    "browser.get.value",
+    "browser.highlight",
+    "browser.hover",
+    "browser.is.checked",
+    "browser.is.enabled",
+    "browser.is.visible",
+    "browser.keydown",
+    "browser.keyup",
+    "browser.press",
+    "browser.screenshot",
+    "browser.scroll",
+    "browser.scroll_into_view",
+    "browser.select",
+    "browser.snapshot",
+    "browser.storage.clear",
+    "browser.storage.get",
+    "browser.storage.set",
+    "browser.type",
+    "browser.uncheck",
+    "browser.wait",
+];
+
+const COMPATIBILITY_V2_NATIVE_WORKER_METHODS: &[&str] = &[
+    "auth.begin_sign_in",
+    "auth.sign_out",
+    "auth.status",
+    "debug.app.activate",
+    "debug.browser.address_bar_focused",
+    "debug.browser.favicon",
+    "debug.command_palette.rename_input.delete_backward",
+    "debug.command_palette.rename_input.interact",
+    "debug.command_palette.rename_input.select_all",
+    "debug.command_palette.rename_input.selection",
+    "debug.command_palette.rename_tab.open",
+    "debug.command_palette.results",
+    "debug.command_palette.selection",
+    "debug.command_palette.toggle",
+    "debug.command_palette.visible",
+    "debug.right_sidebar.focus",
+    "debug.shortcut.set",
+    "debug.shortcut.simulate",
+    "debug.sidebar.visible",
+    "debug.type",
+    "debug.window.screenshot",
+    "feedback.open",
+    "feedback.submit",
+    "file.open",
+    "markdown.open",
+    "settings.open",
+    "window.focus",
+];
+
+const COMPATIBILITY_V2_UNSUPPORTED_METHODS: &[&str] = &[
+    "browser.viewport.set",
+    "browser.geolocation.set",
+    "browser.offline.set",
+    "browser.trace.start",
+    "browser.trace.stop",
+    "browser.network.route",
+    "browser.network.unroute",
+    "browser.network.requests",
+    "browser.screencast.start",
+    "browser.screencast.stop",
+];
+
+fn compatibility_v2_method_is_local(method: &str) -> bool {
+    matches!(
+        method,
+        "system.ping"
+            | "system.capabilities"
+            | "system.identify"
+            | "system.top"
+            | "system.tree"
+            | "auth.login"
+            | "window.list"
+            | "window.current"
+            | "window.create"
+            | "window.close"
+            | "vm.list"
+            | "vm.create"
+            | "vm.destroy"
+            | "vm.exec"
+            | "vm.attach_info"
+            | "vm.ssh_info"
+            | "app.focus_override.set"
+            | "app.simulate_active"
+            | "debug.terminals"
+            | "debug.terminal.is_focused"
+            | "debug.terminal.read_text"
+            | "debug.terminal.render_stats"
+            | "debug.layout"
+            | "debug.portal.stats"
+            | "debug.bonsplit_underflow.count"
+            | "debug.bonsplit_underflow.reset"
+            | "debug.empty_panel.count"
+            | "debug.empty_panel.reset"
+            | "debug.flash.count"
+            | "debug.flash.reset"
+            | "debug.notification.focus"
+            | "debug.panel_snapshot"
+            | "debug.panel_snapshot.reset"
+            | "feed.push"
+            | "feed.permission.reply"
+            | "feed.question.reply"
+            | "feed.exit_plan.reply"
+            | "feed.jump"
+            | "feed.list"
+            | "workspace.list"
+            | "workspace.current"
+            | "workspace.create"
+            | "workspace.select"
+            | "workspace.close"
+            | "workspace.rename"
+            | "workspace.action"
+            | "workspace.reorder"
+            | "workspace.prompt_submit"
+            | "workspace.equalize_splits"
+            | "workspace.remote.configure"
+            | "workspace.remote.disconnect"
+            | "workspace.remote.foreground_auth_ready"
+            | "workspace.remote.cancel_drop_upload"
+            | "workspace.remote.cleanup_dropped_files"
+            | "workspace.remote.reconnect"
+            | "workspace.remote.status"
+            | "workspace.remote.terminal_session_end"
+            | "workspace.remote.upload_dropped_files"
+            | "terminal.detected_ssh.cancel_drop_upload"
+            | "terminal.detected_ssh.cleanup_dropped_files"
+            | "terminal.detected_ssh.upload_dropped_files"
+            | "workspace.next"
+            | "workspace.previous"
+            | "workspace.last"
+            | "session.restore_previous"
+            | "surface.list"
+            | "surface.current"
+            | "surface.focus"
+            | "surface.create"
+            | "surface.split"
+            | "surface.close"
+            | "surface.reorder"
+            | "surface.action"
+            | "surface.drag_to_split"
+            | "surface.split_off"
+            | "surface.refresh"
+            | "surface.clear_history"
+            | "surface.health"
+            | "surface.send_text"
+            | "surface.send_key"
+            | "surface.read_text"
+            | "surface.report_ports"
+            | "surface.report_tty"
+            | "surface.ports_kick"
+            | "surface.trigger_flash"
+            | "tab.action"
+            | "notification.create"
+            | "notification.create_for_caller"
+            | "notification.create_for_surface"
+            | "notification.create_for_target"
+            | "notification.list"
+            | "notification.clear"
+            | "pane.list"
+            | "pane.focus"
+            | "pane.resize"
+            | "pane.last"
+            | "pane.join"
+            | "pane.swap"
+            | "pane.break"
+            | "pane.create"
+            | "pane.surfaces"
+            | "browser.open_split"
+            | "browser.navigate"
+            | "browser.back"
+            | "browser.forward"
+            | "browser.reload"
+            | "browser.url.get"
+            | "browser.get.title"
+            | "browser.state.save"
+            | "browser.state.load"
+            | "browser.focus_webview"
+            | "browser.is_webview_focused"
+            | "browser.tab.list"
+            | "browser.tab.new"
+            | "browser.tab.switch"
+            | "browser.tab.close"
+            | "browser.viewport.set"
+            | "browser.geolocation.set"
+            | "browser.offline.set"
+            | "browser.trace.start"
+            | "browser.trace.stop"
+            | "browser.network.route"
+            | "browser.network.unroute"
+            | "browser.network.requests"
+            | "browser.screencast.start"
+            | "browser.screencast.stop"
+            | "browser.input_mouse"
+            | "browser.input_keyboard"
+            | "browser.input_touch"
+    ) || COMPATIBILITY_V2_CONDITIONALLY_LOCAL_METHODS.contains(&method)
+        || compatibility_v2_browser_worker_method(method)
+        || compatibility_v2_native_worker_method(method)
+}
+
+fn compatibility_v2_browser_worker_method(method: &str) -> bool {
+    COMPATIBILITY_V2_BROWSER_WORKER_METHODS.contains(&method)
+}
+
+fn compatibility_v2_native_worker_method(method: &str) -> bool {
+    COMPATIBILITY_V2_NATIVE_WORKER_METHODS.contains(&method)
+}
+
+async fn compatibility_v2_request_is_local(
+    daemon: &Arc<Daemon>,
+    method: &str,
+    params: &serde_json::Value,
+) -> bool {
+    if compatibility_v2_method_is_local(method) {
+        return true;
+    }
+    match method {
+        "workspace.action" => compatibility_workspace_action_is_local(params),
+        "workspace.move_to_window" => {
+            compatibility_workspace_move_to_window_is_local_for_request(daemon, params).await
+        }
+        "surface.move" => compatibility_surface_move_is_local_for_request(daemon, params).await,
+        "surface.action" | "tab.action" => compatibility_tab_action_is_local(params),
+        _ => false,
+    }
+}
+
+fn split_compatibility_command(line: &str) -> (&str, &str) {
+    line.split_once(char::is_whitespace)
+        .map(|(command, args)| (command, args.trim()))
+        .unwrap_or((line, ""))
+}
+
+fn non_empty_arg(args: &str) -> Option<&str> {
+    let trimmed = args.trim();
+    (!trimmed.is_empty()).then_some(trimmed)
+}
+
+async fn compatibility_run_status(
+    daemon: &Arc<Daemon>,
+    command: Command,
+) -> std::result::Result<(), String> {
+    match run_command(daemon, command).await.0 {
+        CommandResult::Ok { .. } => Ok(()),
+        CommandResult::Err { message } => Err(message),
+    }
+}
+
+async fn compatibility_run_status_for_window(
+    daemon: &Arc<Daemon>,
+    window_ref: &str,
+    command: Command,
+) -> std::result::Result<(), String> {
+    let mut window = WindowState::new_for_compatibility(daemon, Some(window_ref)).await;
+    let viewport = match window.active_workspace(daemon).await {
+        Ok(workspace) => {
+            if let Some(space) = workspace.first_space().await {
+                *space.last_viewport.lock().await
+            } else {
+                daemon.spawn_opts.initial_viewport
+            }
+        }
+        Err(_) => daemon.spawn_opts.initial_viewport,
+    };
+    let (reply, _side_effect, _repaint) =
+        run_window_command(daemon, &mut window, command, viewport).await;
+    daemon.update_native_window_state(&window).await;
+    match reply {
+        CommandResult::Ok { .. } => Ok(()),
+        CommandResult::Err { message } => Err(message),
+    }
+}
+
+fn legacy_status(result: std::result::Result<(), String>) -> String {
+    match result {
+        Ok(()) => "OK".to_string(),
+        Err(error) => legacy_error(error),
+    }
+}
+
+fn legacy_error(error: impl AsRef<str>) -> String {
+    format!("ERROR: {}", error.as_ref())
+}
+
+async fn compatibility_legacy_window_list(daemon: &Arc<Daemon>) -> String {
+    let mut window_ids = daemon.native_window_ids().await;
+    if window_ids.is_empty() {
+        window_ids.push(window_external_id(0));
+    }
+    let mut lines = Vec::with_capacity(window_ids.len());
+    for (index, window_id) in window_ids.into_iter().enumerate() {
+        let (workspaces, active) = daemon.workspace_list_for_window_id(&window_id).await;
+        let selected_workspace_ref = workspaces
+            .get(active)
+            .map(compat_workspace_ref)
+            .unwrap_or_else(|| "none".to_string());
+        let marker = if index == 0 { "*" } else { " " };
+        lines.push(format!(
+            "{marker}{index}: {window_id} selected_workspace={selected_workspace_ref} workspaces={}",
+            workspaces.len()
+        ));
+    }
+    lines.join("\n")
+}
+
+async fn compatibility_workspace_list(
+    daemon: &Arc<Daemon>,
+) -> std::result::Result<(Vec<WorkspaceInfo>, usize), String> {
+    match run_command(daemon, Command::ListWorkspaces).await.0 {
+        CommandResult::Ok {
+            data: Some(CommandData::WorkspaceList { workspaces, active }),
+        } => Ok((workspaces, active)),
+        CommandResult::Ok { .. } => Err("workspace list unavailable".to_string()),
+        CommandResult::Err { message } => Err(message),
+    }
+}
+
+async fn compatibility_workspace_list_for_params(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<(Vec<WorkspaceInfo>, usize), String> {
+    let window_target = compatibility_string_param(
+        params,
+        &["window_id", "windowId", "window", "window_ref", "windowRef"],
+    );
+    let Some(window_target) = window_target.as_deref() else {
+        return compatibility_workspace_list(daemon).await;
+    };
+    let window_id = compatibility_resolve_window_ref(daemon, Some(window_target)).await?;
+    Ok(daemon.workspace_list_for_window_id(&window_id).await)
+}
+
+async fn compatibility_workspace_create_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let title = compatibility_string_param(params, &["title", "name"]);
+    let cwd = compatibility_string_param(params, &["working_directory", "workingDirectory", "cwd"])
+        .map(PathBuf::from);
+    let description = compatibility_string_param(params, &["description"]);
+    let layout = compatibility_workspace_layout_param(params)?;
+    let initial_env = if layout.is_none() {
+        compatibility_initial_env_param(params)?
+    } else {
+        BTreeMap::new()
+    };
+    let initial_input = if layout.is_none() {
+        compatibility_initial_command_input(params)
+    } else {
+        None
+    };
+    let should_focus = compatibility_bool_param(params, &["focus"]).unwrap_or(false);
+    let previous_active = daemon.active_ws_rx.borrow().clone();
+    let target_window_ref = match compatibility_window_ref_for_params(daemon, params).await? {
+        Some(window_ref) => Some(window_ref),
+        None => Some(compatibility_current_window_id(daemon).await),
+    };
+
+    let workspace = daemon
+        .clone()
+        .new_workspace_with_initial(title, cwd.clone(), initial_env, initial_input)
+        .await
+        .map_err(|error| error.to_string())?;
+    if let Some(layout) = layout.as_ref()
+        && let Err(error) =
+            compatibility_apply_workspace_layout(daemon, &workspace, layout, cwd.clone()).await
+    {
+        close_workspace_tabs(&workspace).await;
+        daemon.set_active_workspace(previous_active.clone());
+        return Err(error);
+    }
+    if let Some(description) = command_workspace_description(description) {
+        *workspace.description.lock().await = Some(description);
+    }
+    let created_id = workspace.id;
+    if !should_focus {
+        daemon.set_active_workspace(previous_active);
+        if let Some(window_ref) = target_window_ref.as_deref() {
+            daemon
+                .add_workspace_to_native_window(window_ref, created_id)
+                .await;
+        }
+    } else if let Some(window_ref) = target_window_ref.as_deref() {
+        daemon
+            .set_native_window_active_workspace(window_ref, created_id)
+            .await;
+    }
+    daemon.wake_model();
+    daemon.snapshot_notifier.wake();
+
+    let (workspaces, _) = daemon.workspace_list_with_active(created_id).await;
+    let mut value = workspaces
+        .iter()
+        .find(|workspace| workspace.id == created_id)
+        .map(compatibility_workspace_json)
+        .ok_or_else(|| "workspace.create created workspace is unavailable".to_string())?;
+    if let Some(window_ref) = target_window_ref
+        && let Some(object) = value.as_object_mut()
+    {
+        compatibility_insert_window_ref(object, &window_ref);
+    }
+    Ok(value)
+}
+
+async fn compatibility_workspace_close_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let (workspaces, active) = compatibility_workspace_list(daemon).await?;
+    let index = match compatibility_ref_param(params) {
+        Some(target) => compatibility_workspace_index(daemon, &target).await?,
+        None => active,
+    };
+    let workspace = workspaces
+        .get(index)
+        .ok_or_else(|| format!("Workspace index out of range: {index}"))?;
+    let workspace_id = workspace.id;
+    let workspace_ref = compat_workspace_ref(workspace);
+    compatibility_run_status(daemon, Command::CloseWorkspaceById { workspace_id }).await?;
+    Ok(serde_json::json!({
+        "closed": true,
+        "workspace_id": workspace_ref,
+        "workspace_ref": workspace_ref,
+        "numericWorkspaceId": workspace_id,
+    }))
+}
+
+async fn compatibility_native_snapshot(
+    daemon: &Arc<Daemon>,
+) -> std::result::Result<NativeSnapshot, String> {
+    let mut window = WindowState::new_for_compatibility(daemon, None).await;
+    build_native_snapshot(daemon, &mut window)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+async fn compatibility_window_ref_for_params(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<Option<String>, String> {
+    let Some(target) = compatibility_string_param(params, &["window_id", "windowId", "window"])
+    else {
+        return Ok(None);
+    };
+    if compatibility_window_ref_is_local(&target) {
+        return Ok(None);
+    }
+    let Some(cleaned) = clean_window_ref(&target) else {
+        return Ok(None);
+    };
+    let known = daemon
+        .native_window_ids()
+        .await
+        .into_iter()
+        .any(|window_id| window_id == cleaned);
+    if known {
+        Ok(Some(cleaned.to_string()))
+    } else {
+        Err("Window not found".to_string())
+    }
+}
+
+async fn compatibility_native_snapshot_for_params(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<NativeSnapshot, String> {
+    let window_id = compatibility_window_ref_for_params(daemon, params).await?;
+    match compatibility_workspace_ref_param(params) {
+        Some(target) => {
+            let workspace_id = compatibility_workspace_id_from_ref(daemon, &target).await?;
+            compatibility_native_snapshot_for_workspace_and_window(
+                daemon,
+                workspace_id,
+                window_id.as_deref(),
+            )
+            .await
+        }
+        None => {
+            let mut window = WindowState::new_for_compatibility(daemon, window_id.as_deref()).await;
+            build_native_snapshot(daemon, &mut window)
+                .await
+                .map_err(|error| error.to_string())
+        }
+    }
+}
+
+async fn compatibility_system_capabilities_v2(
+    daemon: &Arc<Daemon>,
+) -> std::result::Result<serde_json::Value, String> {
+    let local_methods = COMPATIBILITY_V2_METHODS
+        .iter()
+        .copied()
+        .filter(|method| {
+            compatibility_v2_method_is_local(method)
+                && !COMPATIBILITY_V2_UNSUPPORTED_METHODS.contains(method)
+        })
+        .collect::<Vec<_>>();
+    let delegated_methods = COMPATIBILITY_V2_METHODS
+        .iter()
+        .copied()
+        .filter(|method| !compatibility_v2_method_is_local(method))
+        .collect::<Vec<_>>();
+    let bridge_client_count = daemon.native_compatibility_client_count().await;
+    let bridge_clients = daemon.native_compatibility_client_summaries().await;
+
+    Ok(serde_json::json!({
+        "methods": COMPATIBILITY_V2_METHODS,
+        "backend": "cmx-rust",
+        "localMethods": local_methods,
+        "delegatedMethods": delegated_methods,
+        "conditionalLocalMethods": COMPATIBILITY_V2_CONDITIONALLY_LOCAL_METHODS,
+        "browserWorkerMethods": COMPATIBILITY_V2_BROWSER_WORKER_METHODS,
+        "nativeWorkerMethods": COMPATIBILITY_V2_NATIVE_WORKER_METHODS,
+        "unsupportedMethods": COMPATIBILITY_V2_UNSUPPORTED_METHODS,
+        "nativeBridge": {
+            "connected": bridge_client_count > 0,
+            "clientCount": bridge_client_count,
+            "clients": bridge_clients,
+            "waitTimeoutMs": NATIVE_COMPATIBILITY_BRIDGE_WAIT_MS,
+            "requestTimeoutMs": NATIVE_COMPATIBILITY_RPC_TIMEOUT_MS,
+        },
+    }))
+}
+
+async fn compatibility_workspace_select_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let target = compatibility_ref_param(params);
+    let index = compatibility_workspace_index(daemon, target.as_deref().unwrap_or("")).await?;
+    let (workspaces, _) = compatibility_workspace_list(daemon).await?;
+    let workspace = workspaces
+        .get(index)
+        .ok_or_else(|| format!("Workspace index out of range: {index}"))?;
+    let window_ref = match compatibility_window_ref_for_params(daemon, params).await? {
+        Some(window_ref) => window_ref,
+        None if compatibility_workspace_select_should_infer_window(target.as_deref()) => {
+            compatibility_window_id_for_workspace(daemon, workspace.id).await
+        }
+        None => compatibility_current_window_id(daemon).await,
+    };
+    let workspace_id = workspace.id;
+    let window_ref =
+        compatibility_select_workspace_by_id_for_window(daemon, workspace_id, Some(window_ref))
+            .await?;
+
+    let mut value = compatibility_workspace_json(workspace);
+    if let Some(object) = value.as_object_mut() {
+        compatibility_insert_window_ref(object, &window_ref);
+    }
+    Ok(value)
+}
+
+fn compatibility_workspace_select_should_infer_window(target: Option<&str>) -> bool {
+    let Some(target) = target.map(str::trim).filter(|target| !target.is_empty()) else {
+        return false;
+    };
+    if target.parse::<usize>().is_ok() {
+        return false;
+    }
+    compatibility_index_ref(target, "workspace").is_none()
+}
+
+async fn compatibility_workspace_offset_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+    offset: i32,
+) -> std::result::Result<serde_json::Value, String> {
+    let window_ref = match compatibility_window_ref_for_params(daemon, params).await? {
+        Some(window_ref) => window_ref,
+        None => compatibility_current_window_id(daemon).await,
+    };
+    let mut window = WindowState::new_for_compatibility(daemon, Some(&window_ref)).await;
+    let workspace = window
+        .offset_workspace(daemon, offset)
+        .await
+        .map_err(|error| error.to_string())?;
+    window.add_workspace_member(workspace.id);
+    daemon
+        .set_native_window_active_workspace(&window_ref, workspace.id)
+        .await;
+    daemon.set_active_workspace(workspace.clone());
+    compatibility_mark_active_workspace_notifications_read(daemon).await;
+    daemon.wake_model();
+
+    let (workspaces, _) = daemon.workspace_list_for_window_id(&window_ref).await;
+    let mut value = workspaces
+        .iter()
+        .find(|info| info.id == workspace.id)
+        .map(compatibility_workspace_json)
+        .unwrap_or_else(|| {
+            let workspace_ref = workspace.external_id.clone();
+            serde_json::json!({
+                "id": workspace_ref.clone(),
+                "workspace_id": workspace_ref.clone(),
+                "workspace_ref": workspace_ref,
+                "numericId": workspace.id,
+                "numericWorkspaceId": workspace.id,
+            })
+        });
+    if let Some(object) = value.as_object_mut() {
+        compatibility_insert_window_ref(object, &window_ref);
+    }
+    Ok(value)
+}
+
+async fn compatibility_window_list_v2(
+    daemon: &Arc<Daemon>,
+) -> std::result::Result<serde_json::Value, String> {
+    let mut window_ids = daemon.native_window_ids().await;
+    if window_ids.is_empty() {
+        window_ids.push(window_external_id(0));
+    }
+    let mut windows = Vec::with_capacity(window_ids.len());
+    for (index, window_id) in window_ids.into_iter().enumerate() {
+        let (workspaces, active) = daemon.workspace_list_for_window_id(&window_id).await;
+        let selected_workspace_ref = workspaces.get(active).map(compat_workspace_ref);
+        let workspace_refs = workspaces
+            .iter()
+            .map(compat_workspace_ref)
+            .collect::<Vec<_>>();
+        windows.push(serde_json::json!({
+            "id": window_id,
+            "ref": window_id,
+            "index": index,
+            "key": index == 0,
+            "visible": true,
+            "workspace_count": workspaces.len(),
+            "workspace_ids": workspace_refs.clone(),
+            "workspace_refs": workspace_refs,
+            "selected_workspace_id": selected_workspace_ref.clone(),
+            "selected_workspace_ref": selected_workspace_ref,
+        }));
+    }
+    Ok(serde_json::json!({
+        "windows": windows,
+    }))
+}
+
+async fn compatibility_window_create_v2(
+    daemon: &Arc<Daemon>,
+) -> std::result::Result<serde_json::Value, String> {
+    let window_id = uuid::Uuid::new_v4().to_string().to_uppercase();
+    let active_workspace_id = daemon.active_ws_rx.borrow().id;
+    daemon
+        .register_native_window_state(&window_id, active_workspace_id)
+        .await;
+    daemon.wake_model();
+    Ok(serde_json::json!({
+        "window_id": window_id,
+        "window_ref": window_id,
+    }))
+}
+
+async fn compatibility_window_close_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let target = compatibility_string_param(
+        params,
+        &[
+            "window_id",
+            "windowId",
+            "window",
+            "id",
+            "ref",
+            "window_ref",
+            "windowRef",
+        ],
+    );
+    let window_id = compatibility_resolve_window_ref(daemon, target.as_deref()).await?;
+    daemon.remove_native_window_state(&window_id).await;
+    daemon.wake_model();
+    Ok(serde_json::json!({
+        "window_id": window_id,
+        "window_ref": window_id,
+    }))
+}
+
+async fn compatibility_current_window_id(daemon: &Arc<Daemon>) -> String {
+    daemon
+        .native_window_ids()
+        .await
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| window_external_id(0))
+}
+
+async fn compatibility_window_id_for_workspace(daemon: &Arc<Daemon>, workspace_id: u64) -> String {
+    let window_ids = daemon.native_window_ids().await;
+    let mut best: Option<(bool, usize, String)> = None;
+    for window_id in &window_ids {
+        let (workspaces, _) = daemon.workspace_list_for_window_id(window_id).await;
+        if workspaces
+            .iter()
+            .any(|workspace| workspace.id == workspace_id)
+        {
+            let selected = daemon
+                .native_window_state(window_id)
+                .await
+                .is_some_and(|state| state.active_ws_id == workspace_id);
+            let candidate = (!selected, workspaces.len(), window_id.clone());
+            if best.as_ref().is_none_or(|best| candidate < *best) {
+                best = Some(candidate);
+            }
+        }
+    }
+    best.map(|(_, _, window_id)| window_id).unwrap_or_else(|| {
+        window_ids
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| window_external_id(0))
+    })
+}
+
+async fn compatibility_window_ref_for_workspace_params(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+    workspace_id: u64,
+) -> std::result::Result<String, String> {
+    match compatibility_window_ref_for_params(daemon, params).await? {
+        Some(window_ref) => Ok(window_ref),
+        None => Ok(compatibility_window_id_for_workspace(daemon, workspace_id).await),
+    }
+}
+
+async fn compatibility_resolve_window_ref(
+    daemon: &Arc<Daemon>,
+    target: Option<&str>,
+) -> std::result::Result<String, String> {
+    let Some(target) = target.map(str::trim).filter(|target| !target.is_empty()) else {
+        return Ok(compatibility_current_window_id(daemon).await);
+    };
+    if compatibility_window_ref_is_local(target) {
+        return Ok(compatibility_current_window_id(daemon).await);
+    }
+    let cleaned = clean_window_ref(target).unwrap_or(target);
+    let known = daemon
+        .native_window_ids()
+        .await
+        .into_iter()
+        .any(|window_id| window_id == cleaned);
+    if known {
+        Ok(cleaned.to_string())
+    } else {
+        Err("Window not found".to_string())
+    }
+}
+
+async fn compatibility_window_current_json(daemon: &Arc<Daemon>) -> serde_json::Value {
+    let window_id = compatibility_current_window_id(daemon).await;
+    serde_json::json!({
+        "window_id": window_id,
+        "window_ref": window_id,
+    })
+}
+
+async fn compatibility_window_focus_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let target =
+        compatibility_string_param(params, &["window_id", "windowId", "window", "ref", "id"])
+            .ok_or_else(|| "Missing or invalid window_id".to_string())?;
+    let window_id = compatibility_resolve_window_ref(daemon, Some(&target)).await?;
+    let mut worker_params = params.as_object().cloned().unwrap_or_default();
+    worker_params.insert(
+        "window_id".to_string(),
+        serde_json::Value::String(window_id.clone()),
+    );
+    worker_params.insert(
+        "window_ref".to_string(),
+        serde_json::Value::String(window_id.clone()),
+    );
+    let result = compatibility_native_worker_v2(
+        daemon,
+        "window.focus",
+        &serde_json::Value::Object(worker_params),
+    )
+    .await?;
+    let active_workspace_id = daemon.active_ws_rx.borrow().id;
+    daemon
+        .set_native_window_active_workspace(&window_id, active_workspace_id)
+        .await;
+    Ok(result)
+}
+
+fn compatibility_window_id_from_value(value: &serde_json::Value) -> Option<String> {
+    compatibility_string_param(
+        value,
+        &[
+            "window_id",
+            "windowId",
+            "window",
+            "id",
+            "ref",
+            "window_ref",
+            "windowRef",
+        ],
+    )
+    .and_then(|window_id| clean_window_ref(&window_id).map(str::to_string))
+    .filter(|window_id| !window_id.chars().all(|ch| ch.is_ascii_digit()))
+}
+
+async fn compatibility_register_native_window_result(
+    daemon: &Arc<Daemon>,
+    result: &serde_json::Value,
+) {
+    let Some(window_id) = compatibility_window_id_from_value(result) else {
+        return;
+    };
+    let active_workspace_id = daemon.active_ws_rx.borrow().id;
+    daemon
+        .register_native_window_state(&window_id, active_workspace_id)
+        .await;
+    daemon.wake_model();
+}
+
+async fn compatibility_unregister_native_window_result(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+    result: &serde_json::Value,
+) {
+    let window_id = compatibility_window_id_from_value(result)
+        .or_else(|| compatibility_window_id_from_value(params));
+    let Some(window_id) = window_id else {
+        return;
+    };
+    daemon.remove_native_window_state(&window_id).await;
+    daemon.wake_model();
+}
+
+async fn compatibility_apply_window_side_effect_result(
+    daemon: &Arc<Daemon>,
+    method: &str,
+    params: &serde_json::Value,
+    result: &serde_json::Value,
+) {
+    match method {
+        "window.create" => compatibility_register_native_window_result(daemon, result).await,
+        "window.close" => {
+            compatibility_unregister_native_window_result(daemon, params, result).await
+        }
+        _ => {}
+    }
+}
+
+async fn compatibility_apply_delegated_window_side_effect(
+    daemon: &Arc<Daemon>,
+    method: &str,
+    params: &serde_json::Value,
+    response_json: &str,
+) {
+    let Ok(result) = compatibility_parse_v2_response(response_json) else {
+        return;
+    };
+    compatibility_apply_window_side_effect_result(daemon, method, params, &result).await;
+}
+
+fn compatibility_window_ref_is_local(target: &str) -> bool {
+    let target = target.trim();
+    target.is_empty()
+        || target == "0"
+        || target == "window:0"
+        || target == "window:1"
+        || target == window_external_id(0)
+}
+
+async fn compatibility_window_ref_is_local_or_known(daemon: &Arc<Daemon>, target: &str) -> bool {
+    if compatibility_window_ref_is_local(target) {
+        return true;
+    }
+    let Some(cleaned) = clean_window_ref(target) else {
+        return false;
+    };
+    daemon
+        .native_window_ids()
+        .await
+        .into_iter()
+        .any(|window_id| window_id == cleaned)
+}
+
+fn clean_window_ref(target: &str) -> Option<&str> {
+    let target = target.trim();
+    if target.is_empty() {
+        return None;
+    }
+    Some(target.strip_prefix("window:").unwrap_or(target))
+}
+
+fn compatibility_window_ref_is_materializable(target: &str) -> bool {
+    clean_window_ref(target).is_some_and(|target| uuid::Uuid::parse_str(target).is_ok())
+}
+
+async fn compatibility_workspace_move_to_window_is_local_for_request(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> bool {
+    match compatibility_string_param(params, &["window_id", "windowId", "window"]) {
+        Some(target) => {
+            compatibility_window_ref_is_local_or_known(daemon, &target).await
+                || compatibility_window_ref_is_materializable(&target)
+        }
+        None => true,
+    }
+}
+
+async fn compatibility_workspace_move_to_window_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let window_target = compatibility_string_param(params, &["window_id", "windowId", "window"])
+        .ok_or_else(|| "Missing or invalid window_id".to_string())?;
+    let workspace_target = compatibility_workspace_ref_param(params)
+        .ok_or_else(|| "Missing or invalid workspace_id".to_string())?;
+    let workspace_id = compatibility_workspace_id_from_ref(daemon, &workspace_target).await?;
+    let workspace = daemon
+        .workspace_by_id(workspace_id)
+        .await
+        .ok_or_else(|| format!("Workspace not found: {workspace_target}"))?;
+    let focus = compatibility_bool_param(params, &["focus"]).unwrap_or(false);
+    let workspace_ref = workspace.external_id.clone();
+    let window_ref =
+        compatibility_resolve_or_materialize_window_ref(daemon, Some(&window_target)).await?;
+    daemon
+        .move_workspace_to_native_window(&window_ref, workspace.id)
+        .await;
+    if focus {
+        daemon.set_active_workspace(workspace.clone());
+    }
+    daemon.wake_model();
+    Ok(serde_json::json!({
+        "workspace_id": workspace_ref.clone(),
+        "workspace_ref": workspace_ref,
+        "numericWorkspaceId": workspace.id,
+        "window_id": window_ref.clone(),
+        "window_ref": window_ref,
+    }))
+}
+
+async fn compatibility_resolve_or_materialize_window_ref(
+    daemon: &Arc<Daemon>,
+    target: Option<&str>,
+) -> std::result::Result<String, String> {
+    let Some(target) = target.map(str::trim).filter(|target| !target.is_empty()) else {
+        return Ok(compatibility_current_window_id(daemon).await);
+    };
+    if compatibility_window_ref_is_local(target) {
+        return Ok(compatibility_current_window_id(daemon).await);
+    }
+    let cleaned = clean_window_ref(target).unwrap_or(target);
+    if daemon
+        .native_window_ids()
+        .await
+        .into_iter()
+        .any(|window_id| window_id == cleaned)
+    {
+        return Ok(cleaned.to_string());
+    }
+    match uuid::Uuid::parse_str(cleaned) {
+        Ok(window_id) => Ok(window_id.to_string().to_uppercase()),
+        Err(_) => Err("Window not found".to_string()),
+    }
+}
+
+const COMPATIBILITY_FEED_RING_CAPACITY: usize = 500;
+const COMPATIBILITY_FEED_PRIMARY_TEXT_LIMIT: usize = 8_000;
+const COMPATIBILITY_FEED_SECONDARY_TEXT_LIMIT: usize = 2_000;
+
+async fn compatibility_feed_push_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let wait_timeout = compatibility_feed_wait_timeout(params)?;
+    let event = compatibility_feed_event_from_params(params)?;
+    compatibility_feed_validate_event(&event)?;
+
+    let item = compatibility_feed_item_from_event(event)?;
+    let item_id = item.id.clone();
+    let wait_request_id = if wait_timeout > 0.0 {
+        compatibility_feed_event_request_id(&item.event)
+    } else {
+        None
+    };
+
+    let receiver = {
+        let mut state = daemon.compatibility_feed.lock().await;
+        let receiver = wait_request_id.as_ref().map(|request_id| {
+            let (tx, rx) = oneshot::channel();
+            state.waiters.insert(request_id.clone(), tx);
+            rx
+        });
+        state.items.push(item);
+        compatibility_feed_prune(&mut state);
+        receiver
+    };
+
+    let Some((request_id, receiver)) = wait_request_id.zip(receiver) else {
+        return Ok(serde_json::json!({ "status": "acknowledged" }));
+    };
+
+    let duration = Duration::from_secs_f64(wait_timeout);
+    match tokio::time::timeout(duration, receiver).await {
+        Ok(Ok(decision)) => Ok(serde_json::json!({
+            "status": "resolved",
+            "decision": compatibility_feed_decision_json(&decision),
+            "item_id": item_id,
+        })),
+        Ok(Err(_)) | Err(_) => {
+            let at_ms = now_unix_millis();
+            let mut state = daemon.compatibility_feed.lock().await;
+            state.waiters.remove(&request_id);
+            if let Some(item) = state.items.iter_mut().rev().find(|item| item.id == item_id)
+                && matches!(item.status, CompatibilityFeedItemStatus::Pending)
+            {
+                item.status = CompatibilityFeedItemStatus::Expired { at_ms };
+                item.updated_at_ms = at_ms;
+            }
+            Ok(serde_json::json!({
+                "status": "timed_out",
+                "item_id": item_id,
+            }))
+        }
+    }
+}
+
+async fn compatibility_feed_permission_reply_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let request_id = compatibility_string_param(params, &["request_id", "requestId"])
+        .ok_or_else(|| "feed.permission.reply requires request_id".to_string())?;
+    let mode = compatibility_string_param(params, &["mode"]).ok_or_else(|| {
+        "feed.permission.reply requires mode ∈ once|always|all|bypass|deny".to_string()
+    })?;
+    if !matches!(mode.as_str(), "once" | "always" | "all" | "bypass" | "deny") {
+        return Err(
+            "feed.permission.reply requires mode ∈ once|always|all|bypass|deny".to_string(),
+        );
+    }
+    compatibility_feed_deliver_reply(
+        daemon,
+        request_id,
+        CompatibilityFeedDecision::Permission { mode },
+    )
+    .await;
+    Ok(serde_json::json!({ "delivered": true }))
+}
+
+async fn compatibility_feed_question_reply_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let request_id = compatibility_string_param(params, &["request_id", "requestId"])
+        .ok_or_else(|| "feed.question.reply requires request_id".to_string())?;
+    let selections = params
+        .get("selections")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| "feed.question.reply requires selections: [string]".to_string())?
+        .iter()
+        .map(|value| {
+            value
+                .as_str()
+                .map(str::to_string)
+                .ok_or_else(|| "feed.question.reply requires selections: [string]".to_string())
+        })
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    compatibility_feed_deliver_reply(
+        daemon,
+        request_id,
+        CompatibilityFeedDecision::Question { selections },
+    )
+    .await;
+    Ok(serde_json::json!({ "delivered": true }))
+}
+
+async fn compatibility_feed_exit_plan_reply_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let request_id = compatibility_string_param(params, &["request_id", "requestId"])
+        .ok_or_else(|| "feed.exit_plan.reply requires request_id".to_string())?;
+    let mode = compatibility_string_param(params, &["mode"]).ok_or_else(|| {
+        "feed.exit_plan.reply requires mode ∈ ultraplan|bypassPermissions|autoAccept|manual|deny"
+            .to_string()
+    })?;
+    if !matches!(
+        mode.as_str(),
+        "ultraplan" | "bypassPermissions" | "autoAccept" | "manual" | "deny"
+    ) {
+        return Err(
+            "feed.exit_plan.reply requires mode ∈ ultraplan|bypassPermissions|autoAccept|manual|deny"
+                .to_string(),
+        );
+    }
+    let feedback = compatibility_string_param(params, &["feedback"]);
+    compatibility_feed_deliver_reply(
+        daemon,
+        request_id,
+        CompatibilityFeedDecision::ExitPlan { mode, feedback },
+    )
+    .await;
+    Ok(serde_json::json!({ "delivered": true }))
+}
+
+async fn compatibility_feed_jump_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let workstream_id = compatibility_string_param(params, &["workstream_id", "workstreamId"])
+        .ok_or_else(|| "feed.jump requires workstream_id".to_string())?;
+    let state = daemon.compatibility_feed.lock().await;
+    let matched = state
+        .items
+        .iter()
+        .any(|item| item.workstream_id == workstream_id);
+    Ok(serde_json::json!({
+        "workstream_id": workstream_id,
+        "matched": matched,
+    }))
+}
+
+async fn compatibility_feed_list_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let pending_only =
+        compatibility_bool_param(params, &["pending_only", "pendingOnly"]).unwrap_or(false);
+    let state = daemon.compatibility_feed.lock().await;
+    let items = state
+        .items
+        .iter()
+        .filter(|item| !pending_only || matches!(item.status, CompatibilityFeedItemStatus::Pending))
+        .map(compatibility_feed_item_json)
+        .collect::<Vec<_>>();
+    Ok(serde_json::json!({ "items": items }))
+}
+
+async fn compatibility_feed_deliver_reply(
+    daemon: &Arc<Daemon>,
+    request_id: String,
+    decision: CompatibilityFeedDecision,
+) {
+    let at_ms = now_unix_millis();
+    let waiter = {
+        let mut state = daemon.compatibility_feed.lock().await;
+        for item in state.items.iter_mut().rev() {
+            if item.request_id.as_deref() == Some(request_id.as_str())
+                && matches!(item.status, CompatibilityFeedItemStatus::Pending)
+            {
+                item.status = CompatibilityFeedItemStatus::Resolved {
+                    decision: decision.clone(),
+                    at_ms,
+                };
+                item.updated_at_ms = at_ms;
+                break;
+            }
+        }
+        state.waiters.remove(&request_id)
+    };
+    if let Some(waiter) = waiter {
+        let _ = waiter.send(decision);
+    }
+}
+
+fn compatibility_feed_wait_timeout(params: &serde_json::Value) -> std::result::Result<f64, String> {
+    let Some(raw_timeout) = params.get("wait_timeout_seconds") else {
+        return Ok(0.0);
+    };
+    let seconds = raw_timeout
+        .as_f64()
+        .or_else(|| {
+            raw_timeout
+                .as_str()
+                .and_then(|text| text.parse::<f64>().ok())
+        })
+        .ok_or_else(|| "feed.push wait_timeout_seconds must be numeric".to_string())?;
+    if !seconds.is_finite() || !(0.0..=120.0).contains(&seconds) {
+        return Err("feed.push wait_timeout_seconds must be between 0 and 120".to_string());
+    }
+    Ok(seconds)
+}
+
+fn compatibility_feed_event_from_params(
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    if let Some(event) = params.get("event")
+        && event.is_object()
+    {
+        return Ok(event.clone());
+    }
+    if params.get("session_id").is_some()
+        && params.get("hook_event_name").is_some()
+        && params.get("_source").is_some()
+    {
+        return Ok(params.clone());
+    }
+    Err("feed.push requires an `event` object".to_string())
+}
+
+fn compatibility_feed_validate_event(event: &serde_json::Value) -> std::result::Result<(), String> {
+    let Some(session_id) = compatibility_feed_string(event, "session_id") else {
+        return Err("feed.push event failed to decode: missing session_id".to_string());
+    };
+    if session_id.trim().is_empty() {
+        return Err("feed.push event failed to decode: empty session_id".to_string());
+    }
+    let Some(hook_event_name) = compatibility_feed_string(event, "hook_event_name") else {
+        return Err("feed.push event failed to decode: missing hook_event_name".to_string());
+    };
+    if compatibility_feed_kind_for_hook(&hook_event_name).is_none() {
+        return Err(format!(
+            "feed.push event failed to decode: unsupported hook_event_name {hook_event_name}"
+        ));
+    }
+    let Some(source) = compatibility_feed_string(event, "_source") else {
+        return Err("feed.push event failed to decode: missing _source".to_string());
+    };
+    if source.trim().is_empty() {
+        return Err("feed.push event failed to decode: empty _source".to_string());
+    }
+    Ok(())
+}
+
+fn compatibility_feed_item_from_event(
+    event: serde_json::Value,
+) -> std::result::Result<CompatibilityFeedItem, String> {
+    let workstream_id = compatibility_feed_string(&event, "session_id")
+        .ok_or_else(|| "feed.push event failed to decode: missing session_id".to_string())?;
+    let hook_event_name = compatibility_feed_string(&event, "hook_event_name")
+        .ok_or_else(|| "feed.push event failed to decode: missing hook_event_name".to_string())?;
+    let kind = compatibility_feed_kind_for_hook(&hook_event_name)
+        .ok_or_else(|| {
+            format!(
+                "feed.push event failed to decode: unsupported hook_event_name {hook_event_name}"
+            )
+        })?
+        .to_string();
+    let source =
+        compatibility_feed_string(&event, "_source").unwrap_or_else(|| "claude".to_string());
+    let tool_name = compatibility_feed_string(&event, "tool_name");
+    let title = tool_name.clone().filter(|name| !name.trim().is_empty());
+    let request_id = compatibility_feed_payload_request_id(&event, &kind);
+    let status = if compatibility_feed_kind_is_actionable(&kind) {
+        CompatibilityFeedItemStatus::Pending
+    } else {
+        CompatibilityFeedItemStatus::Telemetry
+    };
+    let now = now_unix_millis();
+    Ok(CompatibilityFeedItem {
+        id: uuid::Uuid::new_v4().to_string(),
+        workstream_id,
+        source,
+        kind,
+        created_at_ms: compatibility_feed_received_at_ms(&event).unwrap_or(now),
+        updated_at_ms: now,
+        cwd: compatibility_feed_string(&event, "cwd"),
+        title,
+        request_id,
+        hook_event_name,
+        tool_name,
+        tool_input: event
+            .get("tool_input")
+            .map(compatibility_feed_json_text)
+            .or_else(|| Some("{}".to_string())),
+        event,
+        status,
+    })
+}
+
+fn compatibility_feed_prune(state: &mut CompatibilityFeedState) {
+    if state.items.len() <= COMPATIBILITY_FEED_RING_CAPACITY {
+        return;
+    }
+    let overflow = state.items.len() - COMPATIBILITY_FEED_RING_CAPACITY;
+    state.items.drain(0..overflow);
+}
+
+fn compatibility_feed_kind_for_hook(hook: &str) -> Option<&'static str> {
+    match hook {
+        "PermissionRequest" => Some("permissionRequest"),
+        "AskUserQuestion" => Some("question"),
+        "ExitPlanMode" => Some("exitPlan"),
+        "PreToolUse" => Some("toolUse"),
+        "PostToolUse" => Some("toolResult"),
+        "UserPromptSubmit" => Some("userPrompt"),
+        "SessionStart" => Some("sessionStart"),
+        "SessionEnd" => Some("sessionEnd"),
+        "Stop" | "SubagentStop" => Some("stop"),
+        "TodoWrite" => Some("todos"),
+        "Notification" => Some("toolResult"),
+        _ => None,
+    }
+}
+
+fn compatibility_feed_kind_is_actionable(kind: &str) -> bool {
+    matches!(kind, "permissionRequest" | "exitPlan" | "question")
+}
+
+fn compatibility_feed_event_request_id(event: &serde_json::Value) -> Option<String> {
+    compatibility_feed_string(event, "_opencode_request_id")
+}
+
+fn compatibility_feed_payload_request_id(event: &serde_json::Value, kind: &str) -> Option<String> {
+    if !compatibility_feed_kind_is_actionable(kind) {
+        return None;
+    }
+    compatibility_feed_event_request_id(event)
+        .or_else(|| compatibility_feed_string(event, "session_id"))
+}
+
+fn compatibility_feed_string(value: &serde_json::Value, key: &str) -> Option<String> {
+    value
+        .get(key)
+        .and_then(|value| value.as_str().map(str::to_string))
+}
+
+fn compatibility_feed_json_text(value: &serde_json::Value) -> String {
+    value
+        .as_str()
+        .map(str::to_string)
+        .unwrap_or_else(|| value.to_string())
+}
+
+fn compatibility_feed_received_at_ms(event: &serde_json::Value) -> Option<u64> {
+    let value = event.get("_received_at")?;
+    if let Some(ms) = value.as_u64() {
+        return Some(ms);
+    }
+    let text = value.as_str()?.trim();
+    text.parse::<u64>().ok()
+}
+
+fn compatibility_feed_item_json(item: &CompatibilityFeedItem) -> serde_json::Value {
+    let mut object = serde_json::Map::new();
+    object.insert("id".to_string(), serde_json::json!(item.id));
+    object.insert(
+        "workstream_id".to_string(),
+        serde_json::json!(item.workstream_id),
+    );
+    object.insert("source".to_string(), serde_json::json!(item.source));
+    object.insert("kind".to_string(), serde_json::json!(item.kind));
+    object.insert(
+        "created_at".to_string(),
+        serde_json::json!(compatibility_feed_rfc3339(item.created_at_ms)),
+    );
+    object.insert(
+        "updated_at".to_string(),
+        serde_json::json!(compatibility_feed_rfc3339(item.updated_at_ms)),
+    );
+    object.insert(
+        "created_at_ms".to_string(),
+        serde_json::json!(item.created_at_ms),
+    );
+    object.insert(
+        "updated_at_ms".to_string(),
+        serde_json::json!(item.updated_at_ms),
+    );
+    if let Some(cwd) = &item.cwd {
+        object.insert("cwd".to_string(), serde_json::json!(cwd));
+    }
+    if let Some(title) = &item.title {
+        object.insert("title".to_string(), serde_json::json!(title));
+    }
+    if let Some(request_id) = &item.request_id {
+        object.insert("request_id".to_string(), serde_json::json!(request_id));
+    }
+    object.insert(
+        "hook_event_name".to_string(),
+        serde_json::json!(item.hook_event_name),
+    );
+    object.insert("event".to_string(), item.event.clone());
+
+    match &item.status {
+        CompatibilityFeedItemStatus::Pending => {
+            object.insert("status".to_string(), serde_json::json!("pending"));
+        }
+        CompatibilityFeedItemStatus::Resolved { decision, at_ms } => {
+            object.insert("status".to_string(), serde_json::json!("resolved"));
+            object.insert(
+                "decision".to_string(),
+                compatibility_feed_decision_json(decision),
+            );
+            object.insert(
+                "resolved_at".to_string(),
+                serde_json::json!(compatibility_feed_rfc3339(*at_ms)),
+            );
+        }
+        CompatibilityFeedItemStatus::Expired { at_ms } => {
+            object.insert("status".to_string(), serde_json::json!("expired"));
+            object.insert(
+                "resolved_at".to_string(),
+                serde_json::json!(compatibility_feed_rfc3339(*at_ms)),
+            );
+        }
+        CompatibilityFeedItemStatus::Telemetry => {
+            object.insert("status".to_string(), serde_json::json!("telemetry"));
+        }
+    }
+
+    compatibility_feed_insert_payload_fields(item, &mut object);
+    serde_json::Value::Object(object)
+}
+
+fn compatibility_feed_insert_payload_fields(
+    item: &CompatibilityFeedItem,
+    object: &mut serde_json::Map<String, serde_json::Value>,
+) {
+    match item.kind.as_str() {
+        "permissionRequest" => {
+            if let Some(tool_name) = &item.tool_name {
+                object.insert("tool_name".to_string(), serde_json::json!(tool_name));
+            }
+            if let Some(tool_input) = &item.tool_input {
+                compatibility_feed_assign_limited_text(
+                    tool_input,
+                    "tool_input",
+                    object,
+                    COMPATIBILITY_FEED_PRIMARY_TEXT_LIMIT,
+                );
+            }
+        }
+        "exitPlan" => {
+            let plan = item.tool_input.as_deref().unwrap_or("{}");
+            compatibility_feed_assign_limited_text(
+                plan,
+                "plan",
+                object,
+                COMPATIBILITY_FEED_PRIMARY_TEXT_LIMIT,
+            );
+            object.insert(
+                "plan_summary".to_string(),
+                serde_json::Value::String(compatibility_feed_plan_summary(plan)),
+            );
+            object.insert("default_mode".to_string(), serde_json::json!("manual"));
+        }
+        "question" => {
+            let questions = compatibility_feed_questions_json(item.tool_input.as_deref());
+            object.insert("questions".to_string(), serde_json::json!(questions));
+            if let Some(first_question) = questions.first() {
+                if let Some(prompt) = first_question
+                    .get("prompt")
+                    .and_then(serde_json::Value::as_str)
+                {
+                    compatibility_feed_assign_limited_text(
+                        prompt,
+                        "question_prompt",
+                        object,
+                        COMPATIBILITY_FEED_PRIMARY_TEXT_LIMIT,
+                    );
+                }
+                if let Some(multi_select) = first_question
+                    .get("multi_select")
+                    .and_then(serde_json::Value::as_bool)
+                {
+                    object.insert(
+                        "question_multi_select".to_string(),
+                        serde_json::json!(multi_select),
+                    );
+                }
+                if let Some(options) = first_question
+                    .get("options")
+                    .and_then(serde_json::Value::as_array)
+                {
+                    object.insert("question_options".to_string(), serde_json::json!(options));
+                }
+            }
+        }
+        "toolUse" => {
+            if let Some(tool_name) = &item.tool_name {
+                object.insert("tool_name".to_string(), serde_json::json!(tool_name));
+            }
+            if let Some(tool_input) = &item.tool_input {
+                compatibility_feed_assign_limited_text(
+                    tool_input,
+                    "tool_input",
+                    object,
+                    COMPATIBILITY_FEED_PRIMARY_TEXT_LIMIT,
+                );
+            }
+        }
+        "toolResult" => {
+            object.insert(
+                "tool_name".to_string(),
+                serde_json::json!(item.tool_name.as_deref().unwrap_or("notification")),
+            );
+            if let Some(tool_input) = &item.tool_input {
+                compatibility_feed_assign_limited_text(
+                    tool_input,
+                    "tool_result",
+                    object,
+                    COMPATIBILITY_FEED_PRIMARY_TEXT_LIMIT,
+                );
+            }
+            object.insert("tool_result_is_error".to_string(), serde_json::json!(false));
+        }
+        "userPrompt" => {
+            let text = compatibility_feed_prompt_text(item.tool_input.as_deref());
+            compatibility_feed_assign_limited_text(
+                &text,
+                "text",
+                object,
+                COMPATIBILITY_FEED_PRIMARY_TEXT_LIMIT,
+            );
+        }
+        "stop" => {
+            if let Some(reason) = compatibility_feed_stop_reason(item.tool_input.as_deref()) {
+                compatibility_feed_assign_limited_text(
+                    &reason,
+                    "reason",
+                    object,
+                    COMPATIBILITY_FEED_SECONDARY_TEXT_LIMIT,
+                );
+            }
+        }
+        "todos" => {
+            object.insert(
+                "todos".to_string(),
+                serde_json::json!(compatibility_feed_todos_json(item.tool_input.as_deref())),
+            );
+        }
+        "sessionStart" | "sessionEnd" => {}
+        _ => {}
+    }
+}
+
+fn compatibility_feed_decision_json(decision: &CompatibilityFeedDecision) -> serde_json::Value {
+    match decision {
+        CompatibilityFeedDecision::Permission { mode } => {
+            serde_json::json!({ "kind": "permission", "mode": mode })
+        }
+        CompatibilityFeedDecision::Question { selections } => {
+            serde_json::json!({ "kind": "question", "selections": selections })
+        }
+        CompatibilityFeedDecision::ExitPlan { mode, feedback } => {
+            let mut object = serde_json::Map::new();
+            object.insert("kind".to_string(), serde_json::json!("exit_plan"));
+            object.insert("mode".to_string(), serde_json::json!(mode));
+            if let Some(feedback) = feedback
+                && !feedback.is_empty()
+            {
+                object.insert("feedback".to_string(), serde_json::json!(feedback));
+            }
+            serde_json::Value::Object(object)
+        }
+    }
+}
+
+fn compatibility_feed_assign_limited_text(
+    value: &str,
+    key: &str,
+    object: &mut serde_json::Map<String, serde_json::Value>,
+    limit: usize,
+) {
+    let (text, truncated) = compatibility_feed_limited_text(value, limit);
+    object.insert(key.to_string(), serde_json::Value::String(text));
+    if truncated {
+        object.insert(format!("{key}_truncated"), serde_json::json!(true));
+    }
+}
+
+fn compatibility_feed_limited_text(value: &str, limit: usize) -> (String, bool) {
+    if value.chars().count() <= limit {
+        return (value.to_string(), false);
+    }
+    let keep = limit.saturating_sub(3);
+    let mut text = value.chars().take(keep).collect::<String>();
+    text.push_str("...");
+    (text, true)
+}
+
+fn compatibility_feed_plan_summary(plan: &str) -> String {
+    plan.lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or("")
+        .to_string()
+}
+
+fn compatibility_feed_tool_input_value(tool_input: Option<&str>) -> Option<serde_json::Value> {
+    let text = tool_input?;
+    serde_json::from_str::<serde_json::Value>(text).ok()
+}
+
+fn compatibility_feed_questions_json(tool_input: Option<&str>) -> Vec<serde_json::Value> {
+    let Some(root) = compatibility_feed_tool_input_value(tool_input) else {
+        return Vec::new();
+    };
+    if let Some(questions) = root.get("questions").and_then(serde_json::Value::as_array) {
+        return questions
+            .iter()
+            .enumerate()
+            .map(|(index, question)| compatibility_feed_question_json(question, index))
+            .collect();
+    }
+    vec![compatibility_feed_question_json(&root, 0)]
+}
+
+fn compatibility_feed_question_json(
+    question: &serde_json::Value,
+    index: usize,
+) -> serde_json::Value {
+    let fallback_id = format!("q{index}");
+    let id = compatibility_feed_object_string(question, &["id"]).unwrap_or(fallback_id);
+    let header = compatibility_feed_object_string(question, &["header", "title"]);
+    let prompt =
+        compatibility_feed_object_string(question, &["question", "prompt"]).unwrap_or_default();
+    let multi_select = question
+        .get("multiSelect")
+        .or_else(|| question.get("multi_select"))
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+    let options = question
+        .get("options")
+        .and_then(serde_json::Value::as_array)
+        .map(|options| {
+            options
+                .iter()
+                .enumerate()
+                .map(|(option_index, option)| {
+                    compatibility_feed_question_option_json(option, option_index)
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let mut object = serde_json::Map::new();
+    object.insert("id".to_string(), serde_json::json!(id));
+    if let Some(header) = header {
+        object.insert("header".to_string(), serde_json::json!(header));
+    }
+    object.insert("prompt".to_string(), serde_json::json!(prompt));
+    object.insert("multi_select".to_string(), serde_json::json!(multi_select));
+    object.insert("options".to_string(), serde_json::json!(options));
+    serde_json::Value::Object(object)
+}
+
+fn compatibility_feed_question_option_json(
+    option: &serde_json::Value,
+    index: usize,
+) -> serde_json::Value {
+    if let Some(label) = option.as_str() {
+        return serde_json::json!({
+            "id": format!("opt{index}"),
+            "label": label,
+        });
+    }
+    let fallback_id = format!("opt{index}");
+    let id = compatibility_feed_object_string(option, &["id"]).unwrap_or(fallback_id);
+    let label =
+        compatibility_feed_object_string(option, &["label", "title"]).unwrap_or_else(|| id.clone());
+    let description = compatibility_feed_object_string(option, &["description", "detail"]);
+    let mut object = serde_json::Map::new();
+    object.insert("id".to_string(), serde_json::json!(id));
+    object.insert("label".to_string(), serde_json::json!(label));
+    if let Some(description) = description {
+        object.insert("description".to_string(), serde_json::json!(description));
+    }
+    serde_json::Value::Object(object)
+}
+
+fn compatibility_feed_prompt_text(tool_input: Option<&str>) -> String {
+    if let Some(root) = compatibility_feed_tool_input_value(tool_input)
+        && let Some(text) = compatibility_feed_object_string(&root, &["prompt", "text", "message"])
+    {
+        return text;
+    }
+    tool_input.unwrap_or("").to_string()
+}
+
+fn compatibility_feed_stop_reason(tool_input: Option<&str>) -> Option<String> {
+    if let Some(root) = compatibility_feed_tool_input_value(tool_input)
+        && let Some(reason) = compatibility_feed_object_string(&root, &["reason", "message"])
+    {
+        return Some(reason);
+    }
+    tool_input
+        .map(str::to_string)
+        .filter(|reason| !reason.is_empty())
+}
+
+fn compatibility_feed_todos_json(tool_input: Option<&str>) -> Vec<serde_json::Value> {
+    let Some(root) = compatibility_feed_tool_input_value(tool_input) else {
+        return Vec::new();
+    };
+    let todos = root
+        .get("todos")
+        .and_then(serde_json::Value::as_array)
+        .or_else(|| root.as_array());
+    let Some(todos) = todos else {
+        return Vec::new();
+    };
+    todos
+        .iter()
+        .enumerate()
+        .map(|(index, todo)| {
+            let id = compatibility_feed_object_string(todo, &["id"])
+                .unwrap_or_else(|| format!("todo{index}"));
+            let content =
+                compatibility_feed_object_string(todo, &["content", "text"]).unwrap_or_default();
+            let state = compatibility_feed_object_string(todo, &["state", "status"])
+                .unwrap_or_else(|| "pending".to_string());
+            serde_json::json!({
+                "id": id,
+                "content": content,
+                "state": state,
+            })
+        })
+        .collect()
+}
+
+fn compatibility_feed_object_string(value: &serde_json::Value, keys: &[&str]) -> Option<String> {
+    keys.iter().find_map(|key| {
+        value
+            .get(*key)
+            .and_then(|value| value.as_str().map(str::to_string))
+    })
+}
+
+fn compatibility_feed_rfc3339(ms: u64) -> String {
+    let seconds = ms / 1_000;
+    let millis = ms % 1_000;
+    let days = (seconds / 86_400) as i64;
+    let seconds_of_day = seconds % 86_400;
+    let hour = seconds_of_day / 3_600;
+    let minute = (seconds_of_day % 3_600) / 60;
+    let second = seconds_of_day % 60;
+    let (year, month, day) = compatibility_feed_civil_from_days(days);
+    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{millis:03}Z")
+}
+
+fn compatibility_feed_civil_from_days(days_since_epoch: i64) -> (i32, u32, u32) {
+    let z = days_since_epoch + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = mp + if mp < 10 { 3 } else { -9 };
+    let year = y + if month <= 2 { 1 } else { 0 };
+    (year as i32, month as u32, day as u32)
+}
+
+fn compatibility_set_app_focus_override(
+    daemon: &Arc<Daemon>,
+    state: &str,
+) -> std::result::Result<Option<bool>, String> {
+    let normalized = state.trim().to_ascii_lowercase();
+    let override_value = match normalized.as_str() {
+        "active" | "1" | "true" => Some(true),
+        "inactive" | "0" | "false" => Some(false),
+        "clear" | "none" | "" => None,
+        _ => return Err("Expected active, inactive, or clear".to_string()),
+    };
+    let mut stored = daemon
+        .compatibility_app_focus_override
+        .lock()
+        .map_err(|_| "App focus override state is poisoned".to_string())?;
+    *stored = override_value;
+    Ok(override_value)
+}
+
+fn compatibility_app_focus_override_set_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let override_value = if let Some(state) = compatibility_string_param(params, &["state"]) {
+        compatibility_set_app_focus_override(daemon, &state)?
+    } else if params.get("focused").is_some() {
+        let override_value = compatibility_bool_param(params, &["focused"]);
+        let mut stored = daemon
+            .compatibility_app_focus_override
+            .lock()
+            .map_err(|_| "App focus override state is poisoned".to_string())?;
+        *stored = override_value;
+        override_value
+    } else {
+        return Err("Missing state or focused".to_string());
+    };
+    Ok(serde_json::json!({ "override": override_value }))
+}
+
+fn compatibility_app_is_focused(daemon: &Arc<Daemon>) -> bool {
+    daemon
+        .compatibility_app_focus_override
+        .lock()
+        .ok()
+        .and_then(|override_value| *override_value)
+        .unwrap_or(false)
+}
+
+async fn compatibility_simulate_app_active(daemon: &Arc<Daemon>) {
+    let mut changed = false;
+    {
+        let mut notifications = daemon.compatibility_notifications.lock().await;
+        for notification in notifications.iter_mut() {
+            if !notification.is_read {
+                notification.is_read = true;
+                changed = true;
+            }
+        }
+    }
+    if changed {
+        daemon.wake_model();
+    }
+}
+
+async fn compatibility_app_simulate_active_v2(
+    daemon: &Arc<Daemon>,
+) -> std::result::Result<serde_json::Value, String> {
+    compatibility_simulate_app_active(daemon).await;
+    Ok(serde_json::json!({ "active": true }))
+}
+
+async fn compatibility_surface_count(daemon: &Arc<Daemon>) -> std::result::Result<usize, String> {
+    compatibility_native_snapshot(daemon)
+        .await
+        .map(|snapshot| compatibility_surface_entries(&snapshot).len())
+}
+
+async fn compatibility_debug_terminals_v2(
+    daemon: &Arc<Daemon>,
+) -> std::result::Result<serde_json::Value, String> {
+    let snapshot = compatibility_native_snapshot(daemon).await?;
+    let workspace_ref = snapshot
+        .workspaces
+        .get(snapshot.active_workspace)
+        .map(compat_workspace_ref)
+        .unwrap_or_else(|| snapshot.active_workspace_id.to_string());
+    let window_ref = compatibility_snapshot_window_ref(&snapshot);
+    let terminals = compatibility_surface_entries(&snapshot)
+        .into_iter()
+        .filter(|surface| surface.tab.kind == NativeTabKind::Terminal)
+        .enumerate()
+        .map(|(index, surface)| {
+            let surface_ref = compat_tab_ref(surface.tab);
+            serde_json::json!({
+                "index": index,
+                "mapped": true,
+                "tree_visible": true,
+                "window_index": 0,
+                "window_id": window_ref.clone(),
+                "window_ref": window_ref.clone(),
+                "window_key": true,
+                "window_visible": true,
+                "workspace_index": snapshot.active_workspace,
+                "workspace_id": workspace_ref,
+                "workspace_ref": workspace_ref,
+                "workspace_selected": true,
+                "pane_id": surface.panel_id.to_string(),
+                "pane_ref": surface.panel_id.to_string(),
+                "surface_index": surface.index,
+                "surface_index_in_pane": surface.index,
+                "surface_id": surface_ref,
+                "surface_ref": surface_ref,
+                "surface_title": surface.tab.title,
+                "surface_focused": surface.tab.id == snapshot.focused_tab_id,
+                "surface_selected_in_pane": surface.active,
+                "runtime_surface_ready": true,
+                "tty": surface.tab.tty_name,
+                "current_directory": surface.tab.cwd,
+            })
+        })
+        .collect::<Vec<_>>();
+    Ok(serde_json::json!({
+        "count": terminals.len(),
+        "terminals": terminals,
+    }))
+}
+
+async fn compatibility_debug_terminal_is_focused_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let target =
+        compatibility_surface_ref_param(params).ok_or_else(|| "Missing surface_id".to_string())?;
+    let surface = compatibility_resolve_surface(daemon, &target).await?;
+    let snapshot = compatibility_native_snapshot(daemon).await?;
+    Ok(serde_json::json!({ "focused": surface.tab_id == snapshot.focused_tab_id }))
+}
+
+async fn compatibility_debug_terminal_read_text_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    if let Some(target) = compatibility_surface_ref_param(params) {
+        let surface = compatibility_resolve_surface(daemon, &target).await?;
+        let snapshot = compatibility_native_snapshot(daemon).await?;
+        if surface.tab_id != snapshot.focused_tab_id {
+            return Err(
+                "debug.terminal.read_text currently supports the focused terminal only".to_string(),
+            );
+        }
+    }
+    let lines = compatibility_usize_param(params, &["lines", "lineLimit", "line_limit"]);
+    let text = compatibility_read_screen(daemon, lines, false).await?;
+    use base64::Engine;
+    let base64 = base64::engine::general_purpose::STANDARD.encode(text.as_bytes());
+    Ok(serde_json::json!({ "base64": base64 }))
+}
+
+async fn compatibility_debug_terminal_render_stats_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    if let Some(target) = compatibility_surface_ref_param(params) {
+        let surface = compatibility_resolve_surface(daemon, &target).await?;
+        let snapshot = compatibility_native_snapshot(daemon).await?;
+        let entry = compatibility_surface_entries(&snapshot)
+            .into_iter()
+            .find(|entry| entry.tab.id == surface.tab_id)
+            .ok_or_else(|| "Surface not found".to_string())?;
+        if entry.tab.kind != NativeTabKind::Terminal {
+            return Err("Surface is not a terminal".to_string());
+        }
+    }
+    Ok(serde_json::json!({
+        "stats": {
+            "backend": "cmx-rust",
+            "frames": 0,
+            "dirty": 0,
+        }
+    }))
+}
+
+async fn compatibility_flash_count(
+    daemon: &Arc<Daemon>,
+    target: &str,
+) -> std::result::Result<u64, String> {
+    let surface = compatibility_resolve_surface(daemon, target).await?;
+    Ok(*daemon
+        .compatibility_flash_counts
+        .lock()
+        .await
+        .get(&surface.tab_id)
+        .unwrap_or(&0))
+}
+
+async fn compatibility_debug_flash_count_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let target =
+        compatibility_surface_ref_param(params).ok_or_else(|| "Missing surface_id".to_string())?;
+    compatibility_flash_count(daemon, &target)
+        .await
+        .map(|count| serde_json::json!({ "count": count }))
+}
+
+async fn compatibility_trigger_flash_tab_id(
+    daemon: &Arc<Daemon>,
+    tab_id: TabId,
+) -> std::result::Result<u64, String> {
+    let Some(tab) = daemon.tab_by_id(tab_id).await else {
+        return Err("Surface not found".to_string());
+    };
+    let count = {
+        let mut counts = daemon.compatibility_flash_counts.lock().await;
+        let count = counts.entry(tab_id).or_insert(0);
+        *count = count.saturating_add(1);
+        *count
+    };
+    let flash_deadline = now_unix_millis() + FLASH_TOTAL_MS;
+    tab.flash_until_ms.store(flash_deadline, Ordering::Relaxed);
+    let daemon_for_flash = daemon.clone();
+    let tab_for_clear = tab.clone();
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(Duration::from_millis(FLASH_PULSE_MS));
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        ticker.tick().await;
+        loop {
+            ticker.tick().await;
+            let stored = tab_for_clear.flash_until_ms.load(Ordering::Relaxed);
+            if stored != flash_deadline {
+                break;
+            }
+            if now_unix_millis() >= flash_deadline {
+                tab_for_clear.flash_until_ms.store(0, Ordering::Relaxed);
+                daemon_for_flash.wake_model();
+                break;
+            }
+            daemon_for_flash.wake_model();
+        }
+    });
+    daemon.wake_model();
+    Ok(count)
+}
+
+async fn compatibility_trigger_flash_surface_ref(daemon: &Arc<Daemon>, target: &str) {
+    if let Ok(surface) = compatibility_resolve_surface(daemon, target).await {
+        let _ = compatibility_trigger_flash_tab_id(daemon, surface.tab_id).await;
+    }
+}
+
+fn compatibility_changed_text_units(previous: &str, current: &str) -> usize {
+    let mut changed = 0usize;
+    let mut prev = previous.chars();
+    let mut cur = current.chars();
+    loop {
+        match (prev.next(), cur.next()) {
+            (Some(a), Some(b)) => {
+                if a != b {
+                    changed = changed.saturating_add(1);
+                }
+            }
+            (Some(_), None) => return changed.saturating_add(1 + prev.count()),
+            (None, Some(_)) => return changed.saturating_add(1 + cur.count()),
+            (None, None) => return changed,
+        }
+    }
+}
+
+fn compatibility_panel_snapshot_path(tab_id: TabId, label: &str) -> PathBuf {
+    let mut safe_label = label
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    if safe_label.is_empty() {
+        safe_label = "panel".to_string();
+    }
+    std::env::temp_dir()
+        .join("cmux-cmx-panel-snapshots")
+        .join(format!("{safe_label}-{tab_id}-{}.txt", now_unix_millis()))
+}
+
+async fn compatibility_panel_snapshot_data(
+    daemon: &Arc<Daemon>,
+    target: &str,
+    label: &str,
+) -> std::result::Result<serde_json::Value, String> {
+    let surface = compatibility_resolve_surface(daemon, target).await?;
+    let snapshot = compatibility_native_snapshot(daemon).await?;
+    let entry = compatibility_surface_entries(&snapshot)
+        .into_iter()
+        .find(|entry| entry.tab.id == surface.tab_id)
+        .ok_or_else(|| "Surface not found".to_string())?;
+    if entry.tab.kind != NativeTabKind::Terminal {
+        return Err("Terminal surface not found".to_string());
+    }
+    let surface_ref = compat_tab_ref(entry.tab);
+    if surface.tab_id != snapshot.focused_tab_id {
+        compatibility_focus_surface(daemon, &surface_ref).await?;
+    }
+    let text = compatibility_read_screen(daemon, None, false).await?;
+    let width = 800usize;
+    let height = 400usize;
+    let changed_pixels = {
+        let mut snapshots = daemon.compatibility_panel_snapshots.lock().await;
+        let changed_pixels = snapshots
+            .get(&surface.tab_id)
+            .map(|previous| {
+                if previous.width != width || previous.height != height {
+                    -1
+                } else {
+                    let changed_units =
+                        compatibility_changed_text_units(&previous.text, &text).saturating_mul(80);
+                    i64::try_from(changed_units).unwrap_or(i64::MAX)
+                }
+            })
+            .unwrap_or(-1);
+        snapshots.insert(
+            surface.tab_id,
+            CompatibilityPanelSnapshotState {
+                width,
+                height,
+                text: text.clone(),
+            },
+        );
+        changed_pixels
+    };
+    let path = compatibility_panel_snapshot_path(surface.tab_id, label);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|error| format!("Failed to create snapshot directory: {error}"))?;
+    }
+    std::fs::write(&path, text)
+        .map_err(|error| format!("Failed to write panel snapshot: {error}"))?;
+    Ok(serde_json::json!({
+        "surface_id": surface_ref,
+        "changed_pixels": changed_pixels,
+        "width": width,
+        "height": height,
+        "path": path.display().to_string(),
+    }))
+}
+
+fn compatibility_panel_snapshot_args(args: &str) -> std::result::Result<(&str, &str), String> {
+    let trimmed = args.trim();
+    if trimmed.is_empty() {
+        return Err("Usage: panel_snapshot <panel_id|idx> [label]".to_string());
+    }
+    Ok(trimmed
+        .split_once(char::is_whitespace)
+        .map(|(target, label)| (target.trim(), label.trim()))
+        .unwrap_or((trimmed, "")))
+}
+
+async fn compatibility_panel_snapshot_legacy(
+    daemon: &Arc<Daemon>,
+    args: &str,
+) -> std::result::Result<String, String> {
+    let (target, label) = compatibility_panel_snapshot_args(args)?;
+    let snapshot = compatibility_panel_snapshot_data(daemon, target, label).await?;
+    Ok(format!(
+        "OK {} {} {} {} {}",
+        snapshot
+            .get("surface_id")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or(target),
+        snapshot
+            .get("changed_pixels")
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or(-1),
+        snapshot
+            .get("width")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0),
+        snapshot
+            .get("height")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0),
+        snapshot
+            .get("path")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+    ))
+}
+
+async fn compatibility_panel_snapshot_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    if daemon.native_compatibility_client_count().await > 0 {
+        match compatibility_native_worker_v2(daemon, "debug.panel_snapshot", params).await {
+            Ok(value) => return Ok(value),
+            Err(error) => {
+                tracing::warn!(error = %error, "native panel snapshot failed; using text fallback");
+            }
+        }
+    }
+    let target =
+        compatibility_surface_ref_param(params).ok_or_else(|| "Missing surface_id".to_string())?;
+    let label = compatibility_string_param(params, &["label"]).unwrap_or_default();
+    compatibility_panel_snapshot_data(daemon, &target, &label).await
+}
+
+async fn compatibility_panel_snapshot_reset(
+    daemon: &Arc<Daemon>,
+    target: &str,
+) -> std::result::Result<(), String> {
+    let surface = compatibility_resolve_surface(daemon, target).await?;
+    daemon
+        .compatibility_panel_snapshots
+        .lock()
+        .await
+        .remove(&surface.tab_id);
+    Ok(())
+}
+
+async fn compatibility_panel_snapshot_reset_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    if daemon.native_compatibility_client_count().await > 0 {
+        match compatibility_native_worker_v2(daemon, "debug.panel_snapshot.reset", params).await {
+            Ok(value) => return Ok(value),
+            Err(error) => {
+                tracing::warn!(
+                    error = %error,
+                    "native panel snapshot reset failed; using text fallback"
+                );
+            }
+        }
+    }
+    let target =
+        compatibility_surface_ref_param(params).ok_or_else(|| "Missing surface_id".to_string())?;
+    compatibility_panel_snapshot_reset(daemon, &target).await?;
+    Ok(serde_json::json!({}))
+}
+
+async fn compatibility_focus_notification(
+    daemon: &Arc<Daemon>,
+    workspace_target: &str,
+    surface_target: Option<&str>,
+) -> std::result::Result<(), String> {
+    let params = serde_json::json!({ "workspace_id": workspace_target });
+    compatibility_workspace_select_v2(daemon, &params).await?;
+    if let Some(surface) = surface_target.filter(|surface| !surface.trim().is_empty()) {
+        compatibility_focus_surface(daemon, surface).await?;
+    } else {
+        compatibility_mark_active_workspace_notifications_read(daemon).await;
+    }
+    Ok(())
+}
+
+async fn compatibility_focus_notification_legacy(
+    daemon: &Arc<Daemon>,
+    args: &str,
+) -> std::result::Result<(), String> {
+    let trimmed = args.trim();
+    if trimmed.is_empty() {
+        return Err("Usage: focus_notification <workspace|idx> [surface|idx]".to_string());
+    }
+    let (workspace, surface) = trimmed
+        .split_once(char::is_whitespace)
+        .map(|(workspace, surface)| (workspace.trim(), Some(surface.trim())))
+        .unwrap_or((trimmed, None));
+    compatibility_focus_notification(daemon, workspace, surface).await
+}
+
+async fn compatibility_focus_notification_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let workspace = compatibility_workspace_ref_param(params)
+        .ok_or_else(|| "Missing workspace_id".to_string())?;
+    let surface = compatibility_surface_ref_param(params);
+    compatibility_focus_notification(daemon, &workspace, surface.as_deref()).await?;
+    Ok(serde_json::json!({}))
+}
+
+async fn compatibility_mark_notifications_read(
+    daemon: &Arc<Daemon>,
+    workspace_ref: Option<&str>,
+    surface_ref: Option<&str>,
+) {
+    if !compatibility_app_is_focused(daemon) {
+        return;
+    }
+    let mut changed = false;
+    let mut changed_surfaces = Vec::new();
+    {
+        let mut notifications = daemon.compatibility_notifications.lock().await;
+        for notification in notifications.iter_mut() {
+            let workspace_matches = workspace_ref
+                .map(|workspace| notification.workspace_ref == workspace)
+                .unwrap_or(true);
+            let surface_matches = surface_ref
+                .map(|surface| notification.surface_ref.as_deref() == Some(surface))
+                .unwrap_or(true);
+            if workspace_matches && surface_matches && !notification.is_read {
+                notification.is_read = true;
+                if let Some(surface) = notification.surface_ref.clone() {
+                    changed_surfaces.push(surface);
+                }
+                changed = true;
+            }
+        }
+    }
+    changed_surfaces.sort();
+    changed_surfaces.dedup();
+    for surface in changed_surfaces {
+        compatibility_trigger_flash_surface_ref(daemon, &surface).await;
+    }
+    if changed {
+        daemon.wake_model();
+    }
+}
+
+async fn compatibility_mark_active_workspace_notifications_read(daemon: &Arc<Daemon>) {
+    let Ok((workspaces, active)) = compatibility_workspace_list(daemon).await else {
+        return;
+    };
+    let workspace_ref = workspaces.get(active).map(compat_workspace_ref);
+    compatibility_mark_notifications_read(daemon, workspace_ref.as_deref(), None).await;
+}
+
+async fn compatibility_system_identify_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let workspace_id = match compatibility_workspace_scope_param(params) {
+        Some(target) => compatibility_workspace_id_from_ref(daemon, &target).await?,
+        None => daemon.active_ws_rx.borrow().id,
+    };
+    let window_ref = match compatibility_window_ref_for_params(daemon, params).await? {
+        Some(window_ref) => window_ref,
+        None => compatibility_window_id_for_workspace(daemon, workspace_id).await,
+    };
+    let snapshot = compatibility_native_snapshot_for_workspace_and_window(
+        daemon,
+        workspace_id,
+        Some(&window_ref),
+    )
+    .await?;
+    let focused = compatibility_focused_location_json(&snapshot);
+    let caller = params
+        .get("caller")
+        .and_then(|caller| compatibility_caller_location_json(&snapshot, caller))
+        .unwrap_or(serde_json::Value::Null);
+
+    Ok(serde_json::json!({
+        "socket_path": daemon
+            .compatibility_socket_path
+            .as_ref()
+            .unwrap_or(&daemon.socket_path)
+            .display()
+            .to_string(),
+        "focused": focused,
+        "caller": caller,
+    }))
+}
+
+async fn compatibility_system_top_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    if params.get("all_windows").is_some()
+        && compatibility_bool_param(params, &["all_windows"]).is_none()
+    {
+        return Err("Missing or invalid all_windows".to_string());
+    }
+    if params.get("include_processes").is_some()
+        && compatibility_bool_param(params, &["include_processes"]).is_none()
+    {
+        return Err("Missing or invalid include_processes".to_string());
+    }
+
+    let include_processes =
+        compatibility_bool_param(params, &["include_processes"]).unwrap_or(false);
+    let (workspaces, active) = compatibility_workspace_list(daemon).await?;
+    let workspace_filter = compatibility_string_param(
+        params,
+        &[
+            "workspace_id",
+            "workspaceId",
+            "workspace",
+            "tab_id",
+            "tabId",
+        ],
+    );
+    let selected_workspace_id = workspaces
+        .get(active)
+        .map(compat_workspace_ref)
+        .unwrap_or_else(|| workspace_external_id(0));
+
+    let mut selected_workspaces = Vec::new();
+    if let Some(filter) = workspace_filter {
+        let Some((index, workspace)) = workspaces.iter().enumerate().find(|(_, workspace)| {
+            workspace.id.to_string() == filter
+                || workspace.external_id.as_deref() == Some(filter.as_str())
+                || compat_workspace_ref(workspace) == filter
+        }) else {
+            return Err("Workspace not found".to_string());
+        };
+        selected_workspaces.push((index, workspace.clone()));
+    } else {
+        selected_workspaces.extend(workspaces.iter().cloned().enumerate());
+    }
+
+    let mut workspace_nodes = Vec::with_capacity(selected_workspaces.len());
+    for (index, workspace) in selected_workspaces {
+        let snapshot = compatibility_native_snapshot_for_workspace(daemon, workspace.id).await?;
+        workspace_nodes.push(compatibility_top_workspace_json(
+            &snapshot,
+            &workspace,
+            index,
+            index == active,
+            include_processes,
+        ));
+    }
+
+    let identify = compatibility_system_identify_v2(daemon, params).await?;
+    let active_location = identify
+        .get("focused")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    let caller = identify
+        .get("caller")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    let window_id = compatibility_current_window_id(daemon).await;
+
+    Ok(serde_json::json!({
+        "active": active_location,
+        "caller": caller,
+        "sample": {
+            "sampled_at": now_unix_millis(),
+            "source": "cmx-rust",
+            "cpu_source": "unavailable",
+            "memory_source": "unavailable",
+            "process_details": include_processes,
+        },
+        "totals": compatibility_top_empty_resources(),
+        "windows": [{
+            "kind": "window",
+            "id": window_id,
+            "ref": window_id,
+            "index": 0,
+            "key": true,
+            "visible": true,
+            "workspace_count": workspace_nodes.len(),
+            "selected_workspace_id": selected_workspace_id,
+            "selected_workspace_ref": selected_workspace_id,
+            "workspaces": workspace_nodes,
+            "resources": compatibility_top_empty_resources(),
+        }],
+    }))
+}
+
+async fn compatibility_system_tree_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let mut tree_params = params.clone();
+    if let Some(object) = tree_params.as_object_mut() {
+        object.insert(
+            "include_processes".to_string(),
+            serde_json::Value::Bool(false),
+        );
+    }
+    let mut payload = compatibility_system_top_v2(daemon, &tree_params).await?;
+    if let Some(object) = payload.as_object_mut() {
+        object.remove("sample");
+        object.remove("totals");
+    }
+    Ok(payload)
+}
+
+async fn compatibility_native_snapshot_for_workspace(
+    daemon: &Arc<Daemon>,
+    workspace_id: u64,
+) -> std::result::Result<NativeSnapshot, String> {
+    compatibility_native_snapshot_for_workspace_and_window(daemon, workspace_id, None).await
+}
+
+async fn compatibility_native_snapshot_for_workspace_and_window(
+    daemon: &Arc<Daemon>,
+    workspace_id: u64,
+    window_id: Option<&str>,
+) -> std::result::Result<NativeSnapshot, String> {
+    let mut window = WindowState::new_for_compatibility(daemon, window_id).await;
+    window.set_active_workspace_id(workspace_id);
+    window.add_workspace_member(workspace_id);
+    build_native_snapshot(daemon, &mut window)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+fn compatibility_top_workspace_json(
+    snapshot: &NativeSnapshot,
+    workspace: &WorkspaceInfo,
+    index: usize,
+    selected: bool,
+    include_processes: bool,
+) -> serde_json::Value {
+    let workspace_id = compat_workspace_ref(workspace);
+    let panels = compatibility_panel_entries(snapshot);
+    let mut surface_index = 0usize;
+    let panes = panels
+        .iter()
+        .enumerate()
+        .map(|(pane_index, panel)| {
+            let surfaces = panel
+                .tabs
+                .iter()
+                .enumerate()
+                .map(|(index_in_pane, tab)| {
+                    let surface = compatibility_top_surface_json(
+                        tab,
+                        panel.panel_id,
+                        surface_index,
+                        index_in_pane,
+                        tab.id == snapshot.focused_tab_id,
+                        tab.id == panel.active_tab_id,
+                        include_processes,
+                    );
+                    surface_index = surface_index.saturating_add(1);
+                    surface
+                })
+                .collect::<Vec<_>>();
+            let surface_ids = panel.tabs.iter().map(compat_tab_ref).collect::<Vec<_>>();
+            let selected_surface_id = panel
+                .tabs
+                .get(panel.active)
+                .map(compat_tab_ref)
+                .or_else(|| panel.tabs.first().map(compat_tab_ref));
+            serde_json::json!({
+                "kind": "pane",
+                "id": panel.panel_id.to_string(),
+                "ref": panel.panel_id.to_string(),
+                "index": pane_index,
+                "focused": panel.panel_id == snapshot.focused_panel_id,
+                "surface_ids": surface_ids,
+                "surface_refs": surface_ids,
+                "selected_surface_id": selected_surface_id,
+                "selected_surface_ref": selected_surface_id,
+                "surface_count": panel.tabs.len(),
+                "surfaces": surfaces,
+                "resources": compatibility_top_empty_resources(),
+            })
+        })
+        .collect::<Vec<_>>();
+    serde_json::json!({
+        "kind": "workspace",
+        "id": workspace_id,
+        "ref": workspace_id,
+        "index": index,
+        "title": workspace.title,
+        "description": workspace.description,
+        "selected": selected,
+        "pinned": workspace.pinned,
+        "panes": panes,
+        "tags": compatibility_top_tag_json(workspace),
+        "resources": compatibility_top_empty_resources(),
+    })
+}
+
+fn compatibility_top_surface_json(
+    tab: &TabInfo,
+    panel_id: u64,
+    index: usize,
+    index_in_pane: usize,
+    focused: bool,
+    selected: bool,
+    include_processes: bool,
+) -> serde_json::Value {
+    let surface_id = compat_tab_ref(tab);
+    let url = tab.browser.as_ref().and_then(|browser| browser.url.clone());
+    let webviews = if tab.kind == NativeTabKind::Browser {
+        vec![serde_json::json!({
+            "kind": "webview",
+            "id": format!("{surface_id}:webview"),
+            "ref": format!("{surface_id}:webview"),
+            "index": 0,
+            "surface_id": surface_id,
+            "surface_ref": surface_id,
+            "title": tab
+                .browser
+                .as_ref()
+                .and_then(|browser| browser.title.clone())
+                .unwrap_or_else(|| tab.title.clone()),
+            "url": url,
+            "pid": serde_json::Value::Null,
+            "shared_process_count": serde_json::Value::Null,
+            "root_pids": [],
+            "resources": compatibility_top_empty_resources(),
+            "processes": [],
+        })]
+    } else {
+        Vec::new()
+    };
+    serde_json::json!({
+        "kind": "surface",
+        "id": surface_id,
+        "ref": surface_id,
+        "surface_id": surface_id,
+        "surface_ref": surface_id,
+        "tab_id": surface_id,
+        "tab_ref": surface_id,
+        "index": index,
+        "type": tab.kind,
+        "title": tab.title,
+        "focused": focused,
+        "selected": selected,
+        "selected_in_pane": selected,
+        "pane_id": panel_id.to_string(),
+        "pane_ref": panel_id.to_string(),
+        "index_in_pane": index_in_pane,
+        "tty": tab.tty_name,
+        "url": url,
+        "browser_web_content_pid": serde_json::Value::Null,
+        "webviews": webviews,
+        "tty_process_pids": [],
+        "root_pids": [],
+        "resources": compatibility_top_empty_resources(),
+        "processes": if include_processes {
+            serde_json::json!([])
+        } else {
+            serde_json::json!([])
+        },
+    })
+}
+
+fn compatibility_top_tag_json(workspace: &WorkspaceInfo) -> Vec<serde_json::Value> {
+    workspace
+        .status_entries
+        .iter()
+        .enumerate()
+        .map(|(index, entry)| {
+            let workspace_id = compat_workspace_ref(workspace);
+            serde_json::json!({
+                "kind": "tag",
+                "id": format!("{}:tag:{}", workspace_id, entry.key),
+                "ref": format!("workspace:{}:tag:{}", workspace_id, entry.key),
+                "index": index,
+                "key": entry.key,
+                "value": entry.value,
+                "icon": entry.icon,
+                "color": entry.color,
+                "url": entry.url,
+                "priority": entry.priority,
+                "format": entry.format,
+                "visible": true,
+                "pid": serde_json::Value::Null,
+                "root_pids": [],
+                "resources": compatibility_top_empty_resources(),
+                "processes": [],
+            })
+        })
+        .collect()
+}
+
+fn compatibility_top_empty_resources() -> serde_json::Value {
+    serde_json::json!({
+        "cpu_percent": 0.0,
+        "resident_bytes": 0,
+        "virtual_bytes": 0,
+        "process_count": 0,
+        "pids": [],
+        "missing_pids": [],
+    })
+}
+
+fn compatibility_focused_location_json(snapshot: &NativeSnapshot) -> serde_json::Value {
+    let workspace = snapshot
+        .workspaces
+        .get(snapshot.active_workspace)
+        .or_else(|| snapshot.workspaces.first());
+    let focused_surface = compatibility_surface_entries(snapshot)
+        .into_iter()
+        .find(|surface| surface.tab.id == snapshot.focused_tab_id);
+    compatibility_location_json(
+        compatibility_snapshot_window_ref(snapshot),
+        workspace,
+        focused_surface.as_ref(),
+    )
+}
+
+fn compatibility_caller_location_json(
+    snapshot: &NativeSnapshot,
+    caller: &serde_json::Value,
+) -> Option<serde_json::Value> {
+    let workspace_target = compatibility_string_param(
+        caller,
+        &[
+            "workspace_id",
+            "workspaceId",
+            "workspace",
+            "tab_id",
+            "tabId",
+        ],
+    )?;
+    let workspace = snapshot.workspaces.iter().find(|workspace| {
+        workspace.id.to_string() == workspace_target
+            || workspace.external_id.as_deref() == Some(workspace_target.as_str())
+    })?;
+    let surface_target = compatibility_surface_ref_param(caller);
+    let surface = surface_target.as_deref().and_then(|target| {
+        compatibility_surface_entries(snapshot)
+            .into_iter()
+            .find(|surface| {
+                surface.tab.id.to_string() == target
+                    || surface.tab.external_id.as_deref() == Some(target)
+                    || compat_tab_ref(surface.tab) == target
+            })
+    });
+    Some(compatibility_location_json(
+        compatibility_snapshot_window_ref(snapshot),
+        Some(workspace),
+        surface.as_ref(),
+    ))
+}
+
+fn compatibility_location_json(
+    window_id: String,
+    workspace: Option<&WorkspaceInfo>,
+    surface: Option<&CompatibilitySurfaceEntry<'_>>,
+) -> serde_json::Value {
+    let workspace_id = workspace.map(compat_workspace_ref);
+    let pane_id = surface.map(|surface| surface.panel_id.to_string());
+    let surface_id = surface.map(|surface| compat_tab_ref(surface.tab));
+    let surface_kind = surface.map(|surface| surface.tab.kind);
+    serde_json::json!({
+        "window_id": window_id,
+        "window_ref": window_id,
+        "workspace_id": workspace_id,
+        "workspace_ref": workspace_id,
+        "pane_id": pane_id,
+        "pane_ref": pane_id,
+        "surface_id": surface_id,
+        "surface_ref": surface_id,
+        "tab_id": surface_id,
+        "tab_ref": surface_id,
+        "surface_type": surface_kind,
+        "is_browser_surface": surface_kind.is_some_and(|kind| kind == NativeTabKind::Browser),
+    })
+}
+
+async fn compatibility_session_restore_previous_v2(
+    daemon: &Arc<Daemon>,
+) -> std::result::Result<serde_json::Value, String> {
+    if daemon.restored_from_snapshot {
+        Ok(serde_json::json!({ "restored": true }))
+    } else {
+        Err("No previous session snapshot available".to_string())
+    }
+}
+
+async fn compatibility_workspace_index(
+    daemon: &Arc<Daemon>,
+    target: &str,
+) -> std::result::Result<usize, String> {
+    let target = target.trim();
+    let (workspaces, active) = compatibility_workspace_list(daemon).await?;
+    if target.is_empty() {
+        return Ok(active);
+    }
+    if let Some(index) = compatibility_index_ref(target, "workspace")
+        && index < workspaces.len()
+    {
+        return Ok(index);
+    }
+    if let Ok(index) = target.parse::<usize>()
+        && index < workspaces.len()
+    {
+        return Ok(index);
+    }
+    workspaces
+        .iter()
+        .position(|workspace| {
+            workspace.id.to_string() == target
+                || workspace.external_id.as_deref() == Some(target)
+                || workspace.title == target
+        })
+        .ok_or_else(|| format!("Workspace not found: {target}"))
+}
+
+async fn compatibility_panel_id(
+    daemon: &Arc<Daemon>,
+    target: &str,
+) -> std::result::Result<u64, String> {
+    let snapshot = compatibility_native_snapshot(daemon).await?;
+    compatibility_panel_id_in_snapshot(&snapshot, target)
+}
+
+async fn compatibility_panel_id_in_workspace(
+    daemon: &Arc<Daemon>,
+    workspace_id: u64,
+    target: &str,
+) -> std::result::Result<u64, String> {
+    let snapshot = compatibility_native_snapshot_for_workspace(daemon, workspace_id).await?;
+    compatibility_panel_id_in_snapshot(&snapshot, target)
+}
+
+fn compatibility_panel_id_in_snapshot(
+    snapshot: &NativeSnapshot,
+    target: &str,
+) -> std::result::Result<u64, String> {
+    let target = target.trim();
+    let panels = compatibility_panel_entries(&snapshot);
+    if target.is_empty() {
+        return Ok(snapshot.focused_panel_id);
+    }
+    if let Some(panel) = compatibility_panel_entry_from_target(&panels, target) {
+        return Ok(panel.panel_id);
+    }
+    Err(format!("Pane not found: {target}"))
+}
+
+async fn compatibility_select_workspace_by_id_for_window(
+    daemon: &Arc<Daemon>,
+    workspace_id: u64,
+    window_ref: Option<String>,
+) -> std::result::Result<String, String> {
+    let workspace = daemon
+        .workspace_by_id(workspace_id)
+        .await
+        .ok_or_else(|| format!("Workspace not found: {workspace_id}"))?;
+    let window_ref = match window_ref {
+        Some(window_ref) => window_ref,
+        None => compatibility_window_id_for_workspace(daemon, workspace_id).await,
+    };
+    let mut window = daemon
+        .native_window_state(&window_ref)
+        .await
+        .unwrap_or_else(|| WindowState::new_with_window_id(workspace_id, window_ref.clone()));
+    window.set_active_workspace_id(workspace_id);
+    window.add_workspace_member(workspace_id);
+    if let Some(space) = workspace.first_space().await
+        && let Some(panel_id) = space.default_panel_id().await
+        && let Some(tab) = space.first_tab().await
+    {
+        window.remember_tab(&workspace, &space, panel_id, &tab);
+    }
+    daemon.update_native_window_state(&window).await;
+    daemon
+        .set_native_window_active_workspace(&window_ref, workspace_id)
+        .await;
+    daemon.set_active_workspace(workspace);
+    compatibility_mark_active_workspace_notifications_read(daemon).await;
+    daemon.wake_model();
+    Ok(window_ref)
+}
+
+async fn compatibility_pane_focus_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let pane_target = compatibility_pane_ref_param(params).unwrap_or_default();
+    let workspace_id = match compatibility_workspace_scope_param(params) {
+        Some(target) => compatibility_workspace_id_from_ref(daemon, &target).await?,
+        None => daemon.active_ws_rx.borrow().id,
+    };
+    let panel_id = compatibility_panel_id_in_workspace(daemon, workspace_id, &pane_target).await?;
+    let window_ref =
+        compatibility_select_workspace_by_id_for_window(daemon, workspace_id, None).await?;
+    compatibility_run_status_for_window(daemon, &window_ref, Command::FocusPanel { panel_id })
+        .await?;
+    let workspace_json = compatibility_workspace_json_by_id(daemon, workspace_id).await?;
+    let workspace_ref = workspace_json
+        .get("workspace_ref")
+        .or_else(|| workspace_json.get("id"))
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!(workspace_id.to_string()));
+    Ok(serde_json::json!({
+        "focused": panel_id,
+        "pane_id": panel_id.to_string(),
+        "pane_ref": panel_id.to_string(),
+        "workspace_id": workspace_ref.clone(),
+        "workspace_ref": workspace_ref,
+        "window_id": window_ref,
+        "window_ref": window_ref,
+    }))
+}
+
+fn compatibility_apply_tab_context_to_result(
+    result: &mut serde_json::Value,
+    ctx: &CompatibilityResolvedTabContext,
+    window_ref: &str,
+) {
+    let serde_json::Value::Object(object) = result else {
+        return;
+    };
+    let surface_ref = compat_tab_ref_from_tab(&ctx.tab);
+    object.insert(
+        "workspace_id".to_string(),
+        serde_json::Value::String(ctx.workspace.external_id.clone()),
+    );
+    object.insert(
+        "workspace_ref".to_string(),
+        serde_json::Value::String(ctx.workspace.external_id.clone()),
+    );
+    object.insert(
+        "numericWorkspaceId".to_string(),
+        serde_json::json!(ctx.workspace.id),
+    );
+    object.insert(
+        "surface_id".to_string(),
+        serde_json::Value::String(surface_ref.clone()),
+    );
+    object.insert(
+        "surface_ref".to_string(),
+        serde_json::Value::String(surface_ref),
+    );
+    object.insert("numericId".to_string(), serde_json::json!(ctx.tab.id));
+    object.insert("numericTabId".to_string(), serde_json::json!(ctx.tab.id));
+    object.insert(
+        "pane_id".to_string(),
+        serde_json::Value::String(ctx.surface.panel_id.to_string()),
+    );
+    object.insert(
+        "pane_ref".to_string(),
+        serde_json::Value::String(ctx.surface.panel_id.to_string()),
+    );
+    object.insert(
+        "window_id".to_string(),
+        serde_json::Value::String(window_ref.to_string()),
+    );
+    object.insert(
+        "window_ref".to_string(),
+        serde_json::Value::String(window_ref.to_string()),
+    );
+}
+
+async fn compatibility_surface_focus_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let ctx = compatibility_resolve_tab_context_for_params(daemon, params).await?;
+    let window_ref =
+        compatibility_select_workspace_by_id_for_window(daemon, ctx.workspace.id, None).await?;
+    compatibility_run_status_for_window(
+        daemon,
+        &window_ref,
+        Command::FocusPanel {
+            panel_id: ctx.surface.panel_id,
+        },
+    )
+    .await?;
+    compatibility_run_status_for_window(
+        daemon,
+        &window_ref,
+        Command::SelectTabInPanel {
+            panel_id: ctx.surface.panel_id,
+            index: ctx.surface.index,
+        },
+    )
+    .await?;
+    compatibility_mark_notifications_read(
+        daemon,
+        Some(&ctx.workspace.external_id),
+        Some(&compat_tab_ref_from_tab(&ctx.tab)),
+    )
+    .await;
+    let mut surface = compatibility_native_snapshot_for_workspace_and_window(
+        daemon,
+        ctx.workspace.id,
+        Some(&window_ref),
+    )
+    .await
+    .map(|snapshot| compatibility_current_surface_json(&snapshot))?;
+    compatibility_apply_tab_context_to_result(&mut surface, &ctx, &window_ref);
+    Ok(surface)
+}
+
+async fn compatibility_focus_surface(
+    daemon: &Arc<Daemon>,
+    target: &str,
+) -> std::result::Result<(), String> {
+    let target = target.trim();
+    if target.is_empty() {
+        return Err("Missing surface id or index".to_string());
+    }
+    let snapshot = compatibility_native_snapshot(daemon).await?;
+    let focused_panel = snapshot.focused_panel_id;
+    let surfaces = compatibility_surface_entries(&snapshot);
+    if let Ok(index) = target.parse::<usize>() {
+        let focused_panel_surfaces = surfaces
+            .iter()
+            .filter(|surface| surface.panel_id == focused_panel)
+            .collect::<Vec<_>>();
+        if let Some(surface) = focused_panel_surfaces.get(index) {
+            let window_ref = compatibility_snapshot_window_ref(&snapshot);
+            compatibility_run_status_for_window(
+                daemon,
+                &window_ref,
+                Command::SelectTabInPanel {
+                    panel_id: surface.panel_id,
+                    index,
+                },
+            )
+            .await?;
+            let workspace_ref = snapshot
+                .workspaces
+                .get(snapshot.active_workspace)
+                .map(compat_workspace_ref);
+            let surface_ref = compat_tab_ref(surface.tab);
+            compatibility_mark_notifications_read(
+                daemon,
+                workspace_ref.as_deref(),
+                Some(&surface_ref),
+            )
+            .await;
+            return Ok(());
+        }
+    }
+    let ctx = compatibility_resolve_tab_context(daemon, target).await?;
+    let window_ref =
+        compatibility_select_workspace_by_id_for_window(daemon, ctx.workspace.id, None).await?;
+    compatibility_run_status_for_window(
+        daemon,
+        &window_ref,
+        Command::FocusPanel {
+            panel_id: ctx.surface.panel_id,
+        },
+    )
+    .await?;
+    compatibility_run_status_for_window(
+        daemon,
+        &window_ref,
+        Command::SelectTabInPanel {
+            panel_id: ctx.surface.panel_id,
+            index: ctx.surface.index,
+        },
+    )
+    .await?;
+    compatibility_mark_notifications_read(
+        daemon,
+        Some(&ctx.workspace.external_id),
+        Some(&compat_tab_ref_from_tab(&ctx.tab)),
+    )
+    .await;
+    Ok(())
+}
+
+fn compatibility_split_command(args: &str) -> Command {
+    let direction = args.split_whitespace().next().unwrap_or("right");
+    if matches!(direction, "up" | "down" | "vertical" | "stacked") {
+        Command::SplitVertical
+    } else {
+        Command::SplitHorizontal
+    }
+}
+
+fn compatibility_new_surface_command(args: &str) -> std::result::Result<Command, String> {
+    let kind = compatibility_option_value(args, "--type").unwrap_or_else(|| "terminal".to_string());
+    let url = compatibility_option_value(args, "--url").or_else(|| {
+        args.split_whitespace()
+            .find(|part| part.starts_with("http://") || part.starts_with("https://"))
+            .map(str::to_string)
+    });
+    match kind.as_str() {
+        "terminal" | "" => Ok(Command::NewTab),
+        "browser" => Ok(Command::NewBrowserTab { url }),
+        other => Err(format!("Unsupported surface type: {other}")),
+    }
+}
+
+fn compatibility_option_value(args: &str, key: &str) -> Option<String> {
+    let prefix = format!("{key}=");
+    let mut parts = args.split_whitespace();
+    while let Some(part) = parts.next() {
+        if part == key {
+            return parts
+                .next()
+                .map(|value| value.trim_matches('"').to_string());
+        }
+        if let Some(value) = part.strip_prefix(&prefix) {
+            return Some(value.trim_matches('"').to_string());
+        }
+    }
+    None
+}
+
+fn compatibility_split_meta_block_args(args: &str) -> (&str, Option<&str>) {
+    match args.split_once(" -- ") {
+        Some((options, markdown)) => (options, Some(markdown)),
+        None => (args, None),
+    }
+}
+
+fn compatibility_line_limit(args: &str) -> Option<usize> {
+    let mut parts = args.split_whitespace();
+    while let Some(part) = parts.next() {
+        if part == "--lines" {
+            return parts.next().and_then(|value| value.parse::<usize>().ok());
+        }
+        if let Some(value) = part.strip_prefix("--lines=") {
+            return value.parse::<usize>().ok();
+        }
+    }
+    None
+}
+
+fn normalize_ports(mut ports: Vec<u16>) -> Vec<u16> {
+    ports.retain(|port| *port > 0);
+    ports.sort_unstable();
+    ports.dedup();
+    ports
+}
+
+async fn compatibility_read_screen(
+    daemon: &Arc<Daemon>,
+    lines: Option<usize>,
+    scrollback: bool,
+) -> std::result::Result<String, String> {
+    match run_command(daemon, Command::ReadScreen { lines, scrollback })
+        .await
+        .0
+    {
+        CommandResult::Ok {
+            data:
+                Some(CommandData::ScreenText {
+                    text,
+                    cols: _,
+                    rows: _,
+                }),
+        } => Ok(text),
+        CommandResult::Ok { .. } => Err("screen text unavailable".to_string()),
+        CommandResult::Err { message } => Err(message),
+    }
+}
+
+async fn compatibility_read_terminal_text_v2(
+    daemon: &Arc<Daemon>,
+    target: Option<&str>,
+    lines: Option<usize>,
+    scrollback: bool,
+) -> std::result::Result<serde_json::Value, String> {
+    let Some(target) = target.filter(|target| !target.trim().is_empty()) else {
+        let text = compatibility_read_screen(daemon, lines, scrollback).await?;
+        return Ok(serde_json::json!({ "text": text }));
+    };
+    let ctx = compatibility_resolve_tab_context_by_target(daemon, target).await?;
+    if ctx.tab.kind != SnapshotTabKind::Terminal {
+        return Err(format!(
+            "Surface is not a terminal: {}",
+            compat_tab_ref_from_tab(&ctx.tab)
+        ));
+    }
+    let recent = daemon
+        .broker
+        .extract_recent_text(ctx.tab.id, lines, scrollback)
+        .await
+        .ok_or_else(|| format!("Surface not found: {}", compat_tab_ref_from_tab(&ctx.tab)))?;
+    let workspace_ref = ctx.workspace.external_id.clone();
+    let surface_ref = compat_tab_ref_from_tab(&ctx.tab);
+    Ok(serde_json::json!({
+        "workspace_id": workspace_ref,
+        "workspace_ref": workspace_ref,
+        "numericWorkspaceId": ctx.workspace.id,
+        "surface_id": surface_ref,
+        "surface_ref": surface_ref,
+        "numericId": ctx.tab.id,
+        "numericTabId": ctx.tab.id,
+        "text": recent.text,
+        "cols": recent.cols,
+        "rows": recent.rows,
+        "scrollback": scrollback,
+    }))
+}
+
+async fn compatibility_send_surface(
+    daemon: &Arc<Daemon>,
+    args: &str,
+) -> std::result::Result<(), String> {
+    let (target, text) = args
+        .trim()
+        .split_once(char::is_whitespace)
+        .ok_or_else(|| "Usage: send_surface <id|idx> <text>".to_string())?;
+    let tab_id = compatibility_surface_tab_id_from_target(daemon, target).await?;
+    compatibility_send_to_tab(daemon, tab_id, unescape_compatibility_text(text)).await
+}
+
+async fn compatibility_send_key_surface(
+    daemon: &Arc<Daemon>,
+    args: &str,
+) -> std::result::Result<(), String> {
+    let (target, key) = args
+        .trim()
+        .split_once(char::is_whitespace)
+        .ok_or_else(|| "Usage: send_key_surface <id|idx> <key>".to_string())?;
+    let data = compatibility_key_bytes(key)?;
+    let tab_id = compatibility_surface_tab_id_from_target(daemon, target).await?;
+    compatibility_send_bytes_to_tab(daemon, tab_id, data).await
+}
+
+async fn compatibility_send_workspace(
+    daemon: &Arc<Daemon>,
+    args: &str,
+) -> std::result::Result<(), String> {
+    let (workspace, text) = args
+        .trim()
+        .split_once(char::is_whitespace)
+        .ok_or_else(|| "Usage: send_workspace <workspace_id> <text>".to_string())?;
+    let workspace_index = compatibility_workspace_index(daemon, workspace).await?;
+    let workspace = daemon
+        .workspace_at(workspace_index)
+        .await
+        .map_err(|_| "Workspace not found".to_string())?;
+    let space = workspace
+        .first_space()
+        .await
+        .ok_or_else(|| "No selected terminal in workspace".to_string())?;
+    let tab_id = space.active_tab_rx.borrow().id;
+    compatibility_send_to_tab(daemon, tab_id, unescape_compatibility_text(text)).await
+}
+
+async fn compatibility_send_to_tab(
+    daemon: &Arc<Daemon>,
+    tab_id: TabId,
+    text: String,
+) -> std::result::Result<(), String> {
+    compatibility_send_bytes_to_tab(daemon, tab_id, text.into_bytes()).await
+}
+
+async fn compatibility_surface_send_text_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+    text: String,
+) -> std::result::Result<serde_json::Value, String> {
+    compatibility_surface_send_bytes_v2(daemon, params, text.into_bytes()).await
+}
+
+async fn compatibility_surface_send_bytes_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+    data: Vec<u8>,
+) -> std::result::Result<serde_json::Value, String> {
+    let ctx = compatibility_resolve_tab_context_for_params(daemon, params).await?;
+    compatibility_send_bytes_to_tab(daemon, ctx.tab.id, data).await?;
+    let workspace_ref = ctx.workspace.external_id.clone();
+    let surface_ref = ctx.tab.external_id.clone();
+    let window_ref =
+        compatibility_window_ref_for_workspace_params(daemon, params, ctx.workspace.id).await?;
+    Ok(serde_json::json!({
+        "sent": true,
+        "window_id": window_ref.clone(),
+        "window_ref": window_ref,
+        "workspace_id": workspace_ref,
+        "workspace_ref": workspace_ref,
+        "numericWorkspaceId": ctx.workspace.id,
+        "surface_id": surface_ref,
+        "surface_ref": surface_ref,
+        "tab_id": surface_ref,
+        "tab_ref": surface_ref,
+        "numericSurfaceId": ctx.tab.id,
+        "numericTabId": ctx.tab.id,
+    }))
+}
+
+async fn compatibility_send_bytes_to_tab(
+    daemon: &Arc<Daemon>,
+    tab_id: TabId,
+    data: Vec<u8>,
+) -> std::result::Result<(), String> {
+    let Some(tab) = daemon.tab_by_id(tab_id).await else {
+        return Err("Surface not found".to_string());
+    };
+    tab.pty_tx
+        .send(PtyOp::Write(data))
+        .map_err(|_| "Failed to send input".to_string())
+}
+
+async fn compatibility_notify_current(
+    daemon: &Arc<Daemon>,
+    args: &str,
+) -> std::result::Result<(), String> {
+    let (title, subtitle, body) = compatibility_parse_notification_payload(args);
+    compatibility_notify_current_with_payload(daemon, title, subtitle, body)
+        .await
+        .map(|_| ())
+}
+
+async fn compatibility_notify_surface(
+    daemon: &Arc<Daemon>,
+    args: &str,
+) -> std::result::Result<(), String> {
+    let trimmed = args.trim();
+    if trimmed.is_empty() {
+        return Err("Missing surface id or index".to_string());
+    }
+    let (target, payload) = trimmed
+        .split_once(char::is_whitespace)
+        .map(|(target, payload)| (target.trim(), payload.trim()))
+        .unwrap_or((trimmed, ""));
+    let (title, subtitle, body) = compatibility_parse_notification_payload(payload);
+    compatibility_notify_surface_with_payload(daemon, target, title, subtitle, body)
+        .await
+        .map(|_| ())
+}
+
+async fn compatibility_notify_target(
+    daemon: &Arc<Daemon>,
+    args: &str,
+) -> std::result::Result<(), String> {
+    let trimmed = args.trim();
+    if trimmed.is_empty() {
+        return Err(
+            "Usage: notify_target <workspace_id> <surface_id> <title>|<subtitle>|<body>"
+                .to_string(),
+        );
+    }
+    let parts = trimmed.splitn(3, char::is_whitespace).collect::<Vec<_>>();
+    if parts.len() < 2 {
+        return Err(
+            "Usage: notify_target <workspace_id> <surface_id> <title>|<subtitle>|<body>"
+                .to_string(),
+        );
+    }
+    let payload = parts.get(2).copied().unwrap_or_default();
+    let (title, subtitle, body) = compatibility_parse_notification_payload(payload);
+    compatibility_record_notification(
+        daemon,
+        parts[0].to_string(),
+        Some(parts[1].to_string()),
+        title,
+        subtitle,
+        body,
+        None,
+    )
+    .await
+    .map(|_| ())
+}
+
+async fn compatibility_notify_current_with_payload(
+    daemon: &Arc<Daemon>,
+    title: String,
+    subtitle: String,
+    body: String,
+) -> std::result::Result<CompatibilityNotification, String> {
+    let snapshot = compatibility_native_snapshot(daemon).await?;
+    let workspace = snapshot
+        .workspaces
+        .get(snapshot.active_workspace)
+        .map(compat_workspace_ref)
+        .unwrap_or_else(|| snapshot.active_workspace_id.to_string());
+    let surface = compatibility_current_surface_json(&snapshot);
+    let surface_ref = surface
+        .get("id")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string);
+    compatibility_record_notification(
+        daemon,
+        workspace,
+        surface_ref,
+        title,
+        subtitle,
+        body,
+        Some(snapshot.focused_tab_id),
+    )
+    .await
+}
+
+async fn compatibility_notify_surface_with_payload(
+    daemon: &Arc<Daemon>,
+    target: &str,
+    title: String,
+    subtitle: String,
+    body: String,
+) -> std::result::Result<CompatibilityNotification, String> {
+    let snapshot = compatibility_native_snapshot(daemon).await?;
+    let surface = compatibility_surface_entries(&snapshot)
+        .into_iter()
+        .find(|surface| {
+            surface.tab.id.to_string() == target
+                || surface.tab.external_id.as_deref() == Some(target)
+                || compat_tab_ref(surface.tab) == target
+                || surface.index.to_string() == target
+        })
+        .ok_or_else(|| "Surface not found".to_string())?;
+    let workspace = snapshot
+        .workspaces
+        .get(snapshot.active_workspace)
+        .map(compat_workspace_ref)
+        .unwrap_or_else(|| snapshot.active_workspace_id.to_string());
+    compatibility_record_notification(
+        daemon,
+        workspace,
+        Some(compat_tab_ref(surface.tab)),
+        title,
+        subtitle,
+        body,
+        Some(surface.tab.id),
+    )
+    .await
+}
+
+async fn compatibility_record_notification(
+    daemon: &Arc<Daemon>,
+    workspace_ref: String,
+    surface_ref: Option<String>,
+    title: String,
+    subtitle: String,
+    body: String,
+    tab_id: Option<TabId>,
+) -> std::result::Result<CompatibilityNotification, String> {
+    if let Some(tab_id) = tab_id
+        && let Some(tab) = daemon.tab_by_id(tab_id).await
+    {
+        tab.has_activity.store(true, Ordering::Relaxed);
+        tab.bell_count.fetch_add(1, Ordering::Relaxed);
+    }
+    let should_suppress = if compatibility_app_is_focused(daemon) {
+        match (tab_id, compatibility_native_snapshot(daemon).await) {
+            (Some(tab_id), Ok(snapshot)) => tab_id == snapshot.focused_tab_id,
+            _ => false,
+        }
+    } else {
+        false
+    };
+    let id = daemon
+        .next_compatibility_notification_id
+        .fetch_add(1, Ordering::Relaxed);
+    let notification = CompatibilityNotification {
+        id: format!("c0de0003-c0de-4000-8000-{id:012x}"),
+        workspace_ref,
+        surface_ref,
+        is_read: should_suppress,
+        title,
+        subtitle,
+        body,
+    };
+    if should_suppress {
+        return Ok(notification);
+    }
+    let mut notifications = daemon.compatibility_notifications.lock().await;
+    notifications.retain(|existing| {
+        existing.workspace_ref != notification.workspace_ref
+            || existing.surface_ref != notification.surface_ref
+    });
+    notifications.push(notification.clone());
+    if notifications.len() > 500 {
+        let drop_count = notifications.len() - 500;
+        notifications.drain(0..drop_count);
+    }
+    drop(notifications);
+    daemon.wake_model();
+    Ok(notification)
+}
+
+async fn compatibility_list_notifications(
+    daemon: &Arc<Daemon>,
+) -> std::result::Result<String, String> {
+    let notifications = daemon.compatibility_notifications.lock().await.clone();
+    if notifications.is_empty() {
+        return Ok("No notifications".to_string());
+    }
+    Ok(notifications
+        .iter()
+        .enumerate()
+        .map(|(index, notification)| {
+            format!(
+                "{}:{}|{}|{}|{}|{}|{}|{}",
+                index,
+                notification.id,
+                notification.workspace_ref,
+                notification
+                    .surface_ref
+                    .clone()
+                    .unwrap_or_else(|| "none".to_string()),
+                if notification.is_read {
+                    "read"
+                } else {
+                    "unread"
+                },
+                notification.title,
+                notification.subtitle,
+                notification.body
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n"))
+}
+
+async fn compatibility_clear_notifications(
+    daemon: &Arc<Daemon>,
+    args: &str,
+) -> std::result::Result<(), String> {
+    let target = compatibility_workspace_target_from_args(args);
+    let mut notifications = daemon.compatibility_notifications.lock().await;
+    match target {
+        Some(target) if !target.trim().is_empty() => {
+            notifications.retain(|notification| {
+                notification.workspace_ref != target && notification.id != target
+            });
+        }
+        _ => notifications.clear(),
+    }
+    Ok(())
+}
+
+async fn compatibility_notification_list_json(
+    daemon: &Arc<Daemon>,
+) -> std::result::Result<serde_json::Value, String> {
+    let notifications = daemon.compatibility_notifications.lock().await.clone();
+    Ok(serde_json::json!({
+        "notifications": notifications.iter().map(compatibility_notification_json).collect::<Vec<_>>(),
+    }))
+}
+
+fn compatibility_notification_json(notification: &CompatibilityNotification) -> serde_json::Value {
+    serde_json::json!({
+        "id": notification.id,
+        "tab_id": notification.workspace_ref,
+        "workspace_id": notification.workspace_ref,
+        "surface_id": notification.surface_ref,
+        "is_read": notification.is_read,
+        "title": notification.title,
+        "subtitle": notification.subtitle,
+        "body": notification.body,
+    })
+}
+
+fn compatibility_parse_notification_payload(payload: &str) -> (String, String, String) {
+    let trimmed = payload.trim();
+    if trimmed.is_empty() {
+        return ("Notification".to_string(), String::new(), String::new());
+    }
+    let parts = trimmed.splitn(3, '|').collect::<Vec<_>>();
+    let title = parts.first().copied().unwrap_or_default().trim();
+    let subtitle = if parts.len() > 2 { parts[1].trim() } else { "" };
+    let body = if parts.len() > 2 {
+        parts[2].trim()
+    } else {
+        parts.get(1).copied().unwrap_or_default().trim()
+    };
+    (
+        if title.is_empty() {
+            "Notification".to_string()
+        } else {
+            title.to_string()
+        },
+        subtitle.to_string(),
+        body.to_string(),
+    )
+}
+
+fn compatibility_set_agent_pid(args: &str) -> std::result::Result<(), String> {
+    let positional = compatibility_positional_args(args);
+    if positional.len() < 2 || positional[1].parse::<i32>().ok().is_none_or(|pid| pid <= 0) {
+        return Err("Usage: set_agent_pid <key> <pid> [--tab=<id>]".to_string());
+    }
+    Ok(())
+}
+
+fn compatibility_clear_agent_pid(args: &str) -> std::result::Result<(), String> {
+    let positional = compatibility_positional_args(args);
+    if positional.first().is_none() {
+        return Err("Usage: clear_agent_pid <key> [--tab=<id>]".to_string());
+    }
+    Ok(())
+}
+
+async fn compatibility_report_pwd(
+    daemon: &Arc<Daemon>,
+    args: &str,
+) -> std::result::Result<(), String> {
+    let cwd = compatibility_first_arg(args).ok_or_else(|| {
+        "Missing path — usage: report_pwd <path> [--tab=<id>] [--panel=<id>]".to_string()
+    })?;
+    let tab_id = compatibility_tab_id_from_args(daemon, args).await?;
+    let Some(tab) = daemon.tab_by_id(tab_id).await else {
+        return Err(format!("Tab not found: {tab_id}"));
+    };
+    {
+        let mut current = tab.cwd.lock().await;
+        *current = Some(PathBuf::from(cwd));
+    }
+    daemon.wake_model();
+    daemon.snapshot_notifier.wake();
+    Ok(())
+}
+
+async fn compatibility_report_git_branch(
+    daemon: &Arc<Daemon>,
+    args: &str,
+) -> std::result::Result<(), String> {
+    let branch = compatibility_first_arg(args).ok_or_else(|| {
+        "Missing branch name — usage: report_git_branch <branch> [--status=dirty] [--tab=<id>] [--panel=<id>]".to_string()
+    })?;
+    if branch.starts_with("--") {
+        return Err(
+            "Missing branch name — usage: report_git_branch <branch> [--status=dirty] [--tab=<id>] [--panel=<id>]".to_string(),
+        );
+    }
+    let is_dirty = compatibility_option_value(args, "--status")
+        .is_some_and(|status| status.eq_ignore_ascii_case("dirty"));
+    let tab_id = compatibility_tab_id_from_args(daemon, args).await?;
+    let Some(tab) = daemon.tab_by_id(tab_id).await else {
+        return Err(format!("Tab not found: {tab_id}"));
+    };
+    tab.set_git_branch(Some(SnapshotGitBranch { branch, is_dirty }))
+        .map_err(|error| error.to_string())?;
+    daemon.wake_model();
+    daemon.snapshot_notifier.wake();
+    Ok(())
+}
+
+async fn compatibility_clear_git_branch(
+    daemon: &Arc<Daemon>,
+    args: &str,
+) -> std::result::Result<(), String> {
+    let tab_id = compatibility_tab_id_from_args(daemon, args).await?;
+    let Some(tab) = daemon.tab_by_id(tab_id).await else {
+        return Err(format!("Tab not found: {tab_id}"));
+    };
+    tab.set_git_branch(None)
+        .map_err(|error| error.to_string())?;
+    daemon.wake_model();
+    daemon.snapshot_notifier.wake();
+    Ok(())
+}
+
+async fn compatibility_report_ports(
+    daemon: &Arc<Daemon>,
+    args: &str,
+) -> std::result::Result<(), String> {
+    let ports = compatibility_positional_args(args)
+        .into_iter()
+        .map(|value| {
+            value
+                .parse::<u16>()
+                .ok()
+                .filter(|port| *port > 0)
+                .ok_or_else(|| format!("Invalid port '{value}' — must be 1-65535"))
+        })
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    if ports.is_empty() {
+        return Err(
+            "Missing ports — usage: report_ports <port1> [port2...] [--tab=<id>] [--panel=<id>]"
+                .to_string(),
+        );
+    }
+    let tab_id = compatibility_tab_id_from_args(daemon, args).await?;
+    let Some(tab) = daemon.tab_by_id(tab_id).await else {
+        return Err(format!("Tab not found: {tab_id}"));
+    };
+    tab.set_listening_ports(normalize_ports(ports))
+        .map_err(|error| error.to_string())?;
+    let _ = compatibility_workspace_remote_publish_detected_ports_for_tab(daemon, tab_id).await;
+    daemon.wake_model();
+    daemon.snapshot_notifier.wake();
+    Ok(())
+}
+
+async fn compatibility_clear_ports(
+    daemon: &Arc<Daemon>,
+    args: &str,
+) -> std::result::Result<(), String> {
+    let tab_id = compatibility_tab_id_from_args(daemon, args).await?;
+    let Some(tab) = daemon.tab_by_id(tab_id).await else {
+        return Err(format!("Tab not found: {tab_id}"));
+    };
+    tab.set_listening_ports(Vec::new())
+        .map_err(|error| error.to_string())?;
+    let _ = compatibility_workspace_remote_publish_detected_ports_for_tab(daemon, tab_id).await;
+    daemon.wake_model();
+    daemon.snapshot_notifier.wake();
+    Ok(())
+}
+
+fn compatibility_shell_state(raw: &str) -> std::result::Result<String, String> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "prompt" | "idle" => Ok("prompt".to_string()),
+        "running" | "busy" | "command" => Ok("running".to_string()),
+        "unknown" | "clear" => Ok("unknown".to_string()),
+        other => Err(format!(
+            "Invalid shell state '{other}' — expected prompt or running"
+        )),
+    }
+}
+
+async fn compatibility_report_tty(
+    daemon: &Arc<Daemon>,
+    args: &str,
+) -> std::result::Result<(), String> {
+    let tty_name = compatibility_first_arg(args).ok_or_else(|| {
+        "Missing tty name — usage: report_tty <tty_name> [--tab=<id>] [--panel=<id>]".to_string()
+    })?;
+    let tty_name = tty_name.trim().to_string();
+    if tty_name.is_empty() || tty_name.starts_with("--") {
+        return Err(
+            "Missing tty name — usage: report_tty <tty_name> [--tab=<id>] [--panel=<id>]"
+                .to_string(),
+        );
+    }
+    let tab_id = compatibility_tab_id_from_args(daemon, args).await?;
+    let Some(tab) = daemon.tab_by_id(tab_id).await else {
+        return Err(format!("Tab not found: {tab_id}"));
+    };
+    tab.set_tty_name(Some(tty_name))
+        .map_err(|error| error.to_string())?;
+    compatibility_workspace_remote_spawn_ssh_port_scan_for_tab(daemon.clone(), tab_id);
+    daemon.wake_model();
+    daemon.snapshot_notifier.wake();
+    Ok(())
+}
+
+async fn compatibility_report_shell_state(
+    daemon: &Arc<Daemon>,
+    args: &str,
+) -> std::result::Result<(), String> {
+    let raw = compatibility_first_arg(args).ok_or_else(|| {
+        "Missing shell state — usage: report_shell_state <prompt|running> [--tab=<id>] [--panel=<id>]".to_string()
+    })?;
+    let shell_state = compatibility_shell_state(&raw)?;
+    let tab_id = compatibility_tab_id_from_args(daemon, args).await?;
+    let Some(tab) = daemon.tab_by_id(tab_id).await else {
+        return Err(format!("Tab not found: {tab_id}"));
+    };
+    tab.set_shell_state(Some(shell_state))
+        .map_err(|error| error.to_string())?;
+    daemon.wake_model();
+    daemon.snapshot_notifier.wake();
+    Ok(())
+}
+
+async fn compatibility_ports_kick(
+    daemon: &Arc<Daemon>,
+    args: &str,
+) -> std::result::Result<u64, String> {
+    let tab_id = compatibility_tab_id_from_args(daemon, args).await?;
+    let Some(tab) = daemon.tab_by_id(tab_id).await else {
+        return Err(format!("Tab not found: {tab_id}"));
+    };
+    let generation = tab.kick_ports();
+    compatibility_workspace_remote_spawn_ssh_port_scan_for_tab(daemon.clone(), tab_id);
+    daemon.wake_model();
+    daemon.snapshot_notifier.wake();
+    Ok(generation)
+}
+
+async fn compatibility_report_pull_request(
+    daemon: &Arc<Daemon>,
+    args: &str,
+) -> std::result::Result<(), String> {
+    let positional = compatibility_positional_args(args);
+    if positional.len() < 2 {
+        return Err(
+            "Missing pull request number or URL — usage: report_pr <number> <url> [--label=PR] [--state=open|merged|closed] [--branch=<name>] [--tab=X] [--panel=Y]"
+                .to_string(),
+        );
+    }
+
+    let raw_number = positional[0].trim();
+    let number_token = raw_number.strip_prefix('#').unwrap_or(raw_number);
+    let number = number_token
+        .parse::<u64>()
+        .ok()
+        .filter(|number| *number > 0)
+        .ok_or_else(|| format!("Invalid pull request number '{raw_number}'"))?;
+
+    let raw_url = positional[1].trim();
+    if !compatibility_is_http_url(raw_url) {
+        return Err(format!("Invalid pull request URL '{raw_url}'"));
+    }
+
+    let status = compatibility_option_value(args, "--state")
+        .unwrap_or_else(|| "open".to_string())
+        .to_ascii_lowercase();
+    if !matches!(status.as_str(), "open" | "merged" | "closed") {
+        return Err(format!(
+            "Invalid pull request state '{status}' — use: open, merged, closed"
+        ));
+    }
+
+    if compatibility_option_value(args, "--checks").is_some() {
+        return Err(
+            "Unsupported option '--checks' — pull request checks are no longer tracked".to_string(),
+        );
+    }
+
+    let label_raw = compatibility_option_value(args, "--label").unwrap_or_else(|| "PR".to_string());
+    let label_raw = label_raw.trim();
+    if label_raw.is_empty() {
+        return Err(
+            "Invalid review label — usage: report_pr <number> <url> [--label=PR] [--state=open|merged|closed] [--branch=<name>] [--tab=X] [--panel=Y]"
+                .to_string(),
+        );
+    }
+    let label = label_raw.chars().take(16).collect::<String>();
+    let branch = compatibility_option_value(args, "--branch")
+        .and_then(|branch| compatibility_normalized_option_value(&branch));
+    let tab_id = compatibility_tab_id_from_args(daemon, args).await?;
+    let Some(tab) = daemon.tab_by_id(tab_id).await else {
+        return Err(format!("Tab not found: {tab_id}"));
+    };
+    let mut next = SnapshotPullRequest {
+        number,
+        label,
+        url: raw_url.to_string(),
+        status,
+        branch,
+        is_stale: false,
+    };
+    let current = tab.pull_request_snapshot();
+    if next.branch.is_none()
+        && current.as_ref().is_some_and(|current| {
+            current.number == next.number
+                && current.label == next.label
+                && current.url == next.url
+                && current.status == next.status
+        })
+    {
+        next.branch = current.as_ref().and_then(|current| current.branch.clone());
+    }
+    if compatibility_should_replace_pull_request(current, &next) {
+        tab.set_pull_request(Some(next))
+            .map_err(|error| error.to_string())?;
+        daemon.wake_model();
+        daemon.snapshot_notifier.wake();
+    }
+    Ok(())
+}
+
+async fn compatibility_clear_pull_request(
+    daemon: &Arc<Daemon>,
+    args: &str,
+) -> std::result::Result<(), String> {
+    let tab_id = compatibility_tab_id_from_args(daemon, args).await?;
+    let Some(tab) = daemon.tab_by_id(tab_id).await else {
+        return Err(format!("Tab not found: {tab_id}"));
+    };
+    tab.set_pull_request(None)
+        .map_err(|error| error.to_string())?;
+    daemon.wake_model();
+    daemon.snapshot_notifier.wake();
+    Ok(())
+}
+
+async fn compatibility_report_pull_request_action(
+    daemon: &Arc<Daemon>,
+    args: &str,
+) -> std::result::Result<(), String> {
+    let raw_action = compatibility_first_arg(args).ok_or_else(|| {
+        "Missing PR action — usage: report_pr_action <merge|close|reopen|create|checkout|ready|edit|view> [--target=X] [--tab=X] [--panel=Y]".to_string()
+    })?;
+    let action = raw_action.trim().to_ascii_lowercase();
+    let valid_action = matches!(
+        action.as_str(),
+        "merge" | "close" | "reopen" | "create" | "checkout" | "ready" | "edit" | "view"
+    );
+    if !valid_action {
+        return Err(format!("Invalid PR action '{raw_action}'"));
+    }
+
+    let tab_id = compatibility_tab_id_from_args(daemon, args).await?;
+    let Some(tab) = daemon.tab_by_id(tab_id).await else {
+        return Err(format!("Tab not found: {tab_id}"));
+    };
+    let target = compatibility_option_value(args, "--target")
+        .and_then(|target| compatibility_normalized_option_value(&target));
+    let Some(mut current) = tab.pull_request_snapshot() else {
+        return Ok(());
+    };
+    if !compatibility_pull_request_target_matches(target.as_deref(), &current) {
+        return Ok(());
+    }
+    let next_status = match action.as_str() {
+        "merge" if current.status == "open" => Some("merged"),
+        "close" if current.status == "open" => Some("closed"),
+        "reopen" if current.status != "open" => Some("open"),
+        _ => None,
+    };
+    let Some(next_status) = next_status else {
+        return Ok(());
+    };
+    current.status = next_status.to_string();
+    current.is_stale = false;
+    tab.set_pull_request(Some(current))
+        .map_err(|error| error.to_string())?;
+    daemon.wake_model();
+    daemon.snapshot_notifier.wake();
+    Ok(())
+}
+
+fn compatibility_is_http_url(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    lower.starts_with("http://") || lower.starts_with("https://")
+}
+
+fn compatibility_normalized_option_value(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn compatibility_should_replace_pull_request(
+    current: Option<SnapshotPullRequest>,
+    next: &SnapshotPullRequest,
+) -> bool {
+    let Some(current) = current else {
+        return true;
+    };
+    let effective_branch = next.branch.as_ref().or_else(|| {
+        if current.number == next.number
+            && current.label == next.label
+            && current.url == next.url
+            && current.status == next.status
+        {
+            current.branch.as_ref()
+        } else {
+            None
+        }
+    });
+    current.number != next.number
+        || current.label != next.label
+        || current.url != next.url
+        || current.status != next.status
+        || current.branch.as_ref() != effective_branch
+        || current.is_stale
+        || next.is_stale
+}
+
+fn compatibility_pull_request_target_matches(
+    target: Option<&str>,
+    current: &SnapshotPullRequest,
+) -> bool {
+    let Some(target) = target else {
+        return true;
+    };
+    let trimmed = target.trim();
+    if trimmed.is_empty() {
+        return true;
+    }
+
+    let number_token = trimmed.strip_prefix('#').unwrap_or(trimmed);
+    if number_token
+        .parse::<u64>()
+        .is_ok_and(|number| number == current.number)
+    {
+        return true;
+    }
+
+    if trimmed == current.url {
+        return true;
+    }
+    if compatibility_is_http_url(trimmed)
+        && compatibility_url_last_path_component(trimmed)
+            .and_then(|last| last.parse::<u64>().ok())
+            .is_some_and(|number| number == current.number)
+    {
+        return true;
+    }
+
+    compatibility_normalized_branch_name(trimmed)
+        .zip(
+            current
+                .branch
+                .as_deref()
+                .and_then(compatibility_normalized_branch_name),
+        )
+        .is_some_and(|(lhs, rhs)| lhs == rhs)
+}
+
+fn compatibility_normalized_branch_name(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn compatibility_url_last_path_component(url: &str) -> Option<&str> {
+    let without_fragment = url.split('#').next().unwrap_or(url);
+    let without_query = without_fragment
+        .split('?')
+        .next()
+        .unwrap_or(without_fragment);
+    without_query
+        .trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .filter(|component| !component.is_empty())
+}
+
+async fn compatibility_workspace_from_args(
+    daemon: &Arc<Daemon>,
+    args: &str,
+) -> std::result::Result<Arc<Workspace>, String> {
+    if let Some(target) = compatibility_workspace_target_from_args(args) {
+        let index = compatibility_workspace_index(daemon, &target).await?;
+        return daemon
+            .workspace_at(index)
+            .await
+            .map_err(|error| error.to_string());
+    }
+    Ok(daemon.active_ws_rx.borrow().clone())
+}
+
+fn compatibility_workspace_target_from_args(args: &str) -> Option<String> {
+    compatibility_option_value(args, "--workspace")
+        .or_else(|| compatibility_option_value(args, "--workspace-id"))
+        .or_else(|| compatibility_option_value(args, "--tab"))
+}
+
+async fn compatibility_set_status(
+    daemon: &Arc<Daemon>,
+    args: &str,
+) -> std::result::Result<(), String> {
+    let positional = compatibility_positional_args(args);
+    if positional.len() < 2 {
+        return Err(
+            "Missing status key or value — usage: set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X]"
+                .to_string(),
+        );
+    }
+    let key = positional[0].clone();
+    let value = positional[1..].join(" ");
+    let format =
+        compatibility_option_value(args, "--format").unwrap_or_else(|| "plain".to_string());
+    let format = match format.to_ascii_lowercase().as_str() {
+        "plain" => "plain".to_string(),
+        "markdown" | "md" => "markdown".to_string(),
+        other => {
+            return Err(format!(
+                "Invalid metadata format '{other}' — use: plain, markdown"
+            ));
+        }
+    };
+    let priority = match compatibility_option_value(args, "--priority") {
+        Some(raw) => raw
+            .parse::<i32>()
+            .map(|value| value.clamp(-9999, 9999))
+            .map_err(|_| format!("Invalid metadata priority '{raw}' — must be an integer"))?,
+        None => 0,
+    };
+    let url = compatibility_option_value(args, "--url")
+        .or_else(|| compatibility_option_value(args, "--link"));
+    if let Some(url) = url.as_deref() {
+        let lower = url.to_ascii_lowercase();
+        if !(lower.starts_with("http://") || lower.starts_with("https://")) {
+            return Err(format!(
+                "Invalid metadata URL '{url}' — expected http(s) URL"
+            ));
+        }
+    }
+    let ws = compatibility_workspace_from_args(daemon, args).await?;
+    ws.status_entries.lock().await.insert(
+        key.clone(),
+        SnapshotSidebarStatusEntry {
+            key,
+            value,
+            icon: compatibility_option_value(args, "--icon")
+                .filter(|value| !value.trim().is_empty()),
+            color: compatibility_option_value(args, "--color")
+                .filter(|value| !value.trim().is_empty()),
+            url,
+            priority,
+            format,
+            updated_at_ms: now_unix_millis(),
+        },
+    );
+    daemon.wake_model();
+    daemon.snapshot_notifier.wake();
+    Ok(())
+}
+
+async fn compatibility_clear_status(
+    daemon: &Arc<Daemon>,
+    args: &str,
+) -> std::result::Result<(), String> {
+    let positional = compatibility_positional_args(args);
+    let Some(key) = positional.first() else {
+        return Err("Missing metadata key — usage: clear_status <key> [--tab=X]".to_string());
+    };
+    let ws = compatibility_workspace_from_args(daemon, args).await?;
+    ws.status_entries.lock().await.remove(key);
+    daemon.wake_model();
+    daemon.snapshot_notifier.wake();
+    Ok(())
+}
+
+async fn compatibility_report_meta_block(
+    daemon: &Arc<Daemon>,
+    args: &str,
+) -> std::result::Result<(), String> {
+    let (options_part, markdown_part) = compatibility_split_meta_block_args(args);
+    let positional = compatibility_positional_args(options_part);
+    let Some(key) = positional.first().filter(|key| !key.trim().is_empty()) else {
+        return Err(
+            "Missing metadata block key — usage: report_meta_block <key> [--priority=N] [--tab=X] -- <markdown>"
+                .to_string(),
+        );
+    };
+    let markdown = markdown_part
+        .map(str::to_string)
+        .or_else(|| {
+            if positional.len() >= 2 {
+                Some(positional[1..].join(" "))
+            } else {
+                None
+            }
+        })
+        .ok_or_else(|| {
+            "Missing metadata markdown — usage: report_meta_block <key> [--priority=N] [--tab=X] -- <markdown>".to_string()
+        })?;
+    let markdown = markdown
+        .replace("\\r\\n", "\n")
+        .replace("\\n", "\n")
+        .replace("\\t", "\t");
+    if markdown.trim().is_empty() {
+        return Err(
+            "Missing metadata markdown — usage: report_meta_block <key> [--priority=N] [--tab=X] -- <markdown>"
+                .to_string(),
+        );
+    }
+    let priority = match compatibility_option_value(options_part, "--priority") {
+        Some(raw) => raw
+            .parse::<i32>()
+            .map(|value| value.clamp(-9999, 9999))
+            .map_err(|_| format!("Invalid metadata block priority '{raw}' — must be an integer"))?,
+        None => 0,
+    };
+    let ws = compatibility_workspace_from_args(daemon, options_part).await?;
+    ws.metadata_blocks.lock().await.insert(
+        key.clone(),
+        SnapshotSidebarMetadataBlock {
+            key: key.clone(),
+            markdown,
+            priority,
+            updated_at_ms: now_unix_millis(),
+        },
+    );
+    daemon.wake_model();
+    daemon.snapshot_notifier.wake();
+    Ok(())
+}
+
+async fn compatibility_clear_meta_block(
+    daemon: &Arc<Daemon>,
+    args: &str,
+) -> std::result::Result<bool, String> {
+    let positional = compatibility_positional_args(args);
+    let Some(key) = positional
+        .first()
+        .filter(|key| positional.len() == 1 && !key.is_empty())
+    else {
+        return Err(
+            "Missing metadata block key — usage: clear_meta_block <key> [--tab=X]".to_string(),
+        );
+    };
+    let ws = compatibility_workspace_from_args(daemon, args).await?;
+    let found = ws.metadata_blocks.lock().await.remove(key).is_some();
+    daemon.wake_model();
+    daemon.snapshot_notifier.wake();
+    Ok(found)
+}
+
+async fn compatibility_list_meta_blocks(
+    daemon: &Arc<Daemon>,
+    args: &str,
+) -> std::result::Result<String, String> {
+    let ws = compatibility_workspace_from_args(daemon, args).await?;
+    let mut blocks = ws
+        .metadata_blocks
+        .lock()
+        .await
+        .values()
+        .cloned()
+        .collect::<Vec<_>>();
+    sort_sidebar_metadata_blocks(&mut blocks);
+    if blocks.is_empty() {
+        return Ok("No metadata blocks".to_string());
+    }
+    Ok(blocks
+        .iter()
+        .map(format_sidebar_metadata_block)
+        .collect::<Vec<_>>()
+        .join("\n"))
+}
+
+async fn compatibility_list_status(
+    daemon: &Arc<Daemon>,
+    args: &str,
+) -> std::result::Result<String, String> {
+    let ws = compatibility_workspace_from_args(daemon, args).await?;
+    let mut entries = ws
+        .status_entries
+        .lock()
+        .await
+        .values()
+        .cloned()
+        .collect::<Vec<_>>();
+    sort_sidebar_status_entries(&mut entries);
+    if entries.is_empty() {
+        return Ok("No status entries".to_string());
+    }
+    Ok(entries
+        .iter()
+        .map(format_sidebar_status_entry)
+        .collect::<Vec<_>>()
+        .join("\n"))
+}
+
+async fn compatibility_set_progress(
+    daemon: &Arc<Daemon>,
+    args: &str,
+) -> std::result::Result<(), String> {
+    let positional = compatibility_positional_args(args);
+    let Some(raw) = positional.first() else {
+        return Err(
+            "Missing progress value — usage: set_progress <0.0-1.0> [--label=X] [--tab=X]"
+                .to_string(),
+        );
+    };
+    let value = raw
+        .parse::<f64>()
+        .ok()
+        .filter(|value| value.is_finite())
+        .ok_or_else(|| format!("Invalid progress value '{raw}' — must be 0.0 to 1.0"))?
+        .clamp(0.0, 1.0);
+    let ws = compatibility_workspace_from_args(daemon, args).await?;
+    *ws.progress.lock().await = Some(SnapshotSidebarProgressState {
+        value,
+        label: compatibility_option_value(args, "--label").filter(|value| !value.trim().is_empty()),
+    });
+    daemon.wake_model();
+    daemon.snapshot_notifier.wake();
+    Ok(())
+}
+
+async fn compatibility_clear_progress(
+    daemon: &Arc<Daemon>,
+    args: &str,
+) -> std::result::Result<(), String> {
+    let ws = compatibility_workspace_from_args(daemon, args).await?;
+    *ws.progress.lock().await = None;
+    daemon.wake_model();
+    daemon.snapshot_notifier.wake();
+    Ok(())
+}
+
+async fn compatibility_log(daemon: &Arc<Daemon>, args: &str) -> std::result::Result<(), String> {
+    let positional = compatibility_positional_args(args);
+    if positional.is_empty() {
+        return Err(
+            "Missing message — usage: log [--level=X] [--source=X] [--tab=X] -- <message>"
+                .to_string(),
+        );
+    }
+    let level = compatibility_option_value(args, "--level").unwrap_or_else(|| "info".to_string());
+    let level = match level.to_ascii_lowercase().as_str() {
+        "info" | "progress" | "success" | "warning" | "error" => level.to_ascii_lowercase(),
+        other => {
+            return Err(format!(
+                "Unknown log level '{other}' — use: info, progress, success, warning, error"
+            ));
+        }
+    };
+    let ws = compatibility_workspace_from_args(daemon, args).await?;
+    let mut entries = ws.log_entries.lock().await;
+    entries.push(SnapshotSidebarLogEntry {
+        message: positional.join(" "),
+        level,
+        source: compatibility_option_value(args, "--source")
+            .filter(|value| !value.trim().is_empty()),
+        updated_at_ms: now_unix_millis(),
+    });
+    if entries.len() > 500 {
+        let drop_count = entries.len() - 500;
+        entries.drain(0..drop_count);
+    }
+    drop(entries);
+    daemon.wake_model();
+    daemon.snapshot_notifier.wake();
+    Ok(())
+}
+
+async fn compatibility_clear_log(
+    daemon: &Arc<Daemon>,
+    args: &str,
+) -> std::result::Result<(), String> {
+    let ws = compatibility_workspace_from_args(daemon, args).await?;
+    ws.log_entries.lock().await.clear();
+    daemon.wake_model();
+    daemon.snapshot_notifier.wake();
+    Ok(())
+}
+
+async fn compatibility_list_log(
+    daemon: &Arc<Daemon>,
+    args: &str,
+) -> std::result::Result<String, String> {
+    let limit = match compatibility_option_value(args, "--limit") {
+        Some(raw) => Some(
+            raw.parse::<usize>()
+                .map_err(|_| format!("Invalid limit '{raw}' — must be >= 0"))?,
+        ),
+        None => None,
+    };
+    let ws = compatibility_workspace_from_args(daemon, args).await?;
+    let entries = ws.log_entries.lock().await.clone();
+    if entries.is_empty() {
+        return Ok("No log entries".to_string());
+    }
+    let start = limit
+        .map(|limit| entries.len().saturating_sub(limit))
+        .unwrap_or(0);
+    Ok(entries[start..]
+        .iter()
+        .map(format_snapshot_sidebar_log_entry)
+        .collect::<Vec<_>>()
+        .join("\n"))
+}
+
+async fn compatibility_sidebar_state(
+    daemon: &Arc<Daemon>,
+    args: &str,
+) -> std::result::Result<String, String> {
+    let ws = compatibility_workspace_from_args(daemon, args).await?;
+    let mut lines = Vec::new();
+    lines.push(format!("tab={}", ws.external_id));
+    lines.push(format!(
+        "color={}",
+        ws.color
+            .lock()
+            .await
+            .clone()
+            .unwrap_or_else(|| "none".to_string())
+    ));
+    let (status_entries, metadata_blocks, log_entries, progress) =
+        workspace_sidebar_state(&ws).await;
+    match progress {
+        Some(progress) => {
+            let progress_line = match progress.label {
+                Some(label) if !label.trim().is_empty() => {
+                    format!("progress={:.2} {label}", progress.value)
+                }
+                _ => format!("progress={:.2}", progress.value),
+            };
+            lines.push(progress_line);
+        }
+        None => lines.push("progress=none".to_string()),
+    }
+    let mut status_entries = status_entries
+        .into_iter()
+        .map(|entry| SnapshotSidebarStatusEntry {
+            key: entry.key,
+            value: entry.value,
+            icon: entry.icon,
+            color: entry.color,
+            url: entry.url,
+            priority: entry.priority,
+            format: entry.format,
+            updated_at_ms: entry.updated_at_ms,
+        })
+        .collect::<Vec<_>>();
+    sort_sidebar_status_entries(&mut status_entries);
+    lines.push(format!("status_count={}", status_entries.len()));
+    for entry in &status_entries {
+        lines.push(format!("  {}", format_sidebar_status_entry(entry)));
+    }
+    lines.push(format!("meta_block_count={}", metadata_blocks.len()));
+    let mut metadata_blocks = metadata_blocks
+        .into_iter()
+        .map(|block| SnapshotSidebarMetadataBlock {
+            key: block.key,
+            markdown: block.markdown,
+            priority: block.priority,
+            updated_at_ms: block.updated_at_ms,
+        })
+        .collect::<Vec<_>>();
+    sort_sidebar_metadata_blocks(&mut metadata_blocks);
+    for block in &metadata_blocks {
+        lines.push(format!("  {}", format_sidebar_metadata_block(block)));
+    }
+    lines.push(format!("log_count={}", log_entries.len()));
+    for entry in log_entries.iter().rev().take(5).rev() {
+        lines.push(format!("  {}", format_native_sidebar_log_entry(entry)));
+    }
+    Ok(lines.join("\n"))
+}
+
+async fn compatibility_reset_sidebar(
+    daemon: &Arc<Daemon>,
+    args: &str,
+) -> std::result::Result<(), String> {
+    let ws = compatibility_workspace_from_args(daemon, args).await?;
+    ws.status_entries.lock().await.clear();
+    ws.metadata_blocks.lock().await.clear();
+    ws.log_entries.lock().await.clear();
+    *ws.progress.lock().await = None;
+    daemon.wake_model();
+    daemon.snapshot_notifier.wake();
+    Ok(())
+}
+
+fn sort_sidebar_status_entries(entries: &mut [SnapshotSidebarStatusEntry]) {
+    entries.sort_by(|lhs, rhs| {
+        rhs.priority
+            .cmp(&lhs.priority)
+            .then_with(|| rhs.updated_at_ms.cmp(&lhs.updated_at_ms))
+            .then_with(|| lhs.key.cmp(&rhs.key))
+    });
+}
+
+fn sort_sidebar_metadata_blocks(blocks: &mut [SnapshotSidebarMetadataBlock]) {
+    blocks.sort_by(|lhs, rhs| {
+        rhs.priority
+            .cmp(&lhs.priority)
+            .then_with(|| rhs.updated_at_ms.cmp(&lhs.updated_at_ms))
+            .then_with(|| lhs.key.cmp(&rhs.key))
+    });
+}
+
+fn format_sidebar_status_entry(entry: &SnapshotSidebarStatusEntry) -> String {
+    let mut line = format!("{}={}", entry.key, entry.value);
+    if let Some(icon) = entry.icon.as_deref() {
+        line.push_str(&format!(" icon={icon}"));
+    }
+    if let Some(color) = entry.color.as_deref() {
+        line.push_str(&format!(" color={color}"));
+    }
+    if let Some(url) = entry.url.as_deref() {
+        line.push_str(&format!(" url={url}"));
+    }
+    if entry.priority != 0 {
+        line.push_str(&format!(" priority={}", entry.priority));
+    }
+    if entry.format != "plain" {
+        line.push_str(&format!(" format={}", entry.format));
+    }
+    line
+}
+
+fn format_sidebar_metadata_block(block: &SnapshotSidebarMetadataBlock) -> String {
+    let mut line = format!("{}={}", block.key, block.markdown.replace('\n', "\\n"));
+    if block.priority != 0 {
+        line.push_str(&format!(" priority={}", block.priority));
+    }
+    line
+}
+
+fn format_native_sidebar_log_entry(entry: &NativeSidebarLogEntry) -> String {
+    let line = format!("[{}] {}", entry.level, entry.message);
+    match entry.source.as_deref() {
+        Some(source) if !source.is_empty() => format!("[{source}] {line}"),
+        _ => line,
+    }
+}
+
+fn format_snapshot_sidebar_log_entry(entry: &SnapshotSidebarLogEntry) -> String {
+    let line = format!("[{}] {}", entry.level, entry.message);
+    match entry.source.as_deref() {
+        Some(source) if !source.is_empty() => format!("[{source}] {line}"),
+        _ => line,
+    }
+}
+
+fn compatibility_browser_navigate_args(
+    args: &str,
+) -> std::result::Result<(Option<String>, String), String> {
+    let trimmed = args.trim();
+    if trimmed.is_empty() {
+        return Err("Usage: navigate <panel_id> <url>".to_string());
+    }
+    let parts = trimmed
+        .split_once(char::is_whitespace)
+        .map(|(target, url)| (Some(target.trim().to_string()), url.trim().to_string()))
+        .unwrap_or_else(|| (None, trimmed.to_string()));
+    if parts.1.is_empty() {
+        return Err("Usage: navigate <panel_id> <url>".to_string());
+    }
+    Ok(parts)
+}
+
+fn compatibility_browser_target_from_args(args: &str) -> Option<String> {
+    compatibility_option_value(args, "--tab")
+        .or_else(|| compatibility_option_value(args, "--surface"))
+        .or_else(|| compatibility_option_value(args, "--surface-id"))
+        .or_else(|| compatibility_first_arg(args))
+}
+
+async fn compatibility_browser_open_split_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+    url: Option<String>,
+    vertical: bool,
+) -> std::result::Result<serde_json::Value, String> {
+    if let Some(window) = compatibility_string_param(params, &["window_id", "windowId", "window"])
+        && !compatibility_window_ref_is_local_or_known(daemon, &window).await
+    {
+        return compatibility_native_worker_v2(daemon, "browser.open_split", params).await;
+    }
+    let ctx = compatibility_resolve_tab_context_for_params(daemon, params).await?;
+    let source_panel_id = ctx.surface.panel_id;
+    let previous_panel_id = ctx.space.default_panel_id.load(Ordering::Relaxed);
+    let previous_active_tab_id = ctx.space.active_tab_rx.borrow().id;
+    let focus = compatibility_bool_param(params, &["focus"]).unwrap_or(false);
+    if compatibility_bool_param(params, &["respect_external_open_rules"]).unwrap_or(false)
+        && let Some(raw_url) = url.as_deref()
+        && compatibility_browser_should_open_externally(raw_url)
+    {
+        if !compatibility_open_url_externally(raw_url) {
+            return Err(format!("Failed to open URL externally: {raw_url}"));
+        }
+        let workspace_ref = ctx.workspace.external_id.clone();
+        let source_surface_ref = ctx.tab.external_id.clone();
+        let window_ref =
+            compatibility_window_ref_for_workspace_params(daemon, params, ctx.workspace.id).await?;
+        return Ok(serde_json::json!({
+            "window_id": window_ref.clone(),
+            "window_ref": window_ref,
+            "workspace_id": workspace_ref.clone(),
+            "workspace_ref": workspace_ref,
+            "numericWorkspaceId": ctx.workspace.id,
+            "pane_id": serde_json::Value::Null,
+            "pane_ref": serde_json::Value::Null,
+            "surface_id": serde_json::Value::Null,
+            "surface_ref": serde_json::Value::Null,
+            "source_surface_id": source_surface_ref.clone(),
+            "source_surface_ref": source_surface_ref,
+            "source_pane_id": source_panel_id.to_string(),
+            "source_pane_ref": source_panel_id.to_string(),
+            "target_pane_id": serde_json::Value::Null,
+            "target_pane_ref": serde_json::Value::Null,
+            "created_split": false,
+            "placement_strategy": "external",
+            "opened_externally": true,
+            "url": raw_url,
+        }));
+    }
+    let reuse_panel_id = if vertical {
+        None
+    } else {
+        ctx.space
+            .panels
+            .lock()
+            .await
+            .preferred_browser_target_panel(source_panel_id)
+    };
+    let proxy = workspace_browser_proxy_snapshot(&ctx.workspace).await;
+    let (panel_id, tab, created_split, placement_strategy) =
+        if let Some(reuse_panel_id) = reuse_panel_id {
+            let tab = ctx
+                .space
+                .clone()
+                .new_browser_tab_in_panel(reuse_panel_id, url.clone(), proxy.clone())
+                .await
+                .map_err(|error| error.to_string())?;
+            (reuse_panel_id, tab, false, "reuse_right_sibling")
+        } else {
+            let direction = if vertical {
+                SplitDirection::Vertical
+            } else {
+                SplitDirection::Horizontal
+            };
+            let (panel_id, tab) = ctx
+                .space
+                .clone()
+                .split_browser_panel(source_panel_id, direction, url.clone(), proxy)
+                .await
+                .map_err(|error| error.to_string())?;
+            (
+                panel_id,
+                tab,
+                true,
+                if vertical {
+                    "split_down"
+                } else {
+                    "split_right"
+                },
+            )
+        };
+    let window_ref =
+        compatibility_window_ref_for_workspace_params(daemon, params, ctx.workspace.id).await?;
+    if focus {
+        daemon.set_active_workspace(ctx.workspace.clone());
+        daemon
+            .set_native_window_active_workspace(&window_ref, ctx.workspace.id)
+            .await;
+    } else {
+        if let Some(previous_tab) = ctx.space.tab_by_id(previous_active_tab_id).await {
+            ctx.space
+                .default_panel_id
+                .store(previous_panel_id, Ordering::Relaxed);
+            ctx.space.active_tab_tx.send(previous_tab).ok();
+        }
+        daemon
+            .add_workspace_to_native_window(&window_ref, ctx.workspace.id)
+            .await;
+        wake_space_repaint(&ctx.space);
+    }
+    daemon.wake_model();
+    daemon.snapshot_notifier.wake();
+
+    let mut payload = compatibility_surface_json_by_tab_id(daemon, tab.id).await?;
+    let workspace_ref = ctx.workspace.external_id.clone();
+    let surface_ref = tab.external_id.clone();
+    if let Some(object) = payload.as_object_mut() {
+        compatibility_insert_window_ref(object, &window_ref);
+        object.insert("workspace_id".to_string(), serde_json::json!(workspace_ref));
+        object.insert(
+            "workspace_ref".to_string(),
+            serde_json::json!(workspace_ref),
+        );
+        object.insert(
+            "numericWorkspaceId".to_string(),
+            serde_json::json!(ctx.workspace.id),
+        );
+        object.insert("surface_id".to_string(), serde_json::json!(surface_ref));
+        object.insert("surface_ref".to_string(), serde_json::json!(surface_ref));
+        object.insert("tab_id".to_string(), serde_json::json!(surface_ref));
+        object.insert("tab_ref".to_string(), serde_json::json!(surface_ref));
+        object.insert(
+            "pane_id".to_string(),
+            serde_json::json!(panel_id.to_string()),
+        );
+        object.insert(
+            "pane_ref".to_string(),
+            serde_json::json!(panel_id.to_string()),
+        );
+        object.insert(
+            "source_surface_id".to_string(),
+            serde_json::json!(ctx.tab.external_id),
+        );
+        object.insert(
+            "source_surface_ref".to_string(),
+            serde_json::json!(ctx.tab.external_id),
+        );
+        object.insert(
+            "source_pane_id".to_string(),
+            serde_json::json!(source_panel_id.to_string()),
+        );
+        object.insert(
+            "source_pane_ref".to_string(),
+            serde_json::json!(source_panel_id.to_string()),
+        );
+        object.insert(
+            "target_pane_id".to_string(),
+            serde_json::json!(panel_id.to_string()),
+        );
+        object.insert(
+            "target_pane_ref".to_string(),
+            serde_json::json!(panel_id.to_string()),
+        );
+        object.insert(
+            "created_split".to_string(),
+            serde_json::json!(created_split),
+        );
+        object.insert(
+            "placement_strategy".to_string(),
+            serde_json::json!(placement_strategy),
+        );
+        object.insert("opened_externally".to_string(), serde_json::json!(false));
+        if let Some(url) = url {
+            object.insert("url".to_string(), serde_json::json!(url));
+        }
+    }
+    Ok(payload)
+}
+
+async fn compatibility_browser_info(
+    daemon: &Arc<Daemon>,
+    target: Option<&str>,
+) -> std::result::Result<(TabId, NativeBrowserInfo), String> {
+    let tab_id = compatibility_browser_context(daemon, target).await?.tab.id;
+    daemon
+        .browser_info(tab_id)
+        .await
+        .map(|browser| (tab_id, browser))
+        .map_err(|error| error.to_string())
+}
+
+async fn compatibility_browser_navigate(
+    daemon: &Arc<Daemon>,
+    target: Option<&str>,
+    url: String,
+) -> std::result::Result<(TabId, NativeBrowserInfo), String> {
+    let tab_id = compatibility_browser_context(daemon, target).await?.tab.id;
+    daemon
+        .browser_navigate(tab_id, url)
+        .await
+        .map(|browser| (tab_id, browser))
+        .map_err(|error| error.to_string())
+}
+
+async fn compatibility_browser_back(
+    daemon: &Arc<Daemon>,
+    target: Option<&str>,
+) -> std::result::Result<(TabId, NativeBrowserInfo), String> {
+    let tab_id = compatibility_browser_context(daemon, target).await?.tab.id;
+    daemon
+        .browser_back(tab_id)
+        .await
+        .map(|browser| (tab_id, browser))
+        .map_err(|error| error.to_string())
+}
+
+async fn compatibility_browser_forward(
+    daemon: &Arc<Daemon>,
+    target: Option<&str>,
+) -> std::result::Result<(TabId, NativeBrowserInfo), String> {
+    let tab_id = compatibility_browser_context(daemon, target).await?.tab.id;
+    daemon
+        .browser_forward(tab_id)
+        .await
+        .map(|browser| (tab_id, browser))
+        .map_err(|error| error.to_string())
+}
+
+async fn compatibility_browser_reload(
+    daemon: &Arc<Daemon>,
+    target: Option<&str>,
+) -> std::result::Result<(TabId, NativeBrowserInfo), String> {
+    let tab_id = compatibility_browser_context(daemon, target).await?.tab.id;
+    daemon
+        .browser_reload(tab_id)
+        .await
+        .map(|browser| (tab_id, browser))
+        .map_err(|error| error.to_string())
+}
+
+async fn compatibility_browser_focus(
+    daemon: &Arc<Daemon>,
+    target: Option<&str>,
+) -> std::result::Result<NativeBrowserFocusRequest, String> {
+    let tab_id = compatibility_browser_context(daemon, target).await?.tab.id;
+    daemon
+        .request_browser_focus(tab_id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+async fn compatibility_browser_webview_focused(
+    daemon: &Arc<Daemon>,
+    target: Option<&str>,
+) -> std::result::Result<bool, String> {
+    let tab_id = compatibility_browser_context(daemon, target).await?.tab.id;
+    daemon
+        .browser_webview_focused(tab_id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+async fn compatibility_browser_get_url(
+    daemon: &Arc<Daemon>,
+    args: &str,
+) -> std::result::Result<String, String> {
+    let (_, browser) = compatibility_browser_info(
+        daemon,
+        compatibility_browser_target_from_args(args).as_deref(),
+    )
+    .await?;
+    Ok(browser.url.unwrap_or_default())
+}
+
+async fn compatibility_browser_state_json(
+    daemon: &Arc<Daemon>,
+    tab_id: TabId,
+    browser: NativeBrowserInfo,
+) -> std::result::Result<serde_json::Value, String> {
+    let ctx = compatibility_resolve_tab_context_by_tab_id(daemon, tab_id).await?;
+    let surface_id = compat_tab_ref_from_tab(&ctx.tab);
+    let webview_focused = daemon
+        .browser_webview_focused(tab_id)
+        .await
+        .unwrap_or(false);
+    Ok(serde_json::json!({
+        "workspace_id": ctx.workspace.external_id,
+        "workspace_ref": ctx.workspace.external_id,
+        "numericWorkspaceId": ctx.workspace.id,
+        "surface_id": surface_id,
+        "surface_ref": surface_id.clone(),
+        "numericId": tab_id,
+        "numericTabId": tab_id,
+        "url": browser.url.clone().unwrap_or_default(),
+        "webviewFocused": webview_focused,
+        "browser": browser,
+    }))
+}
+
+async fn compatibility_browser_get_title_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let target = compatibility_browser_ref_param(params);
+    let ctx = compatibility_browser_context(daemon, target.as_deref()).await?;
+    let tab_id = ctx.tab.id;
+    let browser = daemon
+        .browser_info(tab_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    let workspace_ref = ctx.workspace.external_id.clone();
+    let surface_ref = compat_tab_ref_from_tab(&ctx.tab);
+    let title = browser
+        .title
+        .or_else(|| Some(ctx.tab.title.load_full().as_ref().clone()))
+        .unwrap_or_default();
+    Ok(serde_json::json!({
+        "workspace_id": workspace_ref,
+        "workspace_ref": workspace_ref,
+        "numericWorkspaceId": ctx.workspace.id,
+        "surface_id": surface_ref,
+        "surface_ref": surface_ref,
+        "numericId": tab_id,
+        "numericTabId": tab_id,
+        "title": title,
+    }))
+}
+
+async fn compatibility_browser_worker_v2(
+    daemon: &Arc<Daemon>,
+    method: &str,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let target = compatibility_browser_ref_param(params);
+    let ctx = compatibility_browser_context(daemon, target.as_deref()).await?;
+    let window_ref = compatibility_window_id_for_workspace(daemon, ctx.workspace.id).await;
+    let worker_params = compatibility_browser_worker_params(params, &ctx, Some(&window_ref));
+    let request_json = serde_json::json!({
+        "id": format!("{method}:worker"),
+        "method": method,
+        "params": worker_params,
+    })
+    .to_string();
+    let mut result =
+        match compatibility_dispatch_browser_worker_request(daemon, &request_json).await {
+            Ok(result) => result,
+            Err(error) if compatibility_browser_worker_needs_materialization(&error) => {
+                compatibility_materialize_browser_workspace_and_retry(daemon, &ctx, &request_json)
+                    .await?
+            }
+            Err(error) => return Err(error),
+        };
+    compatibility_apply_browser_context_to_result(&mut result, &ctx);
+    Ok(result)
+}
+
+async fn compatibility_browser_input_keyboard_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let (method, worker_params) = compatibility_browser_input_keyboard_worker_params(params)?;
+    let worker_params = serde_json::Value::Object(worker_params);
+    let mut result = compatibility_browser_worker_v2(daemon, method, &worker_params).await?;
+    if let serde_json::Value::Object(object) = &mut result {
+        object.insert(
+            "compatibility_alias".to_string(),
+            serde_json::Value::String("browser.input_keyboard".to_string()),
+        );
+        object.insert(
+            "routed_method".to_string(),
+            serde_json::Value::String(method.to_string()),
+        );
+    }
+    Ok(result)
+}
+
+async fn compatibility_browser_input_mouse_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let (routed_method, worker_params) = compatibility_browser_input_mouse_worker_params(params)?;
+    let worker_params = serde_json::Value::Object(worker_params);
+    let mut result = compatibility_browser_worker_v2(daemon, routed_method, &worker_params).await?;
+    if let serde_json::Value::Object(object) = &mut result {
+        object.insert(
+            "compatibility_alias".to_string(),
+            serde_json::Value::String("browser.input_mouse".to_string()),
+        );
+        object.insert(
+            "routed_method".to_string(),
+            serde_json::Value::String(routed_method.to_string()),
+        );
+    }
+    Ok(result)
+}
+
+async fn compatibility_browser_input_touch_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let (routed_method, worker_params) = compatibility_browser_input_touch_worker_params(params)?;
+    let worker_params = serde_json::Value::Object(worker_params);
+    let mut result = compatibility_browser_worker_v2(daemon, routed_method, &worker_params).await?;
+    if let serde_json::Value::Object(object) = &mut result {
+        object.insert(
+            "compatibility_alias".to_string(),
+            serde_json::Value::String("browser.input_touch".to_string()),
+        );
+        object.insert(
+            "routed_method".to_string(),
+            serde_json::Value::String(routed_method.to_string()),
+        );
+    }
+    Ok(result)
+}
+
+fn compatibility_browser_input_touch_worker_params(
+    params: &serde_json::Value,
+) -> std::result::Result<(&'static str, serde_json::Map<String, serde_json::Value>), String> {
+    let (action, x, y) = compatibility_browser_input_touch_args(params)?;
+    let mut worker_params = params.as_object().cloned().unwrap_or_default();
+    worker_params.remove("args");
+    worker_params.remove("action");
+    worker_params.remove("event");
+    worker_params.remove("type");
+    worker_params.remove("kind");
+    worker_params.remove("x");
+    worker_params.remove("y");
+    worker_params.insert(
+        "script".to_string(),
+        serde_json::Value::String(compatibility_browser_input_touch_script(&action, x, y)),
+    );
+    Ok(("browser.eval", worker_params))
+}
+
+fn compatibility_browser_input_touch_args(
+    params: &serde_json::Value,
+) -> std::result::Result<(String, f64, f64), String> {
+    let args = compatibility_string_array_param(params, "args");
+    let mut action = compatibility_string_param(params, &["action", "event", "type", "kind"])
+        .map(|action| action.trim().to_ascii_lowercase())
+        .filter(|action| !action.is_empty());
+    let mut positional = args.as_slice();
+    if action.is_none()
+        && let Some(first) = positional.first()
+        && compatibility_browser_input_touch_action(first).is_some()
+    {
+        action = Some(first.trim().to_ascii_lowercase());
+        positional = &positional[1..];
+    }
+    let action = compatibility_browser_input_touch_action(action.as_deref().unwrap_or("tap"))
+        .ok_or_else(|| {
+            compatibility_invalid_params_error(
+                "browser.input_touch supports tap, touchstart, touchmove, touchend, and touchcancel actions",
+            )
+        })?;
+    let x = compatibility_f64_param(params, &["x", "client_x", "clientX"])
+        .or_else(|| {
+            positional
+                .first()
+                .and_then(|value| value.parse::<f64>().ok())
+        })
+        .ok_or_else(|| compatibility_invalid_params_error("browser.input_touch requires x"))?;
+    let y = compatibility_f64_param(params, &["y", "client_y", "clientY"])
+        .or_else(|| {
+            positional
+                .get(1)
+                .and_then(|value| value.parse::<f64>().ok())
+        })
+        .ok_or_else(|| compatibility_invalid_params_error("browser.input_touch requires y"))?;
+    Ok((action.to_string(), x, y))
+}
+
+fn compatibility_browser_input_touch_action(action: &str) -> Option<&'static str> {
+    match action.trim().to_ascii_lowercase().as_str() {
+        "tap" | "click" | "press" => Some("tap"),
+        "start" | "touchstart" | "touch_start" | "touch-start" | "down" => Some("touchstart"),
+        "move" | "touchmove" | "touch_move" | "touch-move" => Some("touchmove"),
+        "end" | "touchend" | "touch_end" | "touch-end" | "up" => Some("touchend"),
+        "cancel" | "touchcancel" | "touch_cancel" | "touch-cancel" => Some("touchcancel"),
+        _ => None,
+    }
+}
+
+fn compatibility_browser_input_touch_script(action: &str, x: f64, y: f64) -> String {
+    let action_json = serde_json::to_string(action).unwrap_or_else(|_| "\"tap\"".to_string());
+    let x_json = serde_json::json!(x).to_string();
+    let y_json = serde_json::json!(y).to_string();
+    format!(
+        r#"(() => {{
+  const action = {action_json};
+  const x = Number({x_json});
+  const y = Number({y_json});
+  const target = document.elementFromPoint(x, y) || document.body || document.documentElement;
+  if (!target) return {{ ok: false, error: "not_found" }};
+  const fired = [];
+  const firePointer = (type) => {{
+    const eventType = type === "touchstart" ? "pointerdown" :
+      type === "touchmove" ? "pointermove" :
+      type === "touchend" || type === "touchcancel" ? "pointerup" : type;
+    const Ctor = window.PointerEvent || window.MouseEvent;
+    target.dispatchEvent(new Ctor(eventType, {{
+      bubbles: true,
+      cancelable: true,
+      view: window,
+      clientX: x,
+      clientY: y,
+      screenX: x,
+      screenY: y,
+      pointerType: "touch",
+      pointerId: 1,
+      isPrimary: true,
+      button: 0,
+      buttons: eventType === "pointerup" ? 0 : 1
+    }}));
+    fired.push(eventType);
+  }};
+  const fireTouch = (type) => {{
+    if (typeof TouchEvent !== "function") return false;
+    try {{
+      target.dispatchEvent(new TouchEvent(type, {{
+        bubbles: true,
+        cancelable: true,
+        view: window,
+        touches: [],
+        targetTouches: [],
+        changedTouches: []
+      }}));
+      fired.push(type);
+      return true;
+    }} catch (_) {{
+      return false;
+    }}
+  }};
+  const fireClick = () => target.dispatchEvent(new MouseEvent("click", {{
+    bubbles: true,
+    cancelable: true,
+    view: window,
+    clientX: x,
+    clientY: y,
+    screenX: x,
+    screenY: y,
+    button: 0,
+    buttons: 0
+  }}));
+  if (action === "tap") {{
+    firePointer("touchstart");
+    fireTouch("touchstart");
+    firePointer("touchend");
+    fireTouch("touchend");
+    fireClick();
+    fired.push("click");
+  }} else {{
+    firePointer(action);
+    fireTouch(action);
+  }}
+  return {{ ok: true, action, x, y, fired, tag: target.tagName, id: target.id || null }};
+}})()"#
+    )
+}
+
+fn compatibility_browser_input_mouse_worker_params(
+    params: &serde_json::Value,
+) -> std::result::Result<(&'static str, serde_json::Map<String, serde_json::Value>), String> {
+    let (action, x, y) = compatibility_browser_input_mouse_args(params)?;
+    let mut worker_params = params.as_object().cloned().unwrap_or_default();
+    worker_params.remove("args");
+    worker_params.remove("action");
+    worker_params.remove("event");
+    worker_params.remove("type");
+    worker_params.remove("kind");
+    worker_params.remove("x");
+    worker_params.remove("y");
+    worker_params.insert(
+        "script".to_string(),
+        serde_json::Value::String(compatibility_browser_input_mouse_script(&action, x, y)),
+    );
+    Ok(("browser.eval", worker_params))
+}
+
+fn compatibility_browser_input_mouse_args(
+    params: &serde_json::Value,
+) -> std::result::Result<(String, f64, f64), String> {
+    let args = compatibility_string_array_param(params, "args");
+    let mut action = compatibility_string_param(params, &["action", "event", "type", "kind"])
+        .map(|action| action.trim().to_ascii_lowercase())
+        .filter(|action| !action.is_empty());
+    let mut positional = args.as_slice();
+    if action.is_none()
+        && let Some(first) = positional.first()
+        && compatibility_browser_input_mouse_action(first).is_some()
+    {
+        action = Some(first.trim().to_ascii_lowercase());
+        positional = &positional[1..];
+    }
+    let action = compatibility_browser_input_mouse_action(action.as_deref().unwrap_or("click"))
+        .ok_or_else(|| {
+            compatibility_invalid_params_error(
+                "browser.input_mouse supports click, move, mousedown, and mouseup actions",
+            )
+        })?;
+    let x = compatibility_f64_param(params, &["x", "client_x", "clientX"])
+        .or_else(|| {
+            positional
+                .first()
+                .and_then(|value| value.parse::<f64>().ok())
+        })
+        .ok_or_else(|| compatibility_invalid_params_error("browser.input_mouse requires x"))?;
+    let y = compatibility_f64_param(params, &["y", "client_y", "clientY"])
+        .or_else(|| {
+            positional
+                .get(1)
+                .and_then(|value| value.parse::<f64>().ok())
+        })
+        .ok_or_else(|| compatibility_invalid_params_error("browser.input_mouse requires y"))?;
+    Ok((action.to_string(), x, y))
+}
+
+fn compatibility_browser_input_mouse_action(action: &str) -> Option<&'static str> {
+    match action.trim().to_ascii_lowercase().as_str() {
+        "click" | "press" => Some("click"),
+        "move" | "mousemove" | "mouse_move" | "mouse-move" | "hover" => Some("mousemove"),
+        "down" | "mousedown" | "mouse_down" | "mouse-down" => Some("mousedown"),
+        "up" | "mouseup" | "mouse_up" | "mouse-up" => Some("mouseup"),
+        _ => None,
+    }
+}
+
+fn compatibility_browser_input_mouse_script(action: &str, x: f64, y: f64) -> String {
+    let action_json = serde_json::to_string(action).unwrap_or_else(|_| "\"click\"".to_string());
+    let x_json = serde_json::json!(x).to_string();
+    let y_json = serde_json::json!(y).to_string();
+    format!(
+        r#"(() => {{
+  const action = {action_json};
+  const x = Number({x_json});
+  const y = Number({y_json});
+  const target = document.elementFromPoint(x, y) || document.body || document.documentElement;
+  if (!target) return {{ ok: false, error: "not_found" }};
+  const fire = (type) => target.dispatchEvent(new MouseEvent(type, {{
+    bubbles: true,
+    cancelable: true,
+    view: window,
+    clientX: x,
+    clientY: y,
+    screenX: x,
+    screenY: y,
+    button: 0,
+    buttons: type === "mouseup" ? 0 : 1
+  }}));
+  if (action === "click") {{
+    fire("mousemove");
+    fire("mousedown");
+    fire("mouseup");
+    fire("click");
+  }} else {{
+    fire(action);
+  }}
+  return {{ ok: true, action, x, y, tag: target.tagName, id: target.id || null }};
+}})()"#
+    )
+}
+
+fn compatibility_browser_input_keyboard_worker_params(
+    params: &serde_json::Value,
+) -> std::result::Result<(&'static str, serde_json::Map<String, serde_json::Value>), String> {
+    let mut worker_params = params.as_object().cloned().unwrap_or_default();
+    worker_params.remove("args");
+    worker_params.remove("action");
+    worker_params.remove("event");
+    worker_params.remove("type");
+    worker_params.remove("kind");
+
+    let args = compatibility_string_array_param(params, "args");
+    let explicit_action = compatibility_string_param(params, &["action", "event", "type", "kind"]);
+    let mut method = match explicit_action.as_deref() {
+        Some(action) => Some(
+            compatibility_browser_input_keyboard_method(action)
+                .map_err(compatibility_invalid_params_error)?,
+        ),
+        None => None,
+    };
+
+    let key = compatibility_string_param(params, &["key", "code"]).or_else(|| {
+        if args.is_empty() {
+            return None;
+        }
+        let first = args[0].trim();
+        if method.is_none()
+            && let Ok(parsed_method) = compatibility_browser_input_keyboard_method(first)
+        {
+            method = Some(parsed_method);
+            return compatibility_join_keyboard_args(&args[1..]);
+        }
+        compatibility_join_keyboard_args(&args)
+    });
+    let key = key
+        .map(|key| key.trim().to_string())
+        .filter(|key| !key.is_empty())
+        .ok_or_else(|| {
+            compatibility_invalid_params_error(
+                "browser.input_keyboard requires a key; use args [press|keydown|keyup, <key>] or a key field",
+            )
+        })?;
+
+    let method = method.unwrap_or("browser.press");
+    worker_params.insert("key".to_string(), serde_json::Value::String(key));
+    Ok((method, worker_params))
+}
+
+fn compatibility_browser_input_keyboard_method(
+    action: &str,
+) -> std::result::Result<&'static str, String> {
+    match action.trim().to_ascii_lowercase().as_str() {
+        "press" | "key" => Ok("browser.press"),
+        "keydown" | "down" | "key_down" | "key-down" => Ok("browser.keydown"),
+        "keyup" | "up" | "key_up" | "key-up" => Ok("browser.keyup"),
+        _ => Err(format!(
+            "browser.input_keyboard supports press, keydown, and keyup actions, not '{action}'"
+        )),
+    }
+}
+
+fn compatibility_join_keyboard_args(args: &[String]) -> Option<String> {
+    let joined = args
+        .iter()
+        .map(|arg| arg.trim())
+        .filter(|arg| !arg.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    if joined.is_empty() {
+        None
+    } else {
+        Some(joined)
+    }
+}
+
+fn compatibility_browser_worker_params(
+    params: &serde_json::Value,
+    ctx: &CompatibilityResolvedTabContext,
+    window_ref: Option<&str>,
+) -> serde_json::Map<String, serde_json::Value> {
+    let tab_id = ctx.tab.id;
+    let surface_ref = compat_tab_ref_from_tab(&ctx.tab);
+    let workspace_ref = ctx.workspace.external_id.clone();
+    let mut worker_params = params.as_object().cloned().unwrap_or_default();
+    if let Some(window_ref) = window_ref {
+        worker_params.insert(
+            "window_id".to_string(),
+            serde_json::Value::String(window_ref.to_string()),
+        );
+        worker_params.insert(
+            "window_ref".to_string(),
+            serde_json::Value::String(window_ref.to_string()),
+        );
+    }
+    worker_params.insert(
+        "workspace_id".to_string(),
+        serde_json::Value::String(workspace_ref.clone()),
+    );
+    worker_params.insert(
+        "workspace_ref".to_string(),
+        serde_json::Value::String(workspace_ref),
+    );
+    worker_params.insert(
+        "numericWorkspaceId".to_string(),
+        serde_json::json!(ctx.workspace.id),
+    );
+    worker_params.insert(
+        "surface_id".to_string(),
+        serde_json::Value::String(surface_ref.clone()),
+    );
+    worker_params.insert(
+        "surface_ref".to_string(),
+        serde_json::Value::String(surface_ref.clone()),
+    );
+    worker_params.insert("tab_id".to_string(), serde_json::Value::String(surface_ref));
+    worker_params.insert("numericId".to_string(), serde_json::json!(tab_id));
+    worker_params.insert("numericTabId".to_string(), serde_json::json!(tab_id));
+    worker_params.insert(
+        "numericPaneId".to_string(),
+        serde_json::json!(ctx.surface.panel_id),
+    );
+    worker_params.insert(
+        "indexInPane".to_string(),
+        serde_json::json!(ctx.surface.index),
+    );
+    worker_params
+}
+
+async fn compatibility_native_worker_v2(
+    daemon: &Arc<Daemon>,
+    method: &str,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let mut worker_params = params.as_object().cloned().unwrap_or_default();
+    worker_params.insert("routed_by".to_string(), serde_json::json!("cmx-rust"));
+    let response_json = daemon
+        .dispatch_native_compatibility_v2_request(
+            serde_json::json!({
+                "id": format!("{method}:native-worker"),
+                "method": method,
+                "params": worker_params,
+            })
+            .to_string(),
+        )
+        .await?;
+    compatibility_parse_v2_response(&response_json)
+}
+
+struct CompatibilityVmAuthContext {
+    base_url: String,
+    access_token: String,
+    refresh_token: String,
+    team_id: Option<String>,
+}
+
+async fn compatibility_vm_auth_context(
+    daemon: &Arc<Daemon>,
+) -> std::result::Result<CompatibilityVmAuthContext, String> {
+    let payload =
+        compatibility_native_worker_v2(daemon, "__cmx.vm.auth_context", &serde_json::json!({}))
+            .await?;
+    let base_url = payload
+        .get("base_url")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+        .ok_or_else(|| "VM auth context missing base_url".to_string())?;
+    let access_token = payload
+        .get("access_token")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+        .ok_or_else(|| "VM auth context missing access_token".to_string())?;
+    let refresh_token = payload
+        .get("refresh_token")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+        .ok_or_else(|| "VM auth context missing refresh_token".to_string())?;
+    let team_id = payload
+        .get("team_id")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    Ok(CompatibilityVmAuthContext {
+        base_url,
+        access_token,
+        refresh_token,
+        team_id,
+    })
+}
+
+fn compatibility_vm_url(
+    base_url: &str,
+    path_segments: &[&str],
+) -> std::result::Result<reqwest::Url, String> {
+    let mut url = reqwest::Url::parse(base_url).map_err(|error| error.to_string())?;
+    let base_path = url.path().trim_end_matches('/').to_string();
+    url.set_path(&base_path);
+    {
+        let mut segments = url
+            .path_segments_mut()
+            .map_err(|_| "VM API base URL cannot be a base".to_string())?;
+        for segment in path_segments {
+            segments.push(segment);
+        }
+    }
+    Ok(url)
+}
+
+async fn compatibility_vm_request(
+    daemon: &Arc<Daemon>,
+    method: reqwest::Method,
+    path_segments: &[&str],
+    body: Option<serde_json::Value>,
+    extra_headers: &[(&str, String)],
+    timeout: Option<std::time::Duration>,
+) -> std::result::Result<serde_json::Value, String> {
+    let auth = compatibility_vm_auth_context(daemon).await?;
+    let url = compatibility_vm_url(&auth.base_url, path_segments)?;
+    let client = reqwest::Client::new();
+    let mut request = client
+        .request(method, url)
+        .bearer_auth(auth.access_token)
+        .header("X-Stack-Refresh-Token", auth.refresh_token);
+    if let Some(team_id) = auth.team_id {
+        request = request.header("X-Cmux-Team-Id", team_id);
+    }
+    for (key, value) in extra_headers {
+        request = request.header(*key, value);
+    }
+    if let Some(timeout) = timeout {
+        request = request.timeout(timeout);
+    }
+    if let Some(body) = body {
+        request = request.json(&body);
+    }
+    let response = request.send().await.map_err(|error| {
+        if error.is_connect() || error.is_timeout() {
+            format!("VM backend unreachable: {error}")
+        } else {
+            error.to_string()
+        }
+    })?;
+    let status = response.status();
+    let bytes = response.bytes().await.map_err(|error| error.to_string())?;
+    if !status.is_success() {
+        let body = String::from_utf8_lossy(&bytes);
+        return Err(format!("VM backend HTTP {status}: {body}"));
+    }
+    if bytes.is_empty() {
+        return Ok(serde_json::json!({}));
+    }
+    serde_json::from_slice(&bytes)
+        .map_err(|error| format!("VM backend returned invalid JSON: {error}"))
+}
+
+fn compatibility_vm_string_param(
+    params: &serde_json::Value,
+    keys: &[&str],
+    name: &str,
+) -> std::result::Result<String, String> {
+    compatibility_string_param(params, keys)
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| format!("{name} is required"))
+}
+
+async fn compatibility_vm_list_v2(
+    daemon: &Arc<Daemon>,
+) -> std::result::Result<serde_json::Value, String> {
+    compatibility_vm_request(
+        daemon,
+        reqwest::Method::GET,
+        &["api", "vm"],
+        None,
+        &[],
+        None,
+    )
+    .await
+}
+
+async fn compatibility_vm_create_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let idempotency_key = compatibility_vm_string_param(
+        params,
+        &["idempotency_key", "idempotencyKey"],
+        "idempotency_key",
+    )?;
+    let mut body = serde_json::Map::new();
+    if let Some(image) = compatibility_string_param(params, &["image"]) {
+        body.insert("image".to_string(), serde_json::json!(image));
+    }
+    if let Some(provider) = compatibility_string_param(params, &["provider"]) {
+        body.insert("provider".to_string(), serde_json::json!(provider));
+    }
+    compatibility_vm_request(
+        daemon,
+        reqwest::Method::POST,
+        &["api", "vm"],
+        Some(serde_json::Value::Object(body)),
+        &[("Idempotency-Key", idempotency_key)],
+        Some(std::time::Duration::from_secs(16 * 60)),
+    )
+    .await
+}
+
+async fn compatibility_vm_destroy_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let vm_id = compatibility_vm_string_param(params, &["id"], "id")?;
+    compatibility_vm_request(
+        daemon,
+        reqwest::Method::DELETE,
+        &["api", "vm", &vm_id],
+        None,
+        &[],
+        None,
+    )
+    .await?;
+    Ok(serde_json::json!({ "ok": true }))
+}
+
+async fn compatibility_vm_exec_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let vm_id = compatibility_vm_string_param(params, &["id"], "id")?;
+    let command = compatibility_vm_string_param(params, &["command"], "command")?;
+    let timeout_ms =
+        compatibility_usize_param(params, &["timeout_ms", "timeoutMs"]).unwrap_or(30_000);
+    let response = compatibility_vm_request(
+        daemon,
+        reqwest::Method::POST,
+        &["api", "vm", &vm_id, "exec"],
+        Some(serde_json::json!({
+            "command": command,
+            "timeoutMs": timeout_ms,
+        })),
+        &[],
+        Some(std::time::Duration::from_millis(
+            timeout_ms.saturating_add(5_000) as u64,
+        )),
+    )
+    .await?;
+    Ok(serde_json::json!({
+        "exit_code": response.get("exitCode").cloned().unwrap_or_else(|| serde_json::json!(-1)),
+        "stdout": response.get("stdout").cloned().unwrap_or_else(|| serde_json::json!("")),
+        "stderr": response.get("stderr").cloned().unwrap_or_else(|| serde_json::json!("")),
+    }))
+}
+
+async fn compatibility_vm_ssh_info_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let vm_id = compatibility_vm_string_param(params, &["id"], "id")?;
+    let response = compatibility_vm_request(
+        daemon,
+        reqwest::Method::POST,
+        &["api", "vm", &vm_id, "ssh-endpoint"],
+        Some(serde_json::json!({})),
+        &[],
+        None,
+    )
+    .await?;
+    Ok(compatibility_vm_ssh_payload(&response))
+}
+
+async fn compatibility_vm_attach_info_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let vm_id = compatibility_vm_string_param(params, &["id"], "id")?;
+    let require_daemon =
+        compatibility_bool_param(params, &["require_daemon", "requireDaemon"]).unwrap_or(false);
+    let response = compatibility_vm_request(
+        daemon,
+        reqwest::Method::POST,
+        &["api", "vm", &vm_id, "attach-endpoint"],
+        Some(serde_json::json!({ "requireDaemon": require_daemon })),
+        &[],
+        Some(std::time::Duration::from_secs(16 * 60)),
+    )
+    .await?;
+    match response
+        .get("transport")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some("ssh") => {
+            let mut payload = compatibility_vm_ssh_payload(&response);
+            payload
+                .as_object_mut()
+                .expect("vm ssh payload is an object")
+                .insert("transport".to_string(), serde_json::json!("ssh"));
+            Ok(payload)
+        }
+        Some("websocket") => Ok(compatibility_vm_websocket_payload(&response)),
+        _ => Err("attach-endpoint unknown transport".to_string()),
+    }
+}
+
+fn compatibility_vm_ssh_payload(response: &serde_json::Value) -> serde_json::Value {
+    serde_json::json!({
+        "host": response.get("host").cloned().unwrap_or(serde_json::Value::Null),
+        "port": response.get("port").cloned().unwrap_or(serde_json::Value::Null),
+        "username": response.get("username").cloned().unwrap_or(serde_json::Value::Null),
+        "credential": compatibility_vm_credential_payload(response.get("credential")),
+        "public_key_fingerprint": response
+            .get("publicKeyFingerprint")
+            .or_else(|| response.get("public_key_fingerprint"))
+            .cloned()
+            .unwrap_or(serde_json::Value::Null),
+    })
+}
+
+fn compatibility_vm_credential_payload(
+    credential: Option<&serde_json::Value>,
+) -> serde_json::Value {
+    let Some(credential) = credential.and_then(serde_json::Value::as_object) else {
+        return serde_json::Value::Null;
+    };
+    match credential
+        .get("kind")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+    {
+        "password" => serde_json::json!({
+            "kind": "password",
+            "value": credential.get("value").cloned().unwrap_or(serde_json::Value::Null),
+        }),
+        "authorizedKey" => serde_json::json!({
+            "kind": "authorizedKey",
+            "private_key_pem": credential
+                .get("privateKeyPem")
+                .or_else(|| credential.get("private_key_pem"))
+                .cloned()
+                .unwrap_or(serde_json::Value::Null),
+        }),
+        kind => serde_json::json!({ "kind": kind }),
+    }
+}
+
+fn compatibility_vm_websocket_payload(response: &serde_json::Value) -> serde_json::Value {
+    let mut payload = serde_json::json!({
+        "transport": "websocket",
+        "url": response.get("url").cloned().unwrap_or(serde_json::Value::Null),
+        "headers": response.get("headers").cloned().unwrap_or_else(|| serde_json::json!({})),
+        "token": response.get("token").cloned().unwrap_or(serde_json::Value::Null),
+        "session_id": response
+            .get("sessionId")
+            .or_else(|| response.get("session_id"))
+            .cloned()
+            .unwrap_or(serde_json::Value::Null),
+        "expires_at_unix": response
+            .get("expiresAtUnix")
+            .or_else(|| response.get("expires_at_unix"))
+            .cloned()
+            .unwrap_or(serde_json::Value::Null),
+    });
+    if let Some(daemon) = response
+        .get("daemon")
+        .and_then(serde_json::Value::as_object)
+    {
+        payload
+            .as_object_mut()
+            .expect("vm websocket payload is an object")
+            .insert(
+                "daemon".to_string(),
+                serde_json::json!({
+                    "url": daemon.get("url").cloned().unwrap_or(serde_json::Value::Null),
+                    "headers": daemon.get("headers").cloned().unwrap_or_else(|| serde_json::json!({})),
+                    "token": daemon.get("token").cloned().unwrap_or(serde_json::Value::Null),
+                    "session_id": daemon
+                        .get("sessionId")
+                        .or_else(|| daemon.get("session_id"))
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null),
+                    "expires_at_unix": daemon
+                        .get("expiresAtUnix")
+                        .or_else(|| daemon.get("expires_at_unix"))
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null),
+                }),
+            );
+    }
+    payload
+}
+
+async fn compatibility_workspace_remote_configure_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let workspace_id = compatibility_workspace_id_for_remote_params(daemon, params).await?;
+    compatibility_workspace_remote_cancel_reconnect(daemon, workspace_id).await;
+    compatibility_workspace_remote_reset_reconnect_attempts(daemon, workspace_id).await;
+    compatibility_workspace_remote_configure_workspace_v2(daemon, workspace_id, params).await
+}
+
+async fn compatibility_workspace_remote_configure_workspace_v2(
+    daemon: &Arc<Daemon>,
+    workspace_id: u64,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let auto_connect =
+        compatibility_bool_param(params, &["auto_connect", "autoConnect"]).unwrap_or(true);
+    if auto_connect && compatibility_workspace_remote_should_bootstrap_ssh_locally(params) {
+        return compatibility_workspace_remote_configure_ssh_bootstrap_v2(
+            daemon,
+            workspace_id,
+            params,
+        )
+        .await;
+    }
+    if auto_connect && !compatibility_workspace_remote_can_autoconnect_locally(params) {
+        return compatibility_workspace_remote_native_v2(
+            daemon,
+            "workspace.remote.configure",
+            params,
+        )
+        .await;
+    }
+
+    let mut remote = compatibility_workspace_remote_configure_status(params)?;
+    let daemon_proxy_config = compatibility_workspace_remote_daemon_proxy_config(params)?;
+    compatibility_workspace_remote_stop_daemon_proxy(daemon, workspace_id).await;
+    compatibility_workspace_remote_stop_ssh_relay(daemon, workspace_id).await;
+    daemon
+        .remote_ssh_relay_configs
+        .lock()
+        .await
+        .remove(&workspace_id);
+    if let Some(config) = daemon_proxy_config.clone() {
+        daemon
+            .remote_daemon_proxy_configs
+            .lock()
+            .await
+            .insert(workspace_id, config.clone());
+        if auto_connect {
+            compatibility_workspace_remote_mark_proxy_connecting(params, &mut remote);
+            match compatibility_workspace_remote_start_daemon_proxy(
+                daemon,
+                workspace_id,
+                config,
+                params,
+                &mut remote,
+            )
+            .await
+            {
+                Ok(()) => {}
+                Err(detail) => {
+                    compatibility_workspace_remote_mark_proxy_error(&mut remote, &detail);
+                }
+            }
+        }
+    } else {
+        daemon
+            .remote_daemon_proxy_configs
+            .lock()
+            .await
+            .remove(&workspace_id);
+        if auto_connect {
+            compatibility_workspace_remote_mark_model_connected(params, &mut remote);
+        }
+    }
+    compatibility_workspace_remote_seed_initial_terminal_session(
+        daemon,
+        workspace_id,
+        params,
+        &mut remote,
+    )
+    .await?;
+    let remote_config = compatibility_workspace_remote_persistable_config(params)?;
+    let ephemeral_config = if remote_config.is_none() {
+        Some(compatibility_workspace_remote_ephemeral_config(daemon, workspace_id, params).await?)
+    } else {
+        None
+    };
+    compatibility_store_workspace_remote_status(daemon, workspace_id, remote.clone()).await?;
+    compatibility_store_workspace_remote_config(daemon, workspace_id, remote_config).await?;
+    if let Some(ephemeral_config) = ephemeral_config {
+        daemon
+            .remote_ephemeral_configs
+            .lock()
+            .await
+            .insert(workspace_id, ephemeral_config);
+    } else {
+        daemon
+            .remote_ephemeral_configs
+            .lock()
+            .await
+            .remove(&workspace_id);
+    }
+    compatibility_workspace_remote_response(daemon, workspace_id, remote, params, "configuredBy")
+        .await
+}
+
+fn compatibility_workspace_remote_transport(params: &serde_json::Value) -> String {
+    compatibility_string_param(params, &["transport"])
+        .map(|transport| transport.trim().to_ascii_lowercase())
+        .filter(|transport| !transport.is_empty())
+        .filter(|transport| matches!(transport.as_str(), "ssh" | "websocket"))
+        .unwrap_or_else(|| "ssh".to_string())
+}
+
+fn compatibility_workspace_remote_can_autoconnect_locally(params: &serde_json::Value) -> bool {
+    let transport = compatibility_workspace_remote_transport(params);
+    let skip_daemon_bootstrap =
+        compatibility_bool_param(params, &["skip_daemon_bootstrap", "skipDaemonBootstrap"])
+            .unwrap_or(false);
+
+    transport == "websocket" || skip_daemon_bootstrap
+}
+
+fn compatibility_workspace_remote_should_bootstrap_ssh_locally(params: &serde_json::Value) -> bool {
+    if !compatibility_workspace_remote_ssh_bootstrap_enabled() {
+        return false;
+    }
+    if compatibility_workspace_remote_transport(params) != "ssh" {
+        return false;
+    }
+    !compatibility_bool_param(params, &["skip_daemon_bootstrap", "skipDaemonBootstrap"])
+        .unwrap_or(false)
+}
+
+fn compatibility_workspace_remote_ssh_bootstrap_enabled() -> bool {
+    let disabled = env::var("CMUX_REMOTE_SSH_BOOTSTRAP_IN_RUST_DISABLED")
+        .ok()
+        .map(|value| compatibility_env_flag_is_enabled(&value))
+        .unwrap_or(false);
+    if disabled {
+        return false;
+    }
+    env::var("CMUX_REMOTE_SSH_BOOTSTRAP_IN_RUST")
+        .ok()
+        .map(|value| compatibility_env_flag_is_enabled(&value))
+        .unwrap_or(true)
+}
+
+fn compatibility_env_flag(name: &str) -> bool {
+    env::var(name)
+        .ok()
+        .map(|value| compatibility_env_flag_is_enabled(&value))
+        .unwrap_or(false)
+}
+
+fn compatibility_env_flag_is_enabled(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "1" | "true" | "yes" | "on"
+    )
+}
+
+fn compatibility_workspace_remote_ssh_stack_enabled() -> bool {
+    (compatibility_env_flag("CMUX_REMOTE_SSH_STACK_IN_RUST")
+        || compatibility_env_flag("CMUX_REMOTE_SSH_FULL_IN_RUST")
+        || compatibility_desktop_cmx_backend_enabled())
+        && !compatibility_env_flag("CMUX_REMOTE_SSH_STACK_IN_RUST_DISABLED")
+}
+
+fn compatibility_desktop_cmx_backend_enabled() -> bool {
+    compatibility_env_flag("CMUX_DESKTOP_CMX_BACKEND")
+        && !compatibility_env_flag("CMUX_DESKTOP_CMX_BACKEND_DISABLED")
+}
+
+fn compatibility_workspace_remote_display_target(params: &serde_json::Value) -> String {
+    let destination = compatibility_string_param(params, &["destination"])
+        .map(|destination| destination.trim().to_string())
+        .filter(|destination| !destination.is_empty())
+        .unwrap_or_else(|| "remote host".to_string());
+    match compatibility_optional_port_param(params, "port")
+        .ok()
+        .flatten()
+    {
+        Some(port) => format!("{destination}:{port}"),
+        None => destination,
+    }
+}
+
+fn compatibility_workspace_remote_mark_model_connected(
+    params: &serde_json::Value,
+    remote: &mut serde_json::Value,
+) {
+    let Some(object) = remote.as_object_mut() else {
+        return;
+    };
+
+    object.insert("state".to_string(), serde_json::json!("connected"));
+    object.insert("connected".to_string(), serde_json::json!(true));
+    object.insert("connected_by".to_string(), serde_json::json!("cmx-rust"));
+    object.insert(
+        "connection_owner".to_string(),
+        serde_json::json!("cmx-rust-model"),
+    );
+
+    if compatibility_bool_param(params, &["skip_daemon_bootstrap", "skipDaemonBootstrap"])
+        .unwrap_or(false)
+    {
+        object.insert(
+            "detail".to_string(),
+            serde_json::json!(format!(
+                "Connected to {} (VM, proxy disabled)",
+                compatibility_workspace_remote_display_target(params)
+            )),
+        );
+        object.insert(
+            "daemon".to_string(),
+            serde_json::json!({
+                "state": "ready",
+                "detail": "Remote daemon ready",
+                "version": "v0.63.2-baked",
+                "name": "cmuxd-remote",
+                "capabilities": [
+                    "session.basic",
+                    "session.resize.min",
+                    "proxy.http_connect",
+                    "proxy.socks5",
+                    "proxy.stream",
+                    "proxy.stream.push",
+                ],
+                "remote_path": "/usr/local/bin/cmuxd-remote",
+            }),
+        );
+        object.insert(
+            "heartbeat".to_string(),
+            serde_json::json!({
+                "count": 1,
+                "last_seen_at": serde_json::Value::Null,
+                "age_seconds": serde_json::Value::Null,
+            }),
+        );
+    }
+}
+
+async fn compatibility_workspace_remote_configure_ssh_bootstrap_v2(
+    daemon: &Arc<Daemon>,
+    workspace_id: u64,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let mut remote = compatibility_workspace_remote_configure_status(params)?;
+    compatibility_workspace_remote_mark_ssh_bootstrapping(params, &mut remote);
+    compatibility_workspace_remote_seed_initial_terminal_session(
+        daemon,
+        workspace_id,
+        params,
+        &mut remote,
+    )
+    .await?;
+    let remote_config = compatibility_workspace_remote_persistable_config(params)?;
+    let ephemeral_config = if remote_config.is_none() {
+        Some(compatibility_workspace_remote_ephemeral_config(daemon, workspace_id, params).await?)
+    } else {
+        None
+    };
+
+    compatibility_workspace_remote_stop_daemon_proxy(daemon, workspace_id).await;
+    compatibility_workspace_remote_stop_ssh_relay(daemon, workspace_id).await;
+    daemon
+        .remote_ssh_relay_configs
+        .lock()
+        .await
+        .remove(&workspace_id);
+    daemon
+        .remote_daemon_proxy_configs
+        .lock()
+        .await
+        .remove(&workspace_id);
+    compatibility_store_workspace_remote_status(daemon, workspace_id, remote.clone()).await?;
+    compatibility_store_workspace_remote_config(daemon, workspace_id, remote_config).await?;
+    if let Some(ephemeral_config) = ephemeral_config {
+        daemon
+            .remote_ephemeral_configs
+            .lock()
+            .await
+            .insert(workspace_id, ephemeral_config);
+    } else {
+        daemon
+            .remote_ephemeral_configs
+            .lock()
+            .await
+            .remove(&workspace_id);
+    }
+
+    compatibility_workspace_remote_spawn_ssh_bootstrap(
+        daemon.clone(),
+        workspace_id,
+        params.clone(),
+    );
+    compatibility_workspace_remote_response(daemon, workspace_id, remote, params, "configuredBy")
+        .await
+}
+
+fn compatibility_workspace_remote_spawn_ssh_bootstrap(
+    daemon: Arc<Daemon>,
+    workspace_id: u64,
+    params: serde_json::Value,
+) {
+    tokio::spawn(async move {
+        compatibility_workspace_remote_run_ssh_bootstrap(daemon, workspace_id, params).await;
+    });
+}
+
+async fn compatibility_workspace_remote_run_ssh_bootstrap(
+    daemon: Arc<Daemon>,
+    workspace_id: u64,
+    params: serde_json::Value,
+) {
+    let config = match compatibility_workspace_remote_ssh_bootstrap_config(&params) {
+        Ok(config) => config,
+        Err(detail) => {
+            compatibility_workspace_remote_store_ssh_bootstrap_error(
+                &daemon,
+                workspace_id,
+                &detail,
+            )
+            .await;
+            return;
+        }
+    };
+
+    match remote_ssh_bootstrap::bootstrap_remote_daemon(&daemon.remote_daemon_metadata, &config)
+        .await
+    {
+        Ok(result) => {
+            let mut remote =
+                match compatibility_workspace_remote_status_for_id(&daemon, workspace_id).await {
+                    Ok(remote) => remote,
+                    Err(_) => return,
+                };
+            if !compatibility_workspace_remote_is_rust_owned_ssh_bootstrap(&remote) {
+                return;
+            }
+            compatibility_workspace_remote_mark_ssh_bootstrap_ready(&params, &mut remote, &result);
+            if compatibility_store_workspace_remote_status(&daemon, workspace_id, remote)
+                .await
+                .is_err()
+            {
+                return;
+            }
+
+            if compatibility_workspace_remote_ssh_proxy_enabled() {
+                compatibility_workspace_remote_start_ssh_proxy_after_bootstrap(
+                    &daemon,
+                    workspace_id,
+                    &params,
+                    &config,
+                    &result,
+                )
+                .await;
+                return;
+            }
+
+            let mut native_params = params.clone();
+            if let Some(object) = native_params.as_object_mut() {
+                object.insert(
+                    "cmx_prebootstrapped_daemon".to_string(),
+                    compatibility_workspace_remote_prebootstrapped_daemon_payload(&result),
+                );
+            }
+            if let Err(detail) = compatibility_workspace_remote_native_v2(
+                &daemon,
+                "workspace.remote.configure",
+                &native_params,
+            )
+            .await
+            {
+                compatibility_workspace_remote_store_ssh_bootstrap_error_with_retry(
+                    &daemon,
+                    workspace_id,
+                    &format!("Remote SSH sidecar failed after Rust bootstrap: {detail}"),
+                    Duration::from_secs(4),
+                )
+                .await;
+            }
+        }
+        Err(error) => {
+            compatibility_workspace_remote_store_ssh_bootstrap_error_with_retry(
+                &daemon,
+                workspace_id,
+                &format!("Remote daemon bootstrap failed: {error}"),
+                Duration::from_secs(4),
+            )
+            .await;
+        }
+    }
+}
+
+fn compatibility_workspace_remote_ssh_proxy_enabled() -> bool {
+    (compatibility_env_flag("CMUX_REMOTE_SSH_PROXY_IN_RUST")
+        || compatibility_workspace_remote_ssh_stack_enabled())
+        && !compatibility_env_flag("CMUX_REMOTE_SSH_PROXY_IN_RUST_DISABLED")
+}
+
+fn compatibility_workspace_remote_ssh_relay_enabled() -> bool {
+    (compatibility_env_flag("CMUX_REMOTE_SSH_RELAY_IN_RUST")
+        || compatibility_workspace_remote_ssh_stack_enabled())
+        && !compatibility_env_flag("CMUX_REMOTE_SSH_RELAY_IN_RUST_DISABLED")
+}
+
+fn compatibility_workspace_remote_ssh_port_scan_enabled() -> bool {
+    (compatibility_env_flag("CMUX_REMOTE_SSH_PORT_SCAN_IN_RUST")
+        || compatibility_workspace_remote_ssh_stack_enabled())
+        && !compatibility_env_flag("CMUX_REMOTE_SSH_PORT_SCAN_IN_RUST_DISABLED")
+}
+
+fn compatibility_workspace_remote_ssh_drop_upload_enabled() -> bool {
+    (compatibility_env_flag("CMUX_REMOTE_SSH_DROP_UPLOAD_IN_RUST")
+        || compatibility_workspace_remote_ssh_stack_enabled())
+        && !compatibility_env_flag("CMUX_REMOTE_SSH_DROP_UPLOAD_IN_RUST_DISABLED")
+}
+
+#[derive(Debug, Clone, Copy)]
+struct CompatibilityWorkspaceRemoteRetrySchedule {
+    retry: u32,
+    delay: Duration,
+}
+
+async fn compatibility_workspace_remote_schedule_reconnect(
+    daemon: &Arc<Daemon>,
+    workspace_id: u64,
+    base_delay: Duration,
+) -> Option<CompatibilityWorkspaceRemoteRetrySchedule> {
+    let mut config =
+        compatibility_workspace_remote_reconnect_config_for_retry(daemon, workspace_id)
+            .await
+            .ok()
+            .flatten()?;
+    let workspace = daemon.workspace_by_id(workspace_id).await?;
+    if let Some(object) = config.as_object_mut() {
+        object.insert(
+            "workspace_id".to_string(),
+            serde_json::json!(workspace.external_id.clone()),
+        );
+        object.insert("auto_connect".to_string(), serde_json::json!(true));
+    } else {
+        return None;
+    }
+
+    let retry = {
+        let mut attempts = daemon.remote_reconnect_attempts.lock().await;
+        let entry = attempts.entry(workspace_id).or_insert(0);
+        *entry = entry.saturating_add(1);
+        *entry
+    };
+    let delay = compatibility_workspace_remote_retry_delay(base_delay, retry);
+    if let Some(handle) = daemon
+        .remote_reconnect_sessions
+        .lock()
+        .await
+        .remove(&workspace_id)
+    {
+        handle.abort();
+    }
+
+    let daemon_for_task = daemon.clone();
+    let handle = task::spawn(async move {
+        tokio::time::sleep(delay).await;
+        daemon_for_task
+            .remote_reconnect_sessions
+            .lock()
+            .await
+            .remove(&workspace_id);
+        let Ok(current) =
+            compatibility_workspace_remote_status_for_id(&daemon_for_task, workspace_id).await
+        else {
+            daemon_for_task
+                .remote_reconnect_attempts
+                .lock()
+                .await
+                .remove(&workspace_id);
+            return;
+        };
+        if !compatibility_workspace_remote_is_rust_owned_idle(&current)
+            && !compatibility_workspace_remote_is_rust_owned_model_only(&current)
+            && !compatibility_workspace_remote_is_rust_owned_proxy(&current)
+            && !compatibility_workspace_remote_is_rust_owned_ssh_bootstrap(&current)
+        {
+            daemon_for_task
+                .remote_reconnect_attempts
+                .lock()
+                .await
+                .remove(&workspace_id);
+            return;
+        }
+        let _ = compatibility_workspace_remote_configure_workspace_v2(
+            &daemon_for_task,
+            workspace_id,
+            &config,
+        )
+        .await;
+    });
+    daemon
+        .remote_reconnect_sessions
+        .lock()
+        .await
+        .insert(workspace_id, handle);
+
+    Some(CompatibilityWorkspaceRemoteRetrySchedule { retry, delay })
+}
+
+async fn compatibility_workspace_remote_reconnect_config_for_retry(
+    daemon: &Arc<Daemon>,
+    workspace_id: u64,
+) -> std::result::Result<Option<serde_json::Value>, String> {
+    if let Some(config) = daemon
+        .remote_ephemeral_configs
+        .lock()
+        .await
+        .get(&workspace_id)
+        .cloned()
+    {
+        return Ok(Some(config));
+    }
+    compatibility_workspace_remote_config_for_id(daemon, workspace_id).await
+}
+
+async fn compatibility_workspace_remote_cancel_reconnect(daemon: &Arc<Daemon>, workspace_id: u64) {
+    if let Some(handle) = daemon
+        .remote_reconnect_sessions
+        .lock()
+        .await
+        .remove(&workspace_id)
+    {
+        handle.abort();
+    }
+}
+
+async fn compatibility_workspace_remote_reset_reconnect_attempts(
+    daemon: &Arc<Daemon>,
+    workspace_id: u64,
+) {
+    daemon
+        .remote_reconnect_attempts
+        .lock()
+        .await
+        .remove(&workspace_id);
+}
+
+async fn compatibility_workspace_remote_clear_reconnect_state(
+    daemon: &Arc<Daemon>,
+    workspace_id: u64,
+) {
+    compatibility_workspace_remote_cancel_reconnect(daemon, workspace_id).await;
+    compatibility_workspace_remote_reset_reconnect_attempts(daemon, workspace_id).await;
+}
+
+fn compatibility_workspace_remote_retry_delay(base_delay: Duration, retry: u32) -> Duration {
+    let exponent = retry.saturating_sub(1).min(16) as i32;
+    let delay_secs = (base_delay.as_secs_f64() * 2.0_f64.powi(exponent)).clamp(1.0, 60.0);
+    Duration::from_secs_f64(delay_secs)
+}
+
+fn compatibility_workspace_remote_retry_suffix(
+    schedule: CompatibilityWorkspaceRemoteRetrySchedule,
+) -> String {
+    format!(
+        " (retry {} in {}s)",
+        schedule.retry,
+        schedule.delay.as_secs().max(1)
+    )
+}
+
+async fn compatibility_workspace_remote_start_ssh_proxy_after_bootstrap(
+    daemon: &Arc<Daemon>,
+    workspace_id: u64,
+    params: &serde_json::Value,
+    bootstrap_config: &remote_ssh_bootstrap::RemoteSshBootstrapConfig,
+    result: &remote_ssh_bootstrap::RemoteSshBootstrapResult,
+) {
+    let proxy_config = match compatibility_workspace_remote_ssh_daemon_proxy_config(
+        params,
+        bootstrap_config,
+        result,
+    ) {
+        Ok(proxy_config) => proxy_config,
+        Err(detail) => {
+            compatibility_workspace_remote_store_ssh_bootstrap_error(daemon, workspace_id, &detail)
+                .await;
+            return;
+        }
+    };
+    let Ok(mut remote) = compatibility_workspace_remote_status_for_id(daemon, workspace_id).await
+    else {
+        return;
+    };
+    if !compatibility_workspace_remote_is_rust_owned_ssh_bootstrap(&remote) {
+        return;
+    }
+    daemon
+        .remote_daemon_proxy_configs
+        .lock()
+        .await
+        .insert(workspace_id, proxy_config.clone());
+    if compatibility_workspace_remote_ssh_relay_enabled() {
+        match compatibility_workspace_remote_ssh_relay_config(params, bootstrap_config, result) {
+            Ok(Some(relay_config)) => {
+                if let Err(detail) = compatibility_workspace_remote_start_ssh_relay(
+                    daemon,
+                    workspace_id,
+                    relay_config,
+                )
+                .await
+                {
+                    let retry_suffix = compatibility_workspace_remote_schedule_reconnect(
+                        daemon,
+                        workspace_id,
+                        Duration::from_secs(2),
+                    )
+                    .await
+                    .map(compatibility_workspace_remote_retry_suffix)
+                    .unwrap_or_default();
+                    compatibility_workspace_remote_mark_proxy_error(
+                        &mut remote,
+                        &format!("Remote SSH relay unavailable: {detail}{retry_suffix}"),
+                    );
+                    let _ =
+                        compatibility_store_workspace_remote_status(daemon, workspace_id, remote)
+                            .await;
+                    return;
+                }
+            }
+            Ok(None) => {}
+            Err(detail) => {
+                compatibility_workspace_remote_mark_proxy_error(
+                    &mut remote,
+                    &format!("Remote SSH relay unavailable: {detail}"),
+                );
+                let _ =
+                    compatibility_store_workspace_remote_status(daemon, workspace_id, remote).await;
+                return;
+            }
+        }
+    }
+    compatibility_workspace_remote_mark_proxy_connecting(params, &mut remote);
+    match compatibility_workspace_remote_start_daemon_proxy(
+        daemon,
+        workspace_id,
+        proxy_config,
+        params,
+        &mut remote,
+    )
+    .await
+    {
+        Ok(()) => {}
+        Err(detail) => {
+            let retry_suffix = compatibility_workspace_remote_schedule_reconnect(
+                daemon,
+                workspace_id,
+                Duration::from_secs(2),
+            )
+            .await
+            .map(compatibility_workspace_remote_retry_suffix)
+            .unwrap_or_default();
+            compatibility_workspace_remote_mark_proxy_error(
+                &mut remote,
+                &format!("{detail}{retry_suffix}"),
+            );
+        }
+    }
+    let _ = compatibility_store_workspace_remote_status(daemon, workspace_id, remote).await;
+}
+
+async fn compatibility_workspace_remote_start_ssh_relay(
+    daemon: &Arc<Daemon>,
+    workspace_id: u64,
+    config: remote_ssh_relay::RemoteSshRelayConfig,
+) -> std::result::Result<(), String> {
+    compatibility_workspace_remote_stop_ssh_relay(daemon, workspace_id).await;
+    let handle = remote_ssh_relay::start_remote_ssh_relay(config.clone())
+        .await
+        .map_err(|error| error.to_string())?;
+    let failure_rx = handle.failure_rx();
+    daemon
+        .remote_ssh_relay_sessions
+        .lock()
+        .await
+        .insert(workspace_id, handle);
+    daemon
+        .remote_ssh_relay_configs
+        .lock()
+        .await
+        .insert(workspace_id, config.clone());
+    compatibility_workspace_remote_spawn_ssh_relay_failure_monitor(
+        daemon.clone(),
+        workspace_id,
+        failure_rx,
+    );
+    compatibility_workspace_remote_start_ssh_port_poll(daemon, workspace_id, config).await;
+    Ok(())
+}
+
+fn compatibility_workspace_remote_ssh_relay_config(
+    params: &serde_json::Value,
+    bootstrap_config: &remote_ssh_bootstrap::RemoteSshBootstrapConfig,
+    result: &remote_ssh_bootstrap::RemoteSshBootstrapResult,
+) -> std::result::Result<Option<remote_ssh_relay::RemoteSshRelayConfig>, String> {
+    let Some(relay_port) = compatibility_optional_port_param(params, "relay_port")
+        .map_err(compatibility_invalid_params_error)?
+    else {
+        return Ok(None);
+    };
+    let relay_id = compatibility_string_param(params, &["relay_id", "relayId"])
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            compatibility_invalid_params_error("relay_id is required when relay_port is set")
+        })?;
+    let relay_token = compatibility_string_param(params, &["relay_token", "relayToken"])
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            compatibility_invalid_params_error("relay_token is required when relay_port is set")
+        })?;
+    if !compatibility_is_lower_hex_token(&relay_token, 64) {
+        return Err(compatibility_invalid_params_error(
+            "relay_token must be 64 lowercase hex characters when relay_port is set",
+        ));
+    }
+    let local_socket_path =
+        compatibility_string_param(params, &["local_socket_path", "localSocketPath"])
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                compatibility_invalid_params_error(
+                    "local_socket_path is required when Rust SSH relay is enabled",
+                )
+            })?;
+    Ok(Some(remote_ssh_relay::RemoteSshRelayConfig {
+        destination: bootstrap_config.destination.clone(),
+        port: bootstrap_config.port,
+        identity_file: bootstrap_config.identity_file.clone(),
+        ssh_options: bootstrap_config.ssh_options.clone(),
+        remote_path: result.remote_path.clone(),
+        relay_port,
+        relay_id,
+        relay_token,
+        local_socket_path,
+    }))
+}
+
+fn compatibility_workspace_remote_ssh_daemon_proxy_config(
+    params: &serde_json::Value,
+    bootstrap_config: &remote_ssh_bootstrap::RemoteSshBootstrapConfig,
+    result: &remote_ssh_bootstrap::RemoteSshBootstrapResult,
+) -> std::result::Result<remote_daemon_proxy::RemoteDaemonProxyConfig, String> {
+    let local_proxy_port = compatibility_optional_port_param(params, "local_proxy_port")
+        .map_err(compatibility_invalid_params_error)?;
+    Ok(remote_daemon_proxy::RemoteDaemonProxyConfig {
+        endpoint: remote_daemon_proxy::RemoteDaemonProxyEndpoint::Ssh(
+            remote_daemon_proxy::RemoteDaemonSshEndpoint {
+                destination: bootstrap_config.destination.clone(),
+                port: bootstrap_config.port,
+                identity_file: bootstrap_config.identity_file.clone(),
+                ssh_options: bootstrap_config.ssh_options.clone(),
+                remote_path: result.remote_path.clone(),
+            },
+        ),
+        local_proxy_port,
+    })
+}
+
+fn compatibility_workspace_remote_ssh_bootstrap_config(
+    params: &serde_json::Value,
+) -> std::result::Result<remote_ssh_bootstrap::RemoteSshBootstrapConfig, String> {
+    let destination = compatibility_string_param(params, &["destination"])
+        .map(|destination| destination.trim().to_string())
+        .filter(|destination| !destination.is_empty())
+        .ok_or_else(|| compatibility_invalid_params_error("Missing destination"))?;
+    let port = compatibility_optional_port_param(params, "port")
+        .map_err(compatibility_invalid_params_error)?;
+    let identity_file = compatibility_string_param(params, &["identity_file", "identityFile"])
+        .map(|identity| identity.trim().to_string())
+        .filter(|identity| !identity.is_empty());
+    let ssh_options = compatibility_string_array_param(params, "ssh_options");
+    Ok(remote_ssh_bootstrap::RemoteSshBootstrapConfig {
+        destination,
+        port,
+        identity_file,
+        ssh_options,
+    })
+}
+
+fn compatibility_workspace_remote_prebootstrapped_daemon_payload(
+    result: &remote_ssh_bootstrap::RemoteSshBootstrapResult,
+) -> serde_json::Value {
+    serde_json::json!({
+        "remote_path": result.remote_path.clone(),
+        "name": result.hello.name.clone(),
+        "version": result.hello.version.clone(),
+        "capabilities": result.hello.capabilities.clone(),
+        "bootstrap_version": result.version.clone(),
+        "target_goos": result.target_goos.clone(),
+        "target_goarch": result.target_goarch.clone(),
+        "local_binary_path": result.local_binary_path.clone(),
+        "uploaded": result.uploaded,
+        "source": "cmx-rust-ssh-bootstrap",
+    })
+}
+
+async fn compatibility_workspace_remote_store_ssh_bootstrap_error(
+    daemon: &Arc<Daemon>,
+    workspace_id: u64,
+    detail: &str,
+) {
+    let Ok(mut remote) = compatibility_workspace_remote_status_for_id(daemon, workspace_id).await
+    else {
+        return;
+    };
+    if !compatibility_workspace_remote_is_rust_owned_ssh_bootstrap(&remote) {
+        return;
+    }
+    compatibility_workspace_remote_mark_ssh_bootstrap_error(&mut remote, detail);
+    let _ = compatibility_store_workspace_remote_status(daemon, workspace_id, remote).await;
+}
+
+async fn compatibility_workspace_remote_store_ssh_bootstrap_error_with_retry(
+    daemon: &Arc<Daemon>,
+    workspace_id: u64,
+    detail: &str,
+    base_delay: Duration,
+) {
+    let retry_suffix =
+        compatibility_workspace_remote_schedule_reconnect(daemon, workspace_id, base_delay)
+            .await
+            .map(compatibility_workspace_remote_retry_suffix)
+            .unwrap_or_default();
+    compatibility_workspace_remote_store_ssh_bootstrap_error(
+        daemon,
+        workspace_id,
+        &format!("{detail}{retry_suffix}"),
+    )
+    .await;
+}
+
+fn compatibility_workspace_remote_mark_ssh_bootstrapping(
+    params: &serde_json::Value,
+    remote: &mut serde_json::Value,
+) {
+    let Some(object) = remote.as_object_mut() else {
+        return;
+    };
+    let display_target = compatibility_workspace_remote_display_target(params);
+    object.insert("state".to_string(), serde_json::json!("connecting"));
+    object.insert("connected".to_string(), serde_json::json!(false));
+    object.insert(
+        "connection_owner".to_string(),
+        serde_json::json!("cmx-rust-ssh-bootstrap"),
+    );
+    object.insert(
+        "detail".to_string(),
+        serde_json::json!(format!("Bootstrapping remote daemon on {display_target}")),
+    );
+    object.insert(
+        "daemon".to_string(),
+        serde_json::json!({
+            "state": "bootstrapping",
+            "detail": format!("Bootstrapping remote daemon on {display_target}"),
+            "version": serde_json::Value::Null,
+            "name": serde_json::Value::Null,
+            "capabilities": [],
+            "remote_path": serde_json::Value::Null,
+        }),
+    );
+    object.insert(
+        "proxy".to_string(),
+        serde_json::json!({
+            "state": "connecting",
+            "host": serde_json::Value::Null,
+            "port": serde_json::Value::Null,
+            "schemes": ["socks5", "http_connect"],
+            "url": serde_json::Value::Null,
+            "error_code": serde_json::Value::Null,
+        }),
+    );
+}
+
+fn compatibility_workspace_remote_mark_ssh_bootstrap_ready(
+    params: &serde_json::Value,
+    remote: &mut serde_json::Value,
+    result: &remote_ssh_bootstrap::RemoteSshBootstrapResult,
+) {
+    let Some(object) = remote.as_object_mut() else {
+        return;
+    };
+    let display_target = compatibility_workspace_remote_display_target(params);
+    object.insert("state".to_string(), serde_json::json!("connecting"));
+    object.insert("connected".to_string(), serde_json::json!(false));
+    object.insert(
+        "connection_owner".to_string(),
+        serde_json::json!("cmx-rust-ssh-bootstrap"),
+    );
+    object.insert(
+        "detail".to_string(),
+        serde_json::json!(format!(
+            "Remote daemon ready on {display_target}; starting SSH proxy"
+        )),
+    );
+    object.insert(
+        "daemon".to_string(),
+        serde_json::json!({
+            "state": "ready",
+            "detail": "Remote daemon ready",
+            "version": result.hello.version.clone(),
+            "name": result.hello.name.clone(),
+            "capabilities": result.hello.capabilities.clone(),
+            "remote_path": result.remote_path.clone(),
+            "uploaded": result.uploaded,
+            "target_goos": result.target_goos.clone(),
+            "target_goarch": result.target_goarch.clone(),
+        }),
+    );
+    object.insert(
+        "heartbeat".to_string(),
+        serde_json::json!({
+            "count": 1,
+            "last_seen_at": serde_json::Value::Null,
+            "age_seconds": serde_json::Value::Null,
+        }),
+    );
+    object.insert(
+        "proxy".to_string(),
+        serde_json::json!({
+            "state": "connecting",
+            "host": serde_json::Value::Null,
+            "port": serde_json::Value::Null,
+            "schemes": ["socks5", "http_connect"],
+            "url": serde_json::Value::Null,
+            "error_code": serde_json::Value::Null,
+        }),
+    );
+}
+
+fn compatibility_workspace_remote_mark_ssh_bootstrap_error(
+    remote: &mut serde_json::Value,
+    detail: &str,
+) {
+    let Some(object) = remote.as_object_mut() else {
+        return;
+    };
+    let local_proxy_port = object
+        .get("local_proxy_port")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    object.insert("state".to_string(), serde_json::json!("error"));
+    object.insert("connected".to_string(), serde_json::json!(false));
+    object.insert(
+        "connection_owner".to_string(),
+        serde_json::json!("cmx-rust-ssh-bootstrap"),
+    );
+    object.insert("detail".to_string(), serde_json::json!(detail));
+    object.insert(
+        "daemon".to_string(),
+        serde_json::json!({
+            "state": "error",
+            "detail": detail,
+            "version": serde_json::Value::Null,
+            "name": serde_json::Value::Null,
+            "capabilities": [],
+            "remote_path": serde_json::Value::Null,
+        }),
+    );
+    object.insert(
+        "proxy".to_string(),
+        serde_json::json!({
+            "state": "unavailable",
+            "host": serde_json::Value::Null,
+            "port": local_proxy_port,
+            "schemes": ["socks5", "http_connect"],
+            "url": serde_json::Value::Null,
+            "error_code": "proxy_unavailable",
+            "detail": detail,
+        }),
+    );
+}
+
+async fn compatibility_workspace_remote_ephemeral_config(
+    daemon: &Arc<Daemon>,
+    workspace_id: u64,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let workspace = daemon
+        .workspace_by_id(workspace_id)
+        .await
+        .ok_or_else(|| format!("workspace {workspace_id} not found"))?;
+    let mut config = params.clone();
+    let object = config
+        .as_object_mut()
+        .ok_or_else(|| "remote config params must be a JSON object".to_string())?;
+    object.insert(
+        "workspace_id".to_string(),
+        serde_json::json!(workspace.external_id.clone()),
+    );
+    object.insert(
+        "stored_by".to_string(),
+        serde_json::json!("cmx-rust-memory"),
+    );
+    object.insert(
+        "stored_at_unix_ms".to_string(),
+        serde_json::json!(now_unix_millis()),
+    );
+    Ok(config)
+}
+
+fn compatibility_workspace_remote_daemon_proxy_config(
+    params: &serde_json::Value,
+) -> std::result::Result<Option<remote_daemon_proxy::RemoteDaemonProxyConfig>, String> {
+    let Some(url) = compatibility_string_param(
+        params,
+        &[
+            "daemon_websocket_url",
+            "daemonWebsocketUrl",
+            "daemonWebSocketURL",
+        ],
+    )
+    .map(|value| value.trim().to_string())
+    .filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    let token = compatibility_string_param(
+        params,
+        &[
+            "daemon_websocket_token",
+            "daemonWebsocketToken",
+            "daemonWebSocketToken",
+        ],
+    )
+    .map(|value| value.trim().to_string())
+    .filter(|value| !value.is_empty())
+    .ok_or_else(|| {
+        compatibility_invalid_params_error(
+            "daemon_websocket_token is required when daemon_websocket_url is set",
+        )
+    })?;
+    let session_id = compatibility_string_param(
+        params,
+        &[
+            "daemon_websocket_session_id",
+            "daemonWebsocketSessionId",
+            "daemonWebSocketSessionID",
+        ],
+    )
+    .map(|value| value.trim().to_string())
+    .filter(|value| !value.is_empty())
+    .ok_or_else(|| {
+        compatibility_invalid_params_error(
+            "daemon_websocket_session_id is required when daemon_websocket_url is set",
+        )
+    })?;
+    let headers = compatibility_workspace_remote_daemon_websocket_headers(params);
+    let local_proxy_port = compatibility_optional_port_param(params, "local_proxy_port")
+        .map_err(compatibility_invalid_params_error)?;
+
+    Ok(Some(remote_daemon_proxy::RemoteDaemonProxyConfig {
+        endpoint: remote_daemon_proxy::RemoteDaemonProxyEndpoint::WebSocket(
+            remote_daemon_proxy::RemoteDaemonWebSocketEndpoint {
+                url,
+                token,
+                session_id,
+                headers,
+            },
+        ),
+        local_proxy_port,
+    }))
+}
+
+fn compatibility_workspace_remote_daemon_websocket_headers(
+    params: &serde_json::Value,
+) -> Vec<(String, String)> {
+    let headers = params
+        .get("daemon_websocket_headers")
+        .or_else(|| params.get("daemonWebsocketHeaders"))
+        .or_else(|| params.get("daemonWebSocketHeaders"))
+        .and_then(serde_json::Value::as_object);
+    let Some(headers) = headers else {
+        return Vec::new();
+    };
+    headers
+        .iter()
+        .filter_map(|(key, value)| {
+            value
+                .as_str()
+                .map(|header_value| (key.trim().to_string(), header_value.trim().to_string()))
+        })
+        .filter(|(key, value)| !key.is_empty() && !value.is_empty())
+        .collect()
+}
+
+async fn compatibility_workspace_remote_stop_daemon_proxy(daemon: &Arc<Daemon>, workspace_id: u64) {
+    let handle = daemon
+        .remote_daemon_proxy_sessions
+        .lock()
+        .await
+        .remove(&workspace_id);
+    if let Some(handle) = handle {
+        handle.stop();
+    }
+}
+
+async fn compatibility_workspace_remote_stop_ssh_relay(daemon: &Arc<Daemon>, workspace_id: u64) {
+    compatibility_workspace_remote_stop_ssh_port_poll(daemon, workspace_id).await;
+    let handle = daemon
+        .remote_ssh_relay_sessions
+        .lock()
+        .await
+        .remove(&workspace_id);
+    if let Some(handle) = handle {
+        handle.stop();
+    }
+}
+
+async fn compatibility_workspace_remote_stop_ssh_port_poll(
+    daemon: &Arc<Daemon>,
+    workspace_id: u64,
+) {
+    let handle = daemon
+        .remote_ssh_port_poll_sessions
+        .lock()
+        .await
+        .remove(&workspace_id);
+    if let Some(handle) = handle {
+        handle.abort();
+    }
+}
+
+async fn compatibility_workspace_remote_start_daemon_proxy(
+    daemon: &Arc<Daemon>,
+    workspace_id: u64,
+    config: remote_daemon_proxy::RemoteDaemonProxyConfig,
+    params: &serde_json::Value,
+    remote: &mut serde_json::Value,
+) -> std::result::Result<(), String> {
+    compatibility_workspace_remote_stop_daemon_proxy(daemon, workspace_id).await;
+    let (handle, ready) = remote_daemon_proxy::start_remote_daemon_proxy(config)
+        .await
+        .map_err(|error| format!("Failed to start local daemon proxy: {error}"))?;
+    let failure_rx = handle.failure_rx();
+    daemon
+        .remote_daemon_proxy_sessions
+        .lock()
+        .await
+        .insert(workspace_id, handle);
+    compatibility_workspace_remote_spawn_daemon_proxy_failure_monitor(
+        daemon.clone(),
+        workspace_id,
+        failure_rx,
+    );
+    compatibility_workspace_remote_mark_proxy_connected(params, remote, ready);
+    compatibility_workspace_remote_reset_reconnect_attempts(daemon, workspace_id).await;
+    Ok(())
+}
+
+fn compatibility_workspace_remote_spawn_daemon_proxy_failure_monitor(
+    daemon: Arc<Daemon>,
+    workspace_id: u64,
+    mut failure_rx: watch::Receiver<Option<String>>,
+) {
+    tokio::spawn(async move {
+        loop {
+            if failure_rx.changed().await.is_err() {
+                return;
+            }
+            let Some(detail) = failure_rx.borrow().clone() else {
+                continue;
+            };
+            let Ok(mut remote) =
+                compatibility_workspace_remote_status_for_id(&daemon, workspace_id).await
+            else {
+                return;
+            };
+            if !compatibility_workspace_remote_is_rust_owned_proxy(&remote) {
+                return;
+            }
+            let retry_suffix = compatibility_workspace_remote_schedule_reconnect(
+                &daemon,
+                workspace_id,
+                Duration::from_secs(2),
+            )
+            .await
+            .map(compatibility_workspace_remote_retry_suffix)
+            .unwrap_or_default();
+            compatibility_workspace_remote_mark_proxy_error(
+                &mut remote,
+                &format!("{detail}{retry_suffix}"),
+            );
+            let _ =
+                compatibility_store_workspace_remote_status(&daemon, workspace_id, remote).await;
+            if let Some(handle) = daemon
+                .remote_daemon_proxy_sessions
+                .lock()
+                .await
+                .remove(&workspace_id)
+            {
+                handle.stop();
+            }
+            compatibility_workspace_remote_stop_ssh_port_poll(&daemon, workspace_id).await;
+            if let Some(handle) = daemon
+                .remote_ssh_relay_sessions
+                .lock()
+                .await
+                .remove(&workspace_id)
+            {
+                handle.stop();
+            }
+            return;
+        }
+    });
+}
+
+fn compatibility_workspace_remote_spawn_ssh_relay_failure_monitor(
+    daemon: Arc<Daemon>,
+    workspace_id: u64,
+    mut failure_rx: watch::Receiver<Option<String>>,
+) {
+    tokio::spawn(async move {
+        loop {
+            if failure_rx.changed().await.is_err() {
+                return;
+            }
+            let Some(detail) = failure_rx.borrow().clone() else {
+                continue;
+            };
+            let Ok(mut remote) =
+                compatibility_workspace_remote_status_for_id(&daemon, workspace_id).await
+            else {
+                return;
+            };
+            if !compatibility_workspace_remote_is_rust_owned_proxy(&remote)
+                && !compatibility_workspace_remote_is_rust_owned_ssh_bootstrap(&remote)
+            {
+                return;
+            }
+            let retry_suffix = compatibility_workspace_remote_schedule_reconnect(
+                &daemon,
+                workspace_id,
+                Duration::from_secs(2),
+            )
+            .await
+            .map(compatibility_workspace_remote_retry_suffix)
+            .unwrap_or_default();
+            compatibility_workspace_remote_mark_proxy_error(
+                &mut remote,
+                &format!("Remote SSH relay unavailable: {detail}{retry_suffix}"),
+            );
+            let _ =
+                compatibility_store_workspace_remote_status(&daemon, workspace_id, remote).await;
+            compatibility_workspace_remote_stop_ssh_port_poll(&daemon, workspace_id).await;
+            if let Some(handle) = daemon
+                .remote_ssh_relay_sessions
+                .lock()
+                .await
+                .remove(&workspace_id)
+            {
+                handle.stop();
+            }
+            if let Some(handle) = daemon
+                .remote_daemon_proxy_sessions
+                .lock()
+                .await
+                .remove(&workspace_id)
+            {
+                handle.stop();
+            }
+            return;
+        }
+    });
+}
+
+fn compatibility_workspace_remote_spawn_ssh_port_scan_for_tab(daemon: Arc<Daemon>, tab_id: TabId) {
+    if !compatibility_workspace_remote_ssh_port_scan_enabled() {
+        return;
+    }
+    tokio::spawn(async move {
+        if let Err(error) =
+            compatibility_workspace_remote_scan_ssh_ports_for_tab(&daemon, tab_id).await
+        {
+            tracing::debug!(tab_id, error = %error, "Rust SSH remote port scan failed");
+        }
+    });
+}
+
+async fn compatibility_workspace_remote_start_ssh_port_poll(
+    daemon: &Arc<Daemon>,
+    workspace_id: u64,
+    config: remote_ssh_relay::RemoteSshRelayConfig,
+) {
+    compatibility_workspace_remote_stop_ssh_port_poll(daemon, workspace_id).await;
+    if !compatibility_workspace_remote_ssh_port_scan_enabled() {
+        return;
+    }
+    let poll_daemon = daemon.clone();
+    let handle = task::spawn(async move {
+        loop {
+            match compatibility_workspace_remote_poll_host_ports_once(
+                &poll_daemon,
+                workspace_id,
+                &config,
+            )
+            .await
+            {
+                Ok(true) => {}
+                Ok(false) => return,
+                Err(error) => {
+                    tracing::debug!(
+                        workspace_id,
+                        error = %error,
+                        "Rust SSH remote host port poll failed"
+                    );
+                }
+            }
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        }
+    });
+    daemon
+        .remote_ssh_port_poll_sessions
+        .lock()
+        .await
+        .insert(workspace_id, handle);
+}
+
+async fn compatibility_workspace_remote_poll_host_ports_once(
+    daemon: &Arc<Daemon>,
+    workspace_id: u64,
+    config: &remote_ssh_relay::RemoteSshRelayConfig,
+) -> std::result::Result<bool, String> {
+    let current = compatibility_workspace_remote_status_for_id(daemon, workspace_id).await?;
+    if !compatibility_workspace_remote_is_rust_owned_proxy(&current)
+        && !compatibility_workspace_remote_is_rust_owned_ssh_bootstrap(&current)
+    {
+        return Ok(false);
+    }
+    let workspace = daemon
+        .workspace_by_id(workspace_id)
+        .await
+        .ok_or_else(|| format!("workspace {workspace_id} not found"))?;
+    if !compatibility_workspace_remote_tty_tabs(&workspace)
+        .await
+        .is_empty()
+    {
+        return Ok(true);
+    }
+    let ports = remote_ssh_ports::scan_host_ports(
+        config,
+        compatibility_workspace_remote_excluded_scan_ports(config),
+    )
+    .await
+    .map_err(|error| error.to_string())?;
+    compatibility_workspace_remote_publish_detected_ports(daemon, workspace_id, ports).await?;
+    daemon.wake_model();
+    daemon.snapshot_notifier.wake();
+    Ok(true)
+}
+
+async fn compatibility_workspace_remote_scan_ssh_ports_for_tab(
+    daemon: &Arc<Daemon>,
+    tab_id: TabId,
+) -> std::result::Result<(), String> {
+    let ctx = compatibility_resolve_tab_context_by_tab_id(daemon, tab_id).await?;
+    let workspace_id = ctx.workspace.id;
+    let current = compatibility_workspace_remote_status_for_id(daemon, workspace_id).await?;
+    if !compatibility_workspace_remote_is_rust_owned_proxy(&current)
+        && !compatibility_workspace_remote_is_rust_owned_ssh_bootstrap(&current)
+    {
+        return Ok(());
+    }
+    let Some(config) = daemon
+        .remote_ssh_relay_configs
+        .lock()
+        .await
+        .get(&workspace_id)
+        .cloned()
+    else {
+        return Ok(());
+    };
+    let tty_tabs = compatibility_workspace_remote_tty_tabs(&ctx.workspace).await;
+    if tty_tabs.is_empty() {
+        return Ok(());
+    }
+    let tty_names = tty_tabs
+        .iter()
+        .map(|(_, tty)| tty.clone())
+        .collect::<Vec<_>>();
+    let excluded_ports = compatibility_workspace_remote_excluded_scan_ports(&config);
+    let ports_by_tty = remote_ssh_ports::scan_ports_by_tty(&config, tty_names, excluded_ports)
+        .await
+        .map_err(|error| error.to_string())?;
+    for (tab, tty_name) in tty_tabs {
+        let ports = ports_by_tty.get(&tty_name).cloned().unwrap_or_default();
+        tab.set_listening_ports(ports)
+            .map_err(|error| error.to_string())?;
+    }
+    compatibility_workspace_remote_publish_detected_ports_from_tabs(daemon, workspace_id).await?;
+    daemon.wake_model();
+    daemon.snapshot_notifier.wake();
+    Ok(())
+}
+
+async fn compatibility_workspace_remote_tty_tabs(
+    workspace: &Arc<Workspace>,
+) -> Vec<(Arc<Tab>, String)> {
+    let spaces = workspace.spaces.lock().await.clone();
+    let mut tty_tabs = Vec::new();
+    for space in spaces {
+        let tabs = space.tabs.lock().await.clone();
+        for tab in tabs {
+            if tab.kind != SnapshotTabKind::Terminal {
+                continue;
+            }
+            let Some(tty_name) = tab
+                .tty_name_snapshot()
+                .and_then(|tty| remote_ssh_ports::normalize_tty_name(&tty))
+            else {
+                continue;
+            };
+            tty_tabs.push((tab, tty_name));
+        }
+    }
+    tty_tabs
+}
+
+fn compatibility_workspace_remote_excluded_scan_ports(
+    config: &remote_ssh_relay::RemoteSshRelayConfig,
+) -> HashSet<u16> {
+    let mut excluded_ports = HashSet::new();
+    excluded_ports.insert(config.relay_port);
+    if let Some(port) = config.port {
+        excluded_ports.insert(port);
+    }
+    excluded_ports
+}
+
+async fn compatibility_workspace_remote_publish_detected_ports_for_tab(
+    daemon: &Arc<Daemon>,
+    tab_id: TabId,
+) -> std::result::Result<(), String> {
+    let ctx = compatibility_resolve_tab_context_by_tab_id(daemon, tab_id).await?;
+    compatibility_workspace_remote_publish_detected_ports_from_tabs(daemon, ctx.workspace.id).await
+}
+
+async fn compatibility_workspace_remote_publish_detected_ports_from_tabs(
+    daemon: &Arc<Daemon>,
+    workspace_id: u64,
+) -> std::result::Result<(), String> {
+    let current = compatibility_workspace_remote_status_for_id(daemon, workspace_id).await?;
+    if !compatibility_workspace_remote_is_rust_owned_idle(&current)
+        && !compatibility_workspace_remote_is_rust_owned_model_only(&current)
+        && !compatibility_workspace_remote_is_rust_owned_proxy(&current)
+        && !compatibility_workspace_remote_is_rust_owned_ssh_bootstrap(&current)
+    {
+        return Ok(());
+    }
+    let workspace = daemon
+        .workspace_by_id(workspace_id)
+        .await
+        .ok_or_else(|| format!("workspace {workspace_id} not found"))?;
+    let spaces = workspace.spaces.lock().await.clone();
+    let mut detected_ports = Vec::new();
+    for space in spaces {
+        let tabs = space.tabs.lock().await.clone();
+        for tab in tabs {
+            detected_ports.extend(tab.listening_ports_snapshot());
+        }
+    }
+    let detected_ports = normalize_ports(detected_ports);
+    compatibility_workspace_remote_publish_detected_ports(daemon, workspace_id, detected_ports)
+        .await
+}
+
+async fn compatibility_workspace_remote_publish_detected_ports(
+    daemon: &Arc<Daemon>,
+    workspace_id: u64,
+    detected_ports: Vec<u16>,
+) -> std::result::Result<(), String> {
+    let current = compatibility_workspace_remote_status_for_id(daemon, workspace_id).await?;
+    if !compatibility_workspace_remote_is_rust_owned_idle(&current)
+        && !compatibility_workspace_remote_is_rust_owned_model_only(&current)
+        && !compatibility_workspace_remote_is_rust_owned_proxy(&current)
+        && !compatibility_workspace_remote_is_rust_owned_ssh_bootstrap(&current)
+    {
+        return Ok(());
+    }
+    let mut remote = current;
+    if let Some(object) = remote.as_object_mut() {
+        object.insert(
+            "detected_ports".to_string(),
+            serde_json::json!(detected_ports),
+        );
+        object
+            .entry("forwarded_ports".to_string())
+            .or_insert_with(|| serde_json::json!([]));
+        object
+            .entry("conflicted_ports".to_string())
+            .or_insert_with(|| serde_json::json!([]));
+    }
+    compatibility_store_workspace_remote_status(daemon, workspace_id, remote).await
+}
+
+fn compatibility_workspace_remote_mark_proxy_connecting(
+    params: &serde_json::Value,
+    remote: &mut serde_json::Value,
+) {
+    let Some(object) = remote.as_object_mut() else {
+        return;
+    };
+    object.insert("state".to_string(), serde_json::json!("connecting"));
+    object.insert("connected".to_string(), serde_json::json!(false));
+    object.insert(
+        "connection_owner".to_string(),
+        serde_json::json!("cmx-rust-proxy"),
+    );
+    object.insert(
+        "detail".to_string(),
+        serde_json::json!(format!(
+            "Connecting to {}",
+            compatibility_workspace_remote_display_target(params)
+        )),
+    );
+    object.insert(
+        "daemon".to_string(),
+        serde_json::json!({
+            "state": "bootstrapping",
+            "detail": format!(
+                "Connecting to remote daemon on {}",
+                compatibility_workspace_remote_display_target(params)
+            ),
+            "version": serde_json::Value::Null,
+            "name": serde_json::Value::Null,
+            "capabilities": [],
+            "remote_path": serde_json::Value::Null,
+        }),
+    );
+    object.insert(
+        "proxy".to_string(),
+        serde_json::json!({
+            "state": "connecting",
+            "host": serde_json::Value::Null,
+            "port": serde_json::Value::Null,
+            "schemes": ["socks5", "http_connect"],
+            "url": serde_json::Value::Null,
+            "error_code": serde_json::Value::Null,
+        }),
+    );
+}
+
+fn compatibility_workspace_remote_mark_proxy_connected(
+    params: &serde_json::Value,
+    remote: &mut serde_json::Value,
+    ready: remote_daemon_proxy::RemoteDaemonProxyReady,
+) {
+    let Some(object) = remote.as_object_mut() else {
+        return;
+    };
+    let display_target = compatibility_workspace_remote_display_target(params);
+    object.insert("state".to_string(), serde_json::json!("connected"));
+    object.insert("connected".to_string(), serde_json::json!(true));
+    object.insert("connected_by".to_string(), serde_json::json!("cmx-rust"));
+    object.insert(
+        "connection_owner".to_string(),
+        serde_json::json!("cmx-rust-proxy"),
+    );
+    object.insert(
+        "detail".to_string(),
+        serde_json::json!(format!("Connected to {display_target}")),
+    );
+    object.insert(
+        "daemon".to_string(),
+        serde_json::json!({
+            "state": "ready",
+            "detail": "Remote daemon ready",
+            "version": ready.hello.version,
+            "name": ready.hello.name,
+            "capabilities": ready.hello.capabilities,
+            "remote_path": ready.hello.remote_path,
+        }),
+    );
+    object.insert(
+        "heartbeat".to_string(),
+        serde_json::json!({
+            "count": 1,
+            "last_seen_at": serde_json::Value::Null,
+            "age_seconds": serde_json::Value::Null,
+        }),
+    );
+    object.insert(
+        "proxy".to_string(),
+        serde_json::json!({
+            "state": "ready",
+            "host": "127.0.0.1",
+            "port": ready.local_port,
+            "schemes": ["socks5", "http_connect"],
+            "url": format!("socks5://127.0.0.1:{}", ready.local_port),
+            "target": display_target,
+            "error_code": serde_json::Value::Null,
+        }),
+    );
+    object.insert(
+        "local_proxy_port".to_string(),
+        serde_json::json!(ready.local_port),
+    );
+}
+
+fn compatibility_workspace_remote_mark_proxy_error(remote: &mut serde_json::Value, detail: &str) {
+    let Some(object) = remote.as_object_mut() else {
+        return;
+    };
+    let local_proxy_port = object
+        .get("local_proxy_port")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    object.insert("state".to_string(), serde_json::json!("error"));
+    object.insert("connected".to_string(), serde_json::json!(false));
+    object.insert(
+        "connection_owner".to_string(),
+        serde_json::json!("cmx-rust-proxy"),
+    );
+    object.insert("detail".to_string(), serde_json::json!(detail));
+    object.insert(
+        "daemon".to_string(),
+        serde_json::json!({
+            "state": "error",
+            "detail": detail,
+            "version": serde_json::Value::Null,
+            "name": serde_json::Value::Null,
+            "capabilities": [],
+            "remote_path": serde_json::Value::Null,
+        }),
+    );
+    object.insert(
+        "proxy".to_string(),
+        serde_json::json!({
+            "state": "unavailable",
+            "host": serde_json::Value::Null,
+            "port": local_proxy_port,
+            "schemes": ["socks5", "http_connect"],
+            "url": serde_json::Value::Null,
+            "error_code": "proxy_unavailable",
+            "detail": detail,
+        }),
+    );
+}
+
+fn compatibility_workspace_remote_configure_status(
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let destination = compatibility_string_param(params, &["destination"])
+        .map(|destination| destination.trim().to_string())
+        .filter(|destination| !destination.is_empty())
+        .ok_or_else(|| compatibility_invalid_params_error("Missing destination"))?;
+    let port = compatibility_optional_port_param(params, "port")
+        .map_err(compatibility_invalid_params_error)?;
+    let local_proxy_port = compatibility_optional_port_param(params, "local_proxy_port")
+        .map_err(compatibility_invalid_params_error)?;
+    let relay_port = compatibility_optional_port_param(params, "relay_port")
+        .map_err(compatibility_invalid_params_error)?;
+    if relay_port.is_some() {
+        let relay_id = compatibility_string_param(params, &["relay_id", "relayId"])
+            .map(|relay_id| relay_id.trim().to_string())
+            .filter(|relay_id| !relay_id.is_empty());
+        let relay_token = compatibility_string_param(params, &["relay_token", "relayToken"])
+            .map(|relay_token| relay_token.trim().to_string())
+            .filter(|relay_token| !relay_token.is_empty());
+        if relay_id.is_none() {
+            return Err(compatibility_invalid_params_error(
+                "relay_id is required when relay_port is set",
+            ));
+        }
+        match relay_token.as_deref() {
+            Some(token) if compatibility_is_lower_hex_token(token, 64) => {}
+            _ => {
+                return Err(compatibility_invalid_params_error(
+                    "relay_token must be 64 lowercase hex characters when relay_port is set",
+                ));
+            }
+        }
+    }
+    let has_terminal_startup_command = compatibility_string_param(
+        params,
+        &["terminal_startup_command", "terminalStartupCommand"],
+    )
+    .map(|command| !command.trim().is_empty())
+    .unwrap_or(false);
+
+    let transport = compatibility_workspace_remote_transport(params);
+    let identity_file = compatibility_string_param(params, &["identity_file", "identityFile"])
+        .map(|identity| identity.trim().to_string())
+        .filter(|identity| !identity.is_empty());
+    let ssh_options = compatibility_string_array_param(params, "ssh_options");
+    let mut remote = compatibility_default_remote_status_value();
+    if let Some(object) = remote.as_object_mut() {
+        object.insert("enabled".to_string(), serde_json::json!(true));
+        object.insert("state".to_string(), serde_json::json!("disconnected"));
+        object.insert("connected".to_string(), serde_json::json!(false));
+        object.insert("transport".to_string(), serde_json::json!(transport));
+        object.insert("destination".to_string(), serde_json::json!(destination));
+        object.insert(
+            "port".to_string(),
+            port.map(serde_json::Value::from)
+                .unwrap_or(serde_json::Value::Null),
+        );
+        object.insert(
+            "has_identity_file".to_string(),
+            serde_json::json!(identity_file.is_some()),
+        );
+        object.insert(
+            "has_ssh_options".to_string(),
+            serde_json::json!(!ssh_options.is_empty()),
+        );
+        object.insert(
+            "local_proxy_port".to_string(),
+            local_proxy_port
+                .map(serde_json::Value::from)
+                .unwrap_or(serde_json::Value::Null),
+        );
+        if let Some(relay_port) = relay_port {
+            object.insert("relay_port".to_string(), serde_json::json!(relay_port));
+        }
+        object.insert(
+            "has_terminal_startup_command".to_string(),
+            serde_json::json!(has_terminal_startup_command),
+        );
+        object.insert("configured_by".to_string(), serde_json::json!("cmx-rust"));
+    }
+    Ok(remote)
+}
+
+async fn compatibility_workspace_remote_seed_initial_terminal_session(
+    daemon: &Arc<Daemon>,
+    workspace_id: u64,
+    params: &serde_json::Value,
+    remote: &mut serde_json::Value,
+) -> std::result::Result<(), String> {
+    let has_startup_command = compatibility_string_param(
+        params,
+        &["terminal_startup_command", "terminalStartupCommand"],
+    )
+    .map(|command| !command.trim().is_empty())
+    .unwrap_or(false);
+    if !has_startup_command {
+        return Ok(());
+    }
+
+    let Some(surface_ref) =
+        compatibility_workspace_single_terminal_surface_ref(daemon, workspace_id).await?
+    else {
+        return Ok(());
+    };
+    let Some(object) = remote.as_object_mut() else {
+        return Ok(());
+    };
+    object.insert("active_terminal_sessions".to_string(), serde_json::json!(1));
+    object.insert(
+        "active_terminal_surface_ids".to_string(),
+        serde_json::json!([surface_ref]),
+    );
+    Ok(())
+}
+
+async fn compatibility_workspace_single_terminal_surface_ref(
+    daemon: &Arc<Daemon>,
+    workspace_id: u64,
+) -> std::result::Result<Option<String>, String> {
+    let workspace = daemon
+        .workspace_by_id(workspace_id)
+        .await
+        .ok_or_else(|| format!("workspace {workspace_id} not found"))?;
+    let Some(space) = workspace.first_space().await else {
+        return Ok(None);
+    };
+    let tabs = space.tabs.lock().await;
+    let terminal_refs = tabs
+        .iter()
+        .filter(|tab| tab.kind == SnapshotTabKind::Terminal)
+        .map(|tab| tab.external_id.clone())
+        .collect::<Vec<_>>();
+    Ok((terminal_refs.len() == 1).then(|| terminal_refs[0].clone()))
+}
+
+async fn compatibility_workspace_has_browser_surfaces(
+    daemon: &Arc<Daemon>,
+    workspace_id: u64,
+) -> std::result::Result<bool, String> {
+    let workspace = daemon
+        .workspace_by_id(workspace_id)
+        .await
+        .ok_or_else(|| format!("workspace {workspace_id} not found"))?;
+    let Some(space) = workspace.first_space().await else {
+        return Ok(false);
+    };
+    let tabs = space.tabs.lock().await;
+    Ok(tabs.iter().any(|tab| tab.kind == SnapshotTabKind::Browser))
+}
+
+fn compatibility_optional_port_param(
+    params: &serde_json::Value,
+    key: &str,
+) -> std::result::Result<Option<u16>, String> {
+    let Some(value) = params.get(key) else {
+        return Ok(None);
+    };
+    if value.is_null() {
+        return Ok(None);
+    }
+    let parsed = value
+        .as_u64()
+        .or_else(|| value.as_i64().and_then(|number| u64::try_from(number).ok()))
+        .or_else(|| value.as_str().and_then(|text| text.parse::<u64>().ok()))
+        .filter(|port| (1..=65535).contains(port));
+    parsed
+        .and_then(|port| u16::try_from(port).ok())
+        .map(Some)
+        .ok_or_else(|| format!("{key} must be 1-65535"))
+}
+
+fn compatibility_ports_param(
+    params: &serde_json::Value,
+    keys: &[&str],
+) -> std::result::Result<Vec<u16>, String> {
+    let Some((key, value)) = keys
+        .iter()
+        .find_map(|key| params.get(*key).map(|value| (*key, value)))
+    else {
+        return Ok(Vec::new());
+    };
+    let raw_values = match value {
+        serde_json::Value::Array(values) => values.clone(),
+        serde_json::Value::String(text) => text
+            .split(|ch: char| ch == ',' || ch.is_whitespace())
+            .filter(|part| !part.is_empty())
+            .map(|part| serde_json::json!(part))
+            .collect(),
+        other => vec![other.clone()],
+    };
+    let mut ports = Vec::with_capacity(raw_values.len());
+    for value in raw_values {
+        let parsed = value
+            .as_u64()
+            .or_else(|| value.as_i64().and_then(|number| u64::try_from(number).ok()))
+            .or_else(|| value.as_str().and_then(|text| text.parse::<u64>().ok()))
+            .filter(|port| (1..=65535).contains(port))
+            .and_then(|port| u16::try_from(port).ok())
+            .ok_or_else(|| format!("{key} entries must be 1-65535"))?;
+        ports.push(parsed);
+    }
+    Ok(normalize_ports(ports))
+}
+
+fn compatibility_is_lower_hex_token(value: &str, len: usize) -> bool {
+    value.len() == len
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+fn compatibility_workspace_remote_persistable_config(
+    params: &serde_json::Value,
+) -> std::result::Result<Option<serde_json::Value>, String> {
+    let transport = compatibility_workspace_remote_transport(params);
+    if compatibility_has_nonempty_string_param(params, &["relay_token", "relayToken"])
+        || compatibility_has_nonempty_string_param(
+            params,
+            &[
+                "foreground_auth_token",
+                "foregroundAuthToken",
+                "foreground_auth",
+            ],
+        )
+        || compatibility_has_nonempty_string_param(
+            params,
+            &[
+                "daemon_websocket_url",
+                "daemonWebsocketUrl",
+                "daemonWebSocketURL",
+            ],
+        )
+        || compatibility_has_nonempty_string_param(
+            params,
+            &[
+                "daemon_websocket_token",
+                "daemonWebsocketToken",
+                "daemonWebSocketToken",
+            ],
+        )
+        || compatibility_has_nonempty_string_param(
+            params,
+            &[
+                "daemon_websocket_session_id",
+                "daemonWebsocketSessionId",
+                "daemonWebSocketSessionID",
+            ],
+        )
+        || compatibility_optional_port_param(params, "relay_port")
+            .map_err(compatibility_invalid_params_error)?
+            .is_some()
+    {
+        return Ok(None);
+    }
+
+    let destination = compatibility_string_param(params, &["destination"])
+        .map(|destination| destination.trim().to_string())
+        .filter(|destination| !destination.is_empty())
+        .ok_or_else(|| compatibility_invalid_params_error("Missing destination"))?;
+    let port = compatibility_optional_port_param(params, "port")
+        .map_err(compatibility_invalid_params_error)?;
+    let local_proxy_port = compatibility_optional_port_param(params, "local_proxy_port")
+        .map_err(compatibility_invalid_params_error)?;
+    let identity_file = compatibility_string_param(params, &["identity_file", "identityFile"])
+        .map(|identity| identity.trim().to_string())
+        .filter(|identity| !identity.is_empty());
+    let ssh_options = compatibility_string_array_param(params, "ssh_options");
+    let local_socket_path =
+        compatibility_string_param(params, &["local_socket_path", "localSocketPath"])
+            .map(|path| path.trim().to_string())
+            .filter(|path| !path.is_empty());
+    let terminal_startup_command = compatibility_string_param(
+        params,
+        &["terminal_startup_command", "terminalStartupCommand"],
+    )
+    .map(|command| command.trim().to_string())
+    .filter(|command| !command.is_empty());
+    let skip_daemon_bootstrap =
+        compatibility_bool_param(params, &["skip_daemon_bootstrap", "skipDaemonBootstrap"])
+            .unwrap_or(false);
+
+    let mut config = serde_json::Map::new();
+    config.insert("transport".to_string(), serde_json::json!(transport));
+    config.insert("destination".to_string(), serde_json::json!(destination));
+    if let Some(port) = port {
+        config.insert("port".to_string(), serde_json::json!(port));
+    }
+    if let Some(identity_file) = identity_file {
+        config.insert(
+            "identity_file".to_string(),
+            serde_json::json!(identity_file),
+        );
+    }
+    if !ssh_options.is_empty() {
+        config.insert("ssh_options".to_string(), serde_json::json!(ssh_options));
+    }
+    if let Some(local_proxy_port) = local_proxy_port {
+        config.insert(
+            "local_proxy_port".to_string(),
+            serde_json::json!(local_proxy_port),
+        );
+    }
+    if let Some(local_socket_path) = local_socket_path {
+        config.insert(
+            "local_socket_path".to_string(),
+            serde_json::json!(local_socket_path),
+        );
+    }
+    if let Some(terminal_startup_command) = terminal_startup_command {
+        config.insert(
+            "terminal_startup_command".to_string(),
+            serde_json::json!(terminal_startup_command),
+        );
+    }
+    if skip_daemon_bootstrap {
+        config.insert("skip_daemon_bootstrap".to_string(), serde_json::json!(true));
+    }
+    config.insert("stored_by".to_string(), serde_json::json!("cmx-rust"));
+    config.insert(
+        "stored_at_unix_ms".to_string(),
+        serde_json::json!(now_unix_millis()),
+    );
+    Ok(Some(serde_json::Value::Object(config)))
+}
+
+async fn compatibility_workspace_remote_disconnect_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let workspace_id = compatibility_workspace_id_for_remote_params(daemon, params).await?;
+    let current = compatibility_workspace_remote_status_for_id(daemon, workspace_id).await?;
+    if !compatibility_workspace_remote_is_rust_owned_idle(&current)
+        && !compatibility_workspace_remote_is_rust_owned_model_only(&current)
+        && !compatibility_workspace_remote_is_rust_owned_proxy(&current)
+        && !compatibility_workspace_remote_is_rust_owned_ssh_bootstrap(&current)
+    {
+        return compatibility_workspace_remote_native_v2(
+            daemon,
+            "workspace.remote.disconnect",
+            params,
+        )
+        .await;
+    }
+
+    let clear = compatibility_bool_param(params, &["clear"]).unwrap_or(false);
+    compatibility_workspace_remote_clear_reconnect_state(daemon, workspace_id).await;
+    compatibility_workspace_remote_stop_daemon_proxy(daemon, workspace_id).await;
+    compatibility_workspace_remote_stop_ssh_relay(daemon, workspace_id).await;
+    let remote = if clear {
+        compatibility_default_remote_status_value()
+    } else {
+        compatibility_workspace_remote_disconnected_status(current)
+    };
+    compatibility_store_workspace_remote_status(daemon, workspace_id, remote.clone()).await?;
+    if clear {
+        compatibility_store_workspace_remote_config(daemon, workspace_id, None).await?;
+        daemon
+            .remote_daemon_proxy_configs
+            .lock()
+            .await
+            .remove(&workspace_id);
+        daemon
+            .remote_ssh_relay_configs
+            .lock()
+            .await
+            .remove(&workspace_id);
+        daemon
+            .remote_ephemeral_configs
+            .lock()
+            .await
+            .remove(&workspace_id);
+    }
+    compatibility_workspace_remote_response(daemon, workspace_id, remote, params, "disconnectedBy")
+        .await
+}
+
+async fn compatibility_workspace_remote_reconnect_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let workspace_id = compatibility_workspace_id_for_remote_params(daemon, params).await?;
+    let current = compatibility_workspace_remote_status_for_id(daemon, workspace_id).await?;
+    if !compatibility_workspace_remote_is_rust_owned_idle(&current)
+        && !compatibility_workspace_remote_is_rust_owned_proxy(&current)
+    {
+        return compatibility_workspace_remote_native_v2(
+            daemon,
+            "workspace.remote.reconnect",
+            params,
+        )
+        .await;
+    }
+    compatibility_workspace_remote_clear_reconnect_state(daemon, workspace_id).await;
+    let reconnect_relay_config = if compatibility_workspace_remote_ssh_relay_enabled() {
+        daemon
+            .remote_ssh_relay_configs
+            .lock()
+            .await
+            .get(&workspace_id)
+            .cloned()
+    } else {
+        None
+    };
+    let reconnect_requires_secret_config = compatibility_workspace_remote_ssh_relay_enabled()
+        && current
+            .get("relay_port")
+            .and_then(serde_json::Value::as_u64)
+            .is_some()
+        && reconnect_relay_config.is_none();
+    if !reconnect_requires_secret_config
+        && let Some(config) = daemon
+            .remote_daemon_proxy_configs
+            .lock()
+            .await
+            .get(&workspace_id)
+            .cloned()
+    {
+        let mut remote = current;
+        let workspace = daemon
+            .workspace_by_id(workspace_id)
+            .await
+            .ok_or_else(|| format!("workspace {workspace_id} not found"))?;
+        let mut response_params = params.clone();
+        if let Some(object) = response_params.as_object_mut() {
+            object.insert(
+                "workspace_id".to_string(),
+                serde_json::json!(workspace.external_id.clone()),
+            );
+        }
+        compatibility_workspace_remote_mark_proxy_connecting(&response_params, &mut remote);
+        if let Some(relay_config) = reconnect_relay_config {
+            if let Err(detail) =
+                compatibility_workspace_remote_start_ssh_relay(daemon, workspace_id, relay_config)
+                    .await
+            {
+                compatibility_workspace_remote_mark_proxy_error(
+                    &mut remote,
+                    &format!("Remote SSH relay unavailable: {detail}"),
+                );
+                compatibility_store_workspace_remote_status(daemon, workspace_id, remote.clone())
+                    .await?;
+                return compatibility_workspace_remote_response(
+                    daemon,
+                    workspace_id,
+                    remote,
+                    &response_params,
+                    "reconnectedBy",
+                )
+                .await;
+            }
+        }
+        match compatibility_workspace_remote_start_daemon_proxy(
+            daemon,
+            workspace_id,
+            config,
+            &response_params,
+            &mut remote,
+        )
+        .await
+        {
+            Ok(()) => {}
+            Err(detail) => compatibility_workspace_remote_mark_proxy_error(&mut remote, &detail),
+        }
+        compatibility_store_workspace_remote_status(daemon, workspace_id, remote.clone()).await?;
+        return compatibility_workspace_remote_response(
+            daemon,
+            workspace_id,
+            remote,
+            &response_params,
+            "reconnectedBy",
+        )
+        .await;
+    }
+    if let Some(mut config) = daemon
+        .remote_ephemeral_configs
+        .lock()
+        .await
+        .get(&workspace_id)
+        .cloned()
+    {
+        if let Some(object) = config.as_object_mut() {
+            object.insert("auto_connect".to_string(), serde_json::json!(true));
+        }
+        return compatibility_workspace_remote_configure_v2(daemon, &config).await;
+    }
+    let Some(mut config) =
+        compatibility_workspace_remote_config_for_id(daemon, workspace_id).await?
+    else {
+        return Err(compatibility_invalid_params_error(
+            "Remote workspace has no non-secret Rust-owned reconnect config",
+        ));
+    };
+    let workspace = daemon
+        .workspace_by_id(workspace_id)
+        .await
+        .ok_or_else(|| format!("workspace {workspace_id} not found"))?;
+    let object = config
+        .as_object_mut()
+        .ok_or_else(|| "stored remote config is not a JSON object".to_string())?;
+    object.insert(
+        "workspace_id".to_string(),
+        serde_json::json!(workspace.external_id.clone()),
+    );
+    object.insert("auto_connect".to_string(), serde_json::json!(true));
+    compatibility_workspace_remote_configure_v2(daemon, &config).await
+}
+
+async fn compatibility_workspace_remote_upload_dropped_files_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    if !compatibility_workspace_remote_ssh_drop_upload_enabled() {
+        return Err("Rust SSH drop upload is disabled".to_string());
+    }
+
+    let workspace_id = compatibility_workspace_id_for_remote_params(daemon, params).await?;
+    let config = compatibility_workspace_remote_drop_upload_config(daemon, workspace_id).await?;
+    let local_paths = compatibility_local_drop_paths_param(params)?;
+    let operation_id = compatibility_string_param(params, &["operation_id", "operationId"])
+        .map(|operation_id| operation_id.trim().to_string())
+        .filter(|operation_id| !operation_id.is_empty())
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let session_key =
+        compatibility_workspace_remote_drop_upload_session_key(workspace_id, &operation_id);
+    let (cancel_tx, mut cancel_rx) = watch::channel(false);
+    {
+        let mut sessions = daemon.remote_ssh_drop_upload_sessions.lock().await;
+        if sessions.contains_key(&session_key) {
+            return Err(compatibility_invalid_params_error(
+                "operation_id is already in use",
+            ));
+        }
+        sessions.insert(session_key.clone(), cancel_tx);
+    }
+
+    let result =
+        remote_ssh_drop_upload::upload_dropped_files(&config, &local_paths, &mut cancel_rx)
+            .await
+            .map_err(|error| error.to_string());
+    daemon
+        .remote_ssh_drop_upload_sessions
+        .lock()
+        .await
+        .remove(&session_key);
+
+    let remote_paths = result?;
+    Ok(serde_json::json!({
+        "workspace_numeric_id": workspace_id,
+        "operation_id": operation_id,
+        "remote_paths": remote_paths,
+    }))
+}
+
+async fn compatibility_workspace_remote_cleanup_dropped_files_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    if !compatibility_workspace_remote_ssh_drop_upload_enabled() {
+        return Err("Rust SSH drop upload is disabled".to_string());
+    }
+
+    let workspace_id = compatibility_workspace_id_for_remote_params(daemon, params).await?;
+    let config = compatibility_workspace_remote_drop_upload_config(daemon, workspace_id).await?;
+    let remote_paths = compatibility_remote_drop_paths_param(params)?;
+    remote_ssh_drop_upload::cleanup_remote_paths(&config, &remote_paths)
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(serde_json::json!({
+        "workspace_numeric_id": workspace_id,
+        "cleaned": true,
+        "remote_paths": remote_paths,
+    }))
+}
+
+async fn compatibility_workspace_remote_cancel_drop_upload_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let workspace_id = compatibility_workspace_id_for_remote_params(daemon, params).await?;
+    let operation_id = compatibility_string_param(params, &["operation_id", "operationId"])
+        .map(|operation_id| operation_id.trim().to_string())
+        .filter(|operation_id| !operation_id.is_empty())
+        .ok_or_else(|| compatibility_invalid_params_error("Missing operation_id"))?;
+    let session_key =
+        compatibility_workspace_remote_drop_upload_session_key(workspace_id, &operation_id);
+    let cancel_tx = daemon
+        .remote_ssh_drop_upload_sessions
+        .lock()
+        .await
+        .remove(&session_key);
+    let cancelled = if let Some(cancel_tx) = cancel_tx {
+        cancel_tx.send(true).is_ok()
+    } else {
+        false
+    };
+    Ok(serde_json::json!({
+        "workspace_numeric_id": workspace_id,
+        "operation_id": operation_id,
+        "cancelled": cancelled,
+    }))
+}
+
+async fn compatibility_workspace_remote_drop_upload_config(
+    daemon: &Arc<Daemon>,
+    workspace_id: u64,
+) -> std::result::Result<remote_ssh_drop_upload::RemoteSshDropUploadConfig, String> {
+    let current = compatibility_workspace_remote_status_for_id(daemon, workspace_id).await?;
+    if !compatibility_workspace_remote_is_rust_owned_idle(&current)
+        && !compatibility_workspace_remote_is_rust_owned_model_only(&current)
+        && !compatibility_workspace_remote_is_rust_owned_proxy(&current)
+        && !compatibility_workspace_remote_is_rust_owned_ssh_bootstrap(&current)
+    {
+        return Err("Remote workspace is not Rust-owned".to_string());
+    }
+
+    if let Some(config) = daemon
+        .remote_ssh_relay_configs
+        .lock()
+        .await
+        .get(&workspace_id)
+        .cloned()
+    {
+        return Ok(compatibility_remote_ssh_drop_upload_config(
+            config.destination,
+            config.port,
+            config.identity_file,
+            config.ssh_options,
+        ));
+    }
+
+    if let Some(proxy_config) = daemon
+        .remote_daemon_proxy_configs
+        .lock()
+        .await
+        .get(&workspace_id)
+        .cloned()
+        && let remote_daemon_proxy::RemoteDaemonProxyEndpoint::Ssh(endpoint) = proxy_config.endpoint
+    {
+        return Ok(compatibility_remote_ssh_drop_upload_config(
+            endpoint.destination,
+            endpoint.port,
+            endpoint.identity_file,
+            endpoint.ssh_options,
+        ));
+    }
+
+    if let Some(config) = daemon
+        .remote_ephemeral_configs
+        .lock()
+        .await
+        .get(&workspace_id)
+        .cloned()
+    {
+        return compatibility_workspace_remote_ssh_bootstrap_config(&config).map(|config| {
+            compatibility_remote_ssh_drop_upload_config(
+                config.destination,
+                config.port,
+                config.identity_file,
+                config.ssh_options,
+            )
+        });
+    }
+
+    if let Some(config) = compatibility_workspace_remote_config_for_id(daemon, workspace_id).await?
+    {
+        return compatibility_workspace_remote_ssh_bootstrap_config(&config).map(|config| {
+            compatibility_remote_ssh_drop_upload_config(
+                config.destination,
+                config.port,
+                config.identity_file,
+                config.ssh_options,
+            )
+        });
+    }
+
+    Err("Remote workspace has no Rust SSH configuration".to_string())
+}
+
+async fn compatibility_terminal_detected_ssh_upload_dropped_files_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    if !compatibility_workspace_remote_ssh_drop_upload_enabled() {
+        return Err("Rust SSH drop upload is disabled".to_string());
+    }
+
+    let config = compatibility_terminal_detected_ssh_drop_upload_config(params)?;
+    let local_paths = compatibility_local_drop_paths_param(params)?;
+    let operation_id = compatibility_string_param(params, &["operation_id", "operationId"])
+        .map(|operation_id| operation_id.trim().to_string())
+        .filter(|operation_id| !operation_id.is_empty())
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let session_key = compatibility_terminal_detected_ssh_drop_upload_session_key(&operation_id);
+    let (cancel_tx, mut cancel_rx) = watch::channel(false);
+    {
+        let mut sessions = daemon.remote_ssh_drop_upload_sessions.lock().await;
+        if sessions.contains_key(&session_key) {
+            return Err(compatibility_invalid_params_error(
+                "operation_id is already in use",
+            ));
+        }
+        sessions.insert(session_key.clone(), cancel_tx);
+    }
+
+    let result =
+        remote_ssh_drop_upload::upload_dropped_files(&config, &local_paths, &mut cancel_rx)
+            .await
+            .map_err(|error| error.to_string());
+    daemon
+        .remote_ssh_drop_upload_sessions
+        .lock()
+        .await
+        .remove(&session_key);
+
+    let remote_paths = result?;
+    Ok(serde_json::json!({
+        "operation_id": operation_id,
+        "remote_paths": remote_paths,
+    }))
+}
+
+async fn compatibility_terminal_detected_ssh_cleanup_dropped_files_v2(
+    _daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    if !compatibility_workspace_remote_ssh_drop_upload_enabled() {
+        return Err("Rust SSH drop upload is disabled".to_string());
+    }
+
+    let config = compatibility_terminal_detected_ssh_drop_upload_config(params)?;
+    let remote_paths = compatibility_remote_drop_paths_param(params)?;
+    remote_ssh_drop_upload::cleanup_remote_paths(&config, &remote_paths)
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(serde_json::json!({
+        "cleaned": true,
+        "remote_paths": remote_paths,
+    }))
+}
+
+async fn compatibility_terminal_detected_ssh_cancel_drop_upload_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let operation_id = compatibility_string_param(params, &["operation_id", "operationId"])
+        .map(|operation_id| operation_id.trim().to_string())
+        .filter(|operation_id| !operation_id.is_empty())
+        .ok_or_else(|| compatibility_invalid_params_error("Missing operation_id"))?;
+    let session_key = compatibility_terminal_detected_ssh_drop_upload_session_key(&operation_id);
+    let cancel_tx = daemon
+        .remote_ssh_drop_upload_sessions
+        .lock()
+        .await
+        .remove(&session_key);
+    let cancelled = if let Some(cancel_tx) = cancel_tx {
+        cancel_tx.send(true).is_ok()
+    } else {
+        false
+    };
+    Ok(serde_json::json!({
+        "operation_id": operation_id,
+        "cancelled": cancelled,
+    }))
+}
+
+fn compatibility_terminal_detected_ssh_drop_upload_config(
+    params: &serde_json::Value,
+) -> std::result::Result<remote_ssh_drop_upload::RemoteSshDropUploadConfig, String> {
+    let destination = compatibility_string_param(params, &["destination"])
+        .map(|destination| destination.trim().to_string())
+        .filter(|destination| !destination.is_empty())
+        .ok_or_else(|| compatibility_invalid_params_error("Missing destination"))?;
+    let port = compatibility_optional_port_param(params, "port")
+        .map_err(compatibility_invalid_params_error)?;
+    let identity_file =
+        compatibility_optional_string_param(params, &["identity_file", "identityFile"]);
+    let config_file = compatibility_optional_string_param(params, &["config_file", "configFile"]);
+    let jump_host = compatibility_optional_string_param(params, &["jump_host", "jumpHost"]);
+    let control_path =
+        compatibility_optional_string_param(params, &["control_path", "controlPath"]);
+    let ssh_options = compatibility_string_array_param(params, "ssh_options")
+        .into_iter()
+        .chain(compatibility_string_array_param(params, "sshOptions"))
+        .filter_map(|option| compatibility_nonempty_string(option))
+        .collect::<Vec<_>>();
+    Ok(remote_ssh_drop_upload::RemoteSshDropUploadConfig {
+        destination,
+        port,
+        identity_file,
+        config_file,
+        jump_host,
+        control_path,
+        use_ipv4: compatibility_bool_param(params, &["use_ipv4", "useIPv4"]).unwrap_or(false),
+        use_ipv6: compatibility_bool_param(params, &["use_ipv6", "useIPv6"]).unwrap_or(false),
+        forward_agent: compatibility_bool_param(params, &["forward_agent", "forwardAgent"])
+            .unwrap_or(false),
+        compression_enabled: compatibility_bool_param(
+            params,
+            &["compression_enabled", "compressionEnabled"],
+        )
+        .unwrap_or(false),
+        ssh_options,
+    })
+}
+
+fn compatibility_remote_ssh_drop_upload_config(
+    destination: String,
+    port: Option<u16>,
+    identity_file: Option<String>,
+    ssh_options: Vec<String>,
+) -> remote_ssh_drop_upload::RemoteSshDropUploadConfig {
+    remote_ssh_drop_upload::RemoteSshDropUploadConfig {
+        destination,
+        port,
+        identity_file,
+        config_file: None,
+        jump_host: None,
+        control_path: None,
+        use_ipv4: false,
+        use_ipv6: false,
+        forward_agent: false,
+        compression_enabled: false,
+        ssh_options,
+    }
+}
+
+fn compatibility_optional_string_param(
+    params: &serde_json::Value,
+    keys: &[&str],
+) -> Option<String> {
+    compatibility_string_param(params, keys).and_then(compatibility_nonempty_string)
+}
+
+fn compatibility_nonempty_string(value: String) -> Option<String> {
+    let trimmed = value.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
+}
+
+fn compatibility_local_drop_paths_param(
+    params: &serde_json::Value,
+) -> std::result::Result<Vec<PathBuf>, String> {
+    let local_paths = compatibility_string_array_param(params, "local_paths")
+        .into_iter()
+        .chain(compatibility_string_array_param(params, "localPaths"))
+        .chain(compatibility_string_array_param(params, "paths"))
+        .map(|path| path.trim().to_string())
+        .filter(|path| !path.is_empty())
+        .map(PathBuf::from)
+        .collect::<Vec<_>>();
+    if local_paths.is_empty() {
+        return Err(compatibility_invalid_params_error("Missing local_paths"));
+    }
+    Ok(local_paths)
+}
+
+fn compatibility_remote_drop_paths_param(
+    params: &serde_json::Value,
+) -> std::result::Result<Vec<String>, String> {
+    let remote_paths = compatibility_string_array_param(params, "remote_paths")
+        .into_iter()
+        .chain(compatibility_string_array_param(params, "remotePaths"))
+        .chain(compatibility_string_array_param(params, "paths"))
+        .map(|path| path.trim().to_string())
+        .filter(|path| !path.is_empty())
+        .collect::<Vec<_>>();
+    if remote_paths.is_empty() {
+        return Err(compatibility_invalid_params_error("Missing remote_paths"));
+    }
+    for path in &remote_paths {
+        let suffix = path.strip_prefix("/tmp/cmux-drop-");
+        if suffix.is_none_or(|suffix| suffix.is_empty() || suffix.contains('/')) {
+            return Err(compatibility_invalid_params_error(
+                "remote_paths entries must be cmux drop files in /tmp",
+            ));
+        }
+    }
+    Ok(remote_paths)
+}
+
+fn compatibility_workspace_remote_drop_upload_session_key(
+    workspace_id: u64,
+    operation_id: &str,
+) -> String {
+    format!("{workspace_id}:{}", operation_id.trim())
+}
+
+fn compatibility_terminal_detected_ssh_drop_upload_session_key(operation_id: &str) -> String {
+    format!("detected-ssh:{}", operation_id.trim())
+}
+
+async fn compatibility_workspace_remote_foreground_auth_ready_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let workspace_id = compatibility_workspace_id_for_remote_params(daemon, params).await?;
+    let current = compatibility_workspace_remote_status_for_id(daemon, workspace_id).await?;
+    if !compatibility_workspace_remote_is_rust_owned_idle(&current)
+        && !compatibility_workspace_remote_is_rust_owned_model_only(&current)
+        && !compatibility_workspace_remote_is_rust_owned_proxy(&current)
+        && !compatibility_workspace_remote_is_rust_owned_ssh_bootstrap(&current)
+    {
+        return compatibility_workspace_remote_native_v2(
+            daemon,
+            "workspace.remote.foreground_auth_ready",
+            params,
+        )
+        .await;
+    }
+
+    let Some(token) = compatibility_string_param(
+        params,
+        &[
+            "foreground_auth_token",
+            "foregroundAuthToken",
+            "foreground_auth",
+        ],
+    )
+    .map(|value| value.trim().to_string())
+    .filter(|value| !value.is_empty()) else {
+        return compatibility_workspace_remote_response(
+            daemon,
+            workspace_id,
+            current,
+            params,
+            "foregroundAuthReadyBy",
+        )
+        .await;
+    };
+
+    let Some(mut config) = daemon
+        .remote_ephemeral_configs
+        .lock()
+        .await
+        .get(&workspace_id)
+        .cloned()
+    else {
+        return compatibility_workspace_remote_response(
+            daemon,
+            workspace_id,
+            current,
+            params,
+            "foregroundAuthReadyBy",
+        )
+        .await;
+    };
+    let config_token = compatibility_string_param(
+        &config,
+        &[
+            "foreground_auth_token",
+            "foregroundAuthToken",
+            "foreground_auth",
+        ],
+    )
+    .map(|value| value.trim().to_string())
+    .filter(|value| !value.is_empty());
+    if config_token.as_deref() != Some(token.as_str())
+        || current.get("state").and_then(serde_json::Value::as_str) != Some("disconnected")
+    {
+        return compatibility_workspace_remote_response(
+            daemon,
+            workspace_id,
+            current,
+            params,
+            "foregroundAuthReadyBy",
+        )
+        .await;
+    }
+
+    if let Some(object) = config.as_object_mut() {
+        object.insert("auto_connect".to_string(), serde_json::json!(true));
+    }
+    compatibility_workspace_remote_configure_v2(daemon, &config).await
+}
+
+async fn compatibility_workspace_remote_terminal_session_end_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let workspace_target = compatibility_workspace_scope_param(params)
+        .ok_or_else(|| compatibility_invalid_params_error("Missing or invalid workspace_id"))?;
+    let workspace_id = compatibility_workspace_id_from_ref(daemon, &workspace_target).await?;
+    let surface_ref = compatibility_surface_ref_param(params)
+        .map(|surface| surface.trim().to_string())
+        .filter(|surface| !surface.is_empty())
+        .ok_or_else(|| compatibility_invalid_params_error("Missing or invalid surface_id"))?;
+    let relay_port = compatibility_optional_port_param(params, "relay_port")
+        .map_err(|_| compatibility_invalid_params_error("Missing or invalid relay_port"))?
+        .ok_or_else(|| compatibility_invalid_params_error("Missing or invalid relay_port"))?;
+
+    let current = compatibility_workspace_remote_status_for_id(daemon, workspace_id).await?;
+    if compatibility_workspace_remote_terminal_session_end_needs_native(&current) {
+        return compatibility_workspace_remote_native_v2(
+            daemon,
+            "workspace.remote.terminal_session_end",
+            params,
+        )
+        .await;
+    }
+
+    let mut remote = current;
+    let changed = compatibility_workspace_remote_mark_terminal_session_ended(
+        &mut remote,
+        &surface_ref,
+        relay_port,
+    );
+    if changed
+        && compatibility_workspace_remote_active_terminal_sessions(&remote) == 0
+        && !compatibility_workspace_has_browser_surfaces(daemon, workspace_id).await?
+    {
+        compatibility_workspace_remote_clear_reconnect_state(daemon, workspace_id).await;
+        compatibility_workspace_remote_stop_daemon_proxy(daemon, workspace_id).await;
+        compatibility_workspace_remote_stop_ssh_relay(daemon, workspace_id).await;
+        daemon
+            .remote_daemon_proxy_configs
+            .lock()
+            .await
+            .remove(&workspace_id);
+        daemon
+            .remote_ssh_relay_configs
+            .lock()
+            .await
+            .remove(&workspace_id);
+        daemon
+            .remote_ephemeral_configs
+            .lock()
+            .await
+            .remove(&workspace_id);
+        remote = compatibility_default_remote_status_value();
+        compatibility_store_workspace_remote_config(daemon, workspace_id, None).await?;
+    }
+    if changed {
+        compatibility_store_workspace_remote_status(daemon, workspace_id, remote.clone()).await?;
+    }
+
+    let mut response =
+        compatibility_workspace_remote_response(daemon, workspace_id, remote, params, "endedBy")
+            .await?;
+    if let Some(object) = response.as_object_mut() {
+        object.insert(
+            "surface_id".to_string(),
+            serde_json::json!(surface_ref.clone()),
+        );
+        object.insert("surface_ref".to_string(), serde_json::json!(surface_ref));
+        object.insert("relay_port".to_string(), serde_json::json!(relay_port));
+    }
+    Ok(response)
+}
+
+fn compatibility_workspace_remote_terminal_session_end_needs_native(
+    remote: &serde_json::Value,
+) -> bool {
+    let Some(object) = remote.as_object() else {
+        return true;
+    };
+    if object.get("enabled").and_then(serde_json::Value::as_bool) == Some(false) {
+        return false;
+    }
+    !compatibility_workspace_remote_is_rust_owned_idle(remote)
+        && !compatibility_workspace_remote_is_rust_owned_model_only(remote)
+        && !compatibility_workspace_remote_is_rust_owned_proxy(remote)
+        && !compatibility_workspace_remote_is_rust_owned_ssh_bootstrap(remote)
+}
+
+fn compatibility_workspace_remote_active_terminal_sessions(remote: &serde_json::Value) -> u64 {
+    remote
+        .get("active_terminal_sessions")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0)
+}
+
+fn compatibility_workspace_remote_mark_terminal_session_ended(
+    remote: &mut serde_json::Value,
+    surface_ref: &str,
+    relay_port: u16,
+) -> bool {
+    let active = compatibility_workspace_remote_active_terminal_sessions(remote);
+    let Some(object) = remote.as_object_mut() else {
+        return false;
+    };
+    let configured_relay_port = object
+        .get("relay_port")
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|port| u16::try_from(port).ok());
+    if configured_relay_port != Some(relay_port) {
+        return false;
+    }
+
+    let mut changed = false;
+    let mut active_refs = object
+        .get("active_terminal_surface_ids")
+        .and_then(serde_json::Value::as_array)
+        .map(|refs| {
+            refs.iter()
+                .filter_map(serde_json::Value::as_str)
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    if !active_refs.is_empty() {
+        let before = active_refs.len();
+        active_refs.retain(|active| active != surface_ref);
+        changed = active_refs.len() != before;
+        if changed {
+            let active_count = active_refs.len();
+            object.insert(
+                "active_terminal_surface_ids".to_string(),
+                serde_json::json!(active_refs),
+            );
+            object.insert(
+                "active_terminal_sessions".to_string(),
+                serde_json::json!(active_count),
+            );
+        }
+        return changed;
+    }
+
+    if active > 0 {
+        object.insert(
+            "active_terminal_sessions".to_string(),
+            serde_json::json!(active.saturating_sub(1)),
+        );
+        changed = true;
+    }
+    changed
+}
+
+async fn compatibility_workspace_remote_status_for_id(
+    daemon: &Arc<Daemon>,
+    workspace_id: u64,
+) -> std::result::Result<serde_json::Value, String> {
+    let workspace = daemon
+        .workspace_by_id(workspace_id)
+        .await
+        .ok_or_else(|| format!("workspace {workspace_id} not found"))?;
+    Ok(workspace
+        .remote_status_json
+        .lock()
+        .await
+        .as_deref()
+        .and_then(|raw| serde_json::from_str(raw).ok())
+        .filter(serde_json::Value::is_object)
+        .unwrap_or_else(compatibility_default_remote_status_value))
+}
+
+async fn compatibility_workspace_remote_config_for_id(
+    daemon: &Arc<Daemon>,
+    workspace_id: u64,
+) -> std::result::Result<Option<serde_json::Value>, String> {
+    let workspace = daemon
+        .workspace_by_id(workspace_id)
+        .await
+        .ok_or_else(|| format!("workspace {workspace_id} not found"))?;
+    Ok(workspace
+        .remote_config_json
+        .lock()
+        .await
+        .as_deref()
+        .and_then(|raw| serde_json::from_str(raw).ok())
+        .filter(serde_json::Value::is_object))
+}
+
+fn compatibility_workspace_remote_is_rust_owned_idle(remote: &serde_json::Value) -> bool {
+    let Some(object) = remote.as_object() else {
+        return false;
+    };
+    object
+        .get("configured_by")
+        .and_then(serde_json::Value::as_str)
+        == Some("cmx-rust")
+        && object.get("connected").and_then(serde_json::Value::as_bool) != Some(true)
+        && !matches!(
+            object.get("state").and_then(serde_json::Value::as_str),
+            Some("connecting")
+        )
+}
+
+fn compatibility_workspace_remote_is_rust_owned_model_only(remote: &serde_json::Value) -> bool {
+    let Some(object) = remote.as_object() else {
+        return false;
+    };
+    object
+        .get("configured_by")
+        .and_then(serde_json::Value::as_str)
+        == Some("cmx-rust")
+        && object
+            .get("connection_owner")
+            .and_then(serde_json::Value::as_str)
+            == Some("cmx-rust-model")
+}
+
+fn compatibility_workspace_remote_is_rust_owned_proxy(remote: &serde_json::Value) -> bool {
+    let Some(object) = remote.as_object() else {
+        return false;
+    };
+    object
+        .get("configured_by")
+        .and_then(serde_json::Value::as_str)
+        == Some("cmx-rust")
+        && object
+            .get("connection_owner")
+            .and_then(serde_json::Value::as_str)
+            == Some("cmx-rust-proxy")
+}
+
+fn compatibility_workspace_remote_is_rust_owned_ssh_bootstrap(remote: &serde_json::Value) -> bool {
+    let Some(object) = remote.as_object() else {
+        return false;
+    };
+    object
+        .get("configured_by")
+        .and_then(serde_json::Value::as_str)
+        == Some("cmx-rust")
+        && object
+            .get("connection_owner")
+            .and_then(serde_json::Value::as_str)
+            == Some("cmx-rust-ssh-bootstrap")
+}
+
+fn compatibility_workspace_remote_disconnected_status(
+    mut remote: serde_json::Value,
+) -> serde_json::Value {
+    let defaults = compatibility_default_remote_status_value();
+    let Some(object) = remote.as_object_mut() else {
+        return defaults;
+    };
+    object.insert("enabled".to_string(), serde_json::json!(true));
+    object.insert("state".to_string(), serde_json::json!("disconnected"));
+    object.insert("connected".to_string(), serde_json::json!(false));
+    object.insert("active_terminal_sessions".to_string(), serde_json::json!(0));
+    object.insert("detail".to_string(), serde_json::Value::Null);
+    object.insert("detected_ports".to_string(), serde_json::json!([]));
+    object.insert("forwarded_ports".to_string(), serde_json::json!([]));
+    object.insert("conflicted_ports".to_string(), serde_json::json!([]));
+    object.remove("active_terminal_surface_ids");
+    object.remove("relay_port");
+    object.remove("connected_by");
+    object.remove("connection_owner");
+    if let Some(defaults) = defaults.as_object() {
+        if let Some(daemon) = defaults.get("daemon") {
+            object.insert("daemon".to_string(), daemon.clone());
+        }
+        if let Some(heartbeat) = defaults.get("heartbeat") {
+            object.insert("heartbeat".to_string(), heartbeat.clone());
+        }
+        if let Some(proxy) = defaults.get("proxy") {
+            object.insert("proxy".to_string(), proxy.clone());
+        }
+    }
+    object.insert("configured_by".to_string(), serde_json::json!("cmx-rust"));
+    remote
+}
+
+async fn compatibility_workspace_remote_response(
+    daemon: &Arc<Daemon>,
+    workspace_id: u64,
+    remote: serde_json::Value,
+    params: &serde_json::Value,
+    actor_field: &str,
+) -> std::result::Result<serde_json::Value, String> {
+    let workspace = daemon
+        .workspace_by_id(workspace_id)
+        .await
+        .ok_or_else(|| format!("workspace {workspace_id} not found"))?;
+    let workspace_ref = workspace.external_id.clone();
+    let window_ref =
+        compatibility_window_ref_for_workspace_params(daemon, params, workspace_id).await?;
+    let mut response = serde_json::json!({
+        "window_id": window_ref.clone(),
+        "window_ref": window_ref,
+        "workspace_id": workspace_ref,
+        "workspace_ref": workspace_ref,
+        "numericWorkspaceId": workspace_id,
+        "remote": remote,
+    });
+    if let Some(object) = response.as_object_mut() {
+        object.insert(actor_field.to_string(), serde_json::json!("cmx-rust"));
+    }
+    Ok(response)
+}
+
+async fn compatibility_workspace_remote_native_v2(
+    daemon: &Arc<Daemon>,
+    method: &str,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let workspace_id = compatibility_workspace_id_for_remote_params(daemon, params).await?;
+    let remote_config = if method == "workspace.remote.configure" {
+        compatibility_workspace_remote_persistable_config(params)?
+    } else {
+        None
+    };
+    let result = compatibility_native_worker_v2(daemon, method, params).await?;
+    if let Some(remote) = result
+        .get("remote")
+        .cloned()
+        .filter(serde_json::Value::is_object)
+    {
+        compatibility_store_workspace_remote_status(daemon, workspace_id, remote).await?;
+        if method == "workspace.remote.configure" {
+            compatibility_store_workspace_remote_config(daemon, workspace_id, remote_config)
+                .await?;
+        } else if method == "workspace.remote.disconnect"
+            && compatibility_bool_param(params, &["clear"]).unwrap_or(false)
+        {
+            compatibility_store_workspace_remote_config(daemon, workspace_id, None).await?;
+        }
+    }
+    Ok(result)
+}
+
+async fn compatibility_workspace_id_for_remote_params(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<u64, String> {
+    if let Some(target) = compatibility_workspace_ref_param(params) {
+        return compatibility_workspace_id_from_ref(daemon, &target).await;
+    }
+    let (workspaces, active) = compatibility_workspace_list(daemon).await?;
+    workspaces
+        .get(active)
+        .map(|workspace| workspace.id)
+        .ok_or_else(|| "Workspace not found".to_string())
+}
+
+async fn compatibility_workspace_remote_status_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let (workspaces, active) = compatibility_workspace_list(daemon).await?;
+    let workspace = match compatibility_workspace_ref_param(params) {
+        Some(target) => {
+            let workspace_id = compatibility_workspace_id_from_ref(daemon, &target).await?;
+            workspaces
+                .iter()
+                .find(|workspace| workspace.id == workspace_id)
+                .ok_or_else(|| format!("Workspace not found: {target}"))?
+        }
+        None => workspaces
+            .get(active)
+            .ok_or_else(|| "Workspace not found".to_string())?,
+    };
+    let workspace_ref = compat_workspace_ref(workspace);
+    let window_ref =
+        compatibility_window_ref_for_workspace_params(daemon, params, workspace.id).await?;
+    Ok(serde_json::json!({
+        "window_id": window_ref.clone(),
+        "window_ref": window_ref,
+        "workspace_id": workspace_ref,
+        "workspace_ref": workspace_ref,
+        "numericWorkspaceId": workspace.id,
+        "remote": compatibility_workspace_remote_status_value(workspace),
+    }))
+}
+
+async fn compatibility_store_workspace_remote_status(
+    daemon: &Arc<Daemon>,
+    workspace_id: u64,
+    remote: serde_json::Value,
+) -> std::result::Result<(), String> {
+    let ws = daemon
+        .workspace_by_id(workspace_id)
+        .await
+        .ok_or_else(|| format!("workspace {workspace_id} not found"))?;
+    *ws.remote_status_json.lock().await = Some(remote.to_string());
+    daemon.wake_model();
+    daemon.snapshot_notifier.wake();
+    Ok(())
+}
+
+async fn compatibility_store_workspace_remote_config(
+    daemon: &Arc<Daemon>,
+    workspace_id: u64,
+    config: Option<serde_json::Value>,
+) -> std::result::Result<(), String> {
+    let ws = daemon
+        .workspace_by_id(workspace_id)
+        .await
+        .ok_or_else(|| format!("workspace {workspace_id} not found"))?;
+    *ws.remote_config_json.lock().await = config.map(|config| config.to_string());
+    daemon.snapshot_notifier.wake();
+    Ok(())
+}
+
+async fn compatibility_browser_state_save_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let path = compatibility_string_param(params, &["path"])
+        .map(PathBuf::from)
+        .ok_or_else(|| "Missing path".to_string())?;
+    let target = compatibility_browser_ref_param(params);
+    let ctx = compatibility_browser_context(daemon, target.as_deref()).await?;
+    let tab_id = ctx.tab.id;
+    let surface_ref = compat_tab_ref_from_tab(&ctx.tab);
+    let temp_path = compatibility_browser_state_temp_path(daemon, tab_id, "save")?;
+
+    let worker_result = match compatibility_browser_state_worker_request(
+        daemon,
+        "browser.state.save",
+        params,
+        &ctx,
+        &temp_path,
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(error) => {
+            fs::remove_file(&temp_path).ok();
+            return Err(error);
+        }
+    };
+
+    let mut state = match fs::read(&temp_path) {
+        Ok(bytes) => serde_json::from_slice::<serde_json::Value>(&bytes)
+            .map_err(|error| format!("native browser worker wrote invalid state JSON: {error}"))?,
+        Err(error) => {
+            fs::remove_file(&temp_path).ok();
+            return Err(format!(
+                "failed to read native browser worker state {}: {error}",
+                temp_path.display()
+            ));
+        }
+    };
+    fs::remove_file(&temp_path).ok();
+
+    let browser = daemon
+        .browser_info(tab_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    if let Some(object) = state.as_object_mut() {
+        object.insert(
+            "cmx".to_string(),
+            serde_json::json!({
+                "version": 1,
+                "saved_at_unix_ms": now_unix_millis(),
+                "surface_id": surface_ref.clone(),
+                "numeric_surface_id": tab_id,
+                "profile_id": browser.profile_id,
+                "proxy": browser.proxy,
+                "reload_generation": browser.reload_generation,
+            }),
+        );
+    } else {
+        return Err("native browser worker state must be a JSON object".to_string());
+    }
+
+    compatibility_write_json_file(&path, &state)
+        .map_err(|error| format!("Failed to write state file {}: {error}", path.display()))?;
+
+    let mut payload = worker_result.as_object().cloned().unwrap_or_default();
+    payload.insert(
+        "path".to_string(),
+        serde_json::Value::String(path.display().to_string()),
+    );
+    payload.insert("surface_id".to_string(), serde_json::json!(surface_ref));
+    payload.insert("surface_ref".to_string(), serde_json::json!(surface_ref));
+    payload.insert("numericId".to_string(), serde_json::json!(tab_id));
+    payload.insert("savedBy".to_string(), serde_json::json!("cmx-rust"));
+    Ok(serde_json::Value::Object(payload))
+}
+
+async fn compatibility_browser_state_load_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let path = compatibility_string_param(params, &["path"])
+        .map(PathBuf::from)
+        .ok_or_else(|| "Missing path".to_string())?;
+    let state = fs::read(&path)
+        .map_err(|error| format!("Failed to read state file {}: {error}", path.display()))
+        .and_then(|bytes| {
+            serde_json::from_slice::<serde_json::Value>(&bytes)
+                .map_err(|error| format!("State file must contain valid JSON: {error}"))
+        })?;
+    if !state.is_object() {
+        return Err("State file must contain a JSON object".to_string());
+    }
+
+    let target = compatibility_browser_ref_param(params);
+    let ctx = compatibility_browser_context(daemon, target.as_deref()).await?;
+    let tab_id = ctx.tab.id;
+    let surface_ref = compat_tab_ref_from_tab(&ctx.tab);
+    let temp_path = compatibility_browser_state_temp_path(daemon, tab_id, "load")?;
+    if let Err(error) = compatibility_write_json_file(&temp_path, &state) {
+        fs::remove_file(&temp_path).ok();
+        return Err(format!(
+            "Failed to stage browser state for native worker {}: {error}",
+            temp_path.display()
+        ));
+    }
+
+    let worker_result = match compatibility_browser_state_worker_request(
+        daemon,
+        "browser.state.load",
+        params,
+        &ctx,
+        &temp_path,
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(error) => {
+            fs::remove_file(&temp_path).ok();
+            return Err(error);
+        }
+    };
+    fs::remove_file(&temp_path).ok();
+
+    if let Some(url) = state
+        .get("url")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|url| !url.is_empty())
+    {
+        daemon
+            .browser_navigate(tab_id, url.to_string())
+            .await
+            .map_err(|error| error.to_string())?;
+    }
+
+    let mut payload = worker_result.as_object().cloned().unwrap_or_default();
+    payload.insert(
+        "path".to_string(),
+        serde_json::Value::String(path.display().to_string()),
+    );
+    payload.insert("surface_id".to_string(), serde_json::json!(surface_ref));
+    payload.insert("surface_ref".to_string(), serde_json::json!(surface_ref));
+    payload.insert("numericId".to_string(), serde_json::json!(tab_id));
+    payload.insert("loadedBy".to_string(), serde_json::json!("cmx-rust"));
+    Ok(serde_json::Value::Object(payload))
+}
+
+async fn compatibility_browser_state_worker_request(
+    daemon: &Arc<Daemon>,
+    method: &str,
+    params: &serde_json::Value,
+    ctx: &CompatibilityResolvedTabContext,
+    temp_path: &Path,
+) -> std::result::Result<serde_json::Value, String> {
+    let window_ref = compatibility_window_id_for_workspace(daemon, ctx.workspace.id).await;
+    let mut worker_params = compatibility_browser_worker_params(params, ctx, Some(&window_ref));
+    worker_params.insert(
+        "path".to_string(),
+        serde_json::Value::String(temp_path.display().to_string()),
+    );
+    let request_json = serde_json::json!({
+        "id": format!("{method}:worker"),
+        "method": method,
+        "params": worker_params,
+    })
+    .to_string();
+    let mut result =
+        match compatibility_dispatch_browser_worker_request(daemon, &request_json).await {
+            Ok(result) => result,
+            Err(error) if compatibility_browser_worker_needs_materialization(&error) => {
+                compatibility_materialize_browser_workspace_and_retry(daemon, ctx, &request_json)
+                    .await?
+            }
+            Err(error) => return Err(error),
+        };
+    compatibility_apply_browser_context_to_result(&mut result, ctx);
+    Ok(result)
+}
+
+fn compatibility_parse_v2_response(
+    response_json: &str,
+) -> std::result::Result<serde_json::Value, String> {
+    let response = serde_json::from_str::<serde_json::Value>(response_json)
+        .map_err(|error| format!("native browser worker returned invalid JSON: {error}"))?;
+    if response
+        .get("ok")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+    {
+        return Ok(response
+            .get("result")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null));
+    }
+    let message = response
+        .get("error")
+        .and_then(|error| error.get("message"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("native browser worker failed");
+    Err(message.to_string())
+}
+
+fn compatibility_apply_browser_context_to_result(
+    result: &mut serde_json::Value,
+    ctx: &CompatibilityResolvedTabContext,
+) {
+    let serde_json::Value::Object(object) = result else {
+        return;
+    };
+    let workspace_ref = ctx.workspace.external_id.clone();
+    let surface_ref = compat_tab_ref_from_tab(&ctx.tab);
+    object.insert(
+        "workspace_id".to_string(),
+        serde_json::Value::String(workspace_ref.clone()),
+    );
+    object.insert(
+        "workspace_ref".to_string(),
+        serde_json::Value::String(workspace_ref),
+    );
+    object.insert(
+        "numericWorkspaceId".to_string(),
+        serde_json::json!(ctx.workspace.id),
+    );
+    object.insert(
+        "surface_id".to_string(),
+        serde_json::Value::String(surface_ref.clone()),
+    );
+    object.insert(
+        "surface_ref".to_string(),
+        serde_json::Value::String(surface_ref),
+    );
+    object.insert("numericId".to_string(), serde_json::json!(ctx.tab.id));
+    object.insert("numericTabId".to_string(), serde_json::json!(ctx.tab.id));
+}
+
+async fn compatibility_dispatch_browser_worker_request(
+    daemon: &Arc<Daemon>,
+    request_json: &str,
+) -> std::result::Result<serde_json::Value, String> {
+    let response_json = daemon
+        .dispatch_native_compatibility_v2_request(request_json.to_string())
+        .await?;
+    compatibility_parse_v2_response(&response_json)
+}
+
+fn compatibility_browser_worker_needs_materialization(error: &str) -> bool {
+    matches!(
+        error.trim(),
+        "Surface is not a browser" | "Workspace not found" | "TabManager not available"
+    )
+}
+
+async fn compatibility_materialize_browser_workspace_and_retry(
+    daemon: &Arc<Daemon>,
+    ctx: &CompatibilityResolvedTabContext,
+    request_json: &str,
+) -> std::result::Result<serde_json::Value, String> {
+    let previous_workspace_id =
+        compatibility_select_workspace_for_native_materialization(daemon, ctx.workspace.id).await?;
+    let mut last_error = "native browser worker failed".to_string();
+    for _ in 0..8 {
+        match compatibility_dispatch_browser_worker_request(daemon, request_json).await {
+            Ok(result) => {
+                compatibility_restore_workspace_after_native_materialization(
+                    daemon,
+                    previous_workspace_id,
+                )
+                .await;
+                return Ok(result);
+            }
+            Err(error) if compatibility_browser_worker_needs_materialization(&error) => {
+                last_error = error;
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+            Err(error) => {
+                compatibility_restore_workspace_after_native_materialization(
+                    daemon,
+                    previous_workspace_id,
+                )
+                .await;
+                return Err(error);
+            }
+        }
+    }
+    compatibility_restore_workspace_after_native_materialization(daemon, previous_workspace_id)
+        .await;
+    Err(last_error)
+}
+
+async fn compatibility_select_workspace_for_native_materialization(
+    daemon: &Arc<Daemon>,
+    workspace_id: u64,
+) -> std::result::Result<Option<u64>, String> {
+    let previous_workspace_id = daemon.active_ws_rx.borrow().id;
+    if previous_workspace_id == workspace_id {
+        return Ok(None);
+    }
+    let workspace = daemon
+        .workspace_by_id(workspace_id)
+        .await
+        .ok_or_else(|| format!("Workspace not found: {workspace_id}"))?;
+    daemon.set_active_workspace(workspace);
+    daemon.wake_model();
+    daemon.snapshot_notifier.wake();
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    Ok(Some(previous_workspace_id))
+}
+
+async fn compatibility_restore_workspace_after_native_materialization(
+    daemon: &Arc<Daemon>,
+    previous_workspace_id: Option<u64>,
+) {
+    let Some(previous_workspace_id) = previous_workspace_id else {
+        return;
+    };
+    let Some(workspace) = daemon.workspace_by_id(previous_workspace_id).await else {
+        return;
+    };
+    daemon.set_active_workspace(workspace);
+    daemon.wake_model();
+    daemon.snapshot_notifier.wake();
+}
+
+fn compatibility_write_json_file(path: &Path, value: &serde_json::Value) -> Result<()> {
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("create parent directory {}", parent.display()))?;
+    }
+    let bytes = serde_json::to_vec_pretty(value).context("serialize JSON")?;
+    fs::write(path, bytes).with_context(|| format!("write {}", path.display()))
+}
+
+fn compatibility_browser_state_temp_path(
+    daemon: &Arc<Daemon>,
+    tab_id: TabId,
+    operation: &str,
+) -> std::result::Result<PathBuf, String> {
+    let root = daemon
+        .snapshot_path
+        .as_ref()
+        .and_then(|path| path.parent().map(Path::to_path_buf))
+        .unwrap_or_else(|| {
+            env::temp_dir().join(format!("cmx-browser-state-{}", std::process::id()))
+        })
+        .join("browser-state-worker");
+    fs::create_dir_all(&root).map_err(|error| {
+        format!(
+            "failed to create browser state temp dir {}: {error}",
+            root.display()
+        )
+    })?;
+    Ok(root.join(format!(
+        "{operation}-{tab_id}-{}-{}.json",
+        now_unix_millis(),
+        std::process::id()
+    )))
+}
+
+async fn compatibility_browser_tab_list_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let (snapshot, window_ref) = compatibility_browser_tab_list_snapshot_v2(daemon, params).await?;
+    let workspace_ref = snapshot
+        .workspaces
+        .get(snapshot.active_workspace)
+        .map(compat_workspace_ref)
+        .unwrap_or_else(|| snapshot.active_workspace_id.to_string());
+    let tabs = compatibility_browser_surface_entries(&snapshot)
+        .into_iter()
+        .enumerate()
+        .map(|(index, surface)| compatibility_browser_tab_json(&surface, index, &snapshot))
+        .collect::<Vec<_>>();
+    let focused_browser_ref = compatibility_current_browser_surface_ref(&snapshot);
+    Ok(serde_json::json!({
+        "window_id": window_ref.clone(),
+        "window_ref": window_ref,
+        "workspace_id": workspace_ref.clone(),
+        "workspace_ref": workspace_ref,
+        "surface_id": focused_browser_ref,
+        "surface_ref": focused_browser_ref,
+        "tabs": tabs,
+    }))
+}
+
+async fn compatibility_browser_tab_list_snapshot_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<(NativeSnapshot, String), String> {
+    let explicit_target = compatibility_browser_tab_explicit_target_ref(params);
+    if let Some(target) = explicit_target.clone() {
+        let ctx = compatibility_browser_tab_list_context_for_target(daemon, &target, true).await?;
+        return compatibility_browser_tab_list_snapshot_for_workspace(
+            daemon,
+            params,
+            ctx.workspace.id,
+        )
+        .await;
+    }
+
+    if let Some(target) = compatibility_browser_tab_ambiguous_target_ref(params) {
+        match compatibility_browser_tab_list_context_for_target(daemon, &target, false).await {
+            Ok(ctx) => {
+                return compatibility_browser_tab_list_snapshot_for_workspace(
+                    daemon,
+                    params,
+                    ctx.workspace.id,
+                )
+                .await;
+            }
+            Err(surface_error) => {
+                if let Ok(workspace_id) = compatibility_workspace_id_from_ref(daemon, &target).await
+                {
+                    return compatibility_browser_tab_list_snapshot_for_workspace(
+                        daemon,
+                        params,
+                        workspace_id,
+                    )
+                    .await;
+                }
+                return Err(surface_error);
+            }
+        }
+    }
+
+    if let Some(target) = compatibility_workspace_scope_param(params) {
+        let workspace_id = compatibility_workspace_id_from_ref(daemon, &target).await?;
+        return compatibility_browser_tab_list_snapshot_for_workspace(daemon, params, workspace_id)
+            .await;
+    }
+
+    if let Some(index) = compatibility_usize_param(params, &["index"]) {
+        let workspace = daemon
+            .workspace_at(index)
+            .await
+            .map_err(|error| error.to_string())?;
+        return compatibility_browser_tab_list_snapshot_for_workspace(daemon, params, workspace.id)
+            .await;
+    }
+
+    match compatibility_window_ref_for_params(daemon, params).await? {
+        Some(window_ref) => {
+            let mut window = WindowState::new_for_compatibility(daemon, Some(&window_ref)).await;
+            let snapshot = build_native_snapshot(daemon, &mut window)
+                .await
+                .map_err(|error| error.to_string())?;
+            Ok((snapshot, window_ref))
+        }
+        None => {
+            let snapshot = compatibility_native_snapshot(daemon).await?;
+            let window_ref = compatibility_snapshot_window_ref(&snapshot);
+            Ok((snapshot, window_ref))
+        }
+    }
+}
+
+async fn compatibility_browser_tab_list_context_for_target(
+    daemon: &Arc<Daemon>,
+    target: &str,
+    explicit: bool,
+) -> std::result::Result<CompatibilityResolvedTabContext, String> {
+    let ctx = compatibility_resolve_tab_context(daemon, target).await?;
+    if ctx.tab.kind == SnapshotTabKind::Browser {
+        return Ok(ctx);
+    }
+    if explicit {
+        Err("Browser tab not found".to_string())
+    } else {
+        Err(format!("Surface is not a browser: {target}"))
+    }
+}
+
+async fn compatibility_browser_tab_list_snapshot_for_workspace(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+    workspace_id: u64,
+) -> std::result::Result<(NativeSnapshot, String), String> {
+    let window_ref =
+        compatibility_window_ref_for_workspace_params(daemon, params, workspace_id).await?;
+    let snapshot = compatibility_native_snapshot_for_workspace_and_window(
+        daemon,
+        workspace_id,
+        Some(&window_ref),
+    )
+    .await?;
+    Ok((snapshot, window_ref))
+}
+
+async fn compatibility_browser_tab_new_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let url = compatibility_string_param(params, &["url"]);
+    let (workspace, space, panel_id) =
+        if let Some(target_pane) = compatibility_pane_ref_param(params) {
+            let workspace_id = match compatibility_workspace_scope_param(params) {
+                Some(target) => compatibility_workspace_id_from_ref(daemon, &target).await?,
+                None => daemon.active_ws_rx.borrow().id,
+            };
+            let workspace = daemon
+                .workspace_by_id(workspace_id)
+                .await
+                .ok_or_else(|| format!("Workspace not found: {workspace_id}"))?;
+            let space = workspace
+                .first_space()
+                .await
+                .ok_or_else(|| "Workspace has no space".to_string())?;
+            let panel_id =
+                compatibility_panel_id_in_workspace(daemon, workspace_id, &target_pane).await?;
+            (workspace, space, panel_id)
+        } else if let Some(surface_target) = compatibility_string_param(
+            params,
+            &["surface_id", "surfaceId", "surface", "surfaceRef"],
+        ) {
+            let ctx = compatibility_resolve_tab_context(daemon, &surface_target).await?;
+            (ctx.workspace, ctx.space, ctx.surface.panel_id)
+        } else {
+            let workspace_id = match compatibility_workspace_scope_param(params) {
+                Some(target) => compatibility_workspace_id_from_ref(daemon, &target).await?,
+                None => daemon.active_ws_rx.borrow().id,
+            };
+            let workspace = daemon
+                .workspace_by_id(workspace_id)
+                .await
+                .ok_or_else(|| format!("Workspace not found: {workspace_id}"))?;
+            let space = workspace
+                .first_space()
+                .await
+                .ok_or_else(|| "Workspace has no space".to_string())?;
+            let panel_id = compatibility_panel_id_in_workspace(daemon, workspace_id, "").await?;
+            (workspace, space, panel_id)
+        };
+
+    let proxy = workspace_browser_proxy_snapshot(&workspace).await;
+    let created = space
+        .clone()
+        .new_browser_tab_in_panel(panel_id, url, proxy)
+        .await
+        .map_err(|error| error.to_string())?;
+    let window_ref = compatibility_remember_focused_tab_for_params(
+        daemon, params, &workspace, &space, panel_id, &created,
+    )
+    .await?;
+    daemon.wake_model();
+    daemon.snapshot_notifier.wake();
+
+    let ctx = compatibility_resolve_tab_context_by_tab_id(daemon, created.id).await?;
+    let mut payload = compatibility_surface_json_by_tab_id(daemon, created.id).await?;
+    compatibility_apply_tab_context_to_result(&mut payload, &ctx, &window_ref);
+    if let Some(object) = payload.as_object_mut() {
+        let url = daemon
+            .browser_info(created.id)
+            .await
+            .ok()
+            .and_then(|browser| browser.url)
+            .unwrap_or_default();
+        object.insert("url".to_string(), serde_json::Value::String(url));
+    }
+    Ok(payload)
+}
+
+fn compatibility_browser_tab_target_ref(params: &serde_json::Value) -> Option<String> {
+    compatibility_browser_tab_explicit_target_ref(params)
+        .or_else(|| compatibility_browser_tab_ambiguous_target_ref(params))
+}
+
+fn compatibility_browser_tab_explicit_target_ref(params: &serde_json::Value) -> Option<String> {
+    compatibility_string_param(
+        params,
+        &[
+            "target_surface_id",
+            "targetSurfaceId",
+            "tab_id",
+            "tabId",
+            "surface_id",
+            "surfaceId",
+            "surface",
+            "surfaceRef",
+        ],
+    )
+}
+
+fn compatibility_browser_tab_ambiguous_target_ref(params: &serde_json::Value) -> Option<String> {
+    compatibility_string_param(params, &["ref", "id"])
+}
+
+async fn compatibility_browser_tab_context_from_params(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<CompatibilityResolvedTabContext, String> {
+    if let Some(target) = compatibility_browser_tab_target_ref(params) {
+        return compatibility_resolve_tab_context(daemon, &target).await;
+    }
+    let snapshot = compatibility_native_snapshot(daemon).await?;
+    let browser_surfaces = compatibility_browser_surface_entries(&snapshot);
+    if let Some(index) = compatibility_usize_param(params, &["index"])
+        && let Some(target) = browser_surfaces.get(index)
+    {
+        return compatibility_resolve_tab_context_by_tab_id(daemon, target.tab.id).await;
+    }
+    let target = browser_surfaces
+        .iter()
+        .find(|surface| surface.tab.id == snapshot.focused_tab_id)
+        .or_else(|| browser_surfaces.first())
+        .ok_or_else(|| "No browser tabs".to_string())?;
+    compatibility_resolve_tab_context_by_tab_id(daemon, target.tab.id).await
+}
+
+async fn compatibility_browser_tab_response_for_context(
+    daemon: &Arc<Daemon>,
+    ctx: &CompatibilityResolvedTabContext,
+) -> std::result::Result<serde_json::Value, String> {
+    let mut payload = compatibility_surface_json_by_tab_id(daemon, ctx.tab.id).await?;
+    let window_ref = compatibility_window_id_for_workspace(daemon, ctx.workspace.id).await;
+    compatibility_apply_tab_context_to_result(&mut payload, ctx, &window_ref);
+    if let Some(object) = payload.as_object_mut() {
+        let url = daemon
+            .browser_info(ctx.tab.id)
+            .await
+            .ok()
+            .and_then(|browser| browser.url)
+            .unwrap_or_default();
+        object.insert("url".to_string(), serde_json::Value::String(url));
+    }
+    Ok(payload)
+}
+
+async fn compatibility_browser_tab_switch_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let ctx = compatibility_browser_tab_context_from_params(daemon, params).await?;
+    if ctx.tab.kind != SnapshotTabKind::Browser {
+        return Err("Browser tab not found".to_string());
+    }
+    compatibility_focus_surface(daemon, &compat_tab_ref_from_tab(&ctx.tab)).await?;
+    compatibility_browser_tab_response_for_context(daemon, &ctx).await
+}
+
+async fn compatibility_browser_tab_close_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let ctx = compatibility_browser_tab_context_from_params(daemon, params).await?;
+    if ctx.tab.kind != SnapshotTabKind::Browser {
+        return Err("Browser tab not found".to_string());
+    }
+    let snapshot = compatibility_native_snapshot_for_workspace(daemon, ctx.workspace.id).await?;
+    if compatibility_surface_entries(&snapshot).len() <= 1 {
+        return Err("Cannot close the last surface".to_string());
+    }
+    let mut payload = compatibility_browser_tab_response_for_context(daemon, &ctx).await?;
+    ctx.space
+        .clone()
+        .close_tab_by_id(ctx.tab.id)
+        .await
+        .map_err(|error| error.to_string())?;
+    daemon.wake_model();
+    daemon.snapshot_notifier.wake();
+    if let Some(object) = payload.as_object_mut() {
+        object.insert("closed".to_string(), serde_json::Value::Bool(true));
+    }
+    Ok(payload)
+}
+
+fn compatibility_browser_surface_entries(
+    snapshot: &NativeSnapshot,
+) -> Vec<CompatibilitySurfaceEntry<'_>> {
+    compatibility_surface_entries(snapshot)
+        .into_iter()
+        .filter(|surface| surface.tab.kind == NativeTabKind::Browser)
+        .collect()
+}
+
+fn compatibility_browser_tab_json(
+    surface: &CompatibilitySurfaceEntry<'_>,
+    browser_index: usize,
+    snapshot: &NativeSnapshot,
+) -> serde_json::Value {
+    let surface_ref = compat_tab_ref(surface.tab);
+    let browser = surface.tab.browser.as_ref();
+    serde_json::json!({
+        "id": surface_ref.clone(),
+        "ref": surface_ref,
+        "index": browser_index,
+        "title": surface.tab.title,
+        "url": browser.and_then(|browser| browser.url.clone()).unwrap_or_default(),
+        "focused": surface.tab.id == snapshot.focused_tab_id,
+        "pane_id": surface.panel_id.to_string(),
+        "pane_ref": surface.panel_id.to_string(),
+    })
+}
+
+fn compatibility_browser_unsupported_method_error(method: &str) -> String {
+    let details = match method {
+        "browser.viewport.set" => {
+            "WKWebView does not provide a per-tab programmable viewport emulation API equivalent to CDP"
+        }
+        "browser.geolocation.set" => {
+            "WKWebView does not expose per-tab geolocation spoofing hooks equivalent to Playwright/CDP"
+        }
+        "browser.offline.set" => "WKWebView does not expose reliable per-tab offline emulation",
+        "browser.trace.start" | "browser.trace.stop" => {
+            "Playwright trace artifacts are not available on WKWebView"
+        }
+        "browser.network.route" | "browser.network.unroute" => {
+            "WKWebView does not provide CDP-style request interception/mocking"
+        }
+        "browser.network.requests" => {
+            "Request interception logs are unavailable without CDP network hooks"
+        }
+        "browser.screencast.start" | "browser.screencast.stop" => {
+            "WKWebView does not expose CDP screencast streaming"
+        }
+        "browser.input_mouse" => {
+            "Raw CDP mouse injection is unavailable; the Rust socket provides a DOM mouse compatibility alias"
+        }
+        "browser.input_keyboard" => {
+            "Raw CDP keyboard injection is unavailable; the Rust socket provides a keyboard compatibility alias"
+        }
+        "browser.input_touch" => {
+            "Raw CDP touch injection is unavailable; the Rust socket provides a DOM pointer/touch compatibility alias"
+        }
+        _ => "This browser method is unavailable on WKWebView",
+    };
+    format!("__compat_v2_not_supported__:{method}\n{details}")
+}
+
+fn compatibility_browser_unsupported_method_error_with_data(
+    method: &str,
+    data: serde_json::Value,
+) -> String {
+    format!("__compat_v2_not_supported_data__:{method}\n{data}")
+}
+
+fn compatibility_invalid_params_error(message: impl AsRef<str>) -> String {
+    format!("__compat_v2_invalid_params__\n{}", message.as_ref())
+}
+
+async fn compatibility_browser_record_unsupported_network_request(
+    daemon: &Arc<Daemon>,
+    method: &str,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let action = match method {
+        "browser.network.route" => "route",
+        "browser.network.unroute" => "unroute",
+        _ => "network",
+    };
+    let target = compatibility_browser_ref_param(params);
+    if let Some(target) = target.as_deref()
+        && let Ok((tab_id, _browser)) = compatibility_browser_info(daemon, Some(target)).await
+    {
+        let mut requests = daemon
+            .compatibility_unsupported_network_requests
+            .lock()
+            .await;
+        let items = requests.entry(tab_id).or_default();
+        items.push(serde_json::json!({
+            "action": action,
+            "params": params,
+        }));
+        if items.len() > COMPATIBILITY_FEED_RING_CAPACITY {
+            let overflow = items.len().saturating_sub(COMPATIBILITY_FEED_RING_CAPACITY);
+            items.drain(0..overflow);
+        }
+    }
+    Err(compatibility_browser_unsupported_method_error(method))
+}
+
+async fn compatibility_browser_unsupported_network_requests(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let target = compatibility_browser_ref_param(params);
+    let recorded_requests = if let Some(target) = target.as_deref() {
+        match compatibility_browser_info(daemon, Some(target)).await {
+            Ok((tab_id, _browser)) => daemon
+                .compatibility_unsupported_network_requests
+                .lock()
+                .await
+                .get(&tab_id)
+                .cloned()
+                .unwrap_or_default(),
+            Err(_) => Vec::new(),
+        }
+    } else {
+        Vec::new()
+    };
+    Err(compatibility_browser_unsupported_method_error_with_data(
+        "browser.network.requests",
+        serde_json::json!({
+            "details": "Request interception logs are unavailable without CDP network hooks",
+            "recorded_requests": recorded_requests,
+        }),
+    ))
+}
+
+async fn compatibility_browser_context(
+    daemon: &Arc<Daemon>,
+    target: Option<&str>,
+) -> std::result::Result<CompatibilityResolvedTabContext, String> {
+    let tab_id = compatibility_browser_tab_id(daemon, target).await?;
+    let ctx = compatibility_resolve_tab_context_by_tab_id(daemon, tab_id).await?;
+    if ctx.tab.kind == SnapshotTabKind::Browser {
+        Ok(ctx)
+    } else {
+        Err(format!(
+            "Surface is not a browser: {}",
+            compat_tab_ref_from_tab(&ctx.tab)
+        ))
+    }
+}
+
+async fn compatibility_browser_tab_id(
+    daemon: &Arc<Daemon>,
+    target: Option<&str>,
+) -> std::result::Result<TabId, String> {
+    let target = target.unwrap_or("").trim();
+    let snapshot = compatibility_native_snapshot(daemon).await?;
+    let surfaces = compatibility_surface_entries(&snapshot);
+
+    if target.is_empty() {
+        let surface = surfaces
+            .iter()
+            .find(|surface| surface.tab.id == snapshot.focused_tab_id)
+            .ok_or_else(|| "No focused surface".to_string())?;
+        return compatibility_browser_surface_tab_id(surface);
+    }
+
+    if let Some(surface) = surfaces.iter().find(|surface| {
+        surface.tab.id.to_string() == target
+            || surface.tab.external_id.as_deref() == Some(target)
+            || compat_tab_ref(surface.tab) == target
+            || surface.tab.title == target
+    }) {
+        return compatibility_browser_surface_tab_id(surface);
+    }
+
+    if let Ok(number) = target.parse::<u64>() {
+        if let Some(panel) = compatibility_panel_entries(&snapshot)
+            .iter()
+            .find(|panel| panel.panel_id == number)
+            && let Some(surface) = surfaces
+                .iter()
+                .find(|surface| surface.panel_id == panel.panel_id && surface.active)
+        {
+            return compatibility_browser_surface_tab_id(surface);
+        }
+        if let Ok(index) = usize::try_from(number)
+            && let Some(surface) = surfaces.get(index)
+        {
+            return compatibility_browser_surface_tab_id(surface);
+        }
+    }
+
+    if let Ok(ctx) = compatibility_resolve_tab_context_by_target(daemon, target).await {
+        return if ctx.tab.kind == SnapshotTabKind::Browser {
+            Ok(ctx.tab.id)
+        } else {
+            Err(format!(
+                "Surface is not a browser: {}",
+                compat_tab_ref_from_tab(&ctx.tab)
+            ))
+        };
+    }
+
+    Err(format!("Browser surface not found: {target}"))
+}
+
+fn compatibility_browser_surface_tab_id(
+    surface: &CompatibilitySurfaceEntry<'_>,
+) -> std::result::Result<TabId, String> {
+    if surface.tab.kind == NativeTabKind::Browser {
+        Ok(surface.tab.id)
+    } else {
+        Err(format!(
+            "Surface is not a browser: {}",
+            compat_tab_ref(surface.tab)
+        ))
+    }
+}
+
+fn compatibility_current_browser_surface_ref(snapshot: &NativeSnapshot) -> Option<String> {
+    compatibility_surface_entries(snapshot)
+        .into_iter()
+        .find(|surface| {
+            surface.tab.id == snapshot.focused_tab_id && surface.tab.kind == NativeTabKind::Browser
+        })
+        .map(|surface| compat_tab_ref(surface.tab))
+}
+
+async fn compatibility_tab_id_from_args(
+    daemon: &Arc<Daemon>,
+    args: &str,
+) -> std::result::Result<u64, String> {
+    if let Some(surface) = compatibility_option_value(args, "--panel")
+        .or_else(|| compatibility_option_value(args, "--surface"))
+        .or_else(|| compatibility_option_value(args, "--surface-id"))
+    {
+        return compatibility_surface_tab_id_from_target(daemon, &surface).await;
+    }
+    if let Some(tab) = compatibility_option_value(args, "--tab") {
+        if let Ok(tab_id) = tab.parse::<u64>() {
+            return Ok(tab_id);
+        }
+        let snapshot = compatibility_native_snapshot(daemon).await?;
+        if let Some(surface) = compatibility_surface_entries(&snapshot)
+            .iter()
+            .find(|surface| {
+                surface.tab.id.to_string() == tab
+                    || surface.tab.external_id.as_deref() == Some(tab.as_str())
+                    || compat_tab_ref(surface.tab) == tab
+                    || surface.tab.title == tab
+            })
+        {
+            return Ok(surface.tab.id);
+        }
+        return Err(format!("Tab not found: {tab}"));
+    }
+    compatibility_native_snapshot(daemon)
+        .await
+        .map(|snapshot| snapshot.focused_tab_id)
+}
+
+async fn compatibility_surface_tab_id_from_target(
+    daemon: &Arc<Daemon>,
+    target: &str,
+) -> std::result::Result<TabId, String> {
+    let target = target.trim();
+    if target.is_empty() {
+        return Err("Missing surface id".to_string());
+    }
+    let snapshot = compatibility_native_snapshot(daemon).await?;
+    let surfaces = compatibility_surface_entries(&snapshot);
+    if let Some(surface) = surfaces.iter().find(|surface| {
+        surface.tab.id.to_string() == target
+            || surface.tab.external_id.as_deref() == Some(target)
+            || compat_tab_ref(surface.tab) == target
+            || surface.tab.title == target
+    }) {
+        return Ok(surface.tab.id);
+    }
+    if let Ok(number) = target.parse::<u64>() {
+        if let Some(surface) = surfaces
+            .iter()
+            .find(|surface| surface.panel_id == number && surface.active)
+        {
+            return Ok(surface.tab.id);
+        }
+        if let Ok(index) = usize::try_from(number)
+            && let Some(surface) = surfaces.get(index)
+        {
+            return Ok(surface.tab.id);
+        }
+    }
+    Err(format!("Surface not found: {target}"))
+}
+
+fn compatibility_first_arg(args: &str) -> Option<String> {
+    let trimmed = args.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if let Some(rest) = trimmed.strip_prefix('"') {
+        let mut escaped = false;
+        let mut value = String::new();
+        for ch in rest.chars() {
+            if escaped {
+                value.push(ch);
+                escaped = false;
+                continue;
+            }
+            if ch == '\\' {
+                escaped = true;
+                continue;
+            }
+            if ch == '"' {
+                return Some(value);
+            }
+            value.push(ch);
+        }
+        return Some(value);
+    }
+    trimmed
+        .split_whitespace()
+        .next()
+        .map(|value| value.trim_matches('"').to_string())
+}
+
+fn compatibility_positional_args(args: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    let mut in_quotes = false;
+    let mut escaped = false;
+    for ch in args.chars() {
+        if escaped {
+            current.push(ch);
+            escaped = false;
+            continue;
+        }
+        match ch {
+            '\\' if in_quotes => escaped = true,
+            '"' => in_quotes = !in_quotes,
+            ch if ch.is_whitespace() && !in_quotes => {
+                if !current.is_empty() {
+                    tokens.push(std::mem::take(&mut current));
+                }
+            }
+            _ => current.push(ch),
+        }
+    }
+    if !current.is_empty() {
+        tokens.push(current);
+    }
+
+    let mut positional = Vec::new();
+    let mut skip_option_value = false;
+    for token in tokens {
+        if skip_option_value {
+            skip_option_value = false;
+            continue;
+        }
+        if token == "--" {
+            continue;
+        }
+        if token.starts_with("--") {
+            if !token.contains('=') {
+                skip_option_value = true;
+            }
+            continue;
+        }
+        positional.push(token);
+    }
+    positional
+}
+
+fn unescape_compatibility_text(text: &str) -> String {
+    text.replace("\\n", "\r")
+        .replace("\\r", "\r")
+        .replace("\\t", "\t")
+}
+
+fn compatibility_key_bytes(keys: &str) -> std::result::Result<Vec<u8>, String> {
+    let mut out = Vec::new();
+    for key in keys.split_whitespace() {
+        let lower = key.to_ascii_lowercase();
+        match lower.as_str() {
+            "enter" | "return" => out.push(b'\r'),
+            "tab" => out.push(b'\t'),
+            "esc" | "escape" => out.push(0x1b),
+            "backspace" | "delete" => out.push(0x7f),
+            "space" => out.push(b' '),
+            "up" => out.extend_from_slice(b"\x1b[A"),
+            "down" => out.extend_from_slice(b"\x1b[B"),
+            "right" => out.extend_from_slice(b"\x1b[C"),
+            "left" => out.extend_from_slice(b"\x1b[D"),
+            "home" => out.extend_from_slice(b"\x1b[H"),
+            "end" => out.extend_from_slice(b"\x1b[F"),
+            "pageup" | "page-up" => out.extend_from_slice(b"\x1b[5~"),
+            "pagedown" | "page-down" => out.extend_from_slice(b"\x1b[6~"),
+            _ if lower.starts_with("c-") && lower.len() == 3 => {
+                let byte = lower.as_bytes()[2];
+                out.push(byte & 0x1f);
+            }
+            _ if lower.starts_with("ctrl-") && lower.len() == 6 => {
+                let byte = lower.as_bytes()[5];
+                out.push(byte & 0x1f);
+            }
+            _ if key.chars().count() == 1 => out.extend_from_slice(key.as_bytes()),
+            _ => return Err(format!("Unsupported key: {key}")),
+        }
+    }
+    if out.is_empty() {
+        return Err("Missing key".to_string());
+    }
+    Ok(out)
+}
+
+#[derive(Clone)]
+struct CompatibilityPanelEntry<'a> {
+    panel_id: u64,
+    tabs: &'a [TabInfo],
+    active: usize,
+    active_tab_id: u64,
+}
+
+#[derive(Clone)]
+struct CompatibilitySurfaceEntry<'a> {
+    panel_id: u64,
+    index: usize,
+    global_index: usize,
+    active: bool,
+    tab: &'a TabInfo,
+}
+
+fn compatibility_panel_entries(snapshot: &NativeSnapshot) -> Vec<CompatibilityPanelEntry<'_>> {
+    let mut entries = Vec::new();
+    collect_compatibility_panels(&snapshot.panels, &mut entries);
+    entries
+}
+
+fn collect_compatibility_panels<'a>(
+    node: &'a NativePanelNode,
+    entries: &mut Vec<CompatibilityPanelEntry<'a>>,
+) {
+    match node {
+        NativePanelNode::Leaf {
+            panel_id,
+            tabs,
+            active,
+            active_tab_id,
+        } => entries.push(CompatibilityPanelEntry {
+            panel_id: *panel_id,
+            tabs,
+            active: *active,
+            active_tab_id: *active_tab_id,
+        }),
+        NativePanelNode::Split { first, second, .. } => {
+            collect_compatibility_panels(first, entries);
+            collect_compatibility_panels(second, entries);
+        }
+    }
+}
+
+fn compatibility_index_ref(target: &str, kind: &str) -> Option<usize> {
+    let (target_kind, value) = target.trim().split_once(':')?;
+    if target_kind.eq_ignore_ascii_case(kind) {
+        value.parse::<usize>().ok()
+    } else {
+        None
+    }
+}
+
+fn compatibility_panel_entry_from_target<'a>(
+    panels: &'a [CompatibilityPanelEntry<'a>],
+    target: &str,
+) -> Option<&'a CompatibilityPanelEntry<'a>> {
+    let target = target.trim();
+    if target.is_empty() {
+        return None;
+    }
+    if let Some(index) = compatibility_index_ref(target, "pane") {
+        return panels.get(index);
+    }
+    if let Ok(index) = target.parse::<usize>() {
+        return panels.get(index);
+    }
+    panels
+        .iter()
+        .find(|panel| panel.panel_id.to_string() == target)
+}
+
+fn compatibility_surface_entries(snapshot: &NativeSnapshot) -> Vec<CompatibilitySurfaceEntry<'_>> {
+    compatibility_panel_entries(snapshot)
+        .into_iter()
+        .flat_map(|panel| {
+            panel
+                .tabs
+                .iter()
+                .enumerate()
+                .map(move |(index, tab)| CompatibilitySurfaceEntry {
+                    panel_id: panel.panel_id,
+                    index,
+                    global_index: 0,
+                    active: tab.id == panel.active_tab_id,
+                    tab,
+                })
+        })
+        .enumerate()
+        .map(|(global_index, mut surface)| {
+            surface.global_index = global_index;
+            surface
+        })
+        .collect()
+}
+
+#[derive(Clone, Debug)]
+struct CompatibilityResolvedSurface {
+    panel_id: u64,
+    index: usize,
+    tab_id: u64,
+}
+
+#[derive(Clone)]
+struct CompatibilityResolvedTabContext {
+    workspace: Arc<Workspace>,
+    space: Arc<Space>,
+    tab: Arc<Tab>,
+    surface: CompatibilityResolvedSurface,
+}
+
+async fn compatibility_workspace_id_from_ref(
+    daemon: &Arc<Daemon>,
+    target: &str,
+) -> std::result::Result<u64, String> {
+    let index = compatibility_workspace_index(daemon, target).await?;
+    daemon
+        .workspace_at(index)
+        .await
+        .map(|workspace| workspace.id)
+        .map_err(|error| error.to_string())
+}
+
+fn compatibility_workspace_ref_param(params: &serde_json::Value) -> Option<String> {
+    compatibility_string_param(
+        params,
+        &[
+            "workspace_id",
+            "workspaceId",
+            "workspace",
+            "workspaceRef",
+            "tab_id",
+            "tabId",
+            "ref",
+            "id",
+        ],
+    )
+    .or_else(|| compatibility_usize_param(params, &["index"]).map(|index| index.to_string()))
+}
+
+async fn compatibility_workspace_json_by_id(
+    daemon: &Arc<Daemon>,
+    workspace_id: u64,
+) -> std::result::Result<serde_json::Value, String> {
+    let (workspaces, _) = compatibility_workspace_list(daemon).await?;
+    workspaces
+        .iter()
+        .find(|workspace| workspace.id == workspace_id)
+        .map(compatibility_workspace_json)
+        .ok_or_else(|| format!("Workspace not found: {workspace_id}"))
+}
+
+async fn compatibility_workspace_rename_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let target = compatibility_workspace_ref_param(params)
+        .ok_or_else(|| "Missing workspace_id".to_string())?;
+    let workspace_id = compatibility_workspace_id_from_ref(daemon, &target).await?;
+    let title = compatibility_string_param(params, &["title", "name"])
+        .map(|title| title.trim().to_string())
+        .filter(|title| !title.is_empty())
+        .ok_or_else(|| "Missing title".to_string())?;
+    compatibility_run_status(
+        daemon,
+        Command::RenameWorkspaceById {
+            workspace_id,
+            title,
+        },
+    )
+    .await?;
+    compatibility_workspace_json_by_id(daemon, workspace_id).await
+}
+
+async fn compatibility_workspace_reorder_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let target = compatibility_workspace_ref_param(params)
+        .ok_or_else(|| "Missing workspace_id".to_string())?;
+    let workspace_id = compatibility_workspace_id_from_ref(daemon, &target).await?;
+    let index = compatibility_usize_param(params, &["index"]);
+    let before_id = match compatibility_string_param(
+        params,
+        &["before_workspace_id", "beforeWorkspaceId", "before"],
+    ) {
+        Some(target) => Some(compatibility_workspace_id_from_ref(daemon, &target).await?),
+        None => None,
+    };
+    let after_id = match compatibility_string_param(
+        params,
+        &["after_workspace_id", "afterWorkspaceId", "after"],
+    ) {
+        Some(target) => Some(compatibility_workspace_id_from_ref(daemon, &target).await?),
+        None => None,
+    };
+    let target_count = usize::from(index.is_some())
+        + usize::from(before_id.is_some())
+        + usize::from(after_id.is_some());
+    if target_count != 1 {
+        return Err(
+            "Specify exactly one target: index, before_workspace_id, or after_workspace_id"
+                .to_string(),
+        );
+    }
+
+    let new_index = {
+        let mut workspaces = daemon.workspaces.lock().await;
+        let Some(source_index) = workspaces
+            .iter()
+            .position(|workspace| workspace.id == workspace_id)
+        else {
+            return Err(format!("Workspace not found: {workspace_id}"));
+        };
+        let workspace = workspaces.remove(source_index);
+        let insertion = if let Some(index) = index {
+            index.min(workspaces.len())
+        } else if let Some(before_id) = before_id {
+            if before_id == workspace_id {
+                source_index.min(workspaces.len())
+            } else {
+                workspaces
+                    .iter()
+                    .position(|workspace| workspace.id == before_id)
+                    .ok_or_else(|| format!("Workspace not found: {before_id}"))?
+            }
+        } else if let Some(after_id) = after_id {
+            if after_id == workspace_id {
+                source_index.min(workspaces.len())
+            } else {
+                workspaces
+                    .iter()
+                    .position(|workspace| workspace.id == after_id)
+                    .map(|index| index + 1)
+                    .ok_or_else(|| format!("Workspace not found: {after_id}"))?
+            }
+        } else {
+            source_index.min(workspaces.len())
+        };
+        let insertion = insertion.min(workspaces.len());
+        workspaces.insert(insertion, workspace);
+        insertion
+    };
+    daemon.wake_model();
+
+    let mut workspace = compatibility_workspace_json_by_id(daemon, workspace_id).await?;
+    if let Some(object) = workspace.as_object_mut() {
+        object.insert("index".to_string(), serde_json::json!(new_index));
+    }
+    Ok(workspace)
+}
+
+async fn compatibility_move_workspace_to_index(
+    daemon: &Arc<Daemon>,
+    workspace_id: u64,
+    target_index: usize,
+) -> std::result::Result<usize, String> {
+    let new_index = {
+        let mut workspaces = daemon.workspaces.lock().await;
+        let Some(source_index) = workspaces
+            .iter()
+            .position(|workspace| workspace.id == workspace_id)
+        else {
+            return Err(format!("Workspace not found: {workspace_id}"));
+        };
+        let workspace = workspaces.remove(source_index);
+        let insertion = target_index.min(workspaces.len());
+        workspaces.insert(insertion, workspace);
+        insertion
+    };
+    daemon.wake_model();
+    Ok(new_index)
+}
+
+fn compatibility_workspace_action(params: &serde_json::Value) -> Option<String> {
+    compatibility_string_param(params, &["action", "name"])
+        .map(|action| action.to_ascii_lowercase().replace('-', "_"))
+}
+
+fn compatibility_default_workspace_title(workspace_id: u64) -> String {
+    if workspace_id == 0 {
+        "main".to_string()
+    } else {
+        format!("ws-{workspace_id}")
+    }
+}
+
+fn compatibility_workspace_action_is_local(params: &serde_json::Value) -> bool {
+    let Some(action) = compatibility_workspace_action(params) else {
+        return false;
+    };
+    matches!(
+        action.as_str(),
+        "pin"
+            | "unpin"
+            | "rename"
+            | "clear_name"
+            | "set_description"
+            | "clear_description"
+            | "move_up"
+            | "move_down"
+            | "move_top"
+            | "close_others"
+            | "close_above"
+            | "close_below"
+            | "mark_read"
+            | "mark_unread"
+            | "set_color"
+            | "clear_color"
+    )
+}
+
+async fn compatibility_workspace_id_from_params_or_active(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<u64, String> {
+    match compatibility_workspace_ref_param(params) {
+        Some(target) => compatibility_workspace_id_from_ref(daemon, &target).await,
+        None => Ok(daemon.active_ws_rx.borrow().id),
+    }
+}
+
+async fn compatibility_workspace_action_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let action =
+        compatibility_workspace_action(params).ok_or_else(|| "Missing action".to_string())?;
+    let workspace_id = compatibility_workspace_id_from_params_or_active(daemon, params).await?;
+    let workspace = daemon
+        .workspace_by_id(workspace_id)
+        .await
+        .ok_or_else(|| format!("Workspace not found: {workspace_id}"))?;
+
+    let mut extras = serde_json::Map::new();
+    match action.as_str() {
+        "pin" => {
+            workspace.pinned.store(true, Ordering::Relaxed);
+            extras.insert("pinned".to_string(), serde_json::json!(true));
+            daemon.wake_model();
+        }
+        "unpin" => {
+            workspace.pinned.store(false, Ordering::Relaxed);
+            extras.insert("pinned".to_string(), serde_json::json!(false));
+            daemon.wake_model();
+        }
+        "rename" => {
+            let title = compatibility_string_param(params, &["title", "name"])
+                .map(|title| title.trim().to_string())
+                .filter(|title| !title.is_empty())
+                .ok_or_else(|| "Missing title".to_string())?;
+            *workspace.title.lock().await = title.clone();
+            extras.insert("title".to_string(), serde_json::json!(title));
+            daemon.wake_model();
+        }
+        "clear_name" => {
+            let title = compatibility_default_workspace_title(workspace.id);
+            *workspace.title.lock().await = title.clone();
+            extras.insert("title".to_string(), serde_json::json!(title));
+            daemon.wake_model();
+        }
+        "set_description" => {
+            let description = compatibility_string_param(params, &["description"])
+                .map(|description| description.trim().to_string())
+                .filter(|description| !description.is_empty())
+                .ok_or_else(|| "Missing description".to_string())?;
+            *workspace.description.lock().await = Some(description.clone());
+            extras.insert("description".to_string(), serde_json::json!(description));
+            daemon.wake_model();
+        }
+        "clear_description" => {
+            *workspace.description.lock().await = None;
+            extras.insert("description".to_string(), serde_json::Value::Null);
+            daemon.wake_model();
+        }
+        "move_up" | "move_down" | "move_top" => {
+            let current = daemon
+                .workspace_index(workspace_id)
+                .await
+                .ok_or_else(|| format!("Workspace not found: {workspace_id}"))?;
+            let target = match action.as_str() {
+                "move_up" => current.saturating_sub(1),
+                "move_down" => current.saturating_add(1),
+                "move_top" => 0,
+                _ => current,
+            };
+            let index = compatibility_move_workspace_to_index(daemon, workspace_id, target).await?;
+            extras.insert("index".to_string(), serde_json::json!(index));
+        }
+        "close_others" | "close_above" | "close_below" => {
+            let workspaces = daemon.workspaces.lock().await.clone();
+            let current = workspaces
+                .iter()
+                .position(|workspace| workspace.id == workspace_id)
+                .ok_or_else(|| format!("Workspace not found: {workspace_id}"))?;
+            let candidates = workspaces
+                .into_iter()
+                .enumerate()
+                .filter_map(|(index, workspace)| {
+                    let in_range = match action.as_str() {
+                        "close_others" => workspace.id != workspace_id,
+                        "close_above" => index < current,
+                        "close_below" => index > current,
+                        _ => false,
+                    };
+                    (in_range && !workspace.pinned.load(Ordering::Relaxed)).then_some(workspace)
+                })
+                .collect::<Vec<_>>();
+            let closed = candidates.len();
+            for candidate in candidates {
+                close_workspace_tabs(&candidate).await;
+            }
+            extras.insert("closed".to_string(), serde_json::json!(closed));
+        }
+        "mark_read" => {
+            set_workspace_unread(&workspace, false).await;
+            daemon.wake_model();
+        }
+        "mark_unread" => {
+            set_workspace_unread(&workspace, true).await;
+            daemon.wake_model();
+        }
+        "set_color" => {
+            let color = compatibility_string_param(params, &["color"])
+                .ok_or_else(|| "Missing color".to_string())?;
+            let color = command_workspace_color(Some(color)).map_err(|error| error.to_string())?;
+            *workspace.color.lock().await = color.clone();
+            extras.insert("color".to_string(), serde_json::json!(color));
+            daemon.wake_model();
+        }
+        "clear_color" => {
+            *workspace.color.lock().await = None;
+            extras.insert("color".to_string(), serde_json::Value::Null);
+            daemon.wake_model();
+        }
+        _ => return Err(format!("Unsupported workspace action: {action}")),
+    }
+
+    let mut workspace_json = compatibility_workspace_json_by_id(daemon, workspace_id).await?;
+    if let Some(object) = workspace_json.as_object_mut() {
+        let window_ref =
+            compatibility_window_ref_for_workspace_params(daemon, params, workspace_id).await?;
+        compatibility_insert_window_ref(object, &window_ref);
+        object.insert("action".to_string(), serde_json::json!(action));
+        object.extend(extras);
+    }
+    Ok(workspace_json)
+}
+
+async fn compatibility_workspace_prompt_submit_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let workspace_target = compatibility_string_param(params, &["workspace_id", "workspaceId"])
+        .ok_or_else(|| "Missing or invalid workspace_id".to_string())?;
+    let message = compatibility_prompt_submit_message(params)?;
+    let workspace_id = compatibility_workspace_id_from_ref(daemon, &workspace_target).await?;
+    let original_index = daemon
+        .workspace_index(workspace_id)
+        .await
+        .ok_or_else(|| format!("Workspace not found: {workspace_id}"))?;
+    let workspace = daemon
+        .workspace_by_id(workspace_id)
+        .await
+        .ok_or_else(|| format!("Workspace not found: {workspace_id}"))?;
+    let i_message_mode_enabled = compatibility_desktop_i_message_mode_enabled();
+
+    let mut message_recorded = false;
+    let mut reordered = false;
+    let mut index = original_index;
+    let mut message_preview = None;
+    if i_message_mode_enabled {
+        if let Some(preview) = message
+            .as_deref()
+            .and_then(|message| compatibility_submitted_message_preview(message, 240))
+        {
+            let mut current = workspace.latest_submitted_message.lock().await;
+            if current.as_deref() != Some(preview.as_str()) {
+                *current = Some(preview);
+                message_recorded = true;
+                daemon.wake_model();
+            }
+        }
+        index = compatibility_move_workspace_to_index(daemon, workspace_id, 0).await?;
+        reordered = index != original_index;
+        message_preview = workspace.latest_submitted_message.lock().await.clone();
+    }
+
+    let workspace_ref = workspace.external_id.clone();
+    let window_ref =
+        compatibility_window_ref_for_workspace_params(daemon, params, workspace_id).await?;
+    Ok(serde_json::json!({
+        "workspace_id": workspace_ref.clone(),
+        "workspace_ref": workspace_ref,
+        "window_id": window_ref.clone(),
+        "window_ref": window_ref,
+        "i_message_mode_enabled": i_message_mode_enabled,
+        "message_recorded": message_recorded,
+        "message_preview": message_preview,
+        "reordered": reordered,
+        "index": index,
+    }))
+}
+
+async fn compatibility_workspace_last_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let window_ref = match compatibility_window_ref_for_params(daemon, params).await? {
+        Some(window_ref) => window_ref,
+        None => compatibility_current_window_id(daemon).await,
+    };
+    let mut window = WindowState::new_for_compatibility(daemon, Some(&window_ref)).await;
+    if window.last_ws_id.is_none() {
+        let global_last = daemon.last_ws_id.load(Ordering::Relaxed);
+        if global_last != 0
+            && global_last != window.active_ws_id
+            && window.is_workspace_member(global_last)
+        {
+            window.last_ws_id = Some(global_last);
+        }
+    }
+    let workspace = window
+        .select_last_workspace(daemon)
+        .await
+        .map_err(|error| error.to_string())?;
+    window.add_workspace_member(workspace.id);
+    daemon.update_native_window_state(&window).await;
+    daemon.set_active_workspace(workspace.clone());
+    compatibility_mark_active_workspace_notifications_read(daemon).await;
+    daemon.wake_model();
+    let workspace_ref = workspace.external_id.clone();
+    Ok(serde_json::json!({
+        "workspace_id": workspace_ref.clone(),
+        "workspace_ref": workspace_ref,
+        "window_id": window_ref.clone(),
+        "window_ref": window_ref,
+    }))
+}
+
+fn compatibility_prompt_submit_message(
+    params: &serde_json::Value,
+) -> std::result::Result<Option<String>, String> {
+    let keys = ["message", "prompt", "text", "body"];
+    let mut message = None;
+    for key in keys {
+        let Some(value) = params.get(key) else {
+            continue;
+        };
+        if value.is_null() {
+            continue;
+        }
+        let Some(text) = value.as_str() else {
+            return Err(format!("{key} must be a string"));
+        };
+        if message.is_none() {
+            message = Some(text.to_string());
+        }
+    }
+    Ok(message)
+}
+
+fn compatibility_submitted_message_preview(message: &str, max_length: usize) -> Option<String> {
+    let collapsed = message
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .trim()
+        .to_string();
+    if collapsed.is_empty() {
+        return None;
+    }
+    let mut chars = collapsed.chars();
+    let preview = chars.by_ref().take(max_length).collect::<String>();
+    if chars.next().is_some() {
+        Some(format!("{preview}..."))
+    } else {
+        Some(collapsed)
+    }
+}
+
+fn compatibility_desktop_i_message_mode_enabled() -> bool {
+    if let Some(enabled) = compatibility_desktop_defaults_i_message_mode_enabled() {
+        return enabled;
+    }
+    env::var("CMX_DESKTOP_I_MESSAGE_MODE")
+        .ok()
+        .as_deref()
+        .is_some_and(compatibility_env_truthy)
+}
+
+fn compatibility_desktop_defaults_i_message_mode_enabled() -> Option<bool> {
+    compatibility_desktop_defaults_read("app.iMessageMode")
+        .as_deref()
+        .map(compatibility_env_truthy)
+}
+
+fn compatibility_desktop_defaults_domain() -> Option<String> {
+    env::var("CMX_DESKTOP_BUNDLE_ID")
+        .ok()
+        .filter(|domain| !domain.trim().is_empty())
+        .or_else(|| {
+            env::var("__CFBundleIdentifier")
+                .ok()
+                .filter(|domain| !domain.trim().is_empty())
+        })
+}
+
+fn compatibility_desktop_defaults_read(key: &str) -> Option<String> {
+    let domain = compatibility_desktop_defaults_domain()?;
+    let output = std::process::Command::new("/usr/bin/defaults")
+        .arg("read")
+        .arg(domain)
+        .arg(key)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+fn compatibility_env_truthy(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "1" | "true" | "yes" | "on"
+    )
+}
+
+fn compatibility_browser_should_open_externally(raw_url: &str) -> bool {
+    let target = raw_url.trim();
+    if target.is_empty() {
+        return false;
+    }
+    if compatibility_desktop_defaults_read("browserDisabledOverride")
+        .as_deref()
+        .is_some_and(compatibility_env_truthy)
+    {
+        return true;
+    }
+    for pattern in compatibility_browser_external_open_patterns() {
+        if compatibility_browser_external_pattern_matches(&pattern, target) {
+            return true;
+        }
+    }
+    false
+}
+
+fn compatibility_browser_external_open_patterns() -> Vec<String> {
+    compatibility_desktop_defaults_read("browserExternalOpenPatterns")
+        .unwrap_or_default()
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(ToString::to_string)
+        .collect()
+}
+
+fn compatibility_browser_external_pattern_matches(raw_pattern: &str, target: &str) -> bool {
+    let trimmed = raw_pattern.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    if let Some(regex) = trimmed
+        .strip_prefix("re:")
+        .or_else(|| trimmed.strip_prefix("regex:"))
+        .map(str::trim)
+    {
+        if regex.is_empty() {
+            return false;
+        }
+        return regex::RegexBuilder::new(regex)
+            .case_insensitive(true)
+            .build()
+            .ok()
+            .is_some_and(|regex| regex.is_match(target));
+    }
+    target
+        .to_ascii_lowercase()
+        .contains(&trimmed.to_ascii_lowercase())
+}
+
+fn compatibility_open_url_externally(raw_url: &str) -> bool {
+    std::process::Command::new("/usr/bin/open")
+        .arg(raw_url)
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+fn equalize_panel_splits(node: &mut PanelNode, orientation: Option<SplitDirection>) -> bool {
+    match node {
+        PanelNode::Leaf(_) => false,
+        PanelNode::Split {
+            direction,
+            ratio_permille,
+            first,
+            second,
+        } => {
+            let mut changed = equalize_panel_splits(first, orientation)
+                | equalize_panel_splits(second, orientation);
+            if orientation.is_none_or(|expected| expected == *direction) {
+                changed |= *ratio_permille != 500;
+                *ratio_permille = 500;
+            }
+            changed
+        }
+    }
+}
+
+async fn compatibility_workspace_equalize_splits_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let workspace_id = compatibility_workspace_id_from_params_or_active(daemon, params).await?;
+    let orientation =
+        compatibility_string_param(params, &["orientation"]).and_then(|orientation| {
+            match orientation.to_ascii_lowercase().as_str() {
+                "horizontal" | "right" | "left" => Some(SplitDirection::Horizontal),
+                "vertical" | "up" | "down" => Some(SplitDirection::Vertical),
+                _ => None,
+            }
+        });
+    let workspace = daemon
+        .workspace_by_id(workspace_id)
+        .await
+        .ok_or_else(|| format!("Workspace not found: {workspace_id}"))?;
+    let space = workspace
+        .first_space()
+        .await
+        .ok_or_else(|| "Workspace has no space".to_string())?;
+    let changed = {
+        let mut panels = space.panels.lock().await;
+        equalize_panel_splits(&mut panels, orientation)
+    };
+    if changed {
+        daemon.wake_model();
+    }
+    compatibility_native_snapshot(daemon)
+        .await
+        .map(|snapshot| compatibility_snapshot_json(&snapshot))
+}
+
+async fn compatibility_resolve_surface(
+    daemon: &Arc<Daemon>,
+    target: &str,
+) -> std::result::Result<CompatibilityResolvedSurface, String> {
+    let snapshot = compatibility_native_snapshot(daemon).await?;
+    compatibility_resolve_surface_in_snapshot(&snapshot, target)
+}
+
+async fn compatibility_resolve_surface_in_workspace(
+    daemon: &Arc<Daemon>,
+    workspace_id: u64,
+    target: &str,
+) -> std::result::Result<CompatibilityResolvedSurface, String> {
+    let snapshot = compatibility_native_snapshot_for_workspace(daemon, workspace_id).await?;
+    compatibility_resolve_surface_in_snapshot(&snapshot, target)
+}
+
+fn compatibility_resolve_surface_in_snapshot(
+    snapshot: &NativeSnapshot,
+    target: &str,
+) -> std::result::Result<CompatibilityResolvedSurface, String> {
+    let target = target.trim();
+    let surfaces = compatibility_surface_entries(snapshot);
+    let focused_panel = snapshot.focused_panel_id;
+
+    if target.is_empty() {
+        if let Some(surface) = surfaces
+            .iter()
+            .find(|surface| surface.tab.id == snapshot.focused_tab_id)
+        {
+            return Ok(CompatibilityResolvedSurface {
+                panel_id: surface.panel_id,
+                index: surface.index,
+                tab_id: surface.tab.id,
+            });
+        }
+        if let Some(surface) = surfaces.first() {
+            return Ok(CompatibilityResolvedSurface {
+                panel_id: surface.panel_id,
+                index: surface.index,
+                tab_id: surface.tab.id,
+            });
+        }
+    }
+
+    if let Ok(index) = target.parse::<usize>() {
+        let focused_panel_surfaces = surfaces
+            .iter()
+            .filter(|surface| surface.panel_id == focused_panel)
+            .collect::<Vec<_>>();
+        if let Some(surface) = focused_panel_surfaces.get(index) {
+            return Ok(CompatibilityResolvedSurface {
+                panel_id: surface.panel_id,
+                index: surface.index,
+                tab_id: surface.tab.id,
+            });
+        }
+    }
+
+    surfaces
+        .iter()
+        .find(|surface| {
+            surface.tab.id.to_string() == target
+                || surface.tab.external_id.as_deref() == Some(target)
+                || compat_tab_ref(surface.tab) == target
+        })
+        .map(|surface| CompatibilityResolvedSurface {
+            panel_id: surface.panel_id,
+            index: surface.index,
+            tab_id: surface.tab.id,
+        })
+        .ok_or_else(|| format!("Surface not found: {target}"))
+}
+
+async fn compatibility_surface_json_by_tab_id(
+    daemon: &Arc<Daemon>,
+    tab_id: u64,
+) -> std::result::Result<serde_json::Value, String> {
+    let snapshot = compatibility_native_snapshot(daemon).await?;
+    let surfaces = compatibility_surface_entries(&snapshot);
+    if let Some(surface) = surfaces.iter().find(|surface| surface.tab.id == tab_id) {
+        return Ok(compatibility_surface_json(surface, snapshot.focused_tab_id));
+    }
+
+    let active_workspace_id = snapshot.active_workspace_id;
+    let workspaces = daemon.workspaces.lock().await.clone();
+    for workspace in workspaces {
+        if workspace.id == active_workspace_id {
+            continue;
+        }
+        let snapshot = compatibility_native_snapshot_for_workspace(daemon, workspace.id).await?;
+        let surfaces = compatibility_surface_entries(&snapshot);
+        if let Some(surface) = surfaces.iter().find(|surface| surface.tab.id == tab_id) {
+            return Ok(compatibility_surface_json(surface, snapshot.focused_tab_id));
+        }
+    }
+
+    Err(format!("Surface not found: {tab_id}"))
+}
+
+async fn compatibility_resolve_tab_context(
+    daemon: &Arc<Daemon>,
+    target: &str,
+) -> std::result::Result<CompatibilityResolvedTabContext, String> {
+    let surface = match compatibility_resolve_surface(daemon, target).await {
+        Ok(surface) => surface,
+        Err(_error) if !target.trim().is_empty() => {
+            return compatibility_resolve_tab_context_by_target(daemon, target).await;
+        }
+        Err(error) => return Err(error),
+    };
+    let mut ctx = compatibility_resolve_tab_context_by_tab_id(daemon, surface.tab_id).await?;
+    ctx.surface = surface;
+    Ok(ctx)
+}
+
+fn compatibility_workspace_scope_param(params: &serde_json::Value) -> Option<String> {
+    compatibility_string_param(
+        params,
+        &["workspace_id", "workspaceId", "workspace", "workspaceRef"],
+    )
+}
+
+async fn compatibility_resolve_tab_context_for_params(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<CompatibilityResolvedTabContext, String> {
+    let target = compatibility_surface_ref_param(params);
+    if let Some(workspace_target) = compatibility_workspace_scope_param(params) {
+        let workspace_id = compatibility_workspace_id_from_ref(daemon, &workspace_target).await?;
+        let surface = compatibility_resolve_surface_in_workspace(
+            daemon,
+            workspace_id,
+            target.as_deref().unwrap_or(""),
+        )
+        .await?;
+        let mut ctx = compatibility_resolve_tab_context_by_tab_id(daemon, surface.tab_id).await?;
+        if ctx.workspace.id != workspace_id {
+            return Err(format!(
+                "Surface not found in workspace: {workspace_target}"
+            ));
+        }
+        ctx.surface = surface;
+        return Ok(ctx);
+    }
+
+    if target.as_deref().is_none_or(str::is_empty) {
+        let workspace_id = daemon.active_ws_rx.borrow().id;
+        let surface = compatibility_resolve_surface_in_workspace(daemon, workspace_id, "").await?;
+        let mut ctx = compatibility_resolve_tab_context_by_tab_id(daemon, surface.tab_id).await?;
+        if ctx.workspace.id != workspace_id {
+            return Err("Surface not found in active workspace".to_string());
+        }
+        ctx.surface = surface;
+        return Ok(ctx);
+    }
+
+    compatibility_resolve_tab_context(daemon, target.as_deref().unwrap_or("")).await
+}
+
+fn compatibility_pane_ref_param(params: &serde_json::Value) -> Option<String> {
+    compatibility_string_param(
+        params,
+        &[
+            "pane_id",
+            "paneId",
+            "pane",
+            "paneRef",
+            "panel_id",
+            "panelId",
+            "panel",
+            "panelRef",
+            "target_pane_id",
+            "targetPaneId",
+        ],
+    )
+    .or_else(|| {
+        compatibility_usize_param(params, &["pane_index", "paneIndex"])
+            .map(|index| index.to_string())
+    })
+}
+
+fn compatibility_source_pane_ref_param(params: &serde_json::Value) -> Option<String> {
+    compatibility_string_param(
+        params,
+        &[
+            "source_pane_id",
+            "sourcePaneId",
+            "from_pane_id",
+            "fromPaneId",
+            "source_pane",
+            "sourcePane",
+            "from_pane",
+            "fromPane",
+            "pane_id",
+            "paneId",
+            "pane",
+            "paneRef",
+            "panel_id",
+            "panelId",
+            "panel",
+            "panelRef",
+        ],
+    )
+    .or_else(|| {
+        compatibility_usize_param(params, &["pane_index", "paneIndex"])
+            .map(|index| index.to_string())
+    })
+}
+
+fn compatibility_surface_kind_param(
+    params: &serde_json::Value,
+) -> std::result::Result<SnapshotTabKind, String> {
+    let kind = compatibility_string_param(params, &["type", "kind"])
+        .unwrap_or_else(|| "terminal".to_string());
+    match kind.trim().to_ascii_lowercase().as_str() {
+        "" | "terminal" => Ok(SnapshotTabKind::Terminal),
+        "browser" => Ok(SnapshotTabKind::Browser),
+        other => Err(format!("Unsupported surface type: {other}")),
+    }
+}
+
+fn compatibility_split_direction_from_params(params: &serde_json::Value) -> SplitDirection {
+    let direction = compatibility_string_param(params, &["direction", "edge"])
+        .unwrap_or_else(|| "right".to_string());
+    if matches!(
+        direction.trim().to_ascii_lowercase().as_str(),
+        "up" | "down" | "vertical" | "stacked"
+    ) {
+        SplitDirection::Vertical
+    } else {
+        SplitDirection::Horizontal
+    }
+}
+
+async fn compatibility_restore_panel_selection(
+    space: &Arc<Space>,
+    panel_id: PanelId,
+    index: usize,
+) {
+    let _ = space.select_tab_in_panel(panel_id, index).await;
+}
+
+async fn compatibility_remember_focused_tab_for_params(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+    workspace: &Arc<Workspace>,
+    space: &Arc<Space>,
+    panel_id: PanelId,
+    tab: &Arc<Tab>,
+) -> std::result::Result<String, String> {
+    let window_ref = match compatibility_string_param(params, &["window_id", "windowId", "window"])
+    {
+        Some(target) => compatibility_resolve_window_ref(daemon, Some(&target)).await?,
+        None => compatibility_window_id_for_workspace(daemon, workspace.id).await,
+    };
+    let mut window = daemon
+        .native_window_state(&window_ref)
+        .await
+        .unwrap_or_else(|| WindowState::new_with_window_id(workspace.id, window_ref.clone()));
+    window.set_active_workspace_id(workspace.id);
+    window.add_workspace_member(workspace.id);
+    window.remember_tab(workspace, space, panel_id, tab);
+    daemon.update_native_window_state(&window).await;
+    daemon.set_active_workspace(workspace.clone());
+    Ok(window_ref)
+}
+
+async fn compatibility_surface_create_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let workspace_id = match compatibility_workspace_scope_param(params) {
+        Some(target) => compatibility_workspace_id_from_ref(daemon, &target).await?,
+        None => daemon.active_ws_rx.borrow().id,
+    };
+    let workspace = daemon
+        .workspace_by_id(workspace_id)
+        .await
+        .ok_or_else(|| format!("Workspace not found: {workspace_id}"))?;
+    let space = workspace
+        .first_space()
+        .await
+        .ok_or_else(|| "Workspace has no space".to_string())?;
+    let panel_id = match compatibility_pane_ref_param(params) {
+        Some(target) => compatibility_panel_id_in_workspace(daemon, workspace_id, &target).await?,
+        None => compatibility_panel_id_in_workspace(daemon, workspace_id, "").await?,
+    };
+    let before_snapshot = compatibility_native_snapshot_for_workspace(daemon, workspace_id).await?;
+    let previous_index = compatibility_panel_entries(&before_snapshot)
+        .iter()
+        .find(|panel| panel.panel_id == panel_id)
+        .map(|panel| panel.active);
+    let focus = compatibility_bool_param(params, &["focus"]).unwrap_or(true);
+    let kind = compatibility_surface_kind_param(params)?;
+    let url = compatibility_string_param(params, &["url"]);
+    let proxy = workspace_browser_proxy_snapshot(&workspace).await;
+    let created = match kind {
+        SnapshotTabKind::Terminal => space
+            .clone()
+            .new_tab_in_panel(panel_id, None, None)
+            .await
+            .map_err(|error| error.to_string())?,
+        SnapshotTabKind::Browser => space
+            .clone()
+            .new_browser_tab_in_panel(panel_id, url, proxy)
+            .await
+            .map_err(|error| error.to_string())?,
+    };
+    if !focus && let Some(index) = previous_index {
+        compatibility_restore_panel_selection(&space, panel_id, index).await;
+    } else if focus {
+        compatibility_remember_focused_tab_for_params(
+            daemon, params, &workspace, &space, panel_id, &created,
+        )
+        .await?;
+    }
+    daemon.wake_model();
+    daemon.snapshot_notifier.wake();
+
+    let mut surface = compatibility_surface_json_by_tab_id(daemon, created.id).await?;
+    if let Some(object) = surface.as_object_mut() {
+        object.insert(
+            "workspace_id".to_string(),
+            serde_json::json!(workspace.external_id),
+        );
+        object.insert(
+            "workspace_ref".to_string(),
+            serde_json::json!(workspace.external_id),
+        );
+        object.insert(
+            "numericWorkspaceId".to_string(),
+            serde_json::json!(workspace.id),
+        );
+    }
+    Ok(surface)
+}
+
+async fn compatibility_pane_create_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let ctx = compatibility_resolve_tab_context_for_params(daemon, params).await?;
+    let panel_id = match compatibility_pane_ref_param(params) {
+        Some(target) => {
+            compatibility_panel_id_in_workspace(daemon, ctx.workspace.id, &target).await?
+        }
+        None => ctx.surface.panel_id,
+    };
+    let before_snapshot =
+        compatibility_native_snapshot_for_workspace(daemon, ctx.workspace.id).await?;
+    let previous_index = compatibility_panel_entries(&before_snapshot)
+        .iter()
+        .find(|panel| panel.panel_id == panel_id)
+        .map(|panel| panel.active);
+    let direction = compatibility_split_direction_from_params(params);
+    let focus = compatibility_bool_param(params, &["focus"]).unwrap_or(true);
+    let kind = compatibility_surface_kind_param(params)?;
+    let url = compatibility_string_param(params, &["url"]);
+    let proxy = workspace_browser_proxy_snapshot(&ctx.workspace).await;
+
+    let (created_panel_id, created) = match kind {
+        SnapshotTabKind::Terminal => ctx
+            .space
+            .clone()
+            .split_panel(panel_id, direction, None, None)
+            .await
+            .map_err(|error| format!("split: {error}"))?,
+        SnapshotTabKind::Browser => ctx
+            .space
+            .clone()
+            .split_browser_panel(panel_id, direction, url, proxy)
+            .await
+            .map_err(|error| format!("split: {error}"))?,
+    };
+    ctx.space.zoomed.store(false, Ordering::Relaxed);
+    if !focus && let Some(index) = previous_index {
+        compatibility_restore_panel_selection(&ctx.space, panel_id, index).await;
+    } else if focus {
+        compatibility_remember_focused_tab_for_params(
+            daemon,
+            params,
+            &ctx.workspace,
+            &ctx.space,
+            created_panel_id,
+            &created,
+        )
+        .await?;
+    }
+    daemon.wake_model();
+    daemon.snapshot_notifier.wake();
+    let window_ref = compatibility_window_id_for_workspace(daemon, ctx.workspace.id).await;
+    let snapshot = compatibility_native_snapshot_for_workspace_and_window(
+        daemon,
+        ctx.workspace.id,
+        Some(&window_ref),
+    )
+    .await?;
+    let mut payload = compatibility_snapshot_json(&snapshot);
+    if let Some(object) = payload.as_object_mut() {
+        let surface_ref = compat_tab_ref_from_tab(&created);
+        object.insert("surface_id".to_string(), serde_json::json!(surface_ref));
+        object.insert("surface_ref".to_string(), serde_json::json!(surface_ref));
+        object.insert("numericId".to_string(), serde_json::json!(created.id));
+        object.insert(
+            "numericSurfaceId".to_string(),
+            serde_json::json!(created.id),
+        );
+        object.insert(
+            "pane_id".to_string(),
+            serde_json::json!(created_panel_id.to_string()),
+        );
+        object.insert(
+            "pane_ref".to_string(),
+            serde_json::json!(created_panel_id.to_string()),
+        );
+        object.insert(
+            "numericPaneId".to_string(),
+            serde_json::json!(created_panel_id),
+        );
+        object.insert(
+            "workspace_id".to_string(),
+            serde_json::json!(ctx.workspace.external_id),
+        );
+        object.insert(
+            "workspace_ref".to_string(),
+            serde_json::json!(ctx.workspace.external_id),
+        );
+        object.insert(
+            "numericWorkspaceId".to_string(),
+            serde_json::json!(ctx.workspace.id),
+        );
+    }
+    Ok(payload)
+}
+
+async fn compatibility_resolve_tab_context_by_target(
+    daemon: &Arc<Daemon>,
+    target: &str,
+) -> std::result::Result<CompatibilityResolvedTabContext, String> {
+    let target = target.trim();
+    if target.is_empty() {
+        return Err("Surface not found".to_string());
+    }
+    let workspaces = daemon.workspaces.lock().await.clone();
+    for workspace in workspaces {
+        let spaces = workspace.spaces.lock().await.clone();
+        for space in spaces {
+            let tabs = space.tabs.lock().await.clone();
+            for tab in tabs {
+                let title = tab.title.load_full();
+                if tab.id.to_string() == target
+                    || tab.external_id == target
+                    || title.as_ref() == target
+                {
+                    let surface = compatibility_resolved_surface_for_tab(&space, tab.id).await?;
+                    return Ok(CompatibilityResolvedTabContext {
+                        workspace,
+                        space,
+                        tab,
+                        surface,
+                    });
+                }
+            }
+        }
+    }
+    Err(format!("Surface not found: {target}"))
+}
+
+async fn compatibility_resolve_tab_context_by_tab_id(
+    daemon: &Arc<Daemon>,
+    tab_id: TabId,
+) -> std::result::Result<CompatibilityResolvedTabContext, String> {
+    let workspaces = daemon.workspaces.lock().await.clone();
+    for workspace in workspaces {
+        let spaces = workspace.spaces.lock().await.clone();
+        for space in spaces {
+            if let Some(tab) = space.tab_by_id(tab_id).await {
+                let surface = compatibility_resolved_surface_for_tab(&space, tab.id).await?;
+                return Ok(CompatibilityResolvedTabContext {
+                    workspace,
+                    space,
+                    tab,
+                    surface,
+                });
+            }
+        }
+    }
+    Err(format!("Surface not found: {tab_id}"))
+}
+
+async fn compatibility_resolved_surface_for_tab(
+    space: &Arc<Space>,
+    tab_id: TabId,
+) -> std::result::Result<CompatibilityResolvedSurface, String> {
+    let leaves = space.panels.lock().await.leaves();
+    for leaf in leaves {
+        if let Some(index) = leaf.tabs.iter().position(|id| *id == tab_id) {
+            return Ok(CompatibilityResolvedSurface {
+                panel_id: leaf.id,
+                index,
+                tab_id,
+            });
+        }
+    }
+    Err(format!("Surface not found: {tab_id}"))
+}
+
+async fn compatibility_surface_reorder_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let _target =
+        compatibility_surface_ref_param(params).ok_or_else(|| "Missing surface_id".to_string())?;
+    let ctx = compatibility_resolve_tab_context_for_params(daemon, params).await?;
+    let surface = ctx.surface.clone();
+    let index = compatibility_usize_param(params, &["index"]);
+    let before = match compatibility_string_param(
+        params,
+        &["before_surface_id", "beforeSurfaceId", "before"],
+    ) {
+        Some(target) => Some(
+            compatibility_resolve_surface_in_workspace(daemon, ctx.workspace.id, &target).await?,
+        ),
+        None => None,
+    };
+    let after = match compatibility_string_param(
+        params,
+        &["after_surface_id", "afterSurfaceId", "after"],
+    ) {
+        Some(target) => Some(
+            compatibility_resolve_surface_in_workspace(daemon, ctx.workspace.id, &target).await?,
+        ),
+        None => None,
+    };
+    let target_count =
+        usize::from(index.is_some()) + usize::from(before.is_some()) + usize::from(after.is_some());
+    if target_count != 1 {
+        return Err(
+            "Specify exactly one of index, before_surface_id, or after_surface_id".to_string(),
+        );
+    }
+
+    let to = if let Some(index) = index {
+        index
+    } else if let Some(before) = before {
+        if before.panel_id != surface.panel_id {
+            return Err("Anchor surface must be in the same pane".to_string());
+        }
+        before.index
+    } else if let Some(after) = after {
+        if after.panel_id != surface.panel_id {
+            return Err("Anchor surface must be in the same pane".to_string());
+        }
+        after.index + 1
+    } else {
+        surface.index
+    };
+    let focus = compatibility_bool_param(params, &["focus"]).unwrap_or(false);
+    let moved = ctx
+        .space
+        .move_tab_to_panel(surface.panel_id, surface.index, surface.panel_id, to, focus)
+        .await
+        .map_err(|error| error.to_string())?;
+    let window_ref =
+        compatibility_window_ref_for_workspace_params(daemon, params, ctx.workspace.id).await?;
+    if focus {
+        ctx.space.active_tab_tx.send(moved.clone()).ok();
+        daemon.set_active_workspace(ctx.workspace.clone());
+        daemon
+            .set_native_window_active_workspace(&window_ref, ctx.workspace.id)
+            .await;
+    } else {
+        daemon
+            .add_workspace_to_native_window(&window_ref, ctx.workspace.id)
+            .await;
+        wake_space_repaint(&ctx.space);
+    }
+    daemon.wake_model();
+    daemon.snapshot_notifier.wake();
+
+    let mut payload = compatibility_surface_json_by_tab_id(daemon, surface.tab_id).await?;
+    if let Some(object) = payload.as_object_mut() {
+        compatibility_insert_window_ref(object, &window_ref);
+        object.insert(
+            "workspace_id".to_string(),
+            serde_json::json!(ctx.workspace.external_id),
+        );
+        object.insert(
+            "workspace_ref".to_string(),
+            serde_json::json!(ctx.workspace.external_id),
+        );
+        object.insert(
+            "surface_id".to_string(),
+            serde_json::json!(moved.external_id),
+        );
+        object.insert(
+            "surface_ref".to_string(),
+            serde_json::json!(moved.external_id),
+        );
+    }
+    Ok(payload)
+}
+
+async fn compatibility_surface_close_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let ctx = compatibility_resolve_tab_context_for_params(daemon, params).await?;
+    let surface_ref = compat_tab_ref_from_tab(&ctx.tab);
+    let workspace_ref = ctx.workspace.external_id.clone();
+    let panel_id = ctx.surface.panel_id;
+    let window_ref =
+        compatibility_window_ref_for_workspace_params(daemon, params, ctx.workspace.id).await?;
+    ctx.space
+        .clone()
+        .close_tab_by_id(ctx.tab.id)
+        .await
+        .map_err(|error| error.to_string())?;
+    daemon.wake_model();
+    daemon.snapshot_notifier.wake();
+    Ok(serde_json::json!({
+        "closed": true,
+        "window_id": window_ref.clone(),
+        "window_ref": window_ref,
+        "workspace_id": workspace_ref,
+        "workspace_ref": workspace_ref,
+        "surface_id": surface_ref,
+        "surface_ref": surface_ref,
+        "tab_id": surface_ref,
+        "tab_ref": surface_ref,
+        "pane_id": panel_id.to_string(),
+        "pane_ref": panel_id.to_string(),
+    }))
+}
+
+fn compatibility_tab_action(params: &serde_json::Value) -> Option<String> {
+    compatibility_string_param(params, &["action", "name"])
+        .map(|action| action.to_ascii_lowercase().replace('-', "_"))
+}
+
+fn compatibility_tab_action_is_local(params: &serde_json::Value) -> bool {
+    let Some(action) = compatibility_tab_action(params) else {
+        return false;
+    };
+    matches!(
+        action.as_str(),
+        "rename"
+            | "clear_name"
+            | "pin"
+            | "unpin"
+            | "toggle_pin"
+            | "mark_read"
+            | "mark_unread"
+            | "mark_as_unread"
+            | "reload"
+            | "reload_tab"
+            | "duplicate"
+            | "duplicate_tab"
+            | "move_to_new_workspace"
+            | "detach_to_workspace"
+            | "detach_to_new_workspace"
+            | "new_terminal_right"
+            | "new_terminal_to_right"
+            | "new_terminal_tab_to_right"
+            | "new_browser_right"
+            | "new_browser_to_right"
+            | "new_browser_tab_to_right"
+            | "close_left"
+            | "close_to_left"
+            | "close_right"
+            | "close_to_right"
+            | "close_others"
+            | "close_other_tabs"
+    )
+}
+
+async fn compatibility_tab_action_payload(
+    daemon: &Arc<Daemon>,
+    action: &str,
+    ctx: &CompatibilityResolvedTabContext,
+    extras: serde_json::Map<String, serde_json::Value>,
+) -> std::result::Result<serde_json::Value, String> {
+    let mut payload = compatibility_surface_json_by_tab_id(daemon, ctx.tab.id).await?;
+    let window_ref = compatibility_window_id_for_workspace(daemon, ctx.workspace.id).await;
+    if let Some(object) = payload.as_object_mut() {
+        compatibility_insert_window_ref(object, &window_ref);
+        object.insert("action".to_string(), serde_json::json!(action));
+        object.insert(
+            "workspace_id".to_string(),
+            serde_json::json!(ctx.workspace.external_id),
+        );
+        object.insert(
+            "workspace_ref".to_string(),
+            serde_json::json!(ctx.workspace.external_id),
+        );
+        object.insert(
+            "numericWorkspaceId".to_string(),
+            serde_json::json!(ctx.workspace.id),
+        );
+        object.insert(
+            "tab_ref".to_string(),
+            serde_json::json!(compat_tab_ref_from_tab(&ctx.tab)),
+        );
+        object.insert(
+            "tab_id".to_string(),
+            serde_json::json!(compat_tab_ref_from_tab(&ctx.tab)),
+        );
+        object.insert("numericTabId".to_string(), serde_json::json!(ctx.tab.id));
+        object.insert(
+            "pinned".to_string(),
+            serde_json::json!(ctx.tab.pinned.load(Ordering::Relaxed)),
+        );
+        object.extend(extras);
+    }
+    Ok(payload)
+}
+
+fn compat_tab_ref_from_tab(tab: &Tab) -> String {
+    tab.external_id.clone()
+}
+
+async fn compatibility_create_tab_to_right(
+    daemon: &Arc<Daemon>,
+    ctx: &CompatibilityResolvedTabContext,
+    action: &str,
+    kind: SnapshotTabKind,
+    url: Option<String>,
+    focus: bool,
+) -> std::result::Result<serde_json::Value, String> {
+    let created = match kind {
+        SnapshotTabKind::Terminal => ctx
+            .space
+            .clone()
+            .new_tab_in_panel(ctx.surface.panel_id, None, None)
+            .await
+            .map_err(|error| error.to_string())?,
+        SnapshotTabKind::Browser => ctx
+            .space
+            .clone()
+            .new_browser_tab_in_panel(
+                ctx.surface.panel_id,
+                url,
+                workspace_browser_proxy_snapshot(&ctx.workspace).await,
+            )
+            .await
+            .map_err(|error| error.to_string())?,
+    };
+    let created_index = ctx
+        .space
+        .tab_index(created.id)
+        .await
+        .ok_or_else(|| format!("Created surface not found: {}", created.id))?;
+    ctx.space
+        .move_tab_to_panel(
+            ctx.surface.panel_id,
+            created_index,
+            ctx.surface.panel_id,
+            ctx.surface.index.saturating_add(1),
+            focus,
+        )
+        .await
+        .map_err(|error| error.to_string())?;
+    if !focus {
+        let _ = ctx
+            .space
+            .select_tab_in_panel(ctx.surface.panel_id, ctx.surface.index)
+            .await;
+    }
+    let window_ref = compatibility_window_id_for_workspace(daemon, ctx.workspace.id).await;
+    if focus {
+        ctx.space.active_tab_tx.send(created.clone()).ok();
+        daemon.set_active_workspace(ctx.workspace.clone());
+        daemon
+            .set_native_window_active_workspace(&window_ref, ctx.workspace.id)
+            .await;
+    } else {
+        daemon
+            .add_workspace_to_native_window(&window_ref, ctx.workspace.id)
+            .await;
+    }
+    daemon.wake_model();
+    daemon.snapshot_notifier.wake();
+
+    let created_json = compatibility_surface_json_by_tab_id(daemon, created.id).await?;
+    let mut extras = serde_json::Map::new();
+    if let Some(id) = created_json.get("id").cloned() {
+        extras.insert("created_surface_id".to_string(), id.clone());
+        extras.insert("created_tab_id".to_string(), id);
+    }
+    if let Some(numeric_id) = created_json.get("numericId").cloned() {
+        extras.insert("createdNumericSurfaceId".to_string(), numeric_id.clone());
+        extras.insert("createdNumericTabId".to_string(), numeric_id);
+    }
+    extras.insert("created".to_string(), created_json);
+    compatibility_tab_action_payload(daemon, action, ctx, extras).await
+}
+
+async fn compatibility_move_tab_to_new_workspace(
+    daemon: &Arc<Daemon>,
+    action: &str,
+    ctx: &CompatibilityResolvedTabContext,
+    title: Option<String>,
+    focus: bool,
+) -> std::result::Result<serde_json::Value, String> {
+    if ctx.workspace.total_tab_count().await <= 1 {
+        return Err(
+            "Tab cannot be moved to a new workspace because it is the only tab in its workspace"
+                .to_string(),
+        );
+    }
+
+    let title = title
+        .map(|title| title.trim().to_string())
+        .filter(|title| !title.is_empty())
+        .unwrap_or_else(|| ctx.tab.title.load_full().as_ref().clone());
+    let source_workspace_ref = ctx.workspace.external_id.clone();
+    let source_workspace_id = ctx.workspace.id;
+    let source_panel_id = ctx.surface.panel_id;
+    let source_index = ctx.surface.index;
+    let source_window_ref =
+        compatibility_window_id_for_workspace(daemon, source_workspace_id).await;
+    let detached = ctx
+        .space
+        .clone()
+        .detach_tab(ctx.tab.id)
+        .await
+        .map_err(|error| error.to_string())?;
+    let destination = daemon
+        .clone()
+        .new_workspace_with_existing_tab(Some(title), detached.tab.clone(), focus)
+        .await
+        .map_err(|error| error.to_string())?;
+    if detached.emptied_space {
+        ctx.space.dead_tx.send(true).ok();
+    }
+    if focus {
+        daemon.set_active_workspace(destination.clone());
+        daemon
+            .set_native_window_active_workspace(&source_window_ref, destination.id)
+            .await;
+    } else {
+        daemon
+            .add_workspace_to_native_window(&source_window_ref, destination.id)
+            .await;
+    }
+    daemon.wake_model();
+    daemon.snapshot_notifier.wake();
+
+    let moved = compatibility_surface_json_by_tab_id(daemon, detached.tab.id).await?;
+    let destination_workspace_ref = destination.external_id.clone();
+    let destination_panel_id = compatibility_resolved_surface_for_tab(
+        &destination
+            .first_space()
+            .await
+            .ok_or_else(|| "Destination workspace has no space".to_string())?,
+        detached.tab.id,
+    )
+    .await?
+    .panel_id;
+    Ok(serde_json::json!({
+        "action": action,
+        "source_window_id": source_window_ref.clone(),
+        "source_window_ref": source_window_ref.clone(),
+        "source_workspace_id": source_workspace_ref,
+        "source_workspace_ref": source_workspace_ref,
+        "sourceNumericWorkspaceId": source_workspace_id,
+        "source_pane_id": source_panel_id.to_string(),
+        "source_pane_ref": source_panel_id.to_string(),
+        "source_surface_index": source_index,
+        "window_id": source_window_ref.clone(),
+        "window_ref": source_window_ref,
+        "workspace_id": destination_workspace_ref,
+        "workspace_ref": destination_workspace_ref,
+        "created_workspace_id": destination.external_id,
+        "created_workspace_ref": destination.external_id,
+        "numericWorkspaceId": destination.id,
+        "surface_id": detached.tab.external_id,
+        "surface_ref": detached.tab.external_id,
+        "tab_id": detached.tab.external_id,
+        "tab_ref": detached.tab.external_id,
+        "numericSurfaceId": detached.tab.id,
+        "numericTabId": detached.tab.id,
+        "pane_id": destination_panel_id.to_string(),
+        "pane_ref": destination_panel_id.to_string(),
+        "pinned": detached.tab.pinned.load(Ordering::Relaxed),
+        "surface": moved,
+    }))
+}
+
+async fn compatibility_close_relative_tabs(
+    daemon: &Arc<Daemon>,
+    action: &str,
+    ctx: &CompatibilityResolvedTabContext,
+) -> std::result::Result<serde_json::Value, String> {
+    let target_ids = {
+        let panels = ctx.space.panels.lock().await;
+        let leaf = panels
+            .leaves()
+            .into_iter()
+            .find(|leaf| leaf.id == ctx.surface.panel_id)
+            .ok_or_else(|| "Pane not found".to_string())?;
+        match action {
+            "close_left" | "close_to_left" => leaf
+                .tabs
+                .iter()
+                .take(ctx.surface.index)
+                .copied()
+                .collect::<Vec<_>>(),
+            "close_right" | "close_to_right" => leaf
+                .tabs
+                .iter()
+                .skip(ctx.surface.index.saturating_add(1))
+                .copied()
+                .collect::<Vec<_>>(),
+            "close_others" | "close_other_tabs" => leaf
+                .tabs
+                .iter()
+                .copied()
+                .filter(|tab_id| *tab_id != ctx.tab.id)
+                .collect::<Vec<_>>(),
+            _ => return Err(format!("Unsupported tab action: {action}")),
+        }
+    };
+
+    let mut closed = 0usize;
+    let mut skipped_pinned = 0usize;
+    for tab_id in target_ids {
+        if ctx.workspace.total_tab_count().await <= 1 {
+            break;
+        }
+        let Some(tab) = ctx.space.tab_by_id(tab_id).await else {
+            continue;
+        };
+        if tab.pinned.load(Ordering::Relaxed) {
+            skipped_pinned += 1;
+            continue;
+        }
+        ctx.space
+            .clone()
+            .force_close_tab_by_id(tab_id)
+            .await
+            .map_err(|error| error.to_string())?;
+        closed += 1;
+    }
+
+    daemon.wake_model();
+    daemon.snapshot_notifier.wake();
+    let mut extras = serde_json::Map::new();
+    extras.insert("closed".to_string(), serde_json::json!(closed));
+    extras.insert("closed_count".to_string(), serde_json::json!(closed));
+    extras.insert(
+        "skipped_pinned".to_string(),
+        serde_json::json!(skipped_pinned),
+    );
+    compatibility_tab_action_payload(daemon, action, ctx, extras).await
+}
+
+async fn compatibility_tab_action_v2(
+    daemon: &Arc<Daemon>,
+    _method: &str,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let action = compatibility_tab_action(params).ok_or_else(|| "Missing action".to_string())?;
+    let ctx = compatibility_resolve_tab_context_for_params(daemon, params).await?;
+    let focus = compatibility_bool_param(params, &["focus"]).unwrap_or(false);
+
+    match action.as_str() {
+        "rename" => {
+            let title = compatibility_string_param(params, &["title", "name"])
+                .map(|title| title.trim().to_string())
+                .filter(|title| !title.is_empty())
+                .ok_or_else(|| "Missing title".to_string())?;
+            ctx.tab.explicit_title.store(true, Ordering::Relaxed);
+            ctx.tab.title.store(Arc::new(title.clone()));
+            daemon.wake_model();
+            daemon.snapshot_notifier.wake();
+            let mut extras = serde_json::Map::new();
+            extras.insert("title".to_string(), serde_json::json!(title));
+            compatibility_tab_action_payload(daemon, &action, &ctx, extras).await
+        }
+        "clear_name" => {
+            ctx.tab.explicit_title.store(false, Ordering::Relaxed);
+            daemon.wake_model();
+            daemon.snapshot_notifier.wake();
+            compatibility_tab_action_payload(daemon, &action, &ctx, serde_json::Map::new()).await
+        }
+        "pin" => {
+            ctx.tab.pinned.store(true, Ordering::Relaxed);
+            daemon.wake_model();
+            daemon.snapshot_notifier.wake();
+            let mut extras = serde_json::Map::new();
+            extras.insert("pinned".to_string(), serde_json::json!(true));
+            compatibility_tab_action_payload(daemon, &action, &ctx, extras).await
+        }
+        "unpin" => {
+            ctx.tab.pinned.store(false, Ordering::Relaxed);
+            daemon.wake_model();
+            daemon.snapshot_notifier.wake();
+            let mut extras = serde_json::Map::new();
+            extras.insert("pinned".to_string(), serde_json::json!(false));
+            compatibility_tab_action_payload(daemon, &action, &ctx, extras).await
+        }
+        "toggle_pin" => {
+            let pinned = !ctx.tab.pinned.load(Ordering::Relaxed);
+            ctx.tab.pinned.store(pinned, Ordering::Relaxed);
+            daemon.wake_model();
+            daemon.snapshot_notifier.wake();
+            let mut extras = serde_json::Map::new();
+            extras.insert("pinned".to_string(), serde_json::json!(pinned));
+            compatibility_tab_action_payload(daemon, &action, &ctx, extras).await
+        }
+        "mark_read" => {
+            ctx.tab.has_activity.store(false, Ordering::Relaxed);
+            daemon.wake_model();
+            daemon.snapshot_notifier.wake();
+            compatibility_tab_action_payload(daemon, &action, &ctx, serde_json::Map::new()).await
+        }
+        "mark_unread" | "mark_as_unread" => {
+            ctx.tab.has_activity.store(true, Ordering::Relaxed);
+            daemon.wake_model();
+            daemon.snapshot_notifier.wake();
+            compatibility_tab_action_payload(daemon, &action, &ctx, serde_json::Map::new()).await
+        }
+        "reload" | "reload_tab" => {
+            let browser = daemon
+                .browser_reload(ctx.tab.id)
+                .await
+                .map_err(|error| error.to_string())?;
+            let mut extras = serde_json::Map::new();
+            extras.insert("browser".to_string(), serde_json::json!(browser));
+            compatibility_tab_action_payload(daemon, &action, &ctx, extras).await
+        }
+        "duplicate" | "duplicate_tab" => {
+            let browser = daemon
+                .browser_info(ctx.tab.id)
+                .await
+                .map_err(|_| "Duplicate is only available for browser tabs".to_string())?;
+            compatibility_create_tab_to_right(
+                daemon,
+                &ctx,
+                &action,
+                SnapshotTabKind::Browser,
+                browser.url,
+                focus,
+            )
+            .await
+        }
+        "move_to_new_workspace" | "detach_to_workspace" | "detach_to_new_workspace" => {
+            let title = compatibility_string_param(params, &["title", "name"]);
+            compatibility_move_tab_to_new_workspace(daemon, &action, &ctx, title, focus).await
+        }
+        "new_terminal_right" | "new_terminal_to_right" | "new_terminal_tab_to_right" => {
+            compatibility_create_tab_to_right(
+                daemon,
+                &ctx,
+                &action,
+                SnapshotTabKind::Terminal,
+                None,
+                focus,
+            )
+            .await
+        }
+        "new_browser_right" | "new_browser_to_right" | "new_browser_tab_to_right" => {
+            let url = compatibility_string_param(params, &["url"]);
+            compatibility_create_tab_to_right(
+                daemon,
+                &ctx,
+                &action,
+                SnapshotTabKind::Browser,
+                url,
+                focus,
+            )
+            .await
+        }
+        "close_left" | "close_to_left" | "close_right" | "close_to_right" | "close_others"
+        | "close_other_tabs" => compatibility_close_relative_tabs(daemon, &action, &ctx).await,
+        _ => Err(format!("Unsupported tab action: {action}")),
+    }
+}
+
+async fn compatibility_surface_move_is_local_for_request(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> bool {
+    if let Some(window) = compatibility_string_param(params, &["window_id", "windowId", "window"])
+        && !compatibility_window_ref_is_local_or_known(daemon, &window).await
+        && !(compatibility_window_ref_is_materializable(&window)
+            && compatibility_workspace_scope_param(params).is_some())
+    {
+        return false;
+    }
+    compatibility_string_param(
+        params,
+        &[
+            "pane_id",
+            "paneId",
+            "before_surface_id",
+            "beforeSurfaceId",
+            "before",
+            "after_surface_id",
+            "afterSurfaceId",
+            "after",
+        ],
+    )
+    .is_some()
+        || compatibility_usize_param(params, &["index"]).is_some()
+        || compatibility_workspace_scope_param(params).is_some()
+}
+
+fn compatibility_source_workspace_scope_param(params: &serde_json::Value) -> Option<String> {
+    compatibility_string_param(
+        params,
+        &[
+            "source_workspace_id",
+            "sourceWorkspaceId",
+            "source_workspace",
+            "sourceWorkspace",
+            "from_workspace_id",
+            "fromWorkspaceId",
+            "from_workspace",
+            "fromWorkspace",
+        ],
+    )
+}
+
+async fn compatibility_surface_move_source_context(
+    daemon: &Arc<Daemon>,
+    target: &str,
+    source_workspace_ref: Option<String>,
+    destination_workspace_ref: Option<String>,
+) -> std::result::Result<CompatibilityResolvedTabContext, String> {
+    if let Some(source_workspace_ref) = source_workspace_ref {
+        let source_workspace_id =
+            compatibility_workspace_id_from_ref(daemon, &source_workspace_ref).await?;
+        let surface =
+            compatibility_resolve_surface_in_workspace(daemon, source_workspace_id, target).await?;
+        let mut ctx = compatibility_resolve_tab_context_by_tab_id(daemon, surface.tab_id).await?;
+        if ctx.workspace.id != source_workspace_id {
+            return Err("Surface not found in source workspace".to_string());
+        }
+        ctx.surface = surface;
+        return Ok(ctx);
+    }
+
+    if let Some(destination_workspace_ref) = destination_workspace_ref {
+        let destination_workspace_id =
+            compatibility_workspace_id_from_ref(daemon, &destination_workspace_ref).await?;
+        if let Ok(surface) =
+            compatibility_resolve_surface_in_workspace(daemon, destination_workspace_id, target)
+                .await
+        {
+            let mut ctx =
+                compatibility_resolve_tab_context_by_tab_id(daemon, surface.tab_id).await?;
+            if ctx.workspace.id == destination_workspace_id {
+                ctx.surface = surface;
+                return Ok(ctx);
+            }
+        }
+    }
+
+    compatibility_resolve_tab_context(daemon, target).await
+}
+
+async fn compatibility_surface_move_destination_workspace_id(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+    source_workspace_id: u64,
+) -> std::result::Result<u64, String> {
+    if let Some(workspace_ref) = compatibility_workspace_scope_param(params) {
+        return compatibility_workspace_id_from_ref(daemon, &workspace_ref).await;
+    }
+    if let Some(window_ref) = compatibility_window_ref_for_params(daemon, params).await?
+        && let Some(window_state) = daemon.native_window_state(&window_ref).await
+    {
+        return Ok(window_state.active_ws_id);
+    }
+    Ok(source_workspace_id)
+}
+
+async fn compatibility_surface_move_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    if let Some(window) = compatibility_string_param(params, &["window_id", "windowId", "window"])
+        && !compatibility_window_ref_is_local_or_known(daemon, &window).await
+        && !(compatibility_window_ref_is_materializable(&window)
+            && compatibility_workspace_scope_param(params).is_some())
+    {
+        return compatibility_native_worker_v2(daemon, "surface.move", params).await;
+    }
+    let target =
+        compatibility_surface_ref_param(params).ok_or_else(|| "Missing surface_id".to_string())?;
+    let destination_workspace_ref = compatibility_workspace_scope_param(params);
+    let mut ctx = compatibility_surface_move_source_context(
+        daemon,
+        &target,
+        compatibility_source_workspace_scope_param(params),
+        destination_workspace_ref.clone(),
+    )
+    .await?;
+    let surface = ctx.surface.clone();
+    let destination_workspace_id =
+        compatibility_surface_move_destination_workspace_id(daemon, params, ctx.workspace.id)
+            .await?;
+    let destination_workspace = daemon
+        .workspace_by_id(destination_workspace_id)
+        .await
+        .ok_or_else(|| format!("Workspace not found: {destination_workspace_id}"))?;
+    let destination_space = destination_workspace
+        .first_space()
+        .await
+        .ok_or_else(|| "Destination workspace has no space".to_string())?;
+    let index = compatibility_usize_param(params, &["index"]);
+    let before = match compatibility_string_param(
+        params,
+        &["before_surface_id", "beforeSurfaceId", "before"],
+    ) {
+        Some(target) => Some(
+            compatibility_resolve_surface_in_workspace(daemon, destination_workspace_id, &target)
+                .await?,
+        ),
+        None => None,
+    };
+    let after = match compatibility_string_param(
+        params,
+        &["after_surface_id", "afterSurfaceId", "after"],
+    ) {
+        Some(target) => Some(
+            compatibility_resolve_surface_in_workspace(daemon, destination_workspace_id, &target)
+                .await?,
+        ),
+        None => None,
+    };
+    let pane_id = match compatibility_string_param(params, &["pane_id", "paneId", "pane"]) {
+        Some(target) => Some(
+            compatibility_panel_id_in_workspace(daemon, destination_workspace_id, &target).await?,
+        ),
+        None => None,
+    };
+    let (to_panel_id, to) = if let Some(before) = before {
+        (before.panel_id, before.index)
+    } else if let Some(after) = after {
+        (after.panel_id, after.index + 1)
+    } else if let Some(pane_id) = pane_id {
+        (pane_id, index.unwrap_or(usize::MAX))
+    } else if let Some(index) = index {
+        if destination_workspace_id == ctx.workspace.id {
+            (surface.panel_id, index)
+        } else {
+            (
+                destination_space.default_panel_id().await.unwrap_or(0),
+                index,
+            )
+        }
+    } else if destination_workspace_id != ctx.workspace.id {
+        (
+            destination_space.default_panel_id().await.unwrap_or(0),
+            usize::MAX,
+        )
+    } else {
+        return Err("Missing move target".to_string());
+    };
+    let focus = compatibility_bool_param(params, &["focus"]).unwrap_or(false);
+    let moved = if destination_workspace_id == ctx.workspace.id {
+        ctx.space
+            .move_tab_to_panel(surface.panel_id, surface.index, to_panel_id, to, focus)
+            .await
+            .map_err(|error| error.to_string())?
+    } else {
+        if ctx.workspace.total_tab_count().await <= 1 {
+            return Err(
+                "Surface cannot be moved to another workspace because it is the only surface in its workspace"
+                    .to_string(),
+            );
+        }
+        let detached = ctx
+            .space
+            .clone()
+            .detach_tab(ctx.tab.id)
+            .await
+            .map_err(|error| error.to_string())?;
+        let moved = destination_space
+            .clone()
+            .insert_existing_tab_in_panel(to_panel_id, detached.tab.clone(), to, focus)
+            .await
+            .map_err(|error| error.to_string())?;
+        if detached.emptied_space {
+            ctx.space.dead_tx.send(true).ok();
+        }
+        ctx.workspace = destination_workspace.clone();
+        ctx.space = destination_space.clone();
+        ctx.surface = compatibility_resolved_surface_for_tab(&destination_space, moved.id).await?;
+        moved
+    };
+    let window_ref = match compatibility_string_param(params, &["window_id", "windowId", "window"])
+    {
+        Some(window) => {
+            compatibility_resolve_or_materialize_window_ref(daemon, Some(&window)).await?
+        }
+        None => {
+            compatibility_window_ref_for_workspace_params(daemon, params, destination_workspace.id)
+                .await?
+        }
+    };
+    if focus {
+        ctx.space.active_tab_tx.send(moved.clone()).ok();
+        daemon.set_active_workspace(destination_workspace.clone());
+        daemon
+            .set_native_window_active_workspace(&window_ref, destination_workspace.id)
+            .await;
+    } else {
+        daemon
+            .add_workspace_to_native_window(&window_ref, destination_workspace.id)
+            .await;
+        wake_space_repaint(&ctx.space);
+    }
+    daemon.wake_model();
+    daemon.snapshot_notifier.wake();
+
+    let mut payload = compatibility_surface_json_by_tab_id(daemon, surface.tab_id).await?;
+    if let Some(object) = payload.as_object_mut() {
+        compatibility_insert_window_ref(object, &window_ref);
+        object.insert(
+            "workspace_id".to_string(),
+            serde_json::json!(destination_workspace.external_id),
+        );
+        object.insert(
+            "workspace_ref".to_string(),
+            serde_json::json!(destination_workspace.external_id),
+        );
+        object.insert(
+            "numericWorkspaceId".to_string(),
+            serde_json::json!(destination_workspace.id),
+        );
+        object.insert(
+            "surface_id".to_string(),
+            serde_json::json!(moved.external_id),
+        );
+        object.insert(
+            "surface_ref".to_string(),
+            serde_json::json!(moved.external_id),
+        );
+        object.insert("tab_id".to_string(), serde_json::json!(moved.external_id));
+        object.insert("tab_ref".to_string(), serde_json::json!(moved.external_id));
+    }
+    Ok(payload)
+}
+
+fn compatibility_split_drop_edge(raw: &str) -> Option<SplitDropEdge> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "left" => Some(SplitDropEdge::Left),
+        "right" => Some(SplitDropEdge::Right),
+        "top" | "up" => Some(SplitDropEdge::Top),
+        "bottom" | "down" => Some(SplitDropEdge::Bottom),
+        _ => None,
+    }
+}
+
+async fn compatibility_surface_split_off_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let _source_target =
+        compatibility_surface_ref_param(params).ok_or_else(|| "Missing surface_id".to_string())?;
+    let edge = compatibility_string_param(params, &["direction", "edge"])
+        .and_then(|edge| compatibility_split_drop_edge(&edge))
+        .ok_or_else(|| "Missing or invalid direction".to_string())?;
+    let ctx = compatibility_resolve_tab_context_for_params(daemon, params).await?;
+    let snapshot = compatibility_native_snapshot_for_workspace(daemon, ctx.workspace.id).await?;
+    let source_panel = compatibility_panel_entries(&snapshot)
+        .into_iter()
+        .find(|panel| panel.panel_id == ctx.surface.panel_id)
+        .ok_or_else(|| "Source pane not found".to_string())?;
+    if source_panel.tabs.len() <= 1 {
+        return Err("splitting off would leave the source pane empty".to_string());
+    }
+
+    let focus = compatibility_bool_param(params, &["focus"]).unwrap_or(false);
+    let panel_edge = match edge {
+        SplitDropEdge::Left => PanelEdge::Left,
+        SplitDropEdge::Right => PanelEdge::Right,
+        SplitDropEdge::Top => PanelEdge::Top,
+        SplitDropEdge::Bottom => PanelEdge::Bottom,
+    };
+    let (new_panel_id, moved_tab) = ctx
+        .space
+        .clone()
+        .move_tab_to_split(
+            ctx.surface.panel_id,
+            ctx.surface.index,
+            ctx.surface.panel_id,
+            panel_edge,
+            focus,
+        )
+        .await
+        .map_err(|error| error.to_string())?;
+    ctx.space.zoomed.store(false, Ordering::Relaxed);
+    let window_ref =
+        compatibility_window_ref_for_workspace_params(daemon, params, ctx.workspace.id).await?;
+    if focus {
+        ctx.space.active_tab_tx.send(moved_tab.clone()).ok();
+        daemon.set_active_workspace(ctx.workspace.clone());
+        daemon
+            .set_native_window_active_workspace(&window_ref, ctx.workspace.id)
+            .await;
+    } else {
+        daemon
+            .add_workspace_to_native_window(&window_ref, ctx.workspace.id)
+            .await;
+        wake_space_repaint(&ctx.space);
+    }
+    daemon.wake_model();
+    daemon.snapshot_notifier.wake();
+
+    let moved = compatibility_surface_json_by_tab_id(daemon, moved_tab.id).await?;
+    let pane_id = moved
+        .get("panelId")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!(new_panel_id.to_string()));
+    let surface_id = moved.get("id").cloned().unwrap_or(serde_json::Value::Null);
+    let workspace_id = ctx.workspace.external_id.clone();
+    Ok(serde_json::json!({
+        "window_id": window_ref.clone(),
+        "window_ref": window_ref,
+        "workspace_id": workspace_id,
+        "workspace_ref": workspace_id,
+        "surface_id": surface_id,
+        "surface_ref": surface_id,
+        "pane_id": pane_id,
+        "pane_ref": pane_id,
+        "surface": moved,
+    }))
+}
+
+async fn compatibility_surface_drag_to_split_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let source_target =
+        compatibility_surface_ref_param(params).ok_or_else(|| "Missing surface_id".to_string())?;
+    let target_target = compatibility_string_param(
+        params,
+        &[
+            "target_surface_id",
+            "targetSurfaceId",
+            "target_surface",
+            "targetSurface",
+            "target",
+        ],
+    )
+    .ok_or_else(|| "Missing target_surface_id".to_string())?;
+    let edge = compatibility_string_param(params, &["edge", "direction"])
+        .and_then(|edge| compatibility_split_drop_edge(&edge))
+        .ok_or_else(|| "Missing or invalid edge".to_string())?;
+    let workspace_id = match compatibility_workspace_scope_param(params) {
+        Some(target) => compatibility_workspace_id_from_ref(daemon, &target).await?,
+        None => daemon.active_ws_rx.borrow().id,
+    };
+    let source =
+        compatibility_resolve_surface_in_workspace(daemon, workspace_id, &source_target).await?;
+    let target =
+        compatibility_resolve_surface_in_workspace(daemon, workspace_id, &target_target).await?;
+    let ctx = compatibility_resolve_tab_context_by_tab_id(daemon, source.tab_id).await?;
+    if ctx.workspace.id != workspace_id {
+        return Err("Surface not found in workspace".to_string());
+    }
+    let focus = compatibility_bool_param(params, &["focus"]).unwrap_or(true);
+    let panel_edge = match edge {
+        SplitDropEdge::Left => PanelEdge::Left,
+        SplitDropEdge::Right => PanelEdge::Right,
+        SplitDropEdge::Top => PanelEdge::Top,
+        SplitDropEdge::Bottom => PanelEdge::Bottom,
+    };
+    let (new_panel_id, moved_tab) = ctx
+        .space
+        .clone()
+        .move_tab_to_split(
+            source.panel_id,
+            source.index,
+            target.panel_id,
+            panel_edge,
+            focus,
+        )
+        .await
+        .map_err(|error| error.to_string())?;
+    ctx.space.zoomed.store(false, Ordering::Relaxed);
+    let window_ref =
+        compatibility_window_ref_for_workspace_params(daemon, params, ctx.workspace.id).await?;
+    if focus {
+        ctx.space.active_tab_tx.send(moved_tab.clone()).ok();
+        daemon.set_active_workspace(ctx.workspace.clone());
+        daemon
+            .set_native_window_active_workspace(&window_ref, ctx.workspace.id)
+            .await;
+    } else {
+        daemon
+            .add_workspace_to_native_window(&window_ref, ctx.workspace.id)
+            .await;
+        wake_space_repaint(&ctx.space);
+    }
+    daemon.wake_model();
+    daemon.snapshot_notifier.wake();
+    let mut payload = compatibility_surface_json_by_tab_id(daemon, source.tab_id).await?;
+    if let Some(object) = payload.as_object_mut() {
+        compatibility_insert_window_ref(object, &window_ref);
+        object.insert(
+            "workspace_id".to_string(),
+            serde_json::json!(ctx.workspace.external_id),
+        );
+        object.insert(
+            "workspace_ref".to_string(),
+            serde_json::json!(ctx.workspace.external_id),
+        );
+        object.insert(
+            "surface_id".to_string(),
+            serde_json::json!(moved_tab.external_id),
+        );
+        object.insert(
+            "surface_ref".to_string(),
+            serde_json::json!(moved_tab.external_id),
+        );
+        object.insert(
+            "pane_id".to_string(),
+            serde_json::json!(new_panel_id.to_string()),
+        );
+        object.insert(
+            "pane_ref".to_string(),
+            serde_json::json!(new_panel_id.to_string()),
+        );
+    }
+    Ok(payload)
+}
+
+async fn compatibility_surface_refresh_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let workspace_id = match compatibility_workspace_scope_param(params) {
+        Some(target) => compatibility_workspace_id_from_ref(daemon, &target).await?,
+        None => match compatibility_surface_ref_param(params) {
+            Some(target) => {
+                compatibility_resolve_tab_context(daemon, &target)
+                    .await?
+                    .workspace
+                    .id
+            }
+            None => daemon.active_ws_rx.borrow().id,
+        },
+    };
+    let window_ref =
+        compatibility_window_ref_for_workspace_params(daemon, params, workspace_id).await?;
+    let snapshot = compatibility_native_snapshot_for_workspace_and_window(
+        daemon,
+        workspace_id,
+        Some(&window_ref),
+    )
+    .await?;
+    let refreshed = compatibility_surface_entries(&snapshot)
+        .iter()
+        .filter(|surface| surface.tab.kind == NativeTabKind::Terminal)
+        .count();
+    daemon.wake_model();
+    daemon.snapshot_notifier.wake();
+    let workspace_id = snapshot
+        .workspaces
+        .get(snapshot.active_workspace)
+        .map(compat_workspace_ref)
+        .unwrap_or_else(|| snapshot.active_workspace_id.to_string());
+    Ok(serde_json::json!({
+        "window_id": window_ref.clone(),
+        "window_ref": window_ref,
+        "workspace_id": workspace_id,
+        "workspace_ref": workspace_id,
+        "refreshed": refreshed,
+    }))
+}
+
+async fn compatibility_surface_clear_history_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let ctx = compatibility_resolve_tab_context_for_params(daemon, params).await?;
+    if ctx.tab.kind != SnapshotTabKind::Terminal {
+        return Err("Surface is not a terminal".to_string());
+    }
+    let bytes = TERMINAL_CLEAR_HISTORY_SEQUENCE.to_vec();
+    record_pty_replay(&ctx.tab.pty_replay, &bytes);
+    daemon.broker.pty_bytes(ctx.tab.id, bytes.clone());
+    let _ = ctx.tab.output_tx.send(bytes);
+    daemon.wake_model();
+    daemon.snapshot_notifier.wake();
+
+    let window_ref =
+        compatibility_window_ref_for_workspace_params(daemon, params, ctx.workspace.id).await?;
+    Ok(serde_json::json!({
+        "window_id": window_ref.clone(),
+        "window_ref": window_ref,
+        "workspace_id": ctx.workspace.external_id,
+        "workspace_ref": ctx.workspace.external_id,
+        "surface_id": ctx.tab.external_id,
+        "surface_ref": ctx.tab.external_id,
+    }))
+}
+
+async fn compatibility_surface_health_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let target = compatibility_surface_ref_param(params);
+    let workspace_id = match compatibility_workspace_scope_param(params) {
+        Some(target) => compatibility_workspace_id_from_ref(daemon, &target).await?,
+        None => match target.as_deref() {
+            Some(target) => {
+                compatibility_resolve_tab_context(daemon, target)
+                    .await?
+                    .workspace
+                    .id
+            }
+            None => daemon.active_ws_rx.borrow().id,
+        },
+    };
+    let window_ref =
+        compatibility_window_ref_for_workspace_params(daemon, params, workspace_id).await?;
+    let snapshot = compatibility_native_snapshot_for_workspace_and_window(
+        daemon,
+        workspace_id,
+        Some(&window_ref),
+    )
+    .await?;
+    let surfaces = compatibility_surface_entries(&snapshot);
+    let mut items = Vec::new();
+    for surface in surfaces {
+        if let Some(target) = target.as_deref()
+            && surface.tab.id.to_string() != target
+            && surface.tab.external_id.as_deref() != Some(target)
+            && compat_tab_ref(surface.tab) != target
+        {
+            continue;
+        }
+        items.push(serde_json::json!({
+            "index": surface.index,
+            "id": compat_tab_ref(surface.tab),
+            "ref": compat_tab_ref(surface.tab),
+            "numericId": surface.tab.id,
+            "pane_id": surface.panel_id.to_string(),
+            "numericPaneId": surface.panel_id,
+            "type": surface.tab.kind,
+            "kind": surface.tab.kind,
+            "in_window": true,
+        }));
+    }
+    if target.is_some() && items.is_empty() {
+        return Err("Surface not found".to_string());
+    }
+    Ok(serde_json::json!({
+        "window_id": window_ref.clone(),
+        "window_ref": window_ref,
+        "workspace_id": snapshot
+            .workspaces
+            .get(snapshot.active_workspace)
+            .map(compat_workspace_ref)
+            .unwrap_or_else(|| snapshot.active_workspace_id.to_string()),
+        "numericWorkspaceId": snapshot.active_workspace_id,
+        "surfaces": items,
+    }))
+}
+
+async fn compatibility_surface_health_legacy(
+    daemon: &Arc<Daemon>,
+    args: &str,
+) -> std::result::Result<String, String> {
+    let params = compatibility_workspace_target_from_args(args)
+        .map(|workspace| serde_json::json!({ "workspace_id": workspace }))
+        .unwrap_or_else(|| serde_json::json!({}));
+    let payload = compatibility_surface_health_v2(daemon, &params).await?;
+    let surfaces = payload
+        .get("surfaces")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| "surface health unavailable".to_string())?;
+    if surfaces.is_empty() {
+        return Ok("No panels".to_string());
+    }
+    Ok(surfaces
+        .iter()
+        .enumerate()
+        .map(|(index, surface)| {
+            let id = surface
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("");
+            let kind = surface
+                .get("type")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("unknown");
+            let pane = surface
+                .get("pane_id")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("");
+            format!("{index}: {id} type={kind} in_window=true pane_id={pane}")
+        })
+        .collect::<Vec<_>>()
+        .join("\n"))
+}
+
+async fn compatibility_surface_trigger_flash_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let ctx = compatibility_resolve_tab_context_for_params(daemon, params).await?;
+    let flash_deadline = now_unix_millis() + FLASH_TOTAL_MS;
+    compatibility_trigger_flash_tab_id(daemon, ctx.tab.id).await?;
+
+    let mut payload = compatibility_surface_json_by_tab_id(daemon, ctx.tab.id).await?;
+    if let Some(object) = payload.as_object_mut() {
+        let window_ref =
+            compatibility_window_ref_for_workspace_params(daemon, params, ctx.workspace.id).await?;
+        compatibility_insert_window_ref(object, &window_ref);
+        object.insert(
+            "workspace_id".to_string(),
+            serde_json::json!(ctx.workspace.external_id),
+        );
+        object.insert(
+            "workspace_ref".to_string(),
+            serde_json::json!(ctx.workspace.external_id),
+        );
+        object.insert("flashing".to_string(), serde_json::json!(true));
+        object.insert(
+            "flashUntilUnixMs".to_string(),
+            serde_json::json!(flash_deadline),
+        );
+    }
+    Ok(payload)
+}
+
+async fn compatibility_pane_resize_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let direction = compatibility_string_param(params, &["direction"])
+        .map(|direction| direction.to_ascii_lowercase())
+        .ok_or_else(|| "Missing direction".to_string())?;
+    let amount = compatibility_usize_param(params, &["amount", "delta"]).unwrap_or(5);
+    let step = i16::try_from(amount.saturating_mul(10).min(900))
+        .map_err(|_| "Invalid amount".to_string())?;
+    let delta = match direction.as_str() {
+        "left" | "up" => -step,
+        "right" | "down" => step,
+        _ => return Err("direction must be one of left|right|up|down".to_string()),
+    };
+    let workspace_id = match compatibility_workspace_scope_param(params) {
+        Some(target) => Some(compatibility_workspace_id_from_ref(daemon, &target).await?),
+        None => None,
+    };
+    let window_ref = match compatibility_window_ref_for_params(daemon, params).await? {
+        Some(window_ref) => window_ref,
+        None => match workspace_id {
+            Some(workspace_id) => compatibility_window_id_for_workspace(daemon, workspace_id).await,
+            None => compatibility_current_window_id(daemon).await,
+        },
+    };
+    if let Some(target) = compatibility_pane_ref_param(params) {
+        let panel_id = match workspace_id {
+            Some(workspace_id) => {
+                compatibility_panel_id_in_workspace(daemon, workspace_id, &target).await?
+            }
+            None => compatibility_panel_id(daemon, &target).await?,
+        };
+        compatibility_run_status_for_window(daemon, &window_ref, Command::FocusPanel { panel_id })
+            .await?;
+    }
+    compatibility_run_status_for_window(daemon, &window_ref, Command::ResizePane { delta }).await?;
+    match workspace_id {
+        Some(workspace_id) => compatibility_native_snapshot_for_workspace_and_window(
+            daemon,
+            workspace_id,
+            Some(&window_ref),
+        )
+        .await
+        .map(|snapshot| compatibility_panes_json(&snapshot)),
+        None => {
+            let mut window = WindowState::new_for_compatibility(daemon, Some(&window_ref)).await;
+            build_native_snapshot(daemon, &mut window)
+                .await
+                .map(|snapshot| compatibility_panes_json(&snapshot))
+                .map_err(|error| error.to_string())
+        }
+    }
+}
+
+async fn compatibility_pane_last_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let workspace_id = compatibility_workspace_id_from_params_or_active(daemon, params).await?;
+    let window_ref =
+        compatibility_window_ref_for_workspace_params(daemon, params, workspace_id).await?;
+    let mut window = WindowState::new_for_compatibility(daemon, Some(&window_ref)).await;
+    window.set_active_workspace_id(workspace_id);
+    window.add_workspace_member(workspace_id);
+    let snapshot = build_native_snapshot(daemon, &mut window)
+        .await
+        .map_err(|error| error.to_string())?;
+    let target = compatibility_panel_entries(&snapshot)
+        .into_iter()
+        .find(|panel| panel.panel_id != snapshot.focused_panel_id)
+        .map(|panel| panel.panel_id)
+        .ok_or_else(|| "No alternate pane available".to_string())?;
+    let (reply, _side_effect, _repaint) = run_window_command(
+        daemon,
+        &mut window,
+        Command::FocusPanel { panel_id: target },
+        (80, 24),
+    )
+    .await;
+    daemon.update_native_window_state(&window).await;
+    match reply {
+        CommandResult::Ok { .. } => {}
+        CommandResult::Err { message } => return Err(message),
+    }
+    build_native_snapshot(daemon, &mut window)
+        .await
+        .map(|snapshot| compatibility_panes_json(&snapshot))
+        .map_err(|error| error.to_string())
+}
+
+async fn compatibility_pane_join_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let target_pane = compatibility_string_param(
+        params,
+        &[
+            "target_pane_id",
+            "targetPaneId",
+            "target_pane",
+            "targetPane",
+            "target",
+        ],
+    )
+    .ok_or_else(|| "Missing target_pane_id".to_string())?;
+    let source_surface = match compatibility_surface_ref_param(params) {
+        Some(surface) => surface,
+        None => {
+            let workspace_id = match compatibility_workspace_scope_param(params) {
+                Some(target) => compatibility_workspace_id_from_ref(daemon, &target).await?,
+                None => daemon.active_ws_rx.borrow().id,
+            };
+            let source_pane = compatibility_source_pane_ref_param(params)
+                .ok_or_else(|| "Missing surface_id".to_string())?;
+            let source_panel_id =
+                compatibility_panel_id_in_workspace(daemon, workspace_id, &source_pane).await?;
+            let window_ref =
+                compatibility_window_ref_for_workspace_params(daemon, params, workspace_id).await?;
+            let snapshot = compatibility_native_snapshot_for_workspace_and_window(
+                daemon,
+                workspace_id,
+                Some(&window_ref),
+            )
+            .await?;
+            compatibility_panel_entries(&snapshot)
+                .into_iter()
+                .find(|panel| panel.panel_id == source_panel_id)
+                .map(|panel| panel.active_tab_id.to_string())
+                .ok_or_else(|| format!("Pane not found: {source_pane}"))?
+        }
+    };
+    let ctx = compatibility_resolve_tab_context(daemon, &source_surface).await?;
+    let target_panel_id =
+        compatibility_panel_id_in_workspace(daemon, ctx.workspace.id, &target_pane).await?;
+    let focus = compatibility_bool_param(params, &["focus"]).unwrap_or(false);
+    let moved = ctx
+        .space
+        .move_tab_to_panel(
+            ctx.surface.panel_id,
+            ctx.surface.index,
+            target_panel_id,
+            usize::MAX,
+            focus,
+        )
+        .await
+        .map_err(|error| error.to_string())?;
+    let window_ref = if focus {
+        compatibility_remember_focused_tab_for_params(
+            daemon,
+            params,
+            &ctx.workspace,
+            &ctx.space,
+            target_panel_id,
+            &moved,
+        )
+        .await?
+    } else {
+        wake_space_repaint(&ctx.space);
+        compatibility_window_ref_for_workspace_params(daemon, params, ctx.workspace.id).await?
+    };
+    daemon.wake_model();
+    daemon.snapshot_notifier.wake();
+
+    let moved_ctx = compatibility_resolve_tab_context_by_tab_id(daemon, moved.id).await?;
+    let mut payload = compatibility_surface_json_by_tab_id(daemon, moved.id).await?;
+    compatibility_apply_tab_context_to_result(&mut payload, &moved_ctx, &window_ref);
+    Ok(payload)
+}
+
+async fn compatibility_pane_swap_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let source_pane =
+        compatibility_source_pane_ref_param(params).ok_or_else(|| "Missing pane_id".to_string())?;
+    let target_pane = compatibility_string_param(
+        params,
+        &[
+            "target_pane_id",
+            "targetPaneId",
+            "target_pane",
+            "targetPane",
+            "target",
+        ],
+    )
+    .ok_or_else(|| "Missing target_pane_id".to_string())?;
+    let workspace_id = match compatibility_workspace_scope_param(params) {
+        Some(target) => compatibility_workspace_id_from_ref(daemon, &target).await?,
+        None => daemon.active_ws_rx.borrow().id,
+    };
+    let window_ref =
+        compatibility_window_ref_for_workspace_params(daemon, params, workspace_id).await?;
+    let source_panel_id =
+        compatibility_panel_id_in_workspace(daemon, workspace_id, &source_pane).await?;
+    let target_panel_id =
+        compatibility_panel_id_in_workspace(daemon, workspace_id, &target_pane).await?;
+    if source_panel_id == target_panel_id {
+        return Err("pane_id and target_pane_id must be different".to_string());
+    }
+
+    let mut window = WindowState::new_for_compatibility(daemon, Some(&window_ref)).await;
+    window.set_active_workspace_id(workspace_id);
+    window.add_workspace_member(workspace_id);
+    let workspace = window
+        .active_workspace(daemon)
+        .await
+        .map_err(|error| error.to_string())?;
+    let space = window
+        .active_space(&workspace)
+        .await
+        .map_err(|error| error.to_string())?;
+    let (source_tab, target_tab) = space
+        .swap_active_tabs(source_panel_id, target_panel_id)
+        .await
+        .map_err(|error| error.to_string())?;
+
+    let focus = compatibility_bool_param(params, &["focus"]).unwrap_or(false);
+    if focus {
+        source_tab.has_activity.store(false, Ordering::Relaxed);
+        space
+            .default_panel_id
+            .store(target_panel_id, Ordering::Relaxed);
+        window.remember_panel(&workspace, &space, target_panel_id, source_tab.id);
+        space.active_tab_tx.send(source_tab.clone()).ok();
+    } else {
+        wake_space_repaint(&space);
+    }
+    daemon.update_native_window_state(&window).await;
+    daemon.wake_model();
+    daemon.snapshot_notifier.wake();
+
+    Ok(serde_json::json!({
+        "window_id": window_ref.clone(),
+        "window_ref": window_ref,
+        "workspace_id": workspace.external_id,
+        "workspace_ref": workspace.external_id,
+        "pane_id": source_panel_id.to_string(),
+        "pane_ref": source_panel_id.to_string(),
+        "target_pane_id": target_panel_id.to_string(),
+        "target_pane_ref": target_panel_id.to_string(),
+        "source_surface_id": source_tab.external_id,
+        "source_surface_ref": source_tab.external_id,
+        "target_surface_id": target_tab.external_id,
+        "target_surface_ref": target_tab.external_id,
+    }))
+}
+
+async fn compatibility_pane_break_v2(
+    daemon: &Arc<Daemon>,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let source_surface = match compatibility_surface_ref_param(params) {
+        Some(surface) => surface,
+        None => match compatibility_source_pane_ref_param(params) {
+            Some(source_pane) => {
+                let workspace_id = match compatibility_workspace_scope_param(params) {
+                    Some(target) => compatibility_workspace_id_from_ref(daemon, &target).await?,
+                    None => daemon.active_ws_rx.borrow().id,
+                };
+                let source_panel_id =
+                    compatibility_panel_id_in_workspace(daemon, workspace_id, &source_pane).await?;
+                let window_ref =
+                    compatibility_window_ref_for_workspace_params(daemon, params, workspace_id)
+                        .await?;
+                let snapshot = compatibility_native_snapshot_for_workspace_and_window(
+                    daemon,
+                    workspace_id,
+                    Some(&window_ref),
+                )
+                .await?;
+                compatibility_panel_entries(&snapshot)
+                    .into_iter()
+                    .find(|panel| panel.panel_id == source_panel_id)
+                    .map(|panel| panel.active_tab_id.to_string())
+                    .ok_or_else(|| format!("Pane not found: {source_pane}"))?
+            }
+            None => {
+                let snapshot = compatibility_native_snapshot(daemon).await?;
+                snapshot.focused_tab_id.to_string()
+            }
+        },
+    };
+    let ctx = compatibility_resolve_tab_context(daemon, &source_surface).await?;
+    let source_window_ref =
+        compatibility_window_ref_for_workspace_params(daemon, params, ctx.workspace.id).await?;
+    let focus = compatibility_bool_param(params, &["focus"]).unwrap_or(false);
+    let title = compatibility_string_param(params, &["title", "name"])
+        .unwrap_or_else(|| ctx.tab.title.load_full().as_ref().clone());
+    let detached = ctx
+        .space
+        .clone()
+        .detach_tab(ctx.tab.id)
+        .await
+        .map_err(|error| error.to_string())?;
+    let destination = daemon
+        .clone()
+        .new_workspace_with_existing_tab(Some(title), detached.tab.clone(), focus)
+        .await
+        .map_err(|error| error.to_string())?;
+    if detached.emptied_space {
+        ctx.space.dead_tx.send(true).ok();
+    }
+    if focus {
+        daemon
+            .set_native_window_active_workspace(&source_window_ref, destination.id)
+            .await;
+    } else {
+        daemon
+            .add_workspace_to_native_window(&source_window_ref, destination.id)
+            .await;
+    }
+    daemon.wake_model();
+    daemon.snapshot_notifier.wake();
+
+    Ok(serde_json::json!({
+        "window_id": source_window_ref.clone(),
+        "window_ref": source_window_ref,
+        "workspace_id": destination.external_id,
+        "workspace_ref": destination.external_id,
+        "pane_id": "0",
+        "pane_ref": "0",
+        "surface_id": detached.tab.external_id,
+        "surface_ref": detached.tab.external_id,
+    }))
+}
+
+fn compat_workspace_ref(workspace: &WorkspaceInfo) -> String {
+    workspace
+        .external_id
+        .clone()
+        .unwrap_or_else(|| workspace.id.to_string())
+}
+
+fn compat_tab_ref(tab: &TabInfo) -> String {
+    tab.external_id
+        .clone()
+        .unwrap_or_else(|| tab.id.to_string())
+}
+
+fn format_legacy_workspaces(workspaces: &[WorkspaceInfo], active: usize) -> String {
+    if workspaces.is_empty() {
+        return "No workspaces".to_string();
+    }
+    workspaces
+        .iter()
+        .enumerate()
+        .map(|(index, workspace)| {
+            let marker = if index == active { "*" } else { " " };
+            format!(
+                "{marker} {index}: {} {}",
+                compat_workspace_ref(workspace),
+                workspace.title
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn format_legacy_panes(snapshot: &NativeSnapshot) -> String {
+    let panels = compatibility_panel_entries(snapshot);
+    if panels.is_empty() {
+        return "No panes".to_string();
+    }
+    panels
+        .iter()
+        .enumerate()
+        .map(|(index, panel)| {
+            let marker = if panel.panel_id == snapshot.focused_panel_id {
+                "*"
+            } else {
+                " "
+            };
+            format!(
+                "{marker} {index}: {} [{} tabs]",
+                panel.panel_id,
+                panel.tabs.len()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn format_legacy_surfaces(snapshot: &NativeSnapshot) -> String {
+    let surfaces = compatibility_surface_entries(snapshot);
+    if surfaces.is_empty() {
+        return "No surfaces".to_string();
+    }
+    surfaces
+        .iter()
+        .enumerate()
+        .map(|(index, surface)| {
+            let marker = if surface.tab.id == snapshot.focused_tab_id {
+                "*"
+            } else {
+                " "
+            };
+            format!(
+                "{marker} {index}: {} panel={} {}",
+                compat_tab_ref(surface.tab),
+                surface.panel_id,
+                surface.tab.title
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn format_legacy_pane_surfaces(snapshot: &NativeSnapshot, args: &str) -> String {
+    let panels = compatibility_panel_entries(snapshot);
+    let parts = args.split_whitespace().collect::<Vec<_>>();
+    let mut target = "";
+    let mut index = 0usize;
+    while index < parts.len() {
+        let part = parts[index];
+        if let Some(value) = part.strip_prefix("--pane=") {
+            target = value;
+            break;
+        }
+        if part == "--pane" {
+            target = parts.get(index + 1).copied().unwrap_or("");
+            break;
+        }
+        if !part.starts_with("--") {
+            target = part;
+            break;
+        }
+        index = index.saturating_add(1);
+    }
+    let panel = if target.is_empty() {
+        panels
+            .iter()
+            .find(|panel| panel.panel_id == snapshot.focused_panel_id)
+    } else {
+        compatibility_panel_entry_from_target(&panels, target)
+    };
+    let Some(panel) = panel else {
+        return "ERROR: Pane not found".to_string();
+    };
+    if panel.tabs.is_empty() {
+        return "No surfaces".to_string();
+    }
+    panel
+        .tabs
+        .iter()
+        .enumerate()
+        .map(|(index, tab)| {
+            let marker = if index == panel.active { "*" } else { " " };
+            format!("{marker} {index}: {} {}", compat_tab_ref(tab), tab.title)
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn compatibility_default_remote_status_value() -> serde_json::Value {
+    serde_json::json!({
+        "enabled": false,
+        "state": "disconnected",
+        "connected": false,
+        "active_terminal_sessions": 0,
+        "daemon": {
+            "state": "unavailable",
+            "detail": serde_json::Value::Null,
+            "version": serde_json::Value::Null,
+            "name": serde_json::Value::Null,
+            "capabilities": [],
+            "remote_path": serde_json::Value::Null,
+        },
+        "detected_ports": [],
+        "forwarded_ports": [],
+        "conflicted_ports": [],
+        "detail": serde_json::Value::Null,
+        "heartbeat": {
+            "count": 0,
+            "last_seen_at": serde_json::Value::Null,
+            "age_seconds": serde_json::Value::Null,
+        },
+        "proxy": {
+            "state": "unavailable",
+            "host": serde_json::Value::Null,
+            "port": serde_json::Value::Null,
+            "schemes": ["socks5", "http_connect"],
+            "url": serde_json::Value::Null,
+            "error_code": serde_json::Value::Null,
+        },
+        "transport": serde_json::Value::Null,
+        "destination": serde_json::Value::Null,
+        "port": serde_json::Value::Null,
+        "has_identity_file": false,
+        "has_ssh_options": false,
+        "local_proxy_port": serde_json::Value::Null,
+    })
+}
+
+fn compatibility_workspace_remote_status_value(workspace: &WorkspaceInfo) -> serde_json::Value {
+    workspace
+        .remote_status_json
+        .as_deref()
+        .and_then(|raw| serde_json::from_str(raw).ok())
+        .filter(serde_json::Value::is_object)
+        .unwrap_or_else(compatibility_default_remote_status_value)
+}
+
+fn compatibility_workspace_json(workspace: &WorkspaceInfo) -> serde_json::Value {
+    let workspace_ref = compat_workspace_ref(workspace);
+    serde_json::json!({
+        "id": workspace_ref,
+        "workspace_id": workspace_ref,
+        "workspace_ref": workspace_ref,
+        "numericId": workspace.id,
+        "numericWorkspaceId": workspace.id,
+        "title": workspace.title,
+        "description": workspace.description,
+        "latestSubmittedMessage": workspace.latest_submitted_message,
+        "latest_submitted_message": workspace.latest_submitted_message,
+        "spaceCount": workspace.space_count,
+        "tabCount": workspace.tab_count,
+        "terminalCount": workspace.terminal_count,
+        "pinned": workspace.pinned,
+        "hasActivity": workspace.has_activity,
+        "bellCount": workspace.bell_count,
+        "color": workspace.color,
+        "remote": compatibility_workspace_remote_status_value(workspace),
+        "statusEntries": workspace.status_entries,
+        "metadataBlocks": workspace.metadata_blocks,
+        "logEntries": workspace.log_entries,
+        "progress": workspace.progress,
+    })
+}
+
+fn compatibility_workspaces_json(workspaces: &[WorkspaceInfo], active: usize) -> serde_json::Value {
+    serde_json::json!({
+        "active": active,
+        "workspaces": workspaces.iter().enumerate().map(|(index, workspace)| {
+            let mut value = compatibility_workspace_json(workspace);
+            if let Some(object) = value.as_object_mut() {
+                object.insert("active".to_string(), serde_json::json!(index == active));
+            }
+            value
+        }).collect::<Vec<_>>(),
+    })
+}
+
+fn compatibility_snapshot_window_ref(snapshot: &NativeSnapshot) -> String {
+    snapshot
+        .window_id
+        .clone()
+        .unwrap_or_else(|| window_external_id(0))
+}
+
+fn compatibility_insert_window_ref(
+    object: &mut serde_json::Map<String, serde_json::Value>,
+    window_ref: &str,
+) {
+    object.insert("window_id".to_string(), serde_json::json!(window_ref));
+    object.insert("window_ref".to_string(), serde_json::json!(window_ref));
+}
+
+fn compatibility_panes_json(snapshot: &NativeSnapshot) -> serde_json::Value {
+    let workspace_ref = snapshot
+        .workspaces
+        .get(snapshot.active_workspace)
+        .map(compat_workspace_ref)
+        .unwrap_or_else(|| snapshot.active_workspace_id.to_string());
+    let window_ref = compatibility_snapshot_window_ref(snapshot);
+    let panes = compatibility_panel_entries(snapshot)
+        .iter()
+        .enumerate()
+        .map(|(index, panel)| {
+            let surface_ids = panel.tabs.iter().map(compat_tab_ref).collect::<Vec<_>>();
+            let selected_surface_id = panel
+                .tabs
+                .get(panel.active)
+                .map(compat_tab_ref)
+                .or_else(|| panel.tabs.first().map(compat_tab_ref));
+            serde_json::json!({
+                "id": panel.panel_id.to_string(),
+                "ref": panel.panel_id.to_string(),
+                "numericId": panel.panel_id,
+                "index": index,
+                "active": panel.panel_id == snapshot.focused_panel_id,
+                "focused": panel.panel_id == snapshot.focused_panel_id,
+                "tabCount": panel.tabs.len(),
+                "surface_count": panel.tabs.len(),
+                "surface_ids": surface_ids,
+                "surface_refs": surface_ids,
+                "activeSurfaceId": panel.active_tab_id.to_string(),
+                "selected_surface_id": selected_surface_id,
+                "selected_surface_ref": selected_surface_id,
+            })
+        })
+        .collect::<Vec<_>>();
+    serde_json::json!({
+        "active": snapshot.focused_panel_id,
+        "workspace_id": workspace_ref,
+        "workspace_ref": workspace_ref,
+        "window_id": window_ref,
+        "window_ref": window_ref,
+        "panes": panes,
+    })
+}
+
+fn compatibility_surface_json(
+    surface: &CompatibilitySurfaceEntry<'_>,
+    focused_tab_id: u64,
+) -> serde_json::Value {
+    let surface_ref = compat_tab_ref(surface.tab);
+    let pane_ref = surface.panel_id.to_string();
+    serde_json::json!({
+        "id": surface_ref,
+        "ref": surface_ref,
+        "surface_id": surface_ref,
+        "surface_ref": surface_ref,
+        "tab_id": surface_ref,
+        "tab_ref": surface_ref,
+        "numericId": surface.tab.id,
+        "numericSurfaceId": surface.tab.id,
+        "numericTabId": surface.tab.id,
+        "panelId": pane_ref,
+        "pane_id": pane_ref,
+        "pane_ref": pane_ref,
+        "numericPanelId": surface.panel_id,
+        "numericPaneId": surface.panel_id,
+        "index": surface.global_index,
+        "index_in_pane": surface.index,
+        "active": surface.active,
+        "selected": surface.active,
+        "selected_in_pane": surface.active,
+        "focused": surface.tab.id == focused_tab_id,
+        "title": surface.tab.title,
+        "type": surface.tab.kind,
+        "kind": surface.tab.kind,
+        "pinned": surface.tab.pinned,
+        "hasActivity": surface.tab.has_activity,
+        "bellCount": surface.tab.bell_count,
+        "cwd": surface.tab.cwd,
+        "git_branch": surface.tab.git_branch,
+        "pull_request": surface.tab.pull_request,
+        "pullRequest": surface.tab.pull_request,
+        "tty_name": surface.tab.tty_name,
+        "shell_state": surface.tab.shell_state,
+        "ports_kick_generation": surface.tab.ports_kick_generation,
+        "listening_ports": surface.tab.listening_ports,
+        "browser": surface.tab.browser,
+    })
+}
+
+fn compatibility_surfaces_json(snapshot: &NativeSnapshot) -> serde_json::Value {
+    let workspace_ref = snapshot
+        .workspaces
+        .get(snapshot.active_workspace)
+        .map(compat_workspace_ref)
+        .unwrap_or_else(|| snapshot.active_workspace_id.to_string());
+    let window_ref = compatibility_snapshot_window_ref(snapshot);
+    serde_json::json!({
+        "active": snapshot.focused_tab_id.to_string(),
+        "workspace_id": workspace_ref,
+        "workspace_ref": workspace_ref,
+        "window_id": window_ref,
+        "window_ref": window_ref,
+        "surfaces": compatibility_surface_entries(snapshot)
+            .iter()
+            .map(|surface| compatibility_surface_json(surface, snapshot.focused_tab_id))
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn compatibility_pane_surfaces_json(
+    snapshot: &NativeSnapshot,
+    params: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let panels = compatibility_panel_entries(snapshot);
+    let target = compatibility_string_param(
+        params,
+        &[
+            "pane_id",
+            "paneId",
+            "pane",
+            "paneRef",
+            "target_pane_id",
+            "targetPaneId",
+        ],
+    );
+    let panel = match target.as_deref() {
+        Some(raw) if !raw.trim().is_empty() => compatibility_panel_entry_from_target(&panels, raw),
+        _ => panels
+            .iter()
+            .find(|panel| panel.panel_id == snapshot.focused_panel_id),
+    };
+    let Some(panel) = panel else {
+        return Err("Pane not found".to_string());
+    };
+    let workspace_ref = snapshot
+        .workspaces
+        .get(snapshot.active_workspace)
+        .map(compat_workspace_ref)
+        .unwrap_or_else(|| snapshot.active_workspace_id.to_string());
+    let window_ref = compatibility_snapshot_window_ref(snapshot);
+    let pane_ref = panel.panel_id.to_string();
+    let surfaces = panel
+        .tabs
+        .iter()
+        .enumerate()
+        .map(|(index, tab)| {
+            let surface_ref = compat_tab_ref(tab);
+            serde_json::json!({
+                "id": surface_ref,
+                "ref": surface_ref,
+                "numericId": tab.id,
+                "index": index,
+                "index_in_pane": index,
+                "title": tab.title,
+                "type": tab.kind,
+                "kind": tab.kind,
+                "selected": index == panel.active,
+                "active": tab.id == panel.active_tab_id,
+                "focused": tab.id == snapshot.focused_tab_id,
+                "pane_id": pane_ref,
+                "pane_ref": pane_ref,
+                "panelId": pane_ref,
+                "numericPaneId": panel.panel_id,
+                "numericPanelId": panel.panel_id,
+                "tty_name": tab.tty_name,
+                "cwd": tab.cwd,
+                "browser": tab.browser,
+            })
+        })
+        .collect::<Vec<_>>();
+    Ok(serde_json::json!({
+        "workspace_id": workspace_ref,
+        "workspace_ref": workspace_ref,
+        "pane_id": pane_ref,
+        "pane_ref": pane_ref,
+        "window_id": window_ref,
+        "window_ref": window_ref,
+        "surfaces": surfaces,
+    }))
+}
+
+fn compatibility_current_surface_json(snapshot: &NativeSnapshot) -> serde_json::Value {
+    compatibility_surface_entries(snapshot)
+        .iter()
+        .find(|surface| surface.tab.id == snapshot.focused_tab_id)
+        .map(|surface| compatibility_surface_json(surface, snapshot.focused_tab_id))
+        .unwrap_or(serde_json::Value::Null)
+}
+
+fn compatibility_snapshot_json(snapshot: &NativeSnapshot) -> serde_json::Value {
+    let window_ref = compatibility_snapshot_window_ref(snapshot);
+    serde_json::json!({
+        "revision": snapshot.revision,
+        "windowId": window_ref,
+        "window_id": window_ref,
+        "window_ref": window_ref,
+        "nativeWindowIds": &snapshot.native_window_ids,
+        "native_window_ids": &snapshot.native_window_ids,
+        "activeWorkspace": snapshot.active_workspace,
+        "activeWorkspaceId": snapshot.active_workspace_id,
+        "activeSpace": snapshot.active_space,
+        "activeSpaceId": snapshot.active_space_id,
+        "focusedPanelId": snapshot.focused_panel_id,
+        "focusedSurfaceId": snapshot.focused_tab_id,
+        "terminalCursor": snapshot.terminal_cursor,
+        "browserFocusRequest": snapshot.browser_focus_request,
+        "workspaces": compatibility_workspaces_json(&snapshot.workspaces, snapshot.active_workspace),
+        "panes": compatibility_panes_json(snapshot),
+        "surfaces": compatibility_surfaces_json(snapshot),
+    })
+}
+
+fn compatibility_v2_ok(id: serde_json::Value, result: serde_json::Value) -> String {
+    serde_json::json!({
+        "id": id,
+        "ok": true,
+        "result": result,
+    })
+    .to_string()
+}
+
+fn compatibility_v2_error(id: serde_json::Value, code: &str, message: &str) -> String {
+    serde_json::json!({
+        "id": id,
+        "ok": false,
+        "error": {
+            "code": code,
+            "message": message,
+        },
+    })
+    .to_string()
+}
+
+fn compatibility_v2_error_with_data(
+    id: serde_json::Value,
+    code: &str,
+    message: &str,
+    data: serde_json::Value,
+) -> String {
+    serde_json::json!({
+        "id": id,
+        "ok": false,
+        "error": {
+            "code": code,
+            "message": message,
+            "data": data,
+        },
+    })
+    .to_string()
+}
+
+fn compatibility_v2_error_from_message(id: serde_json::Value, message: &str) -> String {
+    if let Some(message) = message.strip_prefix("__compat_v2_invalid_params__\n") {
+        return compatibility_v2_error(id, "invalid_params", message);
+    }
+    if let Some(rest) = message.strip_prefix("__compat_v2_not_supported__:")
+        && let Some((method, details)) = rest.split_once('\n')
+    {
+        return compatibility_v2_error_with_data(
+            id,
+            "not_supported",
+            &format!("{method} is not supported on WKWebView"),
+            serde_json::json!({ "details": details }),
+        );
+    }
+    if let Some(rest) = message.strip_prefix("__compat_v2_not_supported_data__:")
+        && let Some((method, data)) = rest.split_once('\n')
+    {
+        let data = serde_json::from_str(data).unwrap_or_else(
+            |_| serde_json::json!({ "details": "This browser method is unavailable on WKWebView" }),
+        );
+        return compatibility_v2_error_with_data(
+            id,
+            "not_supported",
+            &format!("{method} is not supported on WKWebView"),
+            data,
+        );
+    }
+    compatibility_v2_error(id, "method_failed", message)
+}
+
+fn compatibility_ref_param(params: &serde_json::Value) -> Option<String> {
+    compatibility_string_param(
+        params,
+        &[
+            "ref",
+            "id",
+            "workspace_id",
+            "workspace",
+            "workspaceId",
+            "surface_id",
+            "surface",
+            "surfaceId",
+            "pane_id",
+            "pane",
+            "paneId",
+        ],
+    )
+    .or_else(|| compatibility_usize_param(params, &["index"]).map(|index| index.to_string()))
+}
+
+fn compatibility_browser_ref_param(params: &serde_json::Value) -> Option<String> {
+    compatibility_surface_ref_param(params)
+}
+
+fn compatibility_surface_ref_param(params: &serde_json::Value) -> Option<String> {
+    compatibility_string_param(
+        params,
+        &[
+            "surface_id",
+            "surfaceId",
+            "surface",
+            "surfaceRef",
+            "tab_id",
+            "tabId",
+            "ref",
+            "id",
+        ],
+    )
+    .or_else(|| compatibility_usize_param(params, &["index"]).map(|index| index.to_string()))
+}
+
+fn compatibility_string_param(params: &serde_json::Value, keys: &[&str]) -> Option<String> {
+    keys.iter().find_map(|key| {
+        params.get(*key).and_then(|value| {
+            value
+                .as_str()
+                .map(str::to_string)
+                .or_else(|| value.as_u64().map(|number| number.to_string()))
+        })
+    })
+}
+
+fn compatibility_has_nonempty_string_param(params: &serde_json::Value, keys: &[&str]) -> bool {
+    compatibility_string_param(params, keys).is_some_and(|value| !value.trim().is_empty())
+}
+
+fn compatibility_string_array_param(params: &serde_json::Value, key: &str) -> Vec<String> {
+    match params.get(key) {
+        Some(serde_json::Value::Array(values)) => values
+            .iter()
+            .filter_map(|value| {
+                value
+                    .as_str()
+                    .map(str::to_string)
+                    .or_else(|| value.as_i64().map(|number| number.to_string()))
+                    .or_else(|| value.as_u64().map(|number| number.to_string()))
+                    .or_else(|| value.as_f64().map(|number| number.to_string()))
+            })
+            .collect(),
+        Some(serde_json::Value::String(value)) => value
+            .split_whitespace()
+            .map(str::to_string)
+            .collect::<Vec<_>>(),
+        _ => Vec::new(),
+    }
+}
+
+fn compatibility_bool_param(params: &serde_json::Value, keys: &[&str]) -> Option<bool> {
+    keys.iter().find_map(|key| {
+        params.get(*key).and_then(|value| {
+            value.as_bool().or_else(|| {
+                value.as_str().and_then(|text| match text {
+                    "true" | "1" | "yes" => Some(true),
+                    "false" | "0" | "no" => Some(false),
+                    _ => None,
+                })
+            })
+        })
+    })
+}
+
+fn compatibility_usize_param(params: &serde_json::Value, keys: &[&str]) -> Option<usize> {
+    keys.iter().find_map(|key| {
+        params.get(*key).and_then(|value| {
+            value
+                .as_u64()
+                .and_then(|number| usize::try_from(number).ok())
+                .or_else(|| value.as_str().and_then(|text| text.parse::<usize>().ok()))
+        })
+    })
+}
+
+fn compatibility_f64_param(params: &serde_json::Value, keys: &[&str]) -> Option<f64> {
+    keys.iter().find_map(|key| {
+        params.get(*key).and_then(|value| {
+            value
+                .as_f64()
+                .or_else(|| value.as_str().and_then(|text| text.parse::<f64>().ok()))
+        })
+    })
+}
+
+fn compatibility_help_text() -> &'static str {
+    "Available Rust compatibility commands: ping, list_workspaces, current_workspace, new_workspace, select_workspace, close_workspace, list_panes, list_surfaces, list_pane_surfaces, focus_pane, focus_surface, new_split, new_pane, new_surface, close_surface, send, send_key, read_screen"
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -8100,6 +27480,49 @@ mod tests {
             inner: rect,
             bottom_border: rect,
         }
+    }
+
+    #[test]
+    fn browser_proxy_snapshot_from_remote_status_uses_proxy_endpoint_and_destination() {
+        let raw = serde_json::json!({
+            "enabled": true,
+            "state": "connected",
+            "destination": "devbox.example.com",
+            "proxy": {
+                "state": "ready",
+                "host": "127.0.0.1",
+                "port": 49152,
+                "schemes": ["socks5", "http_connect"],
+                "url": "socks5://127.0.0.1:49152"
+            }
+        })
+        .to_string();
+
+        let proxy = browser_proxy_snapshot_from_remote_status_json(Some(&raw))
+            .expect("remote proxy endpoint");
+
+        assert_eq!(proxy.host, "127.0.0.1");
+        assert_eq!(proxy.port, 49152);
+        assert_eq!(proxy.target.as_deref(), Some("devbox.example.com"));
+    }
+
+    #[test]
+    fn browser_proxy_snapshot_from_remote_status_rejects_missing_endpoint() {
+        let raw = serde_json::json!({
+            "enabled": true,
+            "state": "connected",
+            "proxy": {
+                "state": "unavailable",
+                "host": null,
+                "port": null,
+                "schemes": ["socks5", "http_connect"],
+                "url": null
+            }
+        })
+        .to_string();
+
+        assert!(browser_proxy_snapshot_from_remote_status_json(Some(&raw)).is_none());
+        assert!(browser_proxy_snapshot_from_remote_status_json(Some("{")).is_none());
     }
 
     #[test]
@@ -8199,6 +27622,14 @@ mod tests {
         assert!(should_skip_child_env("STY", "123.screen"));
         assert!(should_skip_child_env("TERM_PROGRAM", "tmux"));
         assert!(should_skip_child_env("TERM_PROGRAM", "screen"));
+        assert!(should_skip_child_env(
+            "GHOSTTY_SHELL_FEATURES",
+            "cursor:blink"
+        ));
+        assert!(should_skip_child_env(
+            "CMUX_SHELL_INTEGRATION_DIR",
+            "/tmp/stale"
+        ));
         assert!(!should_skip_child_env("TERM_PROGRAM", "ghostty"));
         assert!(!should_skip_child_env("PATH", "/usr/bin"));
     }

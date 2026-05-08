@@ -63,6 +63,7 @@ class TerminalController {
     private nonisolated(unsafe) var accessMode: SocketControlMode = .cmuxOnly
     private nonisolated let myPid = getpid()
     private nonisolated static let socketCommandFocusAllowanceStackKey = "cmux.socketCommandFocusAllowanceStack"
+    private nonisolated static let desktopCmxNativeCompatibilityRequestKey = "cmux.desktopCmxNativeCompatibilityRequest"
     private nonisolated static let socketListenBacklog: Int32 = 128
     private nonisolated static let acceptFailureBaseBackoffMs = 10
     private nonisolated static let acceptFailureMaxBackoffMs = 5_000
@@ -1484,6 +1485,7 @@ class TerminalController {
         "feed.question.reply",
         "feed.exit_plan.reply",
         "system.top",
+        "__cmx.vm.auth_context",
     ]
 
     private nonisolated static func executionPolicy(forV2Method method: String) -> SocketCommandExecutionPolicy {
@@ -1491,6 +1493,24 @@ class TerminalController {
             return .socketWorker
         }
         return .mainActor
+    }
+
+    nonisolated static func withDesktopCmxNativeCompatibilityRequest<T>(_ body: () -> T) -> T {
+        let dictionary = Thread.current.threadDictionary
+        let previous = dictionary[desktopCmxNativeCompatibilityRequestKey]
+        dictionary[desktopCmxNativeCompatibilityRequestKey] = true
+        defer {
+            if let previous {
+                dictionary[desktopCmxNativeCompatibilityRequestKey] = previous
+            } else {
+                dictionary.removeObject(forKey: desktopCmxNativeCompatibilityRequestKey)
+            }
+        }
+        return body()
+    }
+
+    nonisolated static func isDesktopCmxNativeCompatibilityRequest() -> Bool {
+        Thread.current.threadDictionary[desktopCmxNativeCompatibilityRequestKey] as? Bool == true
     }
 
     private nonisolated func parseV2SocketRequest(_ command: String) -> V2SocketRequest? {
@@ -1566,6 +1586,8 @@ class TerminalController {
             return v2Result(id: request.id, v2FeedExitPlanReply(params: request.params))
         case "system.top":
             return v2Result(id: request.id, v2SystemTop(params: request.params))
+        case "__cmx.vm.auth_context":
+            return socketWorkerCloudVMResponse(method: request.method, id: request.id, params: request.params)
         case let method where method.hasPrefix("vm."):
             return socketWorkerCloudVMResponse(method: method, id: request.id, params: request.params)
         default:
@@ -4038,6 +4060,24 @@ class TerminalController {
         return nil
     }
 
+    private func v2UInt64(_ params: [String: Any], keys: [String]) -> UInt64? {
+        for key in keys {
+            if let i = params[key] as? Int, i >= 0 { return UInt64(i) }
+            if let u = params[key] as? UInt64 { return u }
+            if let n = params[key] as? NSNumber {
+                let value = n.uint64Value
+                if n.stringValue == String(value) || n.int64Value >= 0 {
+                    return value
+                }
+            }
+            if let s = params[key] as? String {
+                let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+                if let parsed = UInt64(trimmed) { return parsed }
+            }
+        }
+        return nil
+    }
+
     private func v2HasNonNullParam(_ params: [String: Any], _ key: String) -> Bool {
         guard let raw = params[key] else { return false }
         return !(raw is NSNull)
@@ -4828,6 +4868,34 @@ class TerminalController {
         } else {
             daemonWebSocketEndpoint = nil
         }
+        let prebootstrappedDaemon: WorkspacePrebootstrappedDaemon? = {
+            guard let daemon = params["cmx_prebootstrapped_daemon"] as? [String: Any] else {
+                return nil
+            }
+            let remotePath = (daemon["remote_path"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let remotePath, !remotePath.isEmpty else {
+                return nil
+            }
+            let name = (daemon["name"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let version = (daemon["version"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let capabilities = (daemon["capabilities"] as? [Any])?
+                .compactMap { value -> String? in
+                    guard let capability = value as? String else { return nil }
+                    let trimmed = capability.trimmingCharacters(in: .whitespacesAndNewlines)
+                    return trimmed.isEmpty ? nil : trimmed
+                } ?? []
+            let daemonName = name.flatMap { $0.isEmpty ? nil : $0 } ?? "cmuxd-remote"
+            let daemonVersion = version.flatMap { $0.isEmpty ? nil : $0 } ?? "dev"
+            return WorkspacePrebootstrappedDaemon(
+                name: daemonName,
+                version: daemonVersion,
+                capabilities: capabilities,
+                remotePath: remotePath
+            )
+        }()
         let skipDaemonBootstrap = v2Bool(params, "skip_daemon_bootstrap") ?? false
         if relayPort != nil {
             guard let relayID, !relayID.isEmpty else {
@@ -4874,6 +4942,7 @@ class TerminalController {
                 terminalStartupCommand: terminalStartupCommand?.isEmpty == true ? nil : terminalStartupCommand,
                 foregroundAuthToken: foregroundAuthToken?.isEmpty == true ? nil : foregroundAuthToken,
                 daemonWebSocketEndpoint: daemonWebSocketEndpoint,
+                prebootstrappedDaemon: prebootstrappedDaemon,
                 skipDaemonBootstrap: skipDaemonBootstrap
             )
             workspace.configureRemoteConnection(config, autoConnect: autoConnect)
@@ -5973,6 +6042,17 @@ class TerminalController {
                     "surface_ref": v2Ref(kind: .surface, uuid: newId),
                     "type": v2OrNull(ws.panels[newId]?.panelType.rawValue)
                 ])
+            } else if DesktopCmxBackendSettings.isEnabled() {
+                let windowId = v2ResolveWindowId(tabManager: tabManager)
+                result = .ok([
+                    "window_id": v2OrNull(windowId?.uuidString),
+                    "window_ref": v2Ref(kind: .window, uuid: windowId),
+                    "workspace_id": ws.id.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                    "accepted": true,
+                    "pending": true,
+                    "type": PanelType.terminal.rawValue
+                ])
             } else {
                 result = .err(code: "internal_error", message: "Failed to create split", data: nil)
             }
@@ -6022,7 +6102,22 @@ class TerminalController {
             }
 
             guard let newPanelId else {
-                result = .err(code: "internal_error", message: "Failed to create surface", data: nil)
+                if DesktopCmxBackendSettings.isEnabled(), panelType == .terminal {
+                    let windowId = v2ResolveWindowId(tabManager: tabManager)
+                    result = .ok([
+                        "window_id": v2OrNull(windowId?.uuidString),
+                        "window_ref": v2Ref(kind: .window, uuid: windowId),
+                        "workspace_id": ws.id.uuidString,
+                        "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                        "pane_id": paneId.id.uuidString,
+                        "pane_ref": v2Ref(kind: .pane, uuid: paneId.id),
+                        "accepted": true,
+                        "pending": true,
+                        "type": panelType.rawValue
+                    ])
+                } else {
+                    result = .err(code: "internal_error", message: "Failed to create surface", data: nil)
+                }
                 return
             }
 
@@ -6067,6 +6162,11 @@ class TerminalController {
 
             if ws.panels.count <= 1 {
                 result = .err(code: "invalid_state", message: "Cannot close the last surface", data: nil)
+                return
+            }
+
+            if DesktopCmxBackendSettings.isEnabled(), ws.closePanel(surfaceId) {
+                result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString), "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))])
                 return
             }
 
@@ -7308,7 +7408,20 @@ class TerminalController {
             }
 
             guard let newPanelId else {
-                result = .err(code: "internal_error", message: "Failed to create pane", data: nil)
+                if DesktopCmxBackendSettings.isEnabled(), panelType == .terminal {
+                    let windowId = v2ResolveWindowId(tabManager: tabManager)
+                    result = .ok([
+                        "window_id": v2OrNull(windowId?.uuidString),
+                        "window_ref": v2Ref(kind: .window, uuid: windowId),
+                        "workspace_id": ws.id.uuidString,
+                        "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                        "accepted": true,
+                        "pending": true,
+                        "type": panelType.rawValue
+                    ])
+                } else {
+                    result = .err(code: "internal_error", message: "Failed to create pane", data: nil)
+                }
                 return
             }
             let paneUUID = ws.paneId(forPanelId: newPanelId)?.id
@@ -8253,11 +8366,35 @@ class TerminalController {
                 result = .err(code: "not_found", message: "No focused browser surface", data: nil)
                 return
             }
-            guard let browserPanel = ws.browserPanel(for: surfaceId) else {
-                result = .err(code: "invalid_params", message: "Surface is not a browser", data: ["surface_id": surfaceId.uuidString])
+            if let browserPanel = ws.browserPanel(for: surfaceId) {
+                result = body(tabManager, ws, surfaceId, browserPanel)
                 return
             }
-            result = body(tabManager, ws, surfaceId, browserPanel)
+            if let panelId = ws.panelIdFromSurfaceId(TabID(uuid: surfaceId)),
+               let browserPanel = ws.browserPanel(for: panelId) {
+                result = body(tabManager, ws, panelId, browserPanel)
+                return
+            }
+            if let tabID = v2UInt64(params, keys: ["numericTabId", "numericId", "browser_id", "browserId"]),
+               let resolved = ws.desktopCmxBrowserPanel(forCmxTabID: tabID) {
+                result = body(tabManager, ws, resolved.panelID, resolved.panel)
+                return
+            }
+            result = .err(code: "invalid_params", message: "Surface is not a browser", data: ["surface_id": surfaceId.uuidString])
+#if DEBUG
+            let availableBrowsers = ws.panels.values
+                .compactMap { $0 as? BrowserPanel }
+                .map { $0.id.uuidString }
+                .sorted()
+                .joined(separator: ",")
+            cmuxDebugLog(
+                "socket.browser.resolve.failed workspace=\(ws.id.uuidString.prefix(8)) "
+                    + "surface=\(surfaceId.uuidString.prefix(8)) "
+                    + "numericTabId=\(v2UInt64(params, keys: ["numericTabId", "numericId", "browser_id", "browserId"]).map(String.init) ?? "nil") "
+                    + "browserPanels=\(availableBrowsers)"
+            )
+#endif
+                return
         }
         return result
     }
@@ -11639,18 +11776,32 @@ class TerminalController {
         return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
             let storageScript = """
             (() => {
-              const readStorage = (st) => {
+              const readStorage = (name) => {
                 const out = {};
-                if (!st) return out;
-                for (let i = 0; i < st.length; i++) {
-                  const k = st.key(i);
-                  out[k] = st.getItem(k);
+                let st = null;
+                try {
+                  st = window[name];
+                } catch (_) {
+                  return out;
+                }
+                if (!st) {
+                  return out;
+                }
+                try {
+                  for (let i = 0; i < st.length; i++) {
+                    const k = st.key(i);
+                    if (k != null) {
+                      out[k] = st.getItem(k);
+                    }
+                  }
+                } catch (_) {
+                  return out;
                 }
                 return out;
               };
               return {
-                local: readStorage(window.localStorage),
-                session: readStorage(window.sessionStorage)
+                local: readStorage('localStorage'),
+                session: readStorage('sessionStorage')
               };
             })()
             """
@@ -11735,15 +11886,22 @@ class TerminalController {
                 let script = """
                 (() => {
                   const payload = \(storageLiteral);
-                  const apply = (st, data) => {
-                    if (!st || !data || typeof data !== 'object') return;
-                    st.clear();
+                  const apply = (name, data) => {
+                    if (!data || typeof data !== 'object') return;
+                    let st = null;
+                    try {
+                      st = window[name];
+                    } catch (_) {
+                      return;
+                    }
+                    if (!st) return;
+                    try { st.clear(); } catch (_) {}
                     for (const [k, v] of Object.entries(data)) {
-                      st.setItem(String(k), v == null ? '' : String(v));
+                      try { st.setItem(String(k), v == null ? '' : String(v)); } catch (_) {}
                     }
                   };
-                  apply(window.localStorage, payload.local);
-                  apply(window.sessionStorage, payload.session);
+                  apply('localStorage', payload.local);
+                  apply('sessionStorage', payload.session);
                   return true;
                 })()
                 """
@@ -17122,6 +17280,11 @@ class TerminalController {
             // Don't close if it's the only surface
             if tab.panels.count <= 1 {
                 result = "ERROR: Cannot close the last surface"
+                return
+            }
+
+            if DesktopCmxBackendSettings.isEnabled(), tab.closePanel(targetSurfaceId) {
+                result = "OK"
                 return
             }
 

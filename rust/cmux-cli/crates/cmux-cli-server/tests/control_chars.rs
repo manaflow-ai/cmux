@@ -19,6 +19,7 @@ async fn ctrl_c_interrupts_foreground_process() {
     let socket = dir.path().join("server.sock");
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (80, 24),

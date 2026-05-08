@@ -22,6 +22,7 @@ async fn shell_output_streams_over_socket() {
 
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/cat".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (80, 24),
@@ -158,6 +159,7 @@ async fn shell_output_streams_over_grid_socket() {
 
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/cat".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (80, 24),

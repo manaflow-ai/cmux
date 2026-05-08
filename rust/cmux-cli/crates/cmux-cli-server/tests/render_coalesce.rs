@@ -26,6 +26,7 @@ async fn bursty_pty_output_coalesces_into_few_frames() {
     let socket = dir.path().join("server.sock");
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (120, 30),
@@ -170,6 +171,7 @@ async fn composed_frames_hide_cursor_before_painting_cells() {
     let socket = dir.path().join("server.sock");
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (100, 20),

@@ -430,9 +430,12 @@ class cmux:
             raise cmuxError(f"workspace.create returned no workspace_id: {res}")
         return str(wsid)
 
-    def select_workspace(self, workspace: Union[str, int]) -> None:
+    def select_workspace(self, workspace: Union[str, int], window_id: Optional[str] = None) -> None:
         wsid = self._resolve_workspace_id(workspace)
-        self._call("workspace.select", {"workspace_id": wsid})
+        params: Dict[str, Any] = {"workspace_id": wsid}
+        if window_id is not None:
+            params["window_id"] = str(window_id)
+        self._call("workspace.select", params)
 
     def rename_workspace(self, title: str, workspace: Union[str, int, None] = None) -> None:
         renamed = str(title).strip()

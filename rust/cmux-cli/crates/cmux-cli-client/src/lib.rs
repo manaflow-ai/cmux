@@ -78,6 +78,14 @@ pub struct AttachOptions {
 /// One-shot commands ignore grid hydration frames and return when their
 /// `CommandReply` arrives.
 pub async fn run_query(socket: PathBuf, command: Command) -> Result<CommandResult> {
+    run_query_with_timeout(socket, command, Duration::from_secs(5)).await
+}
+
+pub async fn run_query_with_timeout(
+    socket: PathBuf,
+    command: Command,
+    command_timeout: Duration,
+) -> Result<CommandResult> {
     let stream = UnixStream::connect(&socket)
         .await
         .with_context(|| format!("connect {}", socket.display()))?;
@@ -117,7 +125,7 @@ pub async fn run_query(socket: PathBuf, command: Command) -> Result<CommandResul
     )
     .await?;
 
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    let deadline = tokio::time::Instant::now() + command_timeout;
     let result = loop {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
         if remaining.is_zero() {
@@ -399,7 +407,8 @@ where
                     | ServerMsg::ActiveWorkspaceChanged { .. }
                     | ServerMsg::ActiveSpaceChanged { .. }
                     | ServerMsg::NativeSnapshot { .. }
-                    | ServerMsg::TerminalGridSnapshot { .. } => {}
+                    | ServerMsg::TerminalGridSnapshot { .. }
+                    | ServerMsg::NativeCompatibilityRequest { .. } => {}
                     ServerMsg::Welcome { .. } => {
                         tracing::debug!("unexpected Welcome after attach");
                     }

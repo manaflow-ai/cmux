@@ -26,6 +26,7 @@ async fn spawned_shell_sees_workspace_and_tab_env_vars() {
 
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         // Wide viewport so the printf-and-redirect command fits on one

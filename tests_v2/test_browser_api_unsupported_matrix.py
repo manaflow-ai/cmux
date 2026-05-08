@@ -111,9 +111,14 @@ WKWEBVIEW_NOT_SUPPORTED = {
     "browser.network.requests": {},
     "browser.screencast.start": {},
     "browser.screencast.stop": {},
-    "browser.input_mouse": {"args": ["move", "10", "10"]},
-    "browser.input_keyboard": {"args": ["type", "hello"]},
-    "browser.input_touch": {"args": ["tap", "10", "10"]},
+}
+
+# Raw CDP injection is still unavailable, but these socket methods are now
+# supported as WKWebView-compatible DOM aliases routed through cmx.
+SUPPORTED_INPUT_ALIASES = {
+    "browser.input_mouse": ({"args": ["move", "10", "10"]}, "browser.eval"),
+    "browser.input_keyboard": ({"args": ["press", "A"]}, "browser.press"),
+    "browser.input_touch": ({"args": ["tap", "10", "10"]}, "browser.eval"),
 }
 
 
@@ -133,6 +138,18 @@ def _expect_not_supported(c: cmux, method: str, params: dict) -> None:
     raise cmuxError(f"Expected not_supported for {method}, but call succeeded")
 
 
+def _expect_supported_alias(c: cmux, method: str, params: dict, routed_method: str) -> None:
+    result = c._call(method, params) or {}
+    _must(
+        result.get("compatibility_alias") == method,
+        f"{method} did not report compatibility_alias: {result}",
+    )
+    _must(
+        result.get("routed_method") == routed_method,
+        f"{method} routed to {result.get('routed_method')!r}, expected {routed_method!r}: {result}",
+    )
+
+
 def main() -> int:
     with cmux(SOCKET_PATH) as c:
         caps = c.capabilities() or {}
@@ -140,6 +157,18 @@ def main() -> int:
 
         missing = sorted(EXPECTED_BROWSER_METHODS - methods)
         _must(not missing, f"Missing expected browser methods in capabilities: {missing}")
+
+        unsupported = set(caps.get("unsupportedMethods") or [])
+        missing_unsupported = sorted(set(WKWEBVIEW_NOT_SUPPORTED) - unsupported)
+        _must(
+            not missing_unsupported,
+            f"Missing expected WKWebView unsupported methods in capabilities: {missing_unsupported}",
+        )
+        unexpected_unsupported_aliases = sorted(set(SUPPORTED_INPUT_ALIASES) & unsupported)
+        _must(
+            not unexpected_unsupported_aliases,
+            f"Input aliases should be supported, not advertised unsupported: {unexpected_unsupported_aliases}",
+        )
 
         opened = c._call("browser.open_split", {"url": "about:blank"}) or {}
         sid = str(opened.get("surface_id") or "")
@@ -150,7 +179,12 @@ def main() -> int:
             payload.update(extra)
             _expect_not_supported(c, method, payload)
 
-    print("PASS: browser method matrix is explicit (capabilities + WKWebView not_supported contract)")
+        for method, (extra, routed_method) in SUPPORTED_INPUT_ALIASES.items():
+            payload = {"surface_id": sid}
+            payload.update(extra)
+            _expect_supported_alias(c, method, payload, routed_method)
+
+    print("PASS: browser method matrix is explicit (capabilities + WKWebView unsupported/supported alias contract)")
     return 0
 
 

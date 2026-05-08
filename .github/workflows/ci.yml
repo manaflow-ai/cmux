@@ -307,6 +307,7 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_operation_deadline.py
           python3 tests/test_claude_wrapper_hooks.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_stop_last_assistant.py
+          python3 tests/test_shell_integration_cursor_reset.py
 
   tests-build-and-lag:
     # Build the full cmux scheme and run the lag regression on WarpBuild.

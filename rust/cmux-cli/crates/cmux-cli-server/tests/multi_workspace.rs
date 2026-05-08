@@ -25,6 +25,7 @@ async fn workspace_switch_and_snapshot_roundtrip() {
 
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (80, 24),
@@ -119,6 +120,7 @@ async fn workspace_switch_and_snapshot_roundtrip() {
 
     let opts2 = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (80, 24),

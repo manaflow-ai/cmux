@@ -205,6 +205,8 @@ _CMUX_TMUX_SYNC_KEYS=(
     CMUXD_UNIX_PATH
     CMUXTERM_REPO_ROOT
     CMUX_DEBUG_LOG
+    CMUX_GHOSTTY_CURSOR_RESET
+    CMUX_LOAD_GHOSTTY_BASH_INTEGRATION
     CMUX_LOAD_GHOSTTY_ZSH_INTEGRATION
     CMUX_PORT
     CMUX_PORT_END
@@ -218,11 +220,18 @@ _CMUX_TMUX_SYNC_KEYS=(
     CMUX_TAB_ID
     CMUX_TAG
     CMUX_WORKSPACE_ID
+    GHOSTTY_BIN_DIR
+    GHOSTTY_SHELL_FEATURES
 )
 _CMUX_TMUX_SURFACE_SCOPED_KEYS=(
     CMUX_PANEL_ID
     CMUX_SURFACE_ID
 )
+
+_cmux_reset_ghostty_cursor_if_needed() {
+    [[ "${CMUX_GHOSTTY_CURSOR_RESET:-0}" == "1" ]] || return 0
+    printf '\e[0 q'
+}
 
 _cmux_tmux_sync_key_is_managed() {
     local candidate="$1"
@@ -918,6 +927,7 @@ _cmux_command_starts_nested_shell() {
 
 _cmux_preexec_command() {
     local cmd="${1:-${BASH_COMMAND:-}}"
+    _cmux_reset_ghostty_cursor_if_needed
     _cmux_tmux_sync_cmux_environment
 
     local cmux_has_unix_socket=0
@@ -948,6 +958,7 @@ _cmux_bash_preexec_hook() {
 
 _cmux_prompt_command() {
     local last_status=$?
+    _cmux_reset_ghostty_cursor_if_needed
     _cmux_tmux_sync_cmux_environment
 
     local cmux_has_unix_socket=0

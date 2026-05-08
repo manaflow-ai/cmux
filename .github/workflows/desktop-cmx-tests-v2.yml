@@ -1,0 +1,127 @@
+name: Desktop CMX tests_v2
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch or SHA to test
+        required: false
+        default: ""
+      test_filter:
+        description: Space-separated tests_v2 files or globs
+        required: false
+        default: >-
+          test_desktop_cmx_workspace_split_tab.py
+          test_workspace_create_layout.py
+          test_browser_cli_agent_port.py
+          test_tmux_compat_matrix.py
+          test_remote_rust_state.py
+          test_browser_api_p0.py
+          test_browser_api_unsupported_matrix.py
+          test_windows_api.py
+          test_surface_split_window_scope.py
+          test_pane_window_scope.py
+      runner:
+        description: Runner OS
+        required: false
+        default: "depot-macos-latest"
+        type: choice
+        options:
+          - depot-macos-latest
+          - depot-macos-14
+
+jobs:
+  tests-v2:
+    runs-on: ${{ inputs.runner || 'depot-macos-latest' }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          submodules: recursive
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
+            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
+          else
+            XCODE_APP="$(ls -d /Applications/Xcode*.app 2>/dev/null | head -n 1 || true)"
+            if [ -n "$XCODE_APP" ]; then
+              XCODE_DIR="$XCODE_APP/Contents/Developer"
+            else
+              echo "No Xcode.app found under /Applications" >&2
+              exit 1
+            fi
+          fi
+          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
+          export DEVELOPER_DIR="$XCODE_DIR"
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-path
+
+      - name: Download pre-built GhosttyKit.xcframework
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          GHOSTTY_SHA=$(git -C ghostty rev-parse HEAD)
+          TAG="xcframework-$GHOSTTY_SHA"
+          URL="https://github.com/manaflow-ai/ghostty/releases/download/$TAG/GhosttyKit.xcframework.tar.gz"
+          echo "Downloading xcframework for ghostty $GHOSTTY_SHA"
+          MAX_RETRIES=30
+          RETRY_DELAY=20
+          for i in $(seq 1 $MAX_RETRIES); do
+            if curl -fSL -o GhosttyKit.xcframework.tar.gz "$URL"; then
+              echo "Download succeeded on attempt $i"
+              break
+            fi
+            if [ "$i" -eq "$MAX_RETRIES" ]; then
+              echo "Failed to download xcframework after $MAX_RETRIES attempts" >&2
+              exit 1
+            fi
+            echo "Attempt $i/$MAX_RETRIES failed, retrying in ${RETRY_DELAY}s..."
+            sleep "$RETRY_DELAY"
+          done
+          tar xzf GhosttyKit.xcframework.tar.gz
+          rm GhosttyKit.xcframework.tar.gz
+          test -d GhosttyKit.xcframework
+
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh 0.15.2
+
+      - name: Create virtual display
+        run: |
+          set -euo pipefail
+          clang -framework Foundation -framework CoreGraphics \
+            -o /tmp/create-virtual-display scripts/create-virtual-display.m
+          /tmp/create-virtual-display &
+          VDISPLAY_PID=$!
+          echo "VDISPLAY_PID=$VDISPLAY_PID" >> "$GITHUB_ENV"
+          sleep 3
+          kill -0 "$VDISPLAY_PID"
+
+      - name: Run CMX-backed tests_v2
+        env:
+          CMUX_TESTS_V2_ALLOW_NON_VM: "1"
+          CMUX_TESTS_V2_DESKTOP_CMX_BACKEND: "1"
+          CMUX_TESTS_V2_DIAGNOSTICS_DIR: /tmp/desktop-cmx-tests-v2-diagnostics
+          CMUX_TESTS_V2_FILTER: ${{ inputs.test_filter }}
+        run: ./scripts/run-tests-v2.sh
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: desktop-cmx-tests-v2-diagnostics
+          path: /tmp/desktop-cmx-tests-v2-diagnostics
+          if-no-files-found: warn
+
+      - name: Cleanup virtual display
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -n "${VDISPLAY_PID:-}" ]; then
+            kill "$VDISPLAY_PID" >/dev/null 2>&1 || true
+          fi
+          rm -f /tmp/create-virtual-display

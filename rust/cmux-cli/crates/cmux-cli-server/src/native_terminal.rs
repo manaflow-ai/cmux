@@ -3,9 +3,9 @@ use cmux_cli_core::compositor::{
     TerminalGridDefaultColors, TerminalGridSnapshot,
 };
 use cmux_cli_protocol::{
-    NativeTerminalCursorPosition, NativeTerminalCursorStyle, NativeTerminalGridCell,
-    NativeTerminalGridSnapshot, NativeTerminalTheme, NativeTerminalThemeSet, TerminalColorReport,
-    TerminalRgb,
+    NativeTerminalCursor, NativeTerminalCursorPosition, NativeTerminalCursorStyle,
+    NativeTerminalGridCell, NativeTerminalGridSnapshot, NativeTerminalTheme,
+    NativeTerminalThemeSet, TerminalColorReport, TerminalRgb,
 };
 use libghostty_vt::style::RgbColor as GhosttyRgbColor;
 
@@ -184,6 +184,7 @@ pub(crate) fn native_terminal_grid_snapshot(
                 TerminalCursorStyle::Underline => NativeTerminalCursorStyle::Underline,
                 TerminalCursorStyle::Bar => NativeTerminalCursorStyle::Bar,
             },
+            blink: cursor.blink,
             color: cursor.color.map(ghostty_rgb_to_terminal),
         }),
     }
@@ -192,12 +193,13 @@ pub(crate) fn native_terminal_grid_snapshot(
 pub(crate) fn native_terminal_pty_replay_from_grid_snapshot(
     snapshot: TerminalGridSnapshot,
     alternate_screen: bool,
+    default_cursor: Option<&NativeTerminalCursor>,
 ) -> Vec<u8> {
     let cursor = snapshot.cursor;
     let mut frame = Frame::new(snapshot.cols, snapshot.rows);
     let cols = usize::from(snapshot.cols);
     if cols == 0 || snapshot.rows == 0 {
-        return native_terminal_cursor_tail(cursor);
+        return native_terminal_cursor_tail(cursor, default_cursor);
     }
 
     for (index, cell) in snapshot.cells.into_iter().enumerate() {
@@ -230,11 +232,14 @@ pub(crate) fn native_terminal_pty_replay_from_grid_snapshot(
         out.extend_from_slice(b"\x1b[?1049h");
     }
     out.extend_from_slice(&compositor::emit_ansi(&frame));
-    out.extend_from_slice(&native_terminal_cursor_tail(cursor));
+    out.extend_from_slice(&native_terminal_cursor_tail(cursor, default_cursor));
     out
 }
 
-fn native_terminal_cursor_tail(cursor: Option<TerminalCursor>) -> Vec<u8> {
+fn native_terminal_cursor_tail(
+    cursor: Option<TerminalCursor>,
+    default_cursor: Option<&NativeTerminalCursor>,
+) -> Vec<u8> {
     let Some(cursor) = cursor else {
         return b"\x1b[?25h".to_vec();
     };
@@ -243,11 +248,9 @@ fn native_terminal_cursor_tail(cursor: Option<TerminalCursor>) -> Vec<u8> {
     }
 
     let mut out = Vec::new();
-    out.extend_from_slice(match cursor.style {
-        TerminalCursorStyle::Block | TerminalCursorStyle::HollowBlock => b"\x1b[2 q",
-        TerminalCursorStyle::Underline => b"\x1b[4 q",
-        TerminalCursorStyle::Bar => b"\x1b[6 q",
-    });
+    if let Some(sequence) = cursor_style_sequence(cursor.style, cursor.blink, default_cursor) {
+        out.extend_from_slice(sequence);
+    }
     out.extend_from_slice(b"\x1b[?25h");
     out.extend_from_slice(
         format!(
@@ -258,6 +261,61 @@ fn native_terminal_cursor_tail(cursor: Option<TerminalCursor>) -> Vec<u8> {
         .as_bytes(),
     );
     out
+}
+
+fn cursor_style_sequence(
+    style: TerminalCursorStyle,
+    blink: bool,
+    default_cursor: Option<&NativeTerminalCursor>,
+) -> Option<&'static [u8]> {
+    if cursor_matches_configured_default(style, blink, default_cursor) {
+        return Some(b"\x1b[0 q");
+    }
+
+    if matches!(style, TerminalCursorStyle::HollowBlock)
+        || (matches!(style, TerminalCursorStyle::Block)
+            && default_cursor
+                .and_then(|cursor| cursor.style.as_deref())
+                .is_some_and(|style| style == "block_hollow"))
+    {
+        return None;
+    }
+
+    Some(match (style, blink) {
+        (TerminalCursorStyle::Block | TerminalCursorStyle::HollowBlock, true) => b"\x1b[1 q",
+        (TerminalCursorStyle::Block | TerminalCursorStyle::HollowBlock, false) => b"\x1b[2 q",
+        (TerminalCursorStyle::Underline, true) => b"\x1b[3 q",
+        (TerminalCursorStyle::Underline, false) => b"\x1b[4 q",
+        (TerminalCursorStyle::Bar, true) => b"\x1b[5 q",
+        (TerminalCursorStyle::Bar, false) => b"\x1b[6 q",
+    })
+}
+
+fn cursor_matches_configured_default(
+    style: TerminalCursorStyle,
+    blink: bool,
+    default_cursor: Option<&NativeTerminalCursor>,
+) -> bool {
+    let Some(default_cursor) = default_cursor else {
+        return false;
+    };
+    let default_blink = default_cursor.blink.unwrap_or(true);
+    if blink != default_blink {
+        return false;
+    }
+
+    match default_cursor.style.as_deref() {
+        Some("bar") => matches!(style, TerminalCursorStyle::Bar),
+        Some("underline") => matches!(style, TerminalCursorStyle::Underline),
+        Some("block_hollow") => {
+            matches!(
+                style,
+                TerminalCursorStyle::Block | TerminalCursorStyle::HollowBlock
+            )
+        }
+        Some("block") | None => matches!(style, TerminalCursorStyle::Block),
+        Some(_) => false,
+    }
 }
 
 fn terminal_rgb_to_ghostty(color: TerminalRgb) -> GhosttyRgbColor {
@@ -539,11 +597,12 @@ mod tests {
                 row: 1,
                 visible: true,
                 style: TerminalCursorStyle::Bar,
+                blink: false,
                 color: None,
             }),
         };
 
-        let ansi = native_terminal_pty_replay_from_grid_snapshot(snapshot, true);
+        let ansi = native_terminal_pty_replay_from_grid_snapshot(snapshot, true, None);
         let rendered = String::from_utf8(ansi).expect("utf8 ansi");
 
         assert!(rendered.starts_with("\x1b[?1049h\x1b[?25l\x1b[H"));
@@ -553,6 +612,155 @@ mod tests {
         assert!(rendered.contains("\x1b[3m\x1b[4m界"));
         assert!(rendered.contains("\x1b[9mB"));
         assert!(rendered.contains("\x1b[6 q\x1b[?25h\x1b[2;2H"));
+    }
+
+    #[test]
+    fn pty_replay_cursor_tail_preserves_blink_state() {
+        let snapshot = TerminalGridSnapshot {
+            cols: 1,
+            rows: 1,
+            cells: vec![cmux_cli_core::compositor::TerminalGridCell {
+                text: " ".into(),
+                width: 1,
+                fg: rgb(255, 255, 255),
+                bg: rgb(0, 0, 0),
+                bold: false,
+                italic: false,
+                underline: false,
+                faint: false,
+                blink: false,
+                strikethrough: false,
+            }],
+            cursor: Some(TerminalCursor {
+                col: 0,
+                row: 0,
+                visible: true,
+                style: TerminalCursorStyle::Bar,
+                blink: true,
+                color: None,
+            }),
+        };
+
+        let ansi = native_terminal_pty_replay_from_grid_snapshot(snapshot, false, None);
+        let rendered = String::from_utf8(ansi).expect("utf8 ansi");
+
+        assert!(rendered.contains("\x1b[5 q\x1b[?25h\x1b[1;1H"));
+    }
+
+    #[test]
+    fn pty_replay_resets_to_configured_default_cursor() {
+        let snapshot = TerminalGridSnapshot {
+            cols: 1,
+            rows: 1,
+            cells: vec![cmux_cli_core::compositor::TerminalGridCell {
+                text: " ".into(),
+                width: 1,
+                fg: rgb(255, 255, 255),
+                bg: rgb(0, 0, 0),
+                bold: false,
+                italic: false,
+                underline: false,
+                faint: false,
+                blink: false,
+                strikethrough: false,
+            }],
+            cursor: Some(TerminalCursor {
+                col: 0,
+                row: 0,
+                visible: true,
+                style: TerminalCursorStyle::Bar,
+                blink: false,
+                color: None,
+            }),
+        };
+        let default_cursor = NativeTerminalCursor {
+            style: Some("bar".into()),
+            blink: Some(false),
+        };
+
+        let ansi =
+            native_terminal_pty_replay_from_grid_snapshot(snapshot, false, Some(&default_cursor));
+        let rendered = String::from_utf8(ansi).expect("utf8 ansi");
+
+        assert!(rendered.contains("\x1b[0 q\x1b[?25h\x1b[1;1H"));
+        assert!(!rendered.contains("\x1b[6 q"));
+    }
+
+    #[test]
+    fn pty_replay_preserves_non_default_cursor_style() {
+        let snapshot = TerminalGridSnapshot {
+            cols: 1,
+            rows: 1,
+            cells: vec![cmux_cli_core::compositor::TerminalGridCell {
+                text: " ".into(),
+                width: 1,
+                fg: rgb(255, 255, 255),
+                bg: rgb(0, 0, 0),
+                bold: false,
+                italic: false,
+                underline: false,
+                faint: false,
+                blink: false,
+                strikethrough: false,
+            }],
+            cursor: Some(TerminalCursor {
+                col: 0,
+                row: 0,
+                visible: true,
+                style: TerminalCursorStyle::Underline,
+                blink: false,
+                color: None,
+            }),
+        };
+        let default_cursor = NativeTerminalCursor {
+            style: Some("bar".into()),
+            blink: Some(false),
+        };
+
+        let ansi =
+            native_terminal_pty_replay_from_grid_snapshot(snapshot, false, Some(&default_cursor));
+        let rendered = String::from_utf8(ansi).expect("utf8 ansi");
+
+        assert!(rendered.contains("\x1b[4 q\x1b[?25h\x1b[1;1H"));
+    }
+
+    #[test]
+    fn pty_replay_resets_to_block_hollow_default_cursor() {
+        let snapshot = TerminalGridSnapshot {
+            cols: 1,
+            rows: 1,
+            cells: vec![cmux_cli_core::compositor::TerminalGridCell {
+                text: " ".into(),
+                width: 1,
+                fg: rgb(255, 255, 255),
+                bg: rgb(0, 0, 0),
+                bold: false,
+                italic: false,
+                underline: false,
+                faint: false,
+                blink: false,
+                strikethrough: false,
+            }],
+            cursor: Some(TerminalCursor {
+                col: 0,
+                row: 0,
+                visible: true,
+                style: TerminalCursorStyle::Block,
+                blink: false,
+                color: None,
+            }),
+        };
+        let default_cursor = NativeTerminalCursor {
+            style: Some("block_hollow".into()),
+            blink: Some(false),
+        };
+
+        let ansi =
+            native_terminal_pty_replay_from_grid_snapshot(snapshot, false, Some(&default_cursor));
+        let rendered = String::from_utf8(ansi).expect("utf8 ansi");
+
+        assert!(rendered.contains("\x1b[0 q\x1b[?25h\x1b[1;1H"));
+        assert!(rendered.contains("\x1b[?25h\x1b[1;1H"));
     }
 
     #[test]

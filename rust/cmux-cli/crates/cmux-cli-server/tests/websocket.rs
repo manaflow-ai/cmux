@@ -292,6 +292,7 @@ async fn websocket_attach_with_token_works() {
     let (ws_listener, ws_addr) = bind_ws_listener().await;
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (80, 24),
@@ -360,6 +361,7 @@ async fn websocket_native_mode_streams_structured_state_and_terminal_grid() {
     let (ws_listener, ws_addr) = bind_ws_listener().await;
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (80, 24),
@@ -500,6 +502,7 @@ async fn websocket_native_libghostty_mode_streams_pty_bytes_instead_of_terminal_
     let (ws_listener, ws_addr) = bind_ws_listener().await;
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (80, 24),
@@ -605,6 +608,7 @@ async fn websocket_native_libghostty_replay_uses_current_grid_not_stale_history(
     let (ws_listener, ws_addr) = bind_ws_listener().await;
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (80, 24),
@@ -713,6 +717,7 @@ async fn websocket_native_libghostty_mode_broadcasts_pty_bytes_to_multiple_clien
     let (ws_listener, ws_addr) = bind_ws_listener().await;
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (80, 24),
@@ -822,6 +827,7 @@ async fn websocket_native_can_set_workspace_pin_and_unread_without_switching() {
     let (ws_listener, ws_addr) = bind_ws_listener().await;
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (80, 24),
@@ -922,6 +928,7 @@ async fn websocket_native_commands_update_workspace_space_and_pane_tree() {
     let (ws_listener, ws_addr) = bind_ws_listener().await;
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (80, 24),
@@ -1052,6 +1059,7 @@ async fn websocket_native_layout_resizes_pty_to_visible_client_size() {
     let (ws_listener, ws_addr) = bind_ws_listener().await;
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (80, 24),
@@ -1133,6 +1141,7 @@ async fn websocket_native_smallest_visible_client_size_wins_until_detach() {
     let (ws_listener, ws_addr) = bind_ws_listener().await;
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (80, 24),
@@ -1252,6 +1261,7 @@ async fn websocket_native_reconnects_cycle_five_workspaces_with_fresh_replay_and
     let (ws_listener, ws_addr) = bind_ws_listener().await;
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (80, 24),
@@ -1447,6 +1457,7 @@ async fn websocket_native_stress_reconnects_phone_and_ipad_sized_clients() {
     let (ws_listener, ws_addr) = bind_ws_listener().await;
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (80, 24),
@@ -1637,6 +1648,7 @@ async fn websocket_native_many_clients_share_one_terminal_and_clean_up() {
     let (ws_listener, ws_addr) = bind_ws_listener().await;
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (80, 24),
@@ -1713,6 +1725,7 @@ async fn websocket_native_single_client_join_type_leave_preserves_state_and_resi
     let (ws_listener, ws_addr) = bind_ws_listener().await;
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (80, 24),
@@ -1818,6 +1831,7 @@ async fn websocket_native_snapshot_reports_attached_client_layouts() {
     let (ws_listener, ws_addr) = bind_ws_listener().await;
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (80, 24),
@@ -1965,6 +1979,7 @@ async fn websocket_native_empty_layout_detaches_visible_client() {
     let (ws_listener, ws_addr) = bind_ws_listener().await;
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (80, 24),
@@ -2035,6 +2050,7 @@ async fn websocket_native_visible_client_times_out_without_heartbeat() {
     let (ws_listener, ws_addr) = bind_ws_listener().await;
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (80, 24),
@@ -2098,6 +2114,7 @@ async fn websocket_native_ping_keeps_quiet_client_alive() {
     let (ws_listener, ws_addr) = bind_ws_listener().await;
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (80, 24),
@@ -2172,6 +2189,7 @@ async fn websocket_native_can_move_tabs_between_panels() {
     let (ws_listener, ws_addr) = bind_ws_listener().await;
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (80, 24),
@@ -2274,6 +2292,7 @@ async fn websocket_native_split_exits_zoom_so_new_pane_is_visible() {
     let (ws_listener, ws_addr) = bind_ws_listener().await;
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (80, 24),
@@ -2334,6 +2353,7 @@ async fn websocket_native_can_move_tab_into_new_split() {
     let (ws_listener, ws_addr) = bind_ws_listener().await;
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (80, 24),
@@ -2411,6 +2431,7 @@ async fn websocket_native_can_split_single_tab_by_replacing_source_panel() {
     let (ws_listener, ws_addr) = bind_ws_listener().await;
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (80, 24),
@@ -2484,6 +2505,7 @@ async fn websocket_native_can_resize_split_by_path() {
     let (ws_listener, ws_addr) = bind_ws_listener().await;
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (120, 32),
@@ -2574,6 +2596,7 @@ async fn websocket_rejects_missing_token() {
     let (ws_listener, ws_addr) = bind_ws_listener().await;
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (80, 24),

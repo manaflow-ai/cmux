@@ -4,6 +4,7 @@ import Foundation
 import Bonsplit
 import CoreVideo
 import Combine
+import CMUXCmxProtocol
 
 // MARK: - Tab Type Alias for Backwards Compatibility
 // The old Tab class is replaced by Workspace
@@ -1032,6 +1033,10 @@ class TabManager: ObservableObject {
     private var sidebarSelectedWorkspaceIds: Set<UUID> = []
     private var currentWindowTabBarLeadingInset: CGFloat?
     private var closeConfirmationInFlight = false
+    private var desktopCmxWorkspaceUUIDsByID: [UInt64: UUID] = [:]
+    private var desktopCmxWorkspaceIDsByUUID: [UUID: UInt64] = [:]
+    private var isApplyingDesktopCmxSnapshot = false
+    private var desktopCmxLastAppliedWorkspaceRevision: UInt64?
     var confirmCloseHandler: ((String, String, Bool) -> Bool)?
     private var agentPIDSweepTimer: DispatchSourceTimer?
     private var workspaceGitMetadataPollTimer: DispatchSourceTimer?
@@ -1052,6 +1057,24 @@ class TabManager: ObservableObject {
     private var didSetupChildExitKeyboardUITest = false
     private var uiTestCancellables = Set<AnyCancellable>()
 #endif
+
+    private static func desktopCmxDerivedUUID(namespace: UInt16, id: UInt64) -> UUID {
+        let high = (id >> 52) & 0x0fff
+        let middle = (id >> 40) & 0x0fff
+        let low = id & 0x00ff_ffff_ffff
+        let raw = String(
+            format: "c0de%04x-c0de-4%03llx-8%03llx-%012llx",
+            Int(namespace),
+            CUnsignedLongLong(high),
+            CUnsignedLongLong(middle),
+            CUnsignedLongLong(low)
+        )
+        return UUID(uuidString: raw)!
+    }
+
+    private static func desktopCmxWorkspaceUUID(for info: CmxNativeWorkspaceInfo) -> UUID {
+        info.externalID ?? desktopCmxDerivedUUID(namespace: 1, id: info.id)
+    }
 
     init(initialWorkingDirectory: String? = nil) {
         addWorkspace(workingDirectory: initialWorkingDirectory)
@@ -2025,6 +2048,268 @@ class TabManager: ObservableObject {
         }
     }
 
+    private func desktopCmxBindWorkspace(_ workspace: Workspace, to cmxWorkspaceID: UInt64) {
+        if let previousID = desktopCmxWorkspaceIDsByUUID[workspace.id], previousID != cmxWorkspaceID {
+            desktopCmxWorkspaceUUIDsByID.removeValue(forKey: previousID)
+        }
+        desktopCmxWorkspaceUUIDsByID[cmxWorkspaceID] = workspace.id
+        desktopCmxWorkspaceIDsByUUID[workspace.id] = cmxWorkspaceID
+    }
+
+    private func desktopCmxUpdateWorkspaceChrome(_ workspace: Workspace, from info: CmxNativeWorkspaceInfo) {
+        let title = info.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? String(localized: "workspace.displayName.fallback", defaultValue: "Workspace")
+            : info.title
+        workspace.setCustomTitle(nil)
+        workspace.setCustomDescription(info.description)
+        workspace.applyProcessTitle(title)
+        if workspace.isPinned != info.pinned {
+            workspace.isPinned = info.pinned
+        }
+        workspace.setCustomColor(info.color)
+        desktopCmxUpdateWorkspaceSidebarState(workspace, from: info)
+    }
+
+    private func desktopCmxUpdateWorkspaceSidebarState(_ workspace: Workspace, from info: CmxNativeWorkspaceInfo) {
+        workspace.setLatestSubmittedMessagePreview(info.latestSubmittedMessage)
+        var nextStatusEntries: [String: SidebarStatusEntry] = [:]
+        for entry in info.statusEntries {
+            let format = SidebarMetadataFormat(rawValue: entry.format) ?? .plain
+            nextStatusEntries[entry.key] = SidebarStatusEntry(
+                key: entry.key,
+                value: entry.value,
+                icon: entry.icon,
+                color: entry.color,
+                url: entry.url.flatMap(URL.init(string:)),
+                priority: entry.priority,
+                format: format,
+                timestamp: Self.desktopCmxDate(milliseconds: entry.updatedAtMilliseconds)
+            )
+        }
+        if workspace.statusEntries != nextStatusEntries {
+            workspace.statusEntries = nextStatusEntries
+        }
+
+        var nextMetadataBlocks: [String: SidebarMetadataBlock] = [:]
+        for block in info.metadataBlocks {
+            nextMetadataBlocks[block.key] = SidebarMetadataBlock(
+                key: block.key,
+                markdown: block.markdown,
+                priority: block.priority,
+                timestamp: Self.desktopCmxDate(milliseconds: block.updatedAtMilliseconds)
+            )
+        }
+        if workspace.metadataBlocks != nextMetadataBlocks {
+            workspace.metadataBlocks = nextMetadataBlocks
+        }
+
+        let nextLogEntries = info.logEntries.map { entry in
+            SidebarLogEntry(
+                message: entry.message,
+                level: SidebarLogLevel(rawValue: entry.level) ?? .info,
+                source: entry.source,
+                timestamp: Self.desktopCmxDate(milliseconds: entry.updatedAtMilliseconds)
+            )
+        }
+        if workspace.logEntries != nextLogEntries {
+            workspace.logEntries = nextLogEntries
+        }
+
+        let nextProgress = info.progress.map { progress in
+            SidebarProgressState(value: min(1.0, max(0.0, progress.value)), label: progress.label)
+        }
+        if workspace.progress != nextProgress {
+            workspace.progress = nextProgress
+        }
+    }
+
+    private static func desktopCmxDate(milliseconds: UInt64) -> Date {
+        guard milliseconds > 0 else {
+            return Date(timeIntervalSince1970: 0)
+        }
+        return Date(timeIntervalSince1970: Double(milliseconds) / 1000.0)
+    }
+
+    private func desktopCmxReusableUnmappedWorkspace(usedWorkspaceIDs: Set<UUID>) -> Workspace? {
+        let candidates = [selectedWorkspace, tabs.first].compactMap { $0 } + tabs
+        for workspace in candidates {
+            guard !usedWorkspaceIDs.contains(workspace.id),
+                  desktopCmxWorkspaceIDsByUUID[workspace.id] == nil else {
+                continue
+            }
+            return workspace
+        }
+        return nil
+    }
+
+    private func desktopCmxCreateWorkspaceShell(for info: CmxNativeWorkspaceInfo) -> Workspace {
+        let ordinal = Self.nextPortOrdinal
+        Self.nextPortOrdinal += 1
+        let workspace = Workspace(
+            id: Self.desktopCmxWorkspaceUUID(for: info),
+            title: info.title,
+            portOrdinal: ordinal,
+            desktopCmxCreateBootstrapTerminal: false
+        )
+        workspace.owningTabManager = self
+        wireClosedBrowserTracking(for: workspace)
+        applyCreationChromeInheritance(to: workspace, from: selectedWorkspace ?? tabs.first)
+#if DEBUG
+        cmuxDebugLog(
+            "desktopCmxBackend.workspace.shell.created cmxWorkspaceID=\(info.id) " +
+            "workspace=\(workspace.id.uuidString.prefix(5)) title=\(info.title)"
+        )
+#endif
+        return workspace
+    }
+
+    private func desktopCmxWorkspace(
+        for info: CmxNativeWorkspaceInfo,
+        usedWorkspaceIDs: Set<UUID>
+    ) -> Workspace {
+        let expectedWorkspaceID = Self.desktopCmxWorkspaceUUID(for: info)
+        if let workspaceID = desktopCmxWorkspaceUUIDsByID[info.id],
+           let workspace = tabs.first(where: { $0.id == workspaceID }),
+           !usedWorkspaceIDs.contains(workspace.id) {
+            return workspace
+        }
+
+        if let workspace = tabs.first(where: { $0.id == expectedWorkspaceID }),
+           !usedWorkspaceIDs.contains(workspace.id) {
+            return workspace
+        }
+
+        return desktopCmxCreateWorkspaceShell(for: info)
+    }
+
+    func applyDesktopCmxNativeSnapshot(_ snapshot: CmxNativeSnapshot) {
+        guard DesktopCmxBackendSettings.isEnabled() else {
+            return
+        }
+        guard !snapshot.workspaces.isEmpty else {
+            selectedWorkspace?.applyDesktopCmxNativeSnapshot(snapshot)
+            return
+        }
+
+        isApplyingDesktopCmxSnapshot = true
+        defer { isApplyingDesktopCmxSnapshot = false }
+
+        let previousRevision = desktopCmxLastAppliedWorkspaceRevision
+        var nextTabs: [Workspace] = []
+        nextTabs.reserveCapacity(snapshot.workspaces.count)
+        var usedWorkspaceIDs = Set<UUID>()
+
+        for info in snapshot.workspaces {
+            let workspace = desktopCmxWorkspace(for: info, usedWorkspaceIDs: usedWorkspaceIDs)
+            usedWorkspaceIDs.insert(workspace.id)
+            desktopCmxBindWorkspace(workspace, to: info.id)
+            desktopCmxUpdateWorkspaceChrome(workspace, from: info)
+            nextTabs.append(workspace)
+        }
+
+        let liveCmxWorkspaceIDs = Set(snapshot.workspaces.map(\.id))
+        desktopCmxWorkspaceUUIDsByID = desktopCmxWorkspaceUUIDsByID.filter { entry in
+            liveCmxWorkspaceIDs.contains(entry.key) && usedWorkspaceIDs.contains(entry.value)
+        }
+        desktopCmxWorkspaceIDsByUUID = Dictionary(
+            uniqueKeysWithValues: desktopCmxWorkspaceUUIDsByID.map { ($0.value, $0.key) }
+        )
+
+        let previousTabs = tabs
+        if previousTabs.map(\.id) != nextTabs.map(\.id) {
+            tabs = nextTabs
+            let retainedIDs = Set(nextTabs.map(\.id))
+            for workspace in previousTabs where !retainedIDs.contains(workspace.id) {
+                unwireClosedBrowserTracking(for: workspace)
+            }
+            pruneBackgroundWorkspaceLoads(existingIds: retainedIDs)
+            sidebarSelectedWorkspaceIds.formIntersection(retainedIDs)
+        }
+
+        let fallbackActiveWorkspaceID: UUID? = {
+            guard snapshot.workspaces.indices.contains(snapshot.activeWorkspace) else {
+                return nil
+            }
+            return desktopCmxWorkspaceUUIDsByID[snapshot.workspaces[snapshot.activeWorkspace].id]
+        }()
+        let activeWorkspaceID = desktopCmxWorkspaceUUIDsByID[snapshot.activeWorkspaceID]
+            ?? fallbackActiveWorkspaceID
+        guard let activeWorkspaceID,
+              let activeWorkspace = nextTabs.first(where: { $0.id == activeWorkspaceID }) else {
+            return
+        }
+
+        activeWorkspace.applyDesktopCmxNativeSnapshot(snapshot)
+        if selectedTabId != activeWorkspace.id {
+#if DEBUG
+            debugPrimeWorkspaceSwitchTrigger("desktopCmxSnapshot", to: activeWorkspace.id)
+#endif
+            selectedTabId = activeWorkspace.id
+        }
+        desktopCmxLastAppliedWorkspaceRevision = snapshot.revision
+#if DEBUG
+        if previousRevision != snapshot.revision {
+            cmuxDebugLog(
+                "desktopCmxBackend.workspaces.applied revision=\(snapshot.revision) " +
+                "count=\(nextTabs.count) activeWorkspaceID=\(snapshot.activeWorkspaceID) " +
+                "workspace=\(activeWorkspace.id.uuidString.prefix(5))"
+            )
+        }
+#endif
+    }
+
+    private var desktopCmxWindowID: UUID? {
+        AppDelegate.shared?.windowId(for: self)
+    }
+
+    private func sendDesktopCmxSelectWorkspaceCommand(
+        for workspace: Workspace,
+        source: String
+    ) -> Bool {
+        guard DesktopCmxBackendSettings.isEnabled(),
+              !isApplyingDesktopCmxSnapshot,
+              desktopCmxWorkspaceIDsByUUID[workspace.id] != nil,
+              let index = tabs.firstIndex(where: { $0.id == workspace.id }) else {
+            return false
+        }
+        AppDelegate.shared?.sendDesktopCmxSelectWorkspaceCommand(
+            index: index,
+            windowID: desktopCmxWindowID,
+            source: source
+        )
+        return true
+    }
+
+    private static func desktopCmxDefaultWorkspaceTitle(for cmxWorkspaceID: UInt64) -> String {
+        cmxWorkspaceID == 0 ? "main" : "ws-\(cmxWorkspaceID)"
+    }
+
+    private func sendDesktopCmxMoveWorkspaceCommand(
+        tabId: UUID,
+        toIndex index: Int,
+        source: String
+    ) -> Bool {
+        guard DesktopCmxBackendSettings.isEnabled(),
+              !isApplyingDesktopCmxSnapshot,
+              let cmxWorkspaceID = desktopCmxWorkspaceIDsByUUID[tabId] else {
+            return false
+        }
+        AppDelegate.shared?.sendDesktopCmxMoveWorkspaceCommand(
+            workspaceID: cmxWorkspaceID,
+            index: index,
+            windowID: desktopCmxWindowID,
+            source: source
+        )
+        return true
+    }
+
+    func desktopCmxWorkspaceID(forWorkspaceID workspaceID: UUID) -> UInt64? {
+        guard DesktopCmxBackendSettings.isEnabled() else {
+            return nil
+        }
+        return desktopCmxWorkspaceIDsByUUID[workspaceID]
+    }
+
     /// Test seam for mutating live workspace state after the creation snapshot is captured.
     func didCaptureWorkspaceCreationSnapshot() {}
 
@@ -2065,6 +2350,19 @@ class TabManager: ObservableObject {
         placementOverride: NewWorkspacePlacement? = nil,
         autoWelcomeIfNeeded: Bool = true
     ) -> Workspace {
+        if DesktopCmxBackendSettings.isEnabled(),
+           !isApplyingDesktopCmxSnapshot,
+           !desktopCmxWorkspaceUUIDsByID.isEmpty,
+           let currentWorkspace = selectedWorkspace ?? tabs.first {
+            AppDelegate.shared?.sendDesktopCmxNewWorkspaceCommand(
+                title: title,
+                workingDirectory: normalizedWorkingDirectory(overrideWorkingDirectory),
+                windowID: desktopCmxWindowID,
+                source: "tabManager.addWorkspace"
+            )
+            return currentWorkspace
+        }
+
         let sourceWorkspace = selectedWorkspace
         let capturedTabs = tabs
         // Snapshot the selected tab from the pinned workspace instead of rereading the
@@ -3792,10 +4090,9 @@ class TabManager: ObservableObject {
     func moveTabToTop(_ tabId: UUID) {
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return }
         guard index != 0 else { return }
-        let tab = tabs.remove(at: index)
         let pinnedCount = tabs.filter { $0.isPinned }.count
-        let insertIndex = tab.isPinned ? 0 : pinnedCount
-        tabs.insert(tab, at: insertIndex)
+        let insertIndex = tabs[index].isPinned ? 0 : pinnedCount
+        _ = reorderWorkspace(tabId: tabId, toIndex: insertIndex)
     }
 
     func moveTabsToTop(_ tabIds: Set<UUID>) {
@@ -3807,17 +4104,26 @@ class TabManager: ObservableObject {
         let selectedUnpinned = selectedTabs.filter { !$0.isPinned }
         let remainingPinned = remainingTabs.filter { $0.isPinned }
         let remainingUnpinned = remainingTabs.filter { !$0.isPinned }
-        tabs = selectedPinned + remainingPinned + selectedUnpinned + remainingUnpinned
+        let nextTabs = selectedPinned + remainingPinned + selectedUnpinned + remainingUnpinned
+        if DesktopCmxBackendSettings.isEnabled(), !isApplyingDesktopCmxSnapshot {
+            for (index, workspace) in nextTabs.enumerated() {
+                _ = sendDesktopCmxMoveWorkspaceCommand(
+                    tabId: workspace.id,
+                    toIndex: index,
+                    source: "tabManager.moveTabsToTop"
+                )
+            }
+            return
+        }
+        tabs = nextTabs
     }
 
     func moveTabToTopForNotification(_ tabId: UUID) {
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return }
         let pinnedCount = tabs.filter { $0.isPinned }.count
         guard index != pinnedCount else { return }
-        let tab = tabs[index]
-        guard !tab.isPinned else { return }
-        tabs.remove(at: index)
-        tabs.insert(tab, at: pinnedCount)
+        guard !tabs[index].isPinned else { return }
+        _ = reorderWorkspace(tabId: tabId, toIndex: pinnedCount)
     }
 
     @discardableResult
@@ -3828,6 +4134,14 @@ class TabManager: ObservableObject {
         let workspace = tabs[currentIndex]
         let clamped = clampedReorderIndex(for: workspace, targetIndex: targetIndex)
         if currentIndex == clamped { return true }
+
+        if sendDesktopCmxMoveWorkspaceCommand(
+            tabId: tabId,
+            toIndex: clamped,
+            source: "tabManager.reorderWorkspace"
+        ) {
+            return true
+        }
 
         tabs.remove(at: currentIndex)
         tabs.insert(workspace, at: clamped)
@@ -3850,6 +4164,24 @@ class TabManager: ObservableObject {
 
     func setCustomTitle(tabId: UUID, title: String?) {
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return }
+        let trimmedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if DesktopCmxBackendSettings.isEnabled(),
+           !isApplyingDesktopCmxSnapshot,
+           let cmxWorkspaceID = desktopCmxWorkspaceIDsByUUID[tabId] {
+            let nextTitle = {
+                if let trimmedTitle, !trimmedTitle.isEmpty {
+                    return trimmedTitle
+                }
+                return Self.desktopCmxDefaultWorkspaceTitle(for: cmxWorkspaceID)
+            }()
+            AppDelegate.shared?.sendDesktopCmxRenameWorkspaceCommand(
+                workspaceID: cmxWorkspaceID,
+                title: nextTitle,
+                windowID: desktopCmxWindowID,
+                source: "tabManager.setCustomTitle"
+            )
+            return
+        }
         tabs[index].setCustomTitle(title)
         if selectedTabId == tabId {
             updateWindowTitle(for: tabs[index])
@@ -3862,6 +4194,18 @@ class TabManager: ObservableObject {
 
     func setCustomDescription(tabId: UUID, description: String?) {
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return }
+        if DesktopCmxBackendSettings.isEnabled(),
+           !isApplyingDesktopCmxSnapshot,
+           let cmxWorkspaceID = desktopCmxWorkspaceIDsByUUID[tabId] {
+            let trimmedDescription = description?.trimmingCharacters(in: .whitespacesAndNewlines)
+            AppDelegate.shared?.sendDesktopCmxSetWorkspaceDescriptionCommand(
+                workspaceID: cmxWorkspaceID,
+                description: trimmedDescription?.isEmpty == false ? trimmedDescription : nil,
+                windowID: desktopCmxWindowID,
+                source: "tabManager.setCustomDescription"
+            )
+            return
+        }
         tabs[index].setCustomDescription(description)
     }
 
@@ -3871,6 +4215,18 @@ class TabManager: ObservableObject {
 
     func setTabColor(tabId: UUID, color: String?) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
+        if DesktopCmxBackendSettings.isEnabled(),
+           !isApplyingDesktopCmxSnapshot,
+           let cmxWorkspaceID = desktopCmxWorkspaceIDsByUUID[tabId] {
+            let normalizedColor = color.flatMap { WorkspaceTabColorSettings.normalizedHex($0) }
+            AppDelegate.shared?.sendDesktopCmxSetWorkspaceColorCommand(
+                workspaceID: cmxWorkspaceID,
+                color: normalizedColor,
+                windowID: desktopCmxWindowID,
+                source: "tabManager.setTabColor"
+            )
+            return
+        }
         tab.setCustomColor(color)
     }
 
@@ -3898,6 +4254,17 @@ class TabManager: ObservableObject {
 
     func setPinned(_ tab: Workspace, pinned: Bool) {
         guard tab.isPinned != pinned else { return }
+        if DesktopCmxBackendSettings.isEnabled(),
+           !isApplyingDesktopCmxSnapshot,
+           let cmxWorkspaceID = desktopCmxWorkspaceIDsByUUID[tab.id] {
+            AppDelegate.shared?.sendDesktopCmxSetWorkspacePinnedCommand(
+                workspaceID: cmxWorkspaceID,
+                pinned: pinned,
+                windowID: desktopCmxWindowID,
+                source: "tabManager.setPinned"
+            )
+            return
+        }
         tab.isPinned = pinned
         reorderTabForPinnedState(tab)
     }
@@ -4104,6 +4471,16 @@ class TabManager: ObservableObject {
 
     func closeWorkspace(_ workspace: Workspace) {
         guard tabs.count > 1 else { return }
+        if DesktopCmxBackendSettings.isEnabled(),
+           !isApplyingDesktopCmxSnapshot,
+           let cmxWorkspaceID = desktopCmxWorkspaceIDsByUUID[workspace.id] {
+            AppDelegate.shared?.sendDesktopCmxCloseWorkspaceCommand(
+                workspaceID: cmxWorkspaceID,
+                windowID: desktopCmxWindowID,
+                source: "tabManager.closeWorkspace"
+            )
+            return
+        }
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
         clearWorkspaceGitProbes(workspaceId: workspace.id)
         clearWorkspacePullRequestTracking(workspaceId: workspace.id)
@@ -4285,6 +4662,9 @@ class TabManager: ObservableObject {
     }
 
     func selectWorkspace(_ workspace: Workspace) {
+        if sendDesktopCmxSelectWorkspaceCommand(for: workspace, source: "tabManager.selectWorkspace") {
+            return
+        }
 #if DEBUG
         debugPrimeWorkspaceSwitchTrigger("select", to: workspace.id)
 #endif
@@ -4303,7 +4683,7 @@ class TabManager: ObservableObject {
     }
 
     func endCloseConfirmationSession() {
-        DispatchQueue.main.async { [weak self] in
+        Task { @MainActor [weak self] in
             self?.closeConfirmationInFlight = false
         }
     }
@@ -4366,7 +4746,7 @@ class TabManager: ObservableObject {
             NSApp.stopModal(withCode: result)
         }
         #if DEBUG
-        DispatchQueue.main.async {
+        Task { @MainActor in
             UITestRecorder.record([
                 "closeConfirmationPresentation": "sheet",
                 "closeConfirmationAttachedSheet": presentingWindow.attachedSheet == nil ? "0" : "1",
@@ -5140,6 +5520,16 @@ class TabManager: ObservableObject {
         guard let currentId = selectedTabId,
               let currentIndex = tabs.firstIndex(where: { $0.id == currentId }) else { return }
         let nextIndex = (currentIndex + 1) % tabs.count
+        if DesktopCmxBackendSettings.isEnabled(),
+           !isApplyingDesktopCmxSnapshot,
+           desktopCmxWorkspaceIDsByUUID[tabs[nextIndex].id] != nil {
+            AppDelegate.shared?.sendDesktopCmxSelectWorkspaceCommand(
+                index: nextIndex,
+                windowID: desktopCmxWindowID,
+                source: "tabManager.selectNextTab"
+            )
+            return
+        }
 #if DEBUG
         let nextId = tabs[nextIndex].id
         debugPrepareWorkspaceSwitch("next", from: currentId, to: nextId)
@@ -5152,6 +5542,16 @@ class TabManager: ObservableObject {
         guard let currentId = selectedTabId,
               let currentIndex = tabs.firstIndex(where: { $0.id == currentId }) else { return }
         let prevIndex = (currentIndex - 1 + tabs.count) % tabs.count
+        if DesktopCmxBackendSettings.isEnabled(),
+           !isApplyingDesktopCmxSnapshot,
+           desktopCmxWorkspaceIDsByUUID[tabs[prevIndex].id] != nil {
+            AppDelegate.shared?.sendDesktopCmxSelectWorkspaceCommand(
+                index: prevIndex,
+                windowID: desktopCmxWindowID,
+                source: "tabManager.selectPreviousTab"
+            )
+            return
+        }
 #if DEBUG
         let prevId = tabs[prevIndex].id
         debugPrepareWorkspaceSwitch("prev", from: currentId, to: prevId)
@@ -5273,6 +5673,16 @@ class TabManager: ObservableObject {
 
     func selectTab(at index: Int) {
         guard index >= 0 && index < tabs.count else { return }
+        if DesktopCmxBackendSettings.isEnabled(),
+           !isApplyingDesktopCmxSnapshot,
+           desktopCmxWorkspaceIDsByUUID[tabs[index].id] != nil {
+            AppDelegate.shared?.sendDesktopCmxSelectWorkspaceCommand(
+                index: index,
+                windowID: desktopCmxWindowID,
+                source: "tabManager.selectTabAt"
+            )
+            return
+        }
 #if DEBUG
         debugPrimeWorkspaceSwitchTrigger("select_index", to: tabs[index].id)
 #endif
@@ -5281,6 +5691,9 @@ class TabManager: ObservableObject {
 
     func selectLastTab() {
         guard let lastTab = tabs.last else { return }
+        if sendDesktopCmxSelectWorkspaceCommand(for: lastTab, source: "tabManager.selectLastTab") {
+            return
+        }
         selectedTabId = lastTab.id
     }
 

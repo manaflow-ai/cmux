@@ -247,6 +247,7 @@ async fn start_server(
 ) -> tokio::task::JoinHandle<()> {
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(cwd),
         initial_viewport: (160, 36),

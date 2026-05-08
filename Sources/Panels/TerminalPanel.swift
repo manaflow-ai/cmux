@@ -89,6 +89,7 @@ final class TerminalPanel: Panel, ObservableObject {
     /// Create a new terminal panel with a fresh surface
     convenience init(
         workspaceId: UUID,
+        id: UUID = UUID(),
         context: ghostty_surface_context_e = GHOSTTY_SURFACE_CONTEXT_SPLIT,
         configTemplate: CmuxSurfaceConfigTemplate? = nil,
         workingDirectory: String? = nil,
@@ -97,9 +98,12 @@ final class TerminalPanel: Panel, ObservableObject {
         initialInput: String? = nil,
         initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:],
-        focusPlacement: TerminalSurfaceFocusPlacement = .workspace
+        focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
+        cmxTerminalID: UInt64? = nil,
+        manualIOHandler: (@Sendable (Data) -> Void)? = nil
     ) {
         let surface = TerminalSurface(
+            id: id,
             tabId: workspaceId,
             context: context,
             configTemplate: configTemplate,
@@ -108,7 +112,9 @@ final class TerminalPanel: Panel, ObservableObject {
             initialInput: initialInput,
             initialEnvironmentOverrides: initialEnvironmentOverrides,
             additionalEnvironment: additionalEnvironment,
-            focusPlacement: focusPlacement
+            focusPlacement: focusPlacement,
+            cmxTerminalID: cmxTerminalID,
+            manualIOHandler: manualIOHandler
         )
         surface.portOrdinal = portOrdinal
         self.init(workspaceId: workspaceId, surface: surface)

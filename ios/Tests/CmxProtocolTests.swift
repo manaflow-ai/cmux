@@ -58,12 +58,69 @@ final class CmxProtocolTests: XCTestCase {
         XCTAssertNotNil(payload.range(of: Data("index".utf8)))
     }
 
-    func testCommandEncodingSetsWorkspacePinnedAndUnreadState() throws {
+    func testCommandEncodingMovesTabToPanelWithExplicitFocus() throws {
+        let payload = try CmxWireCodec.encode(
+            .command(
+                id: 8,
+                .moveTabToPanel(fromPanelID: 31, from: 2, toPanelID: 41, to: 0, focus: false)
+            )
+        )
+
+        XCTAssertNotNil(payload.range(of: Data("move-tab-to-panel".utf8)))
+        XCTAssertNotNil(payload.range(of: Data("from_panel_id".utf8)))
+        XCTAssertNotNil(payload.range(of: Data("to_panel_id".utf8)))
+        XCTAssertNotNil(payload.range(of: Data("focus".utf8)))
+        XCTAssertNotNil(payload.range(of: Data([0xC2])))
+    }
+
+    func testCommandEncodingMovesTabToSplitWithExplicitFocus() throws {
+        let payload = try CmxWireCodec.encode(
+            .command(
+                id: 9,
+                .moveTabToSplit(fromPanelID: 31, from: 2, targetPanelID: 41, edge: .left, focus: false)
+            )
+        )
+
+        XCTAssertNotNil(payload.range(of: Data("move-tab-to-split".utf8)))
+        XCTAssertNotNil(payload.range(of: Data("from_panel_id".utf8)))
+        XCTAssertNotNil(payload.range(of: Data("target_panel_id".utf8)))
+        XCTAssertNotNil(payload.range(of: Data("edge".utf8)))
+        XCTAssertNotNil(payload.range(of: Data("left".utf8)))
+        XCTAssertNotNil(payload.range(of: Data("focus".utf8)))
+        XCTAssertNotNil(payload.range(of: Data([0xC2])))
+    }
+
+    func testCommandEncodingSetsTabTitleByStableID() throws {
+        let rename = try CmxWireCodec.encode(
+            .command(id: 10, .setTabTitleByID(tabID: 51, title: "Build Logs", explicit: true))
+        )
+        let clear = try CmxWireCodec.encode(
+            .command(id: 11, .setTabTitleByID(tabID: 51, title: nil, explicit: false))
+        )
+
+        XCTAssertNotNil(rename.range(of: Data("set-tab-title-by-id".utf8)))
+        XCTAssertNotNil(rename.range(of: Data("tab_id".utf8)))
+        XCTAssertNotNil(rename.range(of: Data("Build Logs".utf8)))
+        XCTAssertNotNil(rename.range(of: Data("explicit".utf8)))
+        XCTAssertNotNil(rename.range(of: Data([0xC3])))
+        XCTAssertNotNil(clear.range(of: Data("set-tab-title-by-id".utf8)))
+        XCTAssertNotNil(clear.range(of: Data("title".utf8)))
+        XCTAssertNotNil(clear.range(of: Data([0xC0])))
+        XCTAssertNotNil(clear.range(of: Data([0xC2])))
+    }
+
+    func testCommandEncodingSetsWorkspacePinnedUnreadDescriptionAndColorState() throws {
         let pinned = try CmxWireCodec.encode(
             .command(id: 8, .setWorkspacePinned(workspaceID: 42, pinned: true))
         )
         let unread = try CmxWireCodec.encode(
             .command(id: 9, .setWorkspaceUnread(workspaceID: 42, unread: false))
+        )
+        let description = try CmxWireCodec.encode(
+            .command(id: 10, .setWorkspaceDescriptionByID(workspaceID: 42, description: "Build queue"))
+        )
+        let color = try CmxWireCodec.encode(
+            .command(id: 11, .setWorkspaceColorByID(workspaceID: 42, color: "#112233"))
         )
 
         XCTAssertNotNil(pinned.range(of: Data("set-workspace-pinned".utf8)))
@@ -72,6 +129,27 @@ final class CmxProtocolTests: XCTestCase {
         XCTAssertNotNil(unread.range(of: Data("set-workspace-unread".utf8)))
         XCTAssertNotNil(unread.range(of: Data("workspace_id".utf8)))
         XCTAssertNotNil(unread.range(of: Data("unread".utf8)))
+        XCTAssertNotNil(description.range(of: Data("set-workspace-description-by-id".utf8)))
+        XCTAssertNotNil(description.range(of: Data("workspace_id".utf8)))
+        XCTAssertNotNil(description.range(of: Data("Build queue".utf8)))
+        XCTAssertNotNil(color.range(of: Data("set-workspace-color-by-id".utf8)))
+        XCTAssertNotNil(color.range(of: Data("workspace_id".utf8)))
+        XCTAssertNotNil(color.range(of: Data("#112233".utf8)))
+    }
+
+    func testCommandEncodingTargetsWorkspaceByIDForCloseAndRename() throws {
+        let close = try CmxWireCodec.encode(
+            .command(id: 10, .closeWorkspaceByID(workspaceID: 42))
+        )
+        let rename = try CmxWireCodec.encode(
+            .command(id: 11, .renameWorkspaceByID(workspaceID: 42, title: "Renamed"))
+        )
+
+        XCTAssertNotNil(close.range(of: Data("close-workspace-by-id".utf8)))
+        XCTAssertNotNil(close.range(of: Data("workspace_id".utf8)))
+        XCTAssertNotNil(rename.range(of: Data("rename-workspace-by-id".utf8)))
+        XCTAssertNotNil(rename.range(of: Data("workspace_id".utf8)))
+        XCTAssertNotNil(rename.range(of: Data("Renamed".utf8)))
     }
 
     func testPingEncodingKeepsNativeWebSocketClientAlive() throws {
@@ -189,8 +267,18 @@ final class CmxProtocolTests: XCTestCase {
         XCTAssertEqual(snapshot.focusedPanelID, 31)
         XCTAssertEqual(snapshot.focusedTabID, 41)
         XCTAssertEqual(snapshot.workspaces.map(\.title), ["main", "agents"])
+        XCTAssertEqual(snapshot.workspaces.first?.externalID, UUID(uuidString: "c0de0001-c0de-4000-8000-00000000000b"))
+        XCTAssertEqual(snapshot.workspaces.first?.description, "Main workspace")
+        XCTAssertEqual(snapshot.workspaces.first?.latestSubmittedMessage, "Build the prompt submit path")
         XCTAssertEqual(snapshot.spaces.map(\.title), ["space-a"])
         XCTAssertEqual(snapshot.panels.flattenedTabs.map(\.id), [41, 42])
+        XCTAssertEqual(
+            snapshot.panels.flattenedTabs.map(\.externalID),
+            [
+                UUID(uuidString: "c0de0002-c0de-4000-8000-000000000029"),
+                UUID(uuidString: "c0de0002-c0de-4000-8000-00000000002a"),
+            ]
+        )
         XCTAssertEqual(snapshot.panels.selection(for: 42), CmxNativeTabSelection(panelID: 31, index: 1))
         XCTAssertEqual(snapshot.terminalTheme?.defaultTheme?.palette[1], "#f92672")
         XCTAssertEqual(snapshot.terminalTheme?.defaultTheme?.background, "#272822")
@@ -202,6 +290,8 @@ final class CmxProtocolTests: XCTestCase {
         XCTAssertEqual(snapshot.attachedClients.first?.terminals.first, CmxWireTerminalViewport(tabID: 41, cols: 30, rows: 30))
         XCTAssertTrue(snapshot.ghosttyConfigFragment(colorPreference: .dark)?.contains("palette = 1=#f92672") == true)
         XCTAssertTrue(snapshot.ghosttyConfigFragment(colorPreference: .dark)?.contains("background = #272822") == true)
+        XCTAssertTrue(snapshot.ghosttyConfigFragment(colorPreference: .dark)?.contains("cursor-style = block") == true)
+        XCTAssertTrue(snapshot.ghosttyConfigFragment(colorPreference: .dark)?.contains("cursor-style-blink = true") == true)
     }
 
     func testDecodeTerminalGridSnapshot() throws {
@@ -221,7 +311,7 @@ final class CmxProtocolTests: XCTestCase {
         writer.writeArrayHeader(1)
         writeCell(text: "A", to: &writer)
         writer.writeString("cursor")
-        writer.writeMapHeader(5)
+        writer.writeMapHeader(6)
         writer.writeString("col")
         writer.writeUInt(1)
         writer.writeString("row")
@@ -230,6 +320,8 @@ final class CmxProtocolTests: XCTestCase {
         writer.writeBool(true)
         writer.writeString("style")
         writer.writeString("bar")
+        writer.writeString("blink")
+        writer.writeBool(false)
         writer.writeString("color")
         writeRGB(255, 0, 0, to: &writer)
 
@@ -241,6 +333,7 @@ final class CmxProtocolTests: XCTestCase {
         XCTAssertEqual(snapshot.tabID, 41)
         XCTAssertEqual(snapshot.cells.first?.fg, CmxTerminalRGB(r: 1, g: 2, b: 3))
         XCTAssertEqual(snapshot.cursor?.style, .bar)
+        XCTAssertEqual(snapshot.cursor?.blink, false)
         XCTAssertEqual(snapshot.cursor?.color, CmxTerminalRGB(r: 255, g: 0, b: 0))
     }
 
@@ -334,11 +427,25 @@ final class CmxProtocolTests: XCTestCase {
         pinned: Bool,
         to writer: inout MessagePackWriter
     ) {
-        writer.writeMapHeader(7)
+        writer.writeMapHeader(10)
         writer.writeString("id")
         writer.writeUInt(id)
+        writer.writeString("external_id")
+        writer.writeString(String(format: "c0de0001-c0de-4000-8000-%012llx", CUnsignedLongLong(id)))
         writer.writeString("title")
         writer.writeString(title)
+        writer.writeString("description")
+        if id == 11 {
+            writer.writeString("Main workspace")
+        } else {
+            writer.writeNil()
+        }
+        writer.writeString("latest_submitted_message")
+        if id == 11 {
+            writer.writeString("Build the prompt submit path")
+        } else {
+            writer.writeNil()
+        }
         writer.writeString("space_count")
         writer.writeUInt(spaces)
         writer.writeString("tab_count")
@@ -352,9 +459,11 @@ final class CmxProtocolTests: XCTestCase {
     }
 
     private func writeSpace(id: UInt64, title: String, to writer: inout MessagePackWriter) {
-        writer.writeMapHeader(4)
+        writer.writeMapHeader(5)
         writer.writeString("id")
         writer.writeUInt(id)
+        writer.writeString("external_id")
+        writer.writeString(String(format: "c0de0002-c0de-4000-8000-%012llx", CUnsignedLongLong(id)))
         writer.writeString("title")
         writer.writeString(title)
         writer.writeString("pane_count")

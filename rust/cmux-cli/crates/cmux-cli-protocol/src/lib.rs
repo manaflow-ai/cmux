@@ -80,6 +80,14 @@ pub enum ClientMsg {
         token: Option<String>,
         #[serde(default)]
         terminal_renderer: NativeTerminalRenderer,
+        #[serde(default)]
+        client_kind: Option<String>,
+        #[serde(default)]
+        client_id: Option<String>,
+        #[serde(default)]
+        window_id: Option<String>,
+        #[serde(default)]
+        capabilities: Vec<String>,
     },
     /// Keystrokes / paste bytes destined for the focused tab's PTY.
     Input {
@@ -129,6 +137,21 @@ pub enum ClientMsg {
     /// Native libghostty client detected a lost/blank local renderer and needs
     /// the server to resend the buffered PTY stream for one terminal.
     RequestPtyReplay { tab_id: u64 },
+    /// Native desktop WebView worker reports the durable state for one browser
+    /// tab after navigation, title, history, zoom, or proxy metadata changes.
+    NativeBrowserUpdate {
+        tab_id: u64,
+        browser: NativeBrowserInfo,
+    },
+    /// Native desktop WebView focus state for compatibility commands that
+    /// query first-responder ownership.
+    NativeBrowserFocusUpdate { tab_id: u64, webview_focused: bool },
+    /// Native desktop process replied to a compatibility JSON-RPC request that
+    /// Rust forwarded because the command requires AppKit/WKWebView execution.
+    NativeCompatibilityReply {
+        request_id: u64,
+        response_json: String,
+    },
 }
 
 /// Minimal mouse event model for M-era selection-to-yank. A richer model
@@ -157,6 +180,37 @@ pub enum Command {
     /// Create a new terminal in the focused pane. Compatibility alias:
     /// "tab".
     NewTab,
+    /// Create a new terminal in the focused pane and optionally seed cwd/input.
+    NewTabWithOptions {
+        #[serde(default)]
+        cwd: Option<String>,
+        #[serde(default)]
+        initial_input: Option<String>,
+    },
+    /// Create a new browser tab in the focused pane.
+    NewBrowserTab {
+        #[serde(default)]
+        url: Option<String>,
+    },
+    /// Create a new browser tab in a newly split panel.
+    NewBrowserSplit {
+        #[serde(default)]
+        url: Option<String>,
+        #[serde(default)]
+        vertical: bool,
+    },
+    /// Navigate the active browser tab. Compatibility alias: "browser".
+    BrowserNavigate {
+        url: String,
+    },
+    /// Navigate the active browser tab backward.
+    BrowserBack,
+    /// Navigate the active browser tab forward.
+    BrowserForward,
+    /// Reload the active browser tab.
+    BrowserReload,
+    /// Return the active browser tab's durable state.
+    BrowserGetUrl,
     /// Select the terminal at the given index in the focused pane's stack.
     /// Compatibility alias: "tab".
     SelectTab {
@@ -188,6 +242,46 @@ pub enum Command {
     SelectWorkspace {
         index: usize,
     },
+    /// Move a workspace to an index without changing the active workspace.
+    MoveWorkspaceToIndex {
+        workspace_id: u64,
+        index: usize,
+    },
+    /// Update Rust's durable remote-status snapshot for a workspace.
+    /// Native desktop clients still own platform side effects for now, but
+    /// cmx remains the query and persistence authority for the socket API.
+    SetWorkspaceRemoteStatus {
+        workspace_id: u64,
+        #[serde(default)]
+        status_json: Option<String>,
+    },
+    /// Return Rust-owned remote daemon release/cache metadata.
+    RemoteDaemonStatus {
+        #[serde(default)]
+        go_os: Option<String>,
+        #[serde(default)]
+        go_arch: Option<String>,
+    },
+    /// Resolve the local cmuxd-remote binary and remote install path Rust
+    /// would use for SSH bootstrap. This may download or build the binary.
+    RemoteDaemonBootstrapPlan {
+        #[serde(default)]
+        go_os: Option<String>,
+        #[serde(default)]
+        go_arch: Option<String>,
+    },
+    /// Probe/upload/start cmuxd-remote over SSH. Hidden plumbing for desktop
+    /// cutover work; workspace remote configure uses the same executor for
+    /// Rust-owned SSH bootstrap before handing off remaining sidecar work.
+    RemoteDaemonSshBootstrap {
+        destination: String,
+        #[serde(default)]
+        port: Option<u16>,
+        #[serde(default)]
+        identity_file: Option<String>,
+        #[serde(default)]
+        ssh_options: Vec<String>,
+    },
     /// Select the space at the given index within the active workspace.
     SelectSpace {
         index: usize,
@@ -202,6 +296,14 @@ pub enum Command {
     PrevSpace,
     /// Close the active workspace. If the last, the server shuts down.
     CloseWorkspace,
+    /// Close a workspace by stable id without changing the active workspace.
+    CloseWorkspaceById {
+        workspace_id: u64,
+    },
+    /// Close a native desktop window by external window id.
+    CloseWindowById {
+        window_id: String,
+    },
     /// Return the list of workspaces.
     ListWorkspaces,
     /// Close the active space. If it is the last space, the workspace
@@ -250,11 +352,15 @@ pub enum Command {
     SendInput {
         data: String,
     },
-    /// Return the active tab's current visible screen text. `lines = None`
-    /// returns the entire viewport; `Some(n)` returns the last n rows.
+    /// Return terminal text. Without `scrollback`, `lines = None` returns the
+    /// entire viewport and `Some(n)` returns the last n visible rows. With
+    /// `scrollback`, the same shape is anchored to the render broker's
+    /// scrollback buffer.
     ReadScreen {
         #[serde(default)]
         lines: Option<usize>,
+        #[serde(default)]
+        scrollback: bool,
     },
     /// Inject raw bytes into the active tab's PTY. Unlike `SendInput`,
     /// this carries arbitrary bytes (control chars, escape sequences,
@@ -268,9 +374,33 @@ pub enum Command {
     RenameTab {
         title: String,
     },
+    /// Set or clear an explicit tab title by stable id without changing focus.
+    SetTabTitleById {
+        tab_id: u64,
+        #[serde(default)]
+        title: Option<String>,
+        #[serde(default = "default_true")]
+        explicit: bool,
+    },
     /// Rename the currently-active workspace.
     RenameWorkspace {
         title: String,
+    },
+    /// Rename a workspace by stable id without changing the active workspace.
+    RenameWorkspaceById {
+        workspace_id: u64,
+        title: String,
+    },
+    /// Set or clear the currently-active workspace description.
+    SetWorkspaceDescription {
+        #[serde(default)]
+        description: Option<String>,
+    },
+    /// Set or clear a workspace description by stable id without changing focus.
+    SetWorkspaceDescriptionById {
+        workspace_id: u64,
+        #[serde(default)]
+        description: Option<String>,
     },
     /// Rename the currently-active space.
     RenameSpace {
@@ -294,9 +424,23 @@ pub enum Command {
     /// Each leaf panel owns its own tab stack. Matches tmux `C-b %`
     /// semantics.
     SplitHorizontal,
+    /// Split the active panel side-by-side with optional new-terminal seed data.
+    SplitHorizontalWithOptions {
+        #[serde(default)]
+        cwd: Option<String>,
+        #[serde(default)]
+        initial_input: Option<String>,
+    },
     /// Switch into stacked split mode (horizontal divider → "one
     /// pane above, one below"). Matches tmux `C-b "` semantics.
     SplitVertical,
+    /// Switch into stacked split mode with optional new-terminal seed data.
+    SplitVerticalWithOptions {
+        #[serde(default)]
+        cwd: Option<String>,
+        #[serde(default)]
+        initial_input: Option<String>,
+    },
     /// Flatten the panel tree into one panel, preserving the active tab.
     Unsplit,
     /// Move focus to the nearest panel in that direction. Outside split
@@ -356,6 +500,12 @@ pub enum Command {
         #[serde(default)]
         color: Option<String>,
     },
+    /// Set (or clear with `None`) a workspace's color without making it active.
+    SetWorkspaceColorById {
+        workspace_id: u64,
+        #[serde(default)]
+        color: Option<String>,
+    },
     /// Reorder a tab. Moves the tab at `from` to index `to`. Other
     /// tabs shift to make room. Indices beyond the bounds clamp.
     MoveTab {
@@ -369,6 +519,8 @@ pub enum Command {
         from: usize,
         to_panel_id: u64,
         to: usize,
+        #[serde(default = "default_true")]
+        focus: bool,
     },
     /// Move a tab into a new split adjacent to an existing target panel.
     MoveTabToSplit {
@@ -376,6 +528,8 @@ pub enum Command {
         from: usize,
         target_panel_id: u64,
         edge: SplitDropEdge,
+        #[serde(default = "default_true")]
+        focus: bool,
     },
     /// Focus a split panel by id. Used by native clients whose chrome can
     /// address panels directly.
@@ -483,6 +637,12 @@ pub enum ServerMsg {
     TerminalGridSnapshot {
         snapshot: NativeTerminalGridSnapshot,
     },
+    /// Ask a native desktop client to execute a legacy cmux socket v2 request.
+    /// The response must be sent back as `ClientMsg::NativeCompatibilityReply`.
+    NativeCompatibilityRequest {
+        request_id: u64,
+        request_json: String,
+    },
     /// Protocol / application error. Fatal for the connection.
     Error { message: String },
 }
@@ -517,8 +677,14 @@ pub struct NativeTerminalCursorPosition {
     pub row: u16,
     pub visible: bool,
     pub style: NativeTerminalCursorStyle,
+    #[serde(default = "default_true")]
+    pub blink: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<TerminalRgb>,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -532,6 +698,12 @@ pub enum NativeTerminalCursorStyle {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NativeSnapshot {
+    #[serde(default)]
+    pub revision: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub native_window_ids: Vec<String>,
     pub workspaces: Vec<WorkspaceInfo>,
     pub active_workspace: usize,
     pub active_workspace_id: u64,
@@ -549,6 +721,14 @@ pub struct NativeSnapshot {
     pub terminal_font: Option<NativeTerminalFont>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub terminal_cursor: Option<NativeTerminalCursor>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub browser_focus_request: Option<NativeBrowserFocusRequest>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NativeBrowserFocusRequest {
+    pub tab_id: u64,
+    pub generation: u64,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -689,6 +869,74 @@ pub enum CommandData {
         cols: u16,
         rows: u16,
     },
+    BrowserState {
+        tab_id: u64,
+        browser: NativeBrowserInfo,
+    },
+    RemoteDaemonStatus {
+        status: RemoteDaemonStatusInfo,
+    },
+    RemoteDaemonBootstrapPlan {
+        plan: RemoteDaemonBootstrapPlanInfo,
+    },
+    RemoteDaemonSshBootstrap {
+        result: RemoteDaemonSshBootstrapInfo,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RemoteDaemonStatusInfo {
+    pub app_version: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit: Option<String>,
+    pub manifest_present: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub manifest_error: Option<String>,
+    pub release_tag: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub release_url: Option<String>,
+    pub target_goos: String,
+    pub target_goarch: String,
+    pub asset_name: String,
+    pub download_url: String,
+    pub checksums_asset_name: String,
+    pub checksums_url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_sha256: Option<String>,
+    pub cache_path: String,
+    pub cache_exists: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_sha256: Option<String>,
+    pub cache_verified: bool,
+    pub dev_local_build_fallback: bool,
+    pub download_command: String,
+    pub download_checksums_command: String,
+    pub checksum_verify_command: String,
+    pub attestation_verify_command: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RemoteDaemonBootstrapPlanInfo {
+    pub version: String,
+    pub target_goos: String,
+    pub target_goarch: String,
+    pub local_binary_path: String,
+    pub remote_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RemoteDaemonSshBootstrapInfo {
+    pub version: String,
+    pub target_goos: String,
+    pub target_goarch: String,
+    pub local_binary_path: String,
+    pub remote_path: String,
+    pub uploaded: bool,
+    pub daemon_name: String,
+    pub daemon_version: String,
+    pub daemon_capabilities: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -704,7 +952,18 @@ pub struct BufferInfo {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TabInfo {
     pub id: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external_id: Option<String>,
+    #[serde(default)]
+    pub kind: NativeTabKind,
     pub title: String,
+    /// True when the title came from an explicit user rename rather
+    /// than PTY-reported process title state.
+    #[serde(default)]
+    pub explicit_title: bool,
+    /// True when the tab is pinned in the tab strip.
+    #[serde(default)]
+    pub pinned: bool,
     /// True when the tab has emitted PTY output since the user last
     /// viewed it (inactive tabs only; the active tab always reads as
     /// `false`). Used by the tab bar to show a dot next to noisy
@@ -714,12 +973,101 @@ pub struct TabInfo {
     /// Cumulative count of bell bytes (0x07) emitted by the tab.
     #[serde(default)]
     pub bell_count: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git_branch: Option<NativeGitBranchInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pull_request: Option<NativePullRequestInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tty_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shell_state: Option<String>,
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub ports_kick_generation: u64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub listening_ports: Vec<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub browser: Option<NativeBrowserInfo>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum NativeTabKind {
+    #[default]
+    Terminal,
+    Browser,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NativeGitBranchInfo {
+    pub branch: String,
+    #[serde(default)]
+    pub is_dirty: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NativePullRequestInfo {
+    pub number: u64,
+    pub label: String,
+    pub url: String,
+    pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub is_stale: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct NativeBrowserInfo {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile_id: Option<String>,
+    #[serde(default)]
+    pub should_render_webview: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_zoom: Option<f64>,
+    #[serde(default)]
+    pub developer_tools_visible: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub back_history_url_strings: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub forward_history_url_strings: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proxy: Option<NativeBrowserProxyContext>,
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub reload_generation: u64,
+}
+
+fn is_zero_u64(value: &u64) -> bool {
+    *value == 0
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NativeBrowserProxyContext {
+    pub host: String,
+    pub port: u16,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkspaceInfo {
     pub id: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external_id: Option<String>,
     pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest_submitted_message: Option<String>,
     /// New public model: a workspace contains spaces.
     #[serde(default)]
     pub space_count: usize,
@@ -743,6 +1091,70 @@ pub struct WorkspaceInfo {
     /// User-set color tint in `#RRGGBB` format. `None` = default.
     #[serde(default)]
     pub color: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_status_json: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub status_entries: Vec<NativeSidebarStatusEntry>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub metadata_blocks: Vec<NativeSidebarMetadataBlock>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub log_entries: Vec<NativeSidebarLogEntry>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progress: Option<NativeSidebarProgressState>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NativeSidebarStatusEntry {
+    pub key: String,
+    pub value: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(default)]
+    pub priority: i32,
+    #[serde(default = "default_sidebar_metadata_format")]
+    pub format: String,
+    #[serde(default)]
+    pub updated_at_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NativeSidebarMetadataBlock {
+    pub key: String,
+    pub markdown: String,
+    #[serde(default)]
+    pub priority: i32,
+    #[serde(default)]
+    pub updated_at_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NativeSidebarLogEntry {
+    pub message: String,
+    #[serde(default = "default_sidebar_log_level")]
+    pub level: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(default)]
+    pub updated_at_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NativeSidebarProgressState {
+    pub value: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+}
+
+fn default_sidebar_metadata_format() -> String {
+    "plain".to_string()
+}
+
+fn default_sidebar_log_level() -> String {
+    "info".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

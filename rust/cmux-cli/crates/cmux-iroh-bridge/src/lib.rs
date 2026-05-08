@@ -1173,6 +1173,7 @@ mod tests {
             async move {
                 let _ = run(ServerOptions {
                     socket_path,
+                    compatibility_socket_path: None,
                     shell: "/bin/sh".into(),
                     cwd: Some(cwd),
                     initial_viewport: (80, 24),

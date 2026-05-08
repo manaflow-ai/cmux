@@ -16,7 +16,58 @@ final class BonsplitTabDragUITests: XCTestCase {
     }
 
     func testMinimalModeKeepsTabReorderWorking() {
-        let (app, dataPath) = launchConfiguredApp()
+        assertMinimalModeTabReorderWorks(backendMode: .swiftBackend)
+    }
+
+    func testCmxBackendMinimalModeKeepsTabReorderWorking() {
+        assertMinimalModeTabReorderWorks(backendMode: .desktopCmx)
+    }
+
+    func testCmxBackendMinimalModeDragToSplitCreatesPane() {
+        let (app, dataPath) = launchConfiguredApp(backendMode: .desktopCmx)
+
+        XCTAssertTrue(
+            ensureForegroundAfterLaunch(app, timeout: launchTimeout),
+            "Expected app to launch for CMX-backed Bonsplit drag-to-split UI test. state=\(app.state.rawValue)"
+        )
+        XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
+        guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: setupTimeout) else {
+            XCTFail("Timed out waiting for ready=1. data=\(loadJSON(atPath: dataPath) ?? [:])")
+            return
+        }
+
+        if let setupError = ready["setupError"], !setupError.isEmpty {
+            XCTFail("Setup failed: \(setupError)")
+            return
+        }
+        XCTAssertEqual(ready["desktopCmxBackendEnabled"], "1", "Expected drag-to-split setup to run with desktop CMX enabled. data=\(ready)")
+
+        let betaTitle = ready["betaTitle"] ?? "UITest Beta"
+        let window = app.windows.element(boundBy: 0)
+        let betaTab = app.buttons[betaTitle]
+        let initialPaneCount = Int(ready["paneCount"] ?? "") ?? 1
+
+        XCTAssertTrue(window.waitForExistence(timeout: 5.0), "Expected main window to exist")
+        XCTAssertTrue(betaTab.waitForExistence(timeout: 5.0), "Expected beta tab to exist")
+        XCTAssertTrue(
+            waitForJSONKey("alphaBetaSamePane", equals: "1", atPath: dataPath, timeout: 5.0) != nil,
+            "Expected alpha and beta tabs to start in the same pane. data=\(loadJSON(atPath: dataPath) ?? [:])"
+        )
+
+        dragTabToRightSplit(betaTab, in: window)
+
+        XCTAssertTrue(
+            waitForJSONNumber("paneCount", greaterThan: Double(initialPaneCount), atPath: dataPath, timeout: 5.0) != nil,
+            "Expected dragging beta to the right edge to create another pane. data=\(loadJSON(atPath: dataPath) ?? [:])"
+        )
+        XCTAssertTrue(
+            waitForJSONKey("alphaBetaSamePane", equals: "0", atPath: dataPath, timeout: 5.0) != nil,
+            "Expected alpha and beta tabs to end in different panes after drag-to-split. data=\(loadJSON(atPath: dataPath) ?? [:])"
+        )
+    }
+
+    private func assertMinimalModeTabReorderWorks(backendMode: BackendMode) {
+        let (app, dataPath) = launchConfiguredApp(backendMode: backendMode)
 
         XCTAssertTrue(
             ensureForegroundAfterLaunch(app, timeout: launchTimeout),
@@ -31,6 +82,10 @@ final class BonsplitTabDragUITests: XCTestCase {
         if let setupError = ready["setupError"], !setupError.isEmpty {
             XCTFail("Setup failed: \(setupError)")
             return
+        }
+        if backendMode == .desktopCmx {
+            XCTAssertEqual(ready["desktopCmxBackendEnabled"], "1", "Expected UI test setup to run with the desktop CMX backend enabled. data=\(ready)")
+            XCTAssertEqual(ready["remoteSSHStackInRust"], "1", "Expected UI test setup to carry the Rust SSH stack flag. data=\(ready)")
         }
 
         let alphaTitle = ready["alphaTitle"] ?? "UITest Alpha"
@@ -554,11 +609,17 @@ final class BonsplitTabDragUITests: XCTestCase {
         case minimal
     }
 
+    private enum BackendMode {
+        case swiftBackend
+        case desktopCmx
+    }
+
     private func launchConfiguredApp(
         startWithHiddenSidebar: Bool = false,
         presentationMode: WorkspacePresentationMode = .minimal,
         showRightSidebar: Bool = false,
-        windowSize: String? = nil
+        windowSize: String? = nil,
+        backendMode: BackendMode = .swiftBackend
     ) -> (XCUIApplication, String) {
         let app = XCUIApplication()
         let dataPath = "/tmp/cmux-ui-test-bonsplit-tab-drag-\(UUID().uuidString).json"
@@ -567,6 +628,14 @@ final class BonsplitTabDragUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH"] = dataPath
+        if backendMode == .desktopCmx {
+            let tag = "ui-bonsplit-cmx-\(UUID().uuidString.prefix(8).lowercased())"
+            app.launchEnvironment["CMUX_TAG"] = tag
+            app.launchEnvironment["CMUX_DESKTOP_CMX_BACKEND"] = "1"
+            app.launchEnvironment["CMUX_REMOTE_SSH_STACK_IN_RUST"] = "1"
+            try? FileManager.default.removeItem(atPath: "/tmp/cmux-cmx-\(tag)")
+            try? FileManager.default.removeItem(atPath: "/tmp/cmux-debug-\(tag).sock")
+        }
         if startWithHiddenSidebar {
             app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_START_WITH_HIDDEN_SIDEBAR"] = "1"
         }
@@ -696,6 +765,17 @@ final class BonsplitTabDragUITests: XCTestCase {
     private func dragTab(_ sourceTab: XCUIElement, before targetTab: XCUIElement) {
         let source = sourceTab.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         let target = targetTab.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5))
+        source.press(forDuration: 0.25, thenDragTo: target)
+    }
+
+    private func dragTabToRightSplit(_ sourceTab: XCUIElement, in window: XCUIElement) {
+        let source = sourceTab.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let target = window.coordinate(withNormalizedOffset: .zero).withOffset(
+            CGVector(
+                dx: max(24, window.frame.width - 24),
+                dy: max(80, min(window.frame.height - 40, window.frame.height * 0.55))
+            )
+        )
         source.press(forDuration: 0.25, thenDragTo: target)
     }
 }

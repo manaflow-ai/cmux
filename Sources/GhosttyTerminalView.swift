@@ -1997,7 +1997,11 @@ class GhosttyApp {
         )
     }
 
-    func loadDefaultConfigFilesWithLegacyFallback(_ config: ghostty_config_t) -> Bool {
+    func loadDefaultConfigFilesWithLegacyFallback(
+        _ config: ghostty_config_t,
+        remoteAppearanceOverride: String? = nil,
+        remoteAppearanceSource: String = "cmux-remote-appearance"
+    ) -> Bool {
         #if DEBUG
         let startupPreviewProfile = GhosttyStartupAppearancePreviewState.profile
         if startupPreviewProfile.loadsRealUserConfig {
@@ -2054,6 +2058,15 @@ class GhosttyApp {
             logLabel: "shell integration override"
         )
         loadCmuxOwnedGhosttyKeybindOverrides(config)
+        if let remoteAppearanceOverride,
+           !remoteAppearanceOverride.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            loadInlineGhosttyConfig(
+                remoteAppearanceOverride,
+                into: config,
+                prefix: remoteAppearanceSource,
+                logLabel: "cmx remote appearance override"
+            )
+        }
 
         ghostty_config_finalize(config)
         return renderingModeChanged
@@ -4124,6 +4137,28 @@ enum TerminalSurfaceFocusPlacement: Equatable {
     case rightSidebarDock
 }
 
+private final class TerminalSurfaceManualIOContext {
+    let writeHandler: @Sendable (Data) -> Void
+
+    init(writeHandler: @escaping @Sendable (Data) -> Void) {
+        self.writeHandler = writeHandler
+    }
+}
+
+private let cmuxGhosttyManualIOWriteCallback: @convention(c) (
+    UnsafeMutableRawPointer?,
+    UnsafePointer<CChar>?,
+    UInt
+) -> Void = { userdata, bytes, length in
+    guard let userdata, let bytes, length > 0 else {
+        return
+    }
+    let context = Unmanaged<TerminalSurfaceManualIOContext>
+        .fromOpaque(userdata)
+        .takeUnretainedValue()
+    context.writeHandler(Data(bytes: bytes, count: Int(length)))
+}
+
 final class TerminalSurface: Identifiable, ObservableObject {
     final class SearchState: ObservableObject {
         @Published var needle: String
@@ -4176,6 +4211,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     /// is already in the window.
     var isViewInWindow: Bool { hostedView.window != nil }
     let id: UUID
+    let cmxTerminalID: UInt64?
     private(set) var tabId: UUID
     /// Port ordinal for CMUX_PORT range assignment
     var portOrdinal: Int = 0
@@ -4211,7 +4247,14 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var pendingSocketInputQueue: [PendingSocketInput] = []
     private var pendingSocketInputBytes: Int = 0
     private let maxPendingSocketInputBytes = 1_048_576
+    private var pendingManualOutputQueue: [Data] = []
+    private var pendingManualOutputBytes = 0
+    private let maxPendingManualOutputBytes = 4_194_304
+    private var manualIOCallbackContext: Unmanaged<TerminalSurfaceManualIOContext>?
     private var backgroundSurfaceStartQueued = false
+    private var backgroundSurfaceStartTask: Task<Void, Never>?
+    private var lastSurfaceCreationFailureUptime: TimeInterval?
+    private static let surfaceCreationRetryDelay: TimeInterval = 1.0
     private var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
     /// The desired focus state for the Ghostty C surface. May be set before the
     /// C surface exists (e.g. during layout restoration); `createSurface`
@@ -4284,6 +4327,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var searchNeedleCancellable: AnyCancellable?
     var currentKeyStateIndicatorText: String? { surfaceView.currentKeyStateIndicatorText }
     init(
+        id: UUID = UUID(),
         tabId: UUID,
         context: ghostty_surface_context_e,
         configTemplate: CmuxSurfaceConfigTemplate?,
@@ -4292,9 +4336,12 @@ final class TerminalSurface: Identifiable, ObservableObject {
         initialInput: String? = nil,
         initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:],
-        focusPlacement: TerminalSurfaceFocusPlacement = .workspace
+        focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
+        cmxTerminalID: UInt64? = nil,
+        manualIOHandler: (@Sendable (Data) -> Void)? = nil
     ) {
-        self.id = UUID()
+        self.id = id
+        self.cmxTerminalID = cmxTerminalID
         self.tabId = tabId
         self.surfaceContext = context
         self.configTemplate = configTemplate
@@ -4306,6 +4353,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
         self.initialEnvironmentOverrides = Self.mergedNormalizedEnvironment(base: [:], overrides: initialEnvironmentOverrides)
         self.additionalEnvironment = Self.mergedNormalizedEnvironment(base: [:], overrides: additionalEnvironment)
         self.focusPlacement = focusPlacement
+        if let manualIOHandler {
+            self.manualIOCallbackContext = Unmanaged.passRetained(
+                TerminalSurfaceManualIOContext(writeHandler: manualIOHandler)
+            )
+        }
         // Match Ghostty's own SurfaceView: ensure a non-zero initial frame so the backing layer
         // has non-zero bounds and the renderer can initialize without presenting a blank/stretched
         // intermediate frame on the first real resize.
@@ -4828,6 +4880,15 @@ final class TerminalSurface: Identifiable, ObservableObject {
 #endif
                 return
             }
+            if let retryDelay = remainingSurfaceCreationRetryDelay() {
+#if DEBUG
+                cmuxDebugLog(
+                    "surface.attach.defer surface=\(id.uuidString.prefix(5)) reason=createCooldown " +
+                    "delayMs=\(String(format: "%.0f", retryDelay * 1000.0))"
+                )
+#endif
+                return
+            }
 #if DEBUG
             cmuxDebugLog("surface.attach.create surface=\(id.uuidString.prefix(5))")
 #endif
@@ -4845,6 +4906,23 @@ final class TerminalSurface: Identifiable, ObservableObject {
             cmuxDebugLog("surface.attach.displayId surface=\(id.uuidString.prefix(5)) display=\(displayID)")
 #endif
         }
+    }
+
+    private func remainingSurfaceCreationRetryDelay(
+        now: TimeInterval = ProcessInfo.processInfo.systemUptime
+    ) -> TimeInterval? {
+        guard let lastSurfaceCreationFailureUptime else { return nil }
+        let elapsed = now - lastSurfaceCreationFailureUptime
+        let remaining = Self.surfaceCreationRetryDelay - elapsed
+        return remaining > 0 ? remaining : nil
+    }
+
+    private func noteSurfaceCreationFailure() {
+        lastSurfaceCreationFailureUptime = ProcessInfo.processInfo.systemUptime
+    }
+
+    private func noteSurfaceCreationSuccess() {
+        lastSurfaceCreationFailureUptime = nil
     }
 
     private func createSurface(for view: GhosttyNSView) {
@@ -4870,6 +4948,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         guard let app = GhosttyApp.shared.app else {
             print("Ghostty app not initialized")
+            noteSurfaceCreationFailure()
             #if DEBUG
             Self.surfaceLog("createSurface FAILED surface=\(id.uuidString): ghostty app not initialized")
             #endif
@@ -4892,6 +4971,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
         surfaceCallbackContext = callbackContext
         surfaceConfig.scale_factor = scaleFactors.layer
         surfaceConfig.context = surfaceContext
+        if let manualIOCallbackContext {
+            surfaceConfig.io_mode = GHOSTTY_SURFACE_IO_MANUAL
+            surfaceConfig.io_write_cb = cmuxGhosttyManualIOWriteCallback
+            surfaceConfig.io_write_userdata = manualIOCallbackContext.toOpaque()
+        }
 #if DEBUG
         let templateFontText = String(format: "%.2f", surfaceConfig.font_size)
         cmuxDebugLog(
@@ -5103,6 +5187,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             surfaceCallbackContext?.release()
             surfaceCallbackContext = nil
             print("Failed to create ghostty surface")
+            noteSurfaceCreationFailure()
             #if DEBUG
             Self.surfaceLog("createSurface FAILED surface=\(id.uuidString): ghostty_surface_new returned nil")
             if let cfg = GhosttyApp.shared.config {
@@ -5120,6 +5205,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             return
         }
         guard let createdSurface = surface else { return }
+        noteSurfaceCreationSuccess()
         TerminalSurfaceRegistry.shared.registerRuntimeSurface(createdSurface, ownerId: id)
         recordRuntimeSurfaceCreation()
 
@@ -5150,6 +5236,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             lastPixelHeight = hpx
             lastXScale = scaleFactors.x
             lastYScale = scaleFactors.y
+            reportCmxNativeLayoutIfNeeded(surface: createdSurface)
         }
 
         // Some GhosttyKit builds can drop inherited font_size during post-create
@@ -5175,6 +5262,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
         ghostty_surface_set_focus(createdSurface, desiredFocusState)
 
         flushPendingSocketInputIfNeeded()
+        flushPendingManualOutputIfNeeded()
+        if cmxTerminalID != nil {
+            applyDesktopCmxTerminalAppearanceAfterCreation()
+        }
 
         // Kick an initial draw after creation/size setup. On some startup paths Ghostty can
         // miss the first vsync callback and sit on a blank frame until another focus/visibility
@@ -5200,6 +5291,25 @@ final class TerminalSurface: Identifiable, ObservableObject {
             "runtimeFont=\(runtimeFontText)"
         )
 #endif
+    }
+
+    private func applyDesktopCmxTerminalAppearanceAfterCreation() {
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                AppDelegate.shared?.applyDesktopCmxTerminalAppearance(
+                    to: self,
+                    source: "surface.create"
+                )
+            }
+        } else {
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                AppDelegate.shared?.applyDesktopCmxTerminalAppearance(
+                    to: self,
+                    source: "surface.create"
+                )
+            }
+        }
     }
 
     @discardableResult
@@ -5246,6 +5356,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             ghostty_surface_set_size(surface, wpx, hpx)
             lastPixelWidth = wpx
             lastPixelHeight = hpx
+            reportCmxNativeLayoutIfNeeded(surface: surface)
         }
 
         // Let Ghostty continue rendering on its own wakeups for steady-state frames.
@@ -5301,6 +5412,31 @@ final class TerminalSurface: Identifiable, ObservableObject {
         surfaceView.applyWindowBackgroundIfActive()
     }
 
+    func reportCmxNativeLayoutIfReady() {
+        guard let surface else {
+            return
+        }
+        reportCmxNativeLayoutIfNeeded(surface: surface)
+    }
+
+    private func reportCmxNativeLayoutIfNeeded(surface: ghostty_surface_t) {
+        guard let cmxTerminalID else {
+            return
+        }
+        let size = ghostty_surface_size(surface)
+        Task { @MainActor in
+            let windowID = AppDelegate.shared?
+                .tabManagerFor(tabId: tabId)
+                .flatMap { AppDelegate.shared?.windowId(for: $0) }
+            AppDelegate.shared?.sendDesktopCmxTerminalLayout(
+                terminalID: cmxTerminalID,
+                cols: size.columns,
+                rows: size.rows,
+                windowID: windowID
+            )
+        }
+    }
+
     /// Keep `desiredFocusState` in sync when the hosted view's responder chain
     /// calls `ghostty_surface_set_focus` directly (bypassing `setFocus`).
     /// Without this, `createSurface` would replay a stale state on recreation.
@@ -5354,6 +5490,16 @@ final class TerminalSurface: Identifiable, ObservableObject {
             return
         }
         writeTextData(data, to: surface)
+    }
+
+    func processPtyBytes(_ data: Data) {
+        guard !data.isEmpty else { return }
+        guard let surface else {
+            enqueuePendingManualOutput(data)
+            requestBackgroundSurfaceStartIfNeeded()
+            return
+        }
+        processPtyBytes(data, to: surface)
     }
 
     @discardableResult
@@ -5437,7 +5583,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     func requestBackgroundSurfaceStartIfNeeded() {
         if !Thread.isMainThread {
-            DispatchQueue.main.async { [weak self] in
+            Task { @MainActor [weak self] in
                 self?.requestBackgroundSurfaceStartIfNeeded()
             }
             return
@@ -5445,14 +5591,34 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         guard allowsRuntimeSurfaceCreation() else { return }
         guard surface == nil, attachedView != nil else { return }
+        if let retryDelay = remainingSurfaceCreationRetryDelay() {
+            #if DEBUG
+            cmuxDebugLog(
+                "surface.background_start.defer surface=\(id.uuidString.prefix(8)) reason=createCooldown " +
+                "delayMs=\(String(format: "%.0f", retryDelay * 1000.0))"
+            )
+            #endif
+            return
+        }
         guard !backgroundSurfaceStartQueued else { return }
         backgroundSurfaceStartQueued = true
 
-        DispatchQueue.main.async { [weak self] in
+        backgroundSurfaceStartTask?.cancel()
+        backgroundSurfaceStartTask = Task { @MainActor [weak self] in
             guard let self else { return }
             self.backgroundSurfaceStartQueued = false
+            self.backgroundSurfaceStartTask = nil
             guard self.allowsRuntimeSurfaceCreation() else { return }
             guard self.surface == nil, let view = self.attachedView else { return }
+            if let retryDelay = self.remainingSurfaceCreationRetryDelay() {
+                #if DEBUG
+                cmuxDebugLog(
+                    "surface.background_start.defer surface=\(self.id.uuidString.prefix(8)) reason=createCooldown " +
+                    "delayMs=\(String(format: "%.0f", retryDelay * 1000.0))"
+                )
+                #endif
+                return
+            }
             guard view.window != nil else {
                 #if DEBUG
                 cmuxDebugLog(
@@ -5478,6 +5644,34 @@ final class TerminalSurface: Identifiable, ObservableObject {
         data.withUnsafeBytes { rawBuffer in
             guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
             ghostty_surface_text(surface, baseAddress, UInt(rawBuffer.count))
+        }
+    }
+
+    private func processPtyBytes(_ data: Data, to surface: ghostty_surface_t) {
+        data.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
+            ghostty_surface_process_output(surface, baseAddress, UInt(rawBuffer.count))
+        }
+        ghostty_surface_refresh(surface)
+    }
+
+    private func enqueuePendingManualOutput(_ data: Data) {
+        pendingManualOutputQueue.append(data)
+        pendingManualOutputBytes += data.count
+        while pendingManualOutputBytes > maxPendingManualOutputBytes,
+              let dropped = pendingManualOutputQueue.first {
+            pendingManualOutputBytes -= dropped.count
+            pendingManualOutputQueue.removeFirst()
+        }
+    }
+
+    private func flushPendingManualOutputIfNeeded() {
+        guard let surface, !pendingManualOutputQueue.isEmpty else { return }
+        let queued = pendingManualOutputQueue
+        pendingManualOutputQueue.removeAll(keepingCapacity: true)
+        pendingManualOutputBytes = 0
+        for data in queued {
+            processPtyBytes(data, to: surface)
         }
     }
 
@@ -5746,6 +5940,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     deinit {
         TerminalSurfaceRegistry.shared.unregister(self)
+        backgroundSurfaceStartTask?.cancel()
+        backgroundSurfaceStartTask = nil
+        manualIOCallbackContext?.release()
+        manualIOCallbackContext = nil
         markPortalLifecycleClosed(reason: "deinit")
 
         let callbackContext = surfaceCallbackContext

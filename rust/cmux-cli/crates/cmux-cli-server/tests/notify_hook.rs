@@ -40,6 +40,7 @@ async fn notify_command_fires_shell_hook_with_env_vars() {
 
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (120, 24),
@@ -150,6 +151,7 @@ async fn notify_flashes_pane_border() {
     let socket = dir.path().join("server.sock");
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (80, 24),
@@ -264,6 +266,7 @@ async fn notify_flash_only_draws_on_focused_panel() {
     let socket = dir.path().join("server.sock");
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (100, 24),

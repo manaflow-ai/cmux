@@ -169,12 +169,24 @@ tend to conflict together during rebases.
     render-now C API, or output C API. Upstream already has internal
     `Termio.processOutput`, so prefer an upstream C bridge if one lands.
 
+### 11) Display link creation fallback
+
+- Commit: `f78039e19e3c67948b42b308d7b8d1f548bdc074`
+- Files:
+  - `src/renderer/generic.zig`
+- Summary:
+  - Treats `CVDisplayLinkCreateWithActiveCGDisplays` failure as a non-fatal vsync fallback
+    instead of aborting embedded surface creation.
+  - This keeps cmux desktop/manual-IO surfaces visible when macOS returns a display-link
+    creation error during early tagged debug launches.
+  - Published `xcframework-f78039e19e3c67948b42b308d7b8d1f548bdc074` and pinned
+    its archive checksum in `scripts/ghosttykit-checksums.txt`.
+
 The current cmux pin is the head listed above. It is reachable from
-`manaflow-ai/ghostty` `main` through https://github.com/manaflow-ai/ghostty/pull/53.
-Published `xcframework-22fa801f88f96fa842e54ecce6c34a5d36003d19` and pinned
-its archive checksum in `scripts/ghosttykit-checksums.txt`. The release and
-checksum pin must be regenerated whenever this commit changes, even for
-comment-only amends, because the release tag is keyed by the Ghostty commit SHA.
+`manaflow-ai/ghostty` branch `task-desktop-cmx-displaylink-fallback`.
+The release and checksum pin must be regenerated whenever this commit changes,
+even for comment-only amends, because the release tag is keyed by the Ghostty
+commit SHA.
 
 ## Upstreamed fork changes
 

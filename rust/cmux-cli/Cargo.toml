@@ -30,6 +30,8 @@ base64 = "0.22"
 getrandom = "0.3"
 hmac = "0.12"
 notify = "6"
+regex = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 arc-swap = "1"
 tokio-tungstenite = "0.24"
 futures-util = "0.3"

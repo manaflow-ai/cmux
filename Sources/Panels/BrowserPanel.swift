@@ -1961,6 +1961,8 @@ final class BrowserPanel: Panel, ObservableObject {
     private var suppressWebViewFocusUntil: Date?
     private var suppressWebViewFocusForAddressBar: Bool = false
     private var addressBarFocusRestoreGeneration: UInt64 = 0
+    var onWebViewFocusStateChanged: ((Bool) -> Void)?
+    private var lastReportedWebViewFocusState: Bool?
     private let blankURLString = "about:blank"
     private static let addressBarFocusCaptureScript = """
     (() => {
@@ -2687,6 +2689,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     init(
         workspaceId: UUID,
+        id: UUID = UUID(),
         profileID: UUID? = nil,
         initialURL: URL? = nil,
         initialRequest: URLRequest? = nil,
@@ -2696,7 +2699,7 @@ final class BrowserPanel: Panel, ObservableObject {
         isRemoteWorkspace: Bool = false,
         remoteWebsiteDataStoreIdentifier: UUID? = nil
     ) {
-        self.id = UUID()
+        self.id = id
         self.workspaceId = workspaceId
         let requestedProfileID = profileID ?? BrowserProfileStore.shared.effectiveLastUsedProfileID
         let resolvedProfileID = BrowserProfileStore.shared.profileDefinition(id: requestedProfileID) != nil
@@ -3445,6 +3448,7 @@ final class BrowserPanel: Panel, ObservableObject {
         if Self.responderChainContains(window.firstResponder, target: webView) {
             window.makeFirstResponder(nil)
         }
+        reportWebViewFocusState(false)
     }
 
     func close() {
@@ -5243,6 +5247,7 @@ extension BrowserPanel {
     }
 
     func noteWebViewFocused() {
+        reportWebViewFocusState(true)
         guard searchState == nil else { return }
         guard preferredFocusIntent != .webView else { return }
         preferredFocusIntent = .webView
@@ -5250,14 +5255,24 @@ extension BrowserPanel {
     }
 
     func noteAddressBarFocused() {
+        reportWebViewFocusState(false)
         guard preferredFocusIntent != .addressBar else { return }
         preferredFocusIntent = .addressBar
         invalidateSearchFocusRequests(reason: "addressBarFocused")
     }
 
     func noteFindFieldFocused() {
+        reportWebViewFocusState(false)
         guard preferredFocusIntent != .findField else { return }
         preferredFocusIntent = .findField
+    }
+
+    private func reportWebViewFocusState(_ focused: Bool) {
+        guard lastReportedWebViewFocusState != focused else {
+            return
+        }
+        lastReportedWebViewFocusState = focused
+        onWebViewFocusStateChanged?(focused)
     }
 
     func canApplySearchFocusRequest(_ generation: UInt64) -> Bool {

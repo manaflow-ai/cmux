@@ -18,6 +18,7 @@ async fn split_horizontal_adds_a_second_leaf_pane() {
     let socket = dir.path().join("server.sock");
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (140, 30),
@@ -144,6 +145,7 @@ async fn clicking_inside_leaf_pane_focuses_it() {
     let socket = dir.path().join("server.sock");
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (140, 30),
@@ -226,6 +228,7 @@ async fn panels_have_independent_tab_stacks() {
     let socket = dir.path().join("server.sock");
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (140, 30),
@@ -282,6 +285,7 @@ async fn nested_splits_render_more_than_two_panels() {
     let socket = dir.path().join("server.sock");
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (160, 36),
@@ -333,6 +337,7 @@ async fn focus_left_is_noop_when_only_diagonal_panes_exist() {
     let socket = dir.path().join("server.sock");
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (160, 36),
@@ -400,6 +405,7 @@ async fn focus_down_from_wide_top_returns_to_the_same_bottom_side() {
     let socket = dir.path().join("server.sock");
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (160, 36),
@@ -468,6 +474,7 @@ async fn closing_active_tab_keeps_focus_in_same_split_panel_when_tabs_remain() {
     let socket = dir.path().join("server.sock");
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (140, 30),
@@ -523,6 +530,7 @@ async fn closing_nested_pane_focuses_the_sibling_that_absorbed_it() {
     let socket = dir.path().join("server.sock");
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (160, 36),
@@ -656,6 +664,7 @@ async fn resize_pane_accumulates_and_clamps() {
     let socket = dir.path().join("server.sock");
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (140, 30),
@@ -752,6 +761,7 @@ async fn nested_resize_targets_nearest_split_ancestor() {
     let socket = dir.path().join("server.sock");
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (160, 36),
@@ -807,6 +817,7 @@ async fn display_message_shows_text_in_status_bar() {
     let socket = dir.path().join("server.sock");
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (120, 24),

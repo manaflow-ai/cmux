@@ -17,6 +17,7 @@ struct ParsedGhosttyConfig {
     overrides: NativeTerminalTheme,
     font: NativeTerminalFont,
     cursor: NativeTerminalCursor,
+    shell_integration: TerminalShellIntegration,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -24,6 +25,109 @@ struct ThemeSelection {
     default: Option<String>,
     light: Option<String>,
     dark: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TerminalShellIntegrationMode {
+    None,
+    Detect,
+    Bash,
+    Elvish,
+    Fish,
+    Nushell,
+    Zsh,
+}
+
+impl Default for TerminalShellIntegrationMode {
+    fn default() -> Self {
+        Self::Detect
+    }
+}
+
+impl TerminalShellIntegrationMode {
+    pub fn enables_shell(self, shell_name: &str) -> bool {
+        match self {
+            Self::None => false,
+            Self::Detect => true,
+            Self::Bash => shell_name == "bash",
+            Self::Elvish => shell_name == "elvish",
+            Self::Fish => shell_name == "fish",
+            Self::Nushell => matches!(shell_name, "nu" | "nushell"),
+            Self::Zsh => shell_name == "zsh",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TerminalShellIntegrationFeatures {
+    pub cursor: bool,
+    pub sudo: bool,
+    pub title: bool,
+    pub ssh_env: bool,
+    pub ssh_terminfo: bool,
+    pub path: bool,
+}
+
+impl Default for TerminalShellIntegrationFeatures {
+    fn default() -> Self {
+        Self {
+            cursor: true,
+            sudo: false,
+            title: true,
+            ssh_env: false,
+            ssh_terminfo: false,
+            path: true,
+        }
+    }
+}
+
+impl TerminalShellIntegrationFeatures {
+    fn set_all(&mut self, enabled: bool) {
+        self.cursor = enabled;
+        self.sudo = enabled;
+        self.title = enabled;
+        self.ssh_env = enabled;
+        self.ssh_terminfo = enabled;
+        self.path = enabled;
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TerminalShellIntegration {
+    pub mode: TerminalShellIntegrationMode,
+    pub features: TerminalShellIntegrationFeatures,
+}
+
+impl TerminalShellIntegration {
+    pub fn ghostty_shell_features(self, cursor: Option<&NativeTerminalCursor>) -> Option<String> {
+        let mut features = Vec::new();
+        let cursor_style = cursor.and_then(|cursor| cursor.style.as_deref());
+        if self.features.cursor && cursor_style == Some("bar") {
+            let cursor_blink = cursor.and_then(|cursor| cursor.blink).unwrap_or(true);
+            features.push(if cursor_blink {
+                "cursor:blink".to_string()
+            } else {
+                "cursor:steady".to_string()
+            });
+        }
+        if self.features.path {
+            features.push("path".to_string());
+        }
+        if self.features.ssh_env {
+            features.push("ssh-env".to_string());
+        }
+        if self.features.ssh_terminfo {
+            features.push("ssh-terminfo".to_string());
+        }
+        if self.features.sudo {
+            features.push("sudo".to_string());
+        }
+        if self.features.title {
+            features.push("title".to_string());
+        }
+
+        (!features.is_empty()).then(|| features.join(","))
+    }
 }
 
 pub fn load_terminal_theme() -> Option<NativeTerminalThemeSet> {
@@ -142,6 +246,10 @@ pub fn load_terminal_cursor() -> NativeTerminalCursor {
 
 pub fn cursor_has_any_setting(cursor: &NativeTerminalCursor) -> bool {
     cursor.style.is_some() || cursor.blink.is_some()
+}
+
+pub fn load_terminal_shell_integration() -> TerminalShellIntegration {
+    load_ghostty_config().shell_integration
 }
 
 fn load_terminal_font_from_ghostty() -> Option<NativeTerminalFont> {
@@ -499,6 +607,12 @@ fn parse_config_file(
             "font-size" => parse_font_size_setting(value, &mut config.font),
             "cursor-style" => parse_cursor_style_setting(value, &mut config.cursor),
             "cursor-style-blink" => parse_cursor_blink_setting(value, &mut config.cursor),
+            "shell-integration" => {
+                parse_shell_integration_mode_setting(value, &mut config.shell_integration)
+            }
+            "shell-integration-features" => {
+                parse_shell_integration_features_setting(value, &mut config.shell_integration)
+            }
             _ => parse_theme_color_setting(key, value, &mut config.overrides),
         }
     }
@@ -589,7 +703,7 @@ fn parse_theme_selection(value: &str) -> Option<ThemeSelection> {
 fn unquote_config_value(raw: &str) -> Option<String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
-        return None;
+        return Some(String::new());
     }
     let mut chars = trimmed.chars();
     let first = chars.next()?;
@@ -754,7 +868,7 @@ fn parse_cursor_style_setting(value: &str, cursor: &mut NativeTerminalCursor) {
         return;
     };
     let style = value.trim();
-    if matches!(style, "block" | "bar" | "underline") {
+    if matches!(style, "block" | "bar" | "underline" | "block_hollow") {
         cursor.style = Some(style.to_string());
     }
 }
@@ -764,9 +878,64 @@ fn parse_cursor_blink_setting(value: &str, cursor: &mut NativeTerminalCursor) {
         return;
     };
     match value.trim().to_ascii_lowercase().as_str() {
+        "" => cursor.blink = None,
         "true" | "yes" | "on" | "1" => cursor.blink = Some(true),
         "false" | "no" | "off" | "0" => cursor.blink = Some(false),
         _ => {}
+    }
+}
+
+fn parse_shell_integration_mode_setting(value: &str, integration: &mut TerminalShellIntegration) {
+    let Some(value) = unquote_config_value(value) else {
+        return;
+    };
+    integration.mode = match value.trim().to_ascii_lowercase().as_str() {
+        "none" => TerminalShellIntegrationMode::None,
+        "detect" => TerminalShellIntegrationMode::Detect,
+        "bash" => TerminalShellIntegrationMode::Bash,
+        "elvish" => TerminalShellIntegrationMode::Elvish,
+        "fish" => TerminalShellIntegrationMode::Fish,
+        "nushell" => TerminalShellIntegrationMode::Nushell,
+        "zsh" => TerminalShellIntegrationMode::Zsh,
+        _ => integration.mode,
+    };
+}
+
+fn parse_shell_integration_features_setting(
+    value: &str,
+    integration: &mut TerminalShellIntegration,
+) {
+    let Some(value) = unquote_config_value(value) else {
+        return;
+    };
+    let value = value.trim();
+    if value.eq_ignore_ascii_case("true") {
+        integration.features.set_all(true);
+        return;
+    }
+    if value.eq_ignore_ascii_case("false") {
+        integration.features.set_all(false);
+        return;
+    }
+
+    for feature in value
+        .split(',')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+    {
+        let feature = feature.to_ascii_lowercase();
+        let (enabled, name) = feature
+            .strip_prefix("no-")
+            .map_or((true, feature.as_str()), |name| (false, name));
+        match name {
+            "cursor" => integration.features.cursor = enabled,
+            "sudo" => integration.features.sudo = enabled,
+            "title" => integration.features.title = enabled,
+            "ssh-env" => integration.features.ssh_env = enabled,
+            "ssh-terminfo" => integration.features.ssh_terminfo = enabled,
+            "path" => integration.features.path = enabled,
+            _ => {}
+        }
     }
 }
 
@@ -969,6 +1138,7 @@ selection-foreground = #fdfff1
             overrides: NativeTerminalTheme::default(),
             font: NativeTerminalFont::default(),
             cursor: NativeTerminalCursor::default(),
+            shell_integration: TerminalShellIntegration::default(),
         };
 
         let set = resolve_terminal_theme_from_config(&config, &[dir.path().to_path_buf()]);
@@ -1074,6 +1244,7 @@ cursor-style = bar
             r#"
 theme = light:Cmux Dark,dark:Cmux Dark
 foreground = #123456
+shell-integration-features = no-cursor,ssh-env
 "#,
         )
         .unwrap();
@@ -1088,6 +1259,60 @@ foreground = #123456
         assert_eq!(config.font.size, Some(14.0));
         assert_eq!(config.cursor.style.as_deref(), Some("bar"));
         assert_eq!(config.cursor.blink, Some(false));
+        assert!(!config.shell_integration.features.cursor);
+        assert!(config.shell_integration.features.ssh_env);
+    }
+
+    #[test]
+    fn blank_cursor_blink_resets_to_ghostty_null_semantics() {
+        let mut cursor = NativeTerminalCursor {
+            style: Some("bar".into()),
+            blink: Some(false),
+        };
+
+        parse_cursor_blink_setting("", &mut cursor);
+
+        assert_eq!(cursor.style.as_deref(), Some("bar"));
+        assert_eq!(cursor.blink, None);
+    }
+
+    #[test]
+    fn shell_integration_features_match_ghostty_feature_order_and_cursor_blink() {
+        let mut integration = TerminalShellIntegration::default();
+        parse_shell_integration_features_setting("sudo,ssh-terminfo,no-title", &mut integration);
+        let cursor = NativeTerminalCursor {
+            style: Some("bar".into()),
+            blink: Some(false),
+        };
+
+        assert_eq!(
+            integration.ghostty_shell_features(Some(&cursor)).as_deref(),
+            Some("cursor:steady,path,ssh-terminfo,sudo")
+        );
+    }
+
+    #[test]
+    fn shell_integration_cursor_feature_only_for_configured_bar_cursor() {
+        let integration = TerminalShellIntegration::default();
+        let underline = NativeTerminalCursor {
+            style: Some("underline".into()),
+            blink: Some(false),
+        };
+        let unset = NativeTerminalCursor {
+            style: None,
+            blink: Some(false),
+        };
+
+        assert_eq!(
+            integration
+                .ghostty_shell_features(Some(&underline))
+                .as_deref(),
+            Some("path,title")
+        );
+        assert_eq!(
+            integration.ghostty_shell_features(Some(&unset)).as_deref(),
+            Some("path,title")
+        );
     }
 
     #[test]
@@ -1184,12 +1409,12 @@ cursor-text = #eee8d5
     fn parses_resolved_show_config_cursor_output() {
         let cursor = parse_cursor_from_config_text(
             r#"
-cursor-style = bar
+cursor-style = block_hollow
 cursor-style-blink = false
 "#,
         );
 
-        assert_eq!(cursor.style.as_deref(), Some("bar"));
+        assert_eq!(cursor.style.as_deref(), Some("block_hollow"));
         assert_eq!(cursor.blink, Some(false));
     }
 

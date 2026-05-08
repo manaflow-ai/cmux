@@ -15,6 +15,8 @@ CMUX_DEV_PORT=""
 CMUX_DEV_PORT_END=""
 CMUX_DEV_PORT_RANGE=""
 CMUX_DEV_ORIGIN=""
+CMX_NATIVE_RUNTIME_DIR=""
+CMX_NATIVE_SOCKET=""
 CLI_PATH=""
 LAST_SOCKET_PATH_DIR="$HOME/Library/Application Support/cmux"
 LAST_SOCKET_PATH_FILE="${LAST_SOCKET_PATH_DIR}/last-socket-path"
@@ -262,16 +264,32 @@ print_tag_cleanup_reminder() {
     echo "Cleanup stale tags only:"
     for tag in "${stale_tags[@]}"; do
       echo "  pkill -f \"cmux DEV ${tag}.app/Contents/MacOS/cmux DEV\""
-      echo "  rm -rf \"$(tagged_derived_data_path "$tag")\" \"/tmp/cmux-${tag}\" \"/tmp/cmux-debug-${tag}.sock\""
+      echo "  pkill -f \"Resources/bin/cmx --socket /tmp/cmux-cmx-${tag}/native.sock\""
+      echo "  rm -rf \"$(tagged_derived_data_path "$tag")\" \"/tmp/cmux-${tag}\" \"/tmp/cmux-cmx-${tag}\" \"/tmp/cmux-debug-${tag}.sock\""
       echo "  rm -f \"/tmp/cmux-debug-${tag}.log\""
       echo "  rm -f \"$HOME/Library/Application Support/cmux/cmuxd-dev-${tag}.sock\""
     done
   fi
   echo "After you verify current tag, cleanup command:"
   echo "  pkill -f \"cmux DEV ${current_slug}.app/Contents/MacOS/cmux DEV\""
-  echo "  rm -rf \"$(tagged_derived_data_path "$current_slug")\" \"/tmp/cmux-${current_slug}\" \"/tmp/cmux-debug-${current_slug}.sock\""
+  echo "  pkill -f \"Resources/bin/cmx --socket /tmp/cmux-cmx-${current_slug}/native.sock\""
+  echo "  rm -rf \"$(tagged_derived_data_path "$current_slug")\" \"/tmp/cmux-${current_slug}\" \"/tmp/cmux-cmx-${current_slug}\" \"/tmp/cmux-debug-${current_slug}.sock\""
   echo "  rm -f \"/tmp/cmux-debug-${current_slug}.log\""
   echo "  rm -f \"$HOME/Library/Application Support/cmux/cmuxd-dev-${current_slug}.sock\""
+}
+
+stop_tagged_cmx_native_daemon() {
+  local socket_path="$1"
+  [[ -n "$socket_path" ]] || return 0
+
+  if [[ -S "$socket_path" ]]; then
+    for PID in $(lsof -t "$socket_path" 2>/dev/null); do
+      kill "$PID" 2>/dev/null || true
+    done
+  fi
+
+  pkill -f "Resources/bin/cmx --socket ${socket_path}" || true
+  rm -f "$socket_path"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -345,6 +363,8 @@ if [[ -n "$TAG" ]]; then
   if [[ "$DERIVED_SET" -eq 0 ]]; then
     DERIVED_DATA="$(tagged_derived_data_path "$TAG_SLUG")"
   fi
+  CMX_NATIVE_RUNTIME_DIR="/tmp/cmux-cmx-${TAG_SLUG}"
+  CMX_NATIVE_SOCKET="${CMX_NATIVE_RUNTIME_DIR}/native.sock"
 fi
 
 CMUX_DEV_PORT="$(choose_cmux_dev_port)"
@@ -562,6 +582,7 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       set_plist_env "$INFO_PLIST" CMUXD_UNIX_PATH "$CMUXD_SOCKET"
       set_plist_env "$INFO_PLIST" CMUX_SOCKET_PATH "$CMUX_SOCKET_PATH_VALUE"
       set_plist_env "$INFO_PLIST" CMUX_DEBUG_LOG "$CMUX_DEBUG_LOG"
+      set_plist_env "$INFO_PLIST" CMUX_TAG "$TAG_SLUG"
       set_plist_env "$INFO_PLIST" CMUX_SOCKET_ENABLE "1"
       set_plist_env "$INFO_PLIST" CMUX_SOCKET_MODE "allowAll"
       set_plist_env "$INFO_PLIST" CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD "1"
@@ -573,6 +594,15 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       set_plist_env "$INFO_PLIST" CMUX_AUTH_WWW_ORIGIN "$CMUX_DEV_ORIGIN"
       set_plist_env "$INFO_PLIST" CMUX_API_BASE_URL "$CMUX_DEV_ORIGIN"
       set_plist_env "$INFO_PLIST" CMUX_VM_API_BASE_URL "$CMUX_DEV_ORIGIN"
+      if [[ -n "${CMUX_DESKTOP_CMX_BACKEND:-}" ]]; then
+        set_plist_env "$INFO_PLIST" CMUX_DESKTOP_CMX_BACKEND "$CMUX_DESKTOP_CMX_BACKEND"
+      fi
+      if [[ -n "${CMUX_DESKTOP_CMX_BACKEND_DISABLED:-}" ]]; then
+        set_plist_env "$INFO_PLIST" CMUX_DESKTOP_CMX_BACKEND_DISABLED "$CMUX_DESKTOP_CMX_BACKEND_DISABLED"
+      fi
+      if [[ -n "${CMUX_DESKTOP_CMX_EXECUTABLE:-}" ]]; then
+        set_plist_env "$INFO_PLIST" CMUX_DESKTOP_CMX_EXECUTABLE "$CMUX_DESKTOP_CMX_EXECUTABLE"
+      fi
       if [[ -S "$CMUXD_SOCKET" ]]; then
         for PID in $(lsof -t "$CMUXD_SOCKET" 2>/dev/null); do
           kill "$PID" 2>/dev/null || true
@@ -582,6 +612,8 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       if [[ -S "$CMUX_SOCKET_PATH_VALUE" ]]; then
         rm -f "$CMUX_SOCKET_PATH_VALUE"
       fi
+      mkdir -p "$CMX_NATIVE_RUNTIME_DIR"
+      stop_tagged_cmx_native_daemon "$CMX_NATIVE_SOCKET"
     fi
   fi
   APP_PATH="$TAG_APP_PATH"
@@ -602,11 +634,19 @@ if [[ -x "$CLI_PATH" ]]; then
   fi
 fi
 
-# Build cmuxd and ghostty helper binaries (needed for both launch and no-launch).
+# Build cmuxd, cmx, and ghostty helper binaries (needed for both launch and no-launch).
 CMUXD_SRC="$PWD/cmuxd/zig-out/bin/cmuxd"
+CMX_SRC="$PWD/rust/cmux-cli/target/debug/cmx"
 GHOSTTY_HELPER_SRC="$PWD/ghostty/zig-out/bin/ghostty"
 if [[ -d "$PWD/cmuxd" ]]; then
   (cd "$PWD/cmuxd" && zig build -Doptimize=ReleaseFast)
+fi
+if [[ -d "$PWD/rust/cmux-cli" ]]; then
+  if [[ "${CMUX_SKIP_RUST_CMX_BUILD:-}" == "1" ]]; then
+    echo "Skipping Rust cmx build (CMUX_SKIP_RUST_CMX_BUILD=1)"
+  else
+    (cd "$PWD/rust/cmux-cli" && cargo build -p cmx)
+  fi
 fi
 if [[ -d "$PWD/ghostty" ]]; then
   if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
@@ -629,6 +669,12 @@ if [[ -x "$CMUXD_SRC" ]]; then
   mkdir -p "$BIN_DIR"
   cp "$CMUXD_SRC" "$BIN_DIR/cmuxd"
   chmod +x "$BIN_DIR/cmuxd"
+fi
+if [[ -x "$CMX_SRC" ]]; then
+  BIN_DIR="$APP_PATH/Contents/Resources/bin"
+  mkdir -p "$BIN_DIR"
+  cp "$CMX_SRC" "$BIN_DIR/cmx"
+  chmod +x "$BIN_DIR/cmx"
 fi
 if [[ -x "$GHOSTTY_HELPER_SRC" ]]; then
   BIN_DIR="$APP_PATH/Contents/Resources/bin"
@@ -660,6 +706,7 @@ if [[ -n "$TAG" ]]; then
   /usr/bin/osascript -e "tell application id \"${BUNDLE_ID}\" to quit" >/dev/null 2>&1 || true
   sleep 0.3
   pkill -f "${APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}" || true
+  stop_tagged_cmx_native_daemon "$CMX_NATIVE_SOCKET"
   sleep 0.3
 fi
 
@@ -716,9 +763,9 @@ if [[ "$LAUNCH" -eq 1 ]]; then
 
   if [[ -n "${TAG_SLUG:-}" && -n "${CMUX_SOCKET_PATH_VALUE:-}" ]]; then
     # Ensure tag-specific socket paths win even if the caller has CMUX_* overrides.
-    "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" CMUX_SOCKET_PATH="$CMUX_SOCKET_PATH_VALUE" CMUXD_UNIX_PATH="$CMUXD_SOCKET" open -g "$APP_PATH"
+    "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" CMUX_SOCKET_PATH="$CMUX_SOCKET_PATH_VALUE" CMUXD_UNIX_PATH="$CMUXD_SOCKET" open -n -g "$APP_PATH"
   elif [[ -n "${TAG_SLUG:-}" ]]; then
-    "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" open -g "$APP_PATH"
+    "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" open -n -g "$APP_PATH"
   else
     echo "/tmp/cmux-debug.sock" > /tmp/cmux-last-socket-path || true
     echo "/tmp/cmux-debug.log" > /tmp/cmux-last-debug-log-path || true

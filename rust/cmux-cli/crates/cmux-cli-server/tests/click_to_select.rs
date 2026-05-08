@@ -19,6 +19,7 @@ async fn clicking_tab_pill_switches_active_tab() {
     let socket = dir.path().join("server.sock");
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (120, 24),
@@ -93,6 +94,7 @@ async fn clicking_sidebar_row_switches_active_workspace() {
     let socket = dir.path().join("server.sock");
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (120, 24),

@@ -110,6 +110,7 @@ pub struct TerminalCursor {
     pub row: u16,
     pub visible: bool,
     pub style: TerminalCursorStyle,
+    pub blink: bool,
     pub color: Option<RgbColor>,
 }
 
@@ -230,6 +231,7 @@ pub fn terminal_grid_snapshot(terminal: &Terminal<'_, '_>) -> anyhow::Result<Ter
                 row: cursor.y,
                 visible: snapshot.cursor_visible()?,
                 style: terminal_cursor_style(snapshot.cursor_visual_style()?),
+                blink: snapshot.cursor_blinking()?,
                 color: snapshot.cursor_color()?,
             })
         })

@@ -194,6 +194,7 @@ extension CMUXCLI {
 
         var params: [String: Any] = [:]
         if let surfaceHandle { params["surface_id"] = surfaceHandle }
+        if let workspaceHandle { params["workspace_id"] = workspaceHandle }
         if let beforeHandle { params["before_surface_id"] = beforeHandle }
         if let afterHandle { params["after_surface_id"] = afterHandle }
         if let indexRaw = optionValue(commandArgs, name: "--index") {

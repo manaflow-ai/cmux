@@ -30,7 +30,10 @@ struct CmxAttachedClientInfo: Equatable, Sendable {
 
 struct CmxNativeWorkspaceInfo: Equatable, Sendable {
     var id: UInt64
+    var externalID: UUID?
     var title: String
+    var description: String?
+    var latestSubmittedMessage: String?
     var spaceCount: Int
     var tabCount: Int
     var terminalCount: Int
@@ -41,7 +44,10 @@ struct CmxNativeWorkspaceInfo: Equatable, Sendable {
 
     init(
         id: UInt64,
+        externalID: UUID? = nil,
         title: String,
+        description: String? = nil,
+        latestSubmittedMessage: String? = nil,
         spaceCount: Int,
         tabCount: Int,
         terminalCount: Int,
@@ -51,7 +57,10 @@ struct CmxNativeWorkspaceInfo: Equatable, Sendable {
         color: String?
     ) {
         self.id = id
+        self.externalID = externalID
         self.title = title
+        self.description = description
+        self.latestSubmittedMessage = latestSubmittedMessage
         self.spaceCount = spaceCount
         self.tabCount = tabCount
         self.terminalCount = terminalCount
@@ -71,9 +80,27 @@ struct CmxNativeSpaceInfo: Equatable, Sendable {
 
 struct CmxNativeTabInfo: Equatable, Sendable {
     var id: UInt64
+    var externalID: UUID?
     var title: String
+    var explicitTitle: Bool
     var hasActivity: Bool
     var bellCount: UInt64
+
+    init(
+        id: UInt64,
+        externalID: UUID? = nil,
+        title: String,
+        explicitTitle: Bool = false,
+        hasActivity: Bool = false,
+        bellCount: UInt64 = 0
+    ) {
+        self.id = id
+        self.externalID = externalID
+        self.title = title
+        self.explicitTitle = explicitTitle
+        self.hasActivity = hasActivity
+        self.bellCount = bellCount
+    }
 }
 
 struct CmxNativeTabSelection: Equatable, Sendable {
@@ -84,6 +111,13 @@ struct CmxNativeTabSelection: Equatable, Sendable {
 enum CmxNativeSplitDirection: String, Equatable, Sendable {
     case horizontal
     case vertical
+}
+
+enum CmxSplitDropEdge: String, Equatable, Sendable {
+    case left
+    case right
+    case top
+    case bottom
 }
 
 indirect enum CmxNativePanelNode: Equatable, Sendable {
@@ -116,6 +150,8 @@ indirect enum CmxNativePanelNode: Equatable, Sendable {
 }
 
 struct CmxNativeSnapshot: Equatable, Sendable {
+    var windowID: String? = nil
+    var nativeWindowIDs: [String] = []
     var workspaces: [CmxNativeWorkspaceInfo]
     var activeWorkspace: Int
     var activeWorkspaceID: UInt64
@@ -149,6 +185,7 @@ struct CmxNativeTerminalCursorPosition: Equatable, Sendable {
     var row: UInt16
     var visible: Bool
     var style: CmxNativeTerminalCursorStyle
+    var blink: Bool
     var color: CmxTerminalRGB?
 }
 
@@ -247,8 +284,18 @@ enum CmxClientCommand: Equatable, Sendable {
     case selectWorkspace(index: Int)
     case selectSpace(index: Int)
     case selectTabInPanel(panelID: UInt64, index: Int)
+    case moveTabToPanel(fromPanelID: UInt64, from: Int, toPanelID: UInt64, to: Int, focus: Bool = true)
+    case moveTabToSplit(fromPanelID: UInt64, from: Int, targetPanelID: UInt64, edge: CmxSplitDropEdge, focus: Bool = true)
+    case setTabTitleByID(tabID: UInt64, title: String?, explicit: Bool = true)
+    case closeWorkspaceByID(workspaceID: UInt64)
+    case closeWindowByID(windowID: String)
+    case renameWorkspaceByID(workspaceID: UInt64, title: String)
+    case moveWorkspaceToIndex(workspaceID: UInt64, index: Int)
+    case setWorkspaceRemoteStatus(workspaceID: UInt64, statusJSON: String?)
     case setWorkspacePinned(workspaceID: UInt64, pinned: Bool)
     case setWorkspaceUnread(workspaceID: UInt64, unread: Bool)
+    case setWorkspaceDescriptionByID(workspaceID: UInt64, description: String?)
+    case setWorkspaceColorByID(workspaceID: UInt64, color: String?)
 }
 
 enum CmxServerMessage: Equatable, Sendable {
@@ -498,6 +545,88 @@ enum CmxWireCodec {
             writer.writeUInt(panelID)
             writer.writeString("index")
             writer.writeUInt(UInt64(index))
+        case .moveTabToPanel(let fromPanelID, let from, let toPanelID, let to, let focus):
+            writer.writeMapHeader(6)
+            writer.writeString("name")
+            writer.writeString("move-tab-to-panel")
+            writer.writeString("from_panel_id")
+            writer.writeUInt(fromPanelID)
+            writer.writeString("from")
+            writer.writeUInt(UInt64(from))
+            writer.writeString("to_panel_id")
+            writer.writeUInt(toPanelID)
+            writer.writeString("to")
+            writer.writeUInt(UInt64(to))
+            writer.writeString("focus")
+            writer.writeBool(focus)
+        case .moveTabToSplit(let fromPanelID, let from, let targetPanelID, let edge, let focus):
+            writer.writeMapHeader(6)
+            writer.writeString("name")
+            writer.writeString("move-tab-to-split")
+            writer.writeString("from_panel_id")
+            writer.writeUInt(fromPanelID)
+            writer.writeString("from")
+            writer.writeUInt(UInt64(from))
+            writer.writeString("target_panel_id")
+            writer.writeUInt(targetPanelID)
+            writer.writeString("edge")
+            writer.writeString(edge.rawValue)
+            writer.writeString("focus")
+            writer.writeBool(focus)
+        case .setTabTitleByID(let tabID, let title, let explicit):
+            writer.writeMapHeader(4)
+            writer.writeString("name")
+            writer.writeString("set-tab-title-by-id")
+            writer.writeString("tab_id")
+            writer.writeUInt(tabID)
+            writer.writeString("title")
+            if let title {
+                writer.writeString(title)
+            } else {
+                writer.writeNil()
+            }
+            writer.writeString("explicit")
+            writer.writeBool(explicit)
+        case .closeWorkspaceByID(let workspaceID):
+            writer.writeMapHeader(2)
+            writer.writeString("name")
+            writer.writeString("close-workspace-by-id")
+            writer.writeString("workspace_id")
+            writer.writeUInt(workspaceID)
+        case .closeWindowByID(let windowID):
+            writer.writeMapHeader(2)
+            writer.writeString("name")
+            writer.writeString("close-window-by-id")
+            writer.writeString("window_id")
+            writer.writeString(windowID)
+        case .renameWorkspaceByID(let workspaceID, let title):
+            writer.writeMapHeader(3)
+            writer.writeString("name")
+            writer.writeString("rename-workspace-by-id")
+            writer.writeString("workspace_id")
+            writer.writeUInt(workspaceID)
+            writer.writeString("title")
+            writer.writeString(title)
+        case .moveWorkspaceToIndex(let workspaceID, let index):
+            writer.writeMapHeader(3)
+            writer.writeString("name")
+            writer.writeString("move-workspace-to-index")
+            writer.writeString("workspace_id")
+            writer.writeUInt(workspaceID)
+            writer.writeString("index")
+            writer.writeUInt(UInt64(max(0, index)))
+        case .setWorkspaceRemoteStatus(let workspaceID, let statusJSON):
+            writer.writeMapHeader(3)
+            writer.writeString("name")
+            writer.writeString("set-workspace-remote-status")
+            writer.writeString("workspace_id")
+            writer.writeUInt(workspaceID)
+            writer.writeString("status_json")
+            if let statusJSON {
+                writer.writeString(statusJSON)
+            } else {
+                writer.writeNil()
+            }
         case .setWorkspacePinned(let workspaceID, let pinned):
             writer.writeMapHeader(3)
             writer.writeString("name")
@@ -514,6 +643,30 @@ enum CmxWireCodec {
             writer.writeUInt(workspaceID)
             writer.writeString("unread")
             writer.writeBool(unread)
+        case .setWorkspaceDescriptionByID(let workspaceID, let description):
+            writer.writeMapHeader(3)
+            writer.writeString("name")
+            writer.writeString("set-workspace-description-by-id")
+            writer.writeString("workspace_id")
+            writer.writeUInt(workspaceID)
+            writer.writeString("description")
+            if let description {
+                writer.writeString(description)
+            } else {
+                writer.writeNil()
+            }
+        case .setWorkspaceColorByID(let workspaceID, let color):
+            writer.writeMapHeader(3)
+            writer.writeString("name")
+            writer.writeString("set-workspace-color-by-id")
+            writer.writeString("workspace_id")
+            writer.writeUInt(workspaceID)
+            writer.writeString("color")
+            if let color {
+                writer.writeString(color)
+            } else {
+                writer.writeNil()
+            }
         }
     }
 
@@ -595,8 +748,15 @@ enum CmxWireCodec {
         return try value.mapValue()
     }
 
+    private static func optionalStringArray(_ map: [String: MessagePackValue], _ key: String) throws -> [String] {
+        guard let value = map[key], value != .nilValue else { return [] }
+        return try value.arrayValue().map { try $0.stringValue() }
+    }
+
     private static func decodeNativeSnapshot(_ map: [String: MessagePackValue]) throws -> CmxNativeSnapshot {
         CmxNativeSnapshot(
+            windowID: try optionalString(map, "window_id"),
+            nativeWindowIDs: try optionalStringArray(map, "native_window_ids"),
             workspaces: try requiredArray(map, "workspaces").map { try decodeWorkspaceInfo($0.mapValue()) },
             activeWorkspace: try requiredInt(map, "active_workspace"),
             activeWorkspaceID: try requiredUInt(map, "active_workspace_id"),
@@ -648,7 +808,10 @@ enum CmxWireCodec {
     private static func decodeWorkspaceInfo(_ map: [String: MessagePackValue]) throws -> CmxNativeWorkspaceInfo {
         CmxNativeWorkspaceInfo(
             id: try requiredUInt(map, "id"),
+            externalID: try optionalString(map, "external_id").flatMap(UUID.init(uuidString:)),
             title: try requiredString(map, "title"),
+            description: try optionalString(map, "description"),
+            latestSubmittedMessage: try optionalString(map, "latest_submitted_message"),
             spaceCount: try optionalInt(map, "space_count", default: 0),
             tabCount: try optionalInt(map, "tab_count", default: 0),
             terminalCount: try optionalInt(map, "terminal_count", default: 0),
@@ -671,7 +834,9 @@ enum CmxWireCodec {
     private static func decodeTabInfo(_ map: [String: MessagePackValue]) throws -> CmxNativeTabInfo {
         CmxNativeTabInfo(
             id: try requiredUInt(map, "id"),
+            externalID: try optionalString(map, "external_id").flatMap(UUID.init(uuidString:)),
             title: try requiredString(map, "title"),
+            explicitTitle: try optionalBool(map, "explicit_title", default: false),
             hasActivity: try optionalBool(map, "has_activity", default: false),
             bellCount: try optionalUInt(map, "bell_count", default: 0)
         )
@@ -738,6 +903,7 @@ enum CmxWireCodec {
             row: UInt16(clamping: try requiredUInt(map, "row")),
             visible: try requiredBool(map, "visible"),
             style: style,
+            blink: try optionalBool(map, "blink", default: true),
             color: try optionalMap(map, "color").map(decodeRGB)
         )
     }

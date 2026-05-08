@@ -254,7 +254,9 @@ Browser subcommands:
 | `browser trace` | Start or stop trace capture. |
 | `browser network` | Route, unroute, or list requests. |
 | `browser screencast` | Start or stop screencast. |
-| `browser input`, `browser input_mouse`, `browser input_keyboard`, `browser input_touch` | Send low-level input. |
+| `browser input mouse`, `browser input_mouse` | Compatibility aliases for DOM mouse `click`, `mousemove`, `mousedown`, and `mouseup` at viewport coordinates. |
+| `browser input keyboard`, `browser input_keyboard` | Compatibility aliases for `browser press`, `browser keydown`, and `browser keyup`. |
+| `browser input touch`, `browser input_touch` | Compatibility aliases for DOM pointer/touch `tap`, `touchstart`, `touchmove`, `touchend`, and `touchcancel` at viewport coordinates. |
 | `browser identify` | Identify browser surface context. |
 
 Hook subcommands:

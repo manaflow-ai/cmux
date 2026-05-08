@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# This runner is intended for the UTM macOS VM (ssh cmux-vm).
-# It is intentionally guarded so we don't accidentally kill the host user's cmux instances.
-if [ "$(id -un)" != "cmux" ]; then
+# This runner is intended for the UTM macOS VM (ssh cmux-vm) or an isolated CI
+# macOS runner. It is intentionally guarded so we don't accidentally kill the
+# host user's cmux instances.
+if [ "$(id -un)" != "cmux" ] && [ "${CMUX_TESTS_V2_ALLOW_NON_VM:-0}" != "1" ]; then
   echo "ERROR: This script is intended to be run on the cmux-vm (user: cmux)." >&2
   echo "Run via: ssh cmux-vm 'cd /Users/cmux/GhosttyTabs && ./scripts/run-tests-v2.sh'" >&2
+  echo "Set CMUX_TESTS_V2_ALLOW_NON_VM=1 only on isolated CI runners." >&2
   exit 2
 fi
 
@@ -14,6 +16,11 @@ cd "$(dirname "$0")/.."
 DERIVED_DATA_PATH="$HOME/Library/Developer/Xcode/DerivedData/cmux-tests-v2"
 APP="$DERIVED_DATA_PATH/Build/Products/Debug/cmux DEV.app"
 RUN_TAG="tests-v2"
+DESKTOP_CMX_BACKEND="${CMUX_TESTS_V2_DESKTOP_CMX_BACKEND:-0}"
+RESET_CMX_STATE="${CMUX_TESTS_V2_RESET_CMX_STATE:-1}"
+TEST_FILTER="${CMUX_TESTS_V2_FILTER:-test_*.py}"
+DIAGNOSTICS_DIR="${CMUX_TESTS_V2_DIAGNOSTICS_DIR:-}"
+FAIL_ON_SKIP="${CMUX_TESTS_V2_FAIL_ON_SKIP:-0}"
 
 echo "== build =="
 # Work around stale explicit-module cache artifacts (notably Sentry headers) that can
@@ -34,9 +41,29 @@ if [ ! -d "$APP" ]; then
 fi
 
 cleanup() {
+  if [ -n "$DIAGNOSTICS_DIR" ]; then
+    mkdir -p "$DIAGNOSTICS_DIR"
+    for path in \
+      "/tmp/cmux-debug-${RUN_TAG}.log" \
+      "/tmp/cmux-debug.log" \
+      "/tmp/cmux-last-debug-log-path" \
+      "/tmp/cmux-last-socket-path"
+    do
+      if [ -e "$path" ]; then
+        cp -R "$path" "$DIAGNOSTICS_DIR/" 2>/dev/null || true
+      fi
+    done
+    if [ -d "/tmp/cmux-cmx-${RUN_TAG}" ]; then
+      rm -rf "$DIAGNOSTICS_DIR/cmx-state"
+      cp -R "/tmp/cmux-cmx-${RUN_TAG}" "$DIAGNOSTICS_DIR/cmx-state" 2>/dev/null || true
+    fi
+  fi
   pkill -x "cmux DEV" || true
   pkill -x "cmux" || true
   rm -f /tmp/cmux*.sock || true
+  if [ "$DESKTOP_CMX_BACKEND" = "1" ] && [ "$RESET_CMX_STATE" = "1" ]; then
+    rm -rf "/tmp/cmux-cmx-${RUN_TAG}"
+  fi
 }
 
 launch_and_wait() {
@@ -52,7 +79,17 @@ launch_and_wait() {
   defaults write com.cmuxterm.app.debug socketControlMode -string full >/dev/null 2>&1 || true
 
   # Launch directly with UI test mode enabled so startup follows deterministic test codepaths.
-  CMUX_TAG="$RUN_TAG" CMUX_UI_TEST_MODE=1 "$APP/Contents/MacOS/cmux DEV" >/dev/null 2>&1 &
+  LAUNCH_ENV=(
+    "CMUX_TAG=${RUN_TAG}"
+    "CMUX_UI_TEST_MODE=1"
+  )
+  if [ "$DESKTOP_CMX_BACKEND" = "1" ]; then
+    LAUNCH_ENV+=(
+      "CMUX_DESKTOP_CMX_BACKEND=1"
+      "CMUX_REMOTE_SSH_STACK_IN_RUST=${CMUX_REMOTE_SSH_STACK_IN_RUST:-1}"
+    )
+  fi
+  env "${LAUNCH_ENV[@]}" "$APP/Contents/MacOS/cmux DEV" >/dev/null 2>&1 &
 
   SOCK=""
   for _ in {1..120}; do
@@ -202,9 +239,18 @@ run_test_with_retry() {
 
   while [ "$n" -le "$attempts" ]; do
     echo "RUN  $f (attempt $n/$attempts)"
-    if python3 "$f"; then
+    local output_file
+    output_file=$(mktemp "${TMPDIR:-/tmp}/cmux-tests-v2-output.XXXXXX")
+    if python3 "$f" > >(tee "$output_file") 2> >(tee -a "$output_file" >&2); then
+      if [ "$FAIL_ON_SKIP" = "1" ] && grep -Eq '^SKIP:' "$output_file"; then
+        echo "FAIL $f reported SKIP while CMUX_TESTS_V2_FAIL_ON_SKIP=1" >&2
+        rm -f "$output_file"
+        return 1
+      fi
+      rm -f "$output_file"
       return 0
     fi
+    rm -f "$output_file"
 
     if [ "$n" -ge "$attempts" ]; then
       return 1
@@ -220,8 +266,25 @@ run_test_with_retry() {
 }
 
 echo "== tests (v2) =="
+echo "desktop_cmx_backend: $DESKTOP_CMX_BACKEND"
+echo "fail_on_skip: $FAIL_ON_SKIP"
+echo "test_filter: $TEST_FILTER"
+TEST_FILES=()
+read -r -a TEST_PATTERNS <<< "$TEST_FILTER"
+for pattern in "${TEST_PATTERNS[@]}"; do
+  for f in tests_v2/$pattern; do
+    if [ -e "$f" ]; then
+      TEST_FILES+=("$f")
+    fi
+  done
+done
+if [ "${#TEST_FILES[@]}" -eq 0 ]; then
+  echo "ERROR: no tests_v2 files matched CMUX_TESTS_V2_FILTER=$TEST_FILTER" >&2
+  exit 1
+fi
+
 fail=0
-for f in tests_v2/test_*.py; do
+for f in "${TEST_FILES[@]}"; do
   base=$(basename "$f")
   if [ "$base" = "test_ctrl_interactive.py" ]; then
     echo "SKIP $f"

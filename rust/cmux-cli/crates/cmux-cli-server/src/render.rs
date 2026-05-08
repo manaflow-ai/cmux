@@ -8,6 +8,7 @@
 //! message passing — async callers enqueue requests via a `std::sync::mpsc`
 //! sender and, for compose requests, await a `tokio::sync::oneshot` reply.
 
+use std::borrow::Cow;
 use std::cell::Cell as StdCell;
 use std::collections::{BTreeMap, HashMap};
 use std::rc::Rc;
@@ -19,6 +20,7 @@ use cmux_cli_core::compositor::{
 };
 use cmux_cli_core::layout::Rect;
 use cmux_cli_core::probe;
+use cmux_cli_protocol::NativeTerminalCursor;
 use libghostty_vt::screen::Screen;
 use libghostty_vt::style::RgbColor as GhosttyRgbColor;
 use libghostty_vt::terminal::{
@@ -43,6 +45,13 @@ pub enum TerminalProbeKind {
 pub struct TerminalProbeColors {
     pub foreground: Option<GhosttyRgbColor>,
     pub background: Option<GhosttyRgbColor>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RecentText {
+    pub text: String,
+    pub cols: u16,
+    pub rows: u16,
 }
 
 impl TerminalProbeKind {
@@ -246,6 +255,13 @@ pub(crate) enum RenderMsg {
         pane: Rect,
         reply: oneshot::Sender<String>,
     },
+    /// Extract recent terminal text from the current viewport or scrollback.
+    ExtractRecentText {
+        id: TabId,
+        lines: Option<usize>,
+        include_scrollback: bool,
+        reply: oneshot::Sender<Option<RecentText>>,
+    },
     /// Extract a selection whose rows are anchored in the full
     /// scrollback coordinate space. Used when a mouse selection crosses
     /// viewport scrolls before mouse-up.
@@ -290,6 +306,9 @@ pub(crate) enum RenderMsg {
     SetDefaultColors {
         colors: Box<TerminalGridDefaultColors>,
     },
+    SetDefaultCursor {
+        cursor: Option<NativeTerminalCursor>,
+    },
 }
 
 pub struct RenderBroker {
@@ -316,6 +335,7 @@ impl RenderBroker {
             HashMap::new();
         let mut terminal_probe_colors: Option<TerminalProbeColors> = None;
         let mut terminal_default_colors = TerminalGridDefaultColors::default();
+        let mut terminal_default_cursor: Option<NativeTerminalCursor> = None;
         let mut vt_write_seq: u64 = 0;
         let mut compose_seq: u64 = 0;
         while let Ok(msg) = rx.recv() {
@@ -339,6 +359,11 @@ impl RenderBroker {
                     }) {
                         let mut t = Box::new(t);
                         apply_terminal_default_colors(t.as_mut(), terminal_default_colors, id);
+                        apply_terminal_default_cursor(
+                            t.as_mut(),
+                            terminal_default_cursor.as_ref(),
+                            id,
+                        );
                         let size = Rc::new(StdCell::new((cols, rows)));
                         if let Err(error) =
                             install_terminal_effects(&mut t, id, pty_response_tx, Rc::clone(&size))
@@ -384,7 +409,11 @@ impl RenderBroker {
                         );
                     }
                     if let Some(t) = terminals.get_mut(&id) {
-                        t.vt_write(&data);
+                        let data = rewrite_configured_cursor_sequences(
+                            &data,
+                            terminal_default_cursor.as_ref(),
+                        );
+                        t.vt_write(data.as_ref());
                         if let Some(tx) = mouse_watchers.get(&id)
                             && let Ok(tracking) = t.is_mouse_tracking()
                         {
@@ -454,6 +483,73 @@ impl RenderBroker {
                         .get(&id)
                         .map(|t| extract_line_selection(t, selection, pane))
                         .unwrap_or_default();
+                    let _ = reply.send(text);
+                }
+                RenderMsg::ExtractRecentText {
+                    id,
+                    lines,
+                    include_scrollback,
+                    reply,
+                } => {
+                    let text = terminals.get_mut(&id).map(|terminal| {
+                        let (cols, rows) = terminal_sizes
+                            .get(&id)
+                            .map(|size| size.get())
+                            .unwrap_or((80, 24));
+                        let cols = cols.max(1);
+                        let rows = rows.max(1);
+                        let pane = Rect {
+                            col: 0,
+                            row: 0,
+                            cols,
+                            rows,
+                        };
+                        let text = if include_scrollback {
+                            let total = terminal
+                                .scrollbar()
+                                .map(|scrollbar| scrollbar.total)
+                                .unwrap_or(u64::from(rows))
+                                .max(1);
+                            let end_row = total.saturating_sub(1);
+                            let start_row = lines
+                                .map(|line_count| {
+                                    let back = u64::try_from(line_count.saturating_sub(1))
+                                        .unwrap_or(u64::MAX);
+                                    end_row.saturating_sub(back)
+                                })
+                                .unwrap_or(0);
+                            extract_logical_line_selection(
+                                terminal,
+                                LogicalLineSelection {
+                                    start_col: 0,
+                                    start_row,
+                                    end_col: cols.saturating_sub(1),
+                                    end_row,
+                                },
+                                pane,
+                            )
+                        } else {
+                            let end_row = rows.saturating_sub(1);
+                            let start_row = if let Some(n) = lines {
+                                end_row.saturating_sub(
+                                    n.saturating_sub(1).min(u16::MAX as usize) as u16
+                                )
+                            } else {
+                                0
+                            };
+                            extract_line_selection(
+                                terminal,
+                                LineSelection {
+                                    start_col: 0,
+                                    start_row,
+                                    end_col: cols.saturating_sub(1),
+                                    end_row,
+                                },
+                                pane,
+                            )
+                        };
+                        RecentText { text, cols, rows }
+                    });
                     let _ = reply.send(text);
                 }
                 RenderMsg::ExtractLogicalText {
@@ -546,6 +642,16 @@ impl RenderBroker {
                                 "summary",
                                 terminal_default_color_summary(terminal_default_colors),
                             )],
+                        );
+                    }
+                }
+                RenderMsg::SetDefaultCursor { cursor } => {
+                    terminal_default_cursor = cursor;
+                    for (id, terminal) in &mut terminals {
+                        apply_terminal_default_cursor(
+                            terminal.as_mut(),
+                            terminal_default_cursor.as_ref(),
+                            *id,
                         );
                     }
                 }
@@ -728,6 +834,28 @@ impl RenderBroker {
         reply_rx.await.unwrap_or_default()
     }
 
+    pub async fn extract_recent_text(
+        &self,
+        id: TabId,
+        lines: Option<usize>,
+        include_scrollback: bool,
+    ) -> Option<RecentText> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        if self
+            .tx
+            .send(RenderMsg::ExtractRecentText {
+                id,
+                lines,
+                include_scrollback,
+                reply: reply_tx,
+            })
+            .is_err()
+        {
+            return None;
+        }
+        reply_rx.await.unwrap_or_default()
+    }
+
     pub async fn extract_logical_text(
         &self,
         id: TabId,
@@ -834,6 +962,10 @@ impl RenderBroker {
             colors: Box::new(colors),
         });
     }
+
+    pub fn set_default_cursor(&self, cursor: Option<NativeTerminalCursor>) {
+        let _ = self.tx.send(RenderMsg::SetDefaultCursor { cursor });
+    }
 }
 
 fn apply_terminal_default_colors(
@@ -860,6 +992,188 @@ fn apply_terminal_default_colors(
             ],
         );
     }
+}
+
+fn apply_terminal_default_cursor(
+    terminal: &mut Terminal<'static, 'static>,
+    cursor: Option<&NativeTerminalCursor>,
+    tab_id: TabId,
+) {
+    let Some(sequence) = default_cursor_sequence(cursor) else {
+        return;
+    };
+    terminal.vt_write(sequence);
+    if probe::color_enabled() {
+        probe::log_event(
+            "render",
+            "terminal_default_cursor_applied",
+            &[
+                ("tab_id", tab_id.to_string()),
+                ("sequence", format!("{sequence:?}")),
+            ],
+        );
+    }
+}
+
+fn default_cursor_sequence(cursor: Option<&NativeTerminalCursor>) -> Option<&'static [u8]> {
+    let cursor = cursor?;
+    let blink = cursor.blink.unwrap_or(true);
+    match cursor.style.as_deref() {
+        Some("bar") => Some(if blink { b"\x1b[5 q" } else { b"\x1b[6 q" }),
+        Some("underline") => Some(if blink { b"\x1b[3 q" } else { b"\x1b[4 q" }),
+        Some("block") => Some(if blink { b"\x1b[1 q" } else { b"\x1b[2 q" }),
+        Some("block_hollow") => None,
+        Some(_) => None,
+        None => cursor.blink.map(|blink| {
+            if blink {
+                b"\x1b[1 q" as &'static [u8]
+            } else {
+                b"\x1b[2 q" as &'static [u8]
+            }
+        }),
+    }
+}
+
+fn rewrite_configured_cursor_sequences<'a>(
+    data: &'a [u8],
+    cursor: Option<&NativeTerminalCursor>,
+) -> Cow<'a, [u8]> {
+    let data = rewrite_default_cursor_reset(data, cursor);
+    if cursor.and_then(|cursor| cursor.blink).is_none() {
+        return data;
+    }
+
+    match rewrite_cursor_blink_private_mode(data.as_ref()) {
+        Some(output) => Cow::Owned(output),
+        None => data,
+    }
+}
+
+fn rewrite_default_cursor_reset<'a>(
+    data: &'a [u8],
+    cursor: Option<&NativeTerminalCursor>,
+) -> Cow<'a, [u8]> {
+    // Ghostty shell integration uses DECSCUSR 0 to mean "configured default".
+    // libghostty-vt's standalone terminal does not receive that config, so
+    // normalize the reset before using the renderer as our snapshot authority.
+    let Some(replacement) = default_cursor_sequence(cursor) else {
+        return Cow::Borrowed(data);
+    };
+
+    let mut output: Option<Vec<u8>> = None;
+    let mut copied_until = 0usize;
+    let mut index = 0usize;
+    while index < data.len() {
+        let reset_len = if data[index..].starts_with(b"\x1b[0 q") {
+            Some(5)
+        } else if data[index..].starts_with(b"\x1b[ q") {
+            Some(4)
+        } else {
+            None
+        };
+
+        let Some(reset_len) = reset_len else {
+            index += 1;
+            continue;
+        };
+
+        let output = output.get_or_insert_with(|| Vec::with_capacity(data.len()));
+        output.extend_from_slice(&data[copied_until..index]);
+        output.extend_from_slice(replacement);
+        index += reset_len;
+        copied_until = index;
+    }
+
+    match output {
+        Some(mut output) => {
+            output.extend_from_slice(&data[copied_until..]);
+            Cow::Owned(output)
+        }
+        None => Cow::Borrowed(data),
+    }
+}
+
+fn rewrite_cursor_blink_private_mode(data: &[u8]) -> Option<Vec<u8>> {
+    let mut output: Option<Vec<u8>> = None;
+    let mut copied_until = 0usize;
+    let mut index = 0usize;
+
+    while index < data.len() {
+        let Some((end, replacement)) = rewrite_dec_private_cursor_blink_sequence(data, index)
+        else {
+            index += 1;
+            continue;
+        };
+
+        let output = output.get_or_insert_with(|| Vec::with_capacity(data.len()));
+        output.extend_from_slice(&data[copied_until..index]);
+        output.extend_from_slice(&replacement);
+        index = end;
+        copied_until = index;
+    }
+
+    output.map(|mut output| {
+        output.extend_from_slice(&data[copied_until..]);
+        output
+    })
+}
+
+fn rewrite_dec_private_cursor_blink_sequence(
+    data: &[u8],
+    start: usize,
+) -> Option<(usize, Vec<u8>)> {
+    let params_start = start.checked_add(3)?;
+    if data.get(start..params_start) != Some(b"\x1b[?") {
+        return None;
+    }
+
+    let mut final_index = params_start;
+    while final_index < data.len()
+        && (data[final_index].is_ascii_digit() || data[final_index] == b';')
+    {
+        final_index += 1;
+    }
+    if final_index >= data.len() || !matches!(data[final_index], b'h' | b'l') {
+        return None;
+    }
+
+    let params = &data[params_start..final_index];
+    if params.is_empty()
+        || params
+            .split(|byte| *byte == b';')
+            .any(|param| param.is_empty())
+    {
+        return None;
+    }
+
+    let mut kept_params: Vec<&[u8]> = Vec::new();
+    let mut removed_cursor_blink = false;
+    for param in params.split(|byte| *byte == b';') {
+        if param == b"12" {
+            removed_cursor_blink = true;
+        } else {
+            kept_params.push(param);
+        }
+    }
+    if !removed_cursor_blink {
+        return None;
+    }
+
+    let end = final_index + 1;
+    if kept_params.is_empty() {
+        return Some((end, Vec::new()));
+    }
+
+    let mut replacement = Vec::with_capacity(end - start);
+    replacement.extend_from_slice(b"\x1b[?");
+    for (index, param) in kept_params.iter().enumerate() {
+        if index > 0 {
+            replacement.push(b';');
+        }
+        replacement.extend_from_slice(param);
+    }
+    replacement.push(data[final_index]);
+    Some((end, replacement))
 }
 
 fn log_terminal_default_color_error(
@@ -1933,6 +2247,45 @@ mod tests {
             .rect,
             border
         );
+    }
+
+    #[test]
+    fn cursor_reset_rewrites_to_configured_default_cursor() {
+        let cursor = NativeTerminalCursor {
+            style: Some("bar".to_string()),
+            blink: Some(false),
+        };
+
+        let rewritten = rewrite_configured_cursor_sequences(b"a\x1b[0 qb\x1b[ qc", Some(&cursor));
+
+        assert_eq!(rewritten.as_ref(), b"a\x1b[6 qb\x1b[6 qc");
+    }
+
+    #[test]
+    fn cursor_blink_private_mode_is_ignored_when_blink_is_configured() {
+        let cursor = NativeTerminalCursor {
+            style: Some("underline".to_string()),
+            blink: Some(false),
+        };
+
+        let rewritten = rewrite_configured_cursor_sequences(
+            b"a\x1b[?12lb\x1b[?12;25hc\x1b[?25;12ld",
+            Some(&cursor),
+        );
+
+        assert_eq!(rewritten.as_ref(), b"ab\x1b[?25hc\x1b[?25ld");
+    }
+
+    #[test]
+    fn cursor_blink_private_mode_is_preserved_when_blink_is_unset() {
+        let cursor = NativeTerminalCursor {
+            style: Some("bar".to_string()),
+            blink: None,
+        };
+
+        let rewritten = rewrite_configured_cursor_sequences(b"a\x1b[?12lb", Some(&cursor));
+
+        assert_eq!(rewritten.as_ref(), b"a\x1b[?12lb");
     }
 
     #[test]

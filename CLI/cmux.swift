@@ -2651,6 +2651,12 @@ struct CMUXCLI {
             if let wsId { params["workspace_id"] = wsId }
             let winId = try normalizeWindowHandle(windowRaw, client: client)
             if let winId { params["window_id"] = winId }
+            if let focusRaw = optionValue(commandArgs, name: "--focus") {
+                guard let focus = parseBoolString(focusRaw) else {
+                    throw CLIError(message: "--focus must be true or false")
+                }
+                params["focus"] = focus
+            }
             let payload = try client.sendV2(method: "workspace.move_to_window", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace", "window"]))
 
@@ -8120,7 +8126,11 @@ struct CMUXCLI {
 
         if ["input_mouse", "input_keyboard", "input_touch"].contains(subcommand) {
             let sid = try requireSurface()
-            let payload = try client.sendV2(method: "browser.\(subcommand)", params: ["surface_id": sid])
+            var params: [String: Any] = ["surface_id": sid]
+            if !subArgs.isEmpty {
+                params["args"] = subArgs
+            }
+            let payload = try client.sendV2(method: "browser.\(subcommand)", params: params)
             output(payload, fallback: "OK")
             return
         }
@@ -8611,13 +8621,14 @@ struct CMUXCLI {
             """
         case "move-workspace-to-window":
             return """
-            Usage: cmux move-workspace-to-window --workspace <id|ref|index> --window <id|ref|index>
+            Usage: cmux move-workspace-to-window --workspace <id|ref|index> --window <id|ref|index> [--focus <true|false>]
 
             Move a workspace to a different window.
 
             Flags:
               --workspace <id|ref|index>   Workspace to move (required)
               --window <id|ref|index>      Target window (required)
+              --focus <true|false>         Also focus the moved workspace globally (default: false)
 
             Example:
               cmux move-workspace-to-window --workspace workspace:2 --window window:1
@@ -9674,8 +9685,10 @@ struct CMUXCLI {
                 route <pattern> [--abort] [--body <text>]
                 unroute <pattern>
               screencast <start|stop>
-              input <mouse|keyboard|touch> [args...]
-              input_mouse | input_keyboard | input_touch
+              input mouse [click|move|mousedown|mouseup] <x> <y>
+              input keyboard [press|keydown|keyup] <key>
+              input touch [tap|touchstart|touchmove|touchend|touchcancel] <x> <y>
+              input_mouse [click|move|mousedown|mouseup] <x> <y> | input_keyboard [press|keydown|keyup] <key> | input_touch [tap|touchstart|touchmove|touchend|touchcancel] <x> <y>
               identify [--surface <id|ref|index>]
 
             Example:

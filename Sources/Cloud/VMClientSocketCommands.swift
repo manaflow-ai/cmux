@@ -65,6 +65,24 @@ extension TerminalController {
                 let endpoint = try await VMClient.shared.openAttach(id: vmId, requireDaemon: requireDaemon)
                 return Self.socketWorkerAttachInfoPayload(endpoint)
             }
+        case "__cmx.vm.auth_context":
+            guard params["routed_by"] as? String == "cmx-rust",
+                  Self.isDesktopCmxNativeCompatibilityRequest() else {
+                return v2Error(id: id, code: "method_not_found", message: "Unknown method")
+            }
+            return v2VmCall(id: id) {
+                let tokens = try await AuthManager.shared.currentTokens()
+                let teamID = await AuthManager.shared.resolvedTeamID
+                var payload: [String: Any] = [
+                    "base_url": AuthEnvironment.vmAPIBaseURL.absoluteString,
+                    "access_token": tokens.accessToken,
+                    "refresh_token": tokens.refreshToken,
+                ]
+                if let teamID, !teamID.isEmpty {
+                    payload["team_id"] = teamID
+                }
+                return payload
+            }
         default:
             return v2Error(id: id, code: "method_not_found", message: "Unknown method")
         }

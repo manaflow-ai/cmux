@@ -61,6 +61,7 @@
 		D7AB34400000000000000001 /* WorkspaceSurfaceConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB34400000000000000002 /* WorkspaceSurfaceConfig.swift */; };
 		D7AB34400000000000000003 /* GhosttyTerminalViewVisibilityPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB34400000000000000004 /* GhosttyTerminalViewVisibilityPolicyTests.swift */; };
 		5EDB6027B346C46521A93C74 /* CMUXAuthCore in Frameworks */ = {isa = PBXBuildFile; productRef = 29813FE5A6CBC1019289A251 /* CMUXAuthCore */; };
+		C0DEF1000000000000000001 /* CMUXCmxProtocol in Frameworks */ = {isa = PBXBuildFile; productRef = C0DEF1000000000000000002 /* CMUXCmxProtocol */; };
 		AA11BB22CC33DD44EE550001 /* CMUXWorkstream in Frameworks */ = {isa = PBXBuildFile; productRef = AA11BB22CC33DD44EE550002 /* CMUXWorkstream */; };
 		FEED0000000000000000F002 /* FeedCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F001 /* FeedCoordinator.swift */; };
 		FEED0000000000000000F005 /* FeedPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F004 /* FeedPanelView.swift */; };
@@ -690,6 +691,7 @@
 				A5001270 /* PostHog in Frameworks */,
 				A5001290 /* MarkdownUI in Frameworks */,
 				5EDB6027B346C46521A93C74 /* CMUXAuthCore in Frameworks */,
+				C0DEF1000000000000000001 /* CMUXCmxProtocol in Frameworks */,
 				AA11BB22CC33DD44EE550001 /* CMUXWorkstream in Frameworks */,
 				F20F85FC5900550685FA33AD /* StackAuth in Frameworks */,
 			);
@@ -1134,6 +1136,7 @@
 				A5001261 /* Bonsplit */,
 				A5001291 /* MarkdownUI */,
 				29813FE5A6CBC1019289A251 /* CMUXAuthCore */,
+				C0DEF1000000000000000002 /* CMUXCmxProtocol */,
 				AA11BB22CC33DD44EE550002 /* CMUXWorkstream */,
 				A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */,
 				A8BD195031FC4B82B4354297 /* StackAuth */,
@@ -1257,6 +1260,7 @@
 				A5001292 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
 				A5001260 /* XCLocalSwiftPackageReference "bonsplit" */,
 				40B63BB4A170F0BD2D1DEFD1 /* XCLocalSwiftPackageReference "CMUXAuthCore" */,
+				C0DEF1000000000000000003 /* XCLocalSwiftPackageReference "CMUXCmxProtocol" */,
 				AA11BB22CC33DD44EE550003 /* XCLocalSwiftPackageReference "CMUXWorkstream" */,
 				A500D012A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXDebugLog" */,
 				28B798BB9086C8E6B60C3355 /* XCLocalSwiftPackageReference "stack-auth-swift-sdk-prerelease" */,
@@ -2044,6 +2048,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CMUXAuthCore;
 		};
+		C0DEF1000000000000000003 /* XCLocalSwiftPackageReference "CMUXCmxProtocol" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/CMUXCmxProtocol;
+		};
 		AA11BB22CC33DD44EE550003 /* XCLocalSwiftPackageReference "CMUXWorkstream" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CMUXWorkstream;
@@ -2098,6 +2106,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 40B63BB4A170F0BD2D1DEFD1 /* XCLocalSwiftPackageReference "CMUXAuthCore" */;
 			productName = CMUXAuthCore;
+		};
+		C0DEF1000000000000000002 /* CMUXCmxProtocol */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C0DEF1000000000000000003 /* XCLocalSwiftPackageReference "CMUXCmxProtocol" */;
+			productName = CMUXCmxProtocol;
 		};
 		AA11BB22CC33DD44EE550002 /* CMUXWorkstream */ = {
 			isa = XCSwiftPackageProductDependency;

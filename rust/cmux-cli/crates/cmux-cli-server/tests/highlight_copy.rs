@@ -23,6 +23,7 @@ async fn drag_selection_yanks_into_buffer_and_osc52() {
     let socket = dir.path().join("server.sock");
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (120, 24),
@@ -209,6 +210,7 @@ async fn scroll_during_selection_yanks_logical_rows_not_final_viewport() {
     let socket = dir.path().join("server.sock");
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (80, 10),
@@ -347,6 +349,7 @@ async fn double_click_yanks_url_like_word() {
     let socket = dir.path().join("server.sock");
     let opts = ServerOptions {
         socket_path: socket.clone(),
+        compatibility_socket_path: None,
         shell: "/bin/sh".into(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: (120, 24),
@@ -507,7 +510,10 @@ async fn read_screen_text(
         w,
         &ClientMsg::Command {
             id,
-            command: Command::ReadScreen { lines: None },
+            command: Command::ReadScreen {
+                lines: None,
+                scrollback: false,
+            },
         },
     )
     .await

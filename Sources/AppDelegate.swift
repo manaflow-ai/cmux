@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Bonsplit
+import CMUXCmxProtocol
 import CMUXWorkstream
 import CoreServices
 import UserNotifications
@@ -532,11 +533,71 @@ final class CmuxMainThreadTurnProfiler {
 }
 #endif
 
+private final class WeakTerminalSurfaceReference {
+    weak var surface: TerminalSurface?
+
+    init(_ surface: TerminalSurface) {
+        self.surface = surface
+    }
+}
+
+private struct DesktopCmxTerminalSurfaceKey: Hashable {
+    let windowID: UUID
+    let terminalID: UInt64
+}
+
+private struct DesktopCmxNativeWindowRestoreEntry: Decodable {
+    let externalWindowID: String
+
+    private enum CodingKeys: String, CodingKey {
+        case externalWindowID = "external_window_id"
+    }
+}
+
+private struct DesktopCmxSnapshotNativeWindows: Decodable {
+    let nativeWindows: [DesktopCmxNativeWindowRestoreEntry]
+
+    private enum CodingKeys: String, CodingKey {
+        case nativeWindows = "native_windows"
+    }
+}
+
+@MainActor
+private final class DesktopCmxNativeSession {
+    let windowID: UUID
+    let clientID: String
+    let includesCompatibilityBridge: Bool
+    var connection: CmxConnection?
+    var task: Task<Void, Never>?
+
+    init(windowID: UUID, clientID: String, includesCompatibilityBridge: Bool) {
+        self.windowID = windowID
+        self.clientID = clientID
+        self.includesCompatibilityBridge = includesCompatibilityBridge
+    }
+}
+
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation {
     nonisolated(unsafe) static var shared: AppDelegate?
 
     private static let cachedIsRunningUnderXCTest = detectRunningUnderXCTest(ProcessInfo.processInfo.environment)
+    private var desktopCmxDaemon: CmxDesktopDaemon?
+    private let desktopCmxStore = CmxDesktopStore()
+    private var desktopCmxSessionsByWindowID: [UUID: DesktopCmxNativeSession] = [:]
+    private var desktopCmxCompatibilityWindowID: UUID?
+    private var desktopCmxTerminalSurfaces: [DesktopCmxTerminalSurfaceKey: WeakTerminalSurfaceReference] = [:]
+    private var desktopCmxTerminalLayouts: [DesktopCmxTerminalSurfaceKey: CmxWireTerminalViewport] = [:]
+    private var desktopCmxReplayRequestedTerminalIDs: Set<DesktopCmxTerminalSurfaceKey> = []
+    private var desktopCmxPtyByteLogCounts: [DesktopCmxTerminalSurfaceKey: Int] = [:]
+    private var desktopCmxSnapshotsByWindowID: [UUID: CmxNativeSnapshot] = [:]
+    private var desktopCmxGhosttyConfigFragment: String?
+    private var desktopCmxNativeWindowSnapshotIsAuthoritative = false
+    private var desktopCmxNativeWindowReconcileRevision: UInt64?
+    private var desktopCmxStartupTask: Task<Void, Never>?
+    private var desktopCmxCompatibilityTasks: [UInt64: Task<Void, Never>] = [:]
+    private var desktopCmxTerminationTask: Task<Void, Never>?
+    private var desktopCmxStartupWindowIDs: [UUID]?
 
     private var isRunningUnderXCTestCached: Bool {
         Self.cachedIsRunningUnderXCTest
@@ -949,6 +1010,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let env = ProcessInfo.processInfo.environment
         let isRunningUnderXCTest = isRunningUnderXCTest(env)
         let telemetryEnabled = TelemetrySettings.enabledForCurrentLaunch
+        startDesktopCmxBackendIfNeeded(environment: env)
         AppIconLaunchState.markDidFinishLaunching()
         if isRunningUnderXCTest {
             NSApp.setActivationPolicy(.regular)
@@ -1439,6 +1501,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         isTerminatingApp = true
         _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
 
+        if DesktopCmxBackendSettings.isEnabled(),
+           desktopCmxDaemon != nil {
+            if desktopCmxTerminationTask == nil {
+                desktopCmxTerminationTask = Task { @MainActor [weak self] in
+                    guard let self else {
+                        NSApp.reply(toApplicationShouldTerminate: true)
+                        return
+                    }
+                    await self.stopDesktopCmxBackendAndWait()
+                    self.desktopCmxTerminationTask = nil
+                    NSApp.reply(toApplicationShouldTerminate: true)
+                }
+            }
+            return .terminateLater
+        }
+
         // Tagged DEV builds are ephemeral, skip quit confirmation entirely.
         if SocketControlSettings.isTaggedDevBuild() {
             return .terminateNow
@@ -1458,7 +1536,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Show the same confirmation dialog used by the Cmd+Q shortcut path,
         // then reply asynchronously so we can return .terminateLater now.
-        DispatchQueue.main.async {
+        Task { @MainActor [weak self] in
+            guard let self else {
+                NSApp.reply(toApplicationShouldTerminate: false)
+                return
+            }
             let alert = NSAlert()
             alert.alertStyle = .warning
             alert.messageText = String(localized: "dialog.quitCmux.title", defaultValue: "Quit cmux?")
@@ -1485,8 +1567,1201 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return .terminateLater
     }
 
+    private func startDesktopCmxBackendIfNeeded(environment: [String: String]) {
+        guard DesktopCmxBackendSettings.isEnabled(environment: environment) else {
+            return
+        }
+
+        let paths = DesktopCmxBackendSettings.runtimePaths(environment: environment)
+        guard let executableURL = DesktopCmxBackendSettings.executableURL(environment: environment) else {
+#if DEBUG
+            cmuxDebugLog("desktopCmxBackend.start.skip reason=missingExecutable nativeSocket=\(paths.nativeSocketPath)")
+#endif
+            return
+        }
+
+        let daemon = CmxDesktopDaemon(executableURL: executableURL, paths: paths)
+        desktopCmxDaemon = daemon
+        desktopCmxStore.reset()
+        desktopCmxStartupTask = Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+            do {
+                let desktopSessionSnapshotURL = SessionPersistenceStore.defaultSnapshotFileURL()
+                var daemonEnvironment = environment
+                daemonEnvironment[DesktopCmxBackendSettings.environmentKey] = "1"
+                daemonEnvironment.removeValue(forKey: DesktopCmxBackendSettings.disableEnvironmentKey)
+                daemonEnvironment["CMX_DESKTOP_I_MESSAGE_MODE"] = IMessageModeSettings.isEnabled() ? "1" : "0"
+                let rawSocketMode = UserDefaults.standard.string(forKey: SocketControlSettings.appStorageKey)
+                    ?? SocketControlSettings.defaultMode.rawValue
+                let userSocketMode = SocketControlSettings.migrateMode(rawSocketMode)
+                let socketMode = SocketControlSettings.effectiveMode(
+                    userMode: userSocketMode,
+                    environment: environment
+                )
+                daemonEnvironment["CMUX_SOCKET_MODE"] = socketMode.rawValue
+                if let passwordFileURL = SocketControlPasswordStore.defaultPasswordFileURL() {
+                    daemonEnvironment["CMUX_SOCKET_PASSWORD_FILE"] = passwordFileURL.path
+                }
+                if socketMode == .password,
+                   daemonEnvironment[SocketControlSettings.socketPasswordEnvKey] == nil,
+                   let password = SocketControlPasswordStore.configuredPassword(
+                       environment: environment,
+                       allowLazyKeychainFallback: true
+                   ) {
+                    daemonEnvironment[SocketControlSettings.socketPasswordEnvKey] = password
+                }
+                if let bundleIdentifier = Bundle.main.bundleIdentifier {
+                    daemonEnvironment["CMX_DESKTOP_BUNDLE_ID"] = bundleIdentifier
+                }
+                DesktopCmxBackendSettings.applyRemoteDaemonMetadata(to: &daemonEnvironment)
+                try await daemon.start(
+                    importDesktopSessionURL: desktopSessionSnapshotURL,
+                    environment: daemonEnvironment
+                )
+                try await daemon.waitUntilReady()
+#if DEBUG
+                cmuxDebugLog("desktopCmxBackend.start.ok executable=\(executableURL.path) nativeSocket=\(paths.nativeSocketPath) stateDir=\(paths.stateDirectory.path)")
+#endif
+                syncDesktopCmxNativeSessions(source: "daemonReady")
+            } catch is CancellationError {
+#if DEBUG
+                cmuxDebugLog("desktopCmxBackend.cancelled")
+#endif
+            } catch {
+                desktopCmxStore.apply(.error(error.localizedDescription))
+#if DEBUG
+                cmuxDebugLog("desktopCmxBackend.start.failed error=\(error.localizedDescription)")
+#endif
+            }
+        }
+    }
+
+    private func desktopCmxWindowIDsForStartup() -> [UUID] {
+        guard DesktopCmxBackendSettings.isEnabled() else {
+            return []
+        }
+        if let desktopCmxStartupWindowIDs {
+            return desktopCmxStartupWindowIDs
+        }
+
+        let paths = DesktopCmxBackendSettings.runtimePaths()
+        let savedWindowIDs = Self.loadDesktopCmxNativeWindowIDs(stateDirectory: paths.stateDirectory)
+        let windowIDs: [UUID]
+        if !savedWindowIDs.isEmpty {
+            windowIDs = savedWindowIDs
+        } else if let startupSessionSnapshot, !startupSessionSnapshot.windows.isEmpty {
+            windowIDs = startupSessionSnapshot.windows.indices.map { index in
+                Self.desktopCmxDerivedWindowUUID(index: UInt64(index))
+            }
+        } else {
+            windowIDs = []
+        }
+
+        desktopCmxStartupWindowIDs = Array(windowIDs.prefix(SessionPersistencePolicy.maxWindowsPerSnapshot))
+        return desktopCmxStartupWindowIDs ?? []
+    }
+
+    private func desktopCmxPrimaryWindowIDForStartup() -> UUID? {
+        desktopCmxWindowIDsForStartup().first
+    }
+
+    private func desktopCmxAdditionalWindowIDsForStartup(excluding excludedWindowIDs: Set<UUID>) -> [UUID] {
+        desktopCmxWindowIDsForStartup()
+            .filter { !excludedWindowIDs.contains($0) }
+            .prefix(max(0, SessionPersistencePolicy.maxWindowsPerSnapshot - excludedWindowIDs.count))
+            .map { $0 }
+    }
+
+    nonisolated private static func loadDesktopCmxNativeWindowIDs(stateDirectory: URL) -> [UUID] {
+        let decoder = JSONDecoder()
+        let sidecarURL = stateDirectory.appendingPathComponent("native-windows.json")
+        if let data = try? Data(contentsOf: sidecarURL),
+           let entries = try? decoder.decode([DesktopCmxNativeWindowRestoreEntry].self, from: data) {
+            return uniqueDesktopCmxWindowIDs(entries.map(\.externalWindowID))
+        }
+
+        let snapshotURL = stateDirectory.appendingPathComponent("snapshot.json")
+        guard let data = try? Data(contentsOf: snapshotURL),
+              let snapshot = try? decoder.decode(DesktopCmxSnapshotNativeWindows.self, from: data) else {
+            return []
+        }
+        return uniqueDesktopCmxWindowIDs(snapshot.nativeWindows.map(\.externalWindowID))
+    }
+
+    nonisolated private static func uniqueDesktopCmxWindowIDs(_ rawWindowIDs: [String]) -> [UUID] {
+        var seen = Set<UUID>()
+        var windowIDs: [UUID] = []
+        for rawWindowID in rawWindowIDs {
+            guard let windowID = UUID(uuidString: rawWindowID),
+                  seen.insert(windowID).inserted else {
+                continue
+            }
+            windowIDs.append(windowID)
+        }
+        return windowIDs
+    }
+
+    nonisolated private static func desktopCmxDerivedWindowUUID(index: UInt64) -> UUID {
+        desktopCmxDerivedUUID(namespace: 3, id: index)
+    }
+
+    nonisolated private static func desktopCmxDerivedUUID(namespace: UInt16, id: UInt64) -> UUID {
+        let high = (id >> 52) & 0x0fff
+        let middle = (id >> 40) & 0x0fff
+        let low = id & 0x00ff_ffff_ffff
+        let raw = String(
+            format: "c0de%04x-c0de-4%03llx-8%03llx-%012llx",
+            namespace,
+            high,
+            middle,
+            low
+        )
+        return UUID(uuidString: raw) ?? UUID()
+    }
+
+    private func sortedDesktopCmxWindowContexts() -> [MainWindowContext] {
+        mainWindowContexts.values
+            .filter { context in
+                resolvedWindow(for: context) != nil
+            }
+            .sorted { lhs, rhs in
+                lhs.windowId.uuidString < rhs.windowId.uuidString
+            }
+    }
+
+    private func syncDesktopCmxNativeSessions(source: String) {
+        guard desktopCmxDaemon != nil else {
+            return
+        }
+        let contexts = sortedDesktopCmxWindowContexts()
+        let liveWindowIDs = Set(contexts.map(\.windowId))
+
+        for windowID in Array(desktopCmxSessionsByWindowID.keys) where !liveWindowIDs.contains(windowID) {
+            stopDesktopCmxNativeSession(windowID: windowID, source: "\(source).removed")
+        }
+
+        if let compatibilityWindowID = desktopCmxCompatibilityWindowID,
+           !liveWindowIDs.contains(compatibilityWindowID) {
+            desktopCmxCompatibilityWindowID = nil
+        }
+        if desktopCmxCompatibilityWindowID == nil {
+            let preferredWindowID = preferredRegisteredMainWindowContext()?.windowId
+            if let preferredWindowID, liveWindowIDs.contains(preferredWindowID) {
+                desktopCmxCompatibilityWindowID = preferredWindowID
+            } else {
+                desktopCmxCompatibilityWindowID = contexts.first?.windowId
+            }
+        }
+
+        for context in contexts where desktopCmxSessionsByWindowID[context.windowId] == nil {
+            startDesktopCmxNativeSession(
+                windowID: context.windowId,
+                includesCompatibilityBridge: context.windowId == desktopCmxCompatibilityWindowID,
+                source: source
+            )
+        }
+    }
+
+    private func desktopCmxNativeCapabilities(includesCompatibilityBridge: Bool) -> [CmxNativeClientCapability] {
+        var capabilities: [CmxNativeClientCapability] = [
+            .libghosttyPtyBytes,
+            .webviewWorker,
+            .pasteboard,
+            .notifications,
+            .filePicker,
+        ]
+        if includesCompatibilityBridge {
+            capabilities.append(.socketCompatibilityBridge)
+        }
+        return capabilities
+    }
+
+    private func startDesktopCmxNativeSession(
+        windowID: UUID,
+        includesCompatibilityBridge: Bool,
+        source: String
+    ) {
+        guard let daemon = desktopCmxDaemon else {
+            return
+        }
+        let clientPrefix = includesCompatibilityBridge ? "desktop-compat" : "desktop-window"
+        let session = DesktopCmxNativeSession(
+            windowID: windowID,
+            clientID: "\(clientPrefix)-\(windowID.uuidString)",
+            includesCompatibilityBridge: includesCompatibilityBridge
+        )
+        desktopCmxSessionsByWindowID[windowID] = session
+
+#if DEBUG
+        cmuxDebugLog(
+            "desktopCmxBackend.session.start window=\(windowID.uuidString.prefix(8)) " +
+            "compat=\(includesCompatibilityBridge ? 1 : 0) source=\(source)"
+        )
+#endif
+
+        session.task = Task { @MainActor [weak self, weak session] in
+            guard let self, let session else {
+                return
+            }
+            var didLogInitialConnection = false
+            while !Task.isCancelled {
+                do {
+                    try await daemon.waitUntilReady()
+                    let connection = await daemon.makeConnection()
+                    guard self.desktopCmxSessionsByWindowID[windowID] === session else {
+                        await connection.close()
+                        return
+                    }
+                    session.connection = connection
+                    registerExistingDesktopCmxTerminalSurfaces(windowID: windowID)
+
+                    let stream = try await connection.connectNative(
+                        viewport: CmxWireViewport(cols: 80, rows: 24),
+                        clientKind: .desktop,
+                        clientID: session.clientID,
+                        windowID: windowID.uuidString,
+                        capabilities: desktopCmxNativeCapabilities(
+                            includesCompatibilityBridge: includesCompatibilityBridge
+                        )
+                    )
+#if DEBUG
+                    cmuxDebugLog(
+                        didLogInitialConnection
+                            ? "desktopCmxBackend.reconnect.ok window=\(windowID.uuidString.prefix(8))"
+                            : "desktopCmxBackend.connect.ok window=\(windowID.uuidString.prefix(8))"
+                    )
+#endif
+                    didLogInitialConnection = true
+                    for try await message in stream {
+                        guard !Task.isCancelled else {
+                            break
+                        }
+                        guard self.desktopCmxSessionsByWindowID[windowID] === session else {
+                            continue
+                        }
+                        routeDesktopCmxMessage(message, windowID: windowID)
+                        applyDesktopCmxStoreIfNeeded(message, windowID: windowID)
+                        applyDesktopCmxSnapshotIfNeeded(message, sourceWindowID: windowID)
+#if DEBUG
+                        logDesktopCmxMessage(message, windowID: windowID)
+#endif
+                    }
+#if DEBUG
+                    cmuxDebugLog("desktopCmxBackend.stream.finished window=\(windowID.uuidString.prefix(8))")
+#endif
+                } catch is CancellationError {
+#if DEBUG
+                    cmuxDebugLog("desktopCmxBackend.cancelled window=\(windowID.uuidString.prefix(8))")
+#endif
+                    break
+                } catch {
+                    if self.desktopCmxSessionsByWindowID[windowID] === session {
+                        desktopCmxStore.apply(.error(error.localizedDescription))
+#if DEBUG
+                        cmuxDebugLog(
+                            "desktopCmxBackend.stream.failed window=\(windowID.uuidString.prefix(8)) " +
+                            "error=\(error.localizedDescription)"
+                        )
+#endif
+                    }
+                }
+                if self.desktopCmxSessionsByWindowID[windowID] === session {
+                    session.connection = nil
+                }
+                guard !Task.isCancelled else {
+                    break
+                }
+                try? await Task.sleep(nanoseconds: 300_000_000)
+#if DEBUG
+                cmuxDebugLog("desktopCmxBackend.reconnect.wait window=\(windowID.uuidString.prefix(8))")
+#endif
+            }
+        }
+    }
+
+    private func stopDesktopCmxNativeSession(windowID: UUID, source: String) {
+        guard let session = desktopCmxSessionsByWindowID.removeValue(forKey: windowID) else {
+            return
+        }
+        session.task?.cancel()
+        session.task = nil
+        let connection = session.connection
+        session.connection = nil
+        desktopCmxSnapshotsByWindowID.removeValue(forKey: windowID)
+        desktopCmxTerminalSurfaces = desktopCmxTerminalSurfaces.filter { $0.key.windowID != windowID }
+        desktopCmxTerminalLayouts = desktopCmxTerminalLayouts.filter { $0.key.windowID != windowID }
+        desktopCmxReplayRequestedTerminalIDs = desktopCmxReplayRequestedTerminalIDs.filter { $0.windowID != windowID }
+        desktopCmxPtyByteLogCounts = desktopCmxPtyByteLogCounts.filter { $0.key.windowID != windowID }
+        if desktopCmxCompatibilityWindowID == windowID {
+            desktopCmxCompatibilityWindowID = nil
+        }
+        Task {
+            await connection?.close()
+        }
+#if DEBUG
+        cmuxDebugLog(
+            "desktopCmxBackend.session.stop window=\(windowID.uuidString.prefix(8)) source=\(source)"
+        )
+#endif
+    }
+
+    private func desktopCmxWindowID(for surface: TerminalSurface) -> UUID? {
+        if let manager = tabManagerFor(tabId: surface.tabId),
+           let windowID = windowId(for: manager) {
+            return windowID
+        }
+        if let window = surface.hostedView.window,
+           let context = contextForMainTerminalWindow(window) {
+            return context.windowId
+        }
+        return desktopCmxCompatibilityWindowID ?? sortedDesktopCmxWindowContexts().first?.windowId
+    }
+
+    private func desktopCmxSurfaceKey(
+        windowID requestedWindowID: UUID?,
+        terminalID: UInt64
+    ) -> DesktopCmxTerminalSurfaceKey? {
+        if let requestedWindowID {
+            return DesktopCmxTerminalSurfaceKey(windowID: requestedWindowID, terminalID: terminalID)
+        }
+        if let compatibilityWindowID = desktopCmxCompatibilityWindowID,
+           desktopCmxTerminalSurfaces[DesktopCmxTerminalSurfaceKey(
+               windowID: compatibilityWindowID,
+               terminalID: terminalID
+           )] != nil {
+            return DesktopCmxTerminalSurfaceKey(windowID: compatibilityWindowID, terminalID: terminalID)
+        }
+        if let key = desktopCmxTerminalSurfaces.keys.sorted(by: {
+            $0.windowID.uuidString < $1.windowID.uuidString
+        }).first(where: { $0.terminalID == terminalID }) {
+            return key
+        }
+        return sortedDesktopCmxWindowContexts().first.map {
+            DesktopCmxTerminalSurfaceKey(windowID: $0.windowId, terminalID: terminalID)
+        }
+    }
+
+    private func desktopCmxConnection(windowID requestedWindowID: UUID?) -> CmxConnection? {
+        if let requestedWindowID,
+           let connection = desktopCmxSessionsByWindowID[requestedWindowID]?.connection {
+            return connection
+        }
+        if let compatibilityWindowID = desktopCmxCompatibilityWindowID,
+           let connection = desktopCmxSessionsByWindowID[compatibilityWindowID]?.connection {
+            return connection
+        }
+        return desktopCmxSessionsByWindowID.values
+            .sorted { lhs, rhs in lhs.windowID.uuidString < rhs.windowID.uuidString }
+            .compactMap(\.connection)
+            .first
+    }
+
+    func registerDesktopCmxTerminalSurface(
+        _ surface: TerminalSurface,
+        terminalID: UInt64,
+        windowID requestedWindowID: UUID? = nil
+    ) {
+        guard let windowID = requestedWindowID ?? desktopCmxWindowID(for: surface) else {
+#if DEBUG
+            cmuxDebugLog(
+                "desktopCmxBackend.surface.register.drop reason=noWindow terminalID=\(terminalID) " +
+                "surface=\(surface.id.uuidString.prefix(5))"
+            )
+#endif
+            return
+        }
+        let key = DesktopCmxTerminalSurfaceKey(windowID: windowID, terminalID: terminalID)
+        desktopCmxTerminalSurfaces[key] = WeakTerminalSurfaceReference(surface)
+        applyDesktopCmxTerminalAppearance(to: surface, source: "surface.register")
+#if DEBUG
+        cmuxDebugLog(
+            "desktopCmxBackend.surface.register window=\(windowID.uuidString.prefix(8)) " +
+            "terminalID=\(terminalID) surface=\(surface.id.uuidString.prefix(5))"
+        )
+#endif
+    }
+
+    func applyDesktopCmxTerminalAppearance(to surface: TerminalSurface, source: String) {
+        guard DesktopCmxBackendSettings.isEnabled(),
+              surface.cmxTerminalID != nil,
+              let ghosttySurface = surface.liveSurfaceForGhosttyAccess(reason: "desktopCmxBackend.appearance.\(source)") else {
+            return
+        }
+        GhosttyApp.shared.reloadSurfaceConfiguration(
+            ghosttySurface,
+            source: "desktopCmxBackend.appearance.\(source)",
+            remoteAppearanceOverride: desktopCmxGhosttyConfigFragment
+        )
+        surface.forceRefresh(reason: "desktopCmxBackend.appearance.\(source)")
+#if DEBUG
+        cmuxDebugLog(
+            "desktopCmxBackend.appearance.applied source=\(source) " +
+            "terminalID=\(surface.cmxTerminalID ?? 0) " +
+            "configBytes=\(desktopCmxGhosttyConfigFragment?.utf8.count ?? 0)"
+        )
+#endif
+    }
+
+    private var desktopCmxTerminalColorPreference: CmxTerminalColorPreference {
+        switch GhosttyConfig.currentColorSchemePreference() {
+        case .light:
+            return .light
+        case .dark:
+            return .dark
+        }
+    }
+
+    private func updateDesktopCmxGhosttyConfigFragment(from snapshot: CmxNativeSnapshot) -> Bool {
+        let fragment = snapshot
+            .ghosttyConfigFragment(colorPreference: desktopCmxTerminalColorPreference)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedFragment = fragment?.isEmpty == false ? fragment : nil
+        guard desktopCmxGhosttyConfigFragment != normalizedFragment else {
+            return false
+        }
+        desktopCmxGhosttyConfigFragment = normalizedFragment
+#if DEBUG
+        let cursorStyle = snapshot.terminalCursor?.style ?? "nil"
+        let cursorBlink = snapshot.terminalCursor?.blink.map { $0 ? "true" : "false" } ?? "nil"
+        cmuxDebugLog(
+            "desktopCmxBackend.appearance.updated revision=\(snapshot.revision) " +
+            "configBytes=\(normalizedFragment?.utf8.count ?? 0) " +
+            "cursorStyle=\(cursorStyle) cursorBlink=\(cursorBlink)"
+        )
+#endif
+        return true
+    }
+
+    private func applyDesktopCmxAppearanceToRegisteredTerminalSurfaces(source: String) {
+        var staleKeys: [DesktopCmxTerminalSurfaceKey] = []
+        for (key, reference) in desktopCmxTerminalSurfaces {
+            guard let surface = reference.surface else {
+                staleKeys.append(key)
+                continue
+            }
+            applyDesktopCmxTerminalAppearance(to: surface, source: source)
+        }
+        for key in staleKeys {
+            desktopCmxTerminalSurfaces.removeValue(forKey: key)
+        }
+    }
+
+    func sendDesktopCmxTerminalInput(_ data: Data, terminalID: UInt64, windowID requestedWindowID: UUID? = nil) {
+        guard !data.isEmpty else { return }
+        guard let key = desktopCmxSurfaceKey(windowID: requestedWindowID, terminalID: terminalID),
+              let connection = desktopCmxConnection(windowID: key.windowID) else {
+#if DEBUG
+            cmuxDebugLog("desktopCmxBackend.input.drop reason=noConnection terminalID=\(terminalID) bytes=\(data.count)")
+#endif
+            return
+        }
+        Task {
+            do {
+                try await connection.sendInput(data, terminalID: terminalID)
+            } catch {
+#if DEBUG
+                await MainActor.run {
+                    cmuxDebugLog("desktopCmxBackend.input.failed terminalID=\(terminalID) error=\(error.localizedDescription)")
+                }
+#endif
+            }
+        }
+    }
+
+    func sendDesktopCmxTerminalLayout(
+        terminalID: UInt64,
+        cols: UInt16,
+        rows: UInt16,
+        windowID requestedWindowID: UUID? = nil
+    ) {
+        guard cols > 0, rows > 0 else { return }
+        let layout = CmxWireTerminalViewport(tabID: terminalID, cols: cols, rows: rows)
+        guard let key = desktopCmxSurfaceKey(windowID: requestedWindowID, terminalID: terminalID) else {
+            return
+        }
+        guard desktopCmxTerminalLayouts[key] != layout else {
+            return
+        }
+        guard let connection = desktopCmxConnection(windowID: key.windowID) else {
+#if DEBUG
+            cmuxDebugLog("desktopCmxBackend.layout.defer reason=noConnection terminalID=\(terminalID) cols=\(cols) rows=\(rows)")
+#endif
+            return
+        }
+        desktopCmxTerminalLayouts[key] = layout
+        let shouldRequestReplay = desktopCmxReplayRequestedTerminalIDs.insert(key).inserted
+        Task {
+            do {
+                try await connection.sendLayout([layout])
+#if DEBUG
+                await MainActor.run {
+                    cmuxDebugLog(
+                        "desktopCmxBackend.layout.sent window=\(key.windowID.uuidString.prefix(8)) " +
+                        "terminalID=\(terminalID) cols=\(cols) rows=\(rows)"
+                    )
+                }
+#endif
+                if shouldRequestReplay {
+                    try await connection.requestPtyReplay(terminalID: terminalID)
+#if DEBUG
+                    await MainActor.run {
+                        cmuxDebugLog("desktopCmxBackend.replay.requested terminalID=\(terminalID)")
+                    }
+#endif
+                }
+            } catch {
+#if DEBUG
+                await MainActor.run {
+                    cmuxDebugLog("desktopCmxBackend.layout.failed terminalID=\(terminalID) error=\(error.localizedDescription)")
+                }
+#endif
+            }
+        }
+    }
+
+    func sendDesktopCmxBrowserUpdate(
+        _ browser: CmxNativeBrowserInfo,
+        browserID: UInt64,
+        windowID: UUID? = nil,
+        source: String
+    ) {
+        guard let connection = desktopCmxConnection(windowID: windowID) else {
+#if DEBUG
+            cmuxDebugLog("desktopCmxBackend.browser.drop source=\(source) reason=noConnection browserID=\(browserID)")
+#endif
+            return
+        }
+        Task {
+            do {
+                try await connection.sendBrowserUpdate(browser, browserID: browserID)
+#if DEBUG
+                await MainActor.run {
+                    cmuxDebugLog("desktopCmxBackend.browser.sent source=\(source) browserID=\(browserID)")
+                }
+#endif
+            } catch {
+#if DEBUG
+                await MainActor.run {
+                    cmuxDebugLog("desktopCmxBackend.browser.failed source=\(source) browserID=\(browserID) error=\(error.localizedDescription)")
+                }
+#endif
+            }
+        }
+    }
+
+    func sendDesktopCmxBrowserFocusUpdate(
+        webViewFocused: Bool,
+        browserID: UInt64,
+        windowID: UUID? = nil,
+        source: String
+    ) {
+        guard let connection = desktopCmxConnection(windowID: windowID) else {
+#if DEBUG
+            cmuxDebugLog("desktopCmxBackend.browserFocus.drop source=\(source) reason=noConnection browserID=\(browserID)")
+#endif
+            return
+        }
+        Task {
+            do {
+                try await connection.sendBrowserFocusUpdate(webViewFocused: webViewFocused, browserID: browserID)
+#if DEBUG
+                await MainActor.run {
+                    cmuxDebugLog(
+                        "desktopCmxBackend.browserFocus.sent source=\(source) browserID=\(browserID) " +
+                        "focused=\(webViewFocused ? 1 : 0)"
+                    )
+                }
+#endif
+            } catch {
+#if DEBUG
+                await MainActor.run {
+                    cmuxDebugLog(
+                        "desktopCmxBackend.browserFocus.failed source=\(source) browserID=\(browserID) " +
+                        "error=\(error.localizedDescription)"
+                    )
+                }
+#endif
+            }
+        }
+    }
+
+    func sendDesktopCmxNewTabCommand(
+        panelID: UInt64? = nil,
+        workingDirectory: String? = nil,
+        initialInput: String? = nil,
+        windowID: UUID? = nil,
+        source: String
+    ) {
+        var commands: [CmxClientCommand] = []
+        if let panelID {
+            commands.append(.focusPanel(panelID: panelID))
+        }
+        if workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ||
+            initialInput?.isEmpty == false {
+            commands.append(.newTabWithOptions(cwd: workingDirectory, initialInput: initialInput))
+        } else {
+            commands.append(.newTab)
+        }
+        sendDesktopCmxCommands(commands, windowID: windowID, source: source)
+    }
+
+    func sendDesktopCmxNewBrowserTabCommand(
+        url: URL?,
+        panelID: UInt64? = nil,
+        windowID: UUID? = nil,
+        source: String
+    ) {
+        var commands: [CmxClientCommand] = []
+        if let panelID {
+            commands.append(.focusPanel(panelID: panelID))
+        }
+        commands.append(.newBrowserTab(urlString: url?.absoluteString))
+        sendDesktopCmxCommands(commands, windowID: windowID, source: source)
+    }
+
+    func sendDesktopCmxNewBrowserSplitCommand(
+        url: URL?,
+        orientation: SplitOrientation,
+        panelID: UInt64? = nil,
+        windowID: UUID? = nil,
+        source: String
+    ) {
+        var commands: [CmxClientCommand] = []
+        if let panelID {
+            commands.append(.focusPanel(panelID: panelID))
+        }
+        commands.append(
+            .newBrowserSplit(urlString: url?.absoluteString, vertical: orientation == .vertical)
+        )
+        sendDesktopCmxCommands(commands, windowID: windowID, source: source)
+    }
+
+    func sendDesktopCmxNewWorkspaceCommand(title: String?, workingDirectory: String?, windowID: UUID? = nil, source: String) {
+        sendDesktopCmxCommand(.newWorkspace(title: title, cwd: workingDirectory), windowID: windowID, source: source)
+    }
+
+    func sendDesktopCmxCloseWorkspaceCommand(workspaceID: UInt64, windowID: UUID? = nil, source: String) {
+        sendDesktopCmxCommand(.closeWorkspaceByID(workspaceID: workspaceID), windowID: windowID, source: source)
+    }
+
+    func sendDesktopCmxRenameWorkspaceCommand(workspaceID: UInt64, title: String, windowID: UUID? = nil, source: String) {
+        sendDesktopCmxCommand(
+            .renameWorkspaceByID(workspaceID: workspaceID, title: title),
+            windowID: windowID,
+            source: source
+        )
+    }
+
+    func sendDesktopCmxSetWorkspacePinnedCommand(workspaceID: UInt64, pinned: Bool, windowID: UUID? = nil, source: String) {
+        sendDesktopCmxCommand(
+            .setWorkspacePinned(workspaceID: workspaceID, pinned: pinned),
+            windowID: windowID,
+            source: source
+        )
+    }
+
+    func sendDesktopCmxSetWorkspaceDescriptionCommand(workspaceID: UInt64, description: String?, windowID: UUID? = nil, source: String) {
+        sendDesktopCmxCommand(
+            .setWorkspaceDescriptionByID(workspaceID: workspaceID, description: description),
+            windowID: windowID,
+            source: source
+        )
+    }
+
+    func sendDesktopCmxSetWorkspaceColorCommand(workspaceID: UInt64, color: String?, windowID: UUID? = nil, source: String) {
+        sendDesktopCmxCommand(
+            .setWorkspaceColorByID(workspaceID: workspaceID, color: color),
+            windowID: windowID,
+            source: source
+        )
+    }
+
+    @discardableResult
+    func sendDesktopCmxSetWorkspaceRemoteStatusCommand(
+        workspaceID: UInt64,
+        statusJSON: String?,
+        windowID: UUID? = nil,
+        source: String
+    ) -> Bool {
+        guard desktopCmxConnection(windowID: windowID) != nil else {
+            return false
+        }
+        sendDesktopCmxCommand(
+            .setWorkspaceRemoteStatus(workspaceID: workspaceID, statusJSON: statusJSON),
+            windowID: windowID,
+            source: source
+        )
+        return true
+    }
+
+    func sendDesktopCmxSelectWorkspaceCommand(index: Int, windowID: UUID? = nil, source: String) {
+        sendDesktopCmxCommand(.selectWorkspace(index: index), windowID: windowID, source: source)
+    }
+
+    func sendDesktopCmxMoveWorkspaceCommand(workspaceID: UInt64, index: Int, windowID: UUID? = nil, source: String) {
+        sendDesktopCmxCommand(
+            .moveWorkspaceToIndex(workspaceID: workspaceID, index: index),
+            windowID: windowID,
+            source: source
+        )
+    }
+
+    func sendDesktopCmxNextTabCommand(windowID: UUID? = nil, source: String) {
+        sendDesktopCmxCommand(.nextTab, windowID: windowID, source: source)
+    }
+
+    func sendDesktopCmxPreviousTabCommand(windowID: UUID? = nil, source: String) {
+        sendDesktopCmxCommand(.previousTab, windowID: windowID, source: source)
+    }
+
+    func sendDesktopCmxSelectTabCommand(index: Int, windowID: UUID? = nil, source: String) {
+        sendDesktopCmxCommand(.selectTab(index: index), windowID: windowID, source: source)
+    }
+
+    func sendDesktopCmxSelectTabInPanelCommand(panelID: UInt64, index: Int, windowID: UUID? = nil, source: String) {
+        sendDesktopCmxCommand(
+            .selectTabInPanel(panelID: panelID, index: index),
+            windowID: windowID,
+            source: source
+        )
+    }
+
+    func sendDesktopCmxFocusPanelCommand(panelID: UInt64, windowID: UUID? = nil, source: String) {
+        sendDesktopCmxCommand(.focusPanel(panelID: panelID), windowID: windowID, source: source)
+    }
+
+    func sendDesktopCmxMoveTabToPanelCommand(
+        fromPanelID: UInt64,
+        from: Int,
+        toPanelID: UInt64,
+        to: Int,
+        focus: Bool,
+        windowID: UUID? = nil,
+        source: String
+    ) {
+        sendDesktopCmxCommand(
+            .moveTabToPanel(
+                fromPanelID: fromPanelID,
+                from: from,
+                toPanelID: toPanelID,
+                to: to,
+                focus: focus
+            ),
+            windowID: windowID,
+            source: source
+        )
+    }
+
+    func sendDesktopCmxMoveTabToSplitCommand(
+        fromPanelID: UInt64,
+        from: Int,
+        targetPanelID: UInt64,
+        edge: CmxSplitDropEdge,
+        focus: Bool,
+        windowID: UUID? = nil,
+        source: String
+    ) {
+        sendDesktopCmxCommand(
+            .moveTabToSplit(
+                fromPanelID: fromPanelID,
+                from: from,
+                targetPanelID: targetPanelID,
+                edge: edge,
+                focus: focus
+            ),
+            windowID: windowID,
+            source: source
+        )
+    }
+
+    func sendDesktopCmxSetTabTitleCommand(
+        tabID: UInt64,
+        title: String?,
+        explicit: Bool,
+        windowID: UUID? = nil,
+        source: String
+    ) {
+        sendDesktopCmxCommand(
+            .setTabTitleByID(tabID: tabID, title: title, explicit: explicit),
+            windowID: windowID,
+            source: source
+        )
+    }
+
+    func sendDesktopCmxCloseTabCommand(terminalID: UInt64, windowID: UUID? = nil, source: String) {
+        let selection = windowID
+            .flatMap { desktopCmxSnapshotsByWindowID[$0]?.panels.selection(for: terminalID) }
+            ?? desktopCmxStore.snapshot?.panels.selection(for: terminalID)
+        let commands: [CmxClientCommand]
+        if let selection {
+            commands = [
+                .selectTabInPanel(panelID: selection.panelID, index: selection.index),
+                .closeTab,
+            ]
+        } else {
+            commands = [.closeTab]
+        }
+        sendDesktopCmxCommands(commands, windowID: windowID, source: source)
+    }
+
+    func sendDesktopCmxSplitCommand(
+        orientation: SplitOrientation,
+        panelID: UInt64? = nil,
+        workingDirectory: String? = nil,
+        initialInput: String? = nil,
+        windowID: UUID? = nil,
+        source: String
+    ) {
+        var commands: [CmxClientCommand] = []
+        if let panelID {
+            commands.append(.focusPanel(panelID: panelID))
+        }
+        let hasSeed = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ||
+            initialInput?.isEmpty == false
+        switch orientation {
+        case .horizontal:
+            commands.append(
+                hasSeed
+                    ? .splitHorizontalWithOptions(cwd: workingDirectory, initialInput: initialInput)
+                    : .splitHorizontal
+            )
+        case .vertical:
+            commands.append(
+                hasSeed
+                    ? .splitVerticalWithOptions(cwd: workingDirectory, initialInput: initialInput)
+                    : .splitVertical
+            )
+        }
+        sendDesktopCmxCommands(commands, windowID: windowID, source: source)
+    }
+
+    private func sendDesktopCmxCommand(_ command: CmxClientCommand, windowID: UUID? = nil, source: String) {
+        sendDesktopCmxCommands([command], windowID: windowID, source: source)
+    }
+
+    private func notifyDesktopCmxNativeWindowClosed(windowID: UUID, source: String) {
+        guard DesktopCmxBackendSettings.isEnabled() else {
+            return
+        }
+        sendDesktopCmxCommand(
+            .closeWindowByID(windowID: windowID.uuidString),
+            windowID: windowID,
+            source: source
+        )
+    }
+
+    private func sendDesktopCmxCommands(_ commands: [CmxClientCommand], windowID: UUID? = nil, source: String) {
+        guard !commands.isEmpty else {
+            return
+        }
+        guard let connection = desktopCmxConnection(windowID: windowID) else {
+#if DEBUG
+            cmuxDebugLog("desktopCmxBackend.command.drop source=\(source) reason=noConnection count=\(commands.count)")
+#endif
+            return
+        }
+        Task {
+            do {
+                var ids: [UInt32] = []
+                ids.reserveCapacity(commands.count)
+                for command in commands {
+                    let id = try await connection.sendCommand(command)
+                    ids.append(id)
+                }
+#if DEBUG
+                await MainActor.run {
+                    let windowText = windowID.map { String($0.uuidString.prefix(8)) } ?? "fallback"
+                    cmuxDebugLog(
+                        "desktopCmxBackend.command.sent source=\(source) window=\(windowText) ids=\(ids.map(String.init).joined(separator: ",")) " +
+                            "count=\(commands.count)"
+                    )
+                }
+#endif
+            } catch {
+#if DEBUG
+                await MainActor.run {
+                    cmuxDebugLog("desktopCmxBackend.command.failed source=\(source) count=\(commands.count) error=\(error.localizedDescription)")
+                }
+#endif
+            }
+        }
+    }
+
+    private func registerExistingDesktopCmxTerminalSurfaces(windowID: UUID? = nil) {
+        forEachTerminalPanel(windowID: windowID) { terminalPanel in
+            guard let terminalID = terminalPanel.surface.cmxTerminalID else {
+                return
+            }
+            registerDesktopCmxTerminalSurface(
+                terminalPanel.surface,
+                terminalID: terminalID,
+                windowID: windowID
+            )
+            terminalPanel.surface.reportCmxNativeLayoutIfReady()
+        }
+    }
+
+    private func routeDesktopCmxMessage(_ message: CmxServerMessage, windowID: UUID) {
+        switch message {
+        case .ptyBytes(let tabID, let data, _):
+            let key = DesktopCmxTerminalSurfaceKey(windowID: windowID, terminalID: tabID)
+            guard let surface = desktopCmxTerminalSurfaces[key]?.surface else {
+                desktopCmxTerminalSurfaces.removeValue(forKey: key)
+#if DEBUG
+                cmuxDebugLog(
+                    "desktopCmxBackend.pty.drop reason=noSurface window=\(windowID.uuidString.prefix(8)) " +
+                    "terminalID=\(tabID) bytes=\(data.count)"
+                )
+#endif
+                return
+            }
+            surface.processPtyBytes(data)
+#if DEBUG
+            let previousCount = desktopCmxPtyByteLogCounts[key] ?? 0
+            let nextCount = previousCount + 1
+            desktopCmxPtyByteLogCounts[key] = nextCount
+            if nextCount <= 5 || nextCount.isMultiple(of: 50) {
+                cmuxDebugLog(
+                    "desktopCmxBackend.pty.deliver window=\(windowID.uuidString.prefix(8)) " +
+                    "terminalID=\(tabID) bytes=\(data.count) count=\(nextCount)"
+                )
+            }
+#endif
+        case .nativeCompatibilityRequest(let requestID, let requestJSON):
+            handleDesktopCmxCompatibilityRequest(requestID: requestID, requestJSON: requestJSON)
+        default:
+            break
+        }
+    }
+
+    private func handleDesktopCmxCompatibilityRequest(requestID: UInt64, requestJSON: String) {
+        guard let connection = desktopCmxConnection(windowID: desktopCmxCompatibilityWindowID) else {
+#if DEBUG
+            cmuxDebugLog("desktopCmxBackend.compat.drop reason=noConnection requestID=\(requestID)")
+#endif
+            return
+        }
+        desktopCmxCompatibilityTasks[requestID]?.cancel()
+        desktopCmxCompatibilityTasks[requestID] = Task.detached(priority: .userInitiated) { [weak self] in
+            let responseJSON = TerminalController.withDesktopCmxNativeCompatibilityRequest {
+                TerminalController.shared.handleSocketLine(requestJSON)
+            }
+            guard !Task.isCancelled else {
+                await MainActor.run {
+                    self?.desktopCmxCompatibilityTasks.removeValue(forKey: requestID)
+                }
+                return
+            }
+            do {
+                try await connection.sendCompatibilityReply(
+                    requestID: requestID,
+                    responseJSON: responseJSON
+                )
+#if DEBUG
+                await MainActor.run {
+                    cmuxDebugLog("desktopCmxBackend.compat.reply requestID=\(requestID)")
+                }
+#endif
+            } catch {
+#if DEBUG
+                await MainActor.run {
+                    cmuxDebugLog(
+                        "desktopCmxBackend.compat.failed requestID=\(requestID) " +
+                        "error=\(error.localizedDescription)"
+                    )
+                }
+#endif
+            }
+            await MainActor.run {
+                self?.desktopCmxCompatibilityTasks.removeValue(forKey: requestID)
+            }
+        }
+    }
+
+    private func applyDesktopCmxStoreIfNeeded(_ message: CmxServerMessage, windowID: UUID) {
+        switch message {
+        case .nativeSnapshot(let snapshot):
+            desktopCmxSnapshotsByWindowID[windowID] = snapshot
+            if windowID == desktopCmxCompatibilityWindowID {
+                desktopCmxStore.apply(message)
+            } else if desktopCmxStore.snapshot == nil {
+                desktopCmxStore.apply(message)
+            }
+        case .error, .bye:
+            if windowID == desktopCmxCompatibilityWindowID {
+                desktopCmxStore.apply(message)
+            }
+        default:
+            break
+        }
+    }
+
+    private func applyDesktopCmxSnapshotIfNeeded(_ message: CmxServerMessage, sourceWindowID: UUID) {
+        guard case .nativeSnapshot(let snapshot) = message else {
+            return
+        }
+        reconcileDesktopCmxNativeWindows(from: snapshot)
+        let appearanceChanged = updateDesktopCmxGhosttyConfigFragment(from: snapshot)
+        let targetWindowID = snapshot.windowID.flatMap(UUID.init(uuidString:)) ?? sourceWindowID
+        let contexts = mainWindowContexts.values
+            .filter { $0.windowId == targetWindowID }
+            .sorted { lhs, rhs in
+                lhs.windowId.uuidString < rhs.windowId.uuidString
+            }
+        let targets = contexts.isEmpty
+            ? mainWindowContexts.values.sorted { lhs, rhs in
+                lhs.windowId.uuidString < rhs.windowId.uuidString
+            }
+            : contexts
+        for context in targets {
+            context.tabManager.applyDesktopCmxNativeSnapshot(snapshot)
+        }
+        if appearanceChanged {
+            applyDesktopCmxAppearanceToRegisteredTerminalSurfaces(source: "snapshot.\(snapshot.revision)")
+        }
+    }
+
+    private func reconcileDesktopCmxNativeWindows(from snapshot: CmxNativeSnapshot) {
+        guard DesktopCmxBackendSettings.isEnabled() else {
+            return
+        }
+        if let lastRevision = desktopCmxNativeWindowReconcileRevision,
+           snapshot.revision < lastRevision {
+#if DEBUG
+            cmuxDebugLog(
+                "desktopCmxBackend.window.reconcile.skipStale revision=\(snapshot.revision) last=\(lastRevision)"
+            )
+#endif
+            return
+        }
+        desktopCmxNativeWindowReconcileRevision = snapshot.revision
+
+        let validWindowIDs = snapshot.nativeWindowIDs.compactMap(UUID.init(uuidString:))
+        if !validWindowIDs.isEmpty {
+            desktopCmxNativeWindowSnapshotIsAuthoritative = true
+        }
+        guard desktopCmxNativeWindowSnapshotIsAuthoritative else {
+            return
+        }
+
+        let desiredWindowIDs = Set(validWindowIDs)
+        let existingWindowIDs = Set(mainWindowContexts.values.map(\.windowId))
+        for windowID in validWindowIDs.prefix(SessionPersistencePolicy.maxWindowsPerSnapshot) {
+            guard !existingWindowIDs.contains(windowID),
+                  windowForMainWindowId(windowID) == nil else {
+                continue
+            }
+#if DEBUG
+            cmuxDebugLog(
+                "desktopCmxBackend.window.reconcile.create window=\(windowID.uuidString.prefix(8))"
+            )
+#endif
+            _ = createMainWindow(windowID: windowID, shouldActivate: false)
+        }
+
+        let staleContexts = mainWindowContexts.values
+            .filter { !desiredWindowIDs.contains($0.windowId) }
+            .sorted { lhs, rhs in lhs.windowId.uuidString < rhs.windowId.uuidString }
+        for context in staleContexts {
+            guard let window = context.window ?? windowForMainWindowId(context.windowId) else {
+                continue
+            }
+#if DEBUG
+            cmuxDebugLog(
+                "desktopCmxBackend.window.reconcile.close window=\(context.windowId.uuidString.prefix(8))"
+            )
+#endif
+            window.close()
+        }
+    }
+
+#if DEBUG
+    private func logDesktopCmxMessage(_ message: CmxServerMessage, windowID: UUID) {
+        switch message {
+        case .welcome(let serverVersion, let sessionID):
+            cmuxDebugLog(
+                "desktopCmxBackend.welcome window=\(windowID.uuidString.prefix(8)) " +
+                "serverVersion=\(serverVersion) sessionID=\(sessionID)"
+            )
+        case .nativeSnapshot(let snapshot):
+            cmuxDebugLog(
+                "desktopCmxBackend.snapshot window=\(windowID.uuidString.prefix(8)) " +
+                "snapshotWindow=\(snapshot.windowID ?? "nil") revision=\(snapshot.revision) workspaces=\(snapshot.workspaces.count) " +
+                "nativeWindows=\(snapshot.nativeWindowIDs.count) spaces=\(snapshot.spaces.count) " +
+                "tabs=\(snapshot.panels.flattenedTabs.count) focusedTabID=\(snapshot.focusedTabID)"
+            )
+        case .commandReply(let id):
+            cmuxDebugLog("desktopCmxBackend.commandReply id=\(id)")
+        case .activeTabChanged(let index, let tabID):
+            cmuxDebugLog("desktopCmxBackend.activeTabChanged index=\(index) tabID=\(tabID)")
+        case .activeWorkspaceChanged(let index, let workspaceID, let title):
+            cmuxDebugLog("desktopCmxBackend.activeWorkspaceChanged index=\(index) workspaceID=\(workspaceID) title=\(title)")
+        case .activeSpaceChanged(let index, let spaceID, let title):
+            cmuxDebugLog("desktopCmxBackend.activeSpaceChanged index=\(index) spaceID=\(spaceID) title=\(title)")
+        case .terminalGridSnapshot(let snapshot):
+            cmuxDebugLog("desktopCmxBackend.terminalGridSnapshot tabID=\(snapshot.tabID) cols=\(snapshot.cols) rows=\(snapshot.rows)")
+        case .nativeCompatibilityRequest(let requestID, _):
+            cmuxDebugLog("desktopCmxBackend.compat.request requestID=\(requestID)")
+        case .bye:
+            cmuxDebugLog("desktopCmxBackend.bye")
+        case .pong:
+            cmuxDebugLog("desktopCmxBackend.pong")
+        case .error(let message):
+            cmuxDebugLog("desktopCmxBackend.error message=\(message)")
+        case .unsupported(let kind):
+            cmuxDebugLog("desktopCmxBackend.unsupported kind=\(kind)")
+        case .ptyBytes, .hostControl:
+            break
+        }
+    }
+#endif
+
+    private func stopDesktopCmxBackend() {
+        Task { @MainActor [weak self] in
+            await self?.stopDesktopCmxBackendAndWait()
+        }
+    }
+
+    private func stopDesktopCmxBackendAndWait() async {
+        desktopCmxStartupTask?.cancel()
+        desktopCmxStartupTask = nil
+        for task in desktopCmxCompatibilityTasks.values {
+            task.cancel()
+        }
+        desktopCmxCompatibilityTasks.removeAll()
+        let sessions = Array(desktopCmxSessionsByWindowID.values)
+        desktopCmxSessionsByWindowID.removeAll()
+        for session in sessions {
+            session.task?.cancel()
+            session.task = nil
+        }
+        desktopCmxTerminalSurfaces.removeAll()
+        desktopCmxTerminalLayouts.removeAll()
+        desktopCmxReplayRequestedTerminalIDs.removeAll()
+        desktopCmxPtyByteLogCounts.removeAll()
+        desktopCmxSnapshotsByWindowID.removeAll()
+        desktopCmxCompatibilityWindowID = nil
+        desktopCmxGhosttyConfigFragment = nil
+        desktopCmxNativeWindowSnapshotIsAuthoritative = false
+        desktopCmxNativeWindowReconcileRevision = nil
+        desktopCmxStore.reset()
+        guard let daemon = desktopCmxDaemon else {
+            return
+        }
+        desktopCmxDaemon = nil
+        for session in sessions {
+            let connection = session.connection
+            session.connection = nil
+            await connection?.close()
+        }
+        await daemon.stop()
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         isTerminatingApp = true
+        stopDesktopCmxBackend()
         _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
         stopSessionAutosaveTimer()
         CloudVMActionLauncher.shared.terminateAll()
@@ -2567,13 +3842,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        if let startupSnapshot {
-            let additionalWindows = Array(startupSnapshot
-                .windows
-                .dropFirst()
-                .prefix(max(0, SessionPersistencePolicy.maxWindowsPerSnapshot - 1)))
+        let additionalSessionWindows = Array((startupSnapshot?.windows ?? [])
+            .dropFirst()
+            .prefix(max(0, SessionPersistencePolicy.maxWindowsPerSnapshot - 1)))
+        let desktopCmxAdditionalWindowIDs = desktopCmxAdditionalWindowIDsForStartup(
+            excluding: [primaryContext.windowId]
+        )
+        if startupSnapshot != nil {
 #if DEBUG
-            for (index, windowSnapshot) in additionalWindows.enumerated() {
+            for (index, windowSnapshot) in additionalSessionWindows.enumerated() {
                 cmuxDebugLog(
                     "session.restore.enqueueAdditional idx=\(index + 1) " +
                         "frame={\(debugSessionRectDescription(windowSnapshot.frame))} " +
@@ -2581,17 +3858,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
             }
 #endif
-            if !additionalWindows.isEmpty {
-                DispatchQueue.main.async { [weak self] in
-                    guard let self else { return }
-                    for windowSnapshot in additionalWindows {
+        }
+
+        let usesDesktopCmxWindowIDs = DesktopCmxBackendSettings.isEnabled()
+            && !desktopCmxAdditionalWindowIDs.isEmpty
+        let shouldCreateAdditionalWindows = usesDesktopCmxWindowIDs || !additionalSessionWindows.isEmpty
+        if shouldCreateAdditionalWindows {
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if usesDesktopCmxWindowIDs {
+                    for (index, windowID) in desktopCmxAdditionalWindowIDs.enumerated() {
+                        let windowSnapshot = additionalSessionWindows.indices.contains(index)
+                            ? additionalSessionWindows[index]
+                            : nil
+                        _ = self.createMainWindow(
+                            windowID: windowID,
+                            sessionWindowSnapshot: windowSnapshot
+                        )
+                    }
+
+                } else {
+                    for windowSnapshot in additionalSessionWindows {
                         _ = self.createMainWindow(sessionWindowSnapshot: windowSnapshot)
                     }
-                    self.completeSessionRestoreOperation(isManualReopen: false)
                 }
-            } else {
-                completeSessionRestoreOperation(isManualReopen: false)
+                self.completeSessionRestoreOperation(isManualReopen: false)
             }
+        } else if startupSnapshot != nil {
+            completeSessionRestoreOperation(isManualReopen: false)
         }
     }
 
@@ -2686,7 +3980,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "snapshotDisplay={\(debugSessionDisplayDescription(snapshot.display))}"
         )
 #endif
-        context.tabManager.restoreSessionSnapshot(snapshot.tabManager)
+        if DesktopCmxBackendSettings.isEnabled() {
+#if DEBUG
+            cmuxDebugLog("session.restore.skip reason=desktopCmxBackendEnabled window=\(context.windowId.uuidString.prefix(8))")
+#endif
+        } else {
+            context.tabManager.restoreSessionSnapshot(snapshot.tabManager)
+        }
         context.sidebarState.isVisible = snapshot.sidebar.isVisible
         context.sidebarState.persistedWidth = CGFloat(
             SessionPersistencePolicy.sanitizedSidebarWidth(snapshot.sidebar.width)
@@ -3125,6 +4425,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func socketListenerConfigurationIfEnabled() -> (mode: SocketControlMode, path: String)? {
+        guard !DesktopCmxBackendSettings.isEnabled() else {
+            return nil
+        }
         let raw = UserDefaults.standard.string(forKey: SocketControlSettings.appStorageKey)
             ?? SocketControlSettings.defaultMode.rawValue
         let userMode = SocketControlSettings.migrateMode(raw)
@@ -3149,7 +4452,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func restartSocketListenerIfEnabled(source: String) {
         guard let tabManager,
-              let config = socketListenerConfigurationIfEnabled() else { return }
+              let config = socketListenerConfigurationIfEnabled() else {
+            TerminalController.shared.stop()
+            return
+        }
         let restartPath = TerminalController.shared.activeSocketPath(preferredPath: config.path)
         sentryBreadcrumb("socket.listener.restart", category: "socket", data: [
             "mode": config.mode.rawValue,
@@ -3219,6 +4525,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         removeWhenEmpty: Bool = false,
         restorableAgentIndex: RestorableAgentSessionIndex? = nil
     ) -> Bool {
+        if DesktopCmxBackendSettings.isEnabled() {
+#if DEBUG
+            cmuxDebugLog("session.save.skipped reason=desktopCmxBackendEnabled includeScrollback=\(includeScrollback ? 1 : 0)")
+#endif
+            return false
+        }
+
         if Self.shouldSkipSessionSaveDuringRestore(
             isApplyingSessionRestore: isApplyingSessionRestore,
             includeScrollback: includeScrollback
@@ -3315,6 +4628,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func runSessionAutosaveTick(source: String) {
         guard Self.shouldRunSessionAutosaveTick(isTerminatingApp: isTerminatingApp) else { return }
+        if DesktopCmxBackendSettings.isEnabled() {
+#if DEBUG
+            cmuxDebugLog("session.save.skipped reason=desktopCmxBackendEnabled source=\(source)")
+#endif
+            return
+        }
         guard !sessionAutosaveTickInFlight else { return }
         if let remainingQuietPeriod = remainingSessionAutosaveTypingQuietPeriod() {
 #if DEBUG
@@ -3680,6 +4999,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
         notifyMainWindowContextsDidChange()
+        syncDesktopCmxNativeSessions(source: "mainWindow.register")
         if window.isKeyWindow {
             setActiveMainWindow(window)
         }
@@ -3931,13 +5251,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if destinationWorkspace.id == sourceWorkspace.id {
             if let splitTarget {
-                guard let sourceTabId = sourceWorkspace.surfaceIdFromPanelId(panelId),
-                      sourceWorkspace.bonsplitController.splitPane(
-                        resolvedTargetPane,
-                        orientation: splitTarget.orientation,
-                        movingTab: sourceTabId,
-                        insertFirst: splitTarget.insertFirst
-                      ) != nil else {
+                guard sourceWorkspace.moveSurfaceToSplit(
+                    panelId: panelId,
+                    targetPane: resolvedTargetPane,
+                    orientation: splitTarget.orientation,
+                    insertFirst: splitTarget.insertFirst,
+                    focus: focus
+                ) else {
 #if DEBUG
                     cmuxDebugLog(
                         "surface.move.fail panel=\(panelId.uuidString.prefix(5)) reason=sameWorkspaceSplitFailed " +
@@ -3946,9 +5266,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     )
 #endif
                     return false
-                }
-                if focus {
-                    source.tabManager.focusTab(sourceWorkspace.id, surfaceId: panelId, suppressFlash: true)
                 }
 #if DEBUG
                 cmuxDebugLog(
@@ -4685,7 +6002,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
     }
 
-    private func forEachTerminalPanel(_ body: (TerminalPanel) -> Void) {
+    private func forEachTerminalPanel(windowID: UUID? = nil, _ body: (TerminalPanel) -> Void) {
         var seenManagers: Set<ObjectIdentifier> = []
 
         func visitManager(_ manager: TabManager?) {
@@ -4700,9 +6017,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        visitManager(tabManager)
-        for context in mainWindowContexts.values {
-            visitManager(context.tabManager)
+        if let windowID {
+            visitManager(tabManagerFor(windowId: windowID))
+        } else {
+            visitManager(tabManager)
+            for context in mainWindowContexts.values {
+                visitManager(context.tabManager)
+            }
         }
     }
 
@@ -4958,6 +6279,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         rememberRecoverableMainWindowRoute(windowId: removed.windowId, tabManager: removed.tabManager, window: removed.window)
         notifyMainWindowContextsDidChange()
+        syncDesktopCmxNativeSessions(source: "mainWindow.unregister")
         return removed
     }
 
@@ -4970,6 +6292,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         rememberRecoverableMainWindowRoute(windowId: context.windowId, tabManager: context.tabManager, window: context.window)
         notifyMainWindowContextsDidChange()
+        syncDesktopCmxNativeSessions(source: "mainWindow.discard")
 
         commandPaletteVisibilityByWindowId.removeValue(forKey: context.windowId)
         commandPalettePendingOpenByWindowId.removeValue(forKey: context.windowId)
@@ -5871,7 +7194,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return context.windowId
         }
 
-        return createMainWindow(shouldActivate: shouldActivate)
+        return createMainWindow(
+            windowID: desktopCmxPrimaryWindowIDForStartup(),
+            shouldActivate: shouldActivate
+        )
     }
 
     private func hasVisibleMainTerminalWindow() -> Bool {
@@ -6733,14 +8059,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func createMainWindow(
+        windowID requestedWindowID: UUID? = nil,
         initialWorkingDirectory: String? = nil,
         sessionWindowSnapshot: SessionWindowSnapshot? = nil,
         shouldActivate: Bool = true,
         sourceWindow preferredSourceWindow: NSWindow? = nil
     ) -> UUID {
-        let windowId = UUID()
+        let windowId: UUID = {
+            guard let requestedWindowID,
+                  !mainWindowContexts.values.contains(where: { $0.windowId == requestedWindowID }) else {
+                return UUID()
+            }
+            return requestedWindowID
+        }()
         let tabManager = TabManager(initialWorkingDirectory: initialWorkingDirectory)
-        if let tabManagerSnapshot = sessionWindowSnapshot?.tabManager {
+        if !DesktopCmxBackendSettings.isEnabled(),
+           let tabManagerSnapshot = sessionWindowSnapshot?.tabManager {
             tabManager.restoreSessionSnapshot(tabManagerSnapshot)
         }
 
@@ -6864,6 +8198,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let controller = MainWindowController(window: window)
         controller.onClose = { [weak self, weak controller] in
             guard let self, let controller else { return }
+            self.notifyDesktopCmxNativeWindowClosed(windowID: windowId, source: "window.onClose")
             self.mainWindowControllers.removeAll(where: { $0 === controller })
         }
         controller.shouldClose = { [weak self] in self?.handleMainTerminalWindowShouldClose() ?? true }
@@ -8427,6 +9762,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard tabManager != nil else { return }
         let startWithHiddenSidebar = env["CMUX_UI_TEST_BONSPLIT_START_WITH_HIDDEN_SIDEBAR"] == "1"
         let showRightSidebar = env["CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR"] == "1"
+        let desktopCmxBackendEnabled = DesktopCmxBackendSettings.isEnabled(environment: env)
+        var alphaPanelIdForSetup: UUID?
+        var requestedSecondSurfaceAt: Date?
+        var didSendInitialTitleCommands = false
+        var didSendBetaTitleCommand = false
 
         let deadline = Date().addingTimeInterval(20.0)
         func mainWindowContextForUITest() -> (window: NSWindow, context: MainWindowContext)? {
@@ -8442,15 +9782,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return nil
         }
 
+        func scheduleRunSetupWhenWindowReady(after interval: TimeInterval = 0.05) {
+            let delay = UInt64(max(0, interval) * 1_000_000_000)
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: delay)
+                runSetupWhenWindowReady()
+            }
+        }
+
+        func secondPanelId(in workspace: Workspace, alphaPanelId: UUID) -> UUID? {
+            if let paneId = workspace.paneId(forPanelId: alphaPanelId) {
+                let panelIds = workspace.bonsplitController.tabs(inPane: paneId).compactMap { tab in
+                    workspace.panelIdFromSurfaceId(tab.id)
+                }
+                if let panelId = panelIds.first(where: { $0 != alphaPanelId }) {
+                    return panelId
+                }
+            }
+            if let focusedPanelId = workspace.focusedPanelId, focusedPanelId != alphaPanelId {
+                return focusedPanelId
+            }
+            return nil
+        }
+
         func runSetupWhenWindowReady() {
             guard Date() < deadline else {
                 writeBonsplitTabDragUITestData(["setupError": "Timed out waiting for main window"])
                 return
             }
             guard let (mainWindow, context) = mainWindowContextForUITest() else {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                    runSetupWhenWindowReady()
-                }
+                scheduleRunSetupWhenWindowReady()
+                return
+            }
+            if desktopCmxBackendEnabled,
+               desktopCmxConnection(windowID: context.windowId) == nil {
+                scheduleRunSetupWhenWindowReady()
+                return
+            }
+            if desktopCmxBackendEnabled,
+               desktopCmxStore.snapshot == nil {
+                scheduleRunSetupWhenWindowReady()
                 return
             }
 
@@ -8483,24 +9854,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             let tabManager = context.tabManager
             guard let workspace = tabManager.selectedWorkspace ?? tabManager.tabs.first,
-                  let alphaPanelId = workspace.focusedPanelId else {
+                  let initialPanelId = workspace.focusedPanelId else {
                 self.writeBonsplitTabDragUITestData(["setupError": "Missing initial workspace or panel"])
                 return
             }
 
+            let alphaPanelId = alphaPanelIdForSetup ?? initialPanelId
+            alphaPanelIdForSetup = alphaPanelId
             let workspaceTitle = "UITest Workspace"
             let alphaTitle = "UITest Alpha"
             let betaTitle = "UITest Beta"
-            tabManager.setCustomTitle(tabId: workspace.id, title: workspaceTitle)
-            workspace.setPanelCustomTitle(panelId: alphaPanelId, title: alphaTitle)
-            tabManager.newSurface()
 
-            guard let betaPanelId = workspace.focusedPanelId, betaPanelId != alphaPanelId else {
-                self.writeBonsplitTabDragUITestData(["setupError": "Failed to create second surface"])
+            if !didSendInitialTitleCommands {
+                didSendInitialTitleCommands = true
+                tabManager.setCustomTitle(tabId: workspace.id, title: workspaceTitle)
+                workspace.setPanelCustomTitle(panelId: alphaPanelId, title: alphaTitle)
+            }
+
+            let betaPanelId: UUID
+            if let existingSecondPanelId = secondPanelId(in: workspace, alphaPanelId: alphaPanelId) {
+                betaPanelId = existingSecondPanelId
+            } else {
+                let shouldRequestSecondSurface: Bool
+                if let requestedSecondSurfaceAt {
+                    shouldRequestSecondSurface = Date().timeIntervalSince(requestedSecondSurfaceAt) > 1.0
+                } else {
+                    shouldRequestSecondSurface = true
+                }
+                if shouldRequestSecondSurface {
+                    requestedSecondSurfaceAt = Date()
+                    tabManager.newSurface()
+                }
+                scheduleRunSetupWhenWindowReady()
                 return
             }
 
-            workspace.setPanelCustomTitle(panelId: betaPanelId, title: betaTitle)
+            if !didSendBetaTitleCommand {
+                didSendBetaTitleCommand = true
+                workspace.setPanelCustomTitle(panelId: betaPanelId, title: betaTitle)
+            }
             if startWithHiddenSidebar {
                 context.sidebarState.isVisible = false
             }
@@ -8518,6 +9910,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "rightSidebarVisible": context.fileExplorerState?.isVisible == true ? "1" : "0",
                 "workspaceId": workspace.id.uuidString,
                 "workspaceTitle": workspaceTitle,
+                "desktopCmxBackendEnabled": desktopCmxBackendEnabled ? "1" : "0",
+                "remoteSSHStackInRust": env["CMUX_REMOTE_SSH_STACK_IN_RUST"] == "1" ? "1" : "0",
+                "cmuxTag": env["CMUX_TAG"] ?? "",
+                "paneCount": String(workspace.bonsplitController.allPaneIds.count),
                 "alphaTitle": alphaTitle,
                 "betaTitle": betaTitle,
                 "alphaPanelId": alphaPanelId.uuidString,
@@ -8530,10 +9926,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-            guard self != nil else { return }
-            runSetupWhenWindowReady()
-        }
+        scheduleRunSetupWhenWindowReady(after: 0.2)
     }
 
     private func bonsplitTabDragUITestDataPath() -> String? {
@@ -8590,12 +9983,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let selectedTitle = workspace.bonsplitController.selectedTab(inPane: trackedPaneId)
             .flatMap { workspace.panelIdFromSurfaceId($0.id) }
             .flatMap { workspace.panelTitle(panelId: $0) } ?? ""
+        let alphaPaneId = workspace.paneId(forPanelId: alphaPanelId)
+        let betaPaneId = workspace.paneId(forPanelId: betaPanelId)
+        let alphaBetaSamePane = alphaPaneId != nil && alphaPaneId == betaPaneId
 
         writeBonsplitTabDragUITestData([
+            "paneCount": String(workspace.bonsplitController.allPaneIds.count),
             "trackedPaneId": trackedPaneId.description,
             "trackedPaneTabTitles": titles.joined(separator: "|"),
             "trackedPaneTabCount": String(titles.count),
             "trackedPaneSelectedTitle": selectedTitle,
+            "alphaPaneId": alphaPaneId?.description ?? "",
+            "betaPaneId": betaPaneId?.description ?? "",
+            "alphaBetaSamePane": alphaBetaSamePane ? "1" : "0",
         ])
     }
 
