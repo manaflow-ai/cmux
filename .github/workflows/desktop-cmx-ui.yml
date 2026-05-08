@@ -126,7 +126,7 @@ jobs:
 
       - name: Run CMX-backed Bonsplit UI tests
         env:
-          ONLY_TESTING: ${{ inputs.only_testing }}
+          ONLY_TESTING: ${{ inputs.only_testing || 'BonsplitTabDragUITests/testCmxBackendMinimalModeKeepsTabReorderWorking BonsplitTabDragUITests/testCmxBackendMinimalModeDragToSplitCreatesPane' }}
           RESULT_BUNDLE: /tmp/desktop-cmx-ui.xcresult
         run: |
           set -euo pipefail

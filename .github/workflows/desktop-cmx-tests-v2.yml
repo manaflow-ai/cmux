@@ -109,7 +109,7 @@ jobs:
           CMUX_TESTS_V2_ALLOW_NON_VM: "1"
           CMUX_TESTS_V2_DESKTOP_CMX_BACKEND: "1"
           CMUX_TESTS_V2_DIAGNOSTICS_DIR: /tmp/desktop-cmx-tests-v2-diagnostics
-          CMUX_TESTS_V2_FILTER: ${{ inputs.test_filter }}
+          CMUX_TESTS_V2_FILTER: ${{ inputs.test_filter || 'test_desktop_cmx_workspace_split_tab.py test_workspace_create_layout.py test_browser_cli_agent_port.py test_tmux_compat_matrix.py test_remote_rust_state.py test_browser_api_p0.py test_browser_api_unsupported_matrix.py test_windows_api.py test_surface_split_window_scope.py test_pane_window_scope.py' }}
         run: ./scripts/run-tests-v2.sh
 
       - name: Upload diagnostics

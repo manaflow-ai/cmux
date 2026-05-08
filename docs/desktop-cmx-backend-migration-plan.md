@@ -1285,7 +1285,9 @@ Tagged build/smoke evidence from `feat-desktop-cmx-backend`:
   captured by the runner. Local validation covered shell syntax, YAML parsing,
   and `git diff --check`; the workflow also has a temporary push trigger for
   branch `feat-desktop-cmx-backend` because GitHub cannot manually dispatch a
-  brand-new workflow file until it exists on the default branch.
+  brand-new workflow file until it exists on the default branch. Push-triggered
+  runs use the same targeted default filter as manual dispatch instead of
+  falling back to the full `tests_v2` glob.
 - Added `tests_v2/test_desktop_cmx_workspace_split_tab.py` and included it in
   the workflow's default targeted subset. This CMX-only artifact creates a new
   Rust-backed workspace, asserts it starts with one terminal surface and one
@@ -1305,7 +1307,8 @@ Tagged build/smoke evidence from `feat-desktop-cmx-backend`:
   under a virtual display, with downloadable `.xcresult`, tagged debug log, and
   `/tmp/cmux-cmx-ui-bonsplit-cmx-*` diagnostics artifacts. Local validation
   covered YAML parsing and `git diff --check`; it has the same temporary
-  `feat-desktop-cmx-backend` push trigger for pre-merge execution.
+  `feat-desktop-cmx-backend` push trigger for pre-merge execution, with the
+  same Bonsplit-only default filter used when no workflow-dispatch input exists.
 - Added a manual `Desktop CMX remote fixtures` workflow at
   `.github/workflows/desktop-cmx-remote-fixtures.yml`. It runs the CMX-backed
   `tests_v2` launcher against the Rust remote-state model test, SSH CLI
@@ -1325,6 +1328,8 @@ Tagged build/smoke evidence from `feat-desktop-cmx-backend`:
   itself must run on a pushed ref with a Docker-capable macOS runner, plus a
   configured external SSH host when that optional path is enabled. It also has
   the temporary branch push trigger used by the other new Desktop CMX workflows.
+  Push-triggered runs use the same Docker/SSH fixture default filter as manual
+  dispatch.
 - Added `scripts/dispatch-desktop-cmx-ci.sh` as the branch handoff command for
   the external gates. It refuses to dispatch without a pushed ref/upstream,
   supports `--dry-run`, and launches main `ci.yml`,

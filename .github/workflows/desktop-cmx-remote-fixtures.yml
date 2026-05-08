@@ -168,7 +168,7 @@ jobs:
           CMUX_TESTS_V2_DESKTOP_CMX_BACKEND: "1"
           CMUX_TESTS_V2_FAIL_ON_SKIP: "1"
           CMUX_TESTS_V2_DIAGNOSTICS_DIR: /tmp/desktop-cmx-remote-fixtures-diagnostics
-          CMUX_TESTS_V2_FILTER: ${{ inputs.test_filter }}
+          CMUX_TESTS_V2_FILTER: ${{ inputs.test_filter || 'test_remote_rust_state.py test_ssh_remote_cli_metadata.py test_ssh_remote_daemon_resize_stdio.py test_ssh_remote_docker_bootstrap_nonlogin_shell.py test_ssh_remote_cli_relay.py test_ssh_remote_docker_forwarding.py test_ssh_remote_docker_reconnect.py test_ssh_remote_port_detection.py test_ssh_remote_proxy_bind_conflict.py test_ssh_remote_shell_integration.py' }}
           CMUX_SSH_TEST_DOCKER_BIND_ADDR: "127.0.0.1"
           CMUX_SSH_TEST_DOCKER_HOST: "127.0.0.1"
         run: ./scripts/run-tests-v2.sh
@@ -215,7 +215,7 @@ jobs:
           CMUX_TESTS_V2_DESKTOP_CMX_BACKEND: "1"
           CMUX_TESTS_V2_FAIL_ON_SKIP: "1"
           CMUX_TESTS_V2_DIAGNOSTICS_DIR: /tmp/desktop-cmx-external-ssh-diagnostics
-          CMUX_TESTS_V2_FILTER: ${{ inputs.external_ssh_filter }}
+          CMUX_TESTS_V2_FILTER: ${{ inputs.external_ssh_filter || 'test_ssh_remote_browser_favicon_uses_proxy.py test_ssh_remote_browser_move_rebinds_proxy.py test_ssh_remote_interactive_cmux_command_regression.py test_ssh_remote_last_surface_clears_remote_state.py test_ssh_remote_resize_scrollback_regression.py test_ssh_remote_second_session_mux_regression.py test_ssh_remote_shortcuts_stay_remote.py' }}
         run: ./scripts/run-tests-v2.sh
 
       - name: Upload diagnostics
