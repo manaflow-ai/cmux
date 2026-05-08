@@ -56,6 +56,8 @@ final class CmxGhosttyTypingUITests: XCTestCase {
     func testSoftwareKeyboardShrinksGhosttySurfaceAndTypingStillRenders() throws {
         let app = launchApp()
         let terminal = try openTerminal(in: app)
+
+        dismissKeyboardIfNeeded(in: app)
         let initialHeight = terminal.frame.height
 
         terminal.tap()
@@ -72,6 +74,17 @@ final class CmxGhosttyTypingUITests: XCTestCase {
         input.typeText("echo KEYBOARD_RESIZE_OK\n")
 
         XCTAssertTrue(waitForTerminalValue(terminal, containing: "KEYBOARD_RESIZE_OK", timeout: 10))
+    }
+
+    @MainActor
+    private func dismissKeyboardIfNeeded(in app: XCUIApplication) {
+        let keyboard = app.keyboards.firstMatch
+        guard keyboard.exists else { return }
+        let hideButton = app.descendants(matching: .any)["terminal.inputAccessory.hideKeyboard"]
+        if hideButton.waitForExistence(timeout: 2) {
+            hideButton.tap()
+            _ = keyboard.waitForNonExistence(timeout: 5)
+        }
     }
 
     @MainActor
