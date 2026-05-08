@@ -648,7 +648,11 @@ struct cmuxApp: App {
                 if AppDelegate.shared?.toggleRightSidebarInActiveMainWindow(
                     preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
                 ) != true {
-                    NSSound.beep()
+                    if let activeRightSidebarState = AppDelegate.shared?.fileExplorerState {
+                        activeRightSidebarState.toggle()
+                    } else {
+                        NSSound.beep()
+                    }
                 }
             }
 
