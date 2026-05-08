@@ -2500,7 +2500,7 @@ struct ContentView: View {
                         sshOptions: config.sshOptions
                     ),
                     displayTarget: config.displayTarget,
-                    isAvailable: tab.remoteConnectionState != .error,
+                    isAvailable: tab.remoteConnectionState == .connected,
                     unavailableDetail: tab.remoteConnectionDetail ?? tab.remoteDaemonStatus.detail
                 )
             )

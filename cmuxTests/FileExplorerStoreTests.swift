@@ -127,7 +127,7 @@ final class FileExplorerStoreTests: XCTestCase {
         ])
 
         let store = FileExplorerStore()
-        store.setProvider(provider)
+        store.setProviderForTesting(provider)
         store.setRootPath("/home/user/project")
 
         try await waitFor("root nodes loaded") { store.rootNodes.count == 2 }
@@ -142,7 +142,7 @@ final class FileExplorerStoreTests: XCTestCase {
     func testDisplayRootPathUsesTilde() {
         let provider = MockFileExplorerProvider(homePath: "/home/user")
         let store = FileExplorerStore()
-        store.setProvider(provider)
+        store.setProviderForTesting(provider)
         store.rootPath = "/home/user/project"
         XCTAssertEqual(store.displayRootPath, "~/project")
     }
@@ -160,7 +160,7 @@ final class FileExplorerStoreTests: XCTestCase {
         )
 
         let store = FileExplorerStore()
-        store.setProvider(LocalFileExplorerProvider())
+        store.setProviderForTesting(LocalFileExplorerProvider())
         store.setRootPath("/Users/alice")
 
         store.applyWorkspaceRoot(
@@ -197,7 +197,7 @@ final class FileExplorerStoreTests: XCTestCase {
         ])
 
         let store = FileExplorerStore()
-        store.setProvider(localProvider)
+        store.setProviderForTesting(localProvider)
         store.setRootPath("/Users/alice")
         try await waitFor("local root loaded") {
             store.rootPath == "/Users/alice" &&
@@ -241,7 +241,7 @@ final class FileExplorerStoreTests: XCTestCase {
         ])
 
         let store = FileExplorerStore()
-        store.setProvider(provider1)
+        store.setProviderForTesting(provider1)
         store.setRootPath("/home/user/project")
         try await waitFor("root loaded") { store.rootNodes.contains { $0.name == "src" } }
 
@@ -260,7 +260,7 @@ final class FileExplorerStoreTests: XCTestCase {
             FileExplorerEntry(name: "main.swift", path: "/home/user/project/src/main.swift", isDirectory: false),
             FileExplorerEntry(name: "lib.swift", path: "/home/user/project/src/lib.swift", isDirectory: false),
         ])
-        store.setProvider(provider2)
+        store.setProviderForTesting(provider2)
 
         XCTAssertTrue(store.expandedPaths.contains("/home/user/project/src"))
 
@@ -278,7 +278,7 @@ final class FileExplorerStoreTests: XCTestCase {
         let provider = MockFileExplorerProvider(isAvailable: false)
 
         let store = FileExplorerStore()
-        store.setProvider(provider)
+        store.setProviderForTesting(provider)
         store.setRootPath("/home/user/project")
         // Wait for the initial load attempt to actually reach the provider,
         // not just for `isRootLoading` to drop (which may already be false
@@ -323,7 +323,7 @@ final class FileExplorerStoreTests: XCTestCase {
         ])
 
         let store = FileExplorerStore()
-        store.setProvider(provider)
+        store.setProviderForTesting(provider)
         store.setRootPath("/home/user/project")
         try await waitFor("root loaded") { store.rootNodes.contains { $0.name == "lib" } }
 
@@ -343,7 +343,7 @@ final class FileExplorerStoreTests: XCTestCase {
             FileExplorerEntry(name: "helpers.swift", path: "/home/user/project/lib/helpers.swift", isDirectory: false),
         ])
 
-        store.setProvider(newProvider)
+        store.setProviderForTesting(newProvider)
 
         XCTAssertTrue(store.expandedPaths.contains("/home/user/project/lib"))
         try await waitFor("lib re-hydrated with 2 children") {
@@ -363,7 +363,7 @@ final class FileExplorerStoreTests: XCTestCase {
         )
 
         let store = FileExplorerStore()
-        store.setProvider(provider)
+        store.setProviderForTesting(provider)
         store.setRootPath("/home/user/project")
         try await waitFor("root loaded") { store.rootNodes.contains { $0.name == "src" } }
 
