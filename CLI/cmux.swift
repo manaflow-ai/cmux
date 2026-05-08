@@ -2380,6 +2380,9 @@ struct CMUXCLI {
                 throw CLIError(message: "Usage: cmux auth <status|login|logout>")
             }
 
+        case "ios":
+            try runIOSCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
+
         case "vm", "cloud":
             let sub = commandArgs.first?.lowercased() ?? "ls"
             let rest = Array(commandArgs.dropFirst())
@@ -4170,6 +4173,53 @@ struct CMUXCLI {
         } else {
             print(fallbackText)
         }
+    }
+
+    func runIOSCommand(commandArgs: [String], client: SocketClient, jsonOutput: Bool) throws {
+        let subcommand = commandArgs.first?.lowercased() ?? "status"
+        let remaining = Array(commandArgs.dropFirst())
+        guard remaining.isEmpty else {
+            throw CLIError(message: "Usage: cmux ios status")
+        }
+
+        switch subcommand {
+        case "status":
+            let payload = try client.sendV2(method: "mobile_sync.status")
+            if jsonOutput {
+                print(jsonString(payload))
+                return
+            }
+            printIOSStatus(payload)
+        default:
+            throw CLIError(message: "Usage: cmux ios status")
+        }
+    }
+
+    private func printIOSStatus(_ payload: [String: Any]) {
+        let enabled = (payload["enabled"] as? Bool) == true
+        let listener = payload["listener"] as? [String: Any]
+        let listenerState = (listener?["state"] as? String) ?? "unknown"
+        let tailscale = payload["tailscale"] as? [String: Any]
+        let tailscaleAvailable = (tailscale?["available"] as? Bool) == true
+        let selectedAddress = tailscale?["selected_address"] as? String
+        let workspaceCount = payload["workspace_count"] as? Int ?? 0
+        let terminalCount = payload["terminal_count"] as? Int ?? 0
+        let activeAttachmentCount = payload["active_attachment_count"] as? Int ?? 0
+
+        print("Mobile Sync: \(enabled ? "enabled" : "disabled")")
+        print("Listener: \(listenerState)")
+        if tailscaleAvailable {
+            if let selectedAddress, !selectedAddress.isEmpty {
+                print("Tailscale: available (\(selectedAddress))")
+            } else {
+                print("Tailscale: available")
+            }
+        } else {
+            print("Tailscale: unavailable")
+        }
+        print("Workspaces: \(workspaceCount)")
+        print("Terminals: \(terminalCount)")
+        print("Active attachments: \(activeAttachmentCount)")
     }
 
     private func debugString(_ value: Any?) -> String? {
@@ -8306,6 +8356,12 @@ struct CMUXCLI {
             status   Print whether the user is signed in (add `cmux --json` for JSON).
             login    Open the sign-in popup on the cmux web app and wait for it to finish.
             logout   Clear the current session.
+            """
+        case "ios":
+            return """
+            Usage: cmux ios status
+
+            Show iOS/iPadOS mobile sync status. Mobile sync is off by default and does not listen until enabled by a later command or Settings.
             """
         case "login":
             return """
@@ -20374,6 +20430,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           capabilities
           events [--after <seq>] [--cursor-file <path>] [--name <event>] [--category <category>] [--reconnect] [--limit <n>] [--no-ack] [--no-heartbeat]
           auth <status|login|logout>
+          ios status
           login | logout                                      (aliases for auth login/logout)
           vm <new|ls|rm|exec|shell|ssh> [args...]    (alias: cloud)
           rpc <method> [json-params]
