@@ -1056,9 +1056,6 @@ public final class GhosttyTerminalSurfaceView: UIView {
         if data.range(of: Data([0x1B, 0x63])) != nil {
             return false
         }
-        guard containsPrintableTerminalText(data) else {
-            return false
-        }
         guard accessibilityText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return false
         }

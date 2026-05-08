@@ -20,7 +20,7 @@ final class CmxUITestingEchoTerminalSession: CmxTerminalSession {
         self.usesPaletteTheme = usesPaletteTheme
         self.workspaces = CmxUITestingEchoWorkspace.defaultWorkspaces(
             promptBytes: usesPaletteTheme
-                ? Data("\u{001B}[38;5;118mpalette-test$ \u{001B}[0m".utf8)
+                ? Data("\u{001B}[38;5;1mpalette-test$ \u{001B}[0m".utf8)
                 : Data("\u{001B}[38;2;166;226;46mui-test$ \u{001B}[0m".utf8)
         )
     }
@@ -415,7 +415,7 @@ final class CmxUITestingEchoTerminalSession: CmxTerminalSession {
 
     private var promptBytes: Data {
         if usesPaletteTheme {
-            return Data("\u{001B}[38;5;118mpalette-test$ \u{001B}[0m".utf8)
+            return Data("\u{001B}[38;5;1mpalette-test$ \u{001B}[0m".utf8)
         }
         return Data("\u{001B}[38;2;166;226;46mui-test$ \u{001B}[0m".utf8)
     }
@@ -426,7 +426,7 @@ final class CmxUITestingEchoTerminalSession: CmxTerminalSession {
 
     private static let paletteTheme = CmxNativeTerminalThemeSet(
         defaultTheme: CmxNativeTerminalTheme(
-            palette: [118: "#FF00CC"],
+            palette: [1: "#FF00CC"],
             foreground: "#F5F5F5",
             background: "#020304",
             cursor: "#F5F5F5",

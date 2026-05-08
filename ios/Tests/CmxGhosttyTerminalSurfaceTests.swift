@@ -383,6 +383,7 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
         }
         surfaceView.processOutput(Data("zoom-test$ ".utf8))
         await fulfillment(of: [renderedExpectation], timeout: 5.0)
+        surfaceView.simulateDisplayLinkFrameForTesting()
 
         let zoomExpectation = expectation(description: "Ghostty drained coalesced repeated zooms without blocking input")
         zoomExpectation.assertForOverFulfill = false
