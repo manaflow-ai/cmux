@@ -1021,6 +1021,7 @@ struct ContentView: View {
     @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
     @EnvironmentObject var fileExplorerState: FileExplorerState
     @Environment(\.colorScheme) private var colorScheme
+    @AppStorage("titlebarControlsStyle") private var titlebarControlsStyleRawValue = TitlebarControlsStyle.classic.rawValue
     @State private var sidebarWidth: CGFloat = 200
     @State private var hoveredResizerHandles: Set<SidebarResizerHandle> = []
     @State private var isResizerDragging = false
@@ -2240,6 +2241,53 @@ struct ContentView: View {
         )
     }
 
+    private var titlebarControlsConfig: TitlebarControlsStyleConfig {
+        (TitlebarControlsStyle(rawValue: titlebarControlsStyleRawValue) ?? .classic).config
+    }
+
+    private var rightSidebarTitlebarToggle: some View {
+        let config = titlebarControlsConfig
+        return TitlebarControlButton(
+            config: config,
+            accessibilityIdentifier: "titlebarControl.toggleRightSidebar",
+            accessibilityLabel: String(localized: "titlebar.rightSidebar.accessibilityLabel", defaultValue: "Toggle Right Sidebar"),
+            action: {
+                #if DEBUG
+                cmuxDebugLog("titlebar.toggleRightSidebar")
+                #endif
+                _ = AppDelegate.shared?.toggleRightSidebarInActiveMainWindow(preferredWindow: observedWindow)
+            }
+        ) {
+            titlebarControlIcon(systemName: "sidebar.right", config: config)
+        }
+        .safeHelp(
+            KeyboardShortcutSettings.Action.toggleFileExplorer.tooltip(
+                String(localized: "titlebar.rightSidebar.tooltip", defaultValue: "Show or hide the right sidebar")
+            )
+        )
+        .frame(
+            width: MinimalModeSidebarTitlebarControlsMetrics.singleButtonHostWidth,
+            height: MinimalModeSidebarTitlebarControlsMetrics.hostHeight
+        )
+    }
+
+    @ViewBuilder
+    private func titlebarControlIcon(systemName: String, config: TitlebarControlsStyleConfig) -> some View {
+        let icon = Image(systemName: systemName)
+            .font(.system(size: config.iconSize, weight: .semibold))
+            .frame(width: config.buttonSize, height: config.buttonSize)
+
+        if config.buttonBackground {
+            icon
+                .background(
+                    RoundedRectangle(cornerRadius: config.buttonCornerRadius, style: .continuous)
+                        .fill(Color(nsColor: .controlBackgroundColor).opacity(0.7))
+                )
+        } else {
+            icon
+        }
+    }
+
     private func customTitlebar(appearance: WindowAppearanceSnapshot) -> some View {
         let titlebarContentHeight = max(1, WindowChromeMetrics.appTitlebarHeight - 2)
         return ZStack {
@@ -2590,6 +2638,11 @@ struct ContentView: View {
                             .padding(.leading, 10)
                             .padding(.top, 4)
                     }
+                }
+                .overlay(alignment: .topTrailing) {
+                    rightSidebarTitlebarToggle
+                        .padding(.top, MinimalModeSidebarTitlebarControlsMetrics.topInset)
+                        .padding(.trailing, MinimalModeSidebarTitlebarControlsMetrics.trailingInset)
                 }
                 .frame(minWidth: CGFloat(SessionPersistencePolicy.minimumWindowWidth), minHeight: CGFloat(SessionPersistencePolicy.minimumWindowHeight))
                 .background(Color.clear)
@@ -9450,7 +9503,7 @@ struct VerticalTabsSidebar: View {
                             onNewTab: onNewTab
                         )
                             .padding(.leading, MinimalModeSidebarTitlebarControlsMetrics.leadingInset)
-                            .padding(.top, 2)
+                            .padding(.top, MinimalModeSidebarTitlebarControlsMetrics.topInset)
                     }
                 }
                 .background(Color.clear)

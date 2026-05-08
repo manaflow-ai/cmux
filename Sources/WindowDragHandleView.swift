@@ -456,8 +456,11 @@ func isMinimalModeTitlebarControlHit(window: NSWindow, locationInWindow: NSPoint
 
 enum MinimalModeSidebarTitlebarControlsMetrics {
     static let leadingInset: CGFloat = 72
+    static let trailingInset: CGFloat = 8
+    static let topInset: CGFloat = 2
     static let hostWidth: CGFloat = 124
     static let hostHeight: CGFloat = 28
+    static let singleButtonHostWidth: CGFloat = hostHeight
 }
 
 enum MinimalModeSidebarControlActionSlot: Int {
