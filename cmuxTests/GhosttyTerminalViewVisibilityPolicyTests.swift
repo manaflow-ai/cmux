@@ -82,6 +82,18 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
         XCTAssertEqual(frame.height, 644, accuracy: 0.001)
     }
 
+    func testPortalFrameUsesBonsplitPaneWidthWhenAnchorIsAnimatedWider() {
+        let frame = TerminalPortalGeometryFramePolicy.portalFrameInWindow(
+            anchorFrame: NSRect(x: 200, y: 0, width: 797, height: 644),
+            paneContainerFrame: NSRect(x: 200, y: 0, width: 760, height: 672)
+        )
+
+        XCTAssertEqual(frame.origin.x, 200, accuracy: 0.001)
+        XCTAssertEqual(frame.origin.y, 0, accuracy: 0.001)
+        XCTAssertEqual(frame.width, 760, accuracy: 0.001)
+        XCTAssertEqual(frame.height, 644, accuracy: 0.001)
+    }
+
     func testPortalFrameIgnoresBonsplitPaneWhenVerticalBandDoesNotMatch() {
         let frame = TerminalPortalGeometryFramePolicy.portalFrameInWindow(
             anchorFrame: NSRect(x: 200, y: 720, width: 762.5, height: 300),

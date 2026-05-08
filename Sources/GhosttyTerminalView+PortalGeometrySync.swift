@@ -40,6 +40,10 @@ enum TerminalPortalGeometryFramePolicy {
             return false
         }
 
+        // Bonsplit owns horizontal pane geometry in both expand and shrink
+        // directions. The terminal anchor remains the source for the vertical
+        // band, but using anchor width here can make Ghostty chase SwiftUI's
+        // intermediate sidebar animation frames.
         return true
     }
 
