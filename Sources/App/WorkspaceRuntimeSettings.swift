@@ -109,6 +109,49 @@ enum TerminalScrollBarSettings {
     }
 }
 
+enum AgentSessionAutoResumeSettings {
+    static let autoResumeAgentSessionsKey = "terminal.autoResumeAgentSessions"
+    static let defaultAutoResumeAgentSessions = true
+    static let didChangeNotification = Notification.Name("cmux.agentSessionAutoResumeSettingsDidChange")
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: autoResumeAgentSessionsKey) != nil else {
+            return defaultAutoResumeAgentSessions
+        }
+        return defaults.bool(forKey: autoResumeAgentSessionsKey)
+    }
+
+    static func setEnabled(
+        _ enabled: Bool,
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) {
+        let wasEnabled = isEnabled(defaults: defaults)
+        defaults.set(enabled, forKey: autoResumeAgentSessionsKey)
+        if wasEnabled != enabled {
+            notifyDidChange(notificationCenter: notificationCenter)
+        }
+    }
+
+    @discardableResult
+    static func reset(
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) -> Bool {
+        let wasEnabled = isEnabled(defaults: defaults)
+        defaults.removeObject(forKey: autoResumeAgentSessionsKey)
+        let didChange = wasEnabled != isEnabled(defaults: defaults)
+        if didChange {
+            notifyDidChange(notificationCenter: notificationCenter)
+        }
+        return didChange
+    }
+
+    static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
+        notificationCenter.post(name: didChangeNotification, object: nil)
+    }
+}
+
 enum RightSidebarBetaFeatureSettings {
     static let feedEnabledKey = "rightSidebar.beta.feed.enabled"
     static let dockEnabledKey = "rightSidebar.beta.dock.enabled"

@@ -86,7 +86,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         case .app:
             return "\(title) appearance language workspace notifications menu bar telemetry"
         case .terminal:
-            return "\(title) scrollbar"
+            return "\(title) scrollbar auto resume restore reopen relaunch quit sessions agents claude codex opencode rovodev toggle"
         case .workspaceColors:
             return "\(title) palette tabs"
         case .sidebarAppearance:
@@ -296,6 +296,7 @@ enum SettingsSearchIndex {
         setting(.app, "minimal-mode", String(localized: "settings.app.minimalMode", defaultValue: "Minimal Mode"), "presentation compact chrome"),
         setting(.app, "keep-workspace-open", String(localized: "settings.app.closeWorkspaceOnLastSurfaceShortcut", defaultValue: "Keep Workspace Open When Closing Last Surface"), "close last surface shortcut cmd w"),
         setting(.app, "focus-pane-first-click", String(localized: "settings.app.paneFirstClickFocus", defaultValue: "Focus Pane on First Click"), "mouse click focus"),
+        setting(.app, "file-drops", String(localized: "settings.app.fileDrop.defaultBehavior", defaultValue: "File Drops"), "drag drop files finder path text terminal editor split preview shift"),
         setting(.app, "preferred-editor", String(localized: "settings.app.preferredEditor", defaultValue: "Open Files With"), "editor code zed subl cmd click file"),
         setting(.app, "terminal-config", String(localized: "settings.app.configWindow", defaultValue: "Terminal Config"), "ghostty config merged preview"),
         setting(.app, "markdown-viewer", String(localized: "settings.app.openMarkdownInCmuxViewer", defaultValue: "Open Markdown in cmux Viewer"), "md markdown viewer"),
@@ -313,6 +314,7 @@ enum SettingsSearchIndex {
         setting(.app, "rename-selects-name", String(localized: "settings.app.renameSelectsName", defaultValue: "Rename Selects Existing Name"), "command palette rename text selection"),
         setting(.app, "palette-search-all", String(localized: "settings.app.commandPaletteSearchAllSurfaces", defaultValue: "Command Palette Searches All Surfaces"), "cmd p search terminal browser markdown"),
         setting(.terminal, "scrollbar", String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar"), "terminal shell scrollback"),
+        setting(.terminal, "agent-auto-resume", String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen"), "terminal.autoResumeAgentSessions auto resume restore reopen relaunch quit sessions agents claude code codex opencode rovo dev rovodev toggle"),
         setting(.sidebarAppearance, "match-terminal", String(localized: "settings.sidebarAppearance.matchTerminalBackground", defaultValue: "Match Terminal Background"), "sidebar material transparency"),
         setting(.sidebarAppearance, "hide-sidebar-details", String(localized: "settings.app.hideAllSidebarDetails", defaultValue: "Hide All Sidebar Details"), "workspace sidebar compact"),
         setting(.sidebarAppearance, "sidebar-branch-layout", String(localized: "settings.app.sidebarBranchLayout", defaultValue: "Sidebar Branch Layout"), "branch directory vertical inline"),
@@ -379,6 +381,8 @@ enum SettingsSearchIndex {
         "app.minimalMode": settingID(for: .app, idSuffix: "minimal-mode"),
         "app.keepWorkspaceOpenWhenClosingLastSurface": settingID(for: .app, idSuffix: "keep-workspace-open"),
         "app.focusPaneOnFirstClick": settingID(for: .app, idSuffix: "focus-pane-first-click"),
+        "fileDrop.defaultBehavior": settingID(for: .app, idSuffix: "file-drops"),
+        "app.fileDropDefaultBehavior": settingID(for: .app, idSuffix: "file-drops"),
         "app.preferredEditor": settingID(for: .app, idSuffix: "preferred-editor"),
         "app.openMarkdownInCmuxViewer": settingID(for: .app, idSuffix: "markdown-viewer"),
         "app.reorderOnNotification": settingID(for: .app, idSuffix: "reorder-notification"),
@@ -407,6 +411,7 @@ enum SettingsSearchIndex {
         "sidebar.showProgress": settingID(for: .sidebarAppearance, idSuffix: "show-progress"),
         "sidebar.showCustomMetadata": settingID(for: .sidebarAppearance, idSuffix: "show-metadata"),
         "terminal.showScrollBar": settingID(for: .terminal, idSuffix: "scrollbar"),
+        "terminal.autoResumeAgentSessions": settingID(for: .terminal, idSuffix: "agent-auto-resume"),
         "workspaceColors.indicatorStyle": settingID(for: .workspaceColors, idSuffix: "indicator"),
         "workspaceColors.selectionColor": settingID(for: .workspaceColors, idSuffix: "selection"),
         "workspaceColors.notificationBadgeColor": settingID(for: .workspaceColors, idSuffix: "badge"),
@@ -449,13 +454,8 @@ enum SettingsSearchIndex {
         entriesByID[sectionID(for: target)] ?? sectionEntries[0]
     }
 
-    static func sectionID(for target: SettingsNavigationTarget) -> String {
-        "section:\(target.rawValue)"
-    }
-
-    static func settingID(for target: SettingsNavigationTarget, idSuffix: String) -> String {
-        "setting:\(target.rawValue):\(idSuffix)"
-    }
+    static func sectionID(for target: SettingsNavigationTarget) -> String { "section:\(target.rawValue)" }
+    static func settingID(for target: SettingsNavigationTarget, idSuffix: String) -> String { "setting:\(target.rawValue):\(idSuffix)" }
 
     static func anchorID(forSettingsPath path: String) -> String? {
         settingsPathAnchorIDs[path]

@@ -4198,9 +4198,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private let surfaceContext: ghostty_surface_context_e
     private let configTemplate: CmuxSurfaceConfigTemplate?
     private let workingDirectory: String?
-    private let initialCommand: String?
-    private let tmuxStartCommand: String?
-    private let initialInput: String?
+    let initialCommand: String?
+    let tmuxStartCommand: String?
+    let initialInput: String?
     private let initialEnvironmentOverrides: [String: String]
     var requestedWorkingDirectory: String? { workingDirectory }
     let focusPlacement: TerminalSurfaceFocusPlacement
@@ -4304,6 +4304,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
         additionalEnvironment: [String: String] = [:],
         focusPlacement: TerminalSurfaceFocusPlacement = .workspace
     ) {
+        #if DEBUG
+        dispatchPrecondition(condition: .onQueue(.main))
+        #endif
+
         self.id = UUID()
         self.tabId = tabId
         self.surfaceContext = context
@@ -4502,14 +4506,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     func debugSurfaceContextLabel() -> String {
         cmuxSurfaceContextName(surfaceContext)
-    }
-
-    func debugInitialCommand() -> String? {
-        initialCommand
-    }
-
-    func debugTmuxStartCommand() -> String? {
-        tmuxStartCommand
     }
 
     func debugPortalHostLease() -> (hostId: String?, paneId: UUID?, inWindow: Bool?, area: CGFloat?) {
@@ -7186,6 +7182,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     // For NSTextInputClient - accumulates text during key events
     private(set) var keyTextAccumulator: [String]? = nil
     private var markedText = NSMutableAttributedString()
+    private var markedSelectedRange = NSRange(location: NSNotFound, length: 0)
     private var lastPerformKeyEvent: TimeInterval?
     private(set) var externalCommittedTextDepth = 0
     var numpadIMECommitDeduplicator = NumpadIMECommitDeduplicator()
@@ -7610,9 +7607,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         keyTextAccumulator = []
         defer { keyTextAccumulator = nil }
 
-        // Track whether we had marked text (IME preedit) before this event,
-        // so we can detect when composition ends.
         let markedTextBefore = markedText.length > 0
+        let markedStateBefore = (markedText.string, markedSelectedRange)
 
         // Capture the keyboard layout ID before interpretation so we can
         // detect if an IME changed it (e.g. toggling input methods).
@@ -7661,6 +7657,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         syncPreeditMs = (ProcessInfo.processInfo.systemUptime - syncPreeditStart) * 1000.0
 #endif
 
+        let accumulatedText = keyTextAccumulator ?? []
+        if shouldSuppressGhosttyKeyForwardingAfterIMEHandling(
+            before: markedStateBefore, after: (markedText.string, markedSelectedRange), accumulatedText: accumulatedText
+        ) { return }
+
         // Build the key event
         var keyEvent = ghostty_input_key_s()
         keyEvent.action = action
@@ -7679,7 +7680,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         keyEvent.composing = markedText.length > 0 || markedTextBefore
 
         // Use accumulated text from insertText (for IME), or compute text for key
-        let accumulatedText = keyTextAccumulator ?? []
         var shouldRefreshAfterTextInput = false
         if !accumulatedText.isEmpty {
             // Accumulated text comes from insertText (IME composition result).
@@ -9390,6 +9390,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
 
+    func handleDroppedFileURLsAsText(_ urls: [URL]) -> Bool {
+        let text = TerminalImageTransferPlanner.insertedText(forFileURLs: urls)
+        guard !text.isEmpty, let terminalSurface else { return false }
+        terminalSurface.sendText(text)
+        return true
+    }
+
     @discardableResult
     fileprivate func insertDroppedPasteboard(_ pasteboard: NSPasteboard) -> Bool {
         executePreparedImageTransfer(
@@ -9821,6 +9828,10 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     init(surfaceView: GhosttyNSView) {
+        #if DEBUG
+        dispatchPrecondition(condition: .onQueue(.main))
+        #endif
+
         self.surfaceView = surfaceView
         backgroundView = NSView(frame: .zero)
         scrollView = GhosttyScrollView()
@@ -10942,20 +10953,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func dropZoneOverlayFrame(for zone: DropZone, in size: CGSize) -> CGRect {
-        let padding: CGFloat = 4
-        let localFrame: CGRect
-        switch zone {
-        case .center:
-            localFrame = CGRect(x: padding, y: padding, width: size.width - padding * 2, height: size.height - padding * 2)
-        case .left:
-            localFrame = CGRect(x: padding, y: padding, width: size.width / 2 - padding, height: size.height - padding * 2)
-        case .right:
-            localFrame = CGRect(x: size.width / 2, y: padding, width: size.width / 2 - padding, height: size.height - padding * 2)
-        case .top:
-            localFrame = CGRect(x: padding, y: size.height / 2, width: size.width - padding * 2, height: size.height / 2 - padding)
-        case .bottom:
-            localFrame = CGRect(x: padding, y: padding, width: size.width - padding * 2, height: size.height / 2 - padding)
-        }
+        let localFrame = PaneDropRouting.compactOverlayFrame(for: zone, in: size)
 
         let container = dropZoneOverlayView.superview ?? superview
         guard let container, container !== self else { return localFrame }
@@ -11382,6 +11380,13 @@ final class GhosttySurfaceScrollView: NSView {
         cmuxDebugLog("terminal.swiftUIDrop surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") urls=\(urls.map(\.lastPathComponent))")
         #endif
         return surfaceView.handleDroppedFileURLs(urls)
+    }
+
+    func handleDroppedURLsAsText(_ urls: [URL]) -> Bool {
+        #if DEBUG
+        cmuxDebugLog("terminal.swiftUIDropAsText surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") urls=\(urls.map(\.lastPathComponent))")
+        #endif
+        return surfaceView.handleDroppedFileURLsAsText(urls)
     }
 
     func terminalViewForDrop(at point: NSPoint) -> GhosttyNSView? {
@@ -12880,7 +12885,13 @@ extension GhosttyNSView: NSTextInputClient {
     }
 
     func selectedRange() -> NSRange {
-        readSelectionSnapshot()?.range ?? NSRange(location: 0, length: 0)
+        if markedText.length > 0 {
+#if DEBUG
+            assert(markedSelectedRange.location != NSNotFound, "markedSelectedRange must be valid")
+#endif
+            return markedSelectedRange
+        }
+        return readSelectionSnapshot()?.range ?? NSRange(location: 0, length: 0)
     }
 
     func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
@@ -12900,8 +12911,9 @@ extension GhosttyNSView: NSTextInputClient {
         case let v as String:
             markedText = NSMutableAttributedString(string: v)
         default:
-            break
+            return
         }
+        markedSelectedRange = normalizedMarkedSelectionRange(selectedRange, markedLength: markedText.length)
 
         // If we're not in a keyDown event, sync preedit immediately.
         // This can happen due to external events like changing keyboard layouts
@@ -12926,6 +12938,7 @@ extension GhosttyNSView: NSTextInputClient {
 #endif
         if markedText.length > 0 {
             markedText.mutableString.setString("")
+            markedSelectedRange = NSRange(location: NSNotFound, length: 0)
             syncPreedit()
             invalidateTextInputCoordinates(selectionChanged: true)
         }
@@ -12968,6 +12981,12 @@ extension GhosttyNSView: NSTextInputClient {
     }
 
     func attributedSubstring(forProposedRange range: NSRange, actualRange: NSRangePointer?) -> NSAttributedString? {
+        if markedText.length > 0 {
+            guard let substringRange = clampedMarkedTextRange(range, markedLength: markedText.length) else { return nil }
+            actualRange?.pointee = substringRange
+            return markedText.attributedSubstring(from: substringRange)
+        }
+
         guard range.length > 0,
               let snapshot = readSelectionSnapshot() else { return nil }
         actualRange?.pointee = snapshot.range

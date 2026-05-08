@@ -21,30 +21,6 @@ func cmuxJavaScriptStringLiteral(_ value: String?) -> String? {
     return String(arrayLiteral.dropFirst().dropLast())
 }
 
-final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
-    private let zeroSafeAreaLayoutGuide = NSLayoutGuide()
-
-    override var safeAreaInsets: NSEdgeInsets { NSEdgeInsetsZero }
-    override var safeAreaRect: NSRect { bounds }
-    override var safeAreaLayoutGuide: NSLayoutGuide { zeroSafeAreaLayoutGuide }
-
-    required init(rootView: Content) {
-        super.init(rootView: rootView)
-        addLayoutGuide(zeroSafeAreaLayoutGuide)
-        NSLayoutConstraint.activate([
-            zeroSafeAreaLayoutGuide.leadingAnchor.constraint(equalTo: leadingAnchor),
-            zeroSafeAreaLayoutGuide.trailingAnchor.constraint(equalTo: trailingAnchor),
-            zeroSafeAreaLayoutGuide.topAnchor.constraint(equalTo: topAnchor),
-            zeroSafeAreaLayoutGuide.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-}
-
 /// Caches `AXWindows` responses so repeated AX polls can reuse the same
 /// snapshot while the app window graph is unchanged. Only `.windows` is
 /// cached; `.children` and `.visibleChildren` fall through to AppKit so the
@@ -674,6 +650,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     nonisolated static let persistedWindowGeometrySchemaVersion = 2
     private nonisolated static let persistedWindowGeometryDefaultsKey = "cmux.session.lastWindowGeometry.v2"
+#if DEBUG
+    nonisolated static var debugPersistedWindowGeometryDefaultsKey: String { persistedWindowGeometryDefaultsKey }
+#endif
     private nonisolated static let legacyPersistedWindowGeometryDefaultsKeys = [
         "cmux.session.lastWindowGeometry.v1"
     ]
@@ -687,7 +666,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var shortcutLayoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
     private var workspaceObserver: NSObjectProtocol?
     private var lifecycleSnapshotObservers: [NSObjectProtocol] = []
-    private var windowKeyObserver: NSObjectProtocol?
+    private var windowKeyObservers: [NSObjectProtocol] = []
     private var shortcutMonitor: Any?
     private var shortcutDefaultsObserver: NSObjectProtocol?
     private var menuBarVisibilityObserver: NSObjectProtocol?
@@ -2513,9 +2492,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         startupSessionSnapshot = SessionPersistenceStore.load()
     }
 
-    private func persistedWindowGeometry(
-        defaults: UserDefaults = .standard
-    ) -> PersistedWindowGeometry? {
+    private func persistedWindowGeometry(defaults: UserDefaults = .standard) -> PersistedWindowGeometry? {
         Self.removeLegacyPersistedWindowGeometry(defaults: defaults)
         guard let data = defaults.data(forKey: Self.persistedWindowGeometryDefaultsKey) else {
             return nil
@@ -2574,10 +2551,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    private func currentDisplayGeometries() -> (
-        available: [SessionDisplayGeometry],
-        fallback: SessionDisplayGeometry?
-    ) {
+    private func currentDisplayGeometries() -> (available: [SessionDisplayGeometry], fallback: SessionDisplayGeometry?) {
         let available = NSScreen.screens.map { screen in
             SessionDisplayGeometry(
                 displayID: screen.cmuxDisplayID,
@@ -2593,6 +2567,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
         }
         return (available, fallback)
+    }
+
+    private func resolvedPersistedWindowGeometryFrame() -> NSRect? {
+        let displays = currentDisplayGeometries()
+        let fallbackGeometry = persistedWindowGeometry()
+        return Self.resolvedWindowFrame(
+            from: fallbackGeometry?.frame,
+            display: fallbackGeometry?.display,
+            availableDisplays: displays.available,
+            fallbackDisplay: displays.fallback
+        )
     }
 
     private func attemptStartupSessionRestoreIfNeeded(primaryWindow: NSWindow) {
@@ -3433,6 +3418,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         sessionAutosaveTickInFlight = true
+        Task { @MainActor in await self.finishSessionAutosaveTick(source: source) }
+    }
+
+    private func finishSessionAutosaveTick(source: String) async {
 #if DEBUG
         let timingStart = CmuxTypingTiming.start()
         let phaseStart = ProcessInfo.processInfo.systemUptime
@@ -3465,7 +3454,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         let fingerprintStart = ProcessInfo.processInfo.systemUptime
 #endif
-        let restorableAgentIndex = RestorableAgentSessionIndex.load()
+        let restorableAgentIndex = await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
         let autosaveFingerprint = sessionAutosaveFingerprint(
             includeScrollback: false,
             restorableAgentIndex: restorableAgentIndex
@@ -4813,7 +4802,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func focusMainWindow(windowId: UUID) -> Bool {
         guard let window = windowForMainWindowId(windowId) else { return false }
-        return mainWindowVisibilityController.focus(window, reason: .focusMainWindow)
+        let didFocus = mainWindowVisibilityController.focus(window, reason: .focusMainWindow)
+        if didFocus {
+            publishCmuxWindowLifecycle(name: "window.focused", windowId: windowId, origin: "focus_request")
+        }
+        return didFocus
     }
 
     func closeMainWindow(windowId: UUID) -> Bool {
@@ -6890,13 +6883,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }()
         let shouldTemporarilyDisallowFullScreenTiling =
             sessionWindowSnapshot == nil && sourceWindowIsNativeFullScreen
+        let restoredFrame = resolvedWindowFrame(from: sessionWindowSnapshot)
+        let persistedGeometryFrame = (restoredFrame == nil && sourceWindow == nil)
+            ? resolvedPersistedWindowGeometryFrame()
+            : nil
         let initialRect: NSRect
-        if sessionWindowSnapshot == nil, let existingFrame {
+        if restoredFrame == nil, let existingFrame {
             // Convert frame rect to content rect so the new window matches the
             // source window's actual size (frame includes titlebar insets).
             initialRect = NSWindow.contentRect(forFrameRect: existingFrame, styleMask: styleMask)
+        } else if let explicitInitialFrame = restoredFrame ?? persistedGeometryFrame {
+            initialRect = NSWindow.contentRect(forFrameRect: explicitInitialFrame, styleMask: styleMask)
         } else {
-            initialRect = NSRect(x: 0, y: 0, width: 460, height: 360)
+            initialRect = CmuxMainWindow.defaultContentRect(styleMask: styleMask)
         }
 
         let window = CmuxMainWindow(
@@ -6920,9 +6919,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         window.isRestorable = false
         window.isMovableByWindowBackground = false
         window.isMovable = false
-        let restoredFrame = resolvedWindowFrame(from: sessionWindowSnapshot)
-        if let restoredFrame {
-            window.setFrame(restoredFrame, display: false)
+        let explicitInitialFrame = restoredFrame ?? persistedGeometryFrame
+        if let explicitInitialFrame {
+            window.setFrame(explicitInitialFrame, display: false)
         } else if let sourceWindow {
             positionNewMainWindow(window, relativeTo: sourceWindow)
         } else {
@@ -6961,6 +6960,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             fileExplorerState: fileExplorerState,
             cmuxConfigStore: cmuxConfigStore
         )
+        publishCmuxWindowLifecycle(name: "window.created", windowId: windowId, origin: "create")
         installFileDropOverlay(on: window, tabManager: tabManager)
         if !shouldActivate || TerminalController.shouldSuppressSocketCommandActivation() {
             window.orderFront(nil)
@@ -6980,11 +6980,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 window?.collectionBehavior.remove(.fullScreenDisallowsTiling)
             }
         }
-        if let restoredFrame {
-            window.setFrame(restoredFrame, display: true)
+        if let explicitInitialFrame {
+            window.setFrame(explicitInitialFrame, display: true)
 #if DEBUG
             cmuxDebugLog(
-                "session.restore.frameApplied window=\(windowId.uuidString.prefix(8)) " +
+                "mainWindow.initialFrameApplied source=\(restoredFrame == nil ? "persistedGeometry" : "sessionSnapshot") window=\(windowId.uuidString.prefix(8)) " +
                     "applied={\(debugNSRectDescription(window.frame))}"
             )
 #endif
@@ -7284,6 +7284,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return sortedMainWindowContextsForSessionSnapshot()
             .compactMap { resolvedWindow(for: $0) }
             .first
+    }
+
+    @MainActor
+    func preferredMainWindowForSettingsPresentation() -> NSWindow? {
+        preferredMainWindowForVisibilityActivation()
     }
 
     @discardableResult func showMainWindowFromMenuBar() -> NSWindow? {
@@ -13166,18 +13171,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func installMainWindowKeyObserver() {
-        guard windowKeyObserver == nil else { return }
-        windowKeyObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.didBecomeKeyNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] note in
-            guard let self, let window = note.object as? NSWindow else { return }
+        guard windowKeyObservers.isEmpty else { return }
+        let center = NotificationCenter.default
+        windowKeyObservers.append(center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { [weak self] note in
             MainActor.assumeIsolated {
-                self.setActiveMainWindow(window)
-                _ = self.contextForMainTerminalWindow(window)?.keyboardFocusCoordinator.restoreTargetAfterWindowBecameKey()
+                self?.handleCmuxWindowBecameKey(note)
             }
-        }
+        })
+        windowKeyObservers.append(center.addObserver(forName: NSWindow.didResignKeyNotification, object: nil, queue: .main) { [weak self] note in
+            MainActor.assumeIsolated {
+                self?.handleCmuxWindowResignedKey(note)
+            }
+        })
     }
 
     private func installBrowserAddressBarFocusObservers() {
@@ -13339,7 +13344,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         TerminalController.shared.setActiveTabManager(context.tabManager)
     }
 
-    private func setActiveMainWindow(_ window: NSWindow) {
+    func setActiveMainWindow(_ window: NSWindow) {
         guard let context = contextForMainTerminalWindow(window) else { return }
 #if DEBUG
         let beforeManagerToken = debugManagerToken(tabManager)
@@ -13371,6 +13376,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         persistWindowGeometry(from: window)
 
         guard let removed = unregisterMainWindowContext(for: window) else { return }
+        publishCmuxWindowLifecycle(name: "window.closed", windowId: removed.windowId, origin: "appkit_close")
         commandPaletteVisibilityByWindowId.removeValue(forKey: removed.windowId)
         commandPalettePendingOpenByWindowId.removeValue(forKey: removed.windowId)
         commandPaletteRecentRequestAtByWindowId.removeValue(forKey: removed.windowId)
@@ -13747,6 +13753,7 @@ private var cmuxFirstResponderGuardHitViewContext: NSView?
 private var cmuxFirstResponderGuardContextWindowNumber: Int?
 private var cmuxBrowserReturnForwardingDepth = 0
 private var cmuxBrowserArrowForwardingDepth = 0
+private var cmuxCommandPaletteArrowForwardingDepth = 0
 private var cmuxWindowFirstResponderBypassDepth = 0
 private var cmuxFieldEditorOwningWebViewAssociationKey: UInt8 = 0
 
@@ -13862,6 +13869,56 @@ private extension AppDelegate {
 }
 
 private extension NSWindow {
+    static func cmuxCommandPaletteOwnsFieldEditor(_ textView: NSTextView?, in window: NSWindow) -> Bool {
+        guard let textView,
+              textView.isFieldEditor,
+              textView.window === window else {
+            return false
+        }
+
+        if let ownerView = cmuxFieldEditorOwnerView(textView) {
+            guard let container = cmuxCommandPaletteOverlayAncestor(of: ownerView) else {
+                return false
+            }
+            return cmuxCommandPaletteOverlayIsPresented(container)
+        }
+
+        guard let container = cmuxCommandPaletteOverlayContainer(in: window) else {
+            return false
+        }
+
+        return cmuxCommandPaletteOverlayIsPresented(container)
+    }
+
+    private static func cmuxCommandPaletteOverlayAncestor(of view: NSView) -> NSView? {
+        var current: NSView? = view
+        while let candidate = current {
+            if candidate.identifier == commandPaletteOverlayContainerIdentifier {
+                return candidate
+            }
+            current = candidate.superview
+        }
+        return nil
+    }
+
+    private static func cmuxCommandPaletteOverlayIsPresented(_ container: NSView) -> Bool {
+        !container.isHidden && container.alphaValue > 0.001
+    }
+
+    private static func cmuxCommandPaletteOverlayContainer(in window: NSWindow) -> NSView? {
+        guard let searchRoot = window.contentView?.superview ?? window.contentView else {
+            return nil
+        }
+        var stack: [NSView] = [searchRoot]
+        while let candidate = stack.popLast() {
+            if candidate.identifier == commandPaletteOverlayContainerIdentifier {
+                return candidate
+            }
+            stack.append(contentsOf: candidate.subviews)
+        }
+        return nil
+    }
+
     @objc func cmux_makeFirstResponder(_ responder: NSResponder?) -> Bool {
         if cmuxIsWindowFirstResponderBypassActive() {
 #if DEBUG
@@ -14176,6 +14233,10 @@ private extension NSWindow {
             Self.cmuxOwningWebView(for: $0, in: self, event: event)
         }
         let firstResponderHasMarkedText = browserResponderHasMarkedText(self.firstResponder)
+        let firstResponderIsCommandPaletteFieldEditor = Self.cmuxCommandPaletteOwnsFieldEditor(
+            self.firstResponder as? NSTextView,
+            in: self
+        )
         if ShortcutRecorderEventRouter.dispatchActiveRecordingEvent(event, preferredWindow: self) {
             return true
         }
@@ -14238,6 +14299,21 @@ private extension NSWindow {
             }
         }
 
+        if shouldDispatchCommandPaletteHorizontalArrowViaFirstResponderKeyDown(
+            keyCode: event.keyCode,
+            firstResponderIsCommandPaletteFieldEditor: firstResponderIsCommandPaletteFieldEditor,
+            firstResponderHasMarkedText: firstResponderHasMarkedText,
+            flags: event.modifierFlags
+        ) {
+            if cmuxCommandPaletteArrowForwardingDepth > 0 {
+                return false
+            }
+            cmuxCommandPaletteArrowForwardingDepth += 1
+            defer { cmuxCommandPaletteArrowForwardingDepth = max(0, cmuxCommandPaletteArrowForwardingDepth - 1) }
+            self.firstResponder?.keyDown(with: event)
+            return true
+        }
+
         // Web forms rely on Return/Enter flowing through keyDown. If the original
         // NSWindow.performKeyEquivalent consumes Enter first, submission never reaches
         // WebKit. Route Return/Enter directly to the current first responder and
@@ -14265,7 +14341,7 @@ private extension NSWindow {
             return true
         }
 
-        // Some browser content (notably Google Docs) loses plain up/down when
+        // Some browser content (notably Google Docs) loses plain arrows when
         // NSWindow.performKeyEquivalent claims the arrow before WebKit sees
         // keyDown. Route those arrows directly to the first responder instead.
         if shouldDispatchBrowserArrowViaFirstResponderKeyDown(
@@ -14278,14 +14354,14 @@ private extension NSWindow {
             // performKeyEquivalent while the synthesized keyDown is in flight.
             if cmuxBrowserArrowForwardingDepth > 0 {
 #if DEBUG
-                cmuxDebugLog("  → browser Up/Down reentry; using normal dispatch")
+                cmuxDebugLog("  → browser arrow reentry; using normal dispatch")
 #endif
                 return false
             }
             cmuxBrowserArrowForwardingDepth += 1
             defer { cmuxBrowserArrowForwardingDepth = max(0, cmuxBrowserArrowForwardingDepth - 1) }
 #if DEBUG
-            cmuxDebugLog("  → browser Up/Down routed to firstResponder.keyDown")
+            cmuxDebugLog("  → browser arrow routed to firstResponder.keyDown")
 #endif
             self.firstResponder?.keyDown(with: event)
             return true

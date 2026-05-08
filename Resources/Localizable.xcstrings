@@ -11,6 +11,14 @@
     "detail.section": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Section" } }, "ja": { "stringUnit": { "state": "translated", "value": "セクション" } } } },
     "detail.slider": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Amount" } }, "ja": { "stringUnit": { "state": "translated", "value": "量" } } } },
     "detail.toggle": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Enable" } }, "ja": { "stringUnit": { "state": "translated", "value": "有効にする" } } } },
+    "fileDrop.holdShiftDropIntoEditor": { "localizations": {"ar":{"stringUnit":{"state":"translated","value":"اضغط Shift للإفلات في المحرر"}},"bs":{"stringUnit":{"state":"translated","value":"Držite Shift za ispuštanje u editor"}},"da":{"stringUnit":{"state":"translated","value":"Hold Skift nede for at slippe i editoren"}},"de":{"stringUnit":{"state":"translated","value":"Umschalt halten, um in den Editor abzulegen"}},"en":{"stringUnit":{"state":"translated","value":"Hold Shift to drop into editor"}},"es":{"stringUnit":{"state":"translated","value":"Mantén Shift para soltar en el editor"}},"fr":{"stringUnit":{"state":"translated","value":"Maintenez Maj pour déposer dans l’éditeur"}},"it":{"stringUnit":{"state":"translated","value":"Tieni premuto Maiuscole per rilasciare nell’editor"}},"ja":{"stringUnit":{"state":"translated","value":"Shift キーを押したままエディタにドロップ"}},"ko":{"stringUnit":{"state":"translated","value":"편집기에 드롭하려면 Shift를 누르세요"}},"nb":{"stringUnit":{"state":"translated","value":"Hold Skift for å slippe i redigereren"}},"pl":{"stringUnit":{"state":"translated","value":"Przytrzymaj Shift, aby upuścić w edytorze"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Segure Shift para soltar no editor"}},"ru":{"stringUnit":{"state":"translated","value":"Удерживайте Shift, чтобы перетащить в редактор"}},"th":{"stringUnit":{"state":"translated","value":"กด Shift ค้างไว้เพื่อวางในตัวแก้ไข"}},"tr":{"stringUnit":{"state":"translated","value":"Düzenleyiciye bırakmak için Shift tuşunu basılı tutun"}},"uk":{"stringUnit":{"state":"translated","value":"Утримуйте Shift, щоб скинути в редактор"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"按住 Shift 以拖放到编辑器"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"按住 Shift 以拖放到編輯器"}}} },
+    "fileDrop.holdShiftDropIntoTerminal": { "localizations": {"ar":{"stringUnit":{"state":"translated","value":"اضغط Shift للإفلات في الطرفية"}},"bs":{"stringUnit":{"state":"translated","value":"Držite Shift za ispuštanje u terminal"}},"da":{"stringUnit":{"state":"translated","value":"Hold Skift nede for at slippe i terminalen"}},"de":{"stringUnit":{"state":"translated","value":"Umschalt halten, um ins Terminal abzulegen"}},"en":{"stringUnit":{"state":"translated","value":"Hold Shift to drop into terminal"}},"es":{"stringUnit":{"state":"translated","value":"Mantén Shift para soltar en la terminal"}},"fr":{"stringUnit":{"state":"translated","value":"Maintenez Maj pour déposer dans le terminal"}},"it":{"stringUnit":{"state":"translated","value":"Tieni premuto Maiuscole per rilasciare nel terminale"}},"ja":{"stringUnit":{"state":"translated","value":"Shift キーを押したままターミナルにドロップ"}},"ko":{"stringUnit":{"state":"translated","value":"터미널에 드롭하려면 Shift를 누르세요"}},"nb":{"stringUnit":{"state":"translated","value":"Hold Skift for å slippe i terminalen"}},"pl":{"stringUnit":{"state":"translated","value":"Przytrzymaj Shift, aby upuścić w terminalu"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Segure Shift para soltar no terminal"}},"ru":{"stringUnit":{"state":"translated","value":"Удерживайте Shift, чтобы перетащить в терминал"}},"th":{"stringUnit":{"state":"translated","value":"กด Shift ค้างไว้เพื่อวางในเทอร์มินัล"}},"tr":{"stringUnit":{"state":"translated","value":"Terminale bırakmak için Shift tuşunu basılı tutun"}},"uk":{"stringUnit":{"state":"translated","value":"Утримуйте Shift, щоб скинути в термінал"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"按住 Shift 以拖放到终端"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"按住 Shift 以拖放到終端"}}} },
+    "fileDrop.holdShiftOpenAsSplit": { "localizations": {"ar":{"stringUnit":{"state":"translated","value":"اضغط Shift للفتح كتقسيم"}},"bs":{"stringUnit":{"state":"translated","value":"Držite Shift za otvaranje kao podjelu"}},"da":{"stringUnit":{"state":"translated","value":"Hold Skift nede for at åbne som split"}},"de":{"stringUnit":{"state":"translated","value":"Umschalt halten, um als Split zu öffnen"}},"en":{"stringUnit":{"state":"translated","value":"Hold Shift to open as split"}},"es":{"stringUnit":{"state":"translated","value":"Mantén Shift para abrir como división"}},"fr":{"stringUnit":{"state":"translated","value":"Maintenez Maj pour ouvrir en division"}},"it":{"stringUnit":{"state":"translated","value":"Tieni premuto Maiuscole per aprire come divisione"}},"ja":{"stringUnit":{"state":"translated","value":"Shift キーを押したまま分割で開く"}},"ko":{"stringUnit":{"state":"translated","value":"분할로 열려면 Shift를 누르세요"}},"nb":{"stringUnit":{"state":"translated","value":"Hold Skift for å åpne som delt visning"}},"pl":{"stringUnit":{"state":"translated","value":"Przytrzymaj Shift, aby otworzyć jako podział"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Segure Shift para abrir como divisão"}},"ru":{"stringUnit":{"state":"translated","value":"Удерживайте Shift, чтобы открыть как разделение"}},"th":{"stringUnit":{"state":"translated","value":"กด Shift ค้างไว้เพื่อเปิดแบบแบ่ง"}},"tr":{"stringUnit":{"state":"translated","value":"Bölünmüş görünüm olarak açmak için Shift tuşunu basılı tutun"}},"uk":{"stringUnit":{"state":"translated","value":"Утримуйте Shift, щоб відкрити як розділення"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"按住 Shift 以拆分打开"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"按住 Shift 以分割開啟"}}} },
+    "settings.app.fileDrop.defaultBehavior": { "localizations": {"ar":{"stringUnit":{"state":"translated","value":"إفلات الملفات"}},"bs":{"stringUnit":{"state":"translated","value":"Ispuštanje datoteka"}},"da":{"stringUnit":{"state":"translated","value":"Filslip"}},"de":{"stringUnit":{"state":"translated","value":"Dateiablagen"}},"en":{"stringUnit":{"state":"translated","value":"File Drops"}},"es":{"stringUnit":{"state":"translated","value":"Soltar archivos"}},"fr":{"stringUnit":{"state":"translated","value":"Dépôts de fichiers"}},"it":{"stringUnit":{"state":"translated","value":"Rilasci file"}},"ja":{"stringUnit":{"state":"translated","value":"ファイルドロップ"}},"ko":{"stringUnit":{"state":"translated","value":"파일 드롭"}},"nb":{"stringUnit":{"state":"translated","value":"Filslipp"}},"pl":{"stringUnit":{"state":"translated","value":"Upuszczanie plików"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Soltar arquivos"}},"ru":{"stringUnit":{"state":"translated","value":"Перетаскивание файлов"}},"th":{"stringUnit":{"state":"translated","value":"การวางไฟล์"}},"tr":{"stringUnit":{"state":"translated","value":"Dosya Bırakma"}},"uk":{"stringUnit":{"state":"translated","value":"Перетягування файлів"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"文件拖放"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"檔案拖放"}}} },
+    "settings.app.fileDrop.defaultBehavior.preview": { "localizations": {"ar":{"stringUnit":{"state":"translated","value":"فتح معاينة الملف"}},"bs":{"stringUnit":{"state":"translated","value":"Otvori pregled datoteke"}},"da":{"stringUnit":{"state":"translated","value":"Åbn filvisning"}},"de":{"stringUnit":{"state":"translated","value":"Dateivorschau öffnen"}},"en":{"stringUnit":{"state":"translated","value":"Open file preview"}},"es":{"stringUnit":{"state":"translated","value":"Abrir vista previa del archivo"}},"fr":{"stringUnit":{"state":"translated","value":"Ouvrir l’aperçu du fichier"}},"it":{"stringUnit":{"state":"translated","value":"Apri anteprima file"}},"ja":{"stringUnit":{"state":"translated","value":"ファイルプレビューを開く"}},"ko":{"stringUnit":{"state":"translated","value":"파일 미리보기 열기"}},"nb":{"stringUnit":{"state":"translated","value":"Åpne filforhåndsvisning"}},"pl":{"stringUnit":{"state":"translated","value":"Otwórz podgląd pliku"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Abrir pré-visualização do arquivo"}},"ru":{"stringUnit":{"state":"translated","value":"Открыть предпросмотр файла"}},"th":{"stringUnit":{"state":"translated","value":"เปิดตัวอย่างไฟล์"}},"tr":{"stringUnit":{"state":"translated","value":"Dosya önizlemesini aç"}},"uk":{"stringUnit":{"state":"translated","value":"Відкрити попередній перегляд файлу"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"打开文件预览"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"開啟檔案預覽"}}} },
+    "settings.app.fileDrop.defaultBehavior.preview.subtitle": { "localizations": {"ar":{"stringUnit":{"state":"translated","value":"يؤدي سحب الملفات إلى فتح المعاينات أو الأجزاء المقسمة. اضغط Shift فوق الطرفيات والمحررات لإدراج نص المسار."}},"bs":{"stringUnit":{"state":"translated","value":"Prevlačenje datoteka otvara preglede ili podijeljene panele. Držite Shift iznad terminala i editora za umetanje teksta putanje."}},"da":{"stringUnit":{"state":"translated","value":"Når filer trækkes ind, åbnes forhåndsvisninger eller splitpaneler. Hold Skift nede over terminaler og editorer for at indsætte stitekst."}},"de":{"stringUnit":{"state":"translated","value":"Gezogene Dateien öffnen Vorschauen oder Split-Bereiche. Halten Sie über Terminals und Editoren die Umschalttaste, um Pfadtext einzufügen."}},"en":{"stringUnit":{"state":"translated","value":"Dragging files opens previews or split panes. Hold Shift over terminals and editors to insert path text."}},"es":{"stringUnit":{"state":"translated","value":"Arrastrar archivos abre vistas previas o paneles divididos. Mantén Shift sobre terminales y editores para insertar texto de ruta."}},"fr":{"stringUnit":{"state":"translated","value":"Faire glisser des fichiers ouvre des aperçus ou des volets divisés. Maintenez Maj sur les terminaux et les éditeurs pour insérer le chemin sous forme de texte."}},"it":{"stringUnit":{"state":"translated","value":"Trascinare file apre anteprime o riquadri divisi. Tieni premuto Maiuscole sopra terminali ed editor per inserire il percorso come testo."}},"ja":{"stringUnit":{"state":"translated","value":"ファイルをドラッグするとプレビューまたは分割ペインで開きます。ターミナルやエディタ上で Shift キーを押したままにするとパス文字列を挿入します。"}},"ko":{"stringUnit":{"state":"translated","value":"파일을 드래그하면 미리보기 또는 분할 창이 열립니다. 터미널과 편집기 위에서 Shift를 누르면 경로 텍스트가 삽입됩니다."}},"nb":{"stringUnit":{"state":"translated","value":"Når filer dras inn, åpnes forhåndsvisninger eller delte ruter. Hold Skift over terminaler og redigerere for å sette inn stitekst."}},"pl":{"stringUnit":{"state":"translated","value":"Przeciąganie plików otwiera podglądy lub podzielone panele. Przytrzymaj Shift nad terminalami i edytorami, aby wstawić tekst ścieżki."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Arrastar arquivos abre pré-visualizações ou painéis divididos. Segure Shift sobre terminais e editores para inserir texto de caminho."}},"ru":{"stringUnit":{"state":"translated","value":"Перетаскивание файлов открывает предпросмотр или разделённые панели. Удерживайте Shift над терминалами и редакторами, чтобы вставить путь как текст."}},"th":{"stringUnit":{"state":"translated","value":"การลากไฟล์จะเปิดตัวอย่างหรือบานหน้าต่างแบบแบ่ง กด Shift ค้างไว้เหนือเทอร์มินัลและตัวแก้ไขเพื่อแทรกข้อความพาธ"}},"tr":{"stringUnit":{"state":"translated","value":"Dosyaları sürüklemek önizlemeleri veya bölünmüş bölmeleri açar. Yol metni eklemek için terminal ve düzenleyicilerin üzerinde Shift tuşunu basılı tutun."}},"uk":{"stringUnit":{"state":"translated","value":"Перетягування файлів відкриває попередній перегляд або розділені панелі. Утримуйте Shift над терміналами й редакторами, щоб вставити шлях як текст."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"拖入文件会打开预览或拆分窗格。在终端和编辑器上按住 Shift 可插入路径文本。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"拖入檔案會開啟預覽或分割窗格。在終端機和編輯器上按住 Shift 可插入路徑文字。"}}} },
+    "settings.app.fileDrop.defaultBehavior.text": { "localizations": {"ar":{"stringUnit":{"state":"translated","value":"إفلات نص المسار"}},"bs":{"stringUnit":{"state":"translated","value":"Ispusti tekst putanje"}},"da":{"stringUnit":{"state":"translated","value":"Slip stitekst"}},"de":{"stringUnit":{"state":"translated","value":"Pfadtext ablegen"}},"en":{"stringUnit":{"state":"translated","value":"Drop path text"}},"es":{"stringUnit":{"state":"translated","value":"Soltar texto de ruta"}},"fr":{"stringUnit":{"state":"translated","value":"Déposer le chemin en texte"}},"it":{"stringUnit":{"state":"translated","value":"Rilascia testo percorso"}},"ja":{"stringUnit":{"state":"translated","value":"パス文字列をドロップ"}},"ko":{"stringUnit":{"state":"translated","value":"경로 텍스트 드롭"}},"nb":{"stringUnit":{"state":"translated","value":"Slipp stitekst"}},"pl":{"stringUnit":{"state":"translated","value":"Upuść tekst ścieżki"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Soltar texto de caminho"}},"ru":{"stringUnit":{"state":"translated","value":"Перетащить путь как текст"}},"th":{"stringUnit":{"state":"translated","value":"วางข้อความพาธ"}},"tr":{"stringUnit":{"state":"translated","value":"Yol metnini bırak"}},"uk":{"stringUnit":{"state":"translated","value":"Скинути шлях як текст"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"拖放路径文本"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"拖放路徑文字"}}} },
+    "settings.app.fileDrop.defaultBehavior.text.subtitle": { "localizations": {"ar":{"stringUnit":{"state":"translated","value":"فوق الطرفيات والمحررات، يؤدي سحب الملفات إلى إدراج مسارات مهربة للصدفة. اضغط Shift لفتح معاينة ملف أو تقسيم."}},"bs":{"stringUnit":{"state":"translated","value":"Iznad terminala i editora, prevlačenje datoteka umeće shell-escapirane putanje. Držite Shift za otvaranje pregleda datoteke ili podjele."}},"da":{"stringUnit":{"state":"translated","value":"Over terminaler og editorer indsætter træk af filer shell-escaped stier. Hold Skift nede for at åbne en filvisning eller et split."}},"de":{"stringUnit":{"state":"translated","value":"Über Terminals und Editoren fügt das Ziehen von Dateien shell-escapte Pfade ein. Halten Sie Umschalt, um eine Dateivorschau oder einen Split zu öffnen."}},"en":{"stringUnit":{"state":"translated","value":"Over terminals and editors, dragging files inserts shell-escaped paths. Hold Shift to open a file preview or split."}},"es":{"stringUnit":{"state":"translated","value":"Sobre terminales y editores, arrastrar archivos inserta rutas escapadas para shell. Mantén Shift para abrir una vista previa del archivo o una división."}},"fr":{"stringUnit":{"state":"translated","value":"Sur les terminaux et les éditeurs, faire glisser des fichiers insère des chemins échappés pour le shell. Maintenez Maj pour ouvrir un aperçu de fichier ou une division."}},"it":{"stringUnit":{"state":"translated","value":"Sopra terminali ed editor, trascinare file inserisce percorsi con escape per la shell. Tieni premuto Maiuscole per aprire un’anteprima file o una divisione."}},"ja":{"stringUnit":{"state":"translated","value":"ターミナルやエディタ上では、ファイルをドラッグするとシェル用にエスケープされたパスを挿入します。Shift キーを押したままにするとファイルプレビューまたは分割で開きます。"}},"ko":{"stringUnit":{"state":"translated","value":"터미널과 편집기 위에서는 파일을 드래그하면 셸 이스케이프된 경로가 삽입됩니다. Shift를 누르면 파일 미리보기 또는 분할로 열립니다."}},"nb":{"stringUnit":{"state":"translated","value":"Over terminaler og redigerere setter dra-og-slipp av filer inn skall-escapede stier. Hold Skift for å åpne filforhåndsvisning eller delt visning."}},"pl":{"stringUnit":{"state":"translated","value":"Nad terminalami i edytorami przeciąganie plików wstawia ścieżki escapowane dla powłoki. Przytrzymaj Shift, aby otworzyć podgląd pliku lub podział."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Sobre terminais e editores, arrastar arquivos insere caminhos escapados para shell. Segure Shift para abrir uma pré-visualização do arquivo ou uma divisão."}},"ru":{"stringUnit":{"state":"translated","value":"Над терминалами и редакторами перетаскивание файлов вставляет пути с экранированием для shell. Удерживайте Shift, чтобы открыть предпросмотр файла или разделение."}},"th":{"stringUnit":{"state":"translated","value":"เหนือเทอร์มินัลและตัวแก้ไข การลากไฟล์จะแทรกพาธที่ escape สำหรับเชลล์ กด Shift ค้างไว้เพื่อเปิดตัวอย่างไฟล์หรือแบ่งหน้าต่าง"}},"tr":{"stringUnit":{"state":"translated","value":"Terminal ve düzenleyicilerin üzerinde dosya sürüklemek shell için kaçışlanmış yollar ekler. Dosya önizlemesi veya bölünmüş görünüm açmak için Shift tuşunu basılı tutun."}},"uk":{"stringUnit":{"state":"translated","value":"Над терміналами й редакторами перетягування файлів вставляє шляхи з екрануванням для shell. Утримуйте Shift, щоб відкрити попередній перегляд файлу або розділення."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"在终端和编辑器上拖入文件会插入经过 shell 转义的路径。按住 Shift 可打开文件预览或拆分。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"在終端機和編輯器上拖入檔案會插入經過 shell 跳脫的路徑。按住 Shift 可開啟檔案預覽或分割。"}}} },
     "debug.bonsplitTabBarDebug.actionLaneBorder": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Action Lane Border" } }, "ja": { "stringUnit": { "state": "translated", "value": "アクションレーンの境界線" } } } },
     "debug.bonsplitTabBarDebug.actionLaneGeometry": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Action Lane Geometry" } }, "ja": { "stringUnit": { "state": "translated", "value": "アクションレーンのジオメトリ" } } } },
     "debug.bonsplitTabBarDebug.contentFade": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Content fade" } }, "ja": { "stringUnit": { "state": "translated", "value": "コンテンツのフェード" } } } },
@@ -85922,6 +85930,40 @@
         }
       }
     },
+    "fileExplorer.contextMenu.insertPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Insert Path"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスを挿入"
+          }
+        }
+      }
+    },
+    "fileExplorer.contextMenu.insertRelativePath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Insert Relative Path"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "相対パスを挿入"
+          }
+        }
+      }
+    },
     "fileExplorer.contextMenu.openDefault": {
       "extractionState": "manual",
       "localizations": {
@@ -105248,6 +105290,57 @@
         }
       }
     },
+    "settings.terminal.agentAutoResume": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resume Agent Sessions on Reopen"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再起動時にエージェントセッションを再開"
+          }
+        }
+      }
+    },
+    "settings.terminal.agentAutoResume.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When cmux reopens after quit, restored agent terminals stay idle until you resume them manually."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux を終了後に再度開いたとき、復元されたエージェント端末は手動で再開するまで待機します。"
+          }
+        }
+      }
+    },
+    "settings.terminal.agentAutoResume.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When cmux reopens after quit, restored agent terminals automatically run their resume command."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux を終了後に再度開いたとき、復元されたエージェント端末で再開コマンドを自動実行します。"
+          }
+        }
+      }
+    },
     "settings.app.openMarkdownInCmuxViewer": {
       "extractionState": "manual",
       "localizations": {
@@ -105474,6 +105567,23 @@
         }
       }
     },
+    "sessionIndex.agent.pi": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        }
+      }
+    },
     "sessionIndex.agent.rovodev": {
       "extractionState": "manual",
       "localizations": {
@@ -105493,6 +105603,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Rovo Dev"
+          }
+        }
+      }
+    },
+    "sessionIndex.agent.hermesAgent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hermes Agent"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hermes Agent"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hermes Agent"
           }
         }
       }

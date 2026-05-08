@@ -60,7 +60,8 @@ const settingsFileExample = `{
   // },
 
   // "terminal": {
-  //   "showScrollBar": false
+  //   "showScrollBar": false,
+  //   "autoResumeAgentSessions": true
   // },
 
   // "browser": {
