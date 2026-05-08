@@ -1026,9 +1026,11 @@ final class FileExplorerStore: ObservableObject {
                     self.setRootPath(homePath)
                 }
             } catch {
-                await MainActor.run { [weak self] in
+                await MainActor.run { [weak self, weak sshProvider] in
                     guard let self,
-                          self.remoteHomeResolutionKey == resolutionKey else { return }
+                          let sshProvider,
+                          self.remoteHomeResolutionKey == resolutionKey,
+                          self.provider === sshProvider else { return }
                     self.remoteHomeResolutionKey = nil
                     self.remoteHomeResolutionTask = nil
                     self.setRootPath("")

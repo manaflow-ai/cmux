@@ -1015,22 +1015,27 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                     )
                     .eraseToAnyPublisher()
                 }
-                let signals: [AnyPublisher<Void, Never>] = [
-                    workspace.$currentDirectory.map { _ in () }.eraseToAnyPublisher(),
-                    workspace.$remoteConfiguration.map { _ in () }.eraseToAnyPublisher(),
-                    workspace.$remoteConnectionState.map { _ in () }.eraseToAnyPublisher(),
-                    workspace.$remoteConnectionDetail.map { _ in () }.eraseToAnyPublisher(),
-                    workspace.$remoteDaemonStatus.map { _ in () }.eraseToAnyPublisher(),
-                ]
-                return Publishers.MergeMany(signals)
-                    .map {
+                return workspace.$currentDirectory
+                    .combineLatest(
+                        workspace.$remoteConfiguration,
+                        workspace.$remoteConnectionState,
+                        workspace.$remoteConnectionDetail
+                    )
+                    .combineLatest(workspace.$remoteDaemonStatus)
+                    .map { values, remoteDaemonStatus in
+                        let (
+                            currentDirectory,
+                            remoteConfiguration,
+                            remoteConnectionState,
+                            remoteConnectionDetail
+                        ) = values
                         Snapshot(
                             workspaceId: workspace.id,
-                            currentDirectory: workspace.currentDirectory,
-                            remoteConfiguration: workspace.remoteConfiguration,
-                            remoteConnectionState: workspace.remoteConnectionState,
-                            remoteConnectionDetail: workspace.remoteConnectionDetail,
-                            remoteDaemonStatus: workspace.remoteDaemonStatus
+                            currentDirectory: currentDirectory,
+                            remoteConfiguration: remoteConfiguration,
+                            remoteConnectionState: remoteConnectionState,
+                            remoteConnectionDetail: remoteConnectionDetail,
+                            remoteDaemonStatus: remoteDaemonStatus
                         )
                     }
                     .eraseToAnyPublisher()
