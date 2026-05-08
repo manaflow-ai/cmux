@@ -1145,19 +1145,22 @@ final class BrowserNewTabNavigationSeedTests: XCTestCase {
 @MainActor
 final class BrowserPanelRemoteStoreTests: XCTestCase {
     func testRemoteWorkspacePanelsShareWorkspaceScopedWebsiteDataStore() {
+        let defaultProfileId = BrowserProfileStore.shared.builtInDefaultProfileID
         let localPanel = BrowserPanel(
             workspaceId: UUID(),
-            profileID: BrowserProfileStore.shared.builtInDefaultProfileID,
+            profileID: defaultProfileId,
             isRemoteWorkspace: false
         )
         let remoteWorkspaceId = UUID()
         let firstRemotePanel = BrowserPanel(
             workspaceId: remoteWorkspaceId,
+            profileID: defaultProfileId,
             isRemoteWorkspace: true,
             remoteWebsiteDataStoreIdentifier: remoteWorkspaceId
         )
         let secondRemotePanel = BrowserPanel(
             workspaceId: remoteWorkspaceId,
+            profileID: defaultProfileId,
             isRemoteWorkspace: true,
             remoteWebsiteDataStoreIdentifier: remoteWorkspaceId
         )
@@ -1170,33 +1173,135 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
         )
     }
 
+    func testRemoteWorkspacePanelsKeepProfileScopedWebsiteDataStores() throws {
+        let remoteWorkspaceId = UUID()
+        let previousLastUsedProfileId = BrowserProfileStore.shared.effectiveLastUsedProfileID
+        let alternateProfile = try XCTUnwrap(
+            BrowserProfileStore.shared.createProfile(named: "Remote Store \(UUID().uuidString)")
+        )
+        defer { BrowserProfileStore.shared.noteUsed(previousLastUsedProfileId) }
+        let defaultProfileId = BrowserProfileStore.shared.builtInDefaultProfileID
+        let defaultPanel = BrowserPanel(
+            workspaceId: remoteWorkspaceId,
+            profileID: defaultProfileId,
+            isRemoteWorkspace: true,
+            remoteWebsiteDataStoreIdentifier: remoteWorkspaceId
+        )
+        let alternatePanel = BrowserPanel(
+            workspaceId: remoteWorkspaceId,
+            profileID: alternateProfile.id,
+            isRemoteWorkspace: true,
+            remoteWebsiteDataStoreIdentifier: remoteWorkspaceId
+        )
+
+        XCTAssertFalse(defaultPanel.webView.configuration.websiteDataStore === WKWebsiteDataStore.default())
+        XCTAssertFalse(
+            defaultPanel.webView.configuration.websiteDataStore ===
+                alternatePanel.webView.configuration.websiteDataStore
+        )
+#if DEBUG
+        XCTAssertEqual(
+            BrowserPanel.debugRemoteWorkspaceWebsiteDataStoreLeaseCount(
+                for: remoteWorkspaceId,
+                profileID: defaultProfileId
+            ),
+            1
+        )
+        XCTAssertEqual(
+            BrowserPanel.debugRemoteWorkspaceWebsiteDataStoreLeaseCount(
+                for: remoteWorkspaceId,
+                profileID: alternateProfile.id
+            ),
+            1
+        )
+#endif
+    }
+
+    func testRemoteWorkspaceProfileSwitchRebuildsProfileScopedWebsiteDataStore() throws {
+        let remoteWorkspaceId = UUID()
+        let previousLastUsedProfileId = BrowserProfileStore.shared.effectiveLastUsedProfileID
+        let alternateProfile = try XCTUnwrap(
+            BrowserProfileStore.shared.createProfile(named: "Remote Switch \(UUID().uuidString)")
+        )
+        defer { BrowserProfileStore.shared.noteUsed(previousLastUsedProfileId) }
+        let defaultProfileId = BrowserProfileStore.shared.builtInDefaultProfileID
+        let panel = BrowserPanel(
+            workspaceId: remoteWorkspaceId,
+            profileID: defaultProfileId,
+            isRemoteWorkspace: true,
+            remoteWebsiteDataStoreIdentifier: remoteWorkspaceId
+        )
+        let defaultStore = panel.webView.configuration.websiteDataStore
+
+        XCTAssertTrue(panel.switchToProfile(alternateProfile.id))
+        XCTAssertFalse(panel.webView.configuration.websiteDataStore === defaultStore)
+        XCTAssertFalse(panel.webView.configuration.websiteDataStore === WKWebsiteDataStore.default())
+#if DEBUG
+        XCTAssertEqual(
+            BrowserPanel.debugRemoteWorkspaceWebsiteDataStoreLeaseCount(
+                for: remoteWorkspaceId,
+                profileID: defaultProfileId
+            ),
+            0
+        )
+        XCTAssertEqual(
+            BrowserPanel.debugRemoteWorkspaceWebsiteDataStoreLeaseCount(
+                for: remoteWorkspaceId,
+                profileID: alternateProfile.id
+            ),
+            1
+        )
+#endif
+    }
+
     func testRemoteWorkspaceWebsiteDataStoreCacheReleasesClosedPanels() {
         let remoteWorkspaceId = UUID()
+        let defaultProfileId = BrowserProfileStore.shared.builtInDefaultProfileID
         let firstRemotePanel = BrowserPanel(
             workspaceId: remoteWorkspaceId,
+            profileID: defaultProfileId,
             isRemoteWorkspace: true,
             remoteWebsiteDataStoreIdentifier: remoteWorkspaceId
         )
         let secondRemotePanel = BrowserPanel(
             workspaceId: remoteWorkspaceId,
+            profileID: defaultProfileId,
             isRemoteWorkspace: true,
             remoteWebsiteDataStoreIdentifier: remoteWorkspaceId
         )
 
 #if DEBUG
-        XCTAssertEqual(BrowserPanel.debugRemoteWorkspaceWebsiteDataStoreLeaseCount(for: remoteWorkspaceId), 2)
+        XCTAssertEqual(
+            BrowserPanel.debugRemoteWorkspaceWebsiteDataStoreLeaseCount(
+                for: remoteWorkspaceId,
+                profileID: defaultProfileId
+            ),
+            2
+        )
 #endif
 
         firstRemotePanel.close()
 
 #if DEBUG
-        XCTAssertEqual(BrowserPanel.debugRemoteWorkspaceWebsiteDataStoreLeaseCount(for: remoteWorkspaceId), 1)
+        XCTAssertEqual(
+            BrowserPanel.debugRemoteWorkspaceWebsiteDataStoreLeaseCount(
+                for: remoteWorkspaceId,
+                profileID: defaultProfileId
+            ),
+            1
+        )
 #endif
 
         secondRemotePanel.close()
 
 #if DEBUG
-        XCTAssertEqual(BrowserPanel.debugRemoteWorkspaceWebsiteDataStoreLeaseCount(for: remoteWorkspaceId), 0)
+        XCTAssertEqual(
+            BrowserPanel.debugRemoteWorkspaceWebsiteDataStoreLeaseCount(
+                for: remoteWorkspaceId,
+                profileID: defaultProfileId
+            ),
+            0
+        )
 #endif
     }
 

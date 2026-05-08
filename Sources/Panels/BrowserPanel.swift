@@ -1798,13 +1798,31 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// Shared process pool for cookie sharing across all browser panels
     private static let sharedProcessPool = WKProcessPool()
+    private struct RemoteWorkspaceWebsiteDataStoreKey: Hashable {
+        let workspaceIdentifier: UUID
+        let profileID: UUID
+
+        var websiteDataStoreIdentifier: UUID {
+            let seed = "\(workspaceIdentifier.uuidString.lowercased())|\(profileID.uuidString.lowercased())"
+            var bytes = Array(SHA256.hash(data: Data(seed.utf8)).prefix(16))
+            bytes[6] = (bytes[6] & 0x0F) | 0x50
+            bytes[8] = (bytes[8] & 0x3F) | 0x80
+            return UUID(uuid: (
+                bytes[0], bytes[1], bytes[2], bytes[3],
+                bytes[4], bytes[5], bytes[6], bytes[7],
+                bytes[8], bytes[9], bytes[10], bytes[11],
+                bytes[12], bytes[13], bytes[14], bytes[15]
+            ))
+        }
+    }
+
     private struct RemoteWorkspaceWebsiteDataStoreLease {
         let store: WKWebsiteDataStore
         var referenceCount: Int
     }
 
     @MainActor
-    private static var remoteWorkspaceWebsiteDataStores: [UUID: RemoteWorkspaceWebsiteDataStoreLease] = [:]
+    private static var remoteWorkspaceWebsiteDataStores: [RemoteWorkspaceWebsiteDataStoreKey: RemoteWorkspaceWebsiteDataStoreLease] = [:]
 
     /// Popup windows owned by this panel (for lifecycle cleanup)
     private var popupControllers: [BrowserPopupWindowController] = []
@@ -2342,7 +2360,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private let developerToolsRestoreRetryDelay: TimeInterval = 0.05
     private let developerToolsRestoreRetryMaxAttempts: Int = 40
     private var remoteProxyEndpoint: BrowserProxyEndpoint?
-    private var remoteWebsiteDataStoreIdentifier: UUID?
+    private var remoteWebsiteDataStoreKey: RemoteWorkspaceWebsiteDataStoreKey?
     @Published private(set) var remoteWorkspaceStatus: BrowserRemoteWorkspaceStatus?
     private var usesRemoteWorkspaceProxy: Bool
     private struct PendingRemoteNavigation {
@@ -2591,46 +2609,53 @@ final class BrowserPanel: Panel, ObservableObject {
         return webView
     }
 
-    private static func acquireWebsiteDataStore(forRemoteWorkspace identifier: UUID) -> WKWebsiteDataStore {
-        if var existing = remoteWorkspaceWebsiteDataStores[identifier] {
+    @MainActor
+    private static func acquireWebsiteDataStore(forRemoteWorkspace key: RemoteWorkspaceWebsiteDataStoreKey) -> WKWebsiteDataStore {
+        if var existing = remoteWorkspaceWebsiteDataStores[key] {
             existing.referenceCount += 1
-            remoteWorkspaceWebsiteDataStores[identifier] = existing
+            remoteWorkspaceWebsiteDataStores[key] = existing
             return existing.store
         }
-        let store = WKWebsiteDataStore(forIdentifier: identifier)
-        remoteWorkspaceWebsiteDataStores[identifier] = RemoteWorkspaceWebsiteDataStoreLease(
+        let store = WKWebsiteDataStore(forIdentifier: key.websiteDataStoreIdentifier)
+        remoteWorkspaceWebsiteDataStores[key] = RemoteWorkspaceWebsiteDataStoreLease(
             store: store,
             referenceCount: 1
         )
         return store
     }
 
-    private static func releaseWebsiteDataStore(forRemoteWorkspace identifier: UUID) {
-        guard var existing = remoteWorkspaceWebsiteDataStores[identifier] else { return }
+    @MainActor
+    private static func releaseWebsiteDataStore(forRemoteWorkspace key: RemoteWorkspaceWebsiteDataStoreKey) {
+        guard var existing = remoteWorkspaceWebsiteDataStores[key] else { return }
         guard existing.referenceCount > 0 else {
 #if DEBUG
-            assertionFailure("Remote workspace website data store lease underflow for \(identifier)")
+            assertionFailure("Remote workspace website data store lease underflow for \(key.workspaceIdentifier)")
 #endif
-            remoteWorkspaceWebsiteDataStores.removeValue(forKey: identifier)
+            remoteWorkspaceWebsiteDataStores.removeValue(forKey: key)
             return
         }
         existing.referenceCount -= 1
         if existing.referenceCount > 0 {
-            remoteWorkspaceWebsiteDataStores[identifier] = existing
+            remoteWorkspaceWebsiteDataStores[key] = existing
         } else {
-            remoteWorkspaceWebsiteDataStores.removeValue(forKey: identifier)
+            remoteWorkspaceWebsiteDataStores.removeValue(forKey: key)
         }
     }
 
     private func releaseRemoteWebsiteDataStoreIfNeeded() {
-        guard let identifier = remoteWebsiteDataStoreIdentifier else { return }
-        remoteWebsiteDataStoreIdentifier = nil
-        Self.releaseWebsiteDataStore(forRemoteWorkspace: identifier)
+        guard let key = remoteWebsiteDataStoreKey else { return }
+        remoteWebsiteDataStoreKey = nil
+        Self.releaseWebsiteDataStore(forRemoteWorkspace: key)
     }
 
 #if DEBUG
-    static func debugRemoteWorkspaceWebsiteDataStoreLeaseCount(for identifier: UUID) -> Int {
-        remoteWorkspaceWebsiteDataStores[identifier]?.referenceCount ?? 0
+    @MainActor
+    static func debugRemoteWorkspaceWebsiteDataStoreLeaseCount(
+        for identifier: UUID,
+        profileID: UUID
+    ) -> Int {
+        let key = RemoteWorkspaceWebsiteDataStoreKey(workspaceIdentifier: identifier, profileID: profileID)
+        return remoteWorkspaceWebsiteDataStores[key]?.referenceCount ?? 0
     }
 #endif
 
@@ -2761,10 +2786,14 @@ final class BrowserPanel: Panel, ObservableObject {
         self.browserThemeMode = BrowserThemeSettings.mode()
         if isRemoteWorkspace {
             let identifier = remoteWebsiteDataStoreIdentifier ?? workspaceId
-            self.remoteWebsiteDataStoreIdentifier = identifier
-            self.websiteDataStore = Self.acquireWebsiteDataStore(forRemoteWorkspace: identifier)
+            let key = RemoteWorkspaceWebsiteDataStoreKey(
+                workspaceIdentifier: identifier,
+                profileID: resolvedProfileID
+            )
+            self.remoteWebsiteDataStoreKey = key
+            self.websiteDataStore = Self.acquireWebsiteDataStore(forRemoteWorkspace: key)
         } else {
-            self.remoteWebsiteDataStoreIdentifier = nil
+            self.remoteWebsiteDataStoreKey = nil
             self.websiteDataStore = BrowserProfileStore.shared.websiteDataStore(for: resolvedProfileID)
         }
 
@@ -2970,22 +2999,25 @@ final class BrowserPanel: Panel, ObservableObject {
         remoteStatus: BrowserRemoteWorkspaceStatus?
     ) {
         workspaceId = newWorkspaceId
-        let previousRemoteIdentifier = self.remoteWebsiteDataStoreIdentifier
-        let targetRemoteIdentifier = isRemoteWorkspace
-            ? (remoteWebsiteDataStoreIdentifier ?? newWorkspaceId)
+        let previousRemoteKey = self.remoteWebsiteDataStoreKey
+        let targetRemoteKey = isRemoteWorkspace
+            ? RemoteWorkspaceWebsiteDataStoreKey(
+                workspaceIdentifier: remoteWebsiteDataStoreIdentifier ?? newWorkspaceId,
+                profileID: profileID
+            )
             : nil
         let targetStore: WKWebsiteDataStore
-        if let targetRemoteIdentifier {
-            if previousRemoteIdentifier == targetRemoteIdentifier {
+        if let targetRemoteKey {
+            if previousRemoteKey == targetRemoteKey {
                 targetStore = websiteDataStore
             } else {
-                targetStore = Self.acquireWebsiteDataStore(forRemoteWorkspace: targetRemoteIdentifier)
+                targetStore = Self.acquireWebsiteDataStore(forRemoteWorkspace: targetRemoteKey)
             }
         } else {
             targetStore = BrowserProfileStore.shared.websiteDataStore(for: profileID)
         }
         let needsStoreSwap = webView.configuration.websiteDataStore !== targetStore
-        self.remoteWebsiteDataStoreIdentifier = targetRemoteIdentifier
+        self.remoteWebsiteDataStoreKey = targetRemoteKey
         websiteDataStore = targetStore
         usesRemoteWorkspaceProxy = isRemoteWorkspace
         remoteProxyEndpoint = proxyEndpoint
@@ -2997,8 +3029,8 @@ final class BrowserPanel: Panel, ObservableObject {
                 reason: "workspace_reattach"
             )
         }
-        if let previousRemoteIdentifier, previousRemoteIdentifier != targetRemoteIdentifier {
-            Self.releaseWebsiteDataStore(forRemoteWorkspace: previousRemoteIdentifier)
+        if let previousRemoteKey, previousRemoteKey != targetRemoteKey {
+            Self.releaseWebsiteDataStore(forRemoteWorkspace: previousRemoteKey)
         }
         applyRemoteProxyConfigurationIfAvailable()
         resumePendingRemoteNavigationIfNeeded()
@@ -3023,6 +3055,7 @@ final class BrowserPanel: Panel, ObservableObject {
         let historyCurrentURL = preferredURLStringForOmnibar()
         let desiredZoom = max(minPageZoom, min(maxPageZoom, previousWebView.pageZoom))
         let restoreDeveloperTools = preferredDeveloperToolsVisible || isDeveloperToolsVisible()
+        let previousRemoteKey = remoteWebsiteDataStoreKey
 
         invalidateSearchFocusRequests(reason: "profileSwitch")
         searchState = nil
@@ -3047,8 +3080,27 @@ final class BrowserPanel: Panel, ObservableObject {
         historyStore = BrowserProfileStore.shared.historyStore(for: resolvedProfileID)
         BrowserProfileStore.shared.noteUsed(resolvedProfileID)
 
-        if !usesRemoteWorkspaceProxy {
+        if usesRemoteWorkspaceProxy {
+            let workspaceIdentifier = previousRemoteKey?.workspaceIdentifier ?? workspaceId
+            let nextRemoteKey = RemoteWorkspaceWebsiteDataStoreKey(
+                workspaceIdentifier: workspaceIdentifier,
+                profileID: resolvedProfileID
+            )
+            if previousRemoteKey == nextRemoteKey {
+                websiteDataStore = previousWebView.configuration.websiteDataStore
+            } else {
+                websiteDataStore = Self.acquireWebsiteDataStore(forRemoteWorkspace: nextRemoteKey)
+            }
+            remoteWebsiteDataStoreKey = nextRemoteKey
+            if let previousRemoteKey, previousRemoteKey != nextRemoteKey {
+                Self.releaseWebsiteDataStore(forRemoteWorkspace: previousRemoteKey)
+            }
+        } else {
+            remoteWebsiteDataStoreKey = nil
             websiteDataStore = BrowserProfileStore.shared.websiteDataStore(for: resolvedProfileID)
+            if let previousRemoteKey {
+                Self.releaseWebsiteDataStore(forRemoteWorkspace: previousRemoteKey)
+            }
         }
 
         let replacement = Self.makeWebView(
@@ -4178,11 +4230,11 @@ final class BrowserPanel: Panel, ObservableObject {
         webViewObservers.removeAll()
         webViewCancellables.removeAll()
         let webView = webView
-        let remoteWebsiteDataStoreIdentifier = remoteWebsiteDataStoreIdentifier
+        let remoteWebsiteDataStoreKey = remoteWebsiteDataStoreKey
         Task { @MainActor in
             BrowserWindowPortalRegistry.detach(webView: webView)
-            if let remoteWebsiteDataStoreIdentifier {
-                Self.releaseWebsiteDataStore(forRemoteWorkspace: remoteWebsiteDataStoreIdentifier)
+            if let remoteWebsiteDataStoreKey {
+                Self.releaseWebsiteDataStore(forRemoteWorkspace: remoteWebsiteDataStoreKey)
             }
         }
     }
@@ -5112,7 +5164,9 @@ extension BrowserPanel {
         let config = WKSnapshotConfiguration()
         webView.takeSnapshot(with: config) { image, error in
             if let error = error {
+#if DEBUG
                 NSLog("BrowserPanel snapshot error: %@", error.localizedDescription)
+#endif
                 completion(nil)
                 return
             }
@@ -5215,7 +5269,9 @@ extension BrowserPanel {
                 let result = try await self.webView.evaluateJavaScript(js)
                 self.parseFindResult(result)
             } catch {
+#if DEBUG
                 NSLog("Find: browser JS search error: %@", error.localizedDescription)
+#endif
             }
         }
     }
@@ -5226,7 +5282,9 @@ extension BrowserPanel {
             do {
                 _ = try await self.webView.evaluateJavaScript(BrowserFindJavaScript.clearScript())
             } catch {
+#if DEBUG
                 NSLog("Find: browser JS clear error: %@", error.localizedDescription)
+#endif
             }
         }
     }
@@ -6076,8 +6134,8 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
         }
         #if DEBUG
         cmuxDebugLog("download.decideDestination file=\(safeFilename)")
-        #endif
         NSLog("BrowserPanel download: temp path=%@", destURL.path)
+        #endif
         completionHandler(destURL)
     }
 
@@ -6090,8 +6148,8 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
         }
         #if DEBUG
         cmuxDebugLog("download.finished file=\(info.suggestedFilename)")
-        #endif
         NSLog("BrowserPanel download finished: %@", info.suggestedFilename)
+        #endif
 
         // Show NSSavePanel on the next runloop iteration (safe context).
         DispatchQueue.main.async {
@@ -6109,9 +6167,13 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
                 do {
                     try? FileManager.default.removeItem(at: destURL)
                     try FileManager.default.moveItem(at: info.tempURL, to: destURL)
+#if DEBUG
                     NSLog("BrowserPanel download saved: %@", destURL.path)
+#endif
                 } catch {
+#if DEBUG
                     NSLog("BrowserPanel download move failed: %@", error.localizedDescription)
+#endif
                     try? FileManager.default.removeItem(at: info.tempURL)
                 }
             }
@@ -6127,8 +6189,8 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
         }
         #if DEBUG
         cmuxDebugLog("download.failed error=\(error.localizedDescription)")
-        #endif
         NSLog("BrowserPanel download failed: %@", error.localizedDescription)
+        #endif
     }
 }
 
@@ -6363,7 +6425,9 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+#if DEBUG
         NSLog("BrowserPanel navigation failed: %@", error.localizedDescription)
+#endif
         // Treat committed-navigation failures the same as provisional ones so
         // stale favicon/title state from the prior page gets cleared.
         let failedURL = webView.url?.absoluteString ?? ""
@@ -6372,7 +6436,9 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         let nsError = error as NSError
+#if DEBUG
         NSLog("BrowserPanel provisional navigation failed: %@", error.localizedDescription)
+#endif
 
         // Cancelled navigations (e.g. rapid typing) are not real errors.
         if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled {
@@ -6571,7 +6637,9 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
            browserShouldOpenURLExternally(url) {
             let opened = NSWorkspace.shared.open(url)
             if !opened {
+#if DEBUG
                 NSLog("BrowserPanel external navigation failed to open URL: %@", url.absoluteString)
+#endif
             }
             #if DEBUG
             cmuxDebugLog("browser.navigation.external source=navDelegate opened=\(opened ? 1 : 0) url=\(url.absoluteString)")
@@ -6639,9 +6707,11 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
             return
         }
 
+#if DEBUG
         NSLog("BrowserPanel navigationResponse: url=%@ mime=%@ canShow=%d isMainFrame=%d",
               responseURL, mime, canShow ? 1 : 0,
               navigationResponse.isForMainFrame ? 1 : 0)
+#endif
 
         // Check if this response should be treated as a download.
         // Criteria: explicit Content-Disposition: attachment, or a MIME type
@@ -6649,8 +6719,8 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         if let response = navigationResponse.response as? HTTPURLResponse {
             let contentDisposition = response.value(forHTTPHeaderField: "Content-Disposition") ?? ""
             if contentDisposition.lowercased().hasPrefix("attachment") {
-                NSLog("BrowserPanel download: content-disposition=attachment mime=%@ url=%@", mime, responseURL)
                 #if DEBUG
+                NSLog("BrowserPanel download: content-disposition=attachment mime=%@ url=%@", mime, responseURL)
                 cmuxDebugLog("download.policy=download reason=content-disposition mime=\(mime)")
                 #endif
                 decisionHandler(.download)
@@ -6659,8 +6729,8 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         }
 
         if !canShow {
-            NSLog("BrowserPanel download: cannotShowMIME mime=%@ url=%@", mime, responseURL)
             #if DEBUG
+            NSLog("BrowserPanel download: cannotShowMIME mime=%@ url=%@", mime, responseURL)
             cmuxDebugLog("download.policy=download reason=cannotShowMIME mime=\(mime)")
             #endif
             decisionHandler(.download)
@@ -6673,16 +6743,16 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
         #if DEBUG
         cmuxDebugLog("download.didBecome source=navigationAction")
-        #endif
         NSLog("BrowserPanel download didBecome from navigationAction")
+        #endif
         download.delegate = downloadDelegate
     }
 
     func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
         #if DEBUG
         cmuxDebugLog("download.didBecome source=navigationResponse")
-        #endif
         NSLog("BrowserPanel download didBecome from navigationResponse")
+        #endif
         download.delegate = downloadDelegate
     }
 }
@@ -6754,7 +6824,9 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
            browserShouldOpenURLExternally(url) {
             let opened = NSWorkspace.shared.open(url)
             if !opened {
+#if DEBUG
                 NSLog("BrowserPanel external navigation failed to open URL: %@", url.absoluteString)
+#endif
             }
             #if DEBUG
             cmuxDebugLog("browser.navigation.external source=uiDelegate opened=\(opened ? 1 : 0) url=\(browserNavigationDebugURL(url))")

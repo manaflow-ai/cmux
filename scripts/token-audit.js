@@ -134,23 +134,32 @@ function auditStylesheet(file) {
   return violations;
 }
 
-const files = changedStylesheets();
-if (files.length === 0) {
-  console.log("token-audit: no changed stylesheet files to audit");
-  process.exit(0);
+function main() {
+  const files = changedStylesheets();
+  if (files.length === 0) {
+    console.log("token-audit: no changed stylesheet files to audit");
+    process.exit(0);
+  }
+
+  const violations = files.flatMap(auditStylesheet);
+  if (violations.length === 0) {
+    console.log(`token-audit: audited ${files.length} changed stylesheet file(s); no raw CSS values found`);
+    process.exit(0);
+  }
+
+  console.error("token-audit: raw CSS values found in changed stylesheet files");
+  for (const violation of violations) {
+    console.error(
+      `${violation.file}:${violation.line} ${violation.property}: ${violation.value} ` +
+        "(use var(--token-name))"
+    );
+  }
+  process.exit(1);
 }
 
-const violations = files.flatMap(auditStylesheet);
-if (violations.length === 0) {
-  console.log(`token-audit: audited ${files.length} changed stylesheet file(s); no raw CSS values found`);
-  process.exit(0);
+try {
+  main();
+} catch (error) {
+  console.error(error?.message || String(error));
+  process.exit(2);
 }
-
-console.error("token-audit: raw CSS values found in changed stylesheet files");
-for (const violation of violations) {
-  console.error(
-    `${violation.file}:${violation.line} ${violation.property}: ${violation.value} ` +
-      "(use var(--token-name))"
-  );
-}
-process.exit(1);
