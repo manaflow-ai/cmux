@@ -121,8 +121,8 @@ def _run_cli_json(cli: str, args: list[str]) -> dict:
         raise cmuxError(f"cmux {' '.join(args)} failed: {(proc.stdout + proc.stderr).strip()}")
     try:
         return json.loads(proc.stdout or "{}")
-    except Exception as exc:
-        raise cmuxError(f"Invalid JSON output for {' '.join(args)}: {proc.stdout!r} ({exc})")
+    except json.JSONDecodeError as exc:
+        raise cmuxError(f"Invalid JSON output for {' '.join(args)}: {proc.stdout!r} ({exc})") from exc
 
 
 def _resolve_workspace_id(client: cmux, payload: dict) -> str:

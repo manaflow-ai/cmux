@@ -214,24 +214,10 @@ extension FileDropOverlayView {
     }
 
     private func insert(_ urls: [URL], into terminal: GhosttyNSView) -> Bool {
-        let handled = terminal.handleDroppedFileURLs(urls)
-        guard handled,
-              let workspaceId = terminal.tabId,
-              let terminalSurfaceId = terminal.terminalSurface?.id,
-              let workspace = AppDelegate.shared?.workspaceFor(tabId: workspaceId),
-              let panelId = FileDropTextDropController.panelIdForTerminalDropFocus(
-                terminalSurfaceId: terminalSurfaceId,
-                workspace: workspace
-              ) else {
-            return handled
-        }
-        FileDropTextDropController.focusPanelAfterSuccessfulTextDrop(
-            workspace: workspace,
-            panelId: panelId,
-            focusIntent: .terminal(.surface),
-            window: terminal.window
+        FileDropTextDropController.performTerminalFileDrop(
+            terminal: terminal,
+            urls: urls
         )
-        return true
     }
 
     /// Hit-tests the window to find a WKWebView (browser panel) under the cursor.

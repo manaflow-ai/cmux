@@ -274,7 +274,7 @@ final class PaneDropTargetView: NSView {
         workspace: Workspace
     ) -> Bool {
         if let hostedView {
-            return FileDropTextDropController.performTerminalTextDrop(
+            return FileDropTextDropController.performTerminalFileDrop(
                 workspace: workspace,
                 panelId: context.panelId,
                 hostedView: hostedView,
@@ -289,7 +289,7 @@ final class PaneDropTargetView: NSView {
             return false
         }
         if let terminalPanel = panel as? TerminalPanel {
-            return FileDropTextDropController.performTerminalTextDrop(
+            return FileDropTextDropController.performTerminalFileDrop(
                 workspace: workspace,
                 panelId: panelId,
                 hostedView: terminalPanel.hostedView,

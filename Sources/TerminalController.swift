@@ -2781,8 +2781,10 @@ class TerminalController {
             return v2Result(id: id, self.v2DebugSidebarVisible(params: params))
         case "debug.terminal.is_focused":
             return v2Result(id: id, self.v2DebugIsTerminalFocused(params: params))
+#if DEBUG
         case "debug.terminal.simulate_file_drop":
             return v2Result(id: id, self.v2DebugSimulateTerminalFileDrop(params: params))
+#endif
         case "debug.terminal.read_text":
             return v2Result(id: id, self.v2DebugReadTerminalText(params: params))
         case "debug.terminal.render_stats":
@@ -12404,6 +12406,7 @@ class TerminalController {
         return .ok(["focused": resp.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "true"])
     }
 
+#if DEBUG
     private func v2DebugSimulateTerminalFileDrop(params: [String: Any]) -> V2CallResult {
         guard let tabManager else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -12447,7 +12450,7 @@ class TerminalController {
                     return
                 }
                 let urls = paths.map { URL(fileURLWithPath: $0).standardizedFileURL }
-                let handled = FileDropTextDropController.performTerminalTextDrop(
+                let handled = FileDropTextDropController.performTerminalFileDrop(
                     workspace: workspace,
                     panelId: panel.id,
                     hostedView: panel.hostedView,
@@ -12465,6 +12468,7 @@ class TerminalController {
         }
         return result
     }
+#endif
 
     private func v2DebugReadTerminalText(params: [String: Any]) -> V2CallResult {
         let surfaceArg = v2String(params, "surface_id") ?? ""
