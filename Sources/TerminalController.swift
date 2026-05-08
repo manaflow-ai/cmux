@@ -3576,7 +3576,6 @@ class TerminalController {
 
     private func v2TopTagNodes(for workspace: Workspace) -> [[String: Any]] {
         var tags: [[String: Any]] = []
-        var seenKeys = Set<String>()
 
         for (index, entry) in workspace.sidebarStatusEntriesInDisplayOrder().enumerated() {
             let pid = workspace.agentPIDs[entry.key].flatMap { $0 > 0 ? Int($0) : nil }
@@ -3595,7 +3594,6 @@ class TerminalController {
                 "visible": true,
                 "pid": v2OrNull(pid)
             ])
-            seenKeys.insert(entry.key)
         }
 
         return tags
