@@ -23290,6 +23290,21 @@ fn compatibility_parse_v2_response(
             .cloned()
             .unwrap_or(serde_json::Value::Null));
     }
+    if let Some(error) = response.get("error") {
+        let code = error
+            .get("code")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("method_failed");
+        let message = error
+            .get("message")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("native browser worker failed");
+        return Err(compatibility_encoded_v2_error(
+            code,
+            message,
+            error.get("data").cloned(),
+        ));
+    }
     let message = response
         .get("error")
         .and_then(|error| error.get("message"))
@@ -23346,8 +23361,13 @@ async fn compatibility_dispatch_browser_worker_request(
 }
 
 fn compatibility_browser_worker_needs_materialization(error: &str) -> bool {
+    let decoded = compatibility_decode_v2_error(error);
+    let message = decoded
+        .as_ref()
+        .map(|(_, message, _)| message.as_str())
+        .unwrap_or(error);
     matches!(
-        error.trim(),
+        message.trim(),
         "Surface is not a browser" | "Workspace not found" | "TabManager not available"
     )
 }
@@ -27640,6 +27660,44 @@ fn compatibility_v2_error_with_data(
     .to_string()
 }
 
+const COMPATIBILITY_ENCODED_V2_ERROR_PREFIX: &str = "__compat_v2_error__\n";
+
+fn compatibility_encoded_v2_error(
+    code: &str,
+    message: &str,
+    data: Option<serde_json::Value>,
+) -> String {
+    let mut payload = serde_json::Map::new();
+    payload.insert(
+        "code".to_string(),
+        serde_json::Value::String(code.to_string()),
+    );
+    payload.insert(
+        "message".to_string(),
+        serde_json::Value::String(message.to_string()),
+    );
+    if let Some(data) = data
+        && !data.is_null()
+    {
+        payload.insert("data".to_string(), data);
+    }
+    format!(
+        "{COMPATIBILITY_ENCODED_V2_ERROR_PREFIX}{}",
+        serde_json::Value::Object(payload)
+    )
+}
+
+fn compatibility_decode_v2_error(
+    message: &str,
+) -> Option<(String, String, Option<serde_json::Value>)> {
+    let payload = message.strip_prefix(COMPATIBILITY_ENCODED_V2_ERROR_PREFIX)?;
+    let payload = serde_json::from_str::<serde_json::Value>(payload).ok()?;
+    let code = payload.get("code")?.as_str()?.to_string();
+    let message = payload.get("message")?.as_str()?.to_string();
+    let data = payload.get("data").cloned();
+    Some((code, message, data))
+}
+
 fn compatibility_v2_error_from_message(id: serde_json::Value, message: &str) -> String {
     if let Some(message) = message.strip_prefix("__compat_v2_invalid_params__\n") {
         return compatibility_v2_error(id, "invalid_params", message);
@@ -27666,6 +27724,12 @@ fn compatibility_v2_error_from_message(id: serde_json::Value, message: &str) -> 
             &format!("{method} is not supported on WKWebView"),
             data,
         );
+    }
+    if let Some((code, message, data)) = compatibility_decode_v2_error(message) {
+        return match data {
+            Some(data) => compatibility_v2_error_with_data(id, &code, &message, data),
+            None => compatibility_v2_error(id, &code, &message),
+        };
     }
     compatibility_v2_error(id, "method_failed", message)
 }
