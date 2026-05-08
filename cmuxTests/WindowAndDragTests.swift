@@ -737,6 +737,31 @@ final class WindowDragHandleHitTests: XCTestCase {
         )
     }
 
+    func testTitlebarDebugSettingsRejectNonFiniteValues() {
+        let suiteName = "WindowDragHandleHitTests.nonFiniteDebugSettings.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.set("nan", forKey: MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey)
+        defaults.set("inf", forKey: MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let snapshot = MinimalModeTitlebarDebugSettings.snapshot(defaults: defaults)
+        XCTAssertEqual(
+            snapshot.leftControlsLeadingInset,
+            MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            snapshot.leftControlsTopInset,
+            MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            MinimalModeTitlebarDebugSettings.leftControlsLeadingInset(defaults: defaults),
+            CGFloat(MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset),
+            accuracy: 0.001
+        )
+    }
+
     func testDragHandleIgnoresHiddenSiblingWhenResolvingHit() {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 36))
         let dragHandle = NSView(frame: container.bounds)

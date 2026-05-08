@@ -475,6 +475,11 @@ enum MinimalModeTitlebarDebugSettings {
     static let topInsetRange: ClosedRange<Double> = -8...32
     static let trafficLightOffsetRange: ClosedRange<Double> = -48...96
     static let trafficLightYOffsetRange: ClosedRange<Double> = -24...24
+    static let leftControlsXOffsetRange: ClosedRange<Double> = (
+        horizontalInsetRange.lowerBound - defaultLeftControlsLeadingInset
+    )...(
+        horizontalInsetRange.upperBound - defaultLeftControlsLeadingInset
+    )
 
     static func clamped(_ value: Double, range: ClosedRange<Double>) -> Double {
         min(max(value, range.lowerBound), range.upperBound)
@@ -489,7 +494,8 @@ enum MinimalModeTitlebarDebugSettings {
         } else {
             rawValue = fallback
         }
-        return clamped(rawValue, range: range)
+        let finiteValue = rawValue.isFinite ? rawValue : fallback
+        return clamped(finiteValue, range: range)
     }
 
     static func trafficLightTabBarLeadingInset(defaults: UserDefaults = .standard) -> CGFloat {
@@ -530,6 +536,15 @@ enum MinimalModeTitlebarDebugSettings {
                 key: leftControlsTopInsetKey,
                 fallback: defaultLeftControlsTopInset,
                 range: topInsetRange
+            )
+        )
+    }
+
+    static func leftControlsXOffset(leadingInset: Double) -> CGFloat {
+        CGFloat(
+            clamped(
+                leadingInset - defaultLeftControlsLeadingInset,
+                range: leftControlsXOffsetRange
             )
         )
     }

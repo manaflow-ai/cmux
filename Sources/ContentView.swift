@@ -1012,6 +1012,14 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
     }
 }
 
+func titlebarShortcutHintShouldShow(
+    shortcut: StoredShortcut,
+    alwaysShowShortcutHints: Bool,
+    modifierPressed: Bool
+) -> Bool {
+    !shortcut.isUnbound && (alwaysShowShortcutHints || (shortcut.command && modifierPressed))
+}
+
 struct ContentView: View {
     @ObservedObject var updateViewModel: UpdateViewModel
     let windowId: UUID
@@ -2290,7 +2298,11 @@ struct ContentView: View {
         let config = titlebarControlsConfig
         let _ = rightSidebarShortcutRefreshTick
         let shortcut = KeyboardShortcutSettings.shortcut(for: .toggleFileExplorer)
-        let showsShortcutHint = shortcut.command && (alwaysShowShortcutHints || rightSidebarToggleShortcutHintMonitor.isModifierPressed)
+        let showsShortcutHint = titlebarShortcutHintShouldShow(
+            shortcut: shortcut,
+            alwaysShowShortcutHints: alwaysShowShortcutHints,
+            modifierPressed: rightSidebarToggleShortcutHintMonitor.isModifierPressed
+        )
         return TitlebarControlButton(
             config: config,
             accessibilityIdentifier: "titlebarControl.toggleRightSidebar",
