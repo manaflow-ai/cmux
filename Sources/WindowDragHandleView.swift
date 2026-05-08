@@ -1241,6 +1241,9 @@ struct TitlebarDoubleClickMonitorView: NSViewRepresentable {
                 window: window,
                 behavior: coordinator.doubleClickBehavior
             )
+            #if DEBUG
+            cmuxDebugLog("titlebar.monitor.doubleClick result=\(String(describing: result))")
+            #endif
             return result.consumesEvent ? nil : event
         }
 
@@ -1250,24 +1253,6 @@ struct TitlebarDoubleClickMonitorView: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {
         context.coordinator.view = nsView
         context.coordinator.doubleClickBehavior = doubleClickBehavior
-    }
-}
-
-struct TitlebarDoubleClickRegionModifier: ViewModifier {
-    var doubleClickBehavior: TitlebarDoubleClickBehavior = .standardAction
-
-    func body(content: Content) -> some View {
-        content
-            .overlay(WindowDragHandleView(doubleClickBehavior: doubleClickBehavior))
-            .background(TitlebarDoubleClickMonitorView(doubleClickBehavior: doubleClickBehavior))
-    }
-}
-
-extension View {
-    func titlebarDoubleClickRegion(
-        doubleClickBehavior: TitlebarDoubleClickBehavior = .standardAction
-    ) -> some View {
-        modifier(TitlebarDoubleClickRegionModifier(doubleClickBehavior: doubleClickBehavior))
     }
 }
 
