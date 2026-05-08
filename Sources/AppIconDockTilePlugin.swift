@@ -102,12 +102,31 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
         Self.assertMainQueue()
 
         let mode = DockTileAppIconMode(defaultsValue: appDefaults?.string(forKey: cmuxAppIconModeKey))
-        let isDarkAppearance = NSApp?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         guard let appBundleURL else {
             dockTile.showDefaultAppIcon()
             return
         }
 
+        // For automatic mode, defer to the bundle's AppIcon asset catalog,
+        // which carries `luminosity: dark` appearance variants for every size.
+        // The Dock plugin runs in the Dock process where NSApp.effectiveAppearance
+        // is not a reliable signal for the user's system dark/light setting, so
+        // picking AppIconDark/AppIconLight here and persisting it via
+        // NSWorkspace.setIcon would lock the bundle icon to whatever variant the
+        // Dock happened to detect at quit time (issue #3303). Clearing any
+        // previous custom override lets macOS reassert the asset catalog's
+        // adaptive icon and switch automatically with system appearance.
+        if mode == .automatic {
+            if shouldPersistBundleIcon {
+                NSWorkspace.shared.setIcon(nil, forFile: appBundleURL.path, options: [])
+                NSWorkspace.shared.noteFileSystemChanged(appBundleURL.path)
+                _ = LSRegisterURL(appBundleURL as CFURL, true)
+            }
+            dockTile.showDefaultAppIcon()
+            return
+        }
+
+        let isDarkAppearance = NSApp?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         guard let imageName = mode.imageName(isDarkAppearance: isDarkAppearance),
               let icon = appBundle?.image(forResource: imageName) else {
             if shouldPersistBundleIcon {
