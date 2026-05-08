@@ -7,6 +7,7 @@ final class RightSidebarVisibilityTracker: ObservableObject {
 
     @Published private(set) var isVisible: Bool = false
 
+    private weak var boundState: FileExplorerState?
     private var cancellable: AnyCancellable?
 
     private init() {}
@@ -18,6 +19,7 @@ final class RightSidebarVisibilityTracker: ObservableObject {
     /// key (which can desync across multiple windows).
     func bind(to state: FileExplorerState?) {
         cancellable = nil
+        boundState = state
         guard let state else {
             if isVisible { isVisible = false }
             return
@@ -30,5 +32,17 @@ final class RightSidebarVisibilityTracker: ObservableObject {
             .sink { [weak self] newValue in
                 self?.isVisible = newValue
             }
+    }
+
+    /// Toggle the bound `FileExplorerState`. Use this from menus or the
+    /// command palette so the state we mutate is the same one whose
+    /// `isVisible` drives the menu/palette label — eliminating the
+    /// title/action desync that `NSApp.keyWindow`-based dispatch can
+    /// introduce when a non-main window is briefly key.
+    @discardableResult
+    func toggle() -> Bool {
+        guard let state = boundState else { return false }
+        state.toggle()
+        return true
     }
 }

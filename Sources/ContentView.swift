@@ -7878,7 +7878,11 @@ struct ContentView: View {
             }
         }
         registry.register(commandId: "palette.toggleRightSidebar") {
-            _ = AppDelegate.shared?.toggleRightSidebarInActiveMainWindow()
+            // Mutate this ContentView's own FileExplorerState so the action
+            // matches the state object that produced the palette title; this
+            // avoids multi-window desync when NSApp.keyWindow points at a
+            // different window than this palette.
+            fileExplorerState.toggle()
         }
         registry.register(commandId: "palette.toggleMatchTerminalBackground") {
             sidebarMatchTerminalBackground.toggle()

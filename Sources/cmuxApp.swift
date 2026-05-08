@@ -658,9 +658,10 @@ struct cmuxApp: App {
                     : String(localized: "menu.view.showRightSidebar", defaultValue: "Show Right Sidebar"),
                 shortcut: menuShortcut(for: .toggleFileExplorer)
             ) {
-                if AppDelegate.shared?.toggleRightSidebarInActiveMainWindow(
-                    preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
-                ) != true {
+                // Toggle the same FileExplorerState the tracker mirrors so the
+                // menu label and the action target stay in lockstep, even when
+                // NSApp.keyWindow briefly points at a non-main window.
+                if !rightSidebarVisibilityTracker.toggle() {
                     NSSound.beep()
                 }
             }
