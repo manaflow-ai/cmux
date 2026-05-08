@@ -305,6 +305,23 @@ exit 0
             env = os.environ.copy()
             env.pop("CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV", None)
             env.pop("CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS", None)
+            for ambient_key in (
+                "ANTHROPIC_API_KEY",
+                "ANTHROPIC_AUTH_TOKEN",
+                "ANTHROPIC_BASE_URL",
+                "ANTHROPIC_BEDROCK_BASE_URL",
+                "ANTHROPIC_MODEL",
+                "ANTHROPIC_SMALL_FAST_MODEL",
+                "ANTHROPIC_VERTEX_BASE_URL",
+                "ANTHROPIC_VERTEX_PROJECT_ID",
+                "AWS_PROFILE",
+                "AWS_REGION",
+                "CLAUDE_CODE_USE_BEDROCK",
+                "CLAUDE_CODE_USE_VERTEX",
+                "CLAUDE_CONFIG_DIR",
+                "CLOUD_ML_REGION",
+            ):
+                env.pop(ambient_key, None)
             env["PATH"] = f"{wrapper_dir}:{real_dir}:{env.get('PATH', '/usr/bin:/bin')}"
             env["CMUX_SURFACE_ID"] = "surface:test"
             env["CMUX_SOCKET_PATH"] = socket_path
@@ -516,6 +533,7 @@ def test_live_socket_auto_preserves_vertex_auth_when_truthy(failures: list[str])
     # Regression for https://github.com/manaflow-ai/cmux/issues/3641.
     inherited = {
         "CLAUDE_CODE_USE_VERTEX": "1",
+        "ANTHROPIC_API_KEY": "anthropic-key-must-be-scrubbed-on-vertex",
         "ANTHROPIC_MODEL": "claude-sonnet-4-5@20250929",
         "ANTHROPIC_SMALL_FAST_MODEL": "claude-haiku-4-5@20251001",
         "ANTHROPIC_VERTEX_PROJECT_ID": "my-gcp-project",
@@ -558,6 +576,11 @@ def test_live_socket_auto_preserves_vertex_auth_when_truthy(failures: list[str])
         failures,
     )
     expect(
+        auth_env.get("ANTHROPIC_API_KEY") == "__UNSET__",
+        f"vertex auto-preserve: expected ANTHROPIC_API_KEY cleared (Vertex does not consume it), got {auth_env.get('ANTHROPIC_API_KEY')!r}",
+        failures,
+    )
+    expect(
         "--session-id" in real_argv,
         f"vertex auto-preserve: expected session injection, got {real_argv}",
         failures,
@@ -568,6 +591,7 @@ def test_live_socket_auto_preserves_bedrock_auth_when_truthy(failures: list[str]
     # Regression for https://github.com/manaflow-ai/cmux/issues/3638.
     inherited = {
         "CLAUDE_CODE_USE_BEDROCK": "1",
+        "ANTHROPIC_API_KEY": "anthropic-key-must-be-scrubbed-on-bedrock",
         "ANTHROPIC_MODEL": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
         "ANTHROPIC_SMALL_FAST_MODEL": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
         "ANTHROPIC_BEDROCK_BASE_URL": "https://bedrock-runtime.us-west-2.amazonaws.com",
@@ -610,13 +634,18 @@ def test_live_socket_auto_preserves_bedrock_auth_when_truthy(failures: list[str]
         failures,
     )
     expect(
+        auth_env.get("ANTHROPIC_API_KEY") == "__UNSET__",
+        f"bedrock auto-preserve: expected ANTHROPIC_API_KEY cleared (Bedrock does not consume it), got {auth_env.get('ANTHROPIC_API_KEY')!r}",
+        failures,
+    )
+    expect(
         "--session-id" in real_argv,
         f"bedrock auto-preserve: expected session injection, got {real_argv}",
         failures,
     )
 
 
-def test_live_socket_does_not_auto_preserve_when_vertex_value_is_falsy(failures: list[str]) -> None:
+def test_live_socket_does_not_auto_preserve_when_all_backends_are_falsy(failures: list[str]) -> None:
     inherited = {
         "CLAUDE_CODE_USE_VERTEX": "0",
         "CLAUDE_CODE_USE_BEDROCK": "",
@@ -626,20 +655,54 @@ def test_live_socket_does_not_auto_preserve_when_vertex_value_is_falsy(failures:
         argv=["hello"],
         inherited_env=inherited,
     )
-    expect(code == 0, f"falsy vertex: wrapper exited {code}: {stderr}", failures)
+    expect(code == 0, f"falsy backends: wrapper exited {code}: {stderr}", failures)
     expect(
         auth_env.get("CLAUDE_CODE_USE_VERTEX") == "__UNSET__",
-        f"falsy vertex: expected CLAUDE_CODE_USE_VERTEX=0 to be cleared, got {auth_env.get('CLAUDE_CODE_USE_VERTEX')!r}",
+        f"falsy backends: expected CLAUDE_CODE_USE_VERTEX=0 to be cleared, got {auth_env.get('CLAUDE_CODE_USE_VERTEX')!r}",
         failures,
     )
     expect(
         auth_env.get("CLAUDE_CODE_USE_BEDROCK") == "__UNSET__",
-        f"falsy vertex: expected empty CLAUDE_CODE_USE_BEDROCK to be cleared, got {auth_env.get('CLAUDE_CODE_USE_BEDROCK')!r}",
+        f"falsy backends: expected empty CLAUDE_CODE_USE_BEDROCK to be cleared, got {auth_env.get('CLAUDE_CODE_USE_BEDROCK')!r}",
         failures,
     )
     expect(
         auth_env.get("ANTHROPIC_MODEL") == "__UNSET__",
-        f"falsy vertex: expected ANTHROPIC_MODEL cleared (no live Vertex/Bedrock backend), got {auth_env.get('ANTHROPIC_MODEL')!r}",
+        f"falsy backends: expected ANTHROPIC_MODEL cleared (no live Vertex/Bedrock backend), got {auth_env.get('ANTHROPIC_MODEL')!r}",
+        failures,
+    )
+
+
+def test_live_socket_explicit_key_list_is_additive_to_vertex_auto_preserve(failures: list[str]) -> None:
+    # Pins the precedence between the explicit-opt-in key list
+    # (CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS) and the Vertex/Bedrock
+    # auto-preserve introduced for #3641 / #3638: the key list adds entries
+    # to preservation, it does NOT exclude keys from auto-preserve.
+    inherited = {
+        "CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV": "1",
+        "CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS": "ANTHROPIC_API_KEY",
+        "ANTHROPIC_API_KEY": "explicitly-listed-key-must-survive",
+        "CLAUDE_CODE_USE_VERTEX": "1",
+        "ANTHROPIC_MODEL": "claude-sonnet-4-5@20250929",
+    }
+    code, auth_env, real_argv, stderr = run_wrapper_auth_env(
+        argv=["hello"],
+        inherited_env=inherited,
+    )
+    expect(code == 0, f"additive list: wrapper exited {code}: {stderr}", failures)
+    expect(
+        auth_env.get("ANTHROPIC_API_KEY") == "explicitly-listed-key-must-survive",
+        f"additive list: expected listed ANTHROPIC_API_KEY preserved, got {auth_env.get('ANTHROPIC_API_KEY')!r}",
+        failures,
+    )
+    expect(
+        auth_env.get("CLAUDE_CODE_USE_VERTEX") == "1",
+        f"additive list: expected CLAUDE_CODE_USE_VERTEX auto-preserved despite not being in the explicit list, got {auth_env.get('CLAUDE_CODE_USE_VERTEX')!r}",
+        failures,
+    )
+    expect(
+        auth_env.get("ANTHROPIC_MODEL") == "claude-sonnet-4-5@20250929",
+        f"additive list: expected ANTHROPIC_MODEL auto-preserved (Vertex truthy) despite not being in the explicit list, got {auth_env.get('ANTHROPIC_MODEL')!r}",
         failures,
     )
 
@@ -800,7 +863,8 @@ def main() -> int:
     test_live_socket_preserves_only_listed_claude_auth_keys(failures)
     test_live_socket_auto_preserves_vertex_auth_when_truthy(failures)
     test_live_socket_auto_preserves_bedrock_auth_when_truthy(failures)
-    test_live_socket_does_not_auto_preserve_when_vertex_value_is_falsy(failures)
+    test_live_socket_does_not_auto_preserve_when_all_backends_are_falsy(failures)
+    test_live_socket_explicit_key_list_is_additive_to_vertex_auto_preserve(failures)
     test_live_socket_enforces_heap_cap_for_space_separated_flag(failures)
     test_live_socket_tmpdir_failure_skips_node_options_injection(failures)
     test_live_socket_preserves_explicit_bypass_availability_flag(failures)

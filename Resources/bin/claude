@@ -95,6 +95,11 @@ should_preserve_claude_auth_selection_key() {
         for configured_key in $configured_keys; do
             [[ "$configured_key" == "$1" ]] && return 0
         done
+        # Key not in the explicit list: do NOT early-return — fall through to
+        # the Vertex/Bedrock auto-preserve below. CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS
+        # is an additive allow-list, not an exclusion list, so an operator
+        # who opts in with a narrower key list still gets Vertex/Bedrock
+        # selection signals preserved when those backends are active.
     fi
 
     # Auto-preserve Vertex/Bedrock auth selection so users with valid
