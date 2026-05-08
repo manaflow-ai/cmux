@@ -12429,6 +12429,21 @@ class TerminalController {
         let route = (v2String(params, "route") ?? "text_destination")
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
+        enum TerminalFileDropSimulationRoute {
+            case terminal
+            case textDestination
+        }
+        let simulationRoute: TerminalFileDropSimulationRoute
+        switch route {
+        case "terminal", "direct":
+            simulationRoute = .terminal
+        case "text", "text_destination", "pane_text":
+            simulationRoute = .textDestination
+        default:
+            return .err(code: "invalid_params", message: "Unknown route", data: [
+                "route": route
+            ])
+        }
 
         var result: V2CallResult = .err(code: "not_found", message: "Terminal surface not found", data: [
             "surface_id": surfaceId
@@ -12438,13 +12453,13 @@ class TerminalController {
                 return
             }
 
-            switch route {
-            case "terminal", "direct":
+            switch simulationRoute {
+            case .terminal:
                 let handled = panel.hostedView.debugSimulateFileDrop(paths: paths)
                 result = handled
                     ? .ok(["handled": true, "route": "terminal"])
                     : .err(code: "internal_error", message: "Terminal drop simulation failed", data: nil)
-            case "text", "text_destination", "pane_text":
+            case .textDestination:
                 guard let workspace = tabManager.tabs.first(where: { $0.id == panel.workspaceId }) else {
                     result = .err(code: "not_found", message: "Workspace not found", data: [
                         "workspace_id": panel.workspaceId.uuidString
@@ -12462,10 +12477,6 @@ class TerminalController {
                 result = handled
                     ? .ok(["handled": true, "route": "text_destination"])
                     : .err(code: "internal_error", message: "Text destination drop simulation failed", data: nil)
-            default:
-                result = .err(code: "invalid_params", message: "Unknown route", data: [
-                    "route": route
-                ])
             }
         }
         return result
