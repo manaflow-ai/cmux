@@ -650,6 +650,7 @@ def test_live_socket_does_not_auto_preserve_when_all_backends_are_falsy(failures
         "CLAUDE_CODE_USE_VERTEX": "0",
         "CLAUDE_CODE_USE_BEDROCK": "",
         "ANTHROPIC_MODEL": "stale-model",
+        "ANTHROPIC_SMALL_FAST_MODEL": "stale-small-model",
     }
     code, auth_env, _, stderr = run_wrapper_auth_env(
         argv=["hello"],
@@ -669,6 +670,32 @@ def test_live_socket_does_not_auto_preserve_when_all_backends_are_falsy(failures
     expect(
         auth_env.get("ANTHROPIC_MODEL") == "__UNSET__",
         f"falsy backends: expected ANTHROPIC_MODEL cleared (no live Vertex/Bedrock backend), got {auth_env.get('ANTHROPIC_MODEL')!r}",
+        failures,
+    )
+    expect(
+        auth_env.get("ANTHROPIC_SMALL_FAST_MODEL") == "__UNSET__",
+        f"falsy backends: expected ANTHROPIC_SMALL_FAST_MODEL cleared (no live Vertex/Bedrock backend), got {auth_env.get('ANTHROPIC_SMALL_FAST_MODEL')!r}",
+        failures,
+    )
+    expect(code == 0, f"falsy backends: wrapper exited {code}: {stderr}", failures)
+    expect(
+        auth_env.get("CLAUDE_CODE_USE_VERTEX") == "__UNSET__",
+        f"falsy backends: expected CLAUDE_CODE_USE_VERTEX=0 to be cleared, got {auth_env.get('CLAUDE_CODE_USE_VERTEX')!r}",
+        failures,
+    )
+    expect(
+        auth_env.get("CLAUDE_CODE_USE_BEDROCK") == "__UNSET__",
+        f"falsy backends: expected empty CLAUDE_CODE_USE_BEDROCK to be cleared, got {auth_env.get('CLAUDE_CODE_USE_BEDROCK')!r}",
+        failures,
+    )
+    expect(
+        auth_env.get("ANTHROPIC_MODEL") == "__UNSET__",
+        f"falsy backends: expected ANTHROPIC_MODEL cleared (no live Vertex/Bedrock backend), got {auth_env.get('ANTHROPIC_MODEL')!r}",
+        failures,
+    )
+    expect(
+        auth_env.get("ANTHROPIC_SMALL_FAST_MODEL") == "__UNSET__",
+        f"falsy backends: expected ANTHROPIC_SMALL_FAST_MODEL cleared (no live Vertex/Bedrock backend), got {auth_env.get('ANTHROPIC_SMALL_FAST_MODEL')!r}",
         failures,
     )
 
