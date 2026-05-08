@@ -12,6 +12,7 @@ run against unpushed local commits.
 Options:
   --ref <branch-or-sha>            Ref to test. Defaults to the upstream branch.
   --runner <label>                 Runner label. Default: depot-macos-latest.
+  --remote-runner <label>          Remote fixture runner. Default: warp-macos-15-arm64-6x.
   --tests-v2-filter <tests>        Space-separated tests_v2 files/globs.
   --remote-filter <tests>          Space-separated remote fixture tests_v2 files/globs.
   --include-external-ssh           Also run external SSH fixture tests from repo secrets.
@@ -27,6 +28,7 @@ EOF
 }
 
 runner="depot-macos-latest"
+remote_runner="warp-macos-15-arm64-6x"
 target_ref=""
 tests_v2_filter="test_desktop_cmx_workspace_split_tab.py test_workspace_create_layout.py test_browser_cli_agent_port.py test_tmux_compat_matrix.py test_remote_rust_state.py test_browser_api_p0.py test_browser_api_unsupported_matrix.py test_windows_api.py test_surface_split_window_scope.py test_pane_window_scope.py"
 remote_filter="test_remote_rust_state.py test_ssh_remote_cli_metadata.py test_ssh_remote_daemon_resize_stdio.py test_ssh_remote_docker_bootstrap_nonlogin_shell.py test_ssh_remote_cli_relay.py test_ssh_remote_docker_forwarding.py test_ssh_remote_docker_reconnect.py test_ssh_remote_port_detection.py test_ssh_remote_proxy_bind_conflict.py test_ssh_remote_shell_integration.py"
@@ -47,6 +49,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --runner)
       runner="${2:-}"
+      shift 2
+      ;;
+    --remote-runner)
+      remote_runner="${2:-}"
       shift 2
       ;;
     --tests-v2-filter)
@@ -167,7 +173,7 @@ if [ "$run_remote" -eq 1 ]; then
   run_or_print gh workflow run desktop-cmx-remote-fixtures.yml \
     --ref "$target_ref" \
     -f "ref=$target_ref" \
-    -f "runner=$runner" \
+    -f "runner=$remote_runner" \
     -f "test_filter=$remote_filter" \
     -f "run_external_ssh=$run_external_ssh" \
     -f "external_ssh_filter=$external_ssh_filter"

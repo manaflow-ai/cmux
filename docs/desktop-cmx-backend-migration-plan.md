@@ -1263,13 +1263,18 @@ Tagged build/smoke evidence from `feat-desktop-cmx-backend`:
 - The VM-oriented `scripts/run-tests-v2.sh` runner now has an explicit CMX
   backend mode: set `CMUX_TESTS_V2_DESKTOP_CMX_BACKEND=1` to launch the
   `tests-v2` tagged app with `CMUX_DESKTOP_CMX_BACKEND=1` and
-  `CMUX_REMOTE_SSH_STACK_IN_RUST=1`. By default it also clears
+  `CMUX_REMOTE_SSH_STACK_IN_RUST=1`. In that mode the runner builds
+  `rust/cmux-cli`'s `cmx` binary, copies it into
+  `Contents/Resources/bin/cmx`, re-signs the modified debug app bundle, and
+  launches with the same deterministic tagged socket/debug-log environment as
+  `reload.sh`. By default it also clears
   `/tmp/cmux-cmx-tests-v2` between launches for isolated Rust state
   (`CMUX_TESTS_V2_RESET_CMX_STATE=0` preserves it for restore-focused
   debugging), and `CMUX_TESTS_V2_FILTER` can run targeted subsets before the
-  full suite. `CMUX_TESTS_V2_DIAGNOSTICS_DIR` now snapshots tagged debug logs,
-  last-socket markers, and `/tmp/cmux-cmx-tests-v2` before cleanup so failed VM
-  runs retain Rust state evidence. `CMUX_TESTS_V2_FAIL_ON_SKIP=1` turns any
+  full suite. `CMUX_TESTS_V2_DIAGNOSTICS_DIR` now snapshots a harness summary,
+  tagged debug logs, last-socket markers, and `/tmp/cmux-cmx-tests-v2` before
+  cleanup so failed VM runs retain Rust state evidence.
+  `CMUX_TESTS_V2_FAIL_ON_SKIP=1` turns any
   successful test that reports `SKIP:` into a failure, which the remote fixture
   workflow uses to avoid false proof from missing Docker/Go/terminal
   prerequisites. This creates a concrete VM path for the broad Python socket
@@ -1304,8 +1309,12 @@ Tagged build/smoke evidence from `feat-desktop-cmx-backend`:
   artifacts. The default `only_testing` list runs
   `BonsplitTabDragUITests/testCmxBackendMinimalModeKeepsTabReorderWorking` and
   `BonsplitTabDragUITests/testCmxBackendMinimalModeDragToSplitCreatesPane`
-  under a virtual display, with downloadable `.xcresult`, tagged debug log, and
-  `/tmp/cmux-cmx-ui-bonsplit-cmx-*` diagnostics artifacts. Local validation
+  under a virtual display. The workflow builds the Rust `cmx` binary before
+  `xcodebuild test`, and the XCUITest launch harness passes
+  `CMUX_DESKTOP_CMX_EXECUTABLE`, tagged socket/debug-log paths, and
+  `CMUXTERM_REPO_ROOT` into the launched app. It publishes downloadable
+  `.xcresult`, tagged debug log, and `/tmp/cmux-cmx-ui-bonsplit-cmx-*`
+  diagnostics artifacts. Local validation
   covered YAML parsing and `git diff --check`; it has the same temporary
   `feat-desktop-cmx-backend` push trigger for pre-merge execution, with the
   same Bonsplit-only default filter used when no workflow-dispatch input exists.
@@ -1314,8 +1323,10 @@ Tagged build/smoke evidence from `feat-desktop-cmx-backend`:
   `tests_v2` launcher against the Rust remote-state model test, SSH CLI
   metadata, cmuxd-remote stdio resize semantics, and the Docker-backed SSH
   bootstrap/relay/forwarding/reconnect/port/proxy/shell-integration fixtures.
-  The workflow installs Go with `actions/setup-go` and provisions Docker through
-  Colima when Docker is absent on the selected macOS runner, trying VZ first and
+  The workflow defaults to `warp-macos-15-arm64-6x` for the Docker-heavy path
+  while keeping Depot runners selectable for targeted investigation. It
+  installs Go with `actions/setup-go` and provisions Docker through Colima when
+  Docker is absent on the selected macOS runner, trying VZ first and
   deleting/retrying with QEMU if the VZ VM cannot start. It then fails early if
   those tools still cannot run so a skipped fixture cannot be mistaken for
   remote proof. It uploads the same tagged CMX diagnostics directory as the
@@ -1335,7 +1346,10 @@ Tagged build/smoke evidence from `feat-desktop-cmx-backend`:
   the external gates. It refuses to dispatch without a pushed ref/upstream,
   supports `--dry-run`, and launches main `ci.yml`,
   `desktop-cmx-tests-v2.yml`, `desktop-cmx-remote-fixtures.yml`, and
-  `desktop-cmx-ui.yml` with the targeted CMX defaults. The tests_v2 default
+  `desktop-cmx-ui.yml` with the targeted CMX defaults. The app/socket and UI
+  workflows default to `depot-macos-latest`; `--remote-runner` defaults the
+  Docker/SSH remote fixture workflow to `warp-macos-15-arm64-6x`.
+  The tests_v2 default
   subset now includes direct workspace split/tab creation, workspace layout
   creation, browser CLI parity, tmux compatibility, remote Rust state, browser
   worker/unsupported matrix, and window/pane/split scoping. The remote fixture
@@ -1585,14 +1599,12 @@ Current requirement-to-evidence checklist:
 
 Known remaining gaps before this can be considered a 100% cutover:
 
-- CI/VM execution is currently blocked from this checkout: the local branch is
-  `feat-desktop-cmx-backend` with no configured upstream, so GitHub Actions
-  cannot run the unpushed local changes; and the local `cmux-vm` SSH alias does
-  not resolve from this machine. The next verification step is to commit/push
-  this branch or otherwise place the worktree on the VM, then run
-  `scripts/dispatch-desktop-cmx-ci.sh --ref feat-desktop-cmx-backend` to
-  dispatch main CI, `Desktop CMX tests_v2`, `Desktop CMX remote fixtures`, and
-  `Desktop CMX UI tests`.
+- CI/VM execution is now running from the pushed
+  `feat-desktop-cmx-backend` branch. Main CI has passed on the latest pushed
+  CMX integration SHA, but the CMX-specific socket/UI/remote gates still need
+  fresh green runs after the CI harness fixes; the local `cmux-vm` SSH alias
+  still does not resolve from this machine, so those proofs stay in GitHub
+  Actions/VM infrastructure.
 - Remote fixture proof: remote command/status authority,
   non-connecting remote configuration/disconnect, side-effect-free VM/WebSocket
   model auto-connect/disconnect/reconnect, daemon-WebSocket live proxying,

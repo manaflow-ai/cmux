@@ -16,11 +16,21 @@ cd "$(dirname "$0")/.."
 DERIVED_DATA_PATH="$HOME/Library/Developer/Xcode/DerivedData/cmux-tests-v2"
 APP="$DERIVED_DATA_PATH/Build/Products/Debug/cmux DEV.app"
 RUN_TAG="tests-v2"
+RUN_SOCKET_PATH="/tmp/cmux-debug-${RUN_TAG}.sock"
+RUN_DEBUG_LOG="/tmp/cmux-debug-${RUN_TAG}.log"
+RUN_CMX_STATE_DIR="/tmp/cmux-cmx-${RUN_TAG}"
+RUN_CMX_NATIVE_SOCKET="${RUN_CMX_STATE_DIR}/native.sock"
+RUN_CMUXD_SOCKET="$HOME/Library/Application Support/cmux/cmuxd-dev-${RUN_TAG}.sock"
 DESKTOP_CMX_BACKEND="${CMUX_TESTS_V2_DESKTOP_CMX_BACKEND:-0}"
 RESET_CMX_STATE="${CMUX_TESTS_V2_RESET_CMX_STATE:-1}"
 TEST_FILTER="${CMUX_TESTS_V2_FILTER:-test_*.py}"
 DIAGNOSTICS_DIR="${CMUX_TESTS_V2_DIAGNOSTICS_DIR:-}"
 FAIL_ON_SKIP="${CMUX_TESTS_V2_FAIL_ON_SKIP:-0}"
+
+if [ -n "$DIAGNOSTICS_DIR" ]; then
+  rm -rf "$DIAGNOSTICS_DIR"
+  mkdir -p "$DIAGNOSTICS_DIR"
+fi
 
 echo "== build =="
 # Work around stale explicit-module cache artifacts (notably Sentry headers) that can
@@ -40,31 +50,89 @@ if [ ! -d "$APP" ]; then
   exit 1
 fi
 
-cleanup() {
+prepare_desktop_cmx_backend() {
+  if [ "$DESKTOP_CMX_BACKEND" != "1" ]; then
+    return 0
+  fi
+
+  if ! command -v cargo >/dev/null 2>&1; then
+    echo "ERROR: cargo is required for CMUX_TESTS_V2_DESKTOP_CMX_BACKEND=1" >&2
+    exit 1
+  fi
+
+  echo "== build cmx =="
+  (cd rust/cmux-cli && cargo build -p cmx)
+
+  local cmx_src="rust/cmux-cli/target/debug/cmx"
+  if [ ! -x "$cmx_src" ]; then
+    echo "ERROR: cmx binary not found after cargo build: $cmx_src" >&2
+    exit 1
+  fi
+
+  local bin_dir="$APP/Contents/Resources/bin"
+  mkdir -p "$bin_dir"
+  cp "$cmx_src" "$bin_dir/cmx"
+  chmod +x "$bin_dir/cmx"
+
+  if command -v xattr >/dev/null 2>&1; then
+    xattr -cr "$APP" || true
+  fi
+  codesign --force --sign - --timestamp=none --generate-entitlement-der "$APP" >/dev/null
+}
+
+collect_diagnostics() {
   if [ -n "$DIAGNOSTICS_DIR" ]; then
     mkdir -p "$DIAGNOSTICS_DIR"
+    {
+      date
+      echo "app: $APP"
+      echo "desktop_cmx_backend: $DESKTOP_CMX_BACKEND"
+      echo "socket: $RUN_SOCKET_PATH"
+      echo "debug_log: $RUN_DEBUG_LOG"
+      echo "cmx_state_dir: $RUN_CMX_STATE_DIR"
+      echo "bundled_cmx: $APP/Contents/Resources/bin/cmx"
+      if [ -x "$APP/Contents/Resources/bin/cmx" ]; then
+        "$APP/Contents/Resources/bin/cmx" --version 2>/dev/null || true
+      else
+        echo "bundled_cmx_missing"
+      fi
+      ls -la /tmp/cmux* 2>/dev/null || true
+      pgrep -af "cmux|cmx" 2>/dev/null || true
+    } > "$DIAGNOSTICS_DIR/harness.txt" 2>&1 || true
     for path in \
-      "/tmp/cmux-debug-${RUN_TAG}.log" \
+      "$RUN_DEBUG_LOG" \
       "/tmp/cmux-debug.log" \
       "/tmp/cmux-last-debug-log-path" \
-      "/tmp/cmux-last-socket-path"
+      "/tmp/cmux-last-socket-path" \
+      "$RUN_SOCKET_PATH" \
+      "$RUN_CMX_NATIVE_SOCKET"
     do
       if [ -e "$path" ]; then
         cp -R "$path" "$DIAGNOSTICS_DIR/" 2>/dev/null || true
       fi
     done
-    if [ -d "/tmp/cmux-cmx-${RUN_TAG}" ]; then
+    if [ -d "$RUN_CMX_STATE_DIR" ]; then
       rm -rf "$DIAGNOSTICS_DIR/cmx-state"
-      cp -R "/tmp/cmux-cmx-${RUN_TAG}" "$DIAGNOSTICS_DIR/cmx-state" 2>/dev/null || true
+      cp -R "$RUN_CMX_STATE_DIR" "$DIAGNOSTICS_DIR/cmx-state" 2>/dev/null || true
     fi
   fi
+}
+
+cleanup() {
+  collect_diagnostics
   pkill -x "cmux DEV" || true
   pkill -x "cmux" || true
+  pkill -f "Resources/bin/cmx --socket ${RUN_CMX_NATIVE_SOCKET}" || true
   rm -f /tmp/cmux*.sock || true
+  rm -f "$RUN_CMUXD_SOCKET" || true
   if [ "$DESKTOP_CMX_BACKEND" = "1" ] && [ "$RESET_CMX_STATE" = "1" ]; then
-    rm -rf "/tmp/cmux-cmx-${RUN_TAG}"
+    rm -rf "$RUN_CMX_STATE_DIR"
   fi
+  return 0
 }
+
+trap cleanup EXIT
+prepare_desktop_cmx_backend
 
 launch_and_wait() {
   cleanup
@@ -77,11 +145,20 @@ launch_and_wait() {
 
   # Force socket mode for deterministic automation runs, independent of prior user settings.
   defaults write com.cmuxterm.app.debug socketControlMode -string full >/dev/null 2>&1 || true
+  printf '%s\n' "$RUN_SOCKET_PATH" > /tmp/cmux-last-socket-path || true
+  printf '%s\n' "$RUN_DEBUG_LOG" > /tmp/cmux-last-debug-log-path || true
 
   # Launch directly with UI test mode enabled so startup follows deterministic test codepaths.
   LAUNCH_ENV=(
     "CMUX_TAG=${RUN_TAG}"
     "CMUX_UI_TEST_MODE=1"
+    "CMUX_SOCKET_ENABLE=1"
+    "CMUX_SOCKET_MODE=allowAll"
+    "CMUX_SOCKET_PATH=${RUN_SOCKET_PATH}"
+    "CMUXD_UNIX_PATH=${RUN_CMUXD_SOCKET}"
+    "CMUX_DEBUG_LOG=${RUN_DEBUG_LOG}"
+    "CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD=1"
+    "CMUXTERM_REPO_ROOT=$PWD"
   )
   if [ "$DESKTOP_CMX_BACKEND" = "1" ]; then
     LAUNCH_ENV+=(
@@ -91,9 +168,8 @@ launch_and_wait() {
   fi
   env "${LAUNCH_ENV[@]}" "$APP/Contents/MacOS/cmux DEV" >/dev/null 2>&1 &
 
-  SOCK=""
+  SOCK="$RUN_SOCKET_PATH"
   for _ in {1..120}; do
-    SOCK=$(ls -t /tmp/cmux-debug*.sock /tmp/cmux*.sock 2>/dev/null | head -1 || true)
     if [ -n "$SOCK" ] && [ -S "$SOCK" ]; then
       break
     fi
@@ -101,13 +177,14 @@ launch_and_wait() {
   done
 
   if [ -z "$SOCK" ] || [ ! -S "$SOCK" ]; then
-    echo "ERROR: Socket not ready (looked for /tmp/cmux*.sock)" >&2
+    collect_diagnostics
+    echo "ERROR: Socket not ready (looked for $RUN_SOCKET_PATH)" >&2
     exit 1
   fi
   export CMUX_SOCKET_PATH="$SOCK"
 
   # Ensure LaunchServices has a visible/main window attached for rendering checks.
-  CMUX_TAG="$RUN_TAG" open "$APP" >/dev/null 2>&1 || true
+  env "${LAUNCH_ENV[@]}" open "$APP" >/dev/null 2>&1 || true
   sleep 0.5
 
   echo "== wait ready =="

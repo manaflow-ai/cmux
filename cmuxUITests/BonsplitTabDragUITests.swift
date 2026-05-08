@@ -630,11 +630,30 @@ final class BonsplitTabDragUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH"] = dataPath
         if backendMode == .desktopCmx {
             let tag = "ui-bonsplit-cmx-\(UUID().uuidString.prefix(8).lowercased())"
+            let socketPath = "/tmp/cmux-debug-\(tag).sock"
+            let debugLogPath = "/tmp/cmux-debug-\(tag).log"
+            let cmuxdSocketPath = "\(NSHomeDirectory())/Library/Application Support/cmux/cmuxd-dev-\(tag).sock"
             app.launchEnvironment["CMUX_TAG"] = tag
             app.launchEnvironment["CMUX_DESKTOP_CMX_BACKEND"] = "1"
             app.launchEnvironment["CMUX_REMOTE_SSH_STACK_IN_RUST"] = "1"
+            app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
+            app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
+            app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+            app.launchEnvironment["CMUXD_UNIX_PATH"] = cmuxdSocketPath
+            app.launchEnvironment["CMUX_DEBUG_LOG"] = debugLogPath
+            app.launchEnvironment["CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD"] = "1"
+            if let repoRoot = ProcessInfo.processInfo.environment["CMUX_UI_TEST_REPO_ROOT"],
+               !repoRoot.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                app.launchEnvironment["CMUXTERM_REPO_ROOT"] = repoRoot
+            }
+            if let cmxExecutable = ProcessInfo.processInfo.environment["CMUX_UI_TEST_CMX_EXECUTABLE"],
+               !cmxExecutable.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                app.launchEnvironment["CMUX_DESKTOP_CMX_EXECUTABLE"] = cmxExecutable
+            }
             try? FileManager.default.removeItem(atPath: "/tmp/cmux-cmx-\(tag)")
-            try? FileManager.default.removeItem(atPath: "/tmp/cmux-debug-\(tag).sock")
+            try? FileManager.default.removeItem(atPath: socketPath)
+            try? FileManager.default.removeItem(atPath: debugLogPath)
+            try? FileManager.default.removeItem(atPath: cmuxdSocketPath)
         }
         if startWithHiddenSidebar {
             app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_START_WITH_HIDDEN_SIDEBAR"] = "1"

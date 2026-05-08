@@ -144,6 +144,14 @@ jobs:
             exit 1
           fi
 
+          if ! command -v cargo >/dev/null 2>&1; then
+            echo "cargo is required for CMX-backed UI tests" >&2
+            exit 1
+          fi
+          (cd rust/cmux-cli && cargo build -p cmx)
+          export CMUX_UI_TEST_CMX_EXECUTABLE="$PWD/rust/cmux-cli/target/debug/cmx"
+          export CMUX_UI_TEST_REPO_ROOT="$PWD"
+
           xcodebuild \
             -project GhosttyTabs.xcodeproj \
             -scheme cmux \

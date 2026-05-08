@@ -43,15 +43,16 @@ on:
       runner:
         description: Runner OS
         required: false
-        default: "depot-macos-latest"
+        default: "warp-macos-15-arm64-6x"
         type: choice
         options:
+          - warp-macos-15-arm64-6x
           - depot-macos-latest
           - depot-macos-14
 
 jobs:
   remote-fixtures:
-    runs-on: ${{ inputs.runner || 'depot-macos-latest' }}
+    runs-on: ${{ inputs.runner || 'warp-macos-15-arm64-6x' }}
     timeout-minutes: 90
     steps:
       - name: Checkout
