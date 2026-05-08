@@ -9609,6 +9609,21 @@ final class Workspace: Identifiable, ObservableObject {
       var firstPane = desktopCmxFirstMappedPane(in: first)
       var secondPane = desktopCmxFirstMappedPane(in: second)
 
+      if let firstPaneValue = firstPane,
+        let secondPaneValue = secondPane,
+        firstPaneValue == secondPaneValue,
+        desktopCmxFirstTab(in: first) != nil,
+        desktopCmxFirstTab(in: second) != nil
+      {
+        #if DEBUG
+          cmuxDebugLog(
+            "desktopCmxBackend.workspace.split.samePaneProjection "
+              + "workspace=\(id.uuidString.prefix(5)) pane=\(firstPaneValue.id.uuidString.prefix(5))"
+          )
+        #endif
+        secondPane = nil
+      }
+
       if firstPane == nil, secondPane == nil {
         desktopCmxApplyPanelNode(first, fallbackPane: fallbackPane)
         firstPane = desktopCmxFirstMappedPane(in: first) ?? fallbackPane

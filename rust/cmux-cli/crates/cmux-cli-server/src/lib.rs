@@ -16144,6 +16144,7 @@ async fn compatibility_debug_terminals_v2(
         .filter(|surface| surface.tab.kind == NativeTabKind::Terminal)
         .enumerate()
         .map(|(index, surface)| {
+            let surface_id = compat_tab_id(surface.tab);
             let surface_ref = compat_tab_ref(surface.tab);
             serde_json::json!({
                 "index": index,
@@ -16162,7 +16163,7 @@ async fn compatibility_debug_terminals_v2(
                 "pane_ref": surface.panel_id.to_string(),
                 "surface_index": surface.index,
                 "surface_index_in_pane": surface.index,
-                "surface_id": surface_ref,
+                "surface_id": surface_id,
                 "surface_ref": surface_ref,
                 "surface_title": surface.tab.title,
                 "surface_focused": surface.tab.id == snapshot.focused_tab_id,
@@ -16786,8 +16787,14 @@ fn compatibility_top_workspace_json(
                     surface
                 })
                 .collect::<Vec<_>>();
-            let surface_ids = panel.tabs.iter().map(compat_tab_ref).collect::<Vec<_>>();
+            let surface_ids = panel.tabs.iter().map(compat_tab_id).collect::<Vec<_>>();
+            let surface_refs = panel.tabs.iter().map(compat_tab_ref).collect::<Vec<_>>();
             let selected_surface_id = panel
+                .tabs
+                .get(panel.active)
+                .map(compat_tab_id)
+                .or_else(|| panel.tabs.first().map(compat_tab_id));
+            let selected_surface_ref = panel
                 .tabs
                 .get(panel.active)
                 .map(compat_tab_ref)
@@ -16799,9 +16806,9 @@ fn compatibility_top_workspace_json(
                 "index": pane_index,
                 "focused": panel.panel_id == snapshot.focused_panel_id,
                 "surface_ids": surface_ids,
-                "surface_refs": surface_ids,
+                "surface_refs": surface_refs,
                 "selected_surface_id": selected_surface_id,
-                "selected_surface_ref": selected_surface_id,
+                "selected_surface_ref": selected_surface_ref,
                 "surface_count": panel.tabs.len(),
                 "surfaces": surfaces,
                 "resources": compatibility_top_empty_resources(),
@@ -16832,16 +16839,18 @@ fn compatibility_top_surface_json(
     selected: bool,
     include_processes: bool,
 ) -> serde_json::Value {
-    let surface_id = compat_tab_ref(tab);
+    let surface_id = compat_tab_id(tab);
+    let surface_ref = compat_tab_ref(tab);
+    let tab_ref = compat_tab_handle_ref(tab);
     let url = tab.browser.as_ref().and_then(|browser| browser.url.clone());
     let webviews = if tab.kind == NativeTabKind::Browser {
         vec![serde_json::json!({
             "kind": "webview",
             "id": format!("{surface_id}:webview"),
-            "ref": format!("{surface_id}:webview"),
+            "ref": format!("{surface_ref}:webview"),
             "index": 0,
-            "surface_id": surface_id,
-            "surface_ref": surface_id,
+            "surface_id": surface_id.clone(),
+            "surface_ref": surface_ref.clone(),
             "title": tab
                 .browser
                 .as_ref()
@@ -16859,12 +16868,12 @@ fn compatibility_top_surface_json(
     };
     serde_json::json!({
         "kind": "surface",
-        "id": surface_id,
-        "ref": surface_id,
-        "surface_id": surface_id,
-        "surface_ref": surface_id,
+        "id": surface_id.clone(),
+        "ref": surface_ref.clone(),
+        "surface_id": surface_id.clone(),
+        "surface_ref": surface_ref,
         "tab_id": surface_id,
-        "tab_ref": surface_id,
+        "tab_ref": tab_ref,
         "index": index,
         "type": tab.kind,
         "title": tab.title,
@@ -16970,6 +16979,7 @@ fn compatibility_caller_location_json(
                 surface.tab.id.to_string() == target
                     || surface.tab.external_id.as_deref() == Some(target)
                     || compat_tab_ref(surface.tab) == target
+                    || compat_tab_handle_ref(surface.tab) == target
             })
     });
     Some(compatibility_location_json(
@@ -16986,7 +16996,9 @@ fn compatibility_location_json(
 ) -> serde_json::Value {
     let workspace_id = workspace.map(compat_workspace_ref);
     let pane_id = surface.map(|surface| surface.panel_id.to_string());
-    let surface_id = surface.map(|surface| compat_tab_ref(surface.tab));
+    let surface_id = surface.map(|surface| compat_tab_id(surface.tab));
+    let surface_ref = surface.map(|surface| compat_tab_ref(surface.tab));
+    let tab_ref = surface.map(|surface| compat_tab_handle_ref(surface.tab));
     let surface_kind = surface.map(|surface| surface.tab.kind);
     serde_json::json!({
         "window_id": window_id,
@@ -16996,9 +17008,9 @@ fn compatibility_location_json(
         "pane_id": pane_id,
         "pane_ref": pane_id,
         "surface_id": surface_id,
-        "surface_ref": surface_id,
+        "surface_ref": surface_ref,
         "tab_id": surface_id,
-        "tab_ref": surface_id,
+        "tab_ref": tab_ref,
         "surface_type": surface_kind,
         "is_browser_surface": surface_kind.is_some_and(|kind| kind == NativeTabKind::Browser),
     })
@@ -17149,7 +17161,9 @@ fn compatibility_apply_tab_context_to_result(
     let serde_json::Value::Object(object) = result else {
         return;
     };
+    let surface_id = compat_tab_id_from_tab(&ctx.tab);
     let surface_ref = compat_tab_ref_from_tab(&ctx.tab);
+    let tab_ref = compat_tab_handle_ref_from_tab(&ctx.tab);
     object.insert(
         "workspace_id".to_string(),
         serde_json::Value::String(ctx.workspace.external_id.clone()),
@@ -17164,12 +17178,14 @@ fn compatibility_apply_tab_context_to_result(
     );
     object.insert(
         "surface_id".to_string(),
-        serde_json::Value::String(surface_ref.clone()),
+        serde_json::Value::String(surface_id.clone()),
     );
     object.insert(
         "surface_ref".to_string(),
         serde_json::Value::String(surface_ref),
     );
+    object.insert("tab_id".to_string(), serde_json::Value::String(surface_id));
+    object.insert("tab_ref".to_string(), serde_json::Value::String(tab_ref));
     object.insert("numericId".to_string(), serde_json::json!(ctx.tab.id));
     object.insert("numericTabId".to_string(), serde_json::json!(ctx.tab.id));
     object.insert(
@@ -17634,6 +17650,7 @@ async fn compatibility_notify_surface_with_payload(
             surface.tab.id.to_string() == target
                 || surface.tab.external_id.as_deref() == Some(target)
                 || compat_tab_ref(surface.tab) == target
+                || compat_tab_handle_ref(surface.tab) == target
                 || surface.index.to_string() == target
         })
         .ok_or_else(|| "Surface not found".to_string())?;
@@ -18769,7 +18786,8 @@ async fn compatibility_browser_open_split_v2(
             return Err(format!("Failed to open URL externally: {raw_url}"));
         }
         let workspace_ref = ctx.workspace.external_id.clone();
-        let source_surface_ref = ctx.tab.external_id.clone();
+        let source_surface_id = compat_tab_id_from_tab(&ctx.tab);
+        let source_surface_ref = compat_surface_ref_from_tab(&ctx.tab);
         let window_ref =
             compatibility_window_ref_for_workspace_params(daemon, params, ctx.workspace.id).await?;
         return Ok(serde_json::json!({
@@ -18782,7 +18800,7 @@ async fn compatibility_browser_open_split_v2(
             "pane_ref": serde_json::Value::Null,
             "surface_id": serde_json::Value::Null,
             "surface_ref": serde_json::Value::Null,
-            "source_surface_id": source_surface_ref.clone(),
+            "source_surface_id": source_surface_id,
             "source_surface_ref": source_surface_ref,
             "source_pane_id": source_panel_id.to_string(),
             "source_pane_ref": source_panel_id.to_string(),
@@ -18860,10 +18878,17 @@ async fn compatibility_browser_open_split_v2(
 
     let mut payload = compatibility_surface_json_by_tab_id(daemon, tab.id).await?;
     let workspace_ref = ctx.workspace.external_id.clone();
-    let surface_ref = tab.external_id.clone();
+    let surface_id = compat_tab_id_from_tab(&tab);
+    let surface_ref = compat_surface_ref_from_tab(&tab);
+    let tab_ref = compat_tab_handle_ref_from_tab(&tab);
+    let source_surface_id = compat_tab_id_from_tab(&ctx.tab);
+    let source_surface_ref = compat_surface_ref_from_tab(&ctx.tab);
     if let Some(object) = payload.as_object_mut() {
         compatibility_insert_window_ref(object, &window_ref);
-        object.insert("workspace_id".to_string(), serde_json::json!(workspace_ref));
+        object.insert(
+            "workspace_id".to_string(),
+            serde_json::json!(workspace_ref.clone()),
+        );
         object.insert(
             "workspace_ref".to_string(),
             serde_json::json!(workspace_ref),
@@ -18872,10 +18897,13 @@ async fn compatibility_browser_open_split_v2(
             "numericWorkspaceId".to_string(),
             serde_json::json!(ctx.workspace.id),
         );
-        object.insert("surface_id".to_string(), serde_json::json!(surface_ref));
+        object.insert(
+            "surface_id".to_string(),
+            serde_json::json!(surface_id.clone()),
+        );
         object.insert("surface_ref".to_string(), serde_json::json!(surface_ref));
-        object.insert("tab_id".to_string(), serde_json::json!(surface_ref));
-        object.insert("tab_ref".to_string(), serde_json::json!(surface_ref));
+        object.insert("tab_id".to_string(), serde_json::json!(surface_id));
+        object.insert("tab_ref".to_string(), serde_json::json!(tab_ref));
         object.insert(
             "pane_id".to_string(),
             serde_json::json!(panel_id.to_string()),
@@ -18886,11 +18914,11 @@ async fn compatibility_browser_open_split_v2(
         );
         object.insert(
             "source_surface_id".to_string(),
-            serde_json::json!(ctx.tab.external_id),
+            serde_json::json!(source_surface_id),
         );
         object.insert(
             "source_surface_ref".to_string(),
-            serde_json::json!(ctx.tab.external_id),
+            serde_json::json!(source_surface_ref),
         );
         object.insert(
             "source_pane_id".to_string(),
@@ -19025,7 +19053,9 @@ async fn compatibility_browser_state_json(
     browser: NativeBrowserInfo,
 ) -> std::result::Result<serde_json::Value, String> {
     let ctx = compatibility_resolve_tab_context_by_tab_id(daemon, tab_id).await?;
-    let surface_id = compat_tab_ref_from_tab(&ctx.tab);
+    let surface_id = compat_tab_id_from_tab(&ctx.tab);
+    let surface_ref = compat_tab_ref_from_tab(&ctx.tab);
+    let tab_ref = compat_tab_handle_ref_from_tab(&ctx.tab);
     let webview_focused = daemon
         .browser_webview_focused(tab_id)
         .await
@@ -19035,7 +19065,9 @@ async fn compatibility_browser_state_json(
         "workspace_ref": ctx.workspace.external_id,
         "numericWorkspaceId": ctx.workspace.id,
         "surface_id": surface_id,
-        "surface_ref": surface_id.clone(),
+        "surface_ref": surface_ref,
+        "tab_id": surface_id,
+        "tab_ref": tab_ref,
         "numericId": tab_id,
         "numericTabId": tab_id,
         "url": browser.url.clone().unwrap_or_default(),
@@ -23772,6 +23804,7 @@ async fn compatibility_browser_tab_id(
         surface.tab.id.to_string() == target
             || surface.tab.external_id.as_deref() == Some(target)
             || compat_tab_ref(surface.tab) == target
+            || compat_tab_handle_ref(surface.tab) == target
             || surface.tab.title == target
     }) {
         return compatibility_browser_surface_tab_id(surface);
@@ -23851,6 +23884,7 @@ async fn compatibility_tab_id_from_args(
                 surface.tab.id.to_string() == tab
                     || surface.tab.external_id.as_deref() == Some(tab.as_str())
                     || compat_tab_ref(surface.tab) == tab
+                    || compat_tab_handle_ref(surface.tab) == tab
                     || surface.tab.title == tab
             })
         {
@@ -23877,6 +23911,7 @@ async fn compatibility_surface_tab_id_from_target(
         surface.tab.id.to_string() == target
             || surface.tab.external_id.as_deref() == Some(target)
             || compat_tab_ref(surface.tab) == target
+            || compat_tab_handle_ref(surface.tab) == target
             || surface.tab.title == target
     }) {
         return Ok(surface.tab.id);
@@ -24826,6 +24861,7 @@ fn compatibility_resolve_surface_in_snapshot(
             surface.tab.id.to_string() == target
                 || surface.tab.external_id.as_deref() == Some(target)
                 || compat_tab_ref(surface.tab) == target
+                || compat_tab_handle_ref(surface.tab) == target
         })
         .map(|surface| CompatibilityResolvedSurface {
             panel_id: surface.panel_id,
@@ -25214,6 +25250,8 @@ async fn compatibility_resolve_tab_context_by_target(
                 let title = tab.title.load_full();
                 if tab.id.to_string() == target
                     || tab.external_id == target
+                    || compat_tab_ref_from_tab(&tab) == target
+                    || compat_tab_handle_ref_from_tab(&tab) == target
                     || title.as_ref() == target
                 {
                     let surface = compatibility_resolved_surface_for_tab(&space, tab.id).await?;
@@ -25355,11 +25393,19 @@ async fn compatibility_surface_reorder_v2(
         );
         object.insert(
             "surface_id".to_string(),
-            serde_json::json!(moved.external_id),
+            serde_json::json!(compat_tab_id_from_tab(&moved)),
         );
         object.insert(
             "surface_ref".to_string(),
-            serde_json::json!(moved.external_id),
+            serde_json::json!(compat_tab_ref_from_tab(&moved)),
+        );
+        object.insert(
+            "tab_id".to_string(),
+            serde_json::json!(compat_tab_id_from_tab(&moved)),
+        );
+        object.insert(
+            "tab_ref".to_string(),
+            serde_json::json!(compat_tab_handle_ref_from_tab(&moved)),
         );
     }
     Ok(payload)
@@ -25463,11 +25509,11 @@ async fn compatibility_tab_action_payload(
         );
         object.insert(
             "tab_ref".to_string(),
-            serde_json::json!(compat_tab_ref_from_tab(&ctx.tab)),
+            serde_json::json!(compat_tab_handle_ref_from_tab(&ctx.tab)),
         );
         object.insert(
             "tab_id".to_string(),
-            serde_json::json!(compat_tab_ref_from_tab(&ctx.tab)),
+            serde_json::json!(compat_tab_id_from_tab(&ctx.tab)),
         );
         object.insert("numericTabId".to_string(), serde_json::json!(ctx.tab.id));
         object.insert(
@@ -25479,8 +25525,30 @@ async fn compatibility_tab_action_payload(
     Ok(payload)
 }
 
-fn compat_tab_ref_from_tab(tab: &Tab) -> String {
+fn compat_surface_ref_from_external(external_id: &str, fallback_id: u64) -> String {
+    let id = cmx_external_uuid_id(external_id, 2).unwrap_or(fallback_id);
+    format!("surface:{id}")
+}
+
+fn compat_tab_ref_from_external(external_id: &str, fallback_id: u64) -> String {
+    let id = cmx_external_uuid_id(external_id, 2).unwrap_or(fallback_id);
+    format!("tab:{id}")
+}
+
+fn compat_tab_id_from_tab(tab: &Tab) -> String {
     tab.external_id.clone()
+}
+
+fn compat_surface_ref_from_tab(tab: &Tab) -> String {
+    compat_surface_ref_from_external(&tab.external_id, tab.id)
+}
+
+fn compat_tab_ref_from_tab(tab: &Tab) -> String {
+    compat_surface_ref_from_tab(tab)
+}
+
+fn compat_tab_handle_ref_from_tab(tab: &Tab) -> String {
+    compat_tab_ref_from_external(&tab.external_id, tab.id)
 }
 
 async fn compatibility_create_tab_to_right(
@@ -26398,6 +26466,7 @@ async fn compatibility_surface_health_v2(
             && surface.tab.id.to_string() != target
             && surface.tab.external_id.as_deref() != Some(target)
             && compat_tab_ref(surface.tab) != target
+            && compat_tab_handle_ref(surface.tab) != target
         {
             continue;
         }
@@ -26830,10 +26899,24 @@ fn compat_workspace_ref(workspace: &WorkspaceInfo) -> String {
         .unwrap_or_else(|| workspace.id.to_string())
 }
 
-fn compat_tab_ref(tab: &TabInfo) -> String {
+fn compat_tab_id(tab: &TabInfo) -> String {
     tab.external_id
         .clone()
         .unwrap_or_else(|| tab.id.to_string())
+}
+
+fn compat_tab_ref(tab: &TabInfo) -> String {
+    tab.external_id
+        .as_deref()
+        .map(|external_id| compat_surface_ref_from_external(external_id, tab.id))
+        .unwrap_or_else(|| format!("surface:{}", tab.id))
+}
+
+fn compat_tab_handle_ref(tab: &TabInfo) -> String {
+    tab.external_id
+        .as_deref()
+        .map(|external_id| compat_tab_ref_from_external(external_id, tab.id))
+        .unwrap_or_else(|| format!("tab:{}", tab.id))
 }
 
 fn format_legacy_workspaces(workspaces: &[WorkspaceInfo], active: usize) -> String {
@@ -27065,8 +27148,14 @@ fn compatibility_panes_json(snapshot: &NativeSnapshot) -> serde_json::Value {
         .iter()
         .enumerate()
         .map(|(index, panel)| {
-            let surface_ids = panel.tabs.iter().map(compat_tab_ref).collect::<Vec<_>>();
+            let surface_ids = panel.tabs.iter().map(compat_tab_id).collect::<Vec<_>>();
+            let surface_refs = panel.tabs.iter().map(compat_tab_ref).collect::<Vec<_>>();
             let selected_surface_id = panel
+                .tabs
+                .get(panel.active)
+                .map(compat_tab_id)
+                .or_else(|| panel.tabs.first().map(compat_tab_id));
+            let selected_surface_ref = panel
                 .tabs
                 .get(panel.active)
                 .map(compat_tab_ref)
@@ -27081,10 +27170,10 @@ fn compatibility_panes_json(snapshot: &NativeSnapshot) -> serde_json::Value {
                 "tabCount": panel.tabs.len(),
                 "surface_count": panel.tabs.len(),
                 "surface_ids": surface_ids,
-                "surface_refs": surface_ids,
+                "surface_refs": surface_refs,
                 "activeSurfaceId": panel.active_tab_id.to_string(),
                 "selected_surface_id": selected_surface_id,
-                "selected_surface_ref": selected_surface_id,
+                "selected_surface_ref": selected_surface_ref,
             })
         })
         .collect::<Vec<_>>();
@@ -27102,15 +27191,17 @@ fn compatibility_surface_json(
     surface: &CompatibilitySurfaceEntry<'_>,
     focused_tab_id: u64,
 ) -> serde_json::Value {
+    let surface_id = compat_tab_id(surface.tab);
     let surface_ref = compat_tab_ref(surface.tab);
+    let tab_ref = compat_tab_handle_ref(surface.tab);
     let pane_ref = surface.panel_id.to_string();
     serde_json::json!({
-        "id": surface_ref,
-        "ref": surface_ref,
-        "surface_id": surface_ref,
+        "id": surface_id.clone(),
+        "ref": surface_ref.clone(),
+        "surface_id": surface_id.clone(),
         "surface_ref": surface_ref,
-        "tab_id": surface_ref,
-        "tab_ref": surface_ref,
+        "tab_id": surface_id,
+        "tab_ref": tab_ref,
         "numericId": surface.tab.id,
         "numericSurfaceId": surface.tab.id,
         "numericTabId": surface.tab.id,
@@ -27200,10 +27291,16 @@ fn compatibility_pane_surfaces_json(
         .iter()
         .enumerate()
         .map(|(index, tab)| {
+            let surface_id = compat_tab_id(tab);
             let surface_ref = compat_tab_ref(tab);
+            let tab_ref = compat_tab_handle_ref(tab);
             serde_json::json!({
-                "id": surface_ref,
-                "ref": surface_ref,
+                "id": surface_id.clone(),
+                "ref": surface_ref.clone(),
+                "surface_id": surface_id.clone(),
+                "surface_ref": surface_ref,
+                "tab_id": surface_id,
+                "tab_ref": tab_ref,
                 "numericId": tab.id,
                 "index": index,
                 "index_in_pane": index,
