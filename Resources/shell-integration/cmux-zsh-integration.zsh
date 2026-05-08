@@ -528,6 +528,29 @@ _cmux_report_shell_activity_state() {
     _cmux_send_bg "report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
 }
 
+# Preexec wrapper that skips a kick when we've already kicked recently.
+# A previous kick's 10-second burst (running scans at offsets 0.5/1.5/3/5/7.5/10s)
+# already covers any port that opens within a few seconds, so kicks fired in
+# rapid succession are redundant. Skipping them eliminates the burst-chain
+# storm that occurs when a busy panel runs many short commands in a row.
+# precmd has its own throttle (`cmd_dur >= 2 || >= 10s elapsed`) and is
+# unaffected.
+_cmux_ports_kick_for_command() {
+    # `_CMUX_PORTS_LAST_RUN == 0` means we haven't kicked in this shell yet.
+    # Always let the first kick through — never throttle into silence. This
+    # also avoids a false-throttle when `_cmux_now` falls back to $SECONDS
+    # (e.g., zsh without zsh/datetime) and the shell is younger than 3s.
+    if (( _CMUX_PORTS_LAST_RUN == 0 )); then
+        _cmux_ports_kick command
+        return
+    fi
+    local now
+    now="$(_cmux_now)"
+    if (( now - _CMUX_PORTS_LAST_RUN >= 3 )); then
+        _cmux_ports_kick command
+    fi
+}
+
 _cmux_ports_kick() {
     local reason="${1:-command}"
     # Lightweight: just tell the app to run a batched scan for this panel.
@@ -1118,7 +1141,7 @@ _cmux_preexec() {
 
     # Register TTY + kick batched port scan for foreground commands (servers).
     _cmux_report_tty_once
-    _cmux_ports_kick command
+    _cmux_ports_kick_for_command
     _cmux_halt_pr_poll_loop
     _cmux_stop_git_head_watch
     if _cmux_command_starts_nested_shell "$cmd"; then
