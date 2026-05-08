@@ -342,7 +342,8 @@ final class SessionDragRegistry {
         pending[id] = entry
         lock.unlock()
         // Auto-expire so a cancelled drag doesn't leak forever.
-        DispatchQueue.global().asyncAfter(deadline: .now() + 60) { [weak self] in
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(60))
             self?.lock.lock()
             self?.pending.removeValue(forKey: id)
             self?.lock.unlock()
