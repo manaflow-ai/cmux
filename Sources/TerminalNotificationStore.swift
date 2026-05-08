@@ -783,6 +783,8 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     var unreadCount: Int {
+        // Global badges count only notification-backed unread items. Per-workspace
+        // badges use unreadCount(forTabId:) and include manualUnreadWorkspaceIds.
         indexes.unreadCount
     }
 
@@ -895,6 +897,8 @@ final class TerminalNotificationStore: ObservableObject {
         manualUnreadWorkspaceIds = []
     }
 
+    // Per-workspace badges treat manualUnreadWorkspaceIds as "has unread
+    // activity"; summing these counts can exceed indexes.unreadCount.
     func unreadCount(forTabId tabId: UUID) -> Int {
         (indexes.unreadCountByTabId[tabId] ?? 0) + (manualUnreadWorkspaceIds.contains(tabId) ? 1 : 0)
     }
