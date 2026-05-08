@@ -4490,7 +4490,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             (.find, [.command], "f", 3),
             (.findInDirectory, [.command, .shift], "f", 3),
             (.findNext, [.command], "g", 5),
-            (.findPrevious, [.command, .shift], "g", 5),
+            (.findPrevious, [.command, .option], "g", 5),
             (.hideFind, [.command, .option, .shift], "f", 3),
             (.useSelectionForFind, [.command], "e", 14),
         ]
@@ -4525,7 +4525,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     func testBrowserFirstFindShortcutRoutingRecognizesBrowserLocalFindCommandFamily() {
         let cases: [(name: String, modifiers: NSEvent.ModifierFlags, chars: String, keyCode: UInt16)] = [
             ("cmd-g", [.command], "g", 5),
-            ("cmd-shift-g", [.command, .shift], "g", 5),
+            ("cmd-option-g", [.command, .option], "g", 5),
             ("cmd-option-shift-f", [.command, .option, .shift], "f", 3),
             ("cmd-e", [.command], "e", 14),
         ]
@@ -4630,6 +4630,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             ("cmd-w", [.command], "w", 13),
             ("cmd-l", [.command], "l", 37),
             ("cmd-option-f", [.command, .option], "f", 3),
+            ("cmd-shift-g-toggle-react-grab", [.command, .shift], "g", 5),
         ]
 
         for testCase in cases {
