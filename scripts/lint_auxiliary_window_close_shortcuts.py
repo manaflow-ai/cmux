@@ -39,8 +39,20 @@ def load_close_owner_identifiers(repo_root: pathlib.Path) -> set[str]:
         raise ValueError(f"missing {OWNER_LIST_NAME} in {OWNER_LIST_PATH}")
 
     list_start = text.find("[", marker_index)
-    list_end = text.find("]", list_start)
-    if list_start < 0 or list_end < 0:
+    if list_start < 0:
+        raise ValueError(f"could not parse {OWNER_LIST_NAME} in {OWNER_LIST_PATH}")
+
+    depth = 0
+    list_end = -1
+    for index in range(list_start, len(text)):
+        if text[index] == "[":
+            depth += 1
+        elif text[index] == "]":
+            depth -= 1
+            if depth == 0:
+                list_end = index
+                break
+    if list_end < 0:
         raise ValueError(f"could not parse {OWNER_LIST_NAME} in {OWNER_LIST_PATH}")
 
     list_body = text[list_start:list_end]

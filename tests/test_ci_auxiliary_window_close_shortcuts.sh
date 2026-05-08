@@ -34,6 +34,7 @@ grep -q "cmux.newWindow" "$TMP_DIR/missing.out"
 
 cat > "$TMP_DIR/Sources/cmuxApp.swift" <<'SWIFT'
 private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
+    // MARK: - Main Windows [user-closable]
     "cmux.newWindow",
     "cmux.settings",
 ]
