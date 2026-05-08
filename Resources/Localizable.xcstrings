@@ -92930,6 +92930,40 @@
         }
       }
     },
+    "titlebar.rightSidebar.accessibilityLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle Right Sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右サイドバーの切り替え"
+          }
+        }
+      }
+    },
+    "titlebar.rightSidebar.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show or hide the right sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右サイドバーの表示/非表示"
+          }
+        }
+      }
+    },
     "titlebar.sidebar.accessibilityLabel": {
       "extractionState": "manual",
       "localizations": {

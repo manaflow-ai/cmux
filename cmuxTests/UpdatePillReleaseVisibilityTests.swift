@@ -154,6 +154,7 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
         let baseline = TitlebarControlsLayoutSnapshot(
             contentSize: NSSize(width: 128, height: 22),
             containerHeight: 28,
+            xOffset: 0,
             yOffset: 3
         )
         XCTAssertTrue(titlebarControlsShouldApplyLayout(previous: nil, next: baseline))
@@ -162,9 +163,18 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
         let changed = TitlebarControlsLayoutSnapshot(
             contentSize: NSSize(width: 132, height: 22),
             containerHeight: 28,
+            xOffset: 0,
             yOffset: 3
         )
         XCTAssertTrue(titlebarControlsShouldApplyLayout(previous: baseline, next: changed))
+
+        let offsetChanged = TitlebarControlsLayoutSnapshot(
+            contentSize: NSSize(width: 128, height: 22),
+            containerHeight: 28,
+            xOffset: 1,
+            yOffset: 3
+        )
+        XCTAssertTrue(titlebarControlsShouldApplyLayout(previous: baseline, next: offsetChanged))
     }
 
     func testShortcutHintVerticalOffsetKeepsPillInsideButtonLane() {

@@ -1105,6 +1105,7 @@ struct cmuxApp: App {
 
 #if DEBUG
     private func openAllDebugWindows() {
+        DebugWindowControlsWindowController.shared.show()
         BrowserImportHintDebugWindowController.shared.show()
         BrowserProfilePopoverDebugWindowController.shared.show()
         AboutTitlebarDebugWindowController.shared.show()
@@ -1609,6 +1610,18 @@ private enum DebugWindowConfigSnapshot {
         shortcutHintShowOnControlHold=\(boolValue(defaults, key: ShortcutHintDebugSettings.showHintsOnControlHoldKey, fallback: ShortcutHintDebugSettings.defaultShowHintsOnControlHold))
         """
 
+        let titlebarChromePayload = """
+        titlebarLeftControlsLeadingInset=\(String(format: "%.1f", doubleValue(defaults, key: MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey, fallback: MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset)))
+        titlebarLeftControlsTopInset=\(String(format: "%.1f", doubleValue(defaults, key: MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey, fallback: MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset)))
+        titlebarRightToggleTrailingInset=\(String(format: "%.1f", doubleValue(defaults, key: MinimalModeTitlebarDebugSettings.rightToggleTrailingInsetKey, fallback: MinimalModeTitlebarDebugSettings.defaultRightToggleTrailingInset)))
+        titlebarRightToggleTopInset=\(String(format: "%.1f", doubleValue(defaults, key: MinimalModeTitlebarDebugSettings.rightToggleTopInsetKey, fallback: MinimalModeTitlebarDebugSettings.defaultRightToggleTopInset)))
+        titlebarTrafficLightsXOffset=\(String(format: "%.1f", doubleValue(defaults, key: MinimalModeTitlebarDebugSettings.trafficLightsXOffsetKey, fallback: MinimalModeTitlebarDebugSettings.defaultTrafficLightsXOffset)))
+        titlebarTrafficLightsYOffset=\(String(format: "%.1f", doubleValue(defaults, key: MinimalModeTitlebarDebugSettings.trafficLightsYOffsetKey, fallback: MinimalModeTitlebarDebugSettings.defaultTrafficLightsYOffset)))
+        titlebarTrafficLightTabBarInset=\(String(format: "%.1f", Double(MinimalModeTitlebarDebugSettings.trafficLightTabBarLeadingInset(defaults: defaults))))
+        titlebarTrafficLightTitleLeadingInset=\(String(format: "%.1f", Double(MinimalModeTitlebarDebugSettings.trafficLightTitlebarLeadingInset(defaults: defaults))))
+        titlebarLeadingExtra=\(String(format: "%.1f", doubleValue(defaults, key: "debugTitlebarLeadingExtra", fallback: 0.0)))
+        """
+
         let backgroundPayload = """
         bgGlassEnabled=\(boolValue(defaults, key: "bgGlassEnabled", fallback: false))
         bgGlassMaterial=\(stringValue(defaults, key: "bgGlassMaterial", fallback: "hudWindow"))
@@ -1622,6 +1635,9 @@ private enum DebugWindowConfigSnapshot {
         return """
         # Sidebar Debug
         \(sidebarPayload)
+
+        # Titlebar Chrome
+        \(titlebarChromePayload)
 
         # Background Debug
         \(backgroundPayload)
@@ -1700,6 +1716,18 @@ private struct DebugWindowControlsView: View {
     @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
     private var sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
     @AppStorage("debugTitlebarLeadingExtra") private var titlebarLeadingExtra: Double = 0
+    @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey)
+    private var leftControlsLeadingInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset
+    @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey)
+    private var leftControlsTopInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset
+    @AppStorage(MinimalModeTitlebarDebugSettings.rightToggleTrailingInsetKey)
+    private var rightToggleTrailingInset = MinimalModeTitlebarDebugSettings.defaultRightToggleTrailingInset
+    @AppStorage(MinimalModeTitlebarDebugSettings.rightToggleTopInsetKey)
+    private var rightToggleTopInset = MinimalModeTitlebarDebugSettings.defaultRightToggleTopInset
+    @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightsXOffsetKey)
+    private var trafficLightsXOffset = MinimalModeTitlebarDebugSettings.defaultTrafficLightsXOffset
+    @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightsYOffsetKey)
+    private var trafficLightsYOffset = MinimalModeTitlebarDebugSettings.defaultTrafficLightsYOffset
     @AppStorage(BrowserDevToolsButtonDebugSettings.iconNameKey) private var browserDevToolsIconNameRaw = BrowserDevToolsButtonDebugSettings.defaultIcon.rawValue
     @AppStorage(BrowserDevToolsButtonDebugSettings.iconColorKey) private var browserDevToolsIconColorRaw = BrowserDevToolsButtonDebugSettings.defaultColor.rawValue
 
@@ -1799,6 +1827,7 @@ private struct DebugWindowControlsView: View {
                             FeedTextEditorDebugWindowController.shared.show()
                         }
                         Button("Open All Debug Windows") {
+                            DebugWindowControlsWindowController.shared.show()
                             BrowserImportHintDebugWindowController.shared.show()
                             BrowserProfilePopoverDebugWindowController.shared.show()
                             AboutTitlebarDebugWindowController.shared.show()
@@ -1866,18 +1895,54 @@ private struct DebugWindowControlsView: View {
                     .padding(.top, 2)
                 }
 
-                GroupBox("Titlebar Spacing") {
-                    VStack(alignment: .leading, spacing: 6) {
+                GroupBox("Titlebar Chrome") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        chromeSliderSection(
+                            "Traffic lights",
+                            xLabel: "X offset",
+                            x: $trafficLightsXOffset,
+                            xRange: MinimalModeTitlebarDebugSettings.trafficLightOffsetRange,
+                            yLabel: "Y offset",
+                            y: $trafficLightsYOffset,
+                            yRange: MinimalModeTitlebarDebugSettings.trafficLightYOffsetRange
+                        )
+
+                        chromeSliderSection(
+                            "Left buttons",
+                            xLabel: "Leading",
+                            x: $leftControlsLeadingInset,
+                            xRange: MinimalModeTitlebarDebugSettings.horizontalInsetRange,
+                            yLabel: "Top",
+                            y: $leftControlsTopInset,
+                            yRange: MinimalModeTitlebarDebugSettings.topInsetRange
+                        )
+
+                        chromeSliderSection(
+                            "Right toggle",
+                            xLabel: "Trailing",
+                            x: $rightToggleTrailingInset,
+                            xRange: MinimalModeTitlebarDebugSettings.horizontalInsetRange,
+                            yLabel: "Top",
+                            y: $rightToggleTopInset,
+                            yRange: MinimalModeTitlebarDebugSettings.topInsetRange
+                        )
+
                         HStack(spacing: 8) {
-                            Text("Leading extra")
+                            Text("Title text leading")
                             Slider(value: $titlebarLeadingExtra, in: 0...40)
                             Text(String(format: "%.0f", titlebarLeadingExtra))
                                 .font(.caption)
                                 .monospacedDigit()
                                 .frame(width: 30, alignment: .trailing)
                         }
-                        Button("Reset (0)") {
-                            titlebarLeadingExtra = 0
+
+                        HStack(spacing: 12) {
+                            Button("Reset Chrome") {
+                                resetTitlebarChrome()
+                            }
+                            Button("Copy Chrome Config") {
+                                copyTitlebarChromeConfig()
+                            }
                         }
                     }
                     .padding(.top, 2)
@@ -1934,7 +1999,7 @@ private struct DebugWindowControlsView: View {
                         Button("Copy All Debug Config") {
                             DebugWindowConfigSnapshot.copyCombinedToPasteboard()
                         }
-                        Text("Copies sidebar, background, menu bar, and browser devtools settings as one payload.")
+                        Text("Copies sidebar, titlebar, background, menu bar, and browser devtools settings as one payload.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -1960,11 +2025,33 @@ private struct DebugWindowControlsView: View {
         }
     }
 
+    private func chromeSliderSection(
+        _ title: String,
+        xLabel: String,
+        x: Binding<Double>,
+        xRange: ClosedRange<Double>,
+        yLabel: String,
+        y: Binding<Double>,
+        yRange: ClosedRange<Double>
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.caption)
+                .foregroundColor(.secondary)
+            sliderRow(xLabel, value: x, range: xRange)
+            sliderRow(yLabel, value: y, range: yRange)
+        }
+    }
+
     private func sliderRow(_ label: String, value: Binding<Double>) -> some View {
+        sliderRow(label, value: value, range: ShortcutHintDebugSettings.offsetRange)
+    }
+
+    private func sliderRow(_ label: String, value: Binding<Double>, range: ClosedRange<Double>) -> some View {
         HStack(spacing: 8) {
             Text(label)
-            Slider(value: value, in: ShortcutHintDebugSettings.offsetRange)
-            Text(String(format: "%.1f", ShortcutHintDebugSettings.clamped(value.wrappedValue)))
+            Slider(value: value, in: range)
+            Text(String(format: "%.1f", MinimalModeTitlebarDebugSettings.clamped(value.wrappedValue, range: range)))
                 .font(.caption)
                 .monospacedDigit()
                 .frame(width: 44, alignment: .trailing)
@@ -1979,6 +2066,33 @@ private struct DebugWindowControlsView: View {
         paneShortcutHintXOffset = ShortcutHintDebugSettings.defaultPaneHintX
         paneShortcutHintYOffset = ShortcutHintDebugSettings.defaultPaneHintY
         alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
+    }
+
+    private func resetTitlebarChrome() {
+        leftControlsLeadingInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset
+        leftControlsTopInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset
+        rightToggleTrailingInset = MinimalModeTitlebarDebugSettings.defaultRightToggleTrailingInset
+        rightToggleTopInset = MinimalModeTitlebarDebugSettings.defaultRightToggleTopInset
+        trafficLightsXOffset = MinimalModeTitlebarDebugSettings.defaultTrafficLightsXOffset
+        trafficLightsYOffset = MinimalModeTitlebarDebugSettings.defaultTrafficLightsYOffset
+        titlebarLeadingExtra = 0
+    }
+
+    private func copyTitlebarChromeConfig() {
+        let payload = """
+        titlebarLeftControlsLeadingInset=\(String(format: "%.1f", leftControlsLeadingInset))
+        titlebarLeftControlsTopInset=\(String(format: "%.1f", leftControlsTopInset))
+        titlebarRightToggleTrailingInset=\(String(format: "%.1f", rightToggleTrailingInset))
+        titlebarRightToggleTopInset=\(String(format: "%.1f", rightToggleTopInset))
+        titlebarTrafficLightsXOffset=\(String(format: "%.1f", trafficLightsXOffset))
+        titlebarTrafficLightsYOffset=\(String(format: "%.1f", trafficLightsYOffset))
+        titlebarTrafficLightTabBarInset=\(String(format: "%.1f", Double(MinimalModeTitlebarDebugSettings.trafficLightTabBarLeadingInset())))
+        titlebarTrafficLightTitleLeadingInset=\(String(format: "%.1f", Double(MinimalModeTitlebarDebugSettings.trafficLightTitlebarLeadingInset())))
+        titlebarLeadingExtra=\(String(format: "%.1f", titlebarLeadingExtra))
+        """
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(payload, forType: .string)
     }
 
     private func copyShortcutHintConfig() {

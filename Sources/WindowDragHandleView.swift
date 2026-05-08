@@ -454,10 +454,172 @@ func isMinimalModeTitlebarControlHit(window: NSWindow, locationInWindow: NSPoint
     return MinimalModeTitlebarControlHitRegionRegistry.containsWindowPoint(locationInWindow, in: window)
 }
 
+enum MinimalModeTitlebarDebugSettings {
+    static let leftControlsLeadingInsetKey = "debug.titlebar.leftControlsLeadingInset"
+    static let leftControlsTopInsetKey = "debug.titlebar.leftControlsTopInset"
+    static let rightToggleTrailingInsetKey = "debug.titlebar.rightToggleTrailingInset"
+    static let rightToggleTopInsetKey = "debug.titlebar.rightToggleTopInset"
+    static let trafficLightsXOffsetKey = "debug.titlebar.trafficLightsXOffset"
+    static let trafficLightsYOffsetKey = "debug.titlebar.trafficLightsYOffset"
+
+    static let defaultLeftControlsLeadingInset = 72.0
+    static let defaultLeftControlsTopInset = -0.3
+    static let defaultRightToggleTrailingInset = 8.0
+    static let defaultRightToggleTopInset = -0.0
+    static let defaultTrafficLightsXOffset = 0.0
+    static let defaultTrafficLightsYOffset = 1.7
+    static let defaultTrafficLightTabBarInset = 80.0
+    static let defaultTrafficLightTitlebarLeadingInset = 78.0
+
+    static let horizontalInsetRange: ClosedRange<Double> = 0...180
+    static let topInsetRange: ClosedRange<Double> = -8...32
+    static let trafficLightOffsetRange: ClosedRange<Double> = -48...96
+    static let trafficLightYOffsetRange: ClosedRange<Double> = -24...24
+    static let leftControlsXOffsetRange: ClosedRange<Double> = (
+        horizontalInsetRange.lowerBound - defaultLeftControlsLeadingInset
+    )...(
+        horizontalInsetRange.upperBound - defaultLeftControlsLeadingInset
+    )
+
+    static func clamped(_ value: Double, range: ClosedRange<Double>) -> Double {
+        min(max(value, range.lowerBound), range.upperBound)
+    }
+
+    static func doubleValue(defaults: UserDefaults = .standard, key: String, fallback: Double, range: ClosedRange<Double>) -> Double {
+        let rawValue: Double
+        if let value = defaults.object(forKey: key) as? NSNumber {
+            rawValue = value.doubleValue
+        } else if let text = defaults.string(forKey: key), let parsed = Double(text) {
+            rawValue = parsed
+        } else {
+            rawValue = fallback
+        }
+        let finiteValue = rawValue.isFinite ? rawValue : fallback
+        return clamped(finiteValue, range: range)
+    }
+
+    static func trafficLightTabBarLeadingInset(defaults: UserDefaults = .standard) -> CGFloat {
+        let offset = doubleValue(
+            defaults: defaults,
+            key: trafficLightsXOffsetKey,
+            fallback: defaultTrafficLightsXOffset,
+            range: trafficLightOffsetRange
+        )
+        return CGFloat(max(0, defaultTrafficLightTabBarInset + offset))
+    }
+
+    static func trafficLightTitlebarLeadingInset(defaults: UserDefaults = .standard) -> CGFloat {
+        let offset = doubleValue(
+            defaults: defaults,
+            key: trafficLightsXOffsetKey,
+            fallback: defaultTrafficLightsXOffset,
+            range: trafficLightOffsetRange
+        )
+        return CGFloat(max(0, defaultTrafficLightTitlebarLeadingInset + offset))
+    }
+
+    static func leftControlsLeadingInset(defaults: UserDefaults = .standard) -> CGFloat {
+        CGFloat(
+            doubleValue(
+                defaults: defaults,
+                key: leftControlsLeadingInsetKey,
+                fallback: defaultLeftControlsLeadingInset,
+                range: horizontalInsetRange
+            )
+        )
+    }
+
+    static func leftControlsTopInset(defaults: UserDefaults = .standard) -> CGFloat {
+        CGFloat(
+            doubleValue(
+                defaults: defaults,
+                key: leftControlsTopInsetKey,
+                fallback: defaultLeftControlsTopInset,
+                range: topInsetRange
+            )
+        )
+    }
+
+    static func leftControlsXOffset(leadingInset: Double) -> CGFloat {
+        CGFloat(
+            clamped(
+                leadingInset - defaultLeftControlsLeadingInset,
+                range: leftControlsXOffsetRange
+            )
+        )
+    }
+
+    static func snapshot(defaults: UserDefaults = .standard) -> MinimalModeTitlebarDebugSnapshot {
+        MinimalModeTitlebarDebugSnapshot(
+            leftControlsLeadingInset: doubleValue(
+                defaults: defaults,
+                key: leftControlsLeadingInsetKey,
+                fallback: defaultLeftControlsLeadingInset,
+                range: horizontalInsetRange
+            ),
+            leftControlsTopInset: doubleValue(
+                defaults: defaults,
+                key: leftControlsTopInsetKey,
+                fallback: defaultLeftControlsTopInset,
+                range: topInsetRange
+            ),
+            rightToggleTrailingInset: doubleValue(
+                defaults: defaults,
+                key: rightToggleTrailingInsetKey,
+                fallback: defaultRightToggleTrailingInset,
+                range: horizontalInsetRange
+            ),
+            rightToggleTopInset: doubleValue(
+                defaults: defaults,
+                key: rightToggleTopInsetKey,
+                fallback: defaultRightToggleTopInset,
+                range: topInsetRange
+            ),
+            trafficLightsXOffset: doubleValue(
+                defaults: defaults,
+                key: trafficLightsXOffsetKey,
+                fallback: defaultTrafficLightsXOffset,
+                range: trafficLightOffsetRange
+            ),
+            trafficLightsYOffset: doubleValue(
+                defaults: defaults,
+                key: trafficLightsYOffsetKey,
+                fallback: defaultTrafficLightsYOffset,
+                range: trafficLightYOffsetRange
+            )
+        )
+    }
+}
+
+struct MinimalModeTitlebarDebugSnapshot: Equatable {
+    let leftControlsLeadingInset: Double
+    let leftControlsTopInset: Double
+    let rightToggleTrailingInset: Double
+    let rightToggleTopInset: Double
+    let trafficLightsXOffset: Double
+    let trafficLightsYOffset: Double
+}
+
 enum MinimalModeSidebarTitlebarControlsMetrics {
-    static let leadingInset: CGFloat = 72
+    static var leadingInset: CGFloat {
+        leadingInset()
+    }
+
+    static var topInset: CGFloat {
+        topInset()
+    }
+
+    static func leadingInset(defaults: UserDefaults = .standard) -> CGFloat {
+        MinimalModeTitlebarDebugSettings.leftControlsLeadingInset(defaults: defaults)
+    }
+
+    static func topInset(defaults: UserDefaults = .standard) -> CGFloat {
+        MinimalModeTitlebarDebugSettings.leftControlsTopInset(defaults: defaults)
+    }
+
     static let hostWidth: CGFloat = 124
     static let hostHeight: CGFloat = 28
+    static let singleButtonHostWidth: CGFloat = hostHeight
 }
 
 enum MinimalModeSidebarControlActionSlot: Int {
@@ -582,7 +744,7 @@ func isMinimalModeSidebarChromeHoverCandidate(
         topStripHeight: MinimalModeChromeMetrics.titlebarHeight
     ) else { return false }
 
-    let minX = MinimalModeSidebarTitlebarControlsMetrics.leadingInset
+    let minX = MinimalModeSidebarTitlebarControlsMetrics.leadingInset(defaults: defaults)
     let maxX = minX + MinimalModeSidebarTitlebarControlsMetrics.hostWidth
     return locationInWindow.x >= minX && locationInWindow.x <= maxX
 }
@@ -627,8 +789,9 @@ func minimalModeSidebarControlActionSlot(
         topStripHeight: MinimalModeChromeMetrics.titlebarHeight
     ) else { return nil }
 
+    let leadingInset = MinimalModeSidebarTitlebarControlsMetrics.leadingInset(defaults: defaults)
     let localPoint = NSPoint(
-        x: locationInWindow.x - MinimalModeSidebarTitlebarControlsMetrics.leadingInset,
+        x: locationInWindow.x - leadingInset,
         y: MinimalModeSidebarTitlebarControlsMetrics.hostHeight / 2
     )
     return TitlebarControlsHitRegions.sidebarActionSlot(
