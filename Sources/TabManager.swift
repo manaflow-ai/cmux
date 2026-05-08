@@ -924,6 +924,7 @@ class TabManager: ObservableObject {
     private nonisolated static let mergedPullRequestBadgeStaleAfter: TimeInterval = 14 * 24 * 60 * 60
     private nonisolated static let agentPIDSweepInterval: TimeInterval = 2
     private nonisolated static let agentPIDDiscoveryMinimumInterval: TimeInterval = 5
+    private nonisolated static let panelAgentTitleRegistrationLifetime: TimeInterval = 30
     @Published var selectedTabId: UUID? {
         willSet {
 #if DEBUG
@@ -1006,6 +1007,7 @@ class TabManager: ObservableObject {
     }
     private var pendingPanelTitleUpdates: [PanelTitleUpdateKey: String] = [:]
     private var panelAgentTitleRegistrations: [PanelTitleUpdateKey: SidebarAgentTitleRegistration] = [:]
+    private var panelAgentTitleRegistrationSeenAt: [PanelTitleUpdateKey: Date] = [:]
     private let panelTitleUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
     private var recentlyClosedBrowsers = RecentlyClosedBrowserStack(capacity: 20)
     private let initialWorkspaceGitProbeQueue = DispatchQueue(
@@ -5076,6 +5078,7 @@ class TabManager: ObservableObject {
         pendingPanelTitleUpdates[key] = trimmed
         if let registration = SidebarAgentStatusService.titleRegistration(for: trimmed) {
             panelAgentTitleRegistrations[key] = registration
+            panelAgentTitleRegistrationSeenAt[key] = Date()
         }
         panelTitleUpdateCoalescer.signal { [weak self] in
             self?.flushPendingPanelTitleUpdates()
@@ -5083,6 +5086,7 @@ class TabManager: ObservableObject {
     }
 
     private func agentTitleRegistrationCandidates() -> [(Workspace, UUID, SidebarAgentTitleRegistration)] {
+        pruneExpiredPanelAgentTitleRegistrations()
         tabs.flatMap { tab in
             tab.panels.keys.compactMap { panelId -> (Workspace, UUID, SidebarAgentTitleRegistration)? in
                 let key = PanelTitleUpdateKey(tabId: tab.id, panelId: panelId)
@@ -5146,11 +5150,25 @@ class TabManager: ObservableObject {
             }
             if registerAgentPID(registration, workspace: tab, panelId: panelId, processSnapshot: processSnapshot) {
                 registeredKeys.insert(registrationKey)
-                panelAgentTitleRegistrations.removeValue(forKey: PanelTitleUpdateKey(tabId: tab.id, panelId: panelId))
+                clearPanelAgentTitleRegistration(for: PanelTitleUpdateKey(tabId: tab.id, panelId: panelId))
                 didRegisterAny = true
             }
         }
         return didRegisterAny
+    }
+
+    private func pruneExpiredPanelAgentTitleRegistrations(now: Date = Date()) {
+        for key in Array(panelAgentTitleRegistrationSeenAt.keys) {
+            guard let seenAt = panelAgentTitleRegistrationSeenAt[key] else { continue }
+            if now.timeIntervalSince(seenAt) > Self.panelAgentTitleRegistrationLifetime {
+                clearPanelAgentTitleRegistration(for: key)
+            }
+        }
+    }
+
+    private func clearPanelAgentTitleRegistration(for key: PanelTitleUpdateKey) {
+        panelAgentTitleRegistrations.removeValue(forKey: key)
+        panelAgentTitleRegistrationSeenAt.removeValue(forKey: key)
     }
 
     private func clearPanelTitleTracking(workspaceId: UUID) {
@@ -5158,7 +5176,7 @@ class TabManager: ObservableObject {
             pendingPanelTitleUpdates.removeValue(forKey: key)
         }
         for key in Array(panelAgentTitleRegistrations.keys) where key.tabId == workspaceId {
-            panelAgentTitleRegistrations.removeValue(forKey: key)
+            clearPanelAgentTitleRegistration(for: key)
         }
     }
 
@@ -7501,6 +7519,7 @@ extension TabManager {
         lastFocusedPanelByTab.removeAll()
         pendingPanelTitleUpdates.removeAll()
         panelAgentTitleRegistrations.removeAll()
+        panelAgentTitleRegistrationSeenAt.removeAll()
         tabHistory.removeAll()
         historyIndex = -1
         isNavigatingHistory = false
