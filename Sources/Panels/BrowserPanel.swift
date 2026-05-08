@@ -4826,9 +4826,11 @@ extension BrowserPanel {
 
         let visibleAfterTransition = inspector.cmuxCallBool(selector: isVisibleSelector) ?? visible
         let resolvedExplicitShow = source == "show" && targetVisible && visibleAfterTransition
-        if visible != targetVisible, !resolvedExplicitShow {
+        if visible != targetVisible, !resolvedExplicitShow, visibleAfterTransition != targetVisible {
             scheduleDeveloperToolsTransitionSettle(source: source)
         } else {
+            developerToolsTransitionSettleWorkItem?.cancel()
+            developerToolsTransitionSettleWorkItem = nil
             developerToolsTransitionTargetVisible = nil
         }
 

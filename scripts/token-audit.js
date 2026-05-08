@@ -83,7 +83,7 @@ function stripCssComments(source) {
 const rawValuePatterns = [
   /#[0-9a-fA-F]{3,8}\b/,
   /\b(?:rgb|rgba|hsl|hsla|lab|lch|oklab|oklch|color-mix)\(/i,
-  /(?:^|[^\w.-])-?\d*\.?\d+(?:px|rem|em|vh|vw|vmin|vmax|ch|ex|%|s|ms|deg|rad|turn)\b/,
+  /(?:^|[^\w.-])-?\d*\.?\d+(?:px|rem|em|vh|vw|vmin|vmax|ch|ex|%|s|ms|deg|rad|turn)(?!\w)/,
 ];
 
 function declarationFromLine(line) {
