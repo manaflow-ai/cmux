@@ -22,6 +22,14 @@ final class CmxIrohTerminalSession: CmxTerminalSession {
     nonisolated private static let maximumMainActorBatchBytes = 256 * 1024
     nonisolated private static let maximumQueuedMainActorMessages = 4096
     nonisolated private static let maximumQueuedMainActorBytes = 8 * 1024 * 1024
+    #if DEBUG
+    private static var xctestRetainedSessions: [CmxIrohTerminalSession] = []
+
+    private static var isRunningUnderXCTest: Bool {
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+            || NSClassFromString("XCTestCase") != nil
+    }
+    #endif
 
     weak var delegate: CmxTerminalSessionDelegate?
 
@@ -42,6 +50,9 @@ final class CmxIrohTerminalSession: CmxTerminalSession {
     init(ticket: String, pairingSecret: String?) {
         self.ticket = ticket.trimmingCharacters(in: .whitespacesAndNewlines)
         self.pairingSecret = pairingSecret
+        #if DEBUG
+        retainForXCTestIfNeeded()
+        #endif
     }
 
     isolated deinit {
@@ -280,6 +291,13 @@ final class CmxIrohTerminalSession: CmxTerminalSession {
         Unmanaged<CmxIrohTerminalSession>.fromOpaque(retainedSelf).release()
         self.retainedSelf = nil
     }
+
+    #if DEBUG
+    private func retainForXCTestIfNeeded() {
+        guard Self.isRunningUnderXCTest else { return }
+        Self.xctestRetainedSessions.append(self)
+    }
+    #endif
 
     private func startHeartbeat() {
         stopHeartbeat()

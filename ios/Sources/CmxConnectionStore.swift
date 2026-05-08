@@ -141,6 +141,14 @@ final class CmxConnectionStore: ObservableObject {
     private static let placeholderTerminalID = UInt64.max
     private static let maximumCachedTerminalOutputBytes = 512 * 1024
     private static let maximumCachedTerminalOutputChunks = 256
+    #if DEBUG
+    private static var xctestRetainedStores: [CmxConnectionStore] = []
+
+    private static var isRunningUnderXCTest: Bool {
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+            || NSClassFromString("XCTestCase") != nil
+    }
+    #endif
 
     @Published var ticketText = ""
     @Published private(set) var ticket: CmxBridgeTicket?
@@ -271,6 +279,9 @@ final class CmxConnectionStore: ObservableObject {
                 self?.connect()
             }
         }
+        #if DEBUG
+        retainForXCTestIfNeeded()
+        #endif
     }
 
     isolated deinit {
@@ -280,6 +291,13 @@ final class CmxConnectionStore: ObservableObject {
             NotificationCenter.default.removeObserver(observer)
         }
     }
+
+    #if DEBUG
+    private func retainForXCTestIfNeeded() {
+        guard Self.isRunningUnderXCTest else { return }
+        Self.xctestRetainedStores.append(self)
+    }
+    #endif
 
     var selectedWorkspace: CmxWorkspace {
         workspaces.first(where: { $0.id == selectedWorkspaceID }) ?? workspaces.first ?? Self.placeholderWorkspace

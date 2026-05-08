@@ -282,6 +282,7 @@ final class CmxHiveDiscoveryStoreTests: XCTestCase {
                 )
             ),
             hiveTeamPreferenceStore: MemoryHiveTeamPreferenceStore(),
+            hiveDiscoveryCacheStore: MemoryHiveDiscoveryCacheStore(),
             hiveDiscoveryEndpoint: URL(string: "https://rivet.example/hive")!,
             terminalSessionFactory: RecordingHiveTerminalSessionFactory(),
             startHiveDiscoveryOnInit: false
@@ -322,6 +323,7 @@ final class CmxHiveDiscoveryStoreTests: XCTestCase {
             hiveDiscoveryClient: discovery,
             hiveControlClient: control,
             hiveTeamPreferenceStore: MemoryHiveTeamPreferenceStore(selectedTeamID: "team-alpha"),
+            hiveDiscoveryCacheStore: MemoryHiveDiscoveryCacheStore(),
             hiveDiscoveryEndpoint: URL(string: "https://rivet.example/hive")!,
             terminalSessionFactory: RecordingHiveTerminalSessionFactory(),
             startHiveDiscoveryOnInit: false
@@ -472,6 +474,7 @@ final class CmxHiveDiscoveryStoreTests: XCTestCase {
             hiveDiscoveryClient: RecordingHiveDiscoveryClient(snapshot: CmxHiveDiscoverySnapshot(nodes: [], workspaces: [])),
             hiveControlClient: control,
             hiveTeamPreferenceStore: MemoryHiveTeamPreferenceStore(selectedTeamID: "team-alpha"),
+            hiveDiscoveryCacheStore: MemoryHiveDiscoveryCacheStore(),
             hiveDiscoveryEndpoint: URL(string: "https://rivet.example/hive")!,
             terminalSessionFactory: RecordingHiveTerminalSessionFactory(),
             startHiveDiscoveryOnInit: false
@@ -530,6 +533,7 @@ final class CmxHiveDiscoveryStoreTests: XCTestCase {
             hiveControlClient: RecordingHiveControlClient(
                 teamsSnapshot: CmxHiveTeamsSnapshot(teams: [], defaultTeamID: nil, selectedTeamID: nil)
             ),
+            hiveDiscoveryCacheStore: MemoryHiveDiscoveryCacheStore(),
             terminalSessionFactory: sessionFactory,
             startHiveDiscoveryOnInit: false
         )
@@ -586,6 +590,7 @@ final class CmxHiveDiscoveryStoreTests: XCTestCase {
             hiveControlClient: RecordingHiveControlClient(
                 teamsSnapshot: CmxHiveTeamsSnapshot(teams: [], defaultTeamID: nil, selectedTeamID: nil)
             ),
+            hiveDiscoveryCacheStore: MemoryHiveDiscoveryCacheStore(),
             terminalSessionFactory: sessionFactory,
             startHiveDiscoveryOnInit: false
         )
