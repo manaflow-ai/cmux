@@ -30,7 +30,6 @@ struct CmuxSSHURLRequest: Equatable {
     let destination: String
     let port: Int?
     let title: String?
-    let identityFile: String?
     let sshOptions: [String]
     let noFocus: Bool
 
@@ -38,9 +37,6 @@ struct CmuxSSHURLRequest: Equatable {
         var parts = ["ssh"]
         if let port {
             parts += ["--port", String(port)]
-        }
-        if let identityFile {
-            parts += ["--identity", identityFile]
         }
         if let title = normalizedTitle {
             parts += ["--name", title]
@@ -195,7 +191,6 @@ struct CmuxSSHURLRequest: Equatable {
                 destination: destination,
                 port: parsedPort,
                 title: title,
-                identityFile: nil,
                 sshOptions: sshOptions,
                 noFocus: noFocus
             )

@@ -61,7 +61,6 @@ final class CmuxSSHURLRequestTests: XCTestCase {
             XCTAssertEqual(request.destination, "alice@dev.example.com")
             XCTAssertEqual(request.port, 2222)
             XCTAssertEqual(request.title, "Dev SSH")
-            XCTAssertNil(request.identityFile)
             XCTAssertEqual(request.sshOptions, [
                 "ConnectTimeout=15",
                 "ServerAliveInterval=20",
