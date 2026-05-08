@@ -54,6 +54,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
     // MARK: - Coordinator
 
+    @MainActor
     final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDelegate {
         var store: FileExplorerStore
         var state: FileExplorerState
@@ -575,6 +576,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
 // MARK: - Container View (all-AppKit)
 
 /// Pure AppKit container holding the header bar and outline view.
+@MainActor
 final class FileExplorerContainerView: NSView {
     private let headerView: FileExplorerHeaderView
     private let searchBarView: NSView
@@ -595,11 +597,13 @@ final class FileExplorerContainerView: NSView {
     private var isSearchVisible = false
     private var presentation: FileExplorerPanelPresentation
     private let coordinator: FileExplorerPanelView.Coordinator
+    private var searchDebounceTask: Task<Void, Never>?
+    private let searchDebounceDelay: UInt64 = 200_000_000
 
     init(
         coordinator: FileExplorerPanelView.Coordinator,
         presentation: FileExplorerPanelPresentation,
-        searchController: any FileSearchControlling = FileSearchController()
+        searchController: (any FileSearchControlling)? = nil
     ) {
         headerView = FileExplorerHeaderView()
         searchBarView = NSView()
@@ -611,7 +615,7 @@ final class FileExplorerContainerView: NSView {
         searchResultsView = FileExplorerSearchResultsTableView()
         emptyLabel = NSTextField(labelWithString: String(localized: "fileExplorer.empty", defaultValue: "No folder open"))
         loadingIndicator = NSProgressIndicator()
-        self.searchController = searchController
+        self.searchController = searchController ?? FileSearchController()
         self.presentation = presentation
         self.coordinator = coordinator
 
@@ -764,7 +768,7 @@ final class FileExplorerContainerView: NSView {
         searchScrollView.isHidden = true
         addSubview(searchScrollView)
 
-        searchController.onSnapshotChanged = { [weak self] snapshot in
+        self.searchController.onSnapshotChanged = { [weak self] snapshot in
             self?.applySearchSnapshot(snapshot)
         }
 
@@ -812,6 +816,7 @@ final class FileExplorerContainerView: NSView {
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         if newWindow == nil {
+            cancelPendingSearchRefresh()
             searchController.cancel(clear: false)
         }
         super.viewWillMove(toWindow: newWindow)
@@ -983,12 +988,32 @@ final class FileExplorerContainerView: NSView {
 
     private func refreshSearchIfNeeded() {
         guard isSearchVisible else { return }
+        cancelPendingSearchRefresh()
         searchController.search(
             query: searchField.stringValue,
             rootPath: currentRootPath,
             isLocal: currentProviderIsLocal,
             contentRevision: currentContentRevision
         )
+    }
+
+    private func scheduleSearchRefresh() {
+        guard isSearchVisible else { return }
+        searchDebounceTask?.cancel()
+        searchDebounceTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: self?.searchDebounceDelay ?? 200_000_000)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            self?.refreshSearchIfNeeded()
+        }
+    }
+
+    private func cancelPendingSearchRefresh() {
+        searchDebounceTask?.cancel()
+        searchDebounceTask = nil
     }
 
     private func updateSearchLayout(hasContent: Bool? = nil, isLoading: Bool? = nil) {
@@ -1004,15 +1029,41 @@ final class FileExplorerContainerView: NSView {
 
     private func applySearchSnapshot(_ snapshot: FileSearchSnapshot) {
         let previousSelectedRow = searchResultsView.selectedRow
+        let previousResults = searchSnapshot.results
         searchSnapshot = snapshot
         searchStatusLabel.stringValue = statusText(for: snapshot)
-        searchResultsView.reloadData()
+        applySearchResultsUpdate(previousResults: previousResults, nextResults: snapshot.results)
 
         guard !snapshot.results.isEmpty else { return }
         let selectedRow = previousSelectedRow >= 0
             ? min(previousSelectedRow, snapshot.results.count - 1)
             : 0
         searchResultsView.selectRowIndexes(IndexSet(integer: selectedRow), byExtendingSelection: false)
+    }
+
+    private func applySearchResultsUpdate(previousResults: [FileSearchResult], nextResults: [FileSearchResult]) {
+        if previousResults == nextResults {
+            return
+        }
+
+        if nextResults.count > previousResults.count &&
+            Array(nextResults.prefix(previousResults.count)) == previousResults {
+            let insertedRange = previousResults.count..<nextResults.count
+            searchResultsView.insertRows(at: IndexSet(integersIn: insertedRange), withAnimation: [])
+            return
+        }
+
+        if nextResults.count == previousResults.count {
+            let changedRows = IndexSet(
+                nextResults.indices.filter { nextResults[$0] != previousResults[$0] }
+            )
+            if !changedRows.isEmpty {
+                searchResultsView.reloadData(forRowIndexes: changedRows, columnIndexes: IndexSet(integer: 0))
+            }
+            return
+        }
+
+        searchResultsView.reloadData()
     }
 
     private func statusText(for snapshot: FileSearchSnapshot) -> String {
@@ -1049,6 +1100,7 @@ final class FileExplorerContainerView: NSView {
     private func closeSearchAndFocusOutline() {
         if presentation == .find {
             let hadQuery = !searchField.stringValue.isEmpty
+            cancelPendingSearchRefresh()
             searchController.cancel(clear: true)
             searchField.stringValue = ""
             applySearchSnapshot(.empty)
@@ -1065,6 +1117,7 @@ final class FileExplorerContainerView: NSView {
         }
 
         isSearchVisible = false
+        cancelPendingSearchRefresh()
         searchController.cancel(clear: true)
         searchField.stringValue = ""
         searchSnapshot = .empty
@@ -1136,7 +1189,7 @@ final class FileExplorerContainerView: NSView {
 extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSource, NSTableViewDelegate, NSMenuDelegate {
     func controlTextDidChange(_ notification: Notification) {
         guard notification.object as? NSTextField === searchField else { return }
-        refreshSearchIfNeeded()
+        scheduleSearchRefresh()
     }
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
