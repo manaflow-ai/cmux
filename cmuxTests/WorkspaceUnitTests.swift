@@ -332,6 +332,7 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
 
     func testRightSidebarAndFindShortcutDefaultsMatchSettingsSurface() {
         XCTAssertEqual(KeyboardShortcutSettings.Action.focusRightSidebar.label, "Toggle Right Sidebar")
+        XCTAssertEqual(KeyboardShortcutSettings.Action.toggleFileExplorer.label, "Open File Explorer")
 
         let toggleFileExplorer = KeyboardShortcutSettings.Action.toggleFileExplorer.defaultShortcut
         XCTAssertEqual(toggleFileExplorer.key, "e")
@@ -381,12 +382,12 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         XCTAssertFalse(visibleActions.contains(.showHideAllWindows))
     }
 
-    func testSettingsVisibleShortcutActionsColocateRightSidebarFindAndFileExplorerShortcuts() {
+    func testSettingsVisibleShortcutActionsColocateRightSidebarFileExplorerAndFindShortcuts() {
         let visibleActions = KeyboardShortcutSettings.settingsVisibleActions
         let expectedActions: [KeyboardShortcutSettings.Action] = [
             .focusRightSidebar,
-            .findInDirectory,
             .toggleFileExplorer,
+            .findInDirectory,
         ]
 
         guard let startIndex = visibleActions.firstIndex(of: .focusRightSidebar) else {

@@ -85856,19 +85856,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toggle File Explorer"
+            "value": "Open File Explorer"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ファイルエクスプローラーを切替"
+            "value": "ファイルエクスプローラーを開く"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "파일 탐색기 토글"
+            "value": "파일 탐색기 열기"
           }
         }
       }
