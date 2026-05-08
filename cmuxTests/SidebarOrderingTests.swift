@@ -999,3 +999,31 @@ final class TerminalControllerSidebarDedupeTests: XCTestCase {
         )
     }
 }
+
+final class SidebarAgentPIDFallbackTests: XCTestCase {
+    @MainActor
+    func testRegisteredLiveAgentPIDPublishesRunningFallbackAndClearsAfterExit() throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        process.arguments = ["60"]
+        try process.run()
+        defer {
+            if process.isRunning {
+                process.terminate()
+                process.waitUntilExit()
+            }
+        }
+
+        let workspace = Workspace()
+        workspace.agentPIDs["codex"] = process.processIdentifier
+
+        let liveEntries = workspace.sidebarStatusEntriesInDisplayOrder()
+        XCTAssertEqual(liveEntries.map(\.key), ["codex"])
+        XCTAssertEqual(liveEntries.first?.value, "Running")
+
+        process.terminate()
+        process.waitUntilExit()
+
+        XCTAssertTrue(workspace.sidebarStatusEntriesInDisplayOrder().isEmpty)
+    }
+}
