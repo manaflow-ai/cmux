@@ -1824,9 +1824,10 @@ class TabManager: ObservableObject {
         }
 
         agentPIDProbeInFlight = true
-        agentPIDProbeQueue.async {
+        agentPIDProbeQueue.async { [weak self] in
             let results = SidebarAgentStatusService.probeResults(for: requests)
-            DispatchQueue.main.async {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
                 self.agentPIDProbeInFlight = false
                 self.applyAgentPIDProbeResults(results)
             }
@@ -5099,9 +5100,10 @@ class TabManager: ObservableObject {
 
         agentPIDDiscoveryLastStartedAt = now
         agentPIDDiscoveryInFlight = true
-        agentPIDDiscoveryQueue.async {
+        agentPIDDiscoveryQueue.async { [weak self] in
             let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
-            DispatchQueue.main.async {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
                 self.agentPIDDiscoveryInFlight = false
                 self.registerAgentPIDsFromTerminalTitlesIfNeeded(processSnapshot: processSnapshot)
             }
