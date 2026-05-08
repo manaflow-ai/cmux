@@ -2422,6 +2422,8 @@ class TerminalController {
             return v2Ok(id: id, result: v2Identify(params: params))
         case "system.tree":
             return v2Result(id: id, self.v2SystemTree(params: params))
+        case "mobile_sync.status":
+            return v2Ok(id: id, result: self.v2MobileSyncStatus(params: params))
 #if DEBUG
         case "debug.session_snapshot_benchmark":
             return v2Result(id: id, self.v2DebugSessionSnapshotBenchmark(params: params))
@@ -2862,6 +2864,7 @@ class TerminalController {
             "system.tree",
             "system.top",
             "events.stream",
+            "mobile_sync.status",
             "auth.login",
             "auth.status",
             "auth.begin_sign_in",
@@ -3083,6 +3086,11 @@ class TerminalController {
             "access_mode": accessMode.rawValue,
             "methods": methods.sorted()
         ]
+    }
+
+    private func v2MobileSyncStatus(params: [String: Any]) -> [String: Any] {
+        let manager = v2ResolveTabManager(params: params)
+        return MobileSyncStatusBuilder.status(tabManager: manager).socketPayload
     }
 
     private func v2Identify(params: [String: Any]) -> [String: Any] {
