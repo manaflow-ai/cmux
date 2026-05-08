@@ -1589,6 +1589,8 @@ class TerminalController {
             return v2Result(id: request.id, v2FeedExitPlanReply(params: request.params))
         case "system.top":
             return v2Result(id: request.id, v2SystemTop(params: request.params))
+        case "browser.eval":
+            return v2Result(id: request.id, v2BrowserEval(params: request.params))
         case "browser.snapshot":
             return v2Result(id: request.id, v2BrowserSnapshot(params: request.params))
         case "browser.wait":
@@ -8422,7 +8424,7 @@ class TerminalController {
         return "null"
     }
 
-    private func v2NormalizeJSValue(_ value: Any?) -> Any {
+    private nonisolated func v2NormalizeJSValue(_ value: Any?) -> Any {
         guard let value else { return NSNull() }
         if value is V2BrowserUndefinedSentinel {
             return [
@@ -9387,20 +9389,28 @@ class TerminalController {
         }
     }
 
-    private func v2BrowserEval(params: [String: Any]) -> V2CallResult {
+    private nonisolated func v2BrowserEval(params: [String: Any]) -> V2CallResult {
         guard let script = v2String(params, "script") else {
             return .err(code: "invalid_params", message: "Missing script", data: nil)
         }
         return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
-            switch v2RunBrowserJavaScript(browserPanel.webView, surfaceId: surfaceId, script: script, timeout: 10.0) {
+            let workspaceId = v2MainSync { ws.id }
+            let webView = v2MainSync { browserPanel.webView }
+            let refsForPayload = v2MainSync {
+                (
+                    workspace: self.v2Ref(kind: .workspace, uuid: workspaceId),
+                    surface: self.v2Ref(kind: .surface, uuid: surfaceId)
+                )
+            }
+            switch v2RunBrowserJavaScript(webView, surfaceId: surfaceId, script: script, timeout: 10.0) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
                 return .ok([
-                    "workspace_id": ws.id.uuidString,
-                    "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                    "workspace_id": workspaceId.uuidString,
+                    "workspace_ref": refsForPayload.workspace,
                     "surface_id": surfaceId.uuidString,
-                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                    "surface_ref": refsForPayload.surface,
                     "value": v2NormalizeJSValue(value)
                 ])
             }
