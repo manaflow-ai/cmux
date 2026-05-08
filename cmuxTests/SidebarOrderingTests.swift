@@ -1015,7 +1015,7 @@ final class SidebarAgentPIDFallbackTests: XCTestCase {
         }
 
         let workspace = Workspace()
-        workspace.agentPIDs["codex"] = process.processIdentifier
+        workspace.setAgentPID(key: "codex", pid: process.processIdentifier)
 
         let liveEntries = workspace.sidebarStatusEntriesInDisplayOrder()
         XCTAssertEqual(liveEntries.map(\.key), ["codex"])
@@ -1023,7 +1023,10 @@ final class SidebarAgentPIDFallbackTests: XCTestCase {
 
         process.terminate()
         process.waitUntilExit()
-        workspace.agentProcessStates["codex"] = SidebarAgentProcessProbe.processState(for: process.processIdentifier)
+        workspace.updateAgentProcessState(
+            key: "codex",
+            state: SidebarAgentProcessProbe.processState(for: process.processIdentifier)
+        )
 
         XCTAssertTrue(workspace.sidebarStatusEntriesInDisplayOrder().isEmpty)
     }

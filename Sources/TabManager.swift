@@ -1852,7 +1852,7 @@ class TabManager: ObservableObject {
         guard !requests.isEmpty else { return }
 
         agentPIDProbeInFlight = true
-        agentPIDProbeQueue.async { [weak self] in
+        agentPIDProbeQueue.async {
             let results = requests.map { request in
                 SidebarAgentPIDProbeResult(
                     workspaceId: request.workspaceId,
@@ -1860,8 +1860,7 @@ class TabManager: ObservableObject {
                     state: SidebarAgentProcessProbe.processState(for: request.pid)
                 )
             }
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
+            DispatchQueue.main.async {
                 self.agentPIDProbeInFlight = false
                 self.applyAgentPIDProbeResults(results)
             }
@@ -1884,35 +1883,30 @@ class TabManager: ObservableObject {
                   tab.agentPIDs[result.key] == result.state.pid else {
                 continue
             }
-            if tab.agentProcessStates[result.key] != result.state {
-                tab.agentProcessStates[result.key] = result.state
-            }
+            tab.updateAgentProcessState(key: result.key, state: result.state)
         }
 
         for tab in tabs {
-            var keysToRemove: [String] = []
+            var keysToRemove: Set<String> = []
             for (key, pid) in tab.agentPIDs {
                 guard pid > 0 else {
-                    keysToRemove.append(key)
+                    keysToRemove.insert(key)
                     continue
                 }
                 if let state = tab.agentProcessStates[key],
                    state.pid == pid,
                    !state.isAlive {
-                    keysToRemove.append(key)
+                    keysToRemove.insert(key)
                 }
             }
-            for key in tab.agentProcessStates.keys where tab.agentPIDs[key] == nil {
-                tab.agentProcessStates.removeValue(forKey: key)
+            for key in Array(tab.agentProcessStates.keys) where tab.agentPIDs[key] == nil {
+                keysToRemove.insert(key)
             }
             if !keysToRemove.isEmpty {
-                for key in keysToRemove {
-                    tab.statusEntries.removeValue(forKey: key)
-                    tab.agentPIDs.removeValue(forKey: key)
-                    tab.agentProcessStates.removeValue(forKey: key)
+                for key in keysToRemove.sorted() {
+                    tab.clearAgentPID(key: key, refreshPorts: false)
                 }
-                let remainingAgentPIDs = Set(tab.agentPIDs.values.compactMap { $0 > 0 ? Int($0) : nil })
-                PortScanner.shared.refreshAgentPorts(workspaceId: tab.id, agentPIDs: remainingAgentPIDs)
+                tab.refreshTrackedAgentPorts()
                 // Also clear stale notifications (e.g. "Doing well, thanks!")
                 // left behind when Claude was killed without SessionEnd firing.
                 AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tab.id)
@@ -5138,10 +5132,9 @@ class TabManager: ObservableObject {
 
         agentPIDDiscoveryLastStartedAt = now
         agentPIDDiscoveryInFlight = true
-        agentPIDDiscoveryQueue.async { [weak self] in
+        agentPIDDiscoveryQueue.async {
             let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
+            DispatchQueue.main.async {
                 self.agentPIDDiscoveryInFlight = false
                 self.registerAgentPIDsFromTerminalTitlesIfNeeded(processSnapshot: processSnapshot)
             }
@@ -5150,10 +5143,27 @@ class TabManager: ObservableObject {
 
     private func registerAgentPIDsFromTerminalTitlesIfNeeded(processSnapshot: CmuxTopProcessSnapshot) {
         let titleCandidates = agentTitleRegistrationCandidates()
+            .sorted { lhs, rhs in
+                if lhs.0.id != rhs.0.id {
+                    return lhs.0.id.uuidString < rhs.0.id.uuidString
+                }
+                if lhs.1 != rhs.1 {
+                    return lhs.1.uuidString < rhs.1.uuidString
+                }
+                return lhs.2.statusKey < rhs.2.statusKey
+            }
         guard !titleCandidates.isEmpty else { return }
 
+        var registeredKeys: Set<String> = []
         for (tab, panelId, registration) in titleCandidates {
-            registerAgentPID(registration, workspace: tab, panelId: panelId, processSnapshot: processSnapshot)
+            let registrationKey = "\(tab.id.uuidString):\(registration.statusKey)"
+            guard !registeredKeys.contains(registrationKey),
+                  tab.agentPIDs[registration.statusKey] == nil else {
+                continue
+            }
+            if registerAgentPID(registration, workspace: tab, panelId: panelId, processSnapshot: processSnapshot) {
+                registeredKeys.insert(registrationKey)
+            }
         }
     }
 
@@ -5162,12 +5172,12 @@ class TabManager: ObservableObject {
         workspace: Workspace,
         panelId: UUID,
         processSnapshot: CmuxTopProcessSnapshot
-    ) {
+    ) -> Bool {
         var rootPIDs = processSnapshot.pids(forCMUXSurfaceID: panelId)
         if let ttyName = workspace.surfaceTTYNames[panelId] {
             rootPIDs.formUnion(processSnapshot.pids(forTTYName: ttyName))
         }
-        guard !rootPIDs.isEmpty else { return }
+        guard !rootPIDs.isEmpty else { return false }
 
         let candidatePIDs = processSnapshot.expandedPIDs(rootPIDs: rootPIDs)
         let matchedPID = candidatePIDs
@@ -5195,15 +5205,9 @@ class TabManager: ObservableObject {
             .first?
             .pid
 
-        guard let matchedPID, matchedPID > 0 else { return }
-        workspace.agentPIDs[registration.statusKey] = pid_t(matchedPID)
-        workspace.agentProcessStates[registration.statusKey] = SidebarAgentProcessState(
-            pid: pid_t(matchedPID),
-            isAlive: true,
-            activity: .running
-        )
-        let remainingAgentPIDs = Set(workspace.agentPIDs.values.compactMap { $0 > 0 ? Int($0) : nil })
-        PortScanner.shared.refreshAgentPorts(workspaceId: workspace.id, agentPIDs: remainingAgentPIDs)
+        guard let matchedPID, matchedPID > 0 else { return false }
+        workspace.setAgentPID(key: registration.statusKey, panelId: panelId, pid: pid_t(matchedPID))
+        return true
     }
 
     private func flushPendingPanelTitleUpdates() {
