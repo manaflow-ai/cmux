@@ -512,6 +512,28 @@ enum MinimalModeTitlebarDebugSettings {
         return CGFloat(max(0, defaultTrafficLightTitlebarLeadingInset + offset))
     }
 
+    static func leftControlsLeadingInset(defaults: UserDefaults = .standard) -> CGFloat {
+        CGFloat(
+            doubleValue(
+                defaults: defaults,
+                key: leftControlsLeadingInsetKey,
+                fallback: defaultLeftControlsLeadingInset,
+                range: horizontalInsetRange
+            )
+        )
+    }
+
+    static func leftControlsTopInset(defaults: UserDefaults = .standard) -> CGFloat {
+        CGFloat(
+            doubleValue(
+                defaults: defaults,
+                key: leftControlsTopInsetKey,
+                fallback: defaultLeftControlsTopInset,
+                range: topInsetRange
+            )
+        )
+    }
+
     static func snapshot(defaults: UserDefaults = .standard) -> MinimalModeTitlebarDebugSnapshot {
         MinimalModeTitlebarDebugSnapshot(
             leftControlsLeadingInset: doubleValue(
@@ -565,11 +587,19 @@ struct MinimalModeTitlebarDebugSnapshot: Equatable {
 
 enum MinimalModeSidebarTitlebarControlsMetrics {
     static var leadingInset: CGFloat {
-        CGFloat(MinimalModeTitlebarDebugSettings.snapshot().leftControlsLeadingInset)
+        leadingInset()
     }
 
     static var topInset: CGFloat {
-        CGFloat(MinimalModeTitlebarDebugSettings.snapshot().leftControlsTopInset)
+        topInset()
+    }
+
+    static func leadingInset(defaults: UserDefaults = .standard) -> CGFloat {
+        MinimalModeTitlebarDebugSettings.leftControlsLeadingInset(defaults: defaults)
+    }
+
+    static func topInset(defaults: UserDefaults = .standard) -> CGFloat {
+        MinimalModeTitlebarDebugSettings.leftControlsTopInset(defaults: defaults)
     }
 
     static let hostWidth: CGFloat = 124
@@ -699,7 +729,7 @@ func isMinimalModeSidebarChromeHoverCandidate(
         topStripHeight: MinimalModeChromeMetrics.titlebarHeight
     ) else { return false }
 
-    let minX = MinimalModeSidebarTitlebarControlsMetrics.leadingInset
+    let minX = MinimalModeSidebarTitlebarControlsMetrics.leadingInset(defaults: defaults)
     let maxX = minX + MinimalModeSidebarTitlebarControlsMetrics.hostWidth
     return locationInWindow.x >= minX && locationInWindow.x <= maxX
 }
@@ -744,8 +774,9 @@ func minimalModeSidebarControlActionSlot(
         topStripHeight: MinimalModeChromeMetrics.titlebarHeight
     ) else { return nil }
 
+    let leadingInset = MinimalModeSidebarTitlebarControlsMetrics.leadingInset(defaults: defaults)
     let localPoint = NSPoint(
-        x: locationInWindow.x - MinimalModeSidebarTitlebarControlsMetrics.leadingInset,
+        x: locationInWindow.x - leadingInset,
         y: MinimalModeSidebarTitlebarControlsMetrics.hostHeight / 2
     )
     return TitlebarControlsHitRegions.sidebarActionSlot(
