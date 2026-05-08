@@ -42,7 +42,7 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         XCTAssertTrue(plan.waitAfterCommand)
     }
 
-    func testExplicitInitialCommandWinsUnderXCTest() {
+    func testXCTestStartupPlanOverridesInitialCommandByDefault() {
         let plan = TerminalSurface.debugResolveStartupPlanForTesting(
             initialCommand: "  /tmp/cmux-command.sh  ",
             configuredCommand: "/usr/bin/login",
@@ -50,9 +50,25 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
             runtimeXCTestDetected: false
         )
 
-        XCTAssertEqual(plan.command, "/tmp/cmux-command.sh")
+        XCTAssertEqual(plan.command, "/usr/bin/true")
         XCTAssertFalse(plan.usesManualIO)
         XCTAssertTrue(plan.waitAfterCommand)
+    }
+
+    func testXCTestStartupPlanCanRunInitialCommandWhenOverrideDisabled() {
+        let plan = TerminalSurface.debugResolveStartupPlanForTesting(
+            initialCommand: "  /tmp/cmux-command.sh  ",
+            configuredCommand: "/usr/bin/login",
+            environment: [
+                "XCTestConfigurationFilePath": "/tmp/cmux.xctest",
+                "CMUX_XCTEST_DISABLE_TERMINAL_COMMAND_OVERRIDE": "1",
+            ],
+            runtimeXCTestDetected: false
+        )
+
+        XCTAssertEqual(plan.command, "/tmp/cmux-command.sh")
+        XCTAssertFalse(plan.usesManualIO)
+        XCTAssertFalse(plan.waitAfterCommand)
     }
 
     func testXCTestStartupPlanOverridesConfiguredCommandByDefault() {
