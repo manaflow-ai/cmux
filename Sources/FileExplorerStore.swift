@@ -261,6 +261,34 @@ protocol FileExplorerProvider: AnyObject {
     var isAvailable: Bool { get }
 }
 
+struct SSHFileExplorerConnection: Equatable {
+    let destination: String
+    let port: Int?
+    let identityFile: String?
+    let sshOptions: [String]
+}
+
+protocol SSHFileExplorerTransport: AnyObject {
+    func resolveHomePath(connection: SSHFileExplorerConnection) async throws -> String
+    func listDirectory(
+        path: String,
+        connection: SSHFileExplorerConnection,
+        showHidden: Bool
+    ) async throws -> [FileExplorerEntry]
+}
+
+enum FileExplorerWorkspaceRoot: Equatable {
+    case none
+    case local(path: String)
+    case remoteSSH(
+        workspaceId: UUID,
+        connection: SSHFileExplorerConnection,
+        displayTarget: String,
+        isAvailable: Bool,
+        unavailableDetail: String?
+    )
+}
+
 // MARK: - Local Provider
 
 final class LocalFileExplorerProvider: FileExplorerProvider {
@@ -283,25 +311,52 @@ final class LocalFileExplorerProvider: FileExplorerProvider {
 // MARK: - SSH Provider
 
 final class SSHFileExplorerProvider: FileExplorerProvider {
-    let destination: String
-    let port: Int?
-    let identityFile: String?
-    let sshOptions: [String]
+    let connection: SSHFileExplorerConnection
+    let displayTarget: String
+    private let transport: SSHFileExplorerTransport
     private(set) var homePath: String
     private(set) var isAvailable: Bool
+
+    var destination: String { connection.destination }
+    var port: Int? { connection.port }
+    var identityFile: String? { connection.identityFile }
+    var sshOptions: [String] { connection.sshOptions }
 
     init(
         destination: String,
         port: Int?,
         identityFile: String?,
         sshOptions: [String],
+        displayTarget: String? = nil,
         homePath: String,
-        isAvailable: Bool
+        isAvailable: Bool,
+        transport: SSHFileExplorerTransport = ProcessSSHFileExplorerTransport.shared
     ) {
-        self.destination = destination
-        self.port = port
-        self.identityFile = identityFile
-        self.sshOptions = sshOptions
+        self.connection = SSHFileExplorerConnection(
+            destination: destination,
+            port: port,
+            identityFile: identityFile,
+            sshOptions: sshOptions
+        )
+        self.displayTarget = displayTarget ?? {
+            guard let port else { return destination }
+            return "\(destination):\(port)"
+        }()
+        self.transport = transport
+        self.homePath = homePath
+        self.isAvailable = isAvailable
+    }
+
+    init(
+        connection: SSHFileExplorerConnection,
+        displayTarget: String,
+        homePath: String,
+        isAvailable: Bool,
+        transport: SSHFileExplorerTransport = ProcessSSHFileExplorerTransport.shared
+    ) {
+        self.connection = connection
+        self.displayTarget = displayTarget
+        self.transport = transport
         self.homePath = homePath
         self.isAvailable = isAvailable
     }
@@ -313,23 +368,54 @@ final class SSHFileExplorerProvider: FileExplorerProvider {
         }
     }
 
+    func resolveHomePath() async throws -> String {
+        guard isAvailable else {
+            throw FileExplorerError.providerUnavailable
+        }
+        let home = try await transport.resolveHomePath(connection: connection)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !home.isEmpty else {
+            throw FileExplorerError.sshCommandFailed("remote HOME was empty")
+        }
+        return home
+    }
+
     func listDirectory(path: String, showHidden: Bool) async throws -> [FileExplorerEntry] {
         guard isAvailable else {
             throw FileExplorerError.providerUnavailable
         }
-        // Capture immutable config values for Sendable closure
-        let dest = destination
-        let p = port
-        let identity = identityFile
-        let opts = sshOptions
+        return try await transport.listDirectory(path: path, connection: connection, showHidden: showHidden)
+    }
+}
+
+final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
+    static let shared = ProcessSSHFileExplorerTransport()
+
+    func resolveHomePath(connection: SSHFileExplorerConnection) async throws -> String {
+        try await runOnBackground {
+            let output = try Self.runSSHCommand(
+                connection: connection,
+                command: #"printf '%s\n' "$HOME""#
+            )
+            return output.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+    }
+
+    func listDirectory(
+        path: String,
+        connection: SSHFileExplorerConnection,
+        showHidden: Bool
+    ) async throws -> [FileExplorerEntry] {
+        try await runOnBackground {
+            try Self.runSSHListCommand(path: path, connection: connection, showHidden: showHidden)
+        }
+    }
+
+    private func runOnBackground<T>(_ work: @escaping () throws -> T) async throws -> T {
         return try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
-                    let result = try SSHFileExplorerProvider.runSSHListCommand(
-                        path: path, destination: dest, port: p,
-                        identityFile: identity, sshOptions: opts,
-                        showHidden: showHidden
-                    )
+                    let result = try work()
                     continuation.resume(returning: result)
                 } catch {
                     continuation.resume(throwing: error)
@@ -338,32 +424,10 @@ final class SSHFileExplorerProvider: FileExplorerProvider {
         }
     }
 
-    private static func runSSHListCommand(
-        path: String, destination: String, port: Int?,
-        identityFile: String?, sshOptions: [String],
-        showHidden: Bool
-    ) throws -> [FileExplorerEntry] {
+    private static func runSSHCommand(connection: SSHFileExplorerConnection, command: String) throws -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
-
-        var args: [String] = []
-        if let port {
-            args += ["-p", String(port)]
-        }
-        if let identityFile {
-            args += ["-i", identityFile]
-        }
-        for option in sshOptions {
-            args += ["-o", option]
-        }
-        // Batch mode, no TTY, connection timeout
-        args += ["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-T"]
-        // Escape single quotes in path for shell safety
-        let escapedPath = path.replacingOccurrences(of: "'", with: "'\\''")
-        let lsFlags = showHidden ? "-1paFA" : "-1paF"
-        args += [destination, "ls \(lsFlags) '\(escapedPath)' 2>/dev/null"]
-
-        process.arguments = args
+        process.arguments = sshArguments(connection: connection, command: command)
 
         let outPipe = Pipe()
         let errPipe = Pipe()
@@ -380,9 +444,38 @@ final class SSHFileExplorerProvider: FileExplorerProvider {
             let stderrStr = String(data: stderrData, encoding: .utf8) ?? ""
             throw FileExplorerError.sshCommandFailed(stderrStr)
         }
-        guard let output = String(data: data, encoding: .utf8) else {
-            return []
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+
+    private static func sshArguments(connection: SSHFileExplorerConnection, command: String) -> [String] {
+        var args: [String] = []
+        if let port = connection.port {
+            args += ["-p", String(port)]
         }
+        if let identityFile = connection.identityFile {
+            args += ["-i", identityFile]
+        }
+        for option in connection.sshOptions {
+            args += ["-o", option]
+        }
+        // Batch mode, no TTY, connection timeout
+        args += ["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-T"]
+        args += [connection.destination, command]
+        return args
+    }
+
+    private static func runSSHListCommand(
+        path: String,
+        connection: SSHFileExplorerConnection,
+        showHidden: Bool
+    ) throws -> [FileExplorerEntry] {
+        // Escape single quotes in path for shell safety
+        let escapedPath = path.replacingOccurrences(of: "'", with: "'\\''")
+        let lsFlags = showHidden ? "-1paFA" : "-1paF"
+        let output = try runSSHCommand(
+            connection: connection,
+            command: "ls \(lsFlags) '\(escapedPath)' 2>/dev/null"
+        )
 
         let normalizedPath = path.hasSuffix("/") ? path : path + "/"
         return output.split(separator: "\n", omittingEmptySubsequences: true).compactMap { line in
@@ -441,6 +534,7 @@ final class FileExplorerStore: ObservableObject {
     @Published private(set) var isRootLoading: Bool = false
     @Published private(set) var gitStatusByPath: [String: GitFileStatus] = [:]
     @Published private(set) var contentRevision = 0
+    @Published private(set) var rootStatusMessage: String?
 
     var provider: FileExplorerProvider?
 
@@ -474,11 +568,54 @@ final class FileExplorerStore: ObservableObject {
     /// Prefetch debounce: path -> work item
     private var prefetchWorkItems: [String: DispatchWorkItem] = [:]
 
+    private var remoteHomeResolutionTask: Task<Void, Never>?
+    private var remoteHomeResolutionKey: String?
+
     var displayRootPath: String {
+        if let sshProvider = provider as? SSHFileExplorerProvider, rootPath.isEmpty {
+            return "ssh://\(sshProvider.displayTarget)"
+        }
+        if let sshProvider = provider as? SSHFileExplorerProvider {
+            return "ssh://\(sshProvider.displayTarget):\(rootPath)"
+        }
         FileExplorerRootResolver.displayPath(for: rootPath, homePath: provider?.homePath)
     }
 
     // MARK: - Public API
+
+    func applyWorkspaceRoot(
+        _ request: FileExplorerWorkspaceRoot,
+        sshTransport: SSHFileExplorerTransport = ProcessSSHFileExplorerTransport.shared
+    ) {
+        switch request {
+        case .none:
+            cancelRemoteHomeResolution()
+            setRootStatusMessage(nil)
+            if provider != nil {
+                setProvider(nil, reloadIfAvailable: false)
+            }
+            setRootPath("")
+
+        case .local(let path):
+            cancelRemoteHomeResolution()
+            setRootStatusMessage(nil)
+            if !(provider is LocalFileExplorerProvider) {
+                setRootPath("")
+                setProvider(LocalFileExplorerProvider(), reloadIfAvailable: false)
+            }
+            setRootPath(path)
+
+        case .remoteSSH(let workspaceId, let connection, let displayTarget, let isAvailable, let unavailableDetail):
+            applyRemoteSSHWorkspaceRoot(
+                workspaceId: workspaceId,
+                connection: connection,
+                displayTarget: displayTarget,
+                isAvailable: isAvailable,
+                unavailableDetail: unavailableDetail,
+                sshTransport: sshTransport
+            )
+        }
+    }
 
     func setRootPath(_ path: String) {
         guard path != rootPath else {
@@ -545,13 +682,13 @@ final class FileExplorerStore: ObservableObject {
         }
     }
 
-    func setProvider(_ newProvider: FileExplorerProvider?) {
+    func setProvider(_ newProvider: FileExplorerProvider?, reloadIfAvailable: Bool = true) {
         #if DEBUG
         NSLog("[FileExplorer] setProvider: \(type(of: newProvider).self) available=\(newProvider?.isAvailable ?? false)")
         #endif
         provider = newProvider
         // Re-expand previously expanded nodes if provider becomes available
-        if newProvider?.isAvailable == true {
+        if reloadIfAvailable, newProvider?.isAvailable == true {
             reload()
         }
     }
@@ -699,6 +836,7 @@ final class FileExplorerStore: ObservableObject {
             } else {
                 rootNodes = children
                 isRootLoading = false
+                rootStatusMessage = nil
                 if selectedPath == nil {
                     selectedPath = children.first?.path
                     selectedPaths = selectedPath.map { Set([$0]) } ?? []
@@ -726,6 +864,7 @@ final class FileExplorerStore: ObservableObject {
                     parentNode.error = error.localizedDescription
                 } else {
                     isRootLoading = false
+                    rootStatusMessage = error.localizedDescription
                 }
                 loadingPaths.remove(path)
                 loadTasks.removeValue(forKey: path)
@@ -748,12 +887,145 @@ final class FileExplorerStore: ObservableObject {
         isRootLoading = false
     }
 
+    private func applyRemoteSSHWorkspaceRoot(
+        workspaceId: UUID,
+        connection: SSHFileExplorerConnection,
+        displayTarget: String,
+        isAvailable: Bool,
+        unavailableDetail: String?,
+        sshTransport: SSHFileExplorerTransport
+    ) {
+        let existingProvider = provider as? SSHFileExplorerProvider
+        let sshProvider: SSHFileExplorerProvider
+        if let existingProvider,
+           existingProvider.connection == connection,
+           existingProvider.displayTarget == displayTarget {
+            sshProvider = existingProvider
+            sshProvider.updateAvailability(isAvailable, homePath: nil)
+        } else {
+            cancelRemoteHomeResolution()
+            setRootPath("")
+            sshProvider = SSHFileExplorerProvider(
+                connection: connection,
+                displayTarget: displayTarget,
+                homePath: "",
+                isAvailable: isAvailable,
+                transport: sshTransport
+            )
+            setProvider(sshProvider, reloadIfAvailable: false)
+        }
+
+        guard isAvailable else {
+            cancelRemoteHomeResolution()
+            setRootPath("")
+            let detail = unavailableDetail?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let detail, !detail.isEmpty {
+                setRootStatusMessage(
+                    String(
+                        format: String(
+                            localized: "fileExplorer.status.sshUnavailableWithDetail",
+                            defaultValue: "SSH files unavailable: %@"
+                        ),
+                        detail
+                    )
+                )
+            } else {
+                setRootStatusMessage(
+                    String(localized: "fileExplorer.status.sshUnavailable", defaultValue: "SSH files unavailable")
+                )
+            }
+            return
+        }
+
+        if !sshProvider.homePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            setRootStatusMessage(nil)
+            setRootPath(sshProvider.homePath)
+            return
+        }
+
+        resolveRemoteHome(
+            workspaceId: workspaceId,
+            provider: sshProvider,
+            connection: connection
+        )
+    }
+
+    private func resolveRemoteHome(
+        workspaceId: UUID,
+        provider sshProvider: SSHFileExplorerProvider,
+        connection: SSHFileExplorerConnection
+    ) {
+        let resolutionKey = [
+            workspaceId.uuidString,
+            connection.destination,
+            connection.port.map(String.init) ?? "",
+            connection.identityFile ?? "",
+            connection.sshOptions.joined(separator: "\u{1f}"),
+        ].joined(separator: "\u{1e}")
+
+        guard remoteHomeResolutionKey != resolutionKey else { return }
+        remoteHomeResolutionTask?.cancel()
+        remoteHomeResolutionKey = resolutionKey
+        setRootPath("")
+        setRootStatusMessage(String(localized: "fileExplorer.status.sshResolvingHome", defaultValue: "Resolving remote home..."))
+
+        remoteHomeResolutionTask = Task { [weak self, weak sshProvider] in
+            guard let sshProvider else { return }
+            do {
+                let homePath = try await sshProvider.resolveHomePath()
+                await MainActor.run { [weak self, weak sshProvider] in
+                    guard let self,
+                          let sshProvider,
+                          self.remoteHomeResolutionKey == resolutionKey,
+                          self.provider === sshProvider else { return }
+                    self.remoteHomeResolutionKey = nil
+                    self.remoteHomeResolutionTask = nil
+                    sshProvider.updateAvailability(true, homePath: homePath)
+                    self.setRootStatusMessage(nil)
+                    self.setRootPath(homePath)
+                }
+            } catch {
+                await MainActor.run { [weak self] in
+                    guard let self,
+                          self.remoteHomeResolutionKey == resolutionKey else { return }
+                    self.remoteHomeResolutionKey = nil
+                    self.remoteHomeResolutionTask = nil
+                    self.setRootPath("")
+                    self.setRootStatusMessage(
+                        String(
+                            format: String(
+                                localized: "fileExplorer.status.sshHomeFailed",
+                                defaultValue: "Unable to resolve SSH home: %@"
+                            ),
+                            error.localizedDescription
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    private func cancelRemoteHomeResolution() {
+        remoteHomeResolutionTask?.cancel()
+        remoteHomeResolutionTask = nil
+        remoteHomeResolutionKey = nil
+    }
+
+    private func setRootStatusMessage(_ message: String?) {
+        guard rootStatusMessage != message else { return }
+        rootStatusMessage = message
+    }
+
     private static func path(_ candidate: String, isContainedIn root: String) -> Bool {
         guard !root.isEmpty else { return false }
         if root == "/" {
             return candidate.hasPrefix("/")
         }
         return candidate == root || candidate.hasPrefix(root + "/")
+    }
+
+    deinit {
+        cancelRemoteHomeResolution()
     }
 }
 

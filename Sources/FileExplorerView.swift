@@ -108,7 +108,11 @@ struct FileExplorerPanelView: NSViewRepresentable {
             guard let outlineView else { return }
 
             // Update empty state vs tree visibility
-            containerView?.updateVisibility(hasContent: !store.rootPath.isEmpty, isLoading: store.isRootLoading)
+            containerView?.updateVisibility(
+                hasContent: !store.rootPath.isEmpty,
+                isLoading: store.isRootLoading,
+                statusMessage: store.rootStatusMessage
+            )
 
             let newCount = store.rootNodes.count
             withProgrammaticOutlineUpdate {
@@ -880,11 +884,17 @@ final class FileExplorerContainerView: NSView {
         registerWithKeyboardFocusCoordinatorIfNeeded()
     }
 
-    func updateVisibility(hasContent: Bool, isLoading: Bool) {
-        headerView.isHidden = !hasContent
-        updateSearchLayout(hasContent: hasContent, isLoading: isLoading)
-        let searchCanShow = isSearchVisible && hasContent && !isLoading
-        emptyLabel.isHidden = hasContent || searchCanShow
+    func updateVisibility(hasContent: Bool, isLoading: Bool, statusMessage: String?) {
+        let normalizedStatus = statusMessage?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasStatus = normalizedStatus?.isEmpty == false
+        let canShowTree = hasContent && !hasStatus
+        headerView.isHidden = !hasContent && !hasStatus
+        updateSearchLayout(hasContent: canShowTree, isLoading: isLoading)
+        let searchCanShow = isSearchVisible && canShowTree && !isLoading
+        emptyLabel.stringValue = hasStatus
+            ? normalizedStatus!
+            : String(localized: "fileExplorer.empty", defaultValue: "No folder open")
+        emptyLabel.isHidden = canShowTree || searchCanShow || isLoading
         loadingIndicator.isHidden = !isLoading
         if isLoading {
             loadingIndicator.startAnimation(nil)
@@ -1492,10 +1502,12 @@ final class FileExplorerHeaderView: NSView {
             iconView.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)?
                 .withSymbolConfiguration(config)
             pathLabel.stringValue = "/" + quickSearchQuery
+            pathLabel.toolTip = pathLabel.stringValue
         } else {
             iconView.image = NSImage(systemSymbolName: "folder.fill", accessibilityDescription: nil)?
                 .withSymbolConfiguration(config)
             pathLabel.stringValue = displayPath
+            pathLabel.toolTip = displayPath
         }
     }
 }
