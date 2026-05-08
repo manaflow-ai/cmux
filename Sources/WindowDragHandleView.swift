@@ -1026,6 +1026,8 @@ func windowDragHandleShouldCaptureHit(
 /// This lets us keep `window.isMovableByWindowBackground = false` so drags in the app content
 /// (e.g. sidebar tab reordering) don't move the whole window.
 struct WindowDragHandleView: NSViewRepresentable {
+    static let viewIdentifier = NSUserInterfaceItemIdentifier("cmux.titlebarDragHandle")
+
     var doubleClickBehavior: TitlebarDoubleClickBehavior = .standardAction
 
     func makeNSView(context: Context) -> NSView {
@@ -1042,11 +1044,13 @@ struct WindowDragHandleView: NSViewRepresentable {
         init(doubleClickBehavior: TitlebarDoubleClickBehavior) {
             self.doubleClickBehavior = doubleClickBehavior
             super.init(frame: .zero)
+            identifier = WindowDragHandleView.viewIdentifier
         }
 
         required init?(coder: NSCoder) {
             self.doubleClickBehavior = .standardAction
             super.init(coder: coder)
+            identifier = WindowDragHandleView.viewIdentifier
         }
 
         override var mouseDownCanMoveWindow: Bool { false }

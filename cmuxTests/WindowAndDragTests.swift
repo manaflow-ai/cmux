@@ -654,6 +654,55 @@ final class WindowDragHandleHitTests: XCTestCase {
         }
     }
 
+    private static func firstSubview(
+        in view: NSView,
+        matching predicate: (NSView) -> Bool
+    ) -> NSView? {
+        if predicate(view) {
+            return view
+        }
+
+        for subview in view.subviews {
+            if let match = firstSubview(in: subview, matching: predicate) {
+                return match
+            }
+        }
+
+        return nil
+    }
+
+    private static func firstCapturableTitlebarPoint(
+        in dragHandle: NSView,
+        window: NSWindow
+    ) -> NSPoint? {
+        let bounds = dragHandle.bounds.insetBy(dx: 4, dy: 4)
+        guard bounds.width > 0, bounds.height > 0 else { return nil }
+
+        let yCandidates = [
+            bounds.midY,
+            bounds.minY + bounds.height * 0.25,
+            bounds.minY + bounds.height * 0.75
+        ]
+
+        for y in yCandidates {
+            var x = bounds.maxX
+            while x >= bounds.minX {
+                let point = NSPoint(x: x, y: y)
+                if windowDragHandleShouldCaptureHit(
+                    point,
+                    in: dragHandle,
+                    eventType: .leftMouseDown,
+                    eventWindow: window
+                ) {
+                    return point
+                }
+                x -= 4
+            }
+        }
+
+        return nil
+    }
+
     func testDragHandleCapturesHitWhenNoSiblingClaimsPoint() {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 36))
         let dragHandle = NSView(frame: container.bounds)
@@ -1413,7 +1462,23 @@ final class WindowDragHandleHitTests: XCTestCase {
         window.displayIfNeeded()
         hostingView.layoutSubtreeIfNeeded()
 
-        let emptyModeBarPoint = NSPoint(x: 690, y: 242)
+        guard let dragHandle = Self.firstSubview(
+            in: hostingView,
+            matching: { $0.identifier == WindowDragHandleView.viewIdentifier }
+        ) else {
+            XCTFail("Expected right-sidebar mode bar to install a titlebar drag handle")
+            return
+        }
+
+        guard let emptyModeBarLocalPoint = Self.firstCapturableTitlebarPoint(
+            in: dragHandle,
+            window: window
+        ) else {
+            XCTFail("Expected right-sidebar mode bar to expose at least one empty titlebar point")
+            return
+        }
+
+        let emptyModeBarPoint = dragHandle.convert(emptyModeBarLocalPoint, to: nil)
         guard let event = NSEvent.mouseEvent(
             with: .leftMouseDown,
             location: emptyModeBarPoint,
@@ -1430,7 +1495,6 @@ final class WindowDragHandleHitTests: XCTestCase {
         }
 
         NSApp.sendEvent(event)
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
         XCTAssertEqual(window.zoomCallCount, 1)
         XCTAssertEqual(window.miniaturizeCallCount, 0)
