@@ -29,6 +29,7 @@ final class RightSidebarVisibilityTracker: ObservableObject {
         }
         cancellable = state.$isVisible
             .removeDuplicates()
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] newValue in
                 self?.isVisible = newValue
             }
