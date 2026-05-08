@@ -1547,7 +1547,12 @@ final class WindowTerminalPortal: NSObject {
                 geometryChanged = true
             }
             CATransaction.commit()
-            if geometryChanged {
+            let shouldUpdatePresentedSurfaceGeometry =
+                geometryChanged &&
+                entry.visibleInUI &&
+                !shouldHide &&
+                !hostedView.isHidden
+            if shouldUpdatePresentedSurfaceGeometry {
                 hostedView.reconcileGeometryNow()
                 hostedView.refreshSurfaceNow(reason: "portal.frameChange")
             }

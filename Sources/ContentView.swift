@@ -3437,10 +3437,19 @@ struct ContentView: View {
         let removedIds = previousMountedIds.filter { !mountedWorkspaceIds.contains($0) }
         let mountedIdSet = Set(mountedWorkspaceIds)
         for workspace in currentTabs {
-            workspace.setPortalRenderingEnabled(
-                mountedIdSet.contains(workspace.id),
-                reason: "workspaceMount"
-            )
+            let isMounted = mountedIdSet.contains(workspace.id)
+            workspace.setPortalRenderingEnabled(isMounted, reason: "workspaceMount")
+            if isMounted {
+                let presentation = MountedWorkspacePresentationPolicy.resolve(
+                    isSelectedWorkspace: effectiveSelectedId == workspace.id,
+                    isRetiringWorkspace: retiringWorkspaceId == workspace.id,
+                    shouldPrimeInBackground: tabManager.pendingBackgroundWorkspaceLoadIds.contains(workspace.id)
+                )
+                workspace.setPortalPresentationVisible(
+                    presentation.isPanelVisible,
+                    reason: "workspaceMount"
+                )
+            }
         }
 #if DEBUG
         if mountedWorkspaceIds != previousMountedIds {

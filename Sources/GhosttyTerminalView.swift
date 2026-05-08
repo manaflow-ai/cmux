@@ -5283,14 +5283,15 @@ final class TerminalSurface: Identifiable, ObservableObject {
         desiredFocusState = focused
     }
 
-    func setFocus(_ focused: Bool) {
+    @discardableResult
+    func setFocus(_ focused: Bool) -> Bool {
         // Only send focus events when the state changes to avoid redundant
         // prompt redraws with zsh themes like Powerlevel10k.
-        guard focused != desiredFocusState else { return }
+        guard focused != desiredFocusState else { return false }
         desiredFocusState = focused
         // Track desired state even before the C surface exists (e.g. during
         // layout restoration). createSurface syncs the state once created.
-        guard let surface = surface else { return }
+        guard let surface = surface else { return true }
         ghostty_surface_set_focus(surface, focused)
 
         // If we focus a surface while it is being rapidly reparented (closing splits, etc),
@@ -5304,6 +5305,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 ghostty_surface_set_display_id(surface, displayID)
             }
         }
+        return true
     }
 
     func setOcclusion(_ visible: Bool) {
@@ -11698,16 +11700,20 @@ final class GhosttySurfaceScrollView: NSView {
 #if DEBUG
         cmuxDebugLog("focus.surface.reassert surface=\(terminalSurface.id.uuidString.prefix(5)) reason=\(reason)")
 #endif
-        terminalSurface.setFocus(true)
-        refreshSurfaceAfterFocusIfNeeded(reason: reason)
+        let focusStateChanged = terminalSurface.setFocus(true)
+        refreshSurfaceAfterFocusIfNeeded(
+            reason: reason,
+            focusStateChanged: focusStateChanged
+        )
     }
 
-    private func refreshSurfaceAfterFocusIfNeeded(reason: String) {
+    private func refreshSurfaceAfterFocusIfNeeded(reason: String, focusStateChanged: Bool) {
         guard let terminalSurface = surfaceView.terminalSurface,
               isActive,
               let window,
               window.isKeyWindow,
               surfaceView.isVisibleInUI else { return }
+        guard focusStateChanged || !reason.hasSuffix(".alreadyFirstResponder") else { return }
 
         let now = CACurrentMediaTime()
         if now - lastFocusRefreshAt < 0.05 {

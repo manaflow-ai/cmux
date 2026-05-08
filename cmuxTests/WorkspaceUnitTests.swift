@@ -2954,6 +2954,75 @@ final class WorkspaceTeardownTests: XCTestCase {
         throw XCTSkip("Debug-only regression test")
 #endif
     }
+
+    func testHiddenPortalPresentationDoesNotRestoreTerminalVisibility() throws {
+#if DEBUG
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let terminalPanel = try XCTUnwrap(workspace.terminalPanel(for: panelId))
+
+        terminalPanel.hostedView.setVisibleInUI(true)
+        workspace.setPortalPresentationVisible(false, reason: "test")
+        XCTAssertFalse(terminalPanel.hostedView.debugPortalVisibleInUI)
+
+        workspace.debugReconcileTerminalPortalVisibilityForTesting()
+        XCTAssertFalse(
+            terminalPanel.hostedView.debugPortalVisibleInUI,
+            "Hidden but mounted workspaces should not reassert selected terminals as visible"
+        )
+
+        workspace.setPortalPresentationVisible(true, reason: "test")
+        workspace.debugReconcileTerminalPortalVisibilityForTesting()
+        XCTAssertTrue(
+            terminalPanel.hostedView.debugPortalVisibleInUI,
+            "Visible mounted workspaces should still restore their selected terminal"
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
+
+    func testTerminalGeometryReconcileSkipsRefreshWhenGeometryIsUnchanged() throws {
+#if DEBUG
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 340),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let terminalPanel = try XCTUnwrap(workspace.terminalPanel(for: panelId))
+        let hostedView = terminalPanel.hostedView
+        let contentView = try XCTUnwrap(window.contentView)
+
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.reconcileGeometryNow()
+        XCTAssertNotNil(terminalPanel.surface.surface)
+
+        terminalPanel.surface.resetDebugForceRefreshCount()
+        workspace.debugRunTerminalGeometryReconcileForTesting()
+
+        XCTAssertEqual(
+            terminalPanel.surface.debugForceRefreshCount(),
+            0,
+            "Workspace geometry follow-up should not redraw Ghostty when hosted geometry is already current"
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
 }
 
 
