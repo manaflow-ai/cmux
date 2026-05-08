@@ -878,6 +878,7 @@ final class FileExplorerStore: ObservableObject {
 
         do {
             let entries = try await provider.listDirectory(path: path, showHidden: showHiddenFiles)
+            try Task.checkCancellation()
             let children = entries.map { entry in
                 let node = FileExplorerNode(name: entry.name, path: entry.path, isDirectory: entry.isDirectory)
                 nodesByPath[entry.path] = node

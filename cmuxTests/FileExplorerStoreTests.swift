@@ -69,6 +69,25 @@ private final class MockSSHFileExplorerTransport: SSHFileExplorerTransport {
     }
 }
 
+private final class DeferredListFileExplorerProvider: FileExplorerProvider {
+    var homePath = "/home/dev"
+    var isAvailable = true
+    private(set) var listCallPaths: [String] = []
+    private var continuation: CheckedContinuation<[FileExplorerEntry], Error>?
+
+    func listDirectory(path: String, showHidden: Bool) async throws -> [FileExplorerEntry] {
+        listCallPaths.append(path)
+        return try await withCheckedThrowingContinuation { continuation in
+            self.continuation = continuation
+        }
+    }
+
+    func resumeListing(returning entries: [FileExplorerEntry]) {
+        continuation?.resume(returning: entries)
+        continuation = nil
+    }
+}
+
 // MARK: - Store Tests
 
 /// The store's `@Published` state is driven by unstructured `Task { ... }` calls that
@@ -227,6 +246,48 @@ final class FileExplorerStoreTests: XCTestCase {
 
         XCTAssertTrue(store.provider is SSHFileExplorerProvider)
         XCTAssertEqual(transport.resolvedHomeConnections.map(\.destination), ["dev@ubuntu-host"])
+    }
+
+    func testCancelledRootLoadDoesNotClearRemoteUnavailableStatus() async throws {
+        let provider = DeferredListFileExplorerProvider()
+        let store = FileExplorerStore()
+        store.setProviderForTesting(provider)
+        store.setRootPath("/home/dev")
+
+        try await waitFor("root listing started") {
+            provider.listCallPaths == ["/home/dev"]
+        }
+
+        store.applyWorkspaceRoot(
+            .remoteSSH(
+                workspaceId: UUID(),
+                connection: SSHFileExplorerConnection(
+                    destination: "dev@ubuntu-host",
+                    port: nil,
+                    identityFile: nil,
+                    sshOptions: []
+                ),
+                displayTarget: "dev@ubuntu-host",
+                isAvailable: false,
+                unavailableDetail: nil
+            ),
+            sshTransport: MockSSHFileExplorerTransport()
+        )
+
+        let unavailableMessage = String(
+            localized: "fileExplorer.status.sshUnavailable",
+            defaultValue: "SSH files unavailable"
+        )
+        XCTAssertEqual(store.rootStatusMessage, unavailableMessage)
+
+        provider.resumeListing(returning: [
+            FileExplorerEntry(name: "stale", path: "/home/dev/stale", isDirectory: true),
+        ])
+
+        try await Task.sleep(nanoseconds: 50_000_000)
+
+        XCTAssertEqual(store.rootStatusMessage, unavailableMessage)
+        XCTAssertTrue(store.rootNodes.isEmpty)
     }
 
     // MARK: - Expansion state persistence
