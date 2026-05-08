@@ -121,10 +121,8 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
         // The clear is gated on `hasClearedAutomaticOverride` so the redundant
         // workspace ops don't fire on every effectiveAppearance KVO callback.
         if mode == .automatic {
-            if shouldPersistBundleIcon && !hasClearedAutomaticOverride {
-                NSWorkspace.shared.setIcon(nil, forFile: appBundleURL.path, options: [])
-                NSWorkspace.shared.noteFileSystemChanged(appBundleURL.path)
-                _ = LSRegisterURL(appBundleURL as CFURL, true)
+            if !hasClearedAutomaticOverride {
+                persistBundleIcon(nil, at: appBundleURL)
                 hasClearedAutomaticOverride = true
             }
             dockTile.showDefaultAppIcon()
@@ -137,21 +135,20 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
 
         guard let imageName = mode.imageName,
               let icon = appBundle?.image(forResource: imageName) else {
-            if shouldPersistBundleIcon {
-                NSWorkspace.shared.setIcon(nil, forFile: appBundleURL.path, options: [])
-                NSWorkspace.shared.noteFileSystemChanged(appBundleURL.path)
-                _ = LSRegisterURL(appBundleURL as CFURL, true)
-            }
+            persistBundleIcon(nil, at: appBundleURL)
             dockTile.showDefaultAppIcon()
             return
         }
 
-        if shouldPersistBundleIcon {
-            NSWorkspace.shared.setIcon(icon, forFile: appBundleURL.path, options: [])
-            NSWorkspace.shared.noteFileSystemChanged(appBundleURL.path)
-            _ = LSRegisterURL(appBundleURL as CFURL, true)
-        }
+        persistBundleIcon(icon, at: appBundleURL)
         dockTile.showIcon(icon)
+    }
+
+    private func persistBundleIcon(_ icon: NSImage?, at appBundleURL: URL) {
+        guard shouldPersistBundleIcon else { return }
+        NSWorkspace.shared.setIcon(icon, forFile: appBundleURL.path, options: [])
+        NSWorkspace.shared.noteFileSystemChanged(appBundleURL.path)
+        _ = LSRegisterURL(appBundleURL as CFURL, true)
     }
 
     private static func performOnMain(_ work: @escaping () -> Void) {
