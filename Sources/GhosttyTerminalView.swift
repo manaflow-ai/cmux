@@ -9334,7 +9334,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
     }
 
-    fileprivate func handleDroppedFileURLs(_ urls: [URL]) -> Bool {
+    func handleDroppedFileURLs(_ urls: [URL]) -> Bool {
         executePreparedImageTransfer(
             .fileURLs(urls),
             onCancel: {}

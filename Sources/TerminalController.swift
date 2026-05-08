@@ -12447,14 +12447,13 @@ class TerminalController {
                     return
                 }
                 let urls = paths.map { URL(fileURLWithPath: $0).standardizedFileURL }
-                let handled = FileDropTextDropController.performPanelTextDrop(
+                let handled = FileDropTextDropController.performTerminalTextDrop(
                     workspace: workspace,
                     panelId: panel.id,
-                    focusIntent: .terminal(.surface),
+                    hostedView: panel.hostedView,
+                    urls: urls,
                     window: panel.hostedView.window
-                ) {
-                    panel.hostedView.handleDroppedURLsAsText(urls)
-                }
+                )
                 result = handled
                     ? .ok(["handled": true, "route": "text_destination"])
                     : .err(code: "internal_error", message: "Text destination drop simulation failed", data: nil)

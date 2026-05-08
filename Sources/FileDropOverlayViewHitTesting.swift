@@ -168,11 +168,11 @@ extension FileDropOverlayView {
     func performFileDropAsText(_ sender: any NSDraggingInfo) -> Bool {
         let urls = DragOverlayRoutingPolicy.fileURLs(from: sender.draggingPasteboard)
         guard !urls.isEmpty else { return false }
-        let text = TerminalImageTransferPlanner.insertedText(forFileURLs: urls)
-        guard !text.isEmpty else { return false }
 
         let windowPoint = sender.draggingLocation
         if let textView = editableTextViewUnderPoint(windowPoint) {
+            let text = TerminalImageTransferPlanner.insertedText(forFileURLs: urls)
+            guard !text.isEmpty else { return false }
             return insert(text, into: textView)
         }
         if let terminal = terminalUnderPoint(windowPoint) {
@@ -214,7 +214,7 @@ extension FileDropOverlayView {
     }
 
     private func insert(_ urls: [URL], into terminal: GhosttyNSView) -> Bool {
-        let handled = terminal.handleDroppedFileURLsAsText(urls)
+        let handled = terminal.handleDroppedFileURLs(urls)
         guard handled,
               let workspaceId = terminal.tabId,
               let terminalSurfaceId = terminal.terminalSurface?.id,
