@@ -1485,6 +1485,7 @@ class TerminalController {
         "feed.question.reply",
         "feed.exit_plan.reply",
         "system.top",
+        "browser.eval",
         "browser.snapshot",
         "browser.wait",
         "__cmx.vm.auth_context",
