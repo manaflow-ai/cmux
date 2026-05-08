@@ -973,20 +973,8 @@ final class WindowTerminalPortal: NSObject {
     }
 
 #if DEBUG
-    private func nearestBonsplitContainer(from anchorView: NSView) -> NSView? {
-        var current: NSView? = anchorView
-        while let view = current {
-            let className = NSStringFromClass(type(of: view))
-            if className.contains("PaneDragContainerView") || className.contains("Bonsplit") {
-                return view
-            }
-            current = view.superview
-        }
-        return installedReferenceView
-    }
-
     private func logBonsplitContainerFrameIfNeeded(anchorView: NSView, hostedView: GhosttySurfaceScrollView) {
-        guard let container = nearestBonsplitContainer(from: anchorView) else { return }
+        guard let container = anchorView.terminalPortalNearestBonsplitPaneContainer() else { return }
         let containerFrame = container.convert(container.bounds, to: nil)
         let signature = "\(ObjectIdentifier(container)):\(portalDebugFrame(containerFrame))"
         guard signature != lastLoggedBonsplitContainerSignature else { return }
@@ -1022,7 +1010,12 @@ final class WindowTerminalPortal: NSObject {
             if ancestor === installedReferenceView { break }
             current = ancestor.superview
         }
-        return frameInWindow
+        let paneContainerFrame = anchorView.terminalPortalNearestBonsplitPaneContainer()
+            .map { $0.convert($0.bounds, to: nil) }
+        return TerminalPortalGeometryFramePolicy.portalFrameInWindow(
+            anchorFrame: frameInWindow,
+            paneContainerFrame: paneContainerFrame
+        )
     }
 
     private func seededFrameInHost(for anchorView: NSView) -> NSRect? {

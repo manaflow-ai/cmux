@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -67,5 +68,29 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
             ),
             "Keyboard sidebar toggles should use coalesced portal sync instead of consuming partial layout frames"
         )
+    }
+
+    func testPortalFrameUsesBonsplitPaneWidthWhenAnchorIsAnimatedNarrower() {
+        let frame = TerminalPortalGeometryFramePolicy.portalFrameInWindow(
+            anchorFrame: NSRect(x: 200, y: 0, width: 762.5, height: 644),
+            paneContainerFrame: NSRect(x: 200, y: 0, width: 800, height: 672)
+        )
+
+        XCTAssertEqual(frame.origin.x, 200, accuracy: 0.001)
+        XCTAssertEqual(frame.origin.y, 0, accuracy: 0.001)
+        XCTAssertEqual(frame.width, 800, accuracy: 0.001)
+        XCTAssertEqual(frame.height, 644, accuracy: 0.001)
+    }
+
+    func testPortalFrameIgnoresBonsplitPaneWhenVerticalBandDoesNotMatch() {
+        let frame = TerminalPortalGeometryFramePolicy.portalFrameInWindow(
+            anchorFrame: NSRect(x: 200, y: 720, width: 762.5, height: 300),
+            paneContainerFrame: NSRect(x: 200, y: 0, width: 800, height: 300)
+        )
+
+        XCTAssertEqual(frame.origin.x, 200, accuracy: 0.001)
+        XCTAssertEqual(frame.origin.y, 720, accuracy: 0.001)
+        XCTAssertEqual(frame.width, 762.5, accuracy: 0.001)
+        XCTAssertEqual(frame.height, 300, accuracy: 0.001)
     }
 }

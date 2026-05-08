@@ -1,5 +1,72 @@
 import AppKit
 
+enum TerminalPortalGeometryFramePolicy {
+    static func portalFrameInWindow(
+        anchorFrame: NSRect,
+        paneContainerFrame: NSRect?
+    ) -> NSRect {
+        guard let paneContainerFrame,
+              shouldUsePaneContainerHorizontalFrame(
+                anchorFrame: anchorFrame,
+                paneContainerFrame: paneContainerFrame
+              ) else {
+            return anchorFrame
+        }
+
+        return NSRect(
+            x: paneContainerFrame.origin.x,
+            y: anchorFrame.origin.y,
+            width: paneContainerFrame.size.width,
+            height: anchorFrame.size.height
+        )
+    }
+
+    private static func shouldUsePaneContainerHorizontalFrame(
+        anchorFrame: NSRect,
+        paneContainerFrame: NSRect
+    ) -> Bool {
+        guard hasFiniteGeometry(anchorFrame),
+              hasFiniteGeometry(paneContainerFrame),
+              anchorFrame.width > 1,
+              anchorFrame.height > 1,
+              paneContainerFrame.width > 1,
+              paneContainerFrame.height > 1 else {
+            return false
+        }
+
+        let verticalOverlap = min(anchorFrame.maxY, paneContainerFrame.maxY)
+            - max(anchorFrame.minY, paneContainerFrame.minY)
+        guard verticalOverlap > min(anchorFrame.height, paneContainerFrame.height) * 0.5 else {
+            return false
+        }
+
+        return true
+    }
+
+    private static func hasFiniteGeometry(_ rect: NSRect) -> Bool {
+        rect.origin.x.isFinite &&
+            rect.origin.y.isFinite &&
+            rect.size.width.isFinite &&
+            rect.size.height.isFinite
+    }
+}
+
+extension NSView {
+    func terminalPortalNearestBonsplitPaneContainer() -> NSView? {
+        var current: NSView? = self
+        var fallback: NSView?
+        while let view = current {
+            let className = NSStringFromClass(type(of: view))
+            if className.contains("PaneContainerView") { return view }
+            if fallback == nil, className.contains("PaneDragContainerView") {
+                fallback = view
+            }
+            current = view.superview
+        }
+        return fallback
+    }
+}
+
 extension GhosttyTerminalView {
     static func shouldSynchronizePortalGeometryImmediately(
         hostInLiveResize: Bool,
