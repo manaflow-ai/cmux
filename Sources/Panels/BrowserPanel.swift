@@ -1798,7 +1798,13 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// Shared process pool for cookie sharing across all browser panels
     private static let sharedProcessPool = WKProcessPool()
-    private static var remoteWorkspaceWebsiteDataStores: [UUID: WKWebsiteDataStore] = [:]
+    private struct RemoteWorkspaceWebsiteDataStoreLease {
+        let store: WKWebsiteDataStore
+        var referenceCount: Int
+    }
+
+    @MainActor
+    private static var remoteWorkspaceWebsiteDataStores: [UUID: RemoteWorkspaceWebsiteDataStoreLease] = [:]
 
     /// Popup windows owned by this panel (for lifecycle cleanup)
     private var popupControllers: [BrowserPopupWindowController] = []
@@ -2336,6 +2342,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private let developerToolsRestoreRetryDelay: TimeInterval = 0.05
     private let developerToolsRestoreRetryMaxAttempts: Int = 40
     private var remoteProxyEndpoint: BrowserProxyEndpoint?
+    private var remoteWebsiteDataStoreIdentifier: UUID?
     @Published private(set) var remoteWorkspaceStatus: BrowserRemoteWorkspaceStatus?
     private var usesRemoteWorkspaceProxy: Bool
     private struct PendingRemoteNavigation {
@@ -2584,14 +2591,41 @@ final class BrowserPanel: Panel, ObservableObject {
         return webView
     }
 
-    private static func websiteDataStore(forRemoteWorkspace identifier: UUID) -> WKWebsiteDataStore {
-        if let existing = remoteWorkspaceWebsiteDataStores[identifier] {
-            return existing
+    private static func acquireWebsiteDataStore(forRemoteWorkspace identifier: UUID) -> WKWebsiteDataStore {
+        if var existing = remoteWorkspaceWebsiteDataStores[identifier] {
+            existing.referenceCount += 1
+            remoteWorkspaceWebsiteDataStores[identifier] = existing
+            return existing.store
         }
         let store = WKWebsiteDataStore(forIdentifier: identifier)
-        remoteWorkspaceWebsiteDataStores[identifier] = store
+        remoteWorkspaceWebsiteDataStores[identifier] = RemoteWorkspaceWebsiteDataStoreLease(
+            store: store,
+            referenceCount: 1
+        )
         return store
     }
+
+    private static func releaseWebsiteDataStore(forRemoteWorkspace identifier: UUID) {
+        guard var existing = remoteWorkspaceWebsiteDataStores[identifier] else { return }
+        existing.referenceCount -= 1
+        if existing.referenceCount > 0 {
+            remoteWorkspaceWebsiteDataStores[identifier] = existing
+        } else {
+            remoteWorkspaceWebsiteDataStores.removeValue(forKey: identifier)
+        }
+    }
+
+    private func releaseRemoteWebsiteDataStoreIfNeeded() {
+        guard let identifier = remoteWebsiteDataStoreIdentifier else { return }
+        remoteWebsiteDataStoreIdentifier = nil
+        Self.releaseWebsiteDataStore(forRemoteWorkspace: identifier)
+    }
+
+#if DEBUG
+    static func debugRemoteWorkspaceWebsiteDataStoreLeaseCount(for identifier: UUID) -> Int {
+        remoteWorkspaceWebsiteDataStores[identifier]?.referenceCount ?? 0
+    }
+#endif
 
     static func configureWebViewConfiguration(
         _ configuration: WKWebViewConfiguration,
@@ -2718,9 +2752,14 @@ final class BrowserPanel: Panel, ObservableObject {
         self.remoteProxyEndpoint = proxyEndpoint
         self.usesRemoteWorkspaceProxy = isRemoteWorkspace
         self.browserThemeMode = BrowserThemeSettings.mode()
-        self.websiteDataStore = isRemoteWorkspace
-            ? Self.websiteDataStore(forRemoteWorkspace: remoteWebsiteDataStoreIdentifier ?? workspaceId)
-            : BrowserProfileStore.shared.websiteDataStore(for: resolvedProfileID)
+        if isRemoteWorkspace {
+            let identifier = remoteWebsiteDataStoreIdentifier ?? workspaceId
+            self.remoteWebsiteDataStoreIdentifier = identifier
+            self.websiteDataStore = Self.acquireWebsiteDataStore(forRemoteWorkspace: identifier)
+        } else {
+            self.remoteWebsiteDataStoreIdentifier = nil
+            self.websiteDataStore = BrowserProfileStore.shared.websiteDataStore(for: resolvedProfileID)
+        }
 
         let webView = Self.makeWebView(
             profileID: resolvedProfileID,
@@ -2924,12 +2963,24 @@ final class BrowserPanel: Panel, ObservableObject {
         remoteStatus: BrowserRemoteWorkspaceStatus?
     ) {
         workspaceId = newWorkspaceId
-        usesRemoteWorkspaceProxy = isRemoteWorkspace
-        let targetStore = isRemoteWorkspace
-            ? Self.websiteDataStore(forRemoteWorkspace: remoteWebsiteDataStoreIdentifier ?? newWorkspaceId)
-            : BrowserProfileStore.shared.websiteDataStore(for: profileID)
+        let previousRemoteIdentifier = self.remoteWebsiteDataStoreIdentifier
+        let targetRemoteIdentifier = isRemoteWorkspace
+            ? (remoteWebsiteDataStoreIdentifier ?? newWorkspaceId)
+            : nil
+        let targetStore: WKWebsiteDataStore
+        if let targetRemoteIdentifier {
+            if previousRemoteIdentifier == targetRemoteIdentifier {
+                targetStore = websiteDataStore
+            } else {
+                targetStore = Self.acquireWebsiteDataStore(forRemoteWorkspace: targetRemoteIdentifier)
+            }
+        } else {
+            targetStore = BrowserProfileStore.shared.websiteDataStore(for: profileID)
+        }
         let needsStoreSwap = webView.configuration.websiteDataStore !== targetStore
+        self.remoteWebsiteDataStoreIdentifier = targetRemoteIdentifier
         websiteDataStore = targetStore
+        usesRemoteWorkspaceProxy = isRemoteWorkspace
         remoteProxyEndpoint = proxyEndpoint
         remoteWorkspaceStatus = remoteStatus
         if needsStoreSwap {
@@ -2938,6 +2989,9 @@ final class BrowserPanel: Panel, ObservableObject {
                 websiteDataStore: targetStore,
                 reason: "workspace_reattach"
             )
+        }
+        if let previousRemoteIdentifier, previousRemoteIdentifier != targetRemoteIdentifier {
+            Self.releaseWebsiteDataStore(forRemoteWorkspace: previousRemoteIdentifier)
         }
         applyRemoteProxyConfigurationIfAvailable()
         resumePendingRemoteNavigationIfNeeded()
@@ -3492,6 +3546,7 @@ final class BrowserPanel: Panel, ObservableObject {
         webViewCancellables.removeAll()
         faviconTask?.cancel()
         faviconTask = nil
+        releaseRemoteWebsiteDataStoreIfNeeded()
     }
 
     // MARK: - Popup window management
@@ -4116,8 +4171,12 @@ final class BrowserPanel: Panel, ObservableObject {
         webViewObservers.removeAll()
         webViewCancellables.removeAll()
         let webView = webView
+        let remoteWebsiteDataStoreIdentifier = remoteWebsiteDataStoreIdentifier
         Task { @MainActor in
             BrowserWindowPortalRegistry.detach(webView: webView)
+            if let remoteWebsiteDataStoreIdentifier {
+                Self.releaseWebsiteDataStore(forRemoteWorkspace: remoteWebsiteDataStoreIdentifier)
+            }
         }
     }
 }

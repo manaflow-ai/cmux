@@ -1170,6 +1170,36 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
         )
     }
 
+    func testRemoteWorkspaceWebsiteDataStoreCacheReleasesClosedPanels() {
+        let remoteWorkspaceId = UUID()
+        let firstRemotePanel = BrowserPanel(
+            workspaceId: remoteWorkspaceId,
+            isRemoteWorkspace: true,
+            remoteWebsiteDataStoreIdentifier: remoteWorkspaceId
+        )
+        let secondRemotePanel = BrowserPanel(
+            workspaceId: remoteWorkspaceId,
+            isRemoteWorkspace: true,
+            remoteWebsiteDataStoreIdentifier: remoteWorkspaceId
+        )
+
+#if DEBUG
+        XCTAssertEqual(BrowserPanel.debugRemoteWorkspaceWebsiteDataStoreLeaseCount(for: remoteWorkspaceId), 2)
+#endif
+
+        firstRemotePanel.close()
+
+#if DEBUG
+        XCTAssertEqual(BrowserPanel.debugRemoteWorkspaceWebsiteDataStoreLeaseCount(for: remoteWorkspaceId), 1)
+#endif
+
+        secondRemotePanel.close()
+
+#if DEBUG
+        XCTAssertEqual(BrowserPanel.debugRemoteWorkspaceWebsiteDataStoreLeaseCount(for: remoteWorkspaceId), 0)
+#endif
+    }
+
     func testRemoteWorkspaceDefersInitialNavigationUntilProxyEndpointIsReady() {
         let remoteWorkspaceId = UUID()
         let url = URL(string: "http://localhost:3000/demo")!

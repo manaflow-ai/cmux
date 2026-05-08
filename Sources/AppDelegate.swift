@@ -5838,10 +5838,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case .rightSidebarFileSearch:
             result = context.keyboardFocusCoordinator.focusFileSearch()
         case .mainPanelFind:
-            let canStartSearch = context.tabManager.selectedTerminalPanel != nil ||
-                context.tabManager.focusedBrowserPanel != nil
-            context.tabManager.startSearch()
-            result = context.tabManager.isFindVisible || canStartSearch
+            result = context.tabManager.startSearch()
         case .none:
             result = false
         }
