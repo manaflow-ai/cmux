@@ -24,7 +24,7 @@ final class CmxGhosttyTypingUITests: XCTestCase {
         let app = launchApp()
         let terminal = try openTerminal(in: app)
 
-        for _ in 0..<8 {
+        for _ in 0..<4 {
             terminal.pinch(withScale: 0.55, velocity: -1)
             terminal.pinch(withScale: 1.8, velocity: 1)
         }

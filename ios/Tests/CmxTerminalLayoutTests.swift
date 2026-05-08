@@ -42,6 +42,16 @@ final class CmxTerminalLayoutTests: XCTestCase {
         )
     }
 
+    func testKeyboardOverlapAcceptsBottomKeyboardWithAccessoryGap() {
+        XCTAssertEqual(
+            CmxKeyboardOverlap.visibleHeight(
+                containerBounds: CGRect(x: 0, y: 0, width: 390, height: 844),
+                keyboardFrame: CGRect(x: 0, y: 544, width: 390, height: 256)
+            ),
+            300
+        )
+    }
+
     func testKeyboardOverlapIgnoresHomeIndicatorGuideHeight() {
         XCTAssertEqual(
             CmxKeyboardOverlap.visibleHeight(

@@ -830,12 +830,14 @@ private struct CmxKeyboardOverlapReader: UIViewRepresentable {
     }
 }
 
+@MainActor
 private final class CmxKeyboardOverlapReaderView: UIView {
     var onOverlapChange: ((CGFloat) -> Void)?
     private let guideTracker = UIView(frame: .zero)
     private var lastOverlap: CGFloat = -1
     private var pendingOverlap: CGFloat?
     private var deliveryScheduled = false
+    private var notificationObservers: [NSObjectProtocol] = []
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -852,11 +854,18 @@ private final class CmxKeyboardOverlapReaderView: UIView {
             guideTracker.widthAnchor.constraint(equalToConstant: 0),
             guideTracker.heightAnchor.constraint(equalToConstant: 0),
         ])
+        startKeyboardFrameNotifications()
     }
 
     @available(*, unavailable)
     required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    isolated deinit {
+        for observer in notificationObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
     }
 
     override func didMoveToWindow() {
@@ -870,10 +879,11 @@ private final class CmxKeyboardOverlapReaderView: UIView {
     }
 
     func reportCurrentOverlap() {
-        let nextOverlap = CmxKeyboardOverlap.visibleHeight(
-            containerBounds: bounds,
-            keyboardFrame: keyboardLayoutGuide.layoutFrame
-        )
+        reportOverlap(keyboardFrame: keyboardLayoutGuide.layoutFrame)
+    }
+
+    private func reportOverlap(keyboardFrame: CGRect) {
+        let nextOverlap = CmxKeyboardOverlap.visibleHeight(containerBounds: bounds, keyboardFrame: keyboardFrame)
         guard abs(lastOverlap - nextOverlap) > 0.5 else { return }
         lastOverlap = nextOverlap
         pendingOverlap = nextOverlap
@@ -886,6 +896,40 @@ private final class CmxKeyboardOverlapReaderView: UIView {
             pendingOverlap = nil
             onOverlapChange?(overlap)
         }
+    }
+
+    private func startKeyboardFrameNotifications() {
+        let center = NotificationCenter.default
+        let names: [Notification.Name] = [
+            UIResponder.keyboardWillChangeFrameNotification,
+            UIResponder.keyboardDidChangeFrameNotification,
+            UIResponder.keyboardWillHideNotification,
+            UIResponder.keyboardDidHideNotification,
+        ]
+        notificationObservers = names.map { name in
+            center.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
+                let hidesKeyboard = notification.name == UIResponder.keyboardWillHideNotification
+                    || notification.name == UIResponder.keyboardDidHideNotification
+                let screenFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect
+                MainActor.assumeIsolated {
+                    self?.handleKeyboardFrameNotification(hidesKeyboard: hidesKeyboard, screenFrame: screenFrame)
+                }
+            }
+        }
+    }
+
+    private func handleKeyboardFrameNotification(hidesKeyboard: Bool, screenFrame: CGRect?) {
+        if hidesKeyboard {
+            reportOverlap(keyboardFrame: CGRect(x: bounds.minX, y: bounds.maxY, width: bounds.width, height: 0))
+            return
+        }
+        guard let screenFrame else {
+            reportCurrentOverlap()
+            return
+        }
+        let windowFrame = window?.convert(screenFrame, from: nil) ?? screenFrame
+        let localFrame = convert(windowFrame, from: window)
+        reportOverlap(keyboardFrame: localFrame)
     }
 }
 
@@ -1217,7 +1261,7 @@ enum CmxKeyboardOverlap {
               !keyboardFrame.isNull,
               !keyboardFrame.isEmpty else { return 0 }
         guard keyboardFrame.minY > containerBounds.minY else { return 0 }
-        guard keyboardFrame.maxY >= containerBounds.maxY - 1 else { return 0 }
+        guard keyboardFrame.maxY >= containerBounds.maxY - 80 else { return 0 }
         guard keyboardFrame.height >= 80 else { return 0 }
         let overlap = containerBounds.maxY - max(containerBounds.minY, keyboardFrame.minY)
         return max(0, min(containerBounds.height, overlap))
