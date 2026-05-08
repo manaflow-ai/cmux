@@ -23803,13 +23803,22 @@ async fn compatibility_browser_tab_id(
         return compatibility_browser_surface_tab_id(surface);
     }
 
-    if let Some(surface) = surfaces.iter().find(|surface| {
+    let matching_active_surface = surfaces.iter().find(|surface| {
         surface.tab.id.to_string() == target
             || surface.tab.external_id.as_deref() == Some(target)
             || compat_tab_ref(surface.tab) == target
             || compat_tab_handle_ref(surface.tab) == target
             || surface.tab.title == target
-    }) {
+    });
+    if let Some(surface) =
+        matching_active_surface.filter(|surface| surface.tab.kind == NativeTabKind::Browser)
+    {
+        return compatibility_browser_surface_tab_id(surface);
+    }
+    if let Some(tab_id) = compatibility_browser_tab_id_by_target(daemon, target).await {
+        return Ok(tab_id);
+    }
+    if let Some(surface) = matching_active_surface {
         return compatibility_browser_surface_tab_id(surface);
     }
 
@@ -23842,6 +23851,34 @@ async fn compatibility_browser_tab_id(
     }
 
     Err(format!("Browser surface not found: {target}"))
+}
+
+async fn compatibility_browser_tab_id_by_target(
+    daemon: &Arc<Daemon>,
+    target: &str,
+) -> Option<TabId> {
+    let workspaces = daemon.workspaces.lock().await.clone();
+    for workspace in workspaces {
+        let spaces = workspace.spaces.lock().await.clone();
+        for space in spaces {
+            let tabs = space.tabs.lock().await.clone();
+            for tab in tabs {
+                if tab.kind != SnapshotTabKind::Browser {
+                    continue;
+                }
+                let title = tab.title.load_full();
+                if tab.id.to_string() == target
+                    || tab.external_id == target
+                    || compat_tab_ref_from_tab(&tab) == target
+                    || compat_tab_handle_ref_from_tab(&tab) == target
+                    || title.as_ref() == target
+                {
+                    return Some(tab.id);
+                }
+            }
+        }
+    }
+    None
 }
 
 fn compatibility_browser_surface_tab_id(
