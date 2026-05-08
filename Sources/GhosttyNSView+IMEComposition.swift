@@ -61,7 +61,10 @@ extension GhosttyNSView {
             return true
         }
 
-        guard let event else { return false }
+        guard let event,
+              textInputHandledEvent || isInputMethodSource(inputSourceId) else {
+            return false
+        }
         return shouldKeepIMECompositionCommandInsideTextInput(event)
     }
 

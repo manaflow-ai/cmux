@@ -573,6 +573,65 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         )
     }
 
+    func testDoesNotSuppressNonInputMethodDeadKeyCommandWhenMarkedTextIsUnchanged() throws {
+        let view = GhosttyNSView(frame: .zero)
+        let event = try keyEvent(
+            text: "\u{F701}",
+            keyCode: UInt16(kVK_DownArrow),
+            windowNumber: 0
+        )
+
+        XCTAssertFalse(
+            view.shouldSuppressGhosttyKeyForwardingAfterIMEHandlingForTesting(
+                markedTextBefore: "`",
+                markedSelectionBefore: NSRange(location: 1, length: 0),
+                markedTextAfter: "`",
+                markedSelectionAfter: NSRange(location: 1, length: 0),
+                accumulatedText: [],
+                event: event,
+                textInputHandledEvent: false,
+                inputSourceId: "com.apple.keylayout.USInternational"
+            )
+        )
+    }
+
+    func testSuppressesInputMethodCommandWhenMarkedTextIsUnchanged() throws {
+        let view = GhosttyNSView(frame: .zero)
+        let event = try keyEvent(
+            text: "\u{F701}",
+            keyCode: UInt16(kVK_DownArrow),
+            windowNumber: 0
+        )
+
+        XCTAssertTrue(
+            view.shouldSuppressGhosttyKeyForwardingAfterIMEHandlingForTesting(
+                markedTextBefore: "ㄓㄨ",
+                markedSelectionBefore: NSRange(location: 2, length: 0),
+                markedTextAfter: "ㄓㄨ",
+                markedSelectionAfter: NSRange(location: 2, length: 0),
+                accumulatedText: [],
+                event: event,
+                textInputHandledEvent: false,
+                inputSourceId: "com.apple.inputmethod.TCIM.Zhuyin"
+            )
+        )
+    }
+
+    func testUnmarkTextClearsIMETransientStateWithoutMarkedText() {
+        let view = GhosttyNSView(frame: .zero)
+        view.setIMETransientStateForTesting(
+            suppressedKeyUpKeyCodes: [UInt16(kVK_DownArrow)],
+            zhuyinCandidateOpenRequested: true
+        )
+
+        view.unmarkText()
+
+        XCTAssertFalse(view.hasMarkedText())
+        XCTAssertEqual(view.markedRange(), NSRange(location: NSNotFound, length: 0))
+        XCTAssertEqual(view.imeSuppressedKeyUpKeyCodesForTesting, [])
+        XCTAssertFalse(view.zhuyinCandidateOpenRequestedForTesting)
+    }
+
     func testSuppressesInputMethodHandledKeyWithoutMarkedText() throws {
         let view = GhosttyNSView(frame: .zero)
         let event = try keyEvent(

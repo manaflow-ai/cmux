@@ -7064,6 +7064,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     var keyTextAccumulatorForTesting: [String]? {
         keyTextAccumulator
     }
+    func setIMETransientStateForTesting(
+        suppressedKeyUpKeyCodes: Set<UInt16>,
+        zhuyinCandidateOpenRequested: Bool
+    ) {
+        imeSuppressedKeyUpKeyCodes = suppressedKeyUpKeyCodes
+        self.zhuyinCandidateOpenRequested = zhuyinCandidateOpenRequested
+    }
+    var imeSuppressedKeyUpKeyCodesForTesting: Set<UInt16> {
+        imeSuppressedKeyUpKeyCodes
+    }
+    var zhuyinCandidateOpenRequestedForTesting: Bool {
+        zhuyinCandidateOpenRequested
+    }
     func shouldSuppressShiftSpaceFallbackTextForTesting(event: NSEvent, markedTextBefore: Bool) -> Bool {
         shouldSuppressShiftSpaceFallbackText(event: event, markedTextBefore: markedTextBefore)
     }
@@ -12849,8 +12862,8 @@ extension GhosttyNSView: NSTextInputClient {
     }
 
     func unmarkText() {
-#if DEBUG
         let hadMarkedText = markedText.length > 0
+#if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
         defer {
             CmuxTypingTiming.logDuration(
@@ -12860,10 +12873,12 @@ extension GhosttyNSView: NSTextInputClient {
             )
         }
 #endif
-        if markedText.length > 0 {
-            markedText.mutableString.setString("")
-            markedSelectedRange = NSRange(location: NSNotFound, length: 0)
-            zhuyinCandidateOpenRequested = false
+        markedText.mutableString.setString("")
+        markedSelectedRange = NSRange(location: NSNotFound, length: 0)
+        zhuyinCandidateOpenRequested = false
+        imeSuppressedKeyUpKeyCodes.removeAll()
+
+        if hadMarkedText {
             syncPreedit()
             invalidateTextInputCoordinates(selectionChanged: true)
         }
