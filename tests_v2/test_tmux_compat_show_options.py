@@ -62,7 +62,14 @@ def _run_tmux_compat(cli: str, args: List[str]) -> subprocess.CompletedProcess:
     env.pop("CMUX_SURFACE_ID", None)
     env["CMUX_SOCKET_PATH"] = SOCKET_PATH
     cmd = [cli, "--socket", SOCKET_PATH, "__tmux-compat"] + args
-    return subprocess.run(cmd, capture_output=True, text=True, check=False, env=env)
+    return subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=10,
+    )
 
 
 def _expect_value(
@@ -144,6 +151,9 @@ def test_unknown_option_returns_empty(cli: str) -> None:
     Real tmux returns empty for unset options under ``-q``; tools that probe
     expect non-failure. Pre-fix this throws ``Unsupported tmux compatibility
     command: show-options some-future-option``.
+
+    The assertion is exact (``proc.stdout == ""``, not ``.strip()``) so a
+    regression that prints a stray blank line is caught.
     """
     print("  test_unknown_option_returns_empty ... ", end="", flush=True)
     proc = _run_tmux_compat(cli, ["show-options", "-sv", "some-future-option"])
@@ -153,12 +163,34 @@ def test_unknown_option_returns_empty(cli: str) -> None:
         f"  stdout: {proc.stdout!r}\n  stderr: {proc.stderr!r}",
     )
     _must(
-        proc.stdout.strip() == "",
+        proc.stdout == "",
         f"unknown-option -sv: expected empty stdout, got {proc.stdout!r}",
     )
     _must(
         "Unsupported tmux compatibility command" not in proc.stderr,
         f"unknown-option -sv: stderr should not say Unsupported, got {proc.stderr!r}",
+    )
+    print("PASS")
+
+
+def test_unknown_option_no_v_prints_nothing(cli: str) -> None:
+    """Unknown option without ``-v`` must also print nothing (no trailing space).
+
+    Locks in the contract caught in code review: a previous draft printed
+    ``"<name> "`` (key + space + newline) for unknown options because the
+    fallback emitted ``defaults[name] ?? ""`` unconditionally. Real tmux ``-q``
+    prints nothing for unknown options regardless of ``-v``.
+    """
+    print("  test_unknown_option_no_v_prints_nothing ... ", end="", flush=True)
+    proc = _run_tmux_compat(cli, ["show-options", "some-future-option"])
+    _must(
+        proc.returncode == 0,
+        f"unknown-option no -v: expected exit 0, got {proc.returncode}\n"
+        f"  stdout: {proc.stdout!r}\n  stderr: {proc.stderr!r}",
+    )
+    _must(
+        proc.stdout == "",
+        f"unknown-option no -v: expected empty stdout, got {proc.stdout!r}",
     )
     print("PASS")
 
@@ -228,6 +260,7 @@ def main() -> int:
             ("test_extended_keys_format_value_only", lambda: test_extended_keys_format_value_only(cli)),
             ("test_status_off_value_only", lambda: test_status_off_value_only(cli)),
             ("test_unknown_option_returns_empty", lambda: test_unknown_option_returns_empty(cli)),
+            ("test_unknown_option_no_v_prints_nothing", lambda: test_unknown_option_no_v_prints_nothing(cli)),
             ("test_show_alias_works", lambda: test_show_alias_works(cli)),
             ("test_global_flag_does_not_break", lambda: test_global_flag_does_not_break(cli)),
             ("test_issue_3239_exact_repro", lambda: test_issue_3239_exact_repro(cli)),

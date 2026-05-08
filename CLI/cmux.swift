@@ -13017,8 +13017,9 @@ struct CMUXCLI {
             let optionName = parsed.positional.last ?? ""
             // Tolerant defaults so external probes (Codex's extended-keys
             // check, etc.) don't error: known options return tmux-compatible
-            // values; unknown options fall through to "" (matching real
-            // tmux's -q behavior). See #3239.
+            // values; unknown or unnamed options emit no output at all
+            // (matching real tmux's -q behavior — not even a trailing
+            // newline). See #3239.
             let defaults: [String: String] = [
                 "extended-keys": "on",
                 "extended-keys-format": "csi-u",
@@ -13028,11 +13029,12 @@ struct CMUXCLI {
                 "mode-keys": "emacs",
                 "prefix": "C-b",
             ]
-            let value = defaults[optionName] ?? ""
-            if parsed.hasFlag("-v") {
-                print(value)
-            } else if !optionName.isEmpty {
-                print("\(optionName) \(value)")
+            if !optionName.isEmpty, let value = defaults[optionName] {
+                if parsed.hasFlag("-v") {
+                    print(value)
+                } else {
+                    print("\(optionName) \(value)")
+                }
             }
 
         case "save-buffer", "saveb":
