@@ -41,6 +41,34 @@ private final class MockFileExplorerProvider: FileExplorerProvider {
     }
 }
 
+private final class MockSSHFileExplorerTransport: SSHFileExplorerTransport {
+    var homePath: Result<String, Error>
+    var listings: [String: Result<[FileExplorerEntry], Error>] = [:]
+    private(set) var resolvedHomeConnections: [SSHFileExplorerConnection] = []
+    private(set) var listedPaths: [String] = []
+
+    init(homePath: Result<String, Error> = .success("/home/dev")) {
+        self.homePath = homePath
+    }
+
+    func resolveHomePath(connection: SSHFileExplorerConnection) async throws -> String {
+        resolvedHomeConnections.append(connection)
+        return try homePath.get()
+    }
+
+    func listDirectory(
+        path: String,
+        connection: SSHFileExplorerConnection,
+        showHidden: Bool
+    ) async throws -> [FileExplorerEntry] {
+        listedPaths.append(path)
+        if let result = listings[path] {
+            return try result.get()
+        }
+        return []
+    }
+}
+
 // MARK: - Store Tests
 
 /// The store's `@Published` state is driven by unstructured `Task { ... }` calls that
@@ -117,6 +145,88 @@ final class FileExplorerStoreTests: XCTestCase {
         store.setProvider(provider)
         store.rootPath = "/home/user/project"
         XCTAssertEqual(store.displayRootPath, "~/project")
+    }
+
+    func testRemoteWorkspaceRootRequestResolvesSSHHomeInsteadOfKeepingLocalPath() async throws {
+        let transport = MockSSHFileExplorerTransport(homePath: .success("/home/dev"))
+        transport.listings["/home/dev"] = .success([
+            FileExplorerEntry(name: "project", path: "/home/dev/project", isDirectory: true),
+        ])
+        let connection = SSHFileExplorerConnection(
+            destination: "dev@ubuntu-host",
+            port: 2222,
+            identityFile: "/Users/alice/.ssh/id_ed25519",
+            sshOptions: ["ControlPath /tmp/cmux-ssh-%C"]
+        )
+
+        let store = FileExplorerStore()
+        store.setProvider(LocalFileExplorerProvider())
+        store.setRootPath("/Users/alice")
+
+        store.applyWorkspaceRoot(
+            .remoteSSH(
+                workspaceId: UUID(),
+                connection: connection,
+                displayTarget: "dev@ubuntu-host:2222",
+                isAvailable: true,
+                unavailableDetail: nil
+            ),
+            sshTransport: transport
+        )
+
+        try await waitFor("remote home resolved and loaded") {
+            store.rootPath == "/home/dev" &&
+                store.rootNodes.map(\.name) == ["project"]
+        }
+
+        XCTAssertTrue(store.provider is SSHFileExplorerProvider)
+        XCTAssertEqual(store.rootPath, "/home/dev")
+        XCTAssertEqual(store.displayRootPath, "ssh://dev@ubuntu-host:2222~")
+        XCTAssertEqual(transport.resolvedHomeConnections, [connection])
+        XCTAssertEqual(transport.listedPaths, ["/home/dev"])
+    }
+
+    func testSwitchingFromLocalToRemoteRepointsTreeToRemoteHome() async throws {
+        let transport = MockSSHFileExplorerTransport(homePath: .success("/home/dev"))
+        transport.listings["/home/dev"] = .success([
+            FileExplorerEntry(name: ".ssh", path: "/home/dev/.ssh", isDirectory: true),
+        ])
+        let localProvider = MockFileExplorerProvider(homePath: "/Users/alice")
+        localProvider.listings["/Users/alice"] = .success([
+            FileExplorerEntry(name: "Desktop", path: "/Users/alice/Desktop", isDirectory: true),
+        ])
+
+        let store = FileExplorerStore()
+        store.setProvider(localProvider)
+        store.setRootPath("/Users/alice")
+        try await waitFor("local root loaded") {
+            store.rootPath == "/Users/alice" &&
+                store.rootNodes.map(\.name) == ["Desktop"]
+        }
+
+        store.applyWorkspaceRoot(
+            .remoteSSH(
+                workspaceId: UUID(),
+                connection: SSHFileExplorerConnection(
+                    destination: "dev@ubuntu-host",
+                    port: nil,
+                    identityFile: nil,
+                    sshOptions: []
+                ),
+                displayTarget: "dev@ubuntu-host",
+                isAvailable: true,
+                unavailableDetail: nil
+            ),
+            sshTransport: transport
+        )
+
+        try await waitFor("remote root replaces local root") {
+            store.rootPath == "/home/dev" &&
+                store.rootNodes.map(\.name) == [".ssh"]
+        }
+
+        XCTAssertTrue(store.provider is SSHFileExplorerProvider)
+        XCTAssertEqual(transport.resolvedHomeConnections.map(\.destination), ["dev@ubuntu-host"])
     }
 
     // MARK: - Expansion state persistence
