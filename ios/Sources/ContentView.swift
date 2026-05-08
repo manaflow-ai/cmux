@@ -879,11 +879,12 @@ private final class CmxKeyboardOverlapReaderView: UIView {
     }
 
     func reportCurrentOverlap() {
-        reportOverlap(keyboardFrame: keyboardLayoutGuide.layoutFrame)
+        reportOverlap(
+            CmxKeyboardOverlap.visibleHeight(containerBounds: bounds, keyboardFrame: keyboardLayoutGuide.layoutFrame)
+        )
     }
 
-    private func reportOverlap(keyboardFrame: CGRect) {
-        let nextOverlap = CmxKeyboardOverlap.visibleHeight(containerBounds: bounds, keyboardFrame: keyboardFrame)
+    private func reportOverlap(_ nextOverlap: CGFloat) {
         guard abs(lastOverlap - nextOverlap) > 0.5 else { return }
         lastOverlap = nextOverlap
         pendingOverlap = nextOverlap
@@ -920,7 +921,7 @@ private final class CmxKeyboardOverlapReaderView: UIView {
 
     private func handleKeyboardFrameNotification(hidesKeyboard: Bool, screenFrame: CGRect?) {
         if hidesKeyboard {
-            reportOverlap(keyboardFrame: CGRect(x: bounds.minX, y: bounds.maxY, width: bounds.width, height: 0))
+            reportOverlap(0)
             return
         }
         guard let screenFrame else {
@@ -929,7 +930,22 @@ private final class CmxKeyboardOverlapReaderView: UIView {
         }
         let windowFrame = window?.convert(screenFrame, from: nil) ?? screenFrame
         let localFrame = convert(windowFrame, from: window)
-        reportOverlap(keyboardFrame: localFrame)
+        let localOverlap = CmxKeyboardOverlap.visibleHeight(containerBounds: bounds, keyboardFrame: localFrame)
+        if localOverlap > 0 {
+            reportOverlap(localOverlap)
+            return
+        }
+        let screenBounds = window?.windowScene?.screen.bounds
+            ?? window?.screen.bounds
+            ?? CGRect(x: 0, y: 0, width: screenFrame.width, height: screenFrame.maxY)
+        let fallbackContainerHeight = bounds.height > 0 ? bounds.height : (window?.bounds.height ?? 0)
+        reportOverlap(
+            CmxKeyboardOverlap.screenAnchoredVisibleHeight(
+                containerHeight: fallbackContainerHeight,
+                screenBounds: screenBounds,
+                keyboardScreenFrame: screenFrame
+            )
+        )
     }
 }
 
@@ -1265,6 +1281,23 @@ enum CmxKeyboardOverlap {
         guard keyboardFrame.height >= 80 else { return 0 }
         let overlap = containerBounds.maxY - max(containerBounds.minY, keyboardFrame.minY)
         return max(0, min(containerBounds.height, overlap))
+    }
+
+    static func screenAnchoredVisibleHeight(
+        containerHeight: CGFloat,
+        screenBounds: CGRect,
+        keyboardScreenFrame: CGRect
+    ) -> CGFloat {
+        guard containerHeight > 0,
+              !screenBounds.isNull,
+              !screenBounds.isEmpty,
+              !keyboardScreenFrame.isNull,
+              !keyboardScreenFrame.isEmpty else { return 0 }
+        guard keyboardScreenFrame.minY > screenBounds.minY else { return 0 }
+        guard keyboardScreenFrame.maxY >= screenBounds.maxY - 80 else { return 0 }
+        guard keyboardScreenFrame.height >= 80 else { return 0 }
+        let overlap = screenBounds.maxY - max(screenBounds.minY, keyboardScreenFrame.minY)
+        return max(0, min(containerHeight, overlap))
     }
 }
 

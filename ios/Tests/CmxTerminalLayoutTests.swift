@@ -52,6 +52,28 @@ final class CmxTerminalLayoutTests: XCTestCase {
         )
     }
 
+    func testKeyboardOverlapFallsBackToScreenAnchoredKeyboardFrame() {
+        XCTAssertEqual(
+            CmxKeyboardOverlap.screenAnchoredVisibleHeight(
+                containerHeight: 720,
+                screenBounds: CGRect(x: 0, y: 0, width: 390, height: 844),
+                keyboardScreenFrame: CGRect(x: 0, y: 544, width: 390, height: 300)
+            ),
+            300
+        )
+    }
+
+    func testKeyboardOverlapScreenFallbackIgnoresFloatingFrames() {
+        XCTAssertEqual(
+            CmxKeyboardOverlap.screenAnchoredVisibleHeight(
+                containerHeight: 720,
+                screenBounds: CGRect(x: 0, y: 0, width: 390, height: 844),
+                keyboardScreenFrame: CGRect(x: 80, y: 320, width: 240, height: 160)
+            ),
+            0
+        )
+    }
+
     func testKeyboardOverlapIgnoresHomeIndicatorGuideHeight() {
         XCTAssertEqual(
             CmxKeyboardOverlap.visibleHeight(
