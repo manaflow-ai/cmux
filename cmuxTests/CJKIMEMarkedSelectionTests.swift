@@ -589,7 +589,7 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
                 markedSelectionAfter: NSRange(location: 1, length: 0),
                 accumulatedText: [],
                 event: event,
-                textInputHandledEvent: false,
+                textInputHandledEvent: true,
                 inputSourceId: "com.apple.keylayout.USInternational"
             )
         )
