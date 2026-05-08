@@ -33,6 +33,8 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         store.markRead(forTabId: workspaceId)
 
         XCTAssertEqual(store.unreadCount(forTabId: workspaceId), 0)
+        XCTAssertTrue(store.canMarkWorkspaceUnread(forTabIds: [workspaceId]))
+        XCTAssertFalse(store.canMarkWorkspaceRead(forTabIds: [workspaceId]))
     }
 
     func testShouldClearManualUnreadWhenFocusMovesToDifferentPanel() {
