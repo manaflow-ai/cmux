@@ -1871,12 +1871,17 @@ class TabManager: ObservableObject {
             }
             if !keysToRemove.isEmpty {
                 let stalePanelIds = Set(keysToRemove.compactMap { tab.agentPanelIds[$0] })
+                let hasUnpanelledKey = keysToRemove.contains { tab.agentPanelIds[$0] == nil }
                 for key in keysToRemove.sorted() {
                     tab.clearAgentPID(key: key, refreshPorts: false)
                 }
                 tab.refreshTrackedAgentPorts()
-                for panelId in stalePanelIds {
-                    AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tab.id, surfaceId: panelId)
+                if hasUnpanelledKey {
+                    AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tab.id)
+                } else {
+                    for panelId in stalePanelIds {
+                        AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tab.id, surfaceId: panelId)
+                    }
                 }
             }
         }

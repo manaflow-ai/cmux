@@ -862,7 +862,8 @@ final class TerminalControllerSidebarDedupeTests: XCTestCase {
                 color: "#ffffff",
                 url: nil,
                 priority: 0,
-                format: .plain
+                format: .plain,
+                protocolValue: nil
             )
         )
     }
@@ -884,7 +885,8 @@ final class TerminalControllerSidebarDedupeTests: XCTestCase {
                 color: "#ffffff",
                 url: nil,
                 priority: 0,
-                format: .plain
+                format: .plain,
+                protocolValue: nil
             )
         )
     }
