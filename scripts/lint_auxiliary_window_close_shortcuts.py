@@ -24,10 +24,12 @@ IDENTIFIER_ASSIGNMENT_RE = re.compile(
     r"""\b[A-Za-z_][A-Za-z0-9_]*\.identifier\s*=\s*NSUserInterfaceItemIdentifier\("(?P<identifier>cmux\.[^"]+)"\)"""
 )
 STRING_LITERAL_RE = re.compile(r'"(?P<identifier>cmux\.[^"]+)"')
+BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
 LINE_COMMENT_RE = re.compile(r"//[^\n]*")
 
 
 def strip_line_comments(text: str) -> str:
+    text = BLOCK_COMMENT_RE.sub("", text)
     return LINE_COMMENT_RE.sub("", text)
 
 

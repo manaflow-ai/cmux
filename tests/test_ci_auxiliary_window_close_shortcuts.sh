@@ -36,6 +36,9 @@ grep -q "cmux.newWindow" "$TMP_DIR/missing.out"
 cat > "$TMP_DIR/Sources/cmuxApp.swift" <<'SWIFT'
 private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     // "cmux.newWindow",
+    /*
+    "cmux.newWindow",
+    */
     "cmux.settings",
 ]
 SWIFT
@@ -62,6 +65,9 @@ import AppKit
 
 func makeWindow() {
     let window = NSWindow()
+    /*
+    window.identifier = NSUserInterfaceItemIdentifier("cmux.blockCommentOnly")
+    */
     // window.identifier = NSUserInterfaceItemIdentifier("cmux.commentOnly")
     _ = window
 }
