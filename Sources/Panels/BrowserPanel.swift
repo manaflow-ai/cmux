@@ -2630,6 +2630,7 @@ final class BrowserPanel: Panel, ObservableObject {
         guard existing.referenceCount > 0 else {
 #if DEBUG
             assertionFailure("Remote workspace website data store lease underflow for \(key.workspaceIdentifier)")
+            remoteWorkspaceWebsiteDataStores.removeValue(forKey: key)
             return
 #else
             remoteWorkspaceWebsiteDataStores.removeValue(forKey: key)

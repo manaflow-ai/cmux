@@ -5797,14 +5797,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let result: Bool
         switch target {
         case .rightSidebarFileSearch:
+            if let window {
+                mainWindowVisibilityController.focusForInWindowCommand(window, reason: .findShortcut)
+            }
             result = context.keyboardFocusCoordinator.focusFileSearch()
         case .mainPanelFind:
             result = context.tabManager.startSearch()
+            if let window, result {
+                mainWindowVisibilityController.focusForInWindowCommand(window, reason: .findShortcut)
+            }
         case .none:
             result = false
-        }
-        if let window, result {
-            mainWindowVisibilityController.focusForInWindowCommand(window, reason: .findShortcut)
         }
 #if DEBUG
         let afterResponder = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
