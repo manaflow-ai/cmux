@@ -20,7 +20,27 @@ enum KeyboardShortcutSettings {
     }
 
     static var settingsVisibleActions: [Action] {
-        publicShortcutActions.filter { $0 != .showHideAllWindows }
+        orderedSettingsVisibleActions(
+            from: publicShortcutActions.filter { $0 != .showHideAllWindows }
+        )
+    }
+
+    private static func orderedSettingsVisibleActions(from actions: [Action]) -> [Action] {
+        let colocatedSidebarActions = [
+            .focusRightSidebar,
+            .findInDirectory,
+            .toggleFileExplorer,
+        ].filter(actions.contains)
+        let actionSet = Set(colocatedSidebarActions)
+        let baseActions = actions.filter { !actionSet.contains($0) }
+
+        guard let anchorIndex = baseActions.firstIndex(of: .jumpToUnread) else {
+            return colocatedSidebarActions + baseActions
+        }
+
+        var orderedActions = baseActions
+        orderedActions.insert(contentsOf: colocatedSidebarActions, at: anchorIndex + 1)
+        return orderedActions
     }
 
     enum ShortcutRecordingRejection: Equatable {
