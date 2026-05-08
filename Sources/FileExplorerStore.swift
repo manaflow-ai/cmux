@@ -578,7 +578,7 @@ final class FileExplorerStore: ObservableObject {
         if let sshProvider = provider as? SSHFileExplorerProvider {
             return "ssh://\(sshProvider.displayTarget):\(rootPath)"
         }
-        FileExplorerRootResolver.displayPath(for: rootPath, homePath: provider?.homePath)
+        return FileExplorerRootResolver.displayPath(for: rootPath, homePath: provider?.homePath)
     }
 
     // MARK: - Public API
