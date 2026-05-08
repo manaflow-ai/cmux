@@ -7,6 +7,13 @@ import StackAuth
 import Security
 #endif
 
+@inline(__always)
+private func authDebugLog(_ message: @autoclosure () -> String) {
+    #if DEBUG
+    cmuxDebugLog(message())
+    #endif
+}
+
 private final class AuthPresentationContext: NSObject, ASWebAuthenticationPresentationContextProviding {
     static let shared = AuthPresentationContext()
     @MainActor private static var fallbackAnchor: NSWindow?
@@ -39,7 +46,7 @@ private final class AuthPresentationContext: NSObject, ASWebAuthenticationPresen
             await requestApplicationActivation()
         }
         window.makeKeyAndOrderFront(nil)
-        cmuxDebugLog(
+        authDebugLog(
             "auth.webauth.prepare active=\(NSApp.isActive ? 1 : 0) visible=\(window.isVisible ? 1 : 0) key=\(window.isKeyWindow ? 1 : 0) main=\(window.isMainWindow ? 1 : 0)"
         )
     }
@@ -47,36 +54,27 @@ private final class AuthPresentationContext: NSObject, ASWebAuthenticationPresen
     @MainActor
     private static func requestApplicationActivation() async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            var observer: NSObjectProtocol?
-            var didResume = false
+            let activationRequest = AuthActivationRequest(continuation: continuation)
 
-            func resumeOnce() {
-                guard !didResume else { return }
-                didResume = true
-                if let observer {
-                    NotificationCenter.default.removeObserver(observer)
-                }
-                continuation.resume()
-            }
-
-            observer = NotificationCenter.default.addObserver(
+            let observer = NotificationCenter.default.addObserver(
                 forName: NSApplication.didBecomeActiveNotification,
                 object: NSApp,
                 queue: .main
             ) { _ in
-                resumeOnce()
+                activationRequest.resume()
             }
+            activationRequest.observer = observer
 
             let didRequestActivation = NSRunningApplication.current.activate(
                 options: [.activateAllWindows]
             )
             if !didRequestActivation || NSApp.isActive {
-                resumeOnce()
+                activationRequest.resume()
                 return
             }
 
             DispatchQueue.main.async {
-                resumeOnce()
+                activationRequest.resume()
             }
         }
     }
@@ -106,6 +104,25 @@ private final class AuthPresentationContext: NSObject, ASWebAuthenticationPresen
         )
         fallbackAnchor = window
         return window
+    }
+}
+
+private final class AuthActivationRequest: @unchecked Sendable {
+    let continuation: CheckedContinuation<Void, Never>
+    var observer: NSObjectProtocol?
+    private var didResume = false
+
+    init(continuation: CheckedContinuation<Void, Never>) {
+        self.continuation = continuation
+    }
+
+    func resume() {
+        guard !didResume else { return }
+        didResume = true
+        if let observer {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        continuation.resume()
     }
 }
 
@@ -318,7 +335,7 @@ final class AuthManager: ObservableObject {
                     }
                 }
                 if let error {
-                    cmuxDebugLog("auth.webauth.failed session=\(sessionID.uuidString.prefix(8)) error=\(error)")
+                    authDebugLog("auth.webauth.failed session=\(sessionID.uuidString.prefix(8)) error=\(error)")
                     NSLog("auth.webauth failed: %@", "\(error)")
                     return
                 }
@@ -334,15 +351,15 @@ final class AuthManager: ObservableObject {
         session.prefersEphemeralWebBrowserSession = false
 
         await AuthPresentationContext.prepareForPresentation()
-        cmuxDebugLog(
+        authDebugLog(
             "auth.webauth.start session=\(sessionID.uuidString.prefix(8)) scheme=\(callbackScheme) active=\(NSApp.isActive ? 1 : 0)"
         )
         if session.start() {
             webAuthSession = session
-            cmuxDebugLog("auth.webauth.started session=\(sessionID.uuidString.prefix(8))")
+            authDebugLog("auth.webauth.started session=\(sessionID.uuidString.prefix(8))")
             return AuthSignInAttempt(sessionID: sessionID, startedNewSession: true)
         } else {
-            cmuxDebugLog("auth.webauth.startFailed session=\(sessionID.uuidString.prefix(8))")
+            authDebugLog("auth.webauth.startFailed session=\(sessionID.uuidString.prefix(8))")
             NSLog("auth.webauth: session.start() returned false")
             if webAuthSessionID == sessionID {
                 isLoading = false
