@@ -442,6 +442,12 @@ final class FileExplorerStore: ObservableObject {
     @Published private(set) var gitStatusByPath: [String: GitFileStatus] = [:]
     @Published private(set) var contentRevision = 0
 
+    /// AppKit outline invalidation token. Every mutation that changes visible
+    /// rows, disclosure state, loading/error state, or row decoration must go
+    /// through `mutateOutline(_:)` so parent SwiftUI updates cannot repaint the
+    /// file tree unless Files-owned state actually changed.
+    private(set) var outlineRevision: UInt64 = 0
+
     var provider: FileExplorerProvider?
 
     /// Whether hidden files are shown. Set from FileExplorerState externally.
@@ -503,7 +509,7 @@ final class FileExplorerStore: ObservableObject {
 
     func refreshGitStatus() {
         guard !rootPath.isEmpty else {
-            gitStatusByPath = [:]
+            applyGitStatus([:])
             return
         }
         let path = rootPath
@@ -518,14 +524,14 @@ final class FileExplorerStore: ObservableObject {
                     identityFile: identity, sshOptions: opts
                 )
                 DispatchQueue.main.async { [weak self] in
-                    self?.gitStatusByPath = status
+                    self?.applyGitStatus(status)
                 }
             }
         } else {
             DispatchQueue.global(qos: .utility).async {
                 let status = GitStatusProvider.fetchStatus(directory: path)
                 DispatchQueue.main.async { [weak self] in
-                    self?.gitStatusByPath = status
+                    self?.applyGitStatus(status)
                 }
             }
         }
@@ -560,14 +566,16 @@ final class FileExplorerStore: ObservableObject {
         #if DEBUG
         NSLog("[FileExplorer] reload() path=\(rootPath) provider=\(type(of: provider).self)")
         #endif
-        contentRevision &+= 1
-        cancelAllLoads()
-        rootNodes = []
-        nodesByPath = [:]
+        mutateOutline {
+            contentRevision &+= 1
+            cancelAllLoads()
+            rootNodes = []
+            nodesByPath = [:]
+        }
         guard !rootPath.isEmpty, provider != nil else { return }
         isRootLoading = true
         let path = rootPath
-        let task = Task { [weak self] in
+        let task = Task { @MainActor [weak self] in
             guard let self else { return }
             await self.loadChildren(for: nil, at: path)
         }
@@ -576,24 +584,35 @@ final class FileExplorerStore: ObservableObject {
 
     func expand(node: FileExplorerNode) {
         guard node.isDirectory else { return }
-        expandedPaths.insert(node.path)
-        if node.children == nil, loadTasks[node.path] == nil, !loadingPaths.contains(node.path) {
-            node.isLoading = true
-            node.error = nil
+        let nodePath = node.path
+        let shouldLoadChildren = node.children == nil
+            && loadTasks[nodePath] == nil
+            && !loadingPaths.contains(nodePath)
+        let shouldMarkExpanded = !expandedPaths.contains(nodePath)
+        if shouldMarkExpanded || shouldLoadChildren {
+            mutateOutline {
+                expandedPaths.insert(nodePath)
+                if shouldLoadChildren {
+                    node.isLoading = true
+                    node.error = nil
+                }
+            }
             objectWillChange.send()
-            let nodePath = node.path
-            let task = Task { [weak self] in
+        }
+        if shouldLoadChildren {
+            loadTasks[nodePath] = Task { @MainActor [weak self] in
                 guard let self else { return }
                 await self.loadChildren(for: node, at: nodePath)
             }
-            loadTasks[node.path] = task
         }
     }
 
     func collapse(node: FileExplorerNode) {
-        expandedPaths.remove(node.path)
-        if pendingDescendIntoFirstChildPath == node.path {
-            pendingDescendIntoFirstChildPath = nil
+        mutateOutline {
+            expandedPaths.remove(node.path)
+            if pendingDescendIntoFirstChildPath == node.path {
+                pendingDescendIntoFirstChildPath = nil
+            }
         }
         objectWillChange.send()
     }
@@ -665,13 +684,26 @@ final class FileExplorerStore: ObservableObject {
 
     // MARK: - Private
 
+    private func mutateOutline(_ body: () -> Void) {
+        outlineRevision &+= 1
+        body()
+    }
+
+    private func applyGitStatus(_ status: [String: GitFileStatus]) {
+        mutateOutline {
+            gitStatusByPath = status
+        }
+    }
+
     @MainActor
     private func loadChildren(for parentNode: FileExplorerNode?, at path: String, silent: Bool = false) async {
         guard let provider else { return }
 
         if !silent {
-            loadingPaths.insert(path)
-            parentNode?.error = nil
+            mutateOutline {
+                loadingPaths.insert(path)
+                parentNode?.error = nil
+            }
             objectWillChange.send()
         }
 
@@ -686,49 +718,63 @@ final class FileExplorerStore: ObservableObject {
                 return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
             }
 
-            if let parentNode {
-                parentNode.children = children
-                parentNode.isLoading = false
-                parentNode.error = nil
-                if pendingDescendIntoFirstChildPath == parentNode.path {
-                    let path = children.first?.path ?? parentNode.path
-                    selectedPath = path
-                    selectedPaths = [path]
-                    pendingDescendIntoFirstChildPath = nil
-                }
-            } else {
-                rootNodes = children
-                isRootLoading = false
-                if selectedPath == nil {
-                    selectedPath = children.first?.path
-                    selectedPaths = selectedPath.map { Set([$0]) } ?? []
-                }
-            }
-            loadingPaths.remove(path)
-            loadTasks.removeValue(forKey: path)
-            objectWillChange.send()
-
-            // Auto-expand children that were previously expanded
-            for child in children where child.isDirectory && expandedPaths.contains(child.path) {
-                child.isLoading = true
-                objectWillChange.send()
-                let childPath = child.path
-                let childTask = Task { [weak self] in
-                    guard let self else { return }
-                    await self.loadChildren(for: child, at: childPath)
-                }
-                loadTasks[child.path] = childTask
-            }
-        } catch {
-            if !Task.isCancelled {
+            let applyLoadedChildren = { [self] in
                 if let parentNode {
+                    parentNode.children = children
                     parentNode.isLoading = false
-                    parentNode.error = error.localizedDescription
+                    parentNode.error = nil
+                    if pendingDescendIntoFirstChildPath == parentNode.path {
+                        let targetPath = children.first?.path ?? parentNode.path
+                        selectedPath = targetPath
+                        selectedPaths = [targetPath]
+                        pendingDescendIntoFirstChildPath = nil
+                    }
                 } else {
+                    rootNodes = children
                     isRootLoading = false
+                    if selectedPath == nil {
+                        selectedPath = children.first?.path
+                        selectedPaths = selectedPath.map { Set([$0]) } ?? []
+                    }
                 }
                 loadingPaths.remove(path)
                 loadTasks.removeValue(forKey: path)
+            }
+
+            if silent {
+                applyLoadedChildren()
+            } else {
+                mutateOutline(applyLoadedChildren)
+                objectWillChange.send()
+            }
+
+            // Auto-expand children that were previously expanded
+            if !silent {
+                for child in children where child.isDirectory && expandedPaths.contains(child.path) {
+                    mutateOutline {
+                        child.isLoading = true
+                    }
+                    objectWillChange.send()
+                    let childPath = child.path
+                    let childTask = Task { @MainActor [weak self] in
+                        guard let self else { return }
+                        await self.loadChildren(for: child, at: childPath)
+                    }
+                    loadTasks[child.path] = childTask
+                }
+            }
+        } catch {
+            if !Task.isCancelled, !silent {
+                mutateOutline {
+                    if let parentNode {
+                        parentNode.isLoading = false
+                        parentNode.error = error.localizedDescription
+                    } else {
+                        isRootLoading = false
+                    }
+                    loadingPaths.remove(path)
+                    loadTasks.removeValue(forKey: path)
+                }
                 objectWillChange.send()
             }
         }

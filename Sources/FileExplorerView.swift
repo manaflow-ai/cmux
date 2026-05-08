@@ -43,9 +43,11 @@ struct FileExplorerPanelView: NSViewRepresentable {
     }
 
     func updateNSView(_ container: FileExplorerContainerView, context: Context) {
-        context.coordinator.store = store
-        context.coordinator.state = state
-        context.coordinator.onOpenFilePreview = onOpenFilePreview
+        context.coordinator.updateBindings(
+            store: store,
+            state: state,
+            onOpenFilePreview: onOpenFilePreview
+        )
         container.updateHeader(store: store)
         container.updatePresentation(presentation)
         context.coordinator.reloadIfNeeded()
@@ -61,6 +63,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         weak var containerView: FileExplorerContainerView?
         weak var outlineView: NSOutlineView?
         private var lastRootNodeCount: Int = -1
+        private var lastAppliedOutlineRevision: UInt64?
         private var observationCancellable: AnyCancellable?
         private var styleObserver: Any?
         private var isUpdatingOutlineProgrammatically = false
@@ -90,6 +93,22 @@ struct FileExplorerPanelView: NSViewRepresentable {
             }
         }
 
+        func updateBindings(
+            store: FileExplorerStore,
+            state: FileExplorerState,
+            onOpenFilePreview: @escaping (String) -> Void
+        ) {
+            let didChangeStore = self.store !== store
+            self.store = store
+            self.state = state
+            self.onOpenFilePreview = onOpenFilePreview
+            if didChangeStore {
+                lastRootNodeCount = -1
+                lastAppliedOutlineRevision = nil
+                observeStore()
+            }
+        }
+
         deinit {
             if let observer = styleObserver {
                 NotificationCenter.default.removeObserver(observer)
@@ -109,6 +128,8 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
             // Update empty state vs tree visibility
             containerView?.updateVisibility(hasContent: !store.rootPath.isEmpty, isLoading: store.isRootLoading)
+            guard lastAppliedOutlineRevision != store.outlineRevision else { return }
+            lastAppliedOutlineRevision = store.outlineRevision
 
             let newCount = store.rootNodes.count
             withProgrammaticOutlineUpdate {
