@@ -4199,6 +4199,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var additionalEnvironment: [String: String]
     let hostedView: GhosttySurfaceScrollView
     private let surfaceView: GhosttyNSView
+    private(set) var mobileSizeOverlaySnapshot: TerminalSizeOverlaySnapshot?
     private var lastPixelWidth: UInt32 = 0
     private var lastPixelHeight: UInt32 = 0
     private var lastXScale: CGFloat = 0
@@ -4329,6 +4330,41 @@ final class TerminalSurface: Identifiable, ObservableObject {
         attachedView?.tabId = newTabId
         surfaceView.tabId = newTabId
     }
+
+    @MainActor
+    func setMobileSizeOverlaySnapshot(_ snapshot: TerminalSizeOverlaySnapshot?) {
+        mobileSizeOverlaySnapshot = snapshot
+        hostedView.setMobileSizeOverlay(snapshot)
+    }
+
+    @MainActor
+    func currentTerminalGridSize() -> TerminalGridSize? {
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "mobileSync.currentTerminalGridSize") else {
+            return nil
+        }
+        let size = ghostty_surface_size(surface)
+        return TerminalGridSize(
+            validatingColumns: Int(size.columns),
+            rows: Int(size.rows)
+        )
+    }
+
+#if DEBUG
+    @MainActor
+    func debugMobileSizeOverlaySnapshot() -> TerminalSizeOverlaySnapshot? {
+        mobileSizeOverlaySnapshot
+    }
+
+    @MainActor
+    func debugMobileSizeOverlayGeometry() -> TerminalSizeOverlayGeometry {
+        hostedView.debugMobileSizeOverlayGeometry()
+    }
+
+    @MainActor
+    func debugMobileSizeOverlayLabelText() -> String {
+        hostedView.debugMobileSizeOverlayLabelText()
+    }
+#endif
 
     private static func mergedNormalizedEnvironment(
         base: [String: String],
@@ -9500,6 +9536,208 @@ private final class GhosttyFlashOverlayView: NSView {
     }
 }
 
+private final class TerminalActiveAreaOverlayView: NSView {
+    private enum Metrics {
+        static let borderInset: CGFloat = 1
+        static let borderWidth: CGFloat = 2
+        static let badgeHeight: CGFloat = 26
+        static let badgeHorizontalPadding: CGFloat = 11
+        static let badgeEdgeInset: CGFloat = 8
+        static let maxBadgeWidth: CGFloat = 240
+    }
+
+    private let dimLayer = CAShapeLayer()
+    private let borderLayer = CAShapeLayer()
+    private let badgeContainerView = NSVisualEffectView(frame: .zero)
+    private let badgeLabel = NSTextField(labelWithString: "")
+    private(set) var currentGeometry = TerminalSizeOverlayGeometry.hidden
+    private(set) var currentLabelText = ""
+
+    override var acceptsFirstResponder: Bool { false }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.masksToBounds = false
+
+        dimLayer.fillColor = NSColor.black.withAlphaComponent(0.30).cgColor
+        dimLayer.fillRule = .evenOdd
+        dimLayer.opacity = 0
+        layer?.addSublayer(dimLayer)
+
+        borderLayer.fillColor = NSColor.clear.cgColor
+        borderLayer.strokeColor = NSColor.systemBlue.cgColor
+        borderLayer.lineWidth = Metrics.borderWidth
+        borderLayer.lineJoin = .miter
+        borderLayer.lineCap = .butt
+        borderLayer.shadowColor = NSColor.systemBlue.cgColor
+        borderLayer.shadowOpacity = 0.35
+        borderLayer.shadowRadius = 3
+        borderLayer.shadowOffset = .zero
+        borderLayer.opacity = 0
+        layer?.addSublayer(borderLayer)
+
+        badgeContainerView.material = .hudWindow
+        badgeContainerView.blendingMode = .withinWindow
+        badgeContainerView.state = .active
+        badgeContainerView.wantsLayer = true
+        badgeContainerView.layer?.cornerRadius = Metrics.badgeHeight / 2
+        badgeContainerView.layer?.masksToBounds = true
+        badgeContainerView.layer?.borderWidth = 1
+        badgeContainerView.layer?.borderColor = NSColor.white.withAlphaComponent(0.14).cgColor
+        badgeContainerView.isHidden = true
+
+        badgeLabel.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
+        badgeLabel.textColor = NSColor.labelColor
+        badgeLabel.lineBreakMode = .byTruncatingTail
+        badgeLabel.maximumNumberOfLines = 1
+        badgeLabel.setAccessibilityIdentifier("terminal.mobileSizeOverlay.label")
+        badgeLabel.setAccessibilityElement(true)
+        badgeLabel.setAccessibilityRole(.staticText)
+        badgeContainerView.addSubview(badgeLabel)
+        addSubview(badgeContainerView)
+        isHidden = true
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) not implemented")
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    override func layout() {
+        super.layout()
+        applyGeometry(currentGeometry)
+    }
+
+    @discardableResult
+    func update(
+        snapshot: TerminalSizeOverlaySnapshot?,
+        containerSize: CGSize,
+        cellSize: CGSize
+    ) -> TerminalSizeOverlayGeometry {
+        let geometry = TerminalSizeOverlayGeometry.resolve(
+            containerSize: containerSize,
+            cellSize: cellSize,
+            snapshot: snapshot
+        )
+        currentGeometry = geometry
+
+        guard geometry.isVisible, let snapshot else {
+            applyHiddenState()
+            return geometry
+        }
+
+        currentLabelText = Self.labelText(for: snapshot)
+        badgeLabel.stringValue = currentLabelText
+        badgeLabel.setAccessibilityLabel(badgeLabel.stringValue)
+        applyGeometry(geometry)
+        return geometry
+    }
+
+    private func applyHiddenState() {
+        isHidden = true
+        currentLabelText = ""
+        badgeContainerView.isHidden = true
+        dimLayer.opacity = 0
+        borderLayer.opacity = 0
+        dimLayer.path = nil
+        borderLayer.path = nil
+    }
+
+    private func applyGeometry(_ geometry: TerminalSizeOverlayGeometry) {
+        guard geometry.isVisible else {
+            applyHiddenState()
+            return
+        }
+
+        isHidden = false
+        dimLayer.frame = bounds
+        borderLayer.frame = bounds
+
+        let dimPath = CGMutablePath()
+        dimPath.addRect(bounds)
+        dimPath.addRect(geometry.activeRect.insetBy(dx: -Metrics.borderInset, dy: -Metrics.borderInset))
+        dimLayer.path = dimPath
+        dimLayer.opacity = 1
+
+        let borderRect = geometry.activeRect.insetBy(
+            dx: Metrics.borderInset,
+            dy: Metrics.borderInset
+        )
+        borderLayer.path = CGPath(rect: borderRect, transform: nil)
+        borderLayer.opacity = 1
+        layoutBadge(in: geometry.activeRect)
+    }
+
+    private func layoutBadge(in activeRect: CGRect) {
+        let availableWidth = min(
+            Metrics.maxBadgeWidth,
+            activeRect.width - (Metrics.badgeEdgeInset * 2),
+            bounds.width - (Metrics.badgeEdgeInset * 2)
+        )
+        guard availableWidth >= 44, activeRect.height >= Metrics.badgeHeight + Metrics.badgeEdgeInset else {
+            badgeContainerView.isHidden = true
+            return
+        }
+
+        let labelSize = badgeLabel.intrinsicContentSize
+        let badgeWidth = min(
+            Metrics.maxBadgeWidth,
+            availableWidth,
+            ceil(labelSize.width) + (Metrics.badgeHorizontalPadding * 2)
+        )
+        let badgeHeight = Metrics.badgeHeight
+        let proposedX = activeRect.maxX - badgeWidth - Metrics.badgeEdgeInset
+        let proposedY = activeRect.maxY - badgeHeight - Metrics.badgeEdgeInset
+        let x = min(
+            max(Metrics.badgeEdgeInset, proposedX),
+            max(Metrics.badgeEdgeInset, bounds.width - badgeWidth - Metrics.badgeEdgeInset)
+        )
+        let y = min(
+            max(Metrics.badgeEdgeInset, proposedY),
+            max(Metrics.badgeEdgeInset, bounds.height - badgeHeight - Metrics.badgeEdgeInset)
+        )
+
+        badgeContainerView.isHidden = false
+        badgeContainerView.frame = CGRect(x: x, y: y, width: badgeWidth, height: badgeHeight)
+        badgeLabel.frame = CGRect(
+            x: Metrics.badgeHorizontalPadding,
+            y: floor((badgeHeight - labelSize.height) / 2),
+            width: max(0, badgeWidth - (Metrics.badgeHorizontalPadding * 2)),
+            height: ceil(labelSize.height)
+        )
+    }
+
+    private static func labelText(for snapshot: TerminalSizeOverlaySnapshot) -> String {
+        let fallbackName = defaultDeviceName(for: snapshot.surfaceKind)
+        let trimmedName = snapshot.deviceName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = trimmedName?.isEmpty == false ? (trimmedName ?? fallbackName) : fallbackName
+        let format = String(
+            localized: "terminal.mobileSizeOverlay.label",
+            defaultValue: "Sized for %@"
+        )
+        return String(format: format, name)
+    }
+
+    private static func defaultDeviceName(for kind: TerminalAttachmentSurfaceKind) -> String {
+        switch kind {
+        case .mac:
+            return String(localized: "terminal.mobileSizeOverlay.device.mac", defaultValue: "Mac")
+        case .iPhone:
+            return String(localized: "terminal.mobileSizeOverlay.device.iPhone", defaultValue: "iPhone")
+        case .iPad:
+            return String(localized: "terminal.mobileSizeOverlay.device.iPad", defaultValue: "iPad")
+        case .simulator:
+            return String(localized: "terminal.mobileSizeOverlay.device.simulator", defaultValue: "Simulator")
+        case .unknown:
+            return String(localized: "terminal.mobileSizeOverlay.device.unknown", defaultValue: "device")
+        }
+    }
+}
+
 final class GhosttySurfaceScrollView: NSView {
     enum FlashStyle {
         case navigation
@@ -9541,6 +9779,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let notificationRingLayer: CAShapeLayer
     private let flashOverlayView: GhosttyFlashOverlayView
     private let flashLayer: CAShapeLayer
+    private let mobileSizeOverlayView: TerminalActiveAreaOverlayView
     var isRightSidebarDockSurface: Bool {
         surfaceView.terminalSurface?.focusPlacement == .rightSidebarDock
     }
@@ -9550,6 +9789,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private var lastFlashStyle: FlashStyle = .navigation
+    private var mobileSizeOverlaySnapshot: TerminalSizeOverlaySnapshot?
     private let keyboardCopyModeBadgeContainerView: GhosttyFlashOverlayView
     private let keyboardCopyModeBadgeView: GhosttyPassthroughVisualEffectView
     private let keyboardCopyModeBadgeIconView: NSImageView
@@ -9714,6 +9954,14 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.cellSize
     }
 
+    func debugMobileSizeOverlayGeometry() -> TerminalSizeOverlayGeometry {
+        mobileSizeOverlayView.currentGeometry
+    }
+
+    func debugMobileSizeOverlayLabelText() -> String {
+        mobileSizeOverlayView.currentLabelText
+    }
+
     private func debugPointInSurface(_ point: NSPoint) -> NSPoint {
         surfaceView.convert(point, from: self)
     }
@@ -9785,6 +10033,7 @@ final class GhosttySurfaceScrollView: NSView {
         notificationRingLayer = CAShapeLayer()
         flashOverlayView = GhosttyFlashOverlayView(frame: .zero)
         flashLayer = CAShapeLayer()
+        mobileSizeOverlayView = TerminalActiveAreaOverlayView(frame: .zero)
         keyboardCopyModeBadgeContainerView = GhosttyFlashOverlayView(frame: .zero)
         keyboardCopyModeBadgeView = GhosttyPassthroughVisualEffectView(frame: .zero)
         keyboardCopyModeBadgeIconView = NSImageView(frame: .zero)
@@ -9864,6 +10113,8 @@ final class GhosttySurfaceScrollView: NSView {
         flashLayer.opacity = 0
         flashOverlayView.layer?.addSublayer(flashLayer)
         addSubview(flashOverlayView)
+        mobileSizeOverlayView.autoresizingMask = [.width, .height]
+        addSubview(mobileSizeOverlayView)
         keyboardCopyModeBadgeContainerView.translatesAutoresizingMaskIntoConstraints = false
         keyboardCopyModeBadgeContainerView.wantsLayer = true
         keyboardCopyModeBadgeContainerView.layer?.masksToBounds = false
@@ -10077,6 +10328,7 @@ final class GhosttySurfaceScrollView: NSView {
             queue: .main
         ) { [weak self] _ in
             self?.synchronizeScrollView()
+            self?.synchronizeMobileSizeOverlay()
         })
 
         observers.append(NotificationCenter.default.addObserver(
@@ -10246,6 +10498,7 @@ final class GhosttySurfaceScrollView: NSView {
         }
         _ = setFrameIfNeeded(notificationRingOverlayView, to: bounds)
         _ = setFrameIfNeeded(flashOverlayView, to: bounds)
+        _ = setFrameIfNeeded(mobileSizeOverlayView, to: bounds)
         if let overlay = searchOverlayHostingView {
             _ = setFrameIfNeeded(overlay, to: bounds)
         }
@@ -10259,6 +10512,7 @@ final class GhosttySurfaceScrollView: NSView {
         updateNotificationRingPath()
         updateFlashPath(style: lastFlashStyle)
         updateFlashAppearance(style: lastFlashStyle)
+        synchronizeMobileSizeOverlay()
         synchronizeScrollView()
         synchronizeSurfaceView()
         let didCoreSurfaceChange = synchronizeCoreSurface()
@@ -10437,6 +10691,7 @@ final class GhosttySurfaceScrollView: NSView {
 
     func attachSurface(_ terminalSurface: TerminalSurface) {
         surfaceView.attachSurface(terminalSurface)
+        setMobileSizeOverlay(terminalSurface.mobileSizeOverlaySnapshot)
         let workspace = terminalSurface.owningWorkspace()
         cachedOwningWorkspace = workspace
         updateWorkspaceTerminalScrollBarObserver(workspace)
@@ -10485,6 +10740,36 @@ final class GhosttySurfaceScrollView: NSView {
         inactiveOverlayView.layer?.backgroundColor = color.withAlphaComponent(clampedOpacity).cgColor
         inactiveOverlayView.isHidden = !(visible && clampedOpacity > 0.0001)
         CATransaction.commit()
+    }
+
+    func setMobileSizeOverlay(_ snapshot: TerminalSizeOverlaySnapshot?) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.setMobileSizeOverlay(snapshot)
+            }
+            return
+        }
+
+        guard mobileSizeOverlaySnapshot != snapshot else {
+            synchronizeMobileSizeOverlay()
+            return
+        }
+
+        mobileSizeOverlaySnapshot = snapshot
+        synchronizeMobileSizeOverlay()
+    }
+
+    @discardableResult
+    private func synchronizeMobileSizeOverlay() -> TerminalSizeOverlayGeometry {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+
+        return mobileSizeOverlayView.update(
+            snapshot: mobileSizeOverlaySnapshot,
+            containerSize: bounds.size,
+            cellSize: surfaceView.cellSize
+        )
     }
 
     func setNotificationRing(visible: Bool) {
