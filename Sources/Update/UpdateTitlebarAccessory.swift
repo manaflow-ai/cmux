@@ -1484,7 +1484,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         lastAppliedLayoutSnapshot = nextLayoutSnapshot
         let containerWidth = contentSize.width + abs(xOffset)
         preferredContentSize = NSSize(width: containerWidth, height: containerHeight)
-        containerView.frame = NSRect(x: 0, y: 0, width: containerWidth, height: containerHeight)
+        containerView.setFrameSize(NSSize(width: containerWidth, height: containerHeight))
         hostingView.frame = NSRect(x: xOffset, y: yOffset, width: contentSize.width, height: contentSize.height)
     }
 
