@@ -437,7 +437,7 @@ struct WorkspaceContentView: View {
                     surfaceId: panelId
                 ),
                 isManuallyUnread: workspace.manualUnreadPanelIds.contains(panelId)
-            )
+            ) || notificationStore.hasBell(forTabId: workspace.id, surfaceId: panelId)
             guard shouldShowUnread else { return nil }
 
             let paneRect = pane.frame.cgRect

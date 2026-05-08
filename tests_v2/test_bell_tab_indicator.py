@@ -70,6 +70,45 @@ def wait_for_bell(client: cmux, surface_id: str, present: bool, timeout: float =
     return False
 
 
+def wait_until(predicate, timeout: float = 2.0, interval: float = 0.05) -> bool:
+    """Poll `predicate()` until it returns truthy or `timeout` seconds elapse.
+
+    Used in place of fixed sleeps for async UI transitions
+    (workspace selection, split creation, focus changes) so the test
+    advances as soon as cmux's state has settled rather than after a
+    pessimistic delay. Avoids the flakiness CI runners would see on
+    slower hardware where 0.2-0.5s waits are not always enough.
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            if predicate():
+                return True
+        except Exception:
+            pass
+        time.sleep(interval)
+    return False
+
+
+def wait_current_workspace(client: cmux, workspace_id: str, timeout: float = 2.0) -> bool:
+    return wait_until(lambda: client.current_workspace() == workspace_id, timeout=timeout)
+
+
+def wait_surface_count(client: cmux, workspace_id: str, count: int, timeout: float = 2.0) -> bool:
+    return wait_until(
+        lambda: len(client.list_surfaces(workspace=workspace_id)) >= count, timeout=timeout
+    )
+
+
+def wait_focused_surface(client: cmux, workspace_id: str, surface_id: str, timeout: float = 2.0) -> bool:
+    def check() -> bool:
+        for _, sid, focused in client.list_surfaces(workspace=workspace_id):
+            if sid == surface_id and focused:
+                return True
+        return False
+    return wait_until(check, timeout=timeout)
+
+
 def main() -> int:
     rc = 1
     ws_a: Optional[str] = None
@@ -85,7 +124,9 @@ def main() -> int:
             ws_a = client.new_workspace()
             ws_b = client.new_workspace()
             client.select_workspace(ws_a)
-            time.sleep(0.5)
+            if not wait_current_workspace(client, ws_a):
+                print(f"FAIL: Workspace A not selected; current={client.current_workspace()}")
+                return 1
 
             ws_a_surfaces: List[tuple[int, str, bool]] = client.list_surfaces(workspace=ws_a)
             ws_b_surfaces: List[tuple[int, str, bool]] = client.list_surfaces(workspace=ws_b)
@@ -115,22 +156,27 @@ def main() -> int:
             # keep theirs. Set up by adding a second surface to B and ringing
             # both before we switch.
             client.select_workspace(ws_b)
-            time.sleep(0.3)
-            client.new_split("right")
-            time.sleep(0.3)
-            ws_b_surfaces = client.list_surfaces(workspace=ws_b)
-            if len(ws_b_surfaces) < 2:
-                print(f"FAIL: Expected workspace B to have 2 surfaces after split; got {ws_b_surfaces}")
+            if not wait_current_workspace(client, ws_b):
+                print(f"FAIL: Workspace B not selected; current={client.current_workspace()}")
                 return 1
+            client.new_split("right")
+            if not wait_surface_count(client, ws_b, count=2):
+                print(f"FAIL: Workspace B did not gain a second surface; got {client.list_surfaces(workspace=ws_b)}")
+                return 1
+            ws_b_surfaces = client.list_surfaces(workspace=ws_b)
             term1_idx, term2_idx = first_two_terminal_indices(client, workspace=ws_b)
             ws_b_surface_focused = surface_id_for_index(client, term1_idx, workspace=ws_b)
             ws_b_surface_other = surface_id_for_index(client, term2_idx, workspace=ws_b)
             client.focus_surface(ws_b_surface_focused)
-            time.sleep(0.2)
+            if not wait_focused_surface(client, ws_b, ws_b_surface_focused):
+                print(f"FAIL: Surface {ws_b_surface_focused} did not become focused in B")
+                return 1
 
             # Move back to A so neither surface in B is visible. Ring both.
             client.select_workspace(ws_a)
-            time.sleep(0.3)
+            if not wait_current_workspace(client, ws_a):
+                print(f"FAIL: Could not switch back to workspace A; current={client.current_workspace()}")
+                return 1
             client.simulate_bell(ws_b_surface_focused, workspace=ws_b)
             client.simulate_bell(ws_b_surface_other, workspace=ws_b)
             if not wait_for_bell(client, ws_b_surface_focused, present=True):
@@ -158,7 +204,9 @@ def main() -> int:
             # --- Scenario 5: closing a workspace clears all of its bells.
             # Move back to A, ring B's surface, close B, assert bell map is purged.
             client.select_workspace(ws_a)
-            time.sleep(0.2)
+            if not wait_current_workspace(client, ws_a):
+                print(f"FAIL: Could not switch back to workspace A before close; current={client.current_workspace()}")
+                return 1
             ws_b_surface_focused = client.list_surfaces(workspace=ws_b)[0][1]
             client.simulate_bell(ws_b_surface_focused, workspace=ws_b)
             if not wait_for_bell(client, ws_b_surface_focused, present=True):
