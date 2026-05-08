@@ -1021,7 +1021,11 @@ struct ContentView: View {
     @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
     @EnvironmentObject var fileExplorerState: FileExplorerState
     @Environment(\.colorScheme) private var colorScheme
+    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @AppStorage("titlebarControlsStyle") private var titlebarControlsStyleRawValue = TitlebarControlsStyle.classic.rawValue
+    @AppStorage(ShortcutHintDebugSettings.titlebarHintXKey) private var titlebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultTitlebarHintX
+    @AppStorage(ShortcutHintDebugSettings.titlebarHintYKey) private var titlebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultTitlebarHintY
+    @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey) private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey) private var leftTitlebarControlsLeadingInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey) private var leftTitlebarControlsTopInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset
     @AppStorage(MinimalModeTitlebarDebugSettings.rightToggleTrailingInsetKey) private var rightTitlebarToggleTrailingInset = MinimalModeTitlebarDebugSettings.defaultRightToggleTrailingInset
@@ -1039,6 +1043,7 @@ struct ContentView: View {
     @State private var isFullScreen: Bool = false
     @State private var observedWindow: NSWindow?
     @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
+    @StateObject private var rightSidebarToggleShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @StateObject private var fileExplorerStore = FileExplorerStore()
     @StateObject private var sessionIndexStore = SessionIndexStore()
     @StateObject private var selectedWorkspaceDirectoryObserver = SelectedWorkspaceDirectoryObserver()
@@ -2282,6 +2287,9 @@ struct ContentView: View {
 
     private var rightSidebarTitlebarToggle: some View {
         let config = titlebarControlsConfig
+        let _ = keyboardShortcutSettingsObserver.revision
+        let shortcut = KeyboardShortcutSettings.shortcut(for: .toggleFileExplorer)
+        let showsShortcutHint = shortcut.command && (alwaysShowShortcutHints || rightSidebarToggleShortcutHintMonitor.isModifierPressed)
         return TitlebarControlButton(
             config: config,
             accessibilityIdentifier: "titlebarControl.toggleRightSidebar",
@@ -2304,6 +2312,23 @@ struct ContentView: View {
             width: MinimalModeSidebarTitlebarControlsMetrics.singleButtonHostWidth,
             height: MinimalModeSidebarTitlebarControlsMetrics.hostHeight
         )
+        .overlay(alignment: .topTrailing) {
+            ZStack(alignment: .topTrailing) {
+                if showsShortcutHint {
+                    ShortcutHintPill(shortcut: shortcut, fontSize: max(8, config.iconSize - 5))
+                        .frame(minHeight: titlebarShortcutHintHeight(for: config))
+                        .offset(
+                            x: CGFloat(ShortcutHintDebugSettings.clamped(titlebarShortcutHintXOffset)),
+                            y: titlebarShortcutHintVerticalOffset(for: config)
+                                + CGFloat(ShortcutHintDebugSettings.clamped(titlebarShortcutHintYOffset))
+                        )
+                        .shortcutHintTransition()
+                        .accessibilityIdentifier("titlebarShortcutHint.toggleFileExplorer")
+                }
+            }
+            .allowsHitTesting(false)
+        }
+        .shortcutHintVisibilityAnimation(value: showsShortcutHint)
     }
 
     @ViewBuilder
@@ -2712,6 +2737,7 @@ struct ContentView: View {
         )
 
         view = AnyView(view.onAppear {
+            rightSidebarToggleShortcutHintMonitor.start()
             selectedWorkspaceDirectoryObserver.wire(tabManager: tabManager)
             tabManager.applyWindowBackgroundForSelectedTab()
             reconcileMountedWorkspaceIds()
@@ -3276,9 +3302,11 @@ struct ContentView: View {
                 sidebarDragStartWidth = nil
             }
             removeSidebarResizerPointerMonitor()
+            rightSidebarToggleShortcutHintMonitor.stop()
         })
 
         view = AnyView(view.background(WindowAccessor(refreshID: appearance.appKitWindowMutationID) { [appearance] window in
+            rightSidebarToggleShortcutHintMonitor.setHostWindow(window)
             window.identifier = NSUserInterfaceItemIdentifier(windowIdentifier)
             window.isRestorable = false
             setMinimalModeSidebarTitlebarControlsAvailable(sidebarState.isVisible, in: window)
