@@ -7027,6 +7027,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             desiredFocus = false
             terminalSurface?.recordExternalFocusState(false)
             imeSuppressedKeyUpKeyCodes.removeAll()
+            zhuyinCandidateOpenRequested = false
         }
         if result, let surface = surface {
             let now = CACurrentMediaTime()
@@ -7537,7 +7538,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             commandSelector: textInputCommandSelectorDuringKeyDown,
             candidateOpenAlreadyRequested: zhuyinCandidateOpenRequested
         ) {
-            imeSuppressedKeyUpKeyCodes.insert(event.keyCode)
             zhuyinCandidateOpenRequested = true
             textInputCommandSelectorDuringKeyDown = nil
             _ = handleTextInputKeyEvent(zhuyinCandidateOpenSpaceEvent(from: translationEvent))
