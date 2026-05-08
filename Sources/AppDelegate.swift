@@ -832,7 +832,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
     var mainWindowContexts: [ObjectIdentifier: MainWindowContext] = [:]
-    private var explicitlyConfirmedMainWindowCloseIds: Set<UUID> = []
     private var mainWindowControllers: [MainWindowController] = []
 
     /// Tracks the cascade point for new windows, matching Ghostty's upstream algorithm.
@@ -4852,14 +4851,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
         guard confirmCloseMainWindow(window) else { return true }
-        let confirmedWindowId = mainWindowId(for: window)
-        if let confirmedWindowId {
-            explicitlyConfirmedMainWindowCloseIds.insert(confirmedWindowId)
-        }
-        window.performClose(nil)
-        if let confirmedWindowId {
-            explicitlyConfirmedMainWindowCloseIds.remove(confirmedWindowId)
-        }
+        window.close()
         return true
     }
 
@@ -13368,11 +13360,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func handleMainTerminalWindowShouldClose(window: NSWindow?) -> Bool {
-        if let window,
-           let windowId = mainWindowId(for: window),
-           explicitlyConfirmedMainWindowCloseIds.remove(windowId) != nil {
-            return true
-        }
         // XCTest has no UI for the warn-before-quit dialog and would either block
         // on runModal or have NSApp.terminate kill the test process.
         if isRunningUnderXCTestCached { return true }

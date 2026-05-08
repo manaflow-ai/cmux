@@ -4232,7 +4232,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
     /// state unless the workspace focus path requests it.
     private var desiredFocusState: Bool = false
 #if DEBUG
-    static var debugRuntimeSurfaceFreeObserver: ((UUID) -> Void)?
     private var needsConfirmCloseOverrideForTesting: Bool?
     private var runtimeSurfaceFreedOutOfBandForTesting = false
     private let debugForceRefreshCountLock = NSLock()
@@ -4770,9 +4769,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
             // Keep free behavior aligned with deinit: perform the runtime teardown on
             // the next main-actor turn so SIGHUP delivery is deterministic but non-reentrant.
             ghostty_surface_free(surfaceToFree)
-#if DEBUG
-            Self.debugRuntimeSurfaceFreeObserver?(id)
-#endif
             callbackContext?.release()
         }
     }

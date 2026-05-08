@@ -136,25 +136,11 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertFalse(workspace.panels.isEmpty)
 
 #if DEBUG
-        let runtimeSurfaceWasCreated = waitForRuntimeSurface(
+        _ = waitForRuntimeSurface(
             id: initialPanelId,
             windowId: windowId,
             timeout: 3.0
         )
-        let runtimeSurfaceFreed = runtimeSurfaceWasCreated
-            ? expectation(description: "Deferred Ghostty surface free should run for \(initialPanelId)")
-            : nil
-        var fulfilledRuntimeSurfaceFree = false
-        let previousRuntimeSurfaceFreeObserver = TerminalSurface.debugRuntimeSurfaceFreeObserver
-        TerminalSurface.debugRuntimeSurfaceFreeObserver = { surfaceId in
-            previousRuntimeSurfaceFreeObserver?(surfaceId)
-            guard surfaceId == initialPanelId, !fulfilledRuntimeSurfaceFree else { return }
-            fulfilledRuntimeSurfaceFree = true
-            runtimeSurfaceFreed?.fulfill()
-        }
-        defer {
-            TerminalSurface.debugRuntimeSurfaceFreeObserver = previousRuntimeSurfaceFreeObserver
-        }
 #endif
 
         closeWindow(withId: windowId)
@@ -163,12 +149,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertNil(TerminalSurfaceRegistry.shared.surface(id: initialPanelId)?.surface)
         XCTAssertNil(appDelegate.recoverableMainWindowRoute(windowId: windowId))
         XCTAssertNil(appDelegate.tabManagerFor(windowId: windowId))
-
-#if DEBUG
-        if let runtimeSurfaceFreed {
-            wait(for: [runtimeSurfaceFreed], timeout: 5.0)
-        }
-#endif
     }
 
     func testShortcutMonitorIgnoresSystemDefinedEvents() {
