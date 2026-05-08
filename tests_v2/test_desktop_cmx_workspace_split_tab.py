@@ -56,6 +56,17 @@ def _layout(c: cmux) -> dict:
     return dict(payload.get("layout") or payload)
 
 
+def _layout_with_cursor(c: cmux, expected_style: str) -> dict:
+    def probe() -> dict | None:
+        layout = _layout(c)
+        cursor = layout.get("terminalCursor") or {}
+        if cursor.get("style") == expected_style:
+            return layout
+        return None
+
+    return _wait_for(probe, timeout_s=10.0)
+
+
 def _layout_workspace(layout: dict, workspace_id: str) -> dict:
     rows = ((layout.get("workspaces") or {}).get("workspaces") or [])
     for row in rows:
@@ -131,12 +142,20 @@ def main() -> int:
                 f"expected terminal-only workspace, got {surfaces}",
             )
 
-            layout = _layout(c)
+            expected_cursor_style = os.environ.get("CMUX_TESTS_V2_EXPECT_CURSOR_STYLE", "bar")
+            expected_cursor_blink = os.environ.get("CMUX_TESTS_V2_EXPECT_CURSOR_BLINK", "false").lower()
+            layout = _layout_with_cursor(c, expected_cursor_style)
             layout_workspace = _layout_workspace(layout, workspace_id)
             _must(layout_workspace.get("spaceCount") == 1, f"expected one default space: {layout_workspace}")
             _must(layout_workspace.get("tabCount") == 3, f"layout tab count mismatch: {layout_workspace}")
             _must(layout_workspace.get("terminalCount") == 3, f"layout terminal count mismatch: {layout_workspace}")
-            _must((layout.get("terminalCursor") or {}).get("style") == "bar", f"cursor mismatch: {layout}")
+            cursor = layout.get("terminalCursor") or {}
+            _must(cursor.get("style") == expected_cursor_style, f"cursor style mismatch: {layout}")
+            if expected_cursor_blink in {"true", "false"}:
+                _must(
+                    cursor.get("blink") == (expected_cursor_blink == "true"),
+                    f"cursor blink mismatch: {layout}",
+                )
 
             marker = "CMX_WORKSPACE_SPLIT_TAB_OK"
             c._call("surface.send_text", {"surface_id": str(split_surface), "text": f"echo {marker}\n"})

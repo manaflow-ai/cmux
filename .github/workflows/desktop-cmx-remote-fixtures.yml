@@ -43,16 +43,17 @@ on:
       runner:
         description: Runner OS
         required: false
-        default: "warp-macos-15-arm64-6x"
+        default: "macos-15-intel"
         type: choice
         options:
+          - macos-15-intel
           - warp-macos-15-arm64-6x
           - depot-macos-latest
           - depot-macos-14
 
 jobs:
   remote-fixtures:
-    runs-on: ${{ inputs.runner || 'warp-macos-15-arm64-6x' }}
+    runs-on: ${{ inputs.runner || 'macos-15-intel' }}
     timeout-minutes: 90
     env:
       RUSTUP_TOOLCHAIN: 1.94.0
@@ -88,41 +89,24 @@ jobs:
           go-version-file: daemon/remote/go.mod
           cache-dependency-path: daemon/remote/go.sum
 
-      - name: Prepare Docker
+      - name: Set up Docker
+        if: ${{ runner.arch == 'X64' }}
+        uses: docker/setup-docker-action@b2189fbf2a6592b51fee7cdd93ee2bfaeba733db # v5.1.0
         env:
-          HOMEBREW_NO_AUTO_UPDATE: "1"
-          HOMEBREW_NO_ENV_HINTS: "1"
+          LIMA_START_ARGS: "--cpus 4 --memory 6"
+        with:
+          set-host: true
+
+      - name: Require Docker on ARM macOS
+        if: ${{ runner.arch != 'X64' }}
         run: |
           set -euo pipefail
           if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
             docker info
             exit 0
           fi
-
-          if ! command -v brew >/dev/null 2>&1; then
-            echo "Homebrew is required to install Docker/Colima on this macOS runner." >&2
-            exit 1
-          fi
-
-          brew_install_if_missing() {
-            local formula="$1"
-            if brew list "$formula" >/dev/null 2>&1; then
-              return 0
-            fi
-            brew install "$formula"
-          }
-
-          brew_install_if_missing docker
-          brew_install_if_missing colima
-          brew_install_if_missing qemu
-
-          if ! colima start --cpu 4 --memory 6 --disk 30 --vm-type vz; then
-            colima delete --force || true
-            colima start --cpu 4 --memory 6 --disk 30 --vm-type qemu
-          fi
-          export DOCKER_HOST="unix://$HOME/.colima/default/docker.sock"
-          echo "DOCKER_HOST=$DOCKER_HOST" >> "$GITHUB_ENV"
-          docker info
+          echo "::error::Desktop CMX Docker remote fixtures require an Intel macOS runner or an ARM runner with Docker already running. GitHub-hosted ARM macOS does not support nested virtualization, so Colima cannot be bootstrapped here."
+          exit 1
 
       - name: Require remote fixture tools
         run: |

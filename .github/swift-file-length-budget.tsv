@@ -58,7 +58,7 @@
 834	Sources/RestorableAgentSession.swift
 829	cmuxUITests/TerminalCmdClickUITests.swift
 801	Sources/WorkspaceContentView.swift
-800	cmuxUITests/BonsplitTabDragUITests.swift
+854	cmuxUITests/BonsplitTabDragUITests.swift
 785	Sources/App/TerminalDirectoryOpenSupport.swift
 778	Sources/MainWindowFocusController.swift
 759	Sources/GhosttyConfig.swift

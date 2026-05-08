@@ -21,6 +21,7 @@ RUN_DEBUG_LOG="/tmp/cmux-debug-${RUN_TAG}.log"
 RUN_CMX_STATE_DIR="/tmp/cmux-cmx-${RUN_TAG}"
 RUN_CMX_NATIVE_SOCKET="${RUN_CMX_STATE_DIR}/native.sock"
 RUN_CMUXD_SOCKET="$HOME/Library/Application Support/cmux/cmuxd-dev-${RUN_TAG}.sock"
+RUN_GHOSTTY_CONFIG_FILE="/tmp/cmux-ghostty-${RUN_TAG}.config"
 DESKTOP_CMX_BACKEND="${CMUX_TESTS_V2_DESKTOP_CMX_BACKEND:-0}"
 RESET_CMX_STATE="${CMUX_TESTS_V2_RESET_CMX_STATE:-1}"
 TEST_FILTER="${CMUX_TESTS_V2_FILTER:-test_*.py}"
@@ -80,6 +81,20 @@ prepare_desktop_cmx_backend() {
   codesign --force --sign - --timestamp=none --generate-entitlement-der "$APP" >/dev/null
 }
 
+ensure_desktop_cmx_ghostty_config() {
+  if [ "$DESKTOP_CMX_BACKEND" != "1" ]; then
+    return 0
+  fi
+  if [ -n "${GHOSTTY_CONFIG_FILE:-}" ]; then
+    return 0
+  fi
+
+  printf 'cursor-style = bar\ncursor-style-blink = false\n' > "$RUN_GHOSTTY_CONFIG_FILE"
+  export GHOSTTY_CONFIG_FILE="$RUN_GHOSTTY_CONFIG_FILE"
+  export CMUX_TESTS_V2_EXPECT_CURSOR_STYLE="${CMUX_TESTS_V2_EXPECT_CURSOR_STYLE:-bar}"
+  export CMUX_TESTS_V2_EXPECT_CURSOR_BLINK="${CMUX_TESTS_V2_EXPECT_CURSOR_BLINK:-false}"
+}
+
 collect_diagnostics() {
   if [ -n "$DIAGNOSTICS_DIR" ]; then
     mkdir -p "$DIAGNOSTICS_DIR"
@@ -90,6 +105,7 @@ collect_diagnostics() {
       echo "socket: $RUN_SOCKET_PATH"
       echo "debug_log: $RUN_DEBUG_LOG"
       echo "cmx_state_dir: $RUN_CMX_STATE_DIR"
+      echo "ghostty_config_file: ${GHOSTTY_CONFIG_FILE:-}"
       echo "bundled_cmx: $APP/Contents/Resources/bin/cmx"
       if [ -x "$APP/Contents/Resources/bin/cmx" ]; then
         "$APP/Contents/Resources/bin/cmx" --version 2>/dev/null || true
@@ -111,6 +127,9 @@ collect_diagnostics() {
         cp -R "$path" "$DIAGNOSTICS_DIR/" 2>/dev/null || true
       fi
     done
+    if [ -n "${GHOSTTY_CONFIG_FILE:-}" ] && [ -e "$GHOSTTY_CONFIG_FILE" ]; then
+      cp "$GHOSTTY_CONFIG_FILE" "$DIAGNOSTICS_DIR/ghostty.config" 2>/dev/null || true
+    fi
     if [ -d "$RUN_CMX_STATE_DIR" ]; then
       rm -rf "$DIAGNOSTICS_DIR/cmx-state"
       cp -R "$RUN_CMX_STATE_DIR" "$DIAGNOSTICS_DIR/cmx-state" 2>/dev/null || true
@@ -133,9 +152,11 @@ cleanup() {
 
 trap cleanup EXIT
 prepare_desktop_cmx_backend
+ensure_desktop_cmx_ghostty_config
 
 launch_and_wait() {
   cleanup
+  ensure_desktop_cmx_ghostty_config
   # Wait briefly for the previous instance to fully terminate; LaunchServices can flake if we
   # relaunch too quickly.
   for _ in {1..50}; do
@@ -160,6 +181,9 @@ launch_and_wait() {
     "CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD=1"
     "CMUXTERM_REPO_ROOT=$PWD"
   )
+  if [ -n "${GHOSTTY_CONFIG_FILE:-}" ]; then
+    LAUNCH_ENV+=("GHOSTTY_CONFIG_FILE=${GHOSTTY_CONFIG_FILE}")
+  fi
   if [ "$DESKTOP_CMX_BACKEND" = "1" ]; then
     LAUNCH_ENV+=(
       "CMUX_DESKTOP_CMX_BACKEND=1"
