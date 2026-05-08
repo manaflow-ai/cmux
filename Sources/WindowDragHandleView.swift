@@ -1258,7 +1258,7 @@ struct TitlebarDoubleClickRegionModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .background(WindowDragHandleView(doubleClickBehavior: doubleClickBehavior))
+            .overlay(WindowDragHandleView(doubleClickBehavior: doubleClickBehavior))
             .background(TitlebarDoubleClickMonitorView(doubleClickBehavior: doubleClickBehavior))
     }
 }
