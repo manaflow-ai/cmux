@@ -382,7 +382,9 @@ final class FileSearchController: FileSearchControlling {
         }
     }
 
+#if compiler(>=6.2)
     @concurrent
+#endif
     private nonisolated static func streamStdout(
         from handle: FileHandle,
         pipeline: FileSearchOutputPipeline,
@@ -405,7 +407,9 @@ final class FileSearchController: FileSearchControlling {
         }
     }
 
+#if compiler(>=6.2)
     @concurrent
+#endif
     private nonisolated static func streamStderr(
         from handle: FileHandle,
         pipeline: FileSearchOutputPipeline
