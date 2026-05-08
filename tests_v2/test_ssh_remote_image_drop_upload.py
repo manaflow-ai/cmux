@@ -22,6 +22,8 @@ from cmux import cmux, cmuxError
 
 
 SOCKET_PATH = os.environ.get("CMUX_SOCKET_PATH", "/tmp/cmux-debug.sock")
+DEFAULT_CMD_TIMEOUT = float(os.environ.get("CMUX_TEST_CMD_TIMEOUT", "60"))
+SLOW_CMD_TIMEOUT = float(os.environ.get("CMUX_TEST_SLOW_CMD_TIMEOUT", "300"))
 
 
 def _must(condition: bool, message: str) -> None:
@@ -29,8 +31,22 @@ def _must(condition: bool, message: str) -> None:
         raise cmuxError(message)
 
 
-def _run(cmd: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
-    proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+def _run(
+    cmd: list[str],
+    *,
+    check: bool = True,
+    timeout: float | None = DEFAULT_CMD_TIMEOUT,
+) -> subprocess.CompletedProcess[str]:
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise cmuxError(f"Command timed out after {timeout}s ({' '.join(cmd)})") from exc
     if check and proc.returncode != 0:
         merged = f"{proc.stdout}\n{proc.stderr}".strip()
         raise cmuxError(f"Command failed ({' '.join(cmd)}): {merged}")
@@ -65,7 +81,15 @@ def _shell_single_quote(value: str) -> str:
     return "'" + value.replace("'", "'\"'\"'") + "'"
 
 
-def _ssh_run(host: str, host_port: int, key_path: Path, script: str, *, check: bool = True) -> subprocess.CompletedProcess[str]:
+def _ssh_run(
+    host: str,
+    host_port: int,
+    key_path: Path,
+    script: str,
+    *,
+    check: bool = True,
+    timeout: float | None = DEFAULT_CMD_TIMEOUT,
+) -> subprocess.CompletedProcess[str]:
     return _run(
         [
             "ssh",
@@ -78,13 +102,14 @@ def _ssh_run(host: str, host_port: int, key_path: Path, script: str, *, check: b
             f"sh -lc {_shell_single_quote(script)}",
         ],
         check=check,
+        timeout=timeout,
     )
 
 
 def _wait_for_ssh(host: str, host_port: int, key_path: Path, timeout: float = 20.0) -> None:
     deadline = time.time() + timeout
     while time.time() < deadline:
-        probe = _ssh_run(host, host_port, key_path, "echo ready", check=False)
+        probe = _ssh_run(host, host_port, key_path, "echo ready", check=False, timeout=10)
         if probe.returncode == 0 and "ready" in probe.stdout:
             return
         time.sleep(0.4)
@@ -104,19 +129,28 @@ def _wait_remote_ready(client: cmux, workspace_id: str, timeout: float = 45.0) -
     raise cmuxError(f"Remote did not become ready for {workspace_id}: {last_status}")
 
 
-def _run_cli_json(cli: str, args: list[str]) -> dict:
+def _run_cli_json(
+    cli: str,
+    args: list[str],
+    *,
+    timeout: float | None = DEFAULT_CMD_TIMEOUT,
+) -> dict:
     env = dict(os.environ)
     env.pop("CMUX_WORKSPACE_ID", None)
     env.pop("CMUX_SURFACE_ID", None)
     env.pop("CMUX_TAB_ID", None)
 
-    proc = subprocess.run(
-        [cli, "--socket", SOCKET_PATH, "--json", "--id-format", "both", *args],
-        capture_output=True,
-        text=True,
-        env=env,
-        check=False,
-    )
+    try:
+        proc = subprocess.run(
+            [cli, "--socket", SOCKET_PATH, "--json", "--id-format", "both", *args],
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise cmuxError(f"cmux {' '.join(args)} timed out after {timeout}s") from exc
     if proc.returncode != 0:
         raise cmuxError(f"cmux {' '.join(args)} failed: {(proc.stdout + proc.stderr).strip()}")
     try:
@@ -183,7 +217,7 @@ def main() -> int:
         pubkey = key_path.with_suffix(".pub").read_text(encoding="utf-8").strip()
         _must(bool(pubkey), "Generated SSH public key was empty")
 
-        _run(["docker", "build", "-t", image_tag, str(fixture_dir)])
+        _run(["docker", "build", "-t", image_tag, str(fixture_dir)], timeout=SLOW_CMD_TIMEOUT)
         _run([
             "docker", "run", "-d", "--rm",
             "--name", container_name,
@@ -208,6 +242,7 @@ def main() -> int:
                     "--ssh-option", "UserKnownHostsFile=/dev/null",
                     "--ssh-option", "StrictHostKeyChecking=no",
                 ],
+                timeout=90,
             )
             workspace_id = _resolve_workspace_id(client, payload)
             _wait_remote_ready(client, workspace_id)

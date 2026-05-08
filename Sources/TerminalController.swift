@@ -3021,7 +3021,6 @@ class TerminalController {
             "debug.right_sidebar.focus",
             "debug.sidebar.visible",
             "debug.terminal.is_focused",
-            "debug.terminal.simulate_file_drop",
             "debug.terminal.read_text",
             "debug.terminal.render_stats",
             "debug.layout",
@@ -3039,6 +3038,9 @@ class TerminalController {
             "debug.session_snapshot_seed_scrollback",
             "debug.window.screenshot",
         ])
+#endif
+#if DEBUG
+        methods.append("debug.terminal.simulate_file_drop")
 #endif
 
         return [
