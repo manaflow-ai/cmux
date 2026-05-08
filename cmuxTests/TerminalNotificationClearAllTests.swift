@@ -1,4 +1,5 @@
 import XCTest
+import Bonsplit
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
@@ -54,5 +55,54 @@ final class TerminalNotificationClearAllTests: XCTestCase {
 
         XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: focusedPanelId))
         XCTAssertTrue(store.notifications.isEmpty)
+    }
+
+    func testClosingPaneRemovesSurfaceNotificationContribution() throws {
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = false
+
+        defer {
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let focusedPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let notifiedPanel = try XCTUnwrap(
+            workspace.newTerminalSplit(from: focusedPanelId, orientation: .horizontal)
+        )
+        let notifiedPaneId = try XCTUnwrap(workspace.paneId(forPanelId: notifiedPanel.id))
+
+        store.addNotification(
+            tabId: workspace.id,
+            surfaceId: notifiedPanel.id,
+            title: "Pane done",
+            subtitle: "",
+            body: "Close should drop this surface contribution"
+        )
+
+        XCTAssertEqual(store.unreadCount(forTabId: workspace.id), 1)
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: notifiedPanel.id))
+
+        XCTAssertTrue(workspace.bonsplitController.closePane(notifiedPaneId))
+
+        XCTAssertNil(workspace.panels[notifiedPanel.id])
+        XCTAssertEqual(store.unreadCount(forTabId: workspace.id), 0)
+        XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: notifiedPanel.id))
+        XCTAssertFalse(store.notifications.contains { $0.surfaceId == notifiedPanel.id })
     }
 }
