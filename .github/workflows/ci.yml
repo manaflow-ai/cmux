@@ -163,10 +163,11 @@ jobs:
           cargo --version
 
       - name: Install Zig
+        working-directory: .
         run: |
           sudo apt-get update
           sudo apt-get install -y minisign
-          ../../scripts/install-zig-ci.sh 0.15.2
+          ./scripts/install-zig-ci.sh 0.15.2
 
       - name: Run cmx bridge subcommand regressions
         run: |
