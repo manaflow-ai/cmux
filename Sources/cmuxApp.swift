@@ -7355,7 +7355,7 @@ struct SettingsView: View {
             reloadWorkspaceTabColorSettings()
         }
         .onReceive(NotificationCenter.default.publisher(for: SettingsNavigationRequest.notificationName)) { notification in
-            handleSettingsNavigation(notification)
+            handleSettingsNavigation(notification, proxy: proxy)
         }
         .confirmationDialog(
             String(localized: "settings.browser.history.clearDialog.title", defaultValue: "Clear browser history?"),
@@ -7407,9 +7407,11 @@ struct SettingsView: View {
         }
     }
 
-    private func handleSettingsNavigation(_ notification: Notification) {
+    private func handleSettingsNavigation(_ notification: Notification, proxy: ScrollViewProxy) {
         guard let destination = SettingsNavigationRequest.destination(from: notification) else { return }
         settingsNavigationGeneration += 1
+        let navigationGeneration = settingsNavigationGeneration
+        let sectionID = SettingsSearchIndex.sectionID(for: destination.target)
         if destination.shouldHighlight {
             highlightedSearchAnchorID = destination.anchorID
             searchHighlightStartedAt = Date()
@@ -7417,6 +7419,13 @@ struct SettingsView: View {
         } else {
             highlightedSearchAnchorID = nil
             searchHighlightStartedAt = nil
+        }
+        DispatchQueue.main.async {
+            guard navigationGeneration == settingsNavigationGeneration else { return }
+            proxy.scrollTo(sectionID, anchor: .top)
+            if destination.shouldHighlight {
+                proxy.scrollTo(destination.anchorID, anchor: .center)
+            }
         }
     }
 
