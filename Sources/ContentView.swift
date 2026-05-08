@@ -12181,23 +12181,15 @@ enum SidebarPathFormatter {
         return trimmed
     }
 
+    // The shortest single-string form. Falls back to the abbreviated path
+    // unchanged when there are no leading segments to drop, so `/tmp` stays
+    // `/tmp` rather than becoming `…/tmp`.
     static func lastSegmentPath(
         _ path: String,
         homeDirectoryPath: String = Self.homeDirectoryPath
     ) -> String {
-        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return path }
-        if trimmed == homeDirectoryPath { return "~" }
-        if trimmed == "/" { return "/" }
-        let stripped = trimmed.hasSuffix("/") && trimmed.count > 1
-            ? String(trimmed.dropLast())
-            : trimmed
-        guard let slashRange = stripped.range(of: "/", options: .backwards) else {
-            return stripped
-        }
-        let last = String(stripped[slashRange.upperBound...])
-        guard !last.isEmpty else { return stripped }
-        return "…/\(last)"
+        pathCandidates(path, homeDirectoryPath: homeDirectoryPath).last
+            ?? shortenedPath(path, homeDirectoryPath: homeDirectoryPath)
     }
 
     // Ordered longest → shortest. The first entry is the full abbreviated path
@@ -12230,11 +12222,12 @@ enum SidebarPathFormatter {
     }
 }
 
-// Picks the longest directory candidate that fits the available width,
-// falling back to progressively shorter forms (each prefixed with `…/`).
-// When the smallest candidate still overflows, `.truncationMode(.tail)`
-// trims it from the end — but in practice the shortest fallback is just
-// `…/<lastSegment>` and rarely exceeds a normal sidebar width.
+// Picks the longest directory candidate that fits the available width.
+// Non-fallback candidates use `.fixedSize(horizontal: true)` so a candidate
+// that would only fit by truncating reports its full intrinsic width to
+// `ViewThatFits` and gets skipped in favor of the next, shorter form. The
+// final fallback keeps `.truncationMode(.tail)` for the rare case where even
+// `…/<lastSegment>` overflows.
 private struct SidebarDirectoryText: View {
     let candidates: [String]
     let color: Color
@@ -12248,13 +12241,18 @@ private struct SidebarDirectoryText: View {
                 .truncationMode(.tail)
         } else {
             ViewThatFits(in: .horizontal) {
-                ForEach(candidates, id: \.self) { candidate in
+                ForEach(Array(candidates.dropLast()), id: \.self) { candidate in
                     Text(candidate)
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundColor(color)
                         .lineLimit(1)
-                        .truncationMode(.tail)
+                        .fixedSize(horizontal: true, vertical: false)
                 }
+                Text(candidates.last ?? "")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundColor(color)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
         }
     }
