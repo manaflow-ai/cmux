@@ -1122,6 +1122,56 @@ struct WindowDragHandleView: NSViewRepresentable {
     }
 }
 
+private func titlebarDoubleClickMonitorHasCapturingDragHandle(
+    in rootView: NSView,
+    window: NSWindow,
+    locationInWindow: NSPoint
+) -> Bool {
+    if rootView.identifier == WindowDragHandleView.viewIdentifier {
+        let localPoint = rootView.convert(locationInWindow, from: nil)
+        if rootView.bounds.contains(localPoint),
+           windowDragHandleShouldCaptureHit(
+               localPoint,
+               in: rootView,
+               eventType: .leftMouseDown,
+               eventWindow: window
+           ) {
+            return true
+        }
+    }
+
+    for subview in rootView.subviews {
+        if titlebarDoubleClickMonitorHasCapturingDragHandle(
+            in: subview,
+            window: window,
+            locationInWindow: locationInWindow
+        ) {
+            return true
+        }
+    }
+
+    return false
+}
+
+private func titlebarDoubleClickMonitorShouldDeferToRegisteredControl(
+    window: NSWindow,
+    locationInWindow: NSPoint
+) -> Bool {
+    guard isMinimalModeTitlebarControlHit(window: window, locationInWindow: locationInWindow) else {
+        return false
+    }
+
+    guard let contentView = window.contentView else {
+        return true
+    }
+
+    return !titlebarDoubleClickMonitorHasCapturingDragHandle(
+        in: contentView,
+        window: window,
+        locationInWindow: locationInWindow
+    )
+}
+
 /// Local monitor that guarantees double-clicks in custom titlebar surfaces trigger
 /// the standard macOS titlebar action even when the visible strip is hosted by
 /// higher-level SwiftUI/AppKit container views.
@@ -1161,7 +1211,10 @@ struct TitlebarDoubleClickMonitorView: NSViewRepresentable {
                 coordinator.lastClick = nil
                 return event
             }
-            guard !isMinimalModeTitlebarControlHit(window: window, locationInWindow: event.locationInWindow) else {
+            guard !titlebarDoubleClickMonitorShouldDeferToRegisteredControl(
+                window: window,
+                locationInWindow: event.locationInWindow
+            ) else {
                 coordinator.lastClick = nil
                 return event
             }
