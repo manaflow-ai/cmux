@@ -54,7 +54,6 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
     // MARK: - Coordinator
 
-    @MainActor
     final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDelegate {
         var store: FileExplorerStore
         var state: FileExplorerState
@@ -108,8 +107,11 @@ struct FileExplorerPanelView: NSViewRepresentable {
         func reloadIfNeeded() {
             guard let outlineView else { return }
 
-            // Update empty state vs tree visibility
-            containerView?.updateVisibility(hasContent: !store.rootPath.isEmpty, isLoading: store.isRootLoading)
+            // Update empty state vs tree visibility. Coordinator callbacks are delivered on the main
+            // run loop; keep this synchronous so outline and container visibility stay in the same pass.
+            MainActor.assumeIsolated {
+                containerView?.updateVisibility(hasContent: !store.rootPath.isEmpty, isLoading: store.isRootLoading)
+            }
 
             let newCount = store.rootNodes.count
             withProgrammaticOutlineUpdate {
