@@ -747,7 +747,7 @@ private struct TerminalDetailView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(TerminalThemeChrome.background(revision: store.terminalAppearanceRevision).ignoresSafeArea())
-        .ignoresSafeArea(edges: .bottom)
+        .ignoresSafeArea(.container, edges: .bottom)
         .navigationTitle(store.selectedWorkspace.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(TerminalThemeChrome.background(revision: store.terminalAppearanceRevision), for: .navigationBar)

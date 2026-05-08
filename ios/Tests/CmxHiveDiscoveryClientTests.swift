@@ -281,6 +281,7 @@ final class CmxHiveDiscoveryStoreTests: XCTestCase {
                     selectedTeamID: nil
                 )
             ),
+            hiveTeamPreferenceStore: MemoryHiveTeamPreferenceStore(),
             hiveDiscoveryEndpoint: URL(string: "https://rivet.example/hive")!,
             terminalSessionFactory: RecordingHiveTerminalSessionFactory(),
             startHiveDiscoveryOnInit: false
