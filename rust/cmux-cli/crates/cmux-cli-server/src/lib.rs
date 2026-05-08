@@ -18879,7 +18879,8 @@ async fn compatibility_browser_open_split_v2(
     daemon.wake_model();
     daemon.snapshot_notifier.wake();
 
-    let mut payload = compatibility_surface_json_by_tab_id(daemon, tab.id).await?;
+    let mut payload =
+        compatibility_surface_json_by_workspace_tab_id(daemon, ctx.workspace.id, tab.id).await?;
     let workspace_ref = ctx.workspace.external_id.clone();
     let surface_id = compat_tab_id_from_tab(&tab);
     let surface_ref = compat_surface_ref_from_tab(&tab);
@@ -23775,8 +23776,7 @@ async fn compatibility_browser_context(
     daemon: &Arc<Daemon>,
     target: Option<&str>,
 ) -> std::result::Result<CompatibilityResolvedTabContext, String> {
-    let tab_id = compatibility_browser_tab_id(daemon, target).await?;
-    let ctx = compatibility_resolve_tab_context_by_tab_id(daemon, tab_id).await?;
+    let ctx = compatibility_browser_context_for_target(daemon, target).await?;
     if ctx.tab.kind == SnapshotTabKind::Browser {
         Ok(ctx)
     } else {
@@ -23787,10 +23787,10 @@ async fn compatibility_browser_context(
     }
 }
 
-async fn compatibility_browser_tab_id(
+async fn compatibility_browser_context_for_target(
     daemon: &Arc<Daemon>,
     target: Option<&str>,
-) -> std::result::Result<TabId, String> {
+) -> std::result::Result<CompatibilityResolvedTabContext, String> {
     let target = target.unwrap_or("").trim();
     let snapshot = compatibility_native_snapshot(daemon).await?;
     let surfaces = compatibility_surface_entries(&snapshot);
@@ -23800,7 +23800,12 @@ async fn compatibility_browser_tab_id(
             .iter()
             .find(|surface| surface.tab.id == snapshot.focused_tab_id)
             .ok_or_else(|| "No focused surface".to_string())?;
-        return compatibility_browser_surface_tab_id(surface);
+        return compatibility_resolve_tab_context_from_snapshot_surface(
+            daemon,
+            snapshot.active_workspace_id,
+            surface,
+        )
+        .await;
     }
 
     let matching_active_surface = surfaces.iter().find(|surface| {
@@ -23813,13 +23818,23 @@ async fn compatibility_browser_tab_id(
     if let Some(surface) =
         matching_active_surface.filter(|surface| surface.tab.kind == NativeTabKind::Browser)
     {
-        return compatibility_browser_surface_tab_id(surface);
+        return compatibility_resolve_tab_context_from_snapshot_surface(
+            daemon,
+            snapshot.active_workspace_id,
+            surface,
+        )
+        .await;
     }
-    if let Some(tab_id) = compatibility_browser_tab_id_by_target(daemon, target).await {
-        return Ok(tab_id);
+    if let Some(ctx) = compatibility_browser_context_by_target(daemon, target).await? {
+        return Ok(ctx);
     }
     if let Some(surface) = matching_active_surface {
-        return compatibility_browser_surface_tab_id(surface);
+        return compatibility_resolve_tab_context_from_snapshot_surface(
+            daemon,
+            snapshot.active_workspace_id,
+            surface,
+        )
+        .await;
     }
 
     if let Ok(number) = target.parse::<u64>() {
@@ -23830,33 +23845,36 @@ async fn compatibility_browser_tab_id(
                 .iter()
                 .find(|surface| surface.panel_id == panel.panel_id && surface.active)
         {
-            return compatibility_browser_surface_tab_id(surface);
+            return compatibility_resolve_tab_context_from_snapshot_surface(
+                daemon,
+                snapshot.active_workspace_id,
+                surface,
+            )
+            .await;
         }
         if let Ok(index) = usize::try_from(number)
             && let Some(surface) = surfaces.get(index)
         {
-            return compatibility_browser_surface_tab_id(surface);
+            return compatibility_resolve_tab_context_from_snapshot_surface(
+                daemon,
+                snapshot.active_workspace_id,
+                surface,
+            )
+            .await;
         }
     }
 
     if let Ok(ctx) = compatibility_resolve_tab_context_by_target(daemon, target).await {
-        return if ctx.tab.kind == SnapshotTabKind::Browser {
-            Ok(ctx.tab.id)
-        } else {
-            Err(format!(
-                "Surface is not a browser: {}",
-                compat_tab_ref_from_tab(&ctx.tab)
-            ))
-        };
+        return Ok(ctx);
     }
 
     Err(format!("Browser surface not found: {target}"))
 }
 
-async fn compatibility_browser_tab_id_by_target(
+async fn compatibility_browser_context_by_target(
     daemon: &Arc<Daemon>,
     target: &str,
-) -> Option<TabId> {
+) -> std::result::Result<Option<CompatibilityResolvedTabContext>, String> {
     let workspaces = daemon.workspaces.lock().await.clone();
     for workspace in workspaces {
         let spaces = workspace.spaces.lock().await.clone();
@@ -23873,25 +23891,35 @@ async fn compatibility_browser_tab_id_by_target(
                     || compat_tab_handle_ref_from_tab(&tab) == target
                     || title.as_ref() == target
                 {
-                    return Some(tab.id);
+                    let surface = compatibility_resolved_surface_for_tab(&space, tab.id).await?;
+                    return Ok(Some(CompatibilityResolvedTabContext {
+                        workspace,
+                        space,
+                        tab,
+                        surface,
+                    }));
                 }
             }
         }
     }
-    None
+    Ok(None)
 }
 
-fn compatibility_browser_surface_tab_id(
+async fn compatibility_resolve_tab_context_from_snapshot_surface(
+    daemon: &Arc<Daemon>,
+    workspace_id: u64,
     surface: &CompatibilitySurfaceEntry<'_>,
-) -> std::result::Result<TabId, String> {
-    if surface.tab.kind == NativeTabKind::Browser {
-        Ok(surface.tab.id)
-    } else {
-        Err(format!(
-            "Surface is not a browser: {}",
-            compat_tab_ref(surface.tab)
-        ))
-    }
+) -> std::result::Result<CompatibilityResolvedTabContext, String> {
+    let resolved_surface = CompatibilityResolvedSurface {
+        panel_id: surface.panel_id,
+        index: surface.index,
+        tab_id: surface.tab.id,
+    };
+    let mut ctx =
+        compatibility_resolve_tab_context_by_workspace_tab_id(daemon, workspace_id, surface.tab.id)
+            .await?;
+    ctx.surface = resolved_surface;
+    Ok(ctx)
 }
 
 fn compatibility_current_browser_surface_ref(snapshot: &NativeSnapshot) -> Option<String> {
@@ -24937,6 +24965,20 @@ async fn compatibility_surface_json_by_tab_id(
     Err(format!("Surface not found: {tab_id}"))
 }
 
+async fn compatibility_surface_json_by_workspace_tab_id(
+    daemon: &Arc<Daemon>,
+    workspace_id: u64,
+    tab_id: u64,
+) -> std::result::Result<serde_json::Value, String> {
+    let snapshot = compatibility_native_snapshot_for_workspace(daemon, workspace_id).await?;
+    let surfaces = compatibility_surface_entries(&snapshot);
+    if let Some(surface) = surfaces.iter().find(|surface| surface.tab.id == tab_id) {
+        return Ok(compatibility_surface_json(surface, snapshot.focused_tab_id));
+    }
+
+    Err(format!("Surface not found: {tab_id}"))
+}
+
 async fn compatibility_resolve_tab_context(
     daemon: &Arc<Daemon>,
     target: &str,
@@ -24973,12 +25015,13 @@ async fn compatibility_resolve_tab_context_for_params(
             target.as_deref().unwrap_or(""),
         )
         .await?;
-        let mut ctx = compatibility_resolve_tab_context_by_tab_id(daemon, surface.tab_id).await?;
-        if ctx.workspace.id != workspace_id {
-            return Err(format!(
-                "Surface not found in workspace: {workspace_target}"
-            ));
-        }
+        let mut ctx = compatibility_resolve_tab_context_by_workspace_tab_id(
+            daemon,
+            workspace_id,
+            surface.tab_id,
+        )
+        .await
+        .map_err(|_| format!("Surface not found in workspace: {workspace_target}"))?;
         ctx.surface = surface;
         return Ok(ctx);
     }
@@ -24986,10 +25029,13 @@ async fn compatibility_resolve_tab_context_for_params(
     if target.as_deref().is_none_or(str::is_empty) {
         let workspace_id = daemon.active_ws_rx.borrow().id;
         let surface = compatibility_resolve_surface_in_workspace(daemon, workspace_id, "").await?;
-        let mut ctx = compatibility_resolve_tab_context_by_tab_id(daemon, surface.tab_id).await?;
-        if ctx.workspace.id != workspace_id {
-            return Err("Surface not found in active workspace".to_string());
-        }
+        let mut ctx = compatibility_resolve_tab_context_by_workspace_tab_id(
+            daemon,
+            workspace_id,
+            surface.tab_id,
+        )
+        .await
+        .map_err(|_| "Surface not found in active workspace".to_string())?;
         ctx.surface = surface;
         return Ok(ctx);
     }
@@ -25306,6 +25352,30 @@ async fn compatibility_resolve_tab_context_by_target(
         }
     }
     Err(format!("Surface not found: {target}"))
+}
+
+async fn compatibility_resolve_tab_context_by_workspace_tab_id(
+    daemon: &Arc<Daemon>,
+    workspace_id: u64,
+    tab_id: TabId,
+) -> std::result::Result<CompatibilityResolvedTabContext, String> {
+    let workspace = daemon
+        .workspace_by_id(workspace_id)
+        .await
+        .ok_or_else(|| format!("Workspace not found: {workspace_id}"))?;
+    let spaces = workspace.spaces.lock().await.clone();
+    for space in spaces {
+        if let Some(tab) = space.tab_by_id(tab_id).await {
+            let surface = compatibility_resolved_surface_for_tab(&space, tab.id).await?;
+            return Ok(CompatibilityResolvedTabContext {
+                workspace,
+                space,
+                tab,
+                surface,
+            });
+        }
+    }
+    Err(format!("Surface not found: {tab_id}"))
 }
 
 async fn compatibility_resolve_tab_context_by_tab_id(
