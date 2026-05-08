@@ -1779,7 +1779,9 @@ final class UpdateTitlebarAccessoryController {
     private var pendingAttachRetries: [ObjectIdentifier: Int] = [:]
     private var startupScanWorkItems: [DispatchWorkItem] = []
     private let controlsIdentifier = NSUserInterfaceItemIdentifier("cmux.titlebarControls")
+    private let rightToggleIdentifier = NSUserInterfaceItemIdentifier("cmux.rightSidebarToggle")
     private let controlsControllers = NSHashTable<TitlebarControlsAccessoryViewController>.weakObjects()
+    private let rightToggleControllers = NSHashTable<RightSidebarToggleAccessoryViewController>.weakObjects()
     private var lastKnownPresentationMode: WorkspacePresentationModeSettings.Mode = WorkspacePresentationModeSettings.mode()
     private var detachedNotificationsPopover: NSPopover?
     private var detachedNotificationsPopoverDelegate: DetachedNotificationsPopoverDelegate?
@@ -1932,6 +1934,14 @@ final class UpdateTitlebarAccessoryController {
             controlsControllers.add(controls)
         }
 
+        if !window.titlebarAccessoryViewControllers.contains(where: { $0.view.identifier == rightToggleIdentifier }) {
+            let rightToggle = RightSidebarToggleAccessoryViewController()
+            rightToggle.layoutAttribute = .right
+            rightToggle.view.identifier = rightToggleIdentifier
+            window.addTitlebarAccessoryViewController(rightToggle)
+            rightToggleControllers.add(rightToggle)
+        }
+
         attachedWindows.add(window)
         applyAccessoryVisibility(for: window)
 
@@ -1953,7 +1963,7 @@ final class UpdateTitlebarAccessoryController {
         let shouldHide = WorkspacePresentationModeSettings.mode() == .minimal
             || window.styleMask.contains(.fullScreen)
         for accessory in window.titlebarAccessoryViewControllers
-            where accessory.view.identifier == controlsIdentifier {
+            where accessory.view.identifier == controlsIdentifier || accessory.view.identifier == rightToggleIdentifier {
             accessory.isHidden = shouldHide
             accessory.view.isHidden = shouldHide
             accessory.view.alphaValue = shouldHide ? 0 : 1
@@ -1968,7 +1978,7 @@ final class UpdateTitlebarAccessoryController {
         }
         let matchingIndices = window.titlebarAccessoryViewControllers.indices.reversed().filter { index in
             let id = window.titlebarAccessoryViewControllers[index].view.identifier
-            return id == controlsIdentifier
+            return id == controlsIdentifier || id == rightToggleIdentifier
         }
         guard !matchingIndices.isEmpty || attachedWindows.contains(window) else { return }
 
@@ -2149,5 +2159,137 @@ final class UpdateTitlebarAccessoryController {
             return
         }
         target.toggleNotificationsPopover(animated: animated)
+    }
+}
+
+// MARK: - Right Sidebar Toggle
+
+private struct RightSidebarToggleView: View {
+    @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
+    let onToggle: () -> Void
+
+    var body: some View {
+        let style = TitlebarControlsStyle(rawValue: styleRawValue) ?? .classic
+        let config = style.config
+        TitlebarControlButton(
+            config: config,
+            accessibilityIdentifier: "titlebarControl.toggleRightSidebar",
+            accessibilityLabel: String(localized: "titlebar.rightSidebar.accessibilityLabel", defaultValue: "Toggle Right Sidebar"),
+            action: onToggle
+        ) {
+            Image(systemName: "sidebar.right")
+                .font(.system(size: config.iconSize, weight: .semibold))
+                .frame(width: config.buttonSize, height: config.buttonSize)
+        }
+        .safeHelp(KeyboardShortcutSettings.Action.toggleFileExplorer.tooltip(String(localized: "titlebar.rightSidebar.tooltip", defaultValue: "Show or hide the right sidebar")))
+    }
+}
+
+final class RightSidebarToggleAccessoryViewController: NSTitlebarAccessoryViewController {
+    private let hostingView: NonDraggableHostingView<RightSidebarToggleView>
+    private let containerView: NSView
+    private var pendingSizeUpdate = false
+    private var fittingSizeNeedsRefresh = true
+    private var cachedFittingSize: NSSize?
+    private var lastObservedViewSize: NSSize = .zero
+    private var lastAppliedLayoutSnapshot: TitlebarControlsLayoutSnapshot?
+
+    init() {
+        let containerView = NSView()
+        self.containerView = containerView
+        hostingView = NonDraggableHostingView(
+            rootView: RightSidebarToggleView(
+                onToggle: { [weak containerView] in
+                    _ = AppDelegate.shared?.toggleRightSidebarInActiveMainWindow(preferredWindow: containerView?.window)
+                }
+            )
+        )
+
+        super.init(nibName: nil, bundle: nil)
+
+        view = containerView
+        containerView.translatesAutoresizingMaskIntoConstraints = true
+        containerView.wantsLayer = true
+        containerView.layer?.masksToBounds = false
+        hostingView.translatesAutoresizingMaskIntoConstraints = true
+        hostingView.autoresizingMask = [.width, .height]
+        containerView.addSubview(hostingView)
+
+        scheduleSizeUpdate(invalidateFittingSize: true)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidAppear() {
+        super.viewDidAppear()
+        scheduleSizeUpdate(invalidateFittingSize: true)
+    }
+
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        let currentViewSize = view.bounds.size
+        guard titlebarControlsShouldScheduleForViewSizeChange(
+            previous: lastObservedViewSize,
+            current: currentViewSize
+        ) else {
+            return
+        }
+        lastObservedViewSize = currentViewSize
+        scheduleSizeUpdate(invalidateFittingSize: true)
+    }
+
+    private func scheduleSizeUpdate(invalidateFittingSize: Bool = false) {
+        if invalidateFittingSize {
+            fittingSizeNeedsRefresh = true
+        }
+        guard !pendingSizeUpdate else { return }
+        pendingSizeUpdate = true
+        DispatchQueue.main.async { [weak self] in
+            self?.pendingSizeUpdate = false
+            self?.updateSize()
+        }
+    }
+
+    private func updateSize() {
+        let contentSize: NSSize
+        if fittingSizeNeedsRefresh || cachedFittingSize == nil {
+            hostingView.invalidateIntrinsicContentSize()
+            hostingView.layoutSubtreeIfNeeded()
+            cachedFittingSize = hostingView.fittingSize
+            fittingSizeNeedsRefresh = false
+        }
+        contentSize = cachedFittingSize ?? .zero
+
+        guard contentSize.width > 0, contentSize.height > 0 else { return }
+        let titlebarHeight: CGFloat = {
+            if let window = view.window,
+               let closeButton = window.standardWindowButton(.closeButton),
+               let titlebarView = closeButton.superview,
+               titlebarView.frame.height > 0 {
+                return titlebarView.frame.height
+            }
+            return view.window.map { window in
+                window.frame.height - window.contentLayoutRect.height
+            } ?? contentSize.height
+        }()
+        let containerHeight = max(contentSize.height, titlebarHeight)
+        let yOffset = max(0, (containerHeight - contentSize.height) / 2.0)
+        let nextLayoutSnapshot = TitlebarControlsLayoutSnapshot(
+            contentSize: contentSize,
+            containerHeight: containerHeight,
+            yOffset: yOffset
+        )
+        guard titlebarControlsShouldApplyLayout(
+            previous: lastAppliedLayoutSnapshot,
+            next: nextLayoutSnapshot
+        ) else {
+            return
+        }
+        lastAppliedLayoutSnapshot = nextLayoutSnapshot
+        preferredContentSize = NSSize(width: contentSize.width, height: containerHeight)
+        containerView.frame = NSRect(x: 0, y: 0, width: contentSize.width, height: containerHeight)
+        hostingView.frame = NSRect(x: 0, y: yOffset, width: contentSize.width, height: contentSize.height)
     }
 }
