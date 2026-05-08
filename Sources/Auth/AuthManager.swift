@@ -305,6 +305,10 @@ final class AuthManager: ObservableObject {
     }
 
     private func startOrAttachSignIn() async -> AuthSignInAttempt {
+        await awaitBootstrapped()
+        if isAuthenticated {
+            return AuthSignInAttempt(sessionID: nil, startedNewSession: false)
+        }
         if let activeSessionID = webAuthSessionID {
             return AuthSignInAttempt(sessionID: activeSessionID, startedNewSession: false)
         }
