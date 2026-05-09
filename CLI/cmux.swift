@@ -1722,6 +1722,38 @@ struct CMUXCLI {
         return trimmed
     }
 
+    private static func isCodingAgentEnvironment(_ environment: [String: String]) -> Bool {
+        if let kind = normalizedEnvValue(environment["CMUX_AGENT_LAUNCH_KIND"])?.lowercased() {
+            let agentKinds: Set<String> = [
+                "claude",
+                "codex",
+                "opencode",
+                "omo",
+                "omx",
+                "omc",
+            ]
+            if agentKinds.contains(kind) {
+                return true
+            }
+        }
+
+        let directAgentKeys = [
+            "CODEX_CI",
+            "CODEX_THREAD_ID",
+            "CODEX_SESSION_ID",
+            "CODEX_SANDBOX",
+            "CODEX_MANAGED_BY_BUN",
+            "CLAUDECODE",
+            "CLAUDE_CODE",
+            "CLAUDE_CODE_ENTRYPOINT",
+            "CLAUDE_CODE_SESSION_ID",
+            "OPENCODE",
+            "OPENCODE_PORT",
+            "OPENCODE_SESSION_ID",
+        ]
+        return directAgentKeys.contains { normalizedEnvValue(environment[$0]) != nil }
+    }
+
     private static func vmCreateIdempotencySignature(image: String?, provider: String?) -> String {
         let normalizedImage = image?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let normalizedProvider = provider?
@@ -6874,7 +6906,7 @@ struct CMUXCLI {
         var surfaceRaw = surfaceOpt
         var args = argsWithoutSurfaceFlag
 
-        let verbsWithoutSurface: Set<String> = ["open", "open-split", "new", "identify"]
+        let verbsWithoutSurface: Set<String> = ["open", "open-split", "new", "identify", "import"]
         if surfaceRaw == nil, let first = args.first {
             if !first.hasPrefix("-") && !verbsWithoutSurface.contains(first.lowercased()) {
                 surfaceRaw = first
@@ -6989,6 +7021,31 @@ struct CMUXCLI {
             values.filter { !$0.hasPrefix("-") }
         }
 
+        func optionValues(_ values: [String], names: Set<String>) -> [String] {
+            var result: [String] = []
+            var index = 0
+            while index < values.count {
+                let value = values[index]
+                if names.contains(value), index + 1 < values.count {
+                    result.append(values[index + 1])
+                    index += 2
+                    continue
+                }
+                index += 1
+            }
+            return result
+        }
+
+        func firstOptionValue(_ values: [String], names: Set<String>) -> String? {
+            optionValues(values, names: names).first
+        }
+
+        func intPayloadValue(_ value: Any?) -> Int {
+            if let intValue = value as? Int { return intValue }
+            if let number = value as? NSNumber { return number.intValue }
+            return 0
+        }
+
         if subcommand == "identify" {
             let surface = try normalizeSurfaceHandle(surfaceRaw, client: client, allowFocused: true)
             var payload = try client.sendV2(method: "system.identify")
@@ -7002,6 +7059,77 @@ struct CMUXCLI {
                 payload["browser"] = browser
             }
             output(payload, fallback: "OK")
+            return
+        }
+
+        if subcommand == "import" {
+            let kind = subArgs.first?.lowercased() ?? ""
+            guard kind == "cookie" || kind == "cookies" else {
+                throw CLIError(message: "browser import requires a data type: cookies")
+            }
+            let importArgs = Array(subArgs.dropFirst())
+            let forceInteractive = hasFlag(importArgs, name: "--interactive")
+            let forceNonInteractive = hasFlag(importArgs, name: "--non-interactive") ||
+                hasFlag(importArgs, name: "--noninteractive") ||
+                hasFlag(importArgs, name: "--yes") ||
+                hasFlag(importArgs, name: "-y")
+            if forceInteractive && forceNonInteractive {
+                throw CLIError(message: "browser import cookies cannot use both --interactive and --non-interactive")
+            }
+
+            let shouldRunNonInteractive = forceNonInteractive ||
+                (!forceInteractive && Self.isCodingAgentEnvironment(ProcessInfo.processInfo.environment))
+
+            var params: [String: Any] = ["scope": "cookiesOnly"]
+            if let browser = firstOptionValue(importArgs, names: ["--from", "--browser", "--source"]) {
+                params["browser"] = browser
+            }
+            let sourceProfiles = optionValues(importArgs, names: ["--profile", "--source-profile"])
+            if !sourceProfiles.isEmpty {
+                params["source_profiles"] = sourceProfiles
+            }
+            if let destination = firstOptionValue(importArgs, names: ["--to", "--to-profile", "--destination-profile"]) {
+                params["destination_profile"] = destination
+            }
+            let domainFilters = optionValues(importArgs, names: ["--domain", "--domains"])
+            if !domainFilters.isEmpty {
+                params["domain_filters"] = domainFilters
+            }
+            if hasFlag(importArgs, name: "--all-profiles") {
+                params["all_profiles"] = true
+            }
+            if hasFlag(importArgs, name: "--create-profile") ||
+                hasFlag(importArgs, name: "--create-destination-profile") {
+                params["create_destination_profile"] = true
+            }
+
+            if shouldRunNonInteractive {
+                let payload = try client.sendV2(
+                    method: "browser.import.cookies",
+                    params: params,
+                    responseTimeout: 10 * 60
+                )
+                if effectiveJSONOutput {
+                    print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
+                    return
+                }
+
+                let browserName = (payload["browser"] as? String) ?? "browser"
+                let importedCount = intPayloadValue(payload["imported_cookies"])
+                let skippedCount = intPayloadValue(payload["skipped_cookies"])
+                print("Imported \(importedCount) cookies from \(browserName).")
+                if skippedCount > 0 {
+                    print("Skipped \(skippedCount) cookies.")
+                }
+                if let warnings = payload["warnings"] as? [String], !warnings.isEmpty {
+                    for warning in warnings {
+                        print("Warning: \(warning)")
+                    }
+                }
+            } else {
+                let payload = try client.sendV2(method: "browser.import.dialog", params: params, responseTimeout: 10 * 60)
+                output(payload, fallback: "OK")
+            }
             return
         }
 
@@ -9702,6 +9830,7 @@ struct CMUXCLI {
               frame <main|selector> [--selector <css>]
               dialog <accept|dismiss> [text]
               download [wait] [--path <path>] [--timeout-ms <ms>|--timeout <seconds>]
+              import cookies [--interactive|--non-interactive] [--from <browser>] [--profile <name>] [--all-profiles] [--to-profile <name|uuid>] [--domain <domain>]
               cookies <get|set|clear> [--name <name>] [--value <value>] [--url <url>] [--domain <domain>] [--path <path>] [--expires <unix>] [--secure] [--all]
               storage <local|session> <get|set|clear> [...]
               tab <new|list|switch|close|<index>> [...]
@@ -20484,6 +20613,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           browser frame <selector|main>
           browser dialog <accept|dismiss> [text]
           browser download [wait] [--path <path>] [--timeout-ms <ms>]
+          browser import cookies [...]
           browser cookies <get|set|clear> [...]
           browser storage <local|session> <get|set|clear> [...]
           browser tab <new|list|switch|close|<index>> [...]

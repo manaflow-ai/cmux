@@ -7827,6 +7827,29 @@ struct BrowserImportOutcome: Sendable {
     var totalImportedHistoryEntries: Int {
         entries.reduce(0) { $0 + $1.importedHistoryEntries }
     }
+
+    var socketPayload: [String: Any] {
+        [
+            "browser": browserName,
+            "scope": scope.rawValue,
+            "domain_filters": domainFilters,
+            "created_destination_profiles": createdDestinationProfileNames,
+            "imported_cookies": totalImportedCookies,
+            "skipped_cookies": totalSkippedCookies,
+            "imported_history_entries": totalImportedHistoryEntries,
+            "warnings": warnings,
+            "entries": entries.map { entry in
+                [
+                    "source_profiles": entry.sourceProfileNames,
+                    "destination_profile": entry.destinationProfileName,
+                    "imported_cookies": entry.importedCookies,
+                    "skipped_cookies": entry.skippedCookies,
+                    "imported_history_entries": entry.importedHistoryEntries,
+                    "warnings": entry.warnings,
+                ] as [String: Any]
+            },
+        ]
+    }
 }
 
 struct RealizedBrowserImportExecutionEntry: Sendable {
@@ -8193,6 +8216,235 @@ enum BrowserImportPlanResolver {
             entries: realizedEntries,
             createdProfiles: createdProfiles
         )
+    }
+}
+
+enum BrowserImportAutomationError: LocalizedError {
+    case noBrowsers
+    case browserNotFound(String)
+    case noProfiles(String)
+    case sourceProfileNotFound(String)
+    case destinationProfileNotFound(String)
+    case destinationProfileCreationFailed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .noBrowsers:
+            return "No importable browsers found"
+        case .browserNotFound(let query):
+            return "No importable browser matches '\(query)'"
+        case .noProfiles(let browserName):
+            return "No source profiles found for \(browserName)"
+        case .sourceProfileNotFound(let query):
+            return "No source profile matches '\(query)'"
+        case .destinationProfileNotFound(let query):
+            return "No cmux browser profile matches '\(query)'"
+        case .destinationProfileCreationFailed(let name):
+            return "Failed to create cmux browser profile '\(name)'"
+        }
+    }
+}
+
+enum BrowserImportAutomation {
+    static func importCookies(params: [String: Any]) async throws -> BrowserImportOutcome {
+        let browsers = InstalledBrowserDetector.detectInstalledBrowsers()
+        guard !browsers.isEmpty else {
+            throw BrowserImportAutomationError.noBrowsers
+        }
+
+        let browser = try selectedBrowser(from: browsers, params: params)
+        let sourceProfiles = try selectedSourceProfiles(from: browser, params: params)
+        let domainFilters = BrowserDataImporter.parseDomainFilters(domainFilterText(from: params))
+
+        let realizedPlan: RealizedBrowserImportExecutionPlan = try await MainActor.run {
+            let destinationProfiles = BrowserProfileStore.shared.profiles
+            let preferredDestinationProfileID = try resolvedDestinationProfileID(
+                params: params,
+                destinationProfiles: destinationProfiles
+            )
+
+            let plan: BrowserImportExecutionPlan
+            if let preferredDestinationProfileID {
+                let mode: BrowserImportDestinationMode = sourceProfiles.count > 1 ? .mergeIntoOne : .singleDestination
+                plan = BrowserImportExecutionPlan(
+                    mode: mode,
+                    entries: [
+                        BrowserImportExecutionEntry(
+                            sourceProfiles: sourceProfiles,
+                            destination: .existing(preferredDestinationProfileID)
+                        )
+                    ]
+                )
+            } else {
+                plan = BrowserImportPlanResolver.defaultPlan(
+                    selectedSourceProfiles: sourceProfiles,
+                    destinationProfiles: destinationProfiles,
+                    preferredSingleDestinationProfileID: BrowserProfileStore.shared.effectiveLastUsedProfileID
+                )
+            }
+
+            return try BrowserImportPlanResolver.realize(plan: plan)
+        }
+
+        return await BrowserDataImporter.importData(
+            from: browser,
+            plan: realizedPlan,
+            scope: .cookiesOnly,
+            domainFilters: domainFilters
+        )
+    }
+
+    private static func selectedBrowser(
+        from browsers: [InstalledBrowserCandidate],
+        params: [String: Any]
+    ) throws -> InstalledBrowserCandidate {
+        guard let query = stringParam(params, keys: ["browser", "from", "source"]) else {
+            return browsers.sorted { lhs, rhs in
+                if lhs.detectionScore != rhs.detectionScore {
+                    return lhs.detectionScore > rhs.detectionScore
+                }
+                return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+            }.first!
+        }
+
+        guard let browser = browsers.first(where: { matchesBrowser($0, query: query) }) else {
+            throw BrowserImportAutomationError.browserNotFound(query)
+        }
+        return browser
+    }
+
+    private static func selectedSourceProfiles(
+        from browser: InstalledBrowserCandidate,
+        params: [String: Any]
+    ) throws -> [InstalledBrowserProfile] {
+        guard !browser.profiles.isEmpty else {
+            throw BrowserImportAutomationError.noProfiles(browser.displayName)
+        }
+
+        if boolParam(params, keys: ["all_profiles", "all_source_profiles"]) {
+            return browser.profiles
+        }
+
+        let queries = stringListParam(params, keys: ["profile", "source_profile", "source_profiles"])
+        guard !queries.isEmpty else {
+            if let defaultProfile = browser.profiles.first(where: \.isDefault) {
+                return [defaultProfile]
+            }
+            return [browser.profiles[0]]
+        }
+
+        var result: [InstalledBrowserProfile] = []
+        var seen = Set<String>()
+        for query in queries {
+            guard let profile = browser.profiles.first(where: { matchesProfile($0, query: query) }) else {
+                throw BrowserImportAutomationError.sourceProfileNotFound(query)
+            }
+            guard seen.insert(profile.id).inserted else { continue }
+            result.append(profile)
+        }
+        return result
+    }
+
+    @MainActor
+    private static func resolvedDestinationProfileID(
+        params: [String: Any],
+        destinationProfiles: [BrowserProfileDefinition]
+    ) throws -> UUID? {
+        guard let query = stringParam(params, keys: ["destination_profile", "to_profile", "to"]) else {
+            return nil
+        }
+
+        if let uuid = UUID(uuidString: query),
+           destinationProfiles.contains(where: { $0.id == uuid }) {
+            return uuid
+        }
+
+        if let profile = destinationProfiles.first(where: {
+            $0.displayName.localizedCaseInsensitiveCompare(query) == .orderedSame ||
+                $0.slug.localizedCaseInsensitiveCompare(query) == .orderedSame
+        }) {
+            return profile.id
+        }
+
+        guard boolParam(params, keys: ["create_destination_profile", "create_profile"]) else {
+            throw BrowserImportAutomationError.destinationProfileNotFound(query)
+        }
+
+        guard let profile = BrowserProfileStore.shared.createProfile(named: query) else {
+            throw BrowserImportAutomationError.destinationProfileCreationFailed(query)
+        }
+        return profile.id
+    }
+
+    private static func matchesBrowser(_ browser: InstalledBrowserCandidate, query: String) -> Bool {
+        let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else { return false }
+        if browser.id.lowercased() == normalized { return true }
+        if browser.displayName.lowercased() == normalized { return true }
+        return browser.descriptor.appNames.contains {
+            $0.replacingOccurrences(of: ".app", with: "").lowercased() == normalized
+        }
+    }
+
+    private static func matchesProfile(_ profile: InstalledBrowserProfile, query: String) -> Bool {
+        let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else { return false }
+        if profile.id.lowercased() == normalized { return true }
+        if profile.displayName.lowercased() == normalized { return true }
+        if profile.rootURL.lastPathComponent.lowercased() == normalized { return true }
+        return false
+    }
+
+    private static func domainFilterText(from params: [String: Any]) -> String {
+        stringListParam(params, keys: ["domain", "domains", "domain_filters"])
+            .joined(separator: ",")
+    }
+
+    private static func stringParam(_ params: [String: Any], keys: [String]) -> String? {
+        for key in keys {
+            if let value = params[key] as? String {
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty { return trimmed }
+            }
+        }
+        return nil
+    }
+
+    private static func stringListParam(_ params: [String: Any], keys: [String]) -> [String] {
+        var result: [String] = []
+        for key in keys {
+            if let value = params[key] as? String {
+                let parsed = value
+                    .components(separatedBy: CharacterSet(charactersIn: ",;\n\r\t"))
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+                result.append(contentsOf: parsed)
+            } else if let values = params[key] as? [String] {
+                result.append(
+                    contentsOf: values
+                        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                        .filter { !$0.isEmpty }
+                )
+            }
+        }
+        return result
+    }
+
+    private static func boolParam(_ params: [String: Any], keys: [String]) -> Bool {
+        for key in keys {
+            if let value = params[key] as? Bool {
+                return value
+            }
+            if let value = params[key] as? String {
+                switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+                case "1", "true", "yes", "on":
+                    return true
+                default:
+                    continue
+                }
+            }
+        }
+        return false
     }
 }
 
@@ -9105,18 +9357,23 @@ enum BrowserDataImporter {
             BrowserProfileStore.shared.websiteDataStore(for: destinationProfileID).httpCookieStore
         }
         var importedCount = 0
-        for cookie in cookies {
-            await setCookie(cookie, in: store)
-            importedCount += 1
+        for (index, cookie) in cookies.enumerated() {
+            if await setCookie(cookie, in: store) {
+                importedCount += 1
+            }
+            if index.isMultiple(of: 50) {
+                await Task.yield()
+            }
         }
         return importedCount
     }
 
-    @MainActor
-    private static func setCookie(_ cookie: HTTPCookie, in store: WKHTTPCookieStore) async {
+    private static func setCookie(_ cookie: HTTPCookie, in store: WKHTTPCookieStore) async -> Bool {
         await withCheckedContinuation { continuation in
-            store.setCookie(cookie) {
-                continuation.resume()
+            DispatchQueue.global(qos: .utility).async {
+                store.setCookie(cookie) {
+                    continuation.resume(returning: true)
+                }
             }
         }
     }
@@ -9360,8 +9617,15 @@ final class BrowserDataImportCoordinator {
 
     private init() {}
 
-    func presentImportDialog(defaultDestinationProfileID: UUID? = nil) {
-        presentImportDialog(prefilledBrowsers: nil, defaultDestinationProfileID: defaultDestinationProfileID)
+    func presentImportDialog(
+        defaultDestinationProfileID: UUID? = nil,
+        defaultScope: BrowserImportScope? = nil
+    ) {
+        presentImportDialog(
+            prefilledBrowsers: nil,
+            defaultDestinationProfileID: defaultDestinationProfileID,
+            defaultScope: defaultScope
+        )
     }
 
     private struct ImportSelection {
@@ -9373,7 +9637,8 @@ final class BrowserDataImportCoordinator {
 
     private func presentImportDialog(
         prefilledBrowsers: [InstalledBrowserCandidate]?,
-        defaultDestinationProfileID: UUID?
+        defaultDestinationProfileID: UUID?,
+        defaultScope: BrowserImportScope?
     ) {
         guard !importInProgress else { return }
 #if DEBUG
@@ -9404,7 +9669,8 @@ final class BrowserDataImportCoordinator {
         guard let selection = promptForSelection(
             browsers: browsers,
             destinationProfiles: fixtureDestinationProfiles,
-            defaultDestinationProfileID: defaultDestinationProfileID
+            defaultDestinationProfileID: defaultDestinationProfileID,
+            defaultScope: defaultScope
         ) else { return }
 
 #if DEBUG
@@ -9463,13 +9729,15 @@ final class BrowserDataImportCoordinator {
     private func promptForSelection(
         browsers: [InstalledBrowserCandidate],
         destinationProfiles: [BrowserProfileDefinition]?,
-        defaultDestinationProfileID: UUID?
+        defaultDestinationProfileID: UUID?,
+        defaultScope: BrowserImportScope?
     ) -> ImportSelection? {
         guard !browsers.isEmpty else { return nil }
         let wizard = ImportWizardWindowController(
             browsers: browsers,
             destinationProfiles: destinationProfiles,
-            defaultDestinationProfileID: defaultDestinationProfileID
+            defaultDestinationProfileID: defaultDestinationProfileID,
+            defaultScope: defaultScope
         )
         return wizard.runModal()
     }
@@ -9478,12 +9746,14 @@ final class BrowserDataImportCoordinator {
     func debugMakeImportWizardWindow(
         browsers: [InstalledBrowserCandidate],
         destinationProfiles: [BrowserProfileDefinition]? = nil,
-        defaultDestinationProfileID: UUID? = nil
+        defaultDestinationProfileID: UUID? = nil,
+        defaultScope: BrowserImportScope? = nil
     ) -> NSWindow {
         let wizard = ImportWizardWindowController(
             browsers: browsers,
             destinationProfiles: destinationProfiles,
-            defaultDestinationProfileID: defaultDestinationProfileID
+            defaultDestinationProfileID: defaultDestinationProfileID,
+            defaultScope: defaultScope
         )
         return wizard.debugPanelWindow
     }
@@ -9578,6 +9848,7 @@ final class BrowserDataImportCoordinator {
         private let browsers: [InstalledBrowserCandidate]
         private let destinationProfiles: [BrowserProfileDefinition]
         private let initialDestinationProfileID: UUID
+        private let defaultScope: BrowserImportScope?
 
         private var step: Step = .source
         private var didFinishModal = false
@@ -9624,7 +9895,8 @@ final class BrowserDataImportCoordinator {
         init(
             browsers: [InstalledBrowserCandidate],
             destinationProfiles: [BrowserProfileDefinition]?,
-            defaultDestinationProfileID: UUID?
+            defaultDestinationProfileID: UUID?,
+            defaultScope: BrowserImportScope?
         ) {
             let resolvedDestinationProfiles = destinationProfiles ?? BrowserProfileStore.shared.profiles
             let fallbackDestinationProfileID = resolvedDestinationProfiles.first?.id
@@ -9634,6 +9906,7 @@ final class BrowserDataImportCoordinator {
             self.initialDestinationProfileID = defaultDestinationProfileID
                 .flatMap { candidateID in resolvedDestinationProfiles.first(where: { $0.id == candidateID })?.id }
                 ?? fallbackDestinationProfileID
+            self.defaultScope = defaultScope
             self.mergeDestinationProfileID = self.initialDestinationProfileID
             self.panel = NSPanel(
                 contentRect: NSRect(x: 0, y: 0, width: 560, height: 292),
@@ -9999,9 +10272,10 @@ final class BrowserDataImportCoordinator {
         }
 
         private func setupDataTypesContainer() {
-            cookiesCheckbox.state = .on
-            historyCheckbox.state = .on
-            additionalDataCheckbox.state = .off
+            let initialScope = defaultScope ?? .cookiesAndHistory
+            cookiesCheckbox.state = initialScope.includesCookies ? .on : .off
+            historyCheckbox.state = initialScope.includesHistory ? .on : .off
+            additionalDataCheckbox.state = initialScope == .everything ? .on : .off
             cookiesCheckbox.title = String(
                 localized: "browser.import.cookies",
                 defaultValue: "Cookies (site sign-ins)"

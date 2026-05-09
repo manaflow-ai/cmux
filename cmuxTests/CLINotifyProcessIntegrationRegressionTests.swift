@@ -176,4 +176,140 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testBrowserImportCookiesDefaultsNonInteractiveInCodingAgent() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("browser-import-agent")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            XCTAssertEqual(method, "browser.import.cookies")
+            let params = payload["params"] as? [String: Any] ?? [:]
+            XCTAssertEqual(params["scope"] as? String, "cookiesOnly")
+            XCTAssertEqual(params["browser"] as? String, "Chrome")
+            XCTAssertEqual(params["source_profiles"] as? [String], ["Default"])
+            XCTAssertEqual(params["domain_filters"] as? [String], ["github.com"])
+            XCTAssertEqual(params["destination_profile"] as? String, "Dev")
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "browser": "Chrome",
+                    "imported_cookies": 3,
+                    "skipped_cookies": 1,
+                    "warnings": ["Skipped 1 duplicate cookie"],
+                ]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CODEX_THREAD_ID"] = "codex-thread-browser-import"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "--json",
+                "browser",
+                "import",
+                "cookies",
+                "--from",
+                "Chrome",
+                "--profile",
+                "Default",
+                "--domain",
+                "github.com",
+                "--to-profile",
+                "Dev",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+
+        let stdoutJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any])
+        XCTAssertEqual(stdoutJSON["browser"] as? String, "Chrome")
+        XCTAssertEqual(stdoutJSON["imported_cookies"] as? Int, 3)
+        XCTAssertEqual(stdoutJSON["skipped_cookies"] as? Int, 1)
+        XCTAssertTrue(
+            state.commands.contains { $0.contains(#""method":"browser.import.cookies""#) },
+            "Expected coding-agent import to use non-interactive import, saw \(state.commands)"
+        )
+    }
+
+    func testBrowserImportCookiesUsesInteractiveDialogOutsideCodingAgent() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("browser-import-human")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            XCTAssertEqual(method, "browser.import.dialog")
+            let params = payload["params"] as? [String: Any] ?? [:]
+            XCTAssertEqual(params["scope"] as? String, "cookiesOnly")
+            return self.v2Response(id: id, ok: true, result: ["opened": true, "scope": "cookiesOnly"])
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment.removeValue(forKey: "CMUX_AGENT_LAUNCH_KIND")
+        environment.removeValue(forKey: "CODEX_CI")
+        environment.removeValue(forKey: "CODEX_THREAD_ID")
+        environment.removeValue(forKey: "CODEX_SESSION_ID")
+        environment.removeValue(forKey: "CODEX_SANDBOX")
+        environment.removeValue(forKey: "CODEX_MANAGED_BY_BUN")
+        environment.removeValue(forKey: "CLAUDECODE")
+        environment.removeValue(forKey: "CLAUDE_CODE")
+        environment.removeValue(forKey: "CLAUDE_CODE_ENTRYPOINT")
+        environment.removeValue(forKey: "CLAUDE_CODE_SESSION_ID")
+        environment.removeValue(forKey: "OPENCODE")
+        environment.removeValue(forKey: "OPENCODE_PORT")
+        environment.removeValue(forKey: "OPENCODE_SESSION_ID")
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["browser", "import", "cookies"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK\n")
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+        XCTAssertTrue(
+            state.commands.contains { $0.contains(#""method":"browser.import.dialog""#) },
+            "Expected human import to open the interactive dialog, saw \(state.commands)"
+        )
+    }
+
 }

@@ -243,6 +243,7 @@ Browser subcommands:
 | `browser frame` | Select frame context. |
 | `browser dialog` | Accept or dismiss dialogs. |
 | `browser download` | Wait for or save downloads. |
+| `browser import cookies` | Import cookies from detected local browser profiles. Defaults to non-interactive mode in coding-agent environments; pass `--interactive` to open the import wizard. |
 | `browser cookies` | Get, set, or clear cookies. |
 | `browser storage` | Get, set, or clear local/session storage. |
 | `browser tab` | Create, list, switch, or close browser tabs. |
