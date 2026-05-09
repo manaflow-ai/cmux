@@ -7381,6 +7381,193 @@
         }
       }
     },
+    "browser.profile.automation.error.ambiguousProfile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Multiple cmux browser profiles match '%@'. Use the profile ID instead."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' に一致する cmux ブラウザープロファイルが複数あります。代わりにプロファイル ID を使用してください。"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.cannotDeleteDefaultProfile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The default browser profile cannot be deleted"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルトのブラウザープロファイルは削除できません"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.fallback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser profile command failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザープロファイルコマンドに失敗しました"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.missingName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing browser profile name"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザープロファイル名がありません"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.missingProfile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing browser profile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザープロファイルがありません"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.profileClearFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to clear cmux browser profile '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ブラウザープロファイル '%@' を消去できませんでした"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.profileCreationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to create cmux browser profile '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ブラウザープロファイル '%@' を作成できませんでした"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.profileDeleteFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to delete cmux browser profile '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ブラウザープロファイル '%@' を削除できませんでした"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.profileInUse": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot delete cmux browser profile '%@' while %d browser panel(s) are using it"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ブラウザープロファイル '%@' は %d 個のブラウザーパネルが使用中のため削除できません"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.profileNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No cmux browser profile matches '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' に一致する cmux ブラウザープロファイルが見つかりません"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.profileRenameFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to rename cmux browser profile to '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ブラウザープロファイルの名前を '%@' に変更できませんでした"
+          }
+        }
+      }
+    },
     "browser.profile.menu.title": {
       "extractionState": "manual",
       "localizations": {
@@ -8595,6 +8782,125 @@
           "stringUnit": {
             "state": "translated",
             "value": "가져오기를 시작할 수 없습니다"
+          }
+        }
+      }
+    },
+    "browser.import.automation.error.browserNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No importable browser matches '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' に一致するインポート可能なブラウザーが見つかりません"
+          }
+        }
+      }
+    },
+    "browser.import.automation.error.destinationProfileCreationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to create cmux browser profile '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ブラウザープロファイル '%@' を作成できませんでした"
+          }
+        }
+      }
+    },
+    "browser.import.automation.error.destinationProfileNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No cmux browser profile matches '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' に一致する cmux ブラウザープロファイルが見つかりません"
+          }
+        }
+      }
+    },
+    "browser.import.automation.error.fallback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser import failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザーのインポートに失敗しました"
+          }
+        }
+      }
+    },
+    "browser.import.automation.error.noBrowsers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No importable browsers found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インポート可能なブラウザーが見つかりません"
+          }
+        }
+      }
+    },
+    "browser.import.automation.error.noProfiles": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No source profiles found for %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のソースプロファイルが見つかりません"
+          }
+        }
+      }
+    },
+    "browser.import.automation.error.sourceProfileNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No source profile matches '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' に一致するソースプロファイルが見つかりません"
           }
         }
       }

@@ -4898,6 +4898,7 @@ struct SettingsView: View {
     private let shortcutChordsDocsURL = URL(string: "https://cmux.com/docs/keyboard-shortcuts#shortcut-chords")!
     private let settingsJSONDocsURL = URL(string: "https://cmux.com/docs/configuration#cmux-json")!
     @Environment(\.openWindow) private var openWindow
+    @SceneStorage("selectedSettingsSection") private var selectedSettingsSectionRaw = SettingsNavigationTarget.account.rawValue
     @State private var highlightedSearchAnchorID: String?
     @State private var searchHighlightToken = 0
     @State private var searchHighlightStartedAt: Date?
@@ -5481,6 +5482,30 @@ struct SettingsView: View {
                         showNotificationCustomSoundErrorAlert = true
                     }
                 }
+            }
+        }
+    }
+
+    private func applySettingsNavigation(
+        _ destination: SettingsNavigationDestination,
+        proxy: ScrollViewProxy
+    ) {
+        settingsNavigationGeneration += 1
+        let navigationGeneration = settingsNavigationGeneration
+        let sectionID = SettingsSearchIndex.sectionID(for: destination.target)
+        if destination.shouldHighlight {
+            highlightedSearchAnchorID = destination.anchorID
+            searchHighlightStartedAt = Date()
+            searchHighlightToken += 1
+        } else {
+            highlightedSearchAnchorID = nil
+            searchHighlightStartedAt = nil
+        }
+        DispatchQueue.main.async {
+            guard navigationGeneration == settingsNavigationGeneration else { return }
+            proxy.scrollTo(sectionID, anchor: .top)
+            if destination.shouldHighlight {
+                proxy.scrollTo(destination.anchorID, anchor: .center)
             }
         }
     }
@@ -6986,6 +7011,17 @@ struct SettingsView: View {
             refreshDetectedImportBrowsers()
             reloadWorkspaceTabColorSettings()
             refreshNotificationCustomSoundStatus()
+            let target = SettingsWindowPresenter.consumePendingContentNavigationTarget()
+                ?? SettingsNavigationTarget(rawValue: selectedSettingsSectionRaw)
+                ?? .account
+            applySettingsNavigation(
+                SettingsNavigationDestination(
+                    target: target,
+                    anchorID: SettingsSearchIndex.sectionID(for: target),
+                    shouldHighlight: false
+                ),
+                proxy: proxy
+            )
         }
         .onChange(of: notificationSound) { _, _ in
             refreshNotificationCustomSoundStatus()
@@ -7007,24 +7043,7 @@ struct SettingsView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: SettingsNavigationRequest.notificationName)) { notification in
             guard let destination = SettingsNavigationRequest.destination(from: notification) else { return }
-            settingsNavigationGeneration += 1
-            let navigationGeneration = settingsNavigationGeneration
-            let sectionID = SettingsSearchIndex.sectionID(for: destination.target)
-            if destination.shouldHighlight {
-                highlightedSearchAnchorID = destination.anchorID
-                searchHighlightStartedAt = Date()
-                searchHighlightToken += 1
-            } else {
-                highlightedSearchAnchorID = nil
-                searchHighlightStartedAt = nil
-            }
-            DispatchQueue.main.async {
-                guard navigationGeneration == settingsNavigationGeneration else { return }
-                proxy.scrollTo(sectionID, anchor: .top)
-                if destination.shouldHighlight {
-                    proxy.scrollTo(destination.anchorID, anchor: .center)
-                }
-            }
+            applySettingsNavigation(destination, proxy: proxy)
         }
         .confirmationDialog(
             String(localized: "settings.browser.history.clearDialog.title", defaultValue: "Clear browser history?"),

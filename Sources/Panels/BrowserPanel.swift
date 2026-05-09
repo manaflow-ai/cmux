@@ -351,6 +351,23 @@ struct BrowserProfileDefinition: Codable, Hashable, Identifiable, Sendable {
     }
 }
 
+struct BrowserProfileClearOutcome: Sendable {
+    let profile: BrowserProfileDefinition
+    let clearedWebsiteDataTypes: [String]
+    let clearedHistory: Bool
+
+    var socketPayload: [String: Any] {
+        [
+            "id": profile.id.uuidString,
+            "name": profile.displayName,
+            "slug": profile.slug,
+            "built_in_default": profile.isBuiltInDefault,
+            "cleared_website_data_types": clearedWebsiteDataTypes,
+            "cleared_history": clearedHistory,
+        ]
+    }
+}
+
 @MainActor
 final class BrowserProfileStore: ObservableObject {
     static let shared = BrowserProfileStore()
@@ -430,6 +447,56 @@ final class BrowserProfileStore: ObservableObject {
     func canRenameProfile(id: UUID) -> Bool {
         guard let profile = profileDefinition(id: id) else { return false }
         return !profile.isBuiltInDefault
+    }
+
+    func deleteProfile(id: UUID) -> BrowserProfileDefinition? {
+        guard let index = profiles.firstIndex(where: { $0.id == id }),
+              !profiles[index].isBuiltInDefault else {
+            return nil
+        }
+        let removed = profiles.remove(at: index)
+        let historyDirectoryURL = historyFileURL(for: id)?.deletingLastPathComponent()
+        historyStores[id]?.cancelPendingSaves()
+        dataStores.removeValue(forKey: id)
+        historyStores.removeValue(forKey: id)
+        if lastUsedProfileID == id {
+            lastUsedProfileID = Self.builtInDefaultProfileID
+            defaults.set(lastUsedProfileID.uuidString, forKey: Self.lastUsedProfileDefaultsKey)
+        }
+        persist()
+        if let historyDirectoryURL {
+            Task.detached(priority: .utility) {
+                try? FileManager.default.removeItem(at: historyDirectoryURL)
+            }
+        }
+        return removed
+    }
+
+    func clearProfileData(id: UUID) async -> BrowserProfileClearOutcome? {
+        guard let profile = profileDefinition(id: id) else { return nil }
+        let store = websiteDataStore(for: id)
+        let historyURL = historyFileURL(for: id)
+        historyStore(for: id).clearHistoryWithoutLoadingPersistedFile()
+        let dataTypes = WKWebsiteDataStore.allWebsiteDataTypes()
+        await withCheckedContinuation { continuation in
+            store.removeData(ofTypes: dataTypes, modifiedSince: .distantPast) {
+                continuation.resume()
+            }
+        }
+        if let historyURL {
+            await Self.removeItemIfExists(at: historyURL)
+        }
+        return BrowserProfileClearOutcome(
+            profile: profile,
+            clearedWebsiteDataTypes: Array(dataTypes).sorted(),
+            clearedHistory: true
+        )
+    }
+
+    private nonisolated static func removeItemIfExists(at url: URL) async {
+        await Task.detached(priority: .utility) {
+            try? FileManager.default.removeItem(at: url)
+        }.value
     }
 
     func noteUsed(_ id: UUID) {
@@ -1323,6 +1390,18 @@ final class BrowserHistoryStore: ObservableObject {
         entries = []
         guard let fileURL else { return }
         try? FileManager.default.removeItem(at: fileURL)
+    }
+
+    func clearHistoryWithoutLoadingPersistedFile() {
+        saveTask?.cancel()
+        saveTask = nil
+        didLoad = true
+        entries = []
+    }
+
+    func cancelPendingSaves() {
+        saveTask?.cancel()
+        saveTask = nil
     }
 
     @discardableResult
@@ -7849,6 +7928,29 @@ struct BrowserImportOutcome: Sendable {
     var totalImportedHistoryEntries: Int {
         entries.reduce(0) { $0 + $1.importedHistoryEntries }
     }
+
+    var socketPayload: [String: Any] {
+        [
+            "browser": browserName,
+            "scope": scope.rawValue,
+            "domain_filters": domainFilters,
+            "created_destination_profiles": createdDestinationProfileNames,
+            "imported_cookies": totalImportedCookies,
+            "skipped_cookies": totalSkippedCookies,
+            "imported_history_entries": totalImportedHistoryEntries,
+            "warnings": warnings,
+            "entries": entries.map { entry in
+                [
+                    "source_profiles": entry.sourceProfileNames,
+                    "destination_profile": entry.destinationProfileName,
+                    "imported_cookies": entry.importedCookies,
+                    "skipped_cookies": entry.skippedCookies,
+                    "imported_history_entries": entry.importedHistoryEntries,
+                    "warnings": entry.warnings,
+                ] as [String: Any]
+            },
+        ]
+    }
 }
 
 struct RealizedBrowserImportExecutionEntry: Sendable {
@@ -9127,18 +9229,22 @@ enum BrowserDataImporter {
             BrowserProfileStore.shared.websiteDataStore(for: destinationProfileID).httpCookieStore
         }
         var importedCount = 0
-        for cookie in cookies {
-            await setCookie(cookie, in: store)
-            importedCount += 1
+        for (index, cookie) in cookies.enumerated() {
+            if await setCookie(cookie, in: store) {
+                importedCount += 1
+            }
+            if index > 0 && index.isMultiple(of: 50) {
+                await Task.yield()
+            }
         }
         return importedCount
     }
 
     @MainActor
-    private static func setCookie(_ cookie: HTTPCookie, in store: WKHTTPCookieStore) async {
+    private static func setCookie(_ cookie: HTTPCookie, in store: WKHTTPCookieStore) async -> Bool {
         await withCheckedContinuation { continuation in
             store.setCookie(cookie) {
-                continuation.resume()
+                continuation.resume(returning: true)
             }
         }
     }
@@ -9382,8 +9488,15 @@ final class BrowserDataImportCoordinator {
 
     private init() {}
 
-    func presentImportDialog(defaultDestinationProfileID: UUID? = nil) {
-        presentImportDialog(prefilledBrowsers: nil, defaultDestinationProfileID: defaultDestinationProfileID)
+    func presentImportDialog(
+        defaultDestinationProfileID: UUID? = nil,
+        defaultScope: BrowserImportScope? = nil
+    ) {
+        presentImportDialog(
+            prefilledBrowsers: nil,
+            defaultDestinationProfileID: defaultDestinationProfileID,
+            defaultScope: defaultScope
+        )
     }
 
     private struct ImportSelection {
@@ -9395,7 +9508,8 @@ final class BrowserDataImportCoordinator {
 
     private func presentImportDialog(
         prefilledBrowsers: [InstalledBrowserCandidate]?,
-        defaultDestinationProfileID: UUID?
+        defaultDestinationProfileID: UUID?,
+        defaultScope: BrowserImportScope?
     ) {
         guard !importInProgress else { return }
 #if DEBUG
@@ -9426,7 +9540,8 @@ final class BrowserDataImportCoordinator {
         guard let selection = promptForSelection(
             browsers: browsers,
             destinationProfiles: fixtureDestinationProfiles,
-            defaultDestinationProfileID: defaultDestinationProfileID
+            defaultDestinationProfileID: defaultDestinationProfileID,
+            defaultScope: defaultScope
         ) else { return }
 
 #if DEBUG
@@ -9485,13 +9600,15 @@ final class BrowserDataImportCoordinator {
     private func promptForSelection(
         browsers: [InstalledBrowserCandidate],
         destinationProfiles: [BrowserProfileDefinition]?,
-        defaultDestinationProfileID: UUID?
+        defaultDestinationProfileID: UUID?,
+        defaultScope: BrowserImportScope?
     ) -> ImportSelection? {
         guard !browsers.isEmpty else { return nil }
         let wizard = ImportWizardWindowController(
             browsers: browsers,
             destinationProfiles: destinationProfiles,
-            defaultDestinationProfileID: defaultDestinationProfileID
+            defaultDestinationProfileID: defaultDestinationProfileID,
+            defaultScope: defaultScope
         )
         return wizard.runModal()
     }
@@ -9500,12 +9617,14 @@ final class BrowserDataImportCoordinator {
     func debugMakeImportWizardWindow(
         browsers: [InstalledBrowserCandidate],
         destinationProfiles: [BrowserProfileDefinition]? = nil,
-        defaultDestinationProfileID: UUID? = nil
+        defaultDestinationProfileID: UUID? = nil,
+        defaultScope: BrowserImportScope? = nil
     ) -> NSWindow {
         let wizard = ImportWizardWindowController(
             browsers: browsers,
             destinationProfiles: destinationProfiles,
-            defaultDestinationProfileID: defaultDestinationProfileID
+            defaultDestinationProfileID: defaultDestinationProfileID,
+            defaultScope: defaultScope
         )
         return wizard.debugPanelWindow
     }
@@ -9600,6 +9719,7 @@ final class BrowserDataImportCoordinator {
         private let browsers: [InstalledBrowserCandidate]
         private let destinationProfiles: [BrowserProfileDefinition]
         private let initialDestinationProfileID: UUID
+        private let defaultScope: BrowserImportScope?
 
         private var step: Step = .source
         private var didFinishModal = false
@@ -9646,7 +9766,8 @@ final class BrowserDataImportCoordinator {
         init(
             browsers: [InstalledBrowserCandidate],
             destinationProfiles: [BrowserProfileDefinition]?,
-            defaultDestinationProfileID: UUID?
+            defaultDestinationProfileID: UUID?,
+            defaultScope: BrowserImportScope?
         ) {
             let resolvedDestinationProfiles = destinationProfiles ?? BrowserProfileStore.shared.profiles
             let fallbackDestinationProfileID = resolvedDestinationProfiles.first?.id
@@ -9656,6 +9777,7 @@ final class BrowserDataImportCoordinator {
             self.initialDestinationProfileID = defaultDestinationProfileID
                 .flatMap { candidateID in resolvedDestinationProfiles.first(where: { $0.id == candidateID })?.id }
                 ?? fallbackDestinationProfileID
+            self.defaultScope = defaultScope
             self.mergeDestinationProfileID = self.initialDestinationProfileID
             self.panel = NSPanel(
                 contentRect: NSRect(x: 0, y: 0, width: 560, height: 292),
@@ -10021,9 +10143,10 @@ final class BrowserDataImportCoordinator {
         }
 
         private func setupDataTypesContainer() {
-            cookiesCheckbox.state = .on
-            historyCheckbox.state = .on
-            additionalDataCheckbox.state = .off
+            let initialScope = defaultScope ?? .cookiesAndHistory
+            cookiesCheckbox.state = initialScope.includesCookies ? .on : .off
+            historyCheckbox.state = initialScope.includesHistory ? .on : .off
+            additionalDataCheckbox.state = initialScope == .everything ? .on : .off
             cookiesCheckbox.title = String(
                 localized: "browser.import.cookies",
                 defaultValue: "Cookies (site sign-ins)"

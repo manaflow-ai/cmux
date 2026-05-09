@@ -1483,6 +1483,12 @@ class TerminalController {
         "feed.permission.reply",
         "feed.question.reply",
         "feed.exit_plan.reply",
+        "browser.profiles.list",
+        "browser.profiles.create",
+        "browser.profiles.rename",
+        "browser.profiles.clear",
+        "browser.profiles.delete",
+        "browser.import.cookies",
         "system.top",
     ]
 
@@ -1564,6 +1570,31 @@ class TerminalController {
             return v2Result(id: request.id, v2FeedQuestionReply(params: request.params))
         case "feed.exit_plan.reply":
             return v2Result(id: request.id, v2FeedExitPlanReply(params: request.params))
+        case "browser.profiles.list":
+            return v2VmCall(id: request.id, timeoutSeconds: 30) {
+                try await BrowserProfileAutomation.list(params: request.params)
+            }
+        case "browser.profiles.create":
+            return v2VmCall(id: request.id, timeoutSeconds: 30) {
+                try await BrowserProfileAutomation.create(params: request.params)
+            }
+        case "browser.profiles.rename":
+            return v2VmCall(id: request.id, timeoutSeconds: 30) {
+                try await BrowserProfileAutomation.rename(params: request.params)
+            }
+        case "browser.profiles.clear":
+            return v2VmCall(id: request.id, timeoutSeconds: 120) {
+                try await BrowserProfileAutomation.clear(params: request.params)
+            }
+        case "browser.profiles.delete":
+            return v2VmCall(id: request.id, timeoutSeconds: 120) {
+                try await BrowserProfileAutomation.delete(params: request.params)
+            }
+        case "browser.import.cookies":
+            return v2VmCall(id: request.id, timeoutSeconds: 10 * 60) {
+                let outcome = try await BrowserImportAutomation.importCookies(params: request.params)
+                return outcome.socketPayload
+            }
         case "system.top":
             return v2Result(id: request.id, v2SystemTop(params: request.params))
         case let method where method.hasPrefix("vm."):
@@ -2668,6 +2699,8 @@ class TerminalController {
             return v2Result(id: id, self.v2BrowserDialogRespond(params: params, accept: false))
         case "browser.download.wait":
             return v2Result(id: id, self.v2BrowserDownloadWait(params: params))
+        case "browser.import.dialog":
+            return v2Result(id: id, self.v2BrowserImportDialog(params: params))
         case "browser.cookies.get":
             return v2Result(id: id, self.v2BrowserCookiesGet(params: params))
         case "browser.cookies.set":
@@ -11082,6 +11115,81 @@ class TerminalController {
                 "download": downloadEvent
             ])
         }
+    }
+
+    private func v2BrowserImportDialog(params: [String: Any]) -> V2CallResult {
+        let scope: BrowserImportScope?
+        if params.keys.contains("scope") {
+            guard let raw = v2String(params, "scope")?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+                  !raw.isEmpty else {
+                return .err(code: "invalid_params", message: "scope must be a non-empty string", data: ["param": "scope"])
+            }
+            switch raw {
+            case "cookie", "cookies", "cookiesonly", "cookies_only", "cookies-only":
+                scope = .cookiesOnly
+            case "history", "historyonly", "history_only", "history-only":
+                scope = .historyOnly
+            case "cookiesandhistory", "cookies_and_history", "cookies-and-history", "all-basic":
+                scope = .cookiesAndHistory
+            case "everything", "all":
+                scope = .everything
+            default:
+                return .err(code: "invalid_params", message: "scope is invalid", data: ["param": "scope"])
+            }
+        } else {
+            scope = nil
+        }
+
+        let defaultDestinationProfileID: UUID?
+        if params.keys.contains("destination_profile") {
+            guard let query = v2String(params, "destination_profile")?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+                  !query.isEmpty else {
+                return .err(
+                    code: "invalid_params",
+                    message: "destination_profile must be a non-empty string",
+                    data: ["param": "destination_profile"]
+                )
+            }
+            let profiles = BrowserProfileStore.shared.profiles
+            if let uuid = UUID(uuidString: query),
+               profiles.contains(where: { $0.id == uuid }) {
+                defaultDestinationProfileID = uuid
+            } else if let profile = profiles.first(where: {
+                $0.displayName.localizedCaseInsensitiveCompare(query) == .orderedSame ||
+                    $0.slug.localizedCaseInsensitiveCompare(query) == .orderedSame
+            }) {
+                defaultDestinationProfileID = profile.id
+            } else if v2Bool(params, "create_destination_profile") == true ||
+                v2Bool(params, "create_profile") == true {
+                guard let createdProfileID = BrowserProfileStore.shared.createProfile(named: query)?.id else {
+                    return .err(
+                        code: "invalid_params",
+                        message: "destination_profile could not be created",
+                        data: ["param": "destination_profile"]
+                    )
+                }
+                defaultDestinationProfileID = createdProfileID
+            } else {
+                return .err(
+                    code: "invalid_params",
+                    message: "destination_profile does not match a cmux browser profile",
+                    data: ["param": "destination_profile"]
+                )
+            }
+        } else {
+            defaultDestinationProfileID = nil
+        }
+        Task { @MainActor in
+            BrowserDataImportCoordinator.shared.presentImportDialog(
+                defaultDestinationProfileID: defaultDestinationProfileID,
+                defaultScope: scope
+            )
+        }
+        return .ok([
+            "opened": true,
+            "scope": scope.map { $0.rawValue as Any } ?? NSNull(),
+        ])
     }
 
     private func v2BrowserCookieDict(_ cookie: HTTPCookie) -> [String: Any] {
