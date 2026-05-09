@@ -4225,6 +4225,13 @@ extension BrowserPanel {
     }
 }
 
+private func browserBareHostCandidate(_ lowercasedInput: String) -> String {
+    let end = lowercasedInput.firstIndex { character in
+        character == ":" || character == "/" || character == "?" || character == "#"
+    } ?? lowercasedInput.endIndex
+    return String(lowercasedInput[..<end])
+}
+
 func resolveBrowserNavigableURL(_ input: String) -> URL? {
     let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return nil }
@@ -4233,7 +4240,11 @@ func resolveBrowserNavigableURL(_ input: String) -> URL? {
     // Check localhost/loopback before generic URL parsing because
     // URL(string: "localhost:3777") treats "localhost" as a scheme.
     let lower = trimmed.lowercased()
-    if lower.hasPrefix("localhost") || lower.hasPrefix("127.0.0.1") || lower.hasPrefix("[::1]") {
+    let bareHost = browserBareHostCandidate(lower)
+    if lower.hasPrefix("localhost") ||
+        lower.hasPrefix("127.0.0.1") ||
+        lower.hasPrefix("[::1]") ||
+        (bareHost != ".localhost" && bareHost.hasSuffix(".localhost")) {
         return URL(string: "http://\(trimmed)")
     }
 
