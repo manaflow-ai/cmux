@@ -2311,7 +2311,7 @@ struct ContentView: View {
                 #if DEBUG
                 cmuxDebugLog("titlebar.toggleRightSidebar")
                 #endif
-                _ = AppDelegate.shared?.toggleRightSidebarInActiveMainWindow(preferredWindow: observedWindow)
+                _ = AppDelegate.shared?.toggleRightSidebarVisibilityInActiveMainWindow(preferredWindow: observedWindow)
             }
         ) {
             titlebarControlIcon(systemName: "sidebar.right", config: config)
