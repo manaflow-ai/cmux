@@ -108,12 +108,14 @@ jobs:
           TEST_FILTER: ${{ inputs.test_filter }}
         run: |
           set -euo pipefail
-          ONLY_TESTING=()
+          XCODEBUILD_ARGS=(
+            -workspace ios/cmuxMobile.xcworkspace
+            -scheme cmuxMobile
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID"
+            -derivedDataPath /tmp/cmux-ios-${{ matrix.family }}
+          )
           if [ -n "${TEST_FILTER:-}" ]; then
-            ONLY_TESTING=(-only-testing:"$TEST_FILTER")
+            XCODEBUILD_ARGS+=(-only-testing:"$TEST_FILTER")
           fi
-          xcodebuild -workspace ios/cmuxMobile.xcworkspace \
-            -scheme cmuxMobile \
-            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
-            -derivedDataPath /tmp/cmux-ios-${{ matrix.family }} \
-            test "${ONLY_TESTING[@]}"
+          XCODEBUILD_ARGS+=(test)
+          xcodebuild "${XCODEBUILD_ARGS[@]}"
