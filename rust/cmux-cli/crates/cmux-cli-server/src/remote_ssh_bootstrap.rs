@@ -1,9 +1,10 @@
 use std::path::Path;
-use std::process::Stdio;
+use std::process::{Output, Stdio};
 use std::time::Duration;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use serde::Deserialize;
+use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
 use crate::remote_daemon_manifest::RemoteDaemonMetadata;
@@ -141,22 +142,25 @@ else
   printf '%sno\n' '{REMOTE_EXISTS_MARKER}'
 fi"#
     );
-    let result = ssh_exec(
-        config,
-        &[remote_shell_command(&script)],
-        Duration::from_secs(20),
-    )
-    .await?;
+    let result = ssh_exec(config, &script, Duration::from_secs(20)).await?;
     let stdout = String::from_utf8_lossy(&result.stdout);
     let lines = stdout
         .lines()
         .map(str::trim)
         .filter(|line| !line.is_empty())
         .collect::<Vec<_>>();
-    let raw_os =
-        marker_value(&lines, REMOTE_OS_MARKER).context("failed to query remote platform")?;
-    let raw_arch =
-        marker_value(&lines, REMOTE_ARCH_MARKER).context("failed to query remote architecture")?;
+    let raw_os = marker_value(&lines, REMOTE_OS_MARKER).ok_or_else(|| {
+        anyhow!(
+            "failed to query remote platform: {}",
+            output_error_detail(&result)
+        )
+    })?;
+    let raw_arch = marker_value(&lines, REMOTE_ARCH_MARKER).ok_or_else(|| {
+        anyhow!(
+            "failed to query remote architecture: {}",
+            output_error_detail(&result)
+        )
+    })?;
     let go_os =
         map_uname_os(raw_os).with_context(|| format!("unsupported remote platform {raw_os}"))?;
     let go_arch = map_uname_arch(raw_arch)
@@ -188,12 +192,7 @@ async fn upload_remote_daemon_binary(
     let remote_temp_path = format!("{remote_path}.tmp-{}", uuid::Uuid::new_v4().simple());
 
     let mkdir_script = format!("mkdir -p {}", shell_single_quoted(remote_directory));
-    let mkdir_result = ssh_exec(
-        config,
-        &[remote_shell_command(&mkdir_script)],
-        Duration::from_secs(12),
-    )
-    .await?;
+    let mkdir_result = ssh_exec(config, &mkdir_script, Duration::from_secs(12)).await?;
     if !mkdir_result.status.success() {
         let detail = best_error_line(&mkdir_result.stderr, &mkdir_result.stdout)
             .unwrap_or_else(|| format!("ssh exited {}", mkdir_result.status));
@@ -219,12 +218,7 @@ async fn upload_remote_daemon_binary(
         shell_single_quoted(&remote_temp_path),
         shell_single_quoted(remote_path)
     );
-    let finalize_result = ssh_exec(
-        config,
-        &[remote_shell_command(&finalize_script)],
-        Duration::from_secs(12),
-    )
-    .await?;
+    let finalize_result = ssh_exec(config, &finalize_script, Duration::from_secs(12)).await?;
     if !finalize_result.status.success() {
         let detail = best_error_line(&finalize_result.stderr, &finalize_result.stdout)
             .unwrap_or_else(|| format!("ssh exited {}", finalize_result.status));
@@ -243,12 +237,7 @@ async fn hello_remote_daemon(
         shell_single_quoted(request),
         shell_single_quoted(remote_path)
     );
-    let result = ssh_exec(
-        config,
-        &[remote_shell_command(&script)],
-        Duration::from_secs(12),
-    )
-    .await?;
+    let result = ssh_exec(config, &script, Duration::from_secs(12)).await?;
     if !result.status.success() {
         let detail = best_error_line(&result.stderr, &result.stdout)
             .unwrap_or_else(|| format!("ssh exited {}", result.status));
@@ -301,12 +290,12 @@ struct HelloResult {
 
 async fn ssh_exec(
     config: &RemoteSshBootstrapConfig,
-    remote_args: &[String],
+    script: &str,
     timeout: Duration,
 ) -> Result<std::process::Output> {
     let mut args = ssh_common_arguments(config, true);
-    args.extend(remote_args.iter().cloned());
-    run_process("/usr/bin/ssh", &args, timeout).await
+    args.extend(["sh".to_string(), "-s".to_string()]);
+    run_process("/usr/bin/ssh", &args, timeout, Some(script)).await
 }
 
 async fn scp_upload(
@@ -339,21 +328,34 @@ async fn scp_upload(
     }
     args.push(local_binary.display().to_string());
     args.push(format!("{}:{remote_path}", config.destination));
-    run_process("/usr/bin/scp", &args, timeout).await
+    run_process("/usr/bin/scp", &args, timeout, None).await
 }
 
 async fn run_process(
     executable: &str,
     arguments: &[String],
     timeout: Duration,
+    stdin_payload: Option<&str>,
 ) -> Result<std::process::Output> {
-    let child = Command::new(executable)
+    let mut child = Command::new(executable)
         .args(arguments)
-        .stdin(Stdio::null())
+        .stdin(if stdin_payload.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .with_context(|| format!("launch {}", executable))?;
+    if let Some(payload) = stdin_payload {
+        if let Some(mut stdin) = child.stdin.take() {
+            stdin
+                .write_all(payload.as_bytes())
+                .await
+                .with_context(|| format!("write script to {}", executable))?;
+        }
+    }
     tokio::time::timeout(timeout, child.wait_with_output())
         .await
         .with_context(|| format!("{} timed out after {}s", executable, timeout.as_secs()))?
@@ -433,12 +435,13 @@ fn ssh_option_key(option: &str) -> Option<String> {
         .map(|key| key.to_ascii_lowercase())
 }
 
-fn remote_shell_command(script: &str) -> String {
-    format!("sh -c {}", shell_single_quoted(script))
-}
-
 fn shell_single_quoted(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\"'\"'"))
+}
+
+fn output_error_detail(output: &Output) -> String {
+    best_error_line(&output.stderr, &output.stdout)
+        .unwrap_or_else(|| format!("ssh exited {}", output.status))
 }
 
 fn marker_value<'a>(lines: &[&'a str], marker: &str) -> Option<&'a str> {
