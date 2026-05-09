@@ -701,11 +701,6 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "showModifierHoldHints": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show shortcut hint pills while holding Cmd or Ctrl."
-        },
         "bindings": {
           "type": "object",
           "default": {},

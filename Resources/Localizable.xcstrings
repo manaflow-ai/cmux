@@ -69554,363 +69554,6 @@
         }
       }
     },
-    "settings.shortcuts.showHints": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Shortcut Hints While Holding Modifiers"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "修飾キー長押しでショートカットヒントを表示"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "显示 Cmd/Ctrl 长按快捷键提示"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "顯示 Cmd/Ctrl 按住時的快速鍵提示"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd/Ctrl 누르고 있을 때 단축키 힌트 표시"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd/Ctrl-Gedrückthalten-Kurzbefehlhinweise anzeigen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar indicaciones de atajo al mantener Cmd/Ctrl"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher les indications de raccourcis avec Cmd/Ctrl enfoncé"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostra suggerimenti scorciatoie Cmd/Ctrl"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis Cmd/Ctrl-hold genvejstip"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pokaż podpowiedzi skrótów przy przytrzymaniu Cmd/Ctrl"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показывать подсказки сочетаний при удержании Cmd/Ctrl"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prikaži savjete za prečice pri držanju Cmd/Ctrl"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "عرض تلميحات اختصارات Cmd/Ctrl عند الضغط المطول"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis Cmd/Ctrl-hold snarveihint"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar Dicas de Atalho ao Segurar Cmd/Ctrl"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แสดงคำแนะนำทางลัด Cmd/Ctrl ค้าง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd/Ctrl Basılı Tutma Kısayol İpuçlarını Göster"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показувати підказки комбінацій при утриманні модифікаторів"
-          }
-        }
-      }
-    },
-    "settings.shortcuts.showHints.subtitleOff": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Holding shortcut modifiers keeps shortcut hint pills hidden."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ショートカットの修飾キーを長押ししてもショートカットヒントピルは非表示のままです。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "长按 Cmd 或 Ctrl 时隐藏快捷键提示标签。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "按住 Cmd 或 Ctrl 時不顯示快速鍵提示標籤。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd 또는 Ctrl을 누르고 있어도 단축키 힌트 표시가 숨겨집니다."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Das Gedrückthalten von Cmd oder Ctrl hält die Kurzbefehlhinweise ausgeblendet."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mantener Cmd o Ctrl mantiene ocultas las indicaciones de atajos."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Maintenir Cmd ou Ctrl garde les pastilles d'indication de raccourcis masquées."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tenere premuto Cmd o Ctrl mantiene nascosti i suggerimenti delle scorciatoie."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "At holde Cmd eller Ctrl holder genvejstip skjulte."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Przytrzymanie Cmd lub Ctrl nie pokazuje podpowiedzi skrótów."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Удержание Cmd или Ctrl не показывает подсказки сочетаний."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Držanje Cmd ili Ctrl drži savjete za prečice skrivenim."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الضغط المطول على Cmd أو Ctrl يبقي كبسولات التلميح مخفية."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Å holde Cmd eller Ctrl holder snarveihintpillene skjult."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Segurar Cmd ou Ctrl mantém as pílulas de dica de atalho ocultas."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "การกด Cmd หรือ Ctrl ค้างจะซ่อนป้ายคำแนะนำทางลัด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd veya Ctrl basılı tutulduğunda kısayol ipucu rozetleri gizli kalır."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Утримання модифікаторів комбінацій не показує підказки."
-          }
-        }
-      }
-    },
-    "settings.shortcuts.showHints.subtitleOn": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Holding the configured shortcut modifiers shows shortcut hint pills."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "設定されたショートカットの修飾キーを長押しするとショートカットヒントピルが表示されます。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "长按 Cmd（侧边栏/标题栏）或 Ctrl/Cmd（面板标签页）时显示快捷键提示标签。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "按住 Cmd（側邊欄/標題列）或 Ctrl/Cmd（面板標籤頁）時顯示快速鍵提示標籤。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd(사이드바/제목 표시줄) 또는 Ctrl/Cmd(패널 탭)를 누르고 있으면 단축키 힌트가 표시됩니다."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Das Gedrückthalten von Cmd (Seitenleiste/Titelleiste) oder Ctrl/Cmd (Bereichs-Tabs) zeigt Kurzbefehlhinweise an."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mantener Cmd (barra lateral/barra de título) o Ctrl/Cmd (pestañas del panel) muestra las indicaciones de atajos."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Maintenir Cmd (barre latérale/barre de titre) ou Ctrl/Cmd (onglets de panneau) affiche les pastilles d'indication de raccourcis."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tenere premuto Cmd (barra laterale/barra del titolo) o Ctrl/Cmd (schede pannello) mostra i suggerimenti delle scorciatoie."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "At holde Cmd (sidebjælke/titellinje) eller Ctrl/Cmd (panelfaner) viser genvejstip."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Przytrzymanie Cmd (pasek boczny/pasek tytułu) lub Ctrl/Cmd (karty panelu) pokazuje podpowiedzi skrótów."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Удержание Cmd (боковая панель/заголовок) или Ctrl/Cmd (вкладки панели) показывает подсказки сочетаний."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Držanje Cmd (bočna traka/naslovna traka) ili Ctrl/Cmd (tabovi panela) prikazuje savjete za prečice."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الضغط المطول على Cmd (الشريط الجانبي/شريط العنوان) أو Ctrl/Cmd (ألسنة اللوحات) يعرض كبسولات التلميح."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Å holde Cmd (sidepanel/tittellinje) eller Ctrl/Cmd (panelfaner) viser snarveihintpiller."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Segurar Cmd (barra lateral/barra de título) ou Ctrl/Cmd (abas do painel) mostra pílulas de dica de atalho."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "การกด Cmd ค้าง (แถบด้านข้าง/แถบชื่อ) หรือ Ctrl/Cmd (แท็บบานหน้าต่าง) จะแสดงป้ายคำแนะนำทางลัด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd (kenar çubuğu/başlık çubuğu) veya Ctrl/Cmd (bölme sekmeleri) basılı tutulduğunda kısayol ipucu rozetleri gösterilir."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Утримання налаштованих модифікаторів показує підказки комбінацій."
-          }
-        }
-      }
-    },
     "settings.state.active": {
       "extractionState": "manual",
       "localizations": {
@@ -79669,125 +79312,6 @@
             }
         }
     },
-    "settings.search.alias.setting.keyboardShortcuts.show-hints": {
-        "extractionState": "manual",
-        "localizations": {
-            "en": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills"
-                }
-            },
-            "ja": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills コマンド長押し ctrl 長押し キーヒント 修飾キー オーバーレイ ピル"
-                }
-            },
-            "ar": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills لوحة مفاتيح اختصار اختصارات مفتاح سريع أوامر تسجيل"
-                }
-            },
-            "bs": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills tastatura prečica prečice hotkey komande tipke snimač"
-                }
-            },
-            "da": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills tastatur genvej genveje hotkey kommandoer taster optager"
-                }
-            },
-            "de": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills tastatur kurzbefehl tastenkürzel hotkey befehle tasten rekorder"
-                }
-            },
-            "es": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills teclado atajo atajos tecla rápida comandos teclas grabador"
-                }
-            },
-            "fr": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills clavier raccourci raccourcis touche globale commandes touches enregistreur"
-                }
-            },
-            "it": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills tastiera scorciatoia scorciatoie tasto rapido comandi tasti registratore"
-                }
-            },
-            "ko": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills 키보드 단축키 핫키 명령 키 기록기"
-                }
-            },
-            "nb": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills tastatur snarvei snarveier hurtigtast kommandoer taster opptaker"
-                }
-            },
-            "pl": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills klawiatura skrót skróty klawisz polecenia klawisze rejestrator"
-                }
-            },
-            "pt-BR": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills teclado atalho atalhos tecla rápida comandos teclas gravador"
-                }
-            },
-            "ru": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills клавиатура сочетание клавиш горячая клавиша команды клавиши запись"
-                }
-            },
-            "th": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills แป้นพิมพ์ ทางลัด ปุ่มลัด คำสั่ง คีย์ ตัวบันทึก"
-                }
-            },
-            "tr": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills klavye kısayol kısayollar tuşu komutlar tuşlar kaydedici"
-                }
-            },
-            "zh-Hans": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills 键盘 快捷键 热键 命令 按键 录制器"
-                }
-            },
-            "zh-Hant": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills 鍵盤 快捷鍵 熱鍵 命令 按鍵 錄製器"
-                }
-            },
-            "uk": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills клавіатура скорочення гарячі клавіші команди записувач"
-                }
-            }
-        }
-    },
     "settings.search.alias.setting.keyboardShortcuts.shortcuts": {
         "extractionState": "manual",
         "localizations": {
@@ -86332,19 +85856,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open File Explorer"
+            "value": "Toggle Right Sidebar"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ファイルエクスプローラーを開く"
+            "value": "右サイドバーを切替"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "파일 탐색기 열기"
+            "value": "오른쪽 사이드바 토글"
           }
         }
       }
@@ -92926,40 +92450,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Показати сповіщення"
-          }
-        }
-      }
-    },
-    "titlebar.rightSidebar.accessibilityLabel": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Toggle Right Sidebar"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "右サイドバーの切り替え"
-          }
-        }
-      }
-    },
-    "titlebar.rightSidebar.tooltip": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show or hide the right sidebar"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "右サイドバーの表示/非表示"
           }
         }
       }
@@ -105965,6 +105455,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Cmd+clic sui file .md/.markdown/.mkd/.mdx apre il pannello del visualizzatore markdown cmux invece dell'editor preferito."
+          }
+        }
+      }
+    },
+    "rightSidebar.close.accessibilityLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close Right Sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右サイドバーを閉じる"
+          }
+        }
+      }
+    },
+    "rightSidebar.toggle.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle right sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右サイドバーを切り替え"
           }
         }
       }
