@@ -1,0 +1,113 @@
+# cmux-owned Swift warning budget.
+# Format: count<TAB>relative path<TAB>warning message
+# Reduce counts when warnings are fixed. CI fails if new warnings exceed this budget.
+1	CLI/cmux.swift	literal value is already handled by previous pattern; consider removing it
+2	CLI/cmux.swift	variable 'groups' was never mutated; consider changing to 'let' constant
+1	Sources/App/TerminalDirectoryOpenSupport.swift	'fullPath(forApplication:)' was deprecated in macOS 11.0: Use -[NSWorkspace URLForApplicationWithBundleIdentifier:] instead.
+1	Sources/AppDelegate.swift	'accessibilityAttributeValue' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h)
+5	Sources/AppDelegate.swift	'activateIgnoringOtherApps' was deprecated in macOS 14.0: ignoringOtherApps is deprecated in macOS 14 and will have no effect.
+1	Sources/AppDelegate.swift	add '@preconcurrency' to suppress 'Sendable'-related warnings from module 'Dispatch'
+1	Sources/AppDelegate.swift	add '@preconcurrency' to suppress 'Sendable'-related warnings from module 'ObjectiveC'
+1	Sources/AppDelegate.swift	call to main actor-isolated instance method 'beginSuppressWebViewFocusForAddressBar()' in a synchronous nonisolated context
+3	Sources/AppDelegate.swift	call to main actor-isolated instance method 'browserPanel(for:)' in a synchronous nonisolated context
+1	Sources/AppDelegate.swift	call to main actor-isolated instance method 'browserPanelOwning' in a synchronous nonisolated context
+1	Sources/AppDelegate.swift	call to main actor-isolated instance method 'clearConfiguredShortcutChordState()' in a synchronous nonisolated context
+3	Sources/AppDelegate.swift	call to main actor-isolated instance method 'endSuppressWebViewFocusForAddressBar()' in a synchronous nonisolated context
+1	Sources/AppDelegate.swift	call to main actor-isolated instance method 'handleSocketLine' in a synchronous nonisolated context
+2	Sources/AppDelegate.swift	call to main actor-isolated instance method 'recordGotoSplitUITestActiveElement(panelId:keyPrefix:)' in a synchronous nonisolated context
+2	Sources/AppDelegate.swift	call to main actor-isolated instance method 'recordGotoSplitUITestWebViewFocus(panelId:key:)' in a synchronous nonisolated context
+1	Sources/AppDelegate.swift	call to main actor-isolated instance method 'recordJumpUnreadFocusIfExpected(tabId:surfaceId:)' in a synchronous nonisolated context
+1	Sources/AppDelegate.swift	call to main actor-isolated instance method 'refreshConfiguredShortcutChordActions()' in a synchronous nonisolated context
+1	Sources/AppDelegate.swift	call to main actor-isolated instance method 'refreshGhosttyGotoSplitShortcuts()' in a synchronous nonisolated context
+1	Sources/AppDelegate.swift	call to main actor-isolated instance method 'scheduleSplitButtonTooltipRefreshAcrossWorkspaces()' in a synchronous nonisolated context
+2	Sources/AppDelegate.swift	call to main actor-isolated instance method 'shouldPreserveBrowserAddressBarTracking(for:)' in a synchronous nonisolated context
+4	Sources/AppDelegate.swift	call to main actor-isolated instance method 'stopBrowserOmnibarSelectionRepeat()' in a synchronous nonisolated context
+1	Sources/AppDelegate.swift	call to main actor-isolated instance method 'unregisterMainWindow' in a synchronous nonisolated context
+1	Sources/AppDelegate.swift	call to main actor-isolated instance method 'writeUITestDiagnosticsIfNeeded(stage:)' in a synchronous nonisolated context
+4	Sources/AppDelegate.swift	call to main actor-isolated local function 'attemptFocus()' in a synchronous nonisolated context
+2	Sources/AppDelegate.swift	call to main actor-isolated local function 'attemptResolve()' in a synchronous nonisolated context
+1	Sources/AppDelegate.swift	call to main actor-isolated local function 'finishIfReady()' in a synchronous nonisolated context
+1	Sources/AppDelegate.swift	call to main actor-isolated local function 'publishCurrentState(isTimedOut:)' in a synchronous nonisolated context
+2	Sources/AppDelegate.swift	call to main actor-isolated local function 'recordFocusedState()' in a synchronous nonisolated context
+1	Sources/AppDelegate.swift	call to main actor-isolated static method 'feedSidebarUITestPushUpdates(response:)' in a synchronous nonisolated context
+1	Sources/AppDelegate.swift	call to main actor-isolated static method 'runFeedSidebarUITestPush(requestId:)' in a synchronous nonisolated context
+1	Sources/AppDelegate.swift	capture of 'observer' with non-sendable type '(any NSObjectProtocol)?' in a '@Sendable' closure
+1	Sources/AppDelegate.swift	capture of 'timeoutWorkItem' with non-sendable type 'DispatchWorkItem?' in a '@Sendable' closure
+1	Sources/AppDelegate.swift	conformance of 'AppDelegate' to protocol 'UNUserNotificationCenterDelegate' crosses into main actor-isolated code and can cause data races
+3	Sources/AppDelegate.swift	converting non-sendable function value to '@MainActor @Sendable @convention(block) () -> Void' may introduce data races
+1	Sources/AppDelegate.swift	converting non-sendable function value to '@Sendable @convention(block) () -> Void' may introduce data races
+1	Sources/AppDelegate.swift	main actor-isolated instance method 'userNotificationCenter(_:didReceive:withCompletionHandler:)' cannot be used to satisfy nonisolated requirement from protocol 'UNUserNotificationCenterDelegate'
+1	Sources/AppDelegate.swift	main actor-isolated instance method 'userNotificationCenter(_:willPresent:withCompletionHandler:)' cannot be used to satisfy nonisolated requirement from protocol 'UNUserNotificationCenterDelegate'
+4	Sources/AppDelegate.swift	main actor-isolated property 'browserAddressBarFocusedPanelId' can not be mutated from a Sendable closure
+3	Sources/AppDelegate.swift	main actor-isolated property 'browserAddressBarFocusedPanelId' can not be referenced from a Sendable closure
+1	Sources/AppDelegate.swift	main actor-isolated property 'webView' can not be referenced from a Sendable closure
+1	Sources/AppDelegate.swift	main actor-isolated static property 'shared' can not be referenced from a Sendable closure
+1	Sources/AppDelegate.swift	value 'browserPanel' was defined but never used; consider replacing with boolean test
+2	Sources/AppDelegate.swift	value 'self' was defined but never used; consider replacing with boolean test
+1	Sources/Auth/AuthManager.swift	main actor-isolated static property 'logTimestampFormatter' can not be referenced from a nonisolated context
+24	Sources/ContentView.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead.
+1	Sources/ContentView.swift	treating a forced downcast to 'CGColor' as optional will never produce 'nil'
+1	Sources/ContentView.swift	use of protocol 'Panel' as a type must be written 'any Panel'; this will be an error in a future Swift language mode
+1	Sources/Feed/FeedPanelView.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead.
+1	Sources/FileExplorerView.swift	'icon(forFileType:)' was deprecated in macOS 12.0: Use -[NSWorkspace iconForContentType:] instead.
+1	Sources/GhosttyTerminalView.swift	'unsafeBitCast' from '@convention(c) (UnsafeMutableRawPointer?, ghostty_clipboard_e, UnsafeMutableRawPointer?) -> Bool' to 'ghostty_runtime_read_clipboard_cb' (aka '@convention(c) (Optional<UnsafeMutableRawPointer>, ghostty_clipboard_e, Optional<UnsafeMutableRawPointer>) -> Bool') is unnecessary and can be removed
+1	Sources/GhosttyTerminalView.swift	immutable value 'surface' was never used; consider replacing with '_' or removing it
+1	Sources/GhosttyTerminalView.swift	left side of nil coalescing operator '??' has non-optional type '[NSPasteboard.PasteboardType]', so the right side is never used
+1	Sources/GhosttyTerminalView.swift	left side of nil coalescing operator '??' has non-optional type 'ghostty_input_mods_e', so the right side is never used
+1	Sources/KeyboardShortcutSettings.swift	'activateIgnoringOtherApps' was deprecated in macOS 14.0: ignoringOtherApps is deprecated in macOS 14 and will have no effect.
+1	Sources/NotificationsPage.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead.
+1	Sources/Panels/BrowserPanel.swift	'@preconcurrency' on conformance to 'NSWindowDelegate' has no effect
+3	Sources/Panels/BrowserPanel.swift	'WKProcessPool' was deprecated in macOS 12.0: Creating and using multiple instances of WKProcessPool no longer has any effect.
+2	Sources/Panels/BrowserPanel.swift	'processPool' was deprecated in macOS 12.0: Creating and using multiple instances of WKProcessPool no longer has any effect.
+2	Sources/Panels/BrowserPanel.swift	converting non-sendable function value to '@MainActor @Sendable @convention(block) () -> Void' may introduce data races
+2	Sources/Panels/BrowserPanel.swift	main actor-isolated property 'effectiveAppearance' can not be referenced from a nonisolated context
+1	Sources/Panels/BrowserPanel.swift	main actor-isolated static property 'shared' can not be referenced from a nonisolated context
+1	Sources/Panels/BrowserPanel.swift	main actor-isolated static property 'sharedProcessPool' can not be referenced from a nonisolated context
+2	Sources/Panels/BrowserPanel.swift	main actor-isolated var 'NSApp' can not be referenced from a nonisolated context
+9	Sources/Panels/BrowserPanelView.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead.
+1	Sources/Panels/MarkdownPanelView.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead.
+1	Sources/Panels/ReactGrab.swift	consider using asynchronous alternative function
+5	Sources/SessionIndexStore.swift	expression is 'async' but is not marked with 'await'
+1	Sources/SessionIndexStore.swift	instance method 'makeIterator' is unavailable from asynchronous contexts
+1	Sources/SessionIndexStore.swift	main actor-isolated static property 'headByteCap' can not be referenced from a nonisolated context
+2	Sources/SessionIndexStore.swift	main actor-isolated static property 'headByteCap' cannot be accessed from outside of the actor
+2	Sources/SessionIndexStore.swift	main actor-isolated static property 'searchMaxFiles' cannot be accessed from outside of the actor
+1	Sources/SessionIndexStore.swift	main actor-isolated static property 'tailByteCap' cannot be accessed from outside of the actor
+1	Sources/SessionIndexStore.swift	reference to captured var 'self' in concurrently-executing code
+2	Sources/SessionIndexView.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead.
+1	Sources/Settings/ConfigSettingsView.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead.
+17	Sources/TabManager.swift	result of call to 'closePanel(_:force:)' is unused
+1	Sources/TerminalController.swift	'CGWindowListCreateImage' was deprecated in macOS 14.0: Please use ScreenCaptureKit instead.
+2	Sources/TerminalController.swift	'activateIgnoringOtherApps' was deprecated in macOS 14.0: ignoringOtherApps is deprecated in macOS 14 and will have no effect.
+1	Sources/TerminalController.swift	'observer' mutated after capture by sendable closure
+1	Sources/TerminalController.swift	add '@preconcurrency' to suppress 'Sendable'-related warnings from module 'ObjectiveC'
+1	Sources/TerminalController.swift	call to main actor-isolated instance method 'handleClient(_:peerPid:)' in a synchronous nonisolated context
+1	Sources/TerminalController.swift	capture of 'observer' with non-sendable type '(any NSObjectProtocol)?' in a '@Sendable' closure
+1	Sources/TerminalController.swift	capture of 'terminalSurface' with non-sendable type 'TerminalSurface' in a '@Sendable' closure
+2	Sources/TerminalController.swift	conditional cast from 'NSResponder' to 'NSResponder' always succeeds
+2	Sources/TerminalController.swift	result of call to 'closePanel(_:force:)' is unused
+1	Sources/TerminalNotificationStore.swift	add '@preconcurrency' to suppress 'Sendable'-related warnings from module 'UserNotifications'
+2	Sources/TerminalNotificationStore.swift	call to main actor-isolated instance method 'logAuthorization' in a synchronous nonisolated context
+1	Sources/TerminalNotificationStore.swift	call to main actor-isolated instance method 'refreshDockBadge()' in a synchronous nonisolated context
+2	Sources/TerminalNotificationStore.swift	capture of 'content' with non-sendable type 'UNMutableNotificationContent' in a '@Sendable' closure
+1	Sources/Update/UpdateDriver.swift	add '@preconcurrency' to suppress 'Sendable'-related warnings from module 'Sparkle'
+1	Sources/Update/UpdateDriver.swift	sendability of function types in instance method 'show(_:reply:)' does not match requirement in protocol 'SPUUserDriver'
+1	Sources/Update/UpdateDriver.swift	sendability of function types in instance method 'showReady(toInstallAndRelaunch:)' does not match requirement in protocol 'SPUUserDriver'
+1	Sources/Update/UpdateDriver.swift	sendability of function types in instance method 'showUpdateFound(with:state:reply:)' does not match requirement in protocol 'SPUUserDriver'
+2	Sources/Update/UpdateLogStore.swift	result of 'try?' is unused
+1	Sources/Update/UpdateTestSupport.swift	'init(dictionary:)' is deprecated: Properties that depend on the system or application version are not supported when used with this initializer. The designated initializer is available in SUAppcastItem+Private.h. Please first explore other APIs or contact us to describe your use case.
+1	Sources/Workspace.swift	conformance of 'Workspace' to protocol 'BonsplitDelegate' crosses into main actor-isolated code and can cause data races
+1	Sources/Workspace.swift	main actor-isolated instance method 'splitTabBar(_:didChangeGeometry:)' cannot be used to satisfy nonisolated requirement from protocol 'BonsplitDelegate'
+1	Sources/Workspace.swift	main actor-isolated instance method 'splitTabBar(_:didClosePane:)' cannot be used to satisfy nonisolated requirement from protocol 'BonsplitDelegate'
+1	Sources/Workspace.swift	main actor-isolated instance method 'splitTabBar(_:didCloseTab:fromPane:)' cannot be used to satisfy nonisolated requirement from protocol 'BonsplitDelegate'
+1	Sources/Workspace.swift	main actor-isolated instance method 'splitTabBar(_:didFocusPane:)' cannot be used to satisfy nonisolated requirement from protocol 'BonsplitDelegate'
+1	Sources/Workspace.swift	main actor-isolated instance method 'splitTabBar(_:didMoveTab:fromPane:toPane:)' cannot be used to satisfy nonisolated requirement from protocol 'BonsplitDelegate'
+1	Sources/Workspace.swift	main actor-isolated instance method 'splitTabBar(_:didRequestCustomAction:inPane:)' cannot be used to satisfy nonisolated requirement from protocol 'BonsplitDelegate'
+1	Sources/Workspace.swift	main actor-isolated instance method 'splitTabBar(_:didRequestNewTab:inPane:)' cannot be used to satisfy nonisolated requirement from protocol 'BonsplitDelegate'
+1	Sources/Workspace.swift	main actor-isolated instance method 'splitTabBar(_:didRequestTabContextAction:for:inPane:)' cannot be used to satisfy nonisolated requirement from protocol 'BonsplitDelegate'
+1	Sources/Workspace.swift	main actor-isolated instance method 'splitTabBar(_:didSelectTab:inPane:)' cannot be used to satisfy nonisolated requirement from protocol 'BonsplitDelegate'
+1	Sources/Workspace.swift	main actor-isolated instance method 'splitTabBar(_:didSplitPane:newPane:orientation:)' cannot be used to satisfy nonisolated requirement from protocol 'BonsplitDelegate'
+1	Sources/Workspace.swift	main actor-isolated instance method 'splitTabBar(_:shouldClosePane:)' cannot be used to satisfy nonisolated requirement from protocol 'BonsplitDelegate'
+1	Sources/Workspace.swift	main actor-isolated instance method 'splitTabBar(_:shouldCloseTab:inPane:)' cannot be used to satisfy nonisolated requirement from protocol 'BonsplitDelegate'
+1	Sources/Workspace.swift	switch must be exhaustive
+22	Sources/cmuxApp.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead.

@@ -7,13 +7,12 @@ final class KeyboardShortcutSettingsObserver: ObservableObject {
 
     @Published private(set) var revision: UInt64 = 0
 
-    private var cancellable: AnyCancellable?
+    private var settingsCancellable: AnyCancellable?
+    private var recorderCancellable: AnyCancellable?
 
     private init(notificationCenter: NotificationCenter = .default) {
-        cancellable = notificationCenter.publisher(for: KeyboardShortcutSettings.didChangeNotification)
-            .sink { [weak self] _ in
-                self?.revision &+= 1
-            }
+        settingsCancellable = notificationCenter.publisher(for: KeyboardShortcutSettings.didChangeNotification).receive(on: DispatchQueue.main).sink { [weak self] _ in self?.revision &+= 1 }
+        recorderCancellable = notificationCenter.publisher(for: KeyboardShortcutRecorderActivity.didChangeNotification).receive(on: DispatchQueue.main).sink { [weak self] _ in self?.revision &+= 1 }
     }
 }
 
@@ -21,87 +20,23 @@ final class CmuxSettingsFileStore {
     static let shared = CmuxSettingsFileStore()
 
     static let currentSchemaVersion = 1
-    static let schemaURLString = "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux-settings.schema.json"
-    // Keep this in sync with the parser below and the web schema/docs. Settings UI rows
-    // validate against this set so new persisted settings need an explicit settings.json review.
-    static let supportedSettingsJSONPaths: Set<String> = [
-        "app.language",
-        "app.appearance",
-        "app.appIcon",
-        "app.newWorkspacePlacement",
-        "app.minimalMode",
-        "app.keepWorkspaceOpenWhenClosingLastSurface",
-        "app.focusPaneOnFirstClick",
-        "app.preferredEditor",
-        "app.openMarkdownInCmuxViewer",
-        "app.reorderOnNotification",
-        "app.sendAnonymousTelemetry",
-        "app.warnBeforeQuit",
-        "app.renameSelectsExistingName",
-        "app.commandPaletteSearchesAllSurfaces",
-        "terminal.showScrollBar",
-        "notifications.dockBadge",
-        "notifications.showInMenuBar",
-        "notifications.unreadPaneRing",
-        "notifications.paneFlash",
-        "notifications.sound",
-        "notifications.customSoundFilePath",
-        "notifications.command",
-        "sidebar.hideAllDetails",
-        "sidebar.branchLayout",
-        "sidebar.showNotificationMessage",
-        "sidebar.showBranchDirectory",
-        "sidebar.showPullRequests",
-        "sidebar.openPullRequestLinksInCmuxBrowser",
-        "sidebar.openPortLinksInCmuxBrowser",
-        "sidebar.showSSH",
-        "sidebar.showPorts",
-        "sidebar.showLog",
-        "sidebar.showProgress",
-        "sidebar.showCustomMetadata",
-        "workspaceColors.indicatorStyle",
-        "workspaceColors.selectionColor",
-        "workspaceColors.notificationBadgeColor",
-        "workspaceColors.colors",
-        "workspaceColors.paletteOverrides",
-        "workspaceColors.customColors",
-        "sidebarAppearance.matchTerminalBackground",
-        "sidebarAppearance.tintColor",
-        "sidebarAppearance.lightModeTintColor",
-        "sidebarAppearance.darkModeTintColor",
-        "sidebarAppearance.tintOpacity",
-        "automation.socketControlMode",
-        "automation.socketPassword",
-        "automation.claudeCodeIntegration",
-        "automation.claudeBinaryPath",
-        "automation.cursorIntegration",
-        "automation.geminiIntegration",
-        "automation.portBase",
-        "automation.portRange",
-        "browser.defaultSearchEngine",
-        "browser.showSearchSuggestions",
-        "browser.theme",
-        "browser.openTerminalLinksInCmuxBrowser",
-        "browser.interceptTerminalOpenCommandInCmuxBrowser",
-        "browser.hostsToOpenInEmbeddedBrowser",
-        "browser.urlsToAlwaysOpenExternally",
-        "browser.insecureHttpHostsAllowedInEmbeddedBrowser",
-        "browser.showImportHintOnBlankTabs",
-        "browser.reactGrabVersion",
-        "shortcuts.showModifierHoldHints",
-        "shortcuts.bindings",
-    ]
-
+    static let schemaURLString = "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json"
+    private static let legacySchemaURLString = "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux-settings.schema.json"
     private static let releaseBundleIdentifier = "com.cmuxterm.app"
     private static let backupsDefaultsKey = "cmux.settingsFile.backups.v1"
     fileprivate static let socketPasswordBackupIdentifier = "automation.socketPassword"
 
     static var defaultPrimaryPath: String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        return (home as NSString).appendingPathComponent(".config/cmux/settings.json")
+        return (home as NSString).appendingPathComponent(".config/cmux/cmux.json")
     }
 
     static var defaultFallbackPath: String? {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        return (home as NSString).appendingPathComponent(".config/cmux/settings.json")
+    }
+
+    static var defaultApplicationSupportFallbackPath: String? {
         guard let appSupport = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
@@ -115,13 +50,13 @@ final class CmuxSettingsFileStore {
     }
 
     private let primaryPath: String
-    private let fallbackPath: String?
+    private let fallbackPaths: [String]
     private let fileManager: FileManager
     private let notificationCenter: NotificationCenter
     private let stateLock = NSLock()
 
     private var primaryWatcher: ShortcutSettingsFileWatcher?
-    private var fallbackWatcher: ShortcutSettingsFileWatcher?
+    private var fallbackWatchers: [ShortcutSettingsFileWatcher] = []
     private var defaultsCancellable: AnyCancellable?
     private var socketPasswordObserver: NSObjectProtocol?
 
@@ -134,12 +69,14 @@ final class CmuxSettingsFileStore {
     init(
         primaryPath: String = CmuxSettingsFileStore.defaultPrimaryPath,
         fallbackPath: String? = CmuxSettingsFileStore.defaultFallbackPath,
+        additionalFallbackPaths: [String] = [CmuxSettingsFileStore.defaultApplicationSupportFallbackPath].compactMap { $0 },
         fileManager: FileManager = .default,
         notificationCenter: NotificationCenter = .default,
         startWatching: Bool = true
     ) {
         self.primaryPath = primaryPath
-        self.fallbackPath = fallbackPath
+        self.fallbackPaths = ([fallbackPath].compactMap { $0 } + additionalFallbackPaths)
+            .filter { $0 != primaryPath }
         self.fileManager = fileManager
         self.notificationCenter = notificationCenter
 
@@ -152,30 +89,23 @@ final class CmuxSettingsFileStore {
                 self?.reload()
             }
         }
-        if let fallbackPath {
-            fallbackWatcher = ShortcutSettingsFileWatcher(path: fallbackPath, fileManager: fileManager) { [weak self] in
+        fallbackWatchers = fallbackPaths.map { fallbackPath in
+            ShortcutSettingsFileWatcher(path: fallbackPath, fileManager: fileManager) { [weak self] in
                 DispatchQueue.main.async {
                     self?.reload()
                 }
             }
         }
 
-        defaultsCancellable = notificationCenter.publisher(for: UserDefaults.didChangeNotification)
-            .sink { [weak self] _ in
-                self?.reapplyManagedSettingsIfNeeded()
-            }
-        socketPasswordObserver = notificationCenter.addObserver(
-            forName: SocketControlPasswordStore.didChangeNotification,
-            object: nil,
-            queue: nil
-        ) { [weak self] _ in
+        defaultsCancellable = notificationCenter.publisher(for: UserDefaults.didChangeNotification).receive(on: DispatchQueue.main).sink { [weak self] _ in self?.reapplyManagedSettingsIfNeeded() }
+        socketPasswordObserver = notificationCenter.addObserver(forName: SocketControlPasswordStore.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
             self?.reapplyManagedSettingsIfNeeded()
         }
     }
 
     deinit {
         primaryWatcher?.stop()
-        fallbackWatcher?.stop()
+        fallbackWatchers.forEach { $0.stop() }
         defaultsCancellable?.cancel()
         if let socketPasswordObserver {
             notificationCenter.removeObserver(socketPasswordObserver)
@@ -195,7 +125,7 @@ final class CmuxSettingsFileStore {
         }
 
         if previousShortcuts != resolved.shortcuts || previousActiveSourcePath != resolved.path {
-            KeyboardShortcutSettings.notifySettingsFileDidChange()
+            KeyboardShortcutSettings.notifySettingsFileDidChange(center: notificationCenter)
         }
     }
 
@@ -208,30 +138,16 @@ final class CmuxSettingsFileStore {
     }
 
     func settingsFileURLForEditing() -> URL {
-        if let activeSourcePath = synchronized({ activeSourcePath }) {
-            return URL(fileURLWithPath: activeSourcePath)
-        }
-
         bootstrapPrimaryTemplateIfNeeded()
-        reload()
-
-        if let activeSourcePath = synchronized({ activeSourcePath }) {
-            return URL(fileURLWithPath: activeSourcePath)
-        }
-
         return URL(fileURLWithPath: primaryPath)
     }
 
     func settingsFileDisplayPath() -> String {
-        let path = synchronized { activeSourcePath } ?? primaryPath
-        return (path as NSString).abbreviatingWithTildeInPath
+        (primaryPath as NSString).abbreviatingWithTildeInPath
     }
 
     private func bootstrapPrimaryTemplateIfNeeded() {
         guard !fileManager.fileExists(atPath: primaryPath) else { return }
-        if let fallbackPath, fileManager.fileExists(atPath: fallbackPath) {
-            return
-        }
 
         let fileURL = URL(fileURLWithPath: primaryPath)
         let directoryURL = fileURL.deletingLastPathComponent()
@@ -242,12 +158,29 @@ final class CmuxSettingsFileStore {
                 withIntermediateDirectories: true,
                 attributes: [.posixPermissions: 0o755]
             )
-            let template = Self.defaultTemplate()
-            try template.write(to: fileURL, atomically: true, encoding: .utf8)
+            let contents = legacySettingsDataForBootstrap() ?? Data(Self.defaultTemplate().utf8)
+            try contents.write(to: fileURL, options: [.atomic])
             try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
         } catch {
             NSLog("[CmuxSettingsFileStore] failed to bootstrap %@: %@", primaryPath, String(describing: error))
         }
+    }
+
+    private func legacySettingsDataForBootstrap() -> Data? {
+        for fallbackPath in fallbackPaths {
+            guard let data = fileManager.contents(atPath: fallbackPath), !data.isEmpty else {
+                continue
+            }
+            guard case .parsed = loadSettings(at: fallbackPath) else {
+                continue
+            }
+            guard let source = String(data: data, encoding: .utf8) else {
+                return data
+            }
+            let updated = source.replacingOccurrences(of: Self.legacySchemaURLString, with: Self.schemaURLString)
+            return Data(updated.utf8)
+        }
+        return nil
     }
 
     private func reapplyManagedSettingsIfNeeded() {
@@ -275,7 +208,8 @@ final class CmuxSettingsFileStore {
 
     private func resolveSettings() -> ResolvedSettingsSnapshot {
         switch loadSettings(at: primaryPath) {
-        case .parsed(let snapshot):
+        case .parsed(var snapshot):
+            mergeFallbackSettings(into: &snapshot)
             return snapshot
         case .invalid:
             return ResolvedSettingsSnapshot(path: primaryPath)
@@ -283,17 +217,17 @@ final class CmuxSettingsFileStore {
             break
         }
 
-        guard let fallbackPath else {
-            return ResolvedSettingsSnapshot(path: nil)
-        }
+        var fallbackSnapshot = ResolvedSettingsSnapshot(path: nil)
+        mergeFallbackSettings(into: &fallbackSnapshot)
+        return fallbackSnapshot
+    }
 
-        switch loadSettings(at: fallbackPath) {
-        case .parsed(let snapshot):
-            return snapshot
-        case .invalid:
-            return ResolvedSettingsSnapshot(path: fallbackPath)
-        case .missing:
-            return ResolvedSettingsSnapshot(path: nil)
+    private func mergeFallbackSettings(into snapshot: inout ResolvedSettingsSnapshot) {
+        for fallbackPath in fallbackPaths {
+            guard case .parsed(let fallbackSnapshot) = loadSettings(at: fallbackPath) else {
+                continue
+            }
+            snapshot.fillMissingSettings(from: fallbackSnapshot)
         }
     }
 
@@ -395,6 +329,9 @@ final class CmuxSettingsFileStore {
             }
             snapshot.managedUserDefaults[AppIconSettings.modeKey] = .string(mode.rawValue)
         }
+        if let value = jsonBool(section["menuBarOnly"]) {
+            snapshot.managedUserDefaults[MenuBarOnlySettings.menuBarOnlyKey] = .bool(value)
+        }
         if let raw = jsonString(section["newWorkspacePlacement"]) {
             guard let placement = NewWorkspacePlacement(rawValue: raw) else {
                 logInvalid("app.newWorkspacePlacement", sourcePath: sourcePath)
@@ -420,6 +357,9 @@ final class CmuxSettingsFileStore {
         }
         if let value = jsonBool(section["reorderOnNotification"]) {
             snapshot.managedUserDefaults[WorkspaceAutoReorderSettings.key] = .bool(value)
+        }
+        if let value = jsonBool(section["iMessageMode"]) {
+            snapshot.managedUserDefaults[IMessageModeSettings.key] = .bool(value)
         }
         if let value = jsonBool(section["sendAnonymousTelemetry"]) {
             snapshot.managedUserDefaults[TelemetrySettings.sendAnonymousTelemetryKey] = .bool(value)
@@ -478,6 +418,12 @@ final class CmuxSettingsFileStore {
         } else if section.keys.contains("showScrollBar") {
             logInvalid("terminal.showScrollBar", sourcePath: sourcePath)
         }
+
+        if let value = jsonBool(section["autoResumeAgentSessions"]) {
+            snapshot.managedUserDefaults[AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey] = .bool(value)
+        } else if section.keys.contains("autoResumeAgentSessions") {
+            logInvalid("terminal.autoResumeAgentSessions", sourcePath: sourcePath)
+        }
     }
 
     private func parseSidebarSection(
@@ -501,12 +447,9 @@ final class CmuxSettingsFileStore {
         if let value = jsonBool(section["showNotificationMessage"]) {
             snapshot.managedUserDefaults[SidebarWorkspaceDetailSettings.showNotificationMessageKey] = .bool(value)
         }
-        if let value = jsonBool(section["showBranchDirectory"]) {
-            snapshot.managedUserDefaults["sidebarShowBranchDirectory"] = .bool(value)
-        }
-        if let value = jsonBool(section["showPullRequests"]) {
-            snapshot.managedUserDefaults["sidebarShowPullRequest"] = .bool(value)
-        }
+        if let value = jsonBool(section["showBranchDirectory"]) { snapshot.managedUserDefaults["sidebarShowBranchDirectory"] = .bool(value) }
+        if let value = jsonBool(section["showPullRequests"]) { snapshot.managedUserDefaults["sidebarShowPullRequest"] = .bool(value) }
+        if let value = jsonBool(section["makePullRequestsClickable"]) { snapshot.managedUserDefaults[SidebarPullRequestClickabilitySettings.key] = .bool(value) }
         if let value = jsonBool(section["openPullRequestLinksInCmuxBrowser"]) {
             snapshot.managedUserDefaults[BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowserKey] = .bool(value)
         }
@@ -636,7 +579,7 @@ final class CmuxSettingsFileStore {
         snapshot: inout ResolvedSettingsSnapshot
     ) {
         if let value = jsonBool(section["matchTerminalBackground"]) {
-            snapshot.managedUserDefaults["sidebarMatchTerminalBackground"] = .bool(value)
+            snapshot.managedUserDefaults[SidebarMatchTerminalBackgroundSettings.userDefaultsKey] = .bool(value)
         }
         if let raw = jsonString(section["tintColor"]) {
             guard let normalized = WorkspaceTabColorSettings.normalizedHex(raw) else {
@@ -798,11 +741,6 @@ final class CmuxSettingsFileStore {
             return
         }
 
-        if let value = jsonBool(section["showModifierHoldHints"]) {
-            snapshot.managedUserDefaults[ShortcutHintDebugSettings.showHintsOnCommandHoldKey] = .bool(value)
-            snapshot.managedUserDefaults[ShortcutHintDebugSettings.showHintsOnControlHoldKey] = .bool(value)
-        }
-
         var bindings = section["bindings"] as? [String: Any] ?? [:]
         for (key, rawValue) in section where key != "bindings" && key != "showModifierHoldHints" {
             bindings[key] = rawValue
@@ -829,20 +767,19 @@ final class CmuxSettingsFileStore {
         _ rawValue: Any,
         action: KeyboardShortcutSettings.Action
     ) -> StoredShortcut? {
-        let shortcut: StoredShortcut?
-        if let stroke = jsonString(rawValue) {
-            shortcut = StoredShortcut.parseConfig(stroke)
-        } else if let strokes = jsonStringArray(rawValue) {
-            shortcut = StoredShortcut.parseConfig(strokes: strokes)
-        } else {
-            shortcut = nil
-        }
+        let shortcut: StoredShortcut? = {
+            if rawValue is NSNull { return .unbound }
+            if let stroke = jsonString(rawValue) { return StoredShortcut.parseConfig(stroke) }
+            if let strokes = jsonStringArray(rawValue) {
+                return strokes.isEmpty ? .unbound : StoredShortcut.parseConfig(strokes: strokes)
+            }
+            return nil
+        }()
 
         guard let shortcut else { return nil }
-        if let normalized = action.normalizedRecordedShortcut(shortcut) {
-            return normalized
-        }
-        return action.usesNumberedDigitMatching ? nil : shortcut
+        // Settings-file parsing runs while the shared store may still be initializing.
+        // Avoid the UI recorder's conflict lookup here because it reads the shared store.
+        return action.normalizedSettingsFileShortcut(shortcut)
     }
 
     private func parseNullableHex(
@@ -861,15 +798,12 @@ final class CmuxSettingsFileStore {
         return .some(normalized)
     }
 
-    private func applyManagedSettings(
-        snapshot: ResolvedSettingsSnapshot,
-        updateBackups: Bool = true
-    ) {
+    private func applyManagedSettings(snapshot: ResolvedSettingsSnapshot, updateBackups: Bool = true) {
         var backups = loadBackups()
+        var sideEffects = ManagedDefaultBatchSideEffects()
         let currentManagedIdentifiers = Set(backups.keys)
-        let nextManagedIdentifiers = Set(snapshot.managedUserDefaults.keys)
+        let nextManagedIdentifiers = Set(snapshot.managedUserDefaults.keys.filter { !SidebarMatchTerminalBackgroundSettings.isSettingsFileDefaultKey($0) })
             .union(snapshot.managedCustomSettings.managedIdentifiers)
-
         synchronized {
             isApplyingManagedSettings = true
         }
@@ -880,7 +814,7 @@ final class CmuxSettingsFileStore {
         }
 
         if updateBackups {
-            for (defaultsKey, value) in snapshot.managedUserDefaults where backups[defaultsKey] == nil {
+            for (defaultsKey, value) in snapshot.managedUserDefaults where backups[defaultsKey] == nil && !SidebarMatchTerminalBackgroundSettings.isSettingsFileDefaultKey(defaultsKey) {
                 backups[defaultsKey] = backupValueForUserDefaultsKey(defaultsKey, managedValue: value)
             }
             if snapshot.managedCustomSettings.socketPassword != nil,
@@ -890,19 +824,20 @@ final class CmuxSettingsFileStore {
         }
 
         for identifier in currentManagedIdentifiers.subtracting(nextManagedIdentifiers) {
+            if SidebarMatchTerminalBackgroundSettings.isSettingsFileDefaultKey(identifier) { backups.removeValue(forKey: identifier); continue }
             guard let backup = backups[identifier] else { continue }
-            restoreBackup(backup, for: identifier)
+            sideEffects.merge(restoreBackup(backup, for: identifier))
             backups.removeValue(forKey: identifier)
         }
 
         for (defaultsKey, value) in snapshot.managedUserDefaults {
-            applyManagedUserDefaultsValue(value, for: defaultsKey)
+            sideEffects.merge(applyManagedUserDefaultsValue(value, for: defaultsKey))
         }
         applyManagedCustomSettings(snapshot.managedCustomSettings)
-
         if updateBackups {
             saveBackups(backups)
         }
+        applyManagedDefaultBatchSideEffects(sideEffects)
     }
 
     private func applyManagedCustomSettings(_ settings: ManagedCustomSettings) {
@@ -922,7 +857,7 @@ final class CmuxSettingsFileStore {
         }
     }
 
-    private func restoreBackup(_ backup: BackupValue, for identifier: String) {
+    private func restoreBackup(_ backup: BackupValue, for identifier: String) -> ManagedDefaultBatchSideEffects {
         switch identifier {
         case Self.socketPasswordBackupIdentifier:
             switch backup {
@@ -933,8 +868,9 @@ final class CmuxSettingsFileStore {
             default:
                 break
             }
+            return ManagedDefaultBatchSideEffects()
         default:
-            restoreUserDefaultsBackup(backup, for: identifier)
+            return restoreUserDefaultsBackup(backup, for: identifier)
         }
     }
 
@@ -977,7 +913,10 @@ final class CmuxSettingsFileStore {
         return .string(current)
     }
 
-    private func applyManagedUserDefaultsValue(_ value: ManagedSettingsValue, for defaultsKey: String) {
+    private func applyManagedUserDefaultsValue(
+        _ value: ManagedSettingsValue,
+        for defaultsKey: String
+    ) -> ManagedDefaultBatchSideEffects {
         let defaults = UserDefaults.standard
         if defaultsKey == WorkspaceTabColorSettings.paletteKey,
            case .stringDictionary(let next) = value {
@@ -985,16 +924,24 @@ final class CmuxSettingsFileStore {
             if current != next {
                 WorkspaceTabColorSettings.persistPaletteMap(next, defaults: defaults)
             }
-            return
+            return ManagedDefaultBatchSideEffects()
         }
 
         var didMutateStoredValue = false
         switch value {
         case .bool(let next):
+            let shouldTrackFileDefault = SidebarMatchTerminalBackgroundSettings.isSettingsFileDefaultKey(defaultsKey)
+            if shouldTrackFileDefault, !SidebarMatchTerminalBackgroundSettings.shouldApplySettingsFileDefault(defaults: defaults) {
+                SidebarMatchTerminalBackgroundSettings.recordSettingsFileDefault(next, defaults: defaults)
+                return ManagedDefaultBatchSideEffects()
+            }
             let current = defaults.object(forKey: defaultsKey) as? Bool
             if current != next {
                 defaults.set(next, forKey: defaultsKey)
                 didMutateStoredValue = true
+            }
+            if shouldTrackFileDefault, didMutateStoredValue {
+                SidebarMatchTerminalBackgroundSettings.recordSettingsFileDefault(next, defaults: defaults)
             }
         case .int(let next):
             let current = defaults.object(forKey: defaultsKey) as? Int
@@ -1038,22 +985,19 @@ final class CmuxSettingsFileStore {
             }
         }
 
-        if defaultsKey == TerminalScrollBarSettings.showScrollBarKey, didMutateStoredValue {
-            TerminalScrollBarSettings.notifyDidChange(notificationCenter: notificationCenter)
+        if didMutateStoredValue {
+            return applyManagedDefaultSideEffects(
+                for: defaultsKey,
+                source: "cmuxConfig.applyManagedDefault"
+            )
         }
-
-        switch defaultsKey {
-        case LanguageSettings.languageKey:
-            let language = AppLanguage(rawValue: UserDefaults.standard.string(forKey: defaultsKey) ?? "") ?? .system
-            LanguageSettings.apply(language)
-        case AppIconSettings.modeKey:
-            AppIconSettings.applyIcon(AppIconSettings.resolvedMode())
-        default:
-            break
-        }
+        return ManagedDefaultBatchSideEffects()
     }
 
-    private func restoreUserDefaultsBackup(_ backup: BackupValue, for defaultsKey: String) {
+    private func restoreUserDefaultsBackup(
+        _ backup: BackupValue,
+        for defaultsKey: String
+    ) -> ManagedDefaultBatchSideEffects {
         let defaults = UserDefaults.standard
         if defaultsKey == WorkspaceTabColorSettings.paletteKey {
             switch backup {
@@ -1064,38 +1008,81 @@ final class CmuxSettingsFileStore {
             default:
                 break
             }
-            return
+            return ManagedDefaultBatchSideEffects()
         }
 
+        var didMutateStoredValue = false
         switch backup {
         case .absent:
-            defaults.removeObject(forKey: defaultsKey)
+            if defaults.object(forKey: defaultsKey) != nil { defaults.removeObject(forKey: defaultsKey); didMutateStoredValue = true }
         case .bool(let value):
-            defaults.set(value, forKey: defaultsKey)
+            if defaults.object(forKey: defaultsKey) as? Bool != value { defaults.set(value, forKey: defaultsKey); didMutateStoredValue = true }
         case .int(let value):
-            defaults.set(value, forKey: defaultsKey)
+            if defaults.object(forKey: defaultsKey) as? Int != value { defaults.set(value, forKey: defaultsKey); didMutateStoredValue = true }
         case .double(let value):
-            defaults.set(value, forKey: defaultsKey)
+            if defaults.object(forKey: defaultsKey) as? Double != value { defaults.set(value, forKey: defaultsKey); didMutateStoredValue = true }
         case .string(let value):
-            defaults.set(value, forKey: defaultsKey)
+            if defaults.string(forKey: defaultsKey) != value { defaults.set(value, forKey: defaultsKey); didMutateStoredValue = true }
         case .stringArray(let value):
-            defaults.set(value, forKey: defaultsKey)
+            if defaults.array(forKey: defaultsKey) as? [String] != value { defaults.set(value, forKey: defaultsKey); didMutateStoredValue = true }
         case .stringDictionary(let value):
-            defaults.set(value, forKey: defaultsKey)
+            if defaults.dictionary(forKey: defaultsKey) as? [String: String] != value { defaults.set(value, forKey: defaultsKey); didMutateStoredValue = true }
         }
 
-        if defaultsKey == TerminalScrollBarSettings.showScrollBarKey {
-            TerminalScrollBarSettings.notifyDidChange(notificationCenter: notificationCenter)
+        if didMutateStoredValue {
+            return applyManagedDefaultSideEffects(
+                for: defaultsKey,
+                source: "cmuxConfig.restoreUserDefault"
+            )
+        }
+        return ManagedDefaultBatchSideEffects()
+    }
+
+    private func applyManagedDefaultSideEffects(
+        for defaultsKey: String,
+        source: String
+    ) -> ManagedDefaultBatchSideEffects {
+        let notificationCenter = notificationCenter
+        let notifyScrollBar = defaultsKey == TerminalScrollBarSettings.showScrollBarKey
+        var sideEffects = ManagedDefaultBatchSideEffects()
+        sideEffects.agentSessionAutoResumeDidChange =
+            defaultsKey == AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey
+        let language = defaultsKey == LanguageSettings.languageKey ? AppLanguage(rawValue: UserDefaults.standard.string(forKey: defaultsKey) ?? "") ?? .system : nil
+        let shouldApplyAppearance = defaultsKey == AppearanceSettings.appearanceModeKey
+        let appearanceRawValue = shouldApplyAppearance ? UserDefaults.standard.string(forKey: defaultsKey) : nil
+        let appIconMode = defaultsKey == AppIconSettings.modeKey ? AppIconSettings.resolvedMode() : nil
+        let apply = {
+            if notifyScrollBar {
+                TerminalScrollBarSettings.notifyDidChange(notificationCenter: notificationCenter)
+            }
+
+            if let language {
+                LanguageSettings.apply(language)
+            } else if shouldApplyAppearance {
+                AppearanceSettings.applyStoredMode(rawValue: appearanceRawValue, source: source)
+            } else if let appIconMode {
+                AppIconSettings.applyIcon(appIconMode)
+            }
         }
 
-        switch defaultsKey {
-        case LanguageSettings.languageKey:
-            let language = AppLanguage(rawValue: UserDefaults.standard.string(forKey: defaultsKey) ?? "") ?? .system
-            LanguageSettings.apply(language)
-        case AppIconSettings.modeKey:
-            AppIconSettings.applyIcon(AppIconSettings.resolvedMode())
-        default:
-            break
+        if Thread.isMainThread {
+            apply()
+        } else {
+            DispatchQueue.main.async { apply() }
+        }
+        return sideEffects
+    }
+
+    private func applyManagedDefaultBatchSideEffects(_ sideEffects: ManagedDefaultBatchSideEffects) {
+        guard sideEffects.agentSessionAutoResumeDidChange else { return }
+        let notificationCenter = notificationCenter
+        let apply = {
+            AgentSessionAutoResumeSettings.notifyDidChange(notificationCenter: notificationCenter)
+        }
+        if Thread.isMainThread {
+            apply()
+        } else {
+            DispatchQueue.main.async { apply() }
         }
     }
 
@@ -1166,8 +1153,8 @@ final class CmuxSettingsFileStore {
             "  // This file uses JSON with comments (JSONC).",
             "  // Uncomment and edit any setting to make it file-managed.",
             "  // Remove a setting to fall back to the value saved in Settings.",
-            "  // cmux creates this template on launch when both settings file locations are missing.",
-            "  // ~/.config/cmux/settings.json takes precedence over the Application Support fallback.",
+            "  // cmux creates this template on launch when ~/.config/cmux/cmux.json is missing.",
+            "  // Legacy settings.json files are read only as fallback for keys not present here.",
             "",
         ]
 
@@ -1204,7 +1191,7 @@ final class CmuxSettingsFileStore {
 
     private static func defaultTemplateSections() -> [[String: Any]] {
         let shortcutsBindings = Dictionary(
-            uniqueKeysWithValues: KeyboardShortcutSettings.Action.allCases.map { action in
+            uniqueKeysWithValues: KeyboardShortcutSettings.publicShortcutActions.map { action in
                 (action.rawValue, shortcutTemplateValue(action.defaultShortcut, usesNumberedDigits: action.usesNumberedDigitMatching))
             }
         )
@@ -1215,6 +1202,7 @@ final class CmuxSettingsFileStore {
                     "language": LanguageSettings.defaultLanguage.rawValue,
                     "appearance": AppearanceSettings.defaultMode.rawValue,
                     "appIcon": AppIconSettings.defaultMode.rawValue,
+                    "menuBarOnly": MenuBarOnlySettings.defaultMenuBarOnly,
                     "newWorkspacePlacement": WorkspacePlacementSettings.defaultPlacement.rawValue,
                     "minimalMode": false,
                     "keepWorkspaceOpenWhenClosingLastSurface": !LastSurfaceCloseShortcutSettings.defaultValue,
@@ -1222,6 +1210,7 @@ final class CmuxSettingsFileStore {
                     "preferredEditor": "",
                     "openMarkdownInCmuxViewer": CmdClickMarkdownRouteSettings.defaultValue,
                     "reorderOnNotification": WorkspaceAutoReorderSettings.defaultValue,
+                    "iMessageMode": IMessageModeSettings.defaultValue,
                     "sendAnonymousTelemetry": TelemetrySettings.defaultSendAnonymousTelemetry,
                     "warnBeforeQuit": QuitWarningSettings.defaultWarnBeforeQuit,
                     "renameSelectsExistingName": CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus,
@@ -1231,6 +1220,7 @@ final class CmuxSettingsFileStore {
             [
                 "terminal": [
                     "showScrollBar": TerminalScrollBarSettings.defaultShowScrollBar,
+                    "autoResumeAgentSessions": AgentSessionAutoResumeSettings.defaultAutoResumeAgentSessions,
                 ],
             ],
             [
@@ -1251,6 +1241,7 @@ final class CmuxSettingsFileStore {
                     "showNotificationMessage": SidebarWorkspaceDetailSettings.defaultShowNotificationMessage,
                     "showBranchDirectory": true,
                     "showPullRequests": true,
+                    "makePullRequestsClickable": SidebarPullRequestClickabilitySettings.defaultClickable,
                     "openPullRequestLinksInCmuxBrowser": BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser,
                     "openPortLinksInCmuxBrowser": BrowserLinkOpenSettings.defaultOpenSidebarPortLinksInCmuxBrowser,
                     "showSSH": true,
@@ -1267,7 +1258,7 @@ final class CmuxSettingsFileStore {
                     "notificationBadgeColor": NSNull(),
                     "colors": Dictionary(
                         uniqueKeysWithValues: WorkspaceTabColorSettings.defaultPalette.map { ($0.name, $0.hex) }
-                    ),
+                    )
                 ],
             ],
             [
@@ -1307,8 +1298,6 @@ final class CmuxSettingsFileStore {
             ],
             [
                 "shortcuts": [
-                    "showModifierHoldHints": ShortcutHintDebugSettings.defaultShowHintsOnCommandHold &&
-                        ShortcutHintDebugSettings.defaultShowHintsOnControlHold,
                     "bindings": shortcutsBindings,
                 ],
             ],
@@ -1346,6 +1335,30 @@ private struct ResolvedSettingsSnapshot {
     var shortcuts: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
     var managedUserDefaults: [String: ManagedSettingsValue] = [:]
     var managedCustomSettings = ManagedCustomSettings()
+
+    mutating func fillMissingSettings(from fallback: ResolvedSettingsSnapshot) {
+        if path == nil && (!fallback.shortcuts.isEmpty ||
+            !fallback.managedUserDefaults.isEmpty ||
+            !fallback.managedCustomSettings.isEmpty) {
+            path = fallback.path
+        }
+        for (action, shortcut) in fallback.shortcuts where shortcuts[action] == nil {
+            shortcuts[action] = shortcut
+        }
+        for (key, value) in fallback.managedUserDefaults where managedUserDefaults[key] == nil {
+            managedUserDefaults[key] = value
+        }
+        managedCustomSettings.fillMissingSettings(from: fallback.managedCustomSettings)
+    }
+}
+
+private struct ManagedDefaultBatchSideEffects {
+    var agentSessionAutoResumeDidChange = false
+
+    mutating func merge(_ other: ManagedDefaultBatchSideEffects) {
+        agentSessionAutoResumeDidChange =
+            agentSessionAutoResumeDidChange || other.agentSessionAutoResumeDidChange
+    }
 }
 
 private enum ManagedStringOverride: Equatable {
@@ -1366,6 +1379,12 @@ private struct ManagedCustomSettings: Equatable {
             identifiers.insert(CmuxSettingsFileStore.socketPasswordBackupIdentifier)
         }
         return identifiers
+    }
+
+    mutating func fillMissingSettings(from fallback: ManagedCustomSettings) {
+        if socketPassword == nil {
+            socketPassword = fallback.socketPassword
+        }
     }
 }
 
@@ -1452,132 +1471,6 @@ private enum BackupValue: Codable, Equatable {
             try container.encode(Kind.stringDictionary, forKey: .kind)
             try container.encode(value, forKey: .stringDictionaryValue)
         }
-    }
-}
-
-private enum JSONCParser {
-    static func preprocess(data: Data) throws -> Data {
-        guard let source = String(data: data, encoding: .utf8) else {
-            throw JSONCError.invalidUTF8
-        }
-        let withoutBOM = source.hasPrefix("\u{feff}") ? String(source.dropFirst()) : source
-        let stripped = stripComments(from: withoutBOM)
-        let normalized = stripTrailingCommas(from: stripped)
-        return Data(normalized.utf8)
-    }
-
-    private static func stripComments(from source: String) -> String {
-        var result = ""
-        var index = source.startIndex
-        var inString = false
-        var isEscaped = false
-
-        while index < source.endIndex {
-            let character = source[index]
-
-            if inString {
-                result.append(character)
-                if isEscaped {
-                    isEscaped = false
-                } else if character == "\\" {
-                    isEscaped = true
-                } else if character == "\"" {
-                    inString = false
-                }
-                index = source.index(after: index)
-                continue
-            }
-
-            if character == "\"" {
-                inString = true
-                result.append(character)
-                index = source.index(after: index)
-                continue
-            }
-
-            if character == "/" {
-                let nextIndex = source.index(after: index)
-                if nextIndex < source.endIndex {
-                    let next = source[nextIndex]
-                    if next == "/" {
-                        index = source.index(after: nextIndex)
-                        while index < source.endIndex && source[index] != "\n" {
-                            index = source.index(after: index)
-                        }
-                        continue
-                    }
-                    if next == "*" {
-                        index = source.index(after: nextIndex)
-                        while index < source.endIndex {
-                            let current = source[index]
-                            let followingIndex = source.index(after: index)
-                            if current == "*" && followingIndex < source.endIndex && source[followingIndex] == "/" {
-                                index = source.index(after: followingIndex)
-                                break
-                            }
-                            index = followingIndex
-                        }
-                        continue
-                    }
-                }
-            }
-
-            result.append(character)
-            index = source.index(after: index)
-        }
-
-        return result
-    }
-
-    private static func stripTrailingCommas(from source: String) -> String {
-        var result = ""
-        var index = source.startIndex
-        var inString = false
-        var isEscaped = false
-
-        while index < source.endIndex {
-            let character = source[index]
-
-            if inString {
-                result.append(character)
-                if isEscaped {
-                    isEscaped = false
-                } else if character == "\\" {
-                    isEscaped = true
-                } else if character == "\"" {
-                    inString = false
-                }
-                index = source.index(after: index)
-                continue
-            }
-
-            if character == "\"" {
-                inString = true
-                result.append(character)
-                index = source.index(after: index)
-                continue
-            }
-
-            if character == "," {
-                var lookahead = source.index(after: index)
-                while lookahead < source.endIndex && source[lookahead].isWhitespace {
-                    lookahead = source.index(after: lookahead)
-                }
-                if lookahead < source.endIndex && (source[lookahead] == "}" || source[lookahead] == "]") {
-                    index = source.index(after: index)
-                    continue
-                }
-            }
-
-            result.append(character)
-            index = source.index(after: index)
-        }
-
-        return result
-    }
-
-    private enum JSONCError: Error {
-        case invalidUTF8
     }
 }
 

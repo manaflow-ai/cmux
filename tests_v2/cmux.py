@@ -55,9 +55,7 @@ def _read_last_socket_path() -> Optional[str]:
 
 
 def _default_socket_path() -> str:
-    # Backwards/forward compatibility: some scripts export CMUX_SOCKET,
-    # while the client historically used CMUX_SOCKET_PATH.
-    override = os.environ.get("CMUX_SOCKET_PATH") or os.environ.get("CMUX_SOCKET")
+    override = os.environ.get("CMUX_SOCKET_PATH")
     if override:
         if os.path.exists(override):
             return override
@@ -981,6 +979,19 @@ class cmux:
         sid = self._resolve_surface_id(panel)
         res = self._call("debug.terminal.is_focused", {"surface_id": sid}) or {}
         return bool(res.get("focused"))
+
+    def simulate_terminal_file_drop(
+        self,
+        panel: Union[str, int],
+        paths: list[str],
+        route: str = "text_destination",
+    ) -> None:
+        sid = self._resolve_surface_id(panel)
+        self._call(
+            "debug.terminal.simulate_file_drop",
+            {"surface_id": sid, "paths": [str(path) for path in paths], "route": route},
+            timeout_s=30.0,
+        )
 
     def read_terminal_text(self, panel: Union[str, int, None] = None) -> str:
         params: Dict[str, Any] = {}

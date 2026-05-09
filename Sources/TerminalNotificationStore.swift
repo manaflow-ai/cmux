@@ -694,11 +694,19 @@ final class TerminalNotificationStore: ObservableObject {
     @Published private(set) var notifications: [TerminalNotification] = [] {
         didSet {
             indexes = Self.buildIndexes(for: notifications)
+            let nextMenuSnapshot = NotificationMenuSnapshotBuilder.make(notifications: notifications)
+            if notificationMenuSnapshot != nextMenuSnapshot { notificationMenuSnapshot = nextMenuSnapshot }
             refreshDockBadge()
+            if !suppressNotificationDiffPublishing { CmuxEventBus.shared.publishNotificationChanges(oldValue: oldValue, newValue: notifications) }
         }
     }
+    @Published private(set) var notificationMenuSnapshot = NotificationMenuSnapshotBuilder.make(notifications: [])
+    // Workspace-level manual unread drives sidebar workspace badges; pane-level
+    // manual unread remains owned by Workspace.manualUnreadPanelIds.
+    @Published private(set) var manualUnreadWorkspaceIds: Set<UUID> = []
     @Published private(set) var focusedReadIndicatorByTabId: [UUID: UUID] = [:]
     @Published private(set) var authorizationState: NotificationAuthorizationState = .unknown
+    private var suppressNotificationDiffPublishing = false
 
     private let center = UNUserNotificationCenter.current()
     private var hasRequestedAutomaticAuthorization = false
@@ -775,6 +783,8 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     var unreadCount: Int {
+        // Global badges count only notification-backed unread items. Per-workspace
+        // badges use unreadCount(forTabId:) and include manualUnreadWorkspaceIds.
         indexes.unreadCount
     }
 
@@ -870,8 +880,39 @@ final class TerminalNotificationStore: ObservableObject {
         refreshAuthorizationStatus()
     }
 
+    private func setWorkspaceManualUnread(_ isUnread: Bool, forTabId tabId: UUID) {
+        var nextIds = manualUnreadWorkspaceIds
+        let didChange: Bool
+        if isUnread {
+            didChange = nextIds.insert(tabId).inserted
+        } else {
+            didChange = nextIds.remove(tabId) != nil
+        }
+        guard didChange else { return }
+        manualUnreadWorkspaceIds = nextIds
+    }
+
+    private func clearWorkspaceManualUnread() {
+        guard !manualUnreadWorkspaceIds.isEmpty else { return }
+        manualUnreadWorkspaceIds = []
+    }
+
+    // Per-workspace badges treat manualUnreadWorkspaceIds as "has unread
+    // activity"; summing these counts can exceed indexes.unreadCount.
     func unreadCount(forTabId tabId: UUID) -> Int {
-        indexes.unreadCountByTabId[tabId] ?? 0
+        (indexes.unreadCountByTabId[tabId] ?? 0) + (manualUnreadWorkspaceIds.contains(tabId) ? 1 : 0)
+    }
+
+    func workspaceIsUnread(forTabId tabId: UUID) -> Bool {
+        unreadCount(forTabId: tabId) > 0
+    }
+
+    func canMarkWorkspaceRead(forTabIds tabIds: [UUID]) -> Bool {
+        tabIds.contains { workspaceIsUnread(forTabId: $0) }
+    }
+
+    func canMarkWorkspaceUnread(forTabIds tabIds: [UUID]) -> Bool {
+        tabIds.contains { !workspaceIsUnread(forTabId: $0) }
     }
 
     func hasUnreadNotification(forTabId tabId: UUID, surfaceId: UUID?) -> Bool {
@@ -957,6 +998,7 @@ final class TerminalNotificationStore: ObservableObject {
             isRead: false
         )
         updated.insert(notification, at: 0)
+        setWorkspaceManualUnread(false, forTabId: tabId)
         notifications = updated
         if let cooldownKey, resolvedCooldownInterval != nil {
             lastNotificationDateByCooldownKey[cooldownKey] = now
@@ -990,6 +1032,7 @@ final class TerminalNotificationStore: ObservableObject {
                 idsToClear.append(updated[index].id.uuidString)
             }
         }
+        setWorkspaceManualUnread(false, forTabId: tabId)
         if !idsToClear.isEmpty {
             notifications = updated
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
@@ -1007,6 +1050,7 @@ final class TerminalNotificationStore: ObservableObject {
                 idsToClear.append(updated[index].id.uuidString)
             }
         }
+        setWorkspaceManualUnread(false, forTabId: tabId)
         if !idsToClear.isEmpty {
             notifications = updated
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
@@ -1024,7 +1068,10 @@ final class TerminalNotificationStore: ObservableObject {
             }
         }
         if didChange {
+            setWorkspaceManualUnread(false, forTabId: tabId)
             notifications = updated
+        } else if !workspaceIsUnread(forTabId: tabId) {
+            setWorkspaceManualUnread(true, forTabId: tabId)
         }
     }
 
@@ -1055,6 +1102,7 @@ final class TerminalNotificationStore: ObservableObject {
                 idsToClear.append(updated[index].id.uuidString)
             }
         }
+        clearWorkspaceManualUnread()
         if !idsToClear.isEmpty {
             notifications = updated
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
@@ -1075,16 +1123,26 @@ final class TerminalNotificationStore: ObservableObject {
         center.removeDeliveredNotificationsOffMain(withIdentifiers: [id.uuidString])
     }
 
-    func clearAll() {
-        guard !notifications.isEmpty || !focusedReadIndicatorByTabId.isEmpty else { return }
+    private func replaceNotificationsForClear(_ next: [TerminalNotification]) { suppressNotificationDiffPublishing = true; notifications = next; suppressNotificationDiffPublishing = false }
+
+    func clearAll(discardQueuedNotifications: Bool = true) {
+        if discardQueuedNotifications { TerminalMutationBus.shared.discardPendingNotifications() }
+        guard !notifications.isEmpty || !focusedReadIndicatorByTabId.isEmpty || !manualUnreadWorkspaceIds.isEmpty else { return }
         let ids = notifications.map { $0.id.uuidString }
-        notifications.removeAll()
+        replaceNotificationsForClear([])
+        clearWorkspaceManualUnread()
         focusedReadIndicatorByTabId.removeAll()
+        CmuxEventBus.shared.publishNotificationCleared(ids: ids, workspaceId: nil, surfaceId: nil)
         center.removeDeliveredNotificationsOffMain(withIdentifiers: ids)
         center.removePendingNotificationRequestsOffMain(withIdentifiers: ids)
     }
 
-    func clearNotifications(forTabId tabId: UUID, surfaceId: UUID?) {
+    func clearNotifications(
+        forTabId tabId: UUID,
+        surfaceId: UUID?,
+        discardQueuedNotifications: Bool = true
+    ) {
+        if discardQueuedNotifications { TerminalMutationBus.shared.discardPendingNotifications(forTabId: tabId, surfaceId: surfaceId) }
         var updated: [TerminalNotification] = []
         updated.reserveCapacity(notifications.count)
         var idsToClear: [String] = []
@@ -1096,13 +1154,15 @@ final class TerminalNotificationStore: ObservableObject {
             }
         }
         guard !idsToClear.isEmpty else { return }
-        notifications = updated
+        replaceNotificationsForClear(updated)
         clearFocusedReadIndicator(forTabId: tabId, surfaceId: surfaceId)
+        CmuxEventBus.shared.publishNotificationCleared(ids: idsToClear, workspaceId: tabId, surfaceId: surfaceId)
         center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
         center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
     }
 
-    func clearNotifications(forTabId tabId: UUID) {
+    func clearNotifications(forTabId tabId: UUID, discardQueuedNotifications: Bool = true) {
+        if discardQueuedNotifications { TerminalMutationBus.shared.discardPendingNotifications(forTabId: tabId) }
         var updated: [TerminalNotification] = []
         updated.reserveCapacity(notifications.count)
         var idsToClear: [String] = []
@@ -1113,9 +1173,11 @@ final class TerminalNotificationStore: ObservableObject {
                 updated.append(notification)
             }
         }
+        setWorkspaceManualUnread(false, forTabId: tabId)
         guard !idsToClear.isEmpty else { return }
-        notifications = updated
+        replaceNotificationsForClear(updated)
         clearFocusedReadIndicator(forTabId: tabId)
+        CmuxEventBus.shared.publishNotificationCleared(ids: idsToClear, workspaceId: tabId, surfaceId: nil)
         center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
         center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
     }
@@ -1178,6 +1240,18 @@ final class TerminalNotificationStore: ObservableObject {
         origin: AuthorizationRequestOrigin,
         _ completion: @escaping (Bool) -> Void
     ) {
+        if origin == .notificationDelivery,
+           let cachedDecision = Self.cachedDeliveryAuthorizationDecision(
+               for: authorizationState,
+               isAppActive: AppFocusState.isAppActive()
+           ) {
+            if !cachedDecision, authorizationState == .notDetermined {
+                hasDeferredAuthorizationRequest = true
+            }
+            completion(cachedDecision)
+            return
+        }
+
         logAuthorization("ensure start origin=\(origin.rawValue)")
         center.getNotificationSettings { [weak self] settings in
             DispatchQueue.main.async {
@@ -1194,8 +1268,10 @@ final class TerminalNotificationStore: ObservableObject {
                 case .authorized, .provisional, .ephemeral:
                     completion(true)
                 case .denied:
-                    self.logAuthorization("ensure denied origin=\(origin.rawValue) prompting_settings")
-                    self.promptToEnableNotifications()
+                    if origin != .notificationDelivery {
+                        self.logAuthorization("ensure denied origin=\(origin.rawValue) prompting_settings")
+                        self.promptToEnableNotifications()
+                    }
                     completion(false)
                 case .notDetermined:
                     if Self.shouldDeferAutomaticAuthorizationRequest(
@@ -1255,12 +1331,10 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     private func promptToEnableNotifications() {
-        DispatchQueue.main.async { [weak self] in
-            guard let self, !self.hasPromptedForSettings else { return }
-            self.logAuthorization("prompt settings shown")
-            self.hasPromptedForSettings = true
-            self.presentNotificationSettingsPrompt(attempt: 0)
-        }
+        guard !hasPromptedForSettings else { return }
+        logAuthorization("prompt settings shown")
+        hasPromptedForSettings = true
+        presentNotificationSettingsPrompt(attempt: 0)
     }
 
     private func presentNotificationSettingsPrompt(attempt: Int) {
@@ -1407,7 +1481,9 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func replaceNotificationsForTesting(_ notifications: [TerminalNotification]) {
+        TerminalMutationBus.shared.discardPendingNotifications()
         self.notifications = notifications
+        clearWorkspaceManualUnread()
         focusedReadIndicatorByTabId.removeAll()
     }
 #endif

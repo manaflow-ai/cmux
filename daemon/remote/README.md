@@ -6,7 +6,12 @@ Go remote daemon for `cmux ssh` bootstrap, capability negotiation, and remote pr
 
 1. `cmuxd-remote version`
 2. `cmuxd-remote serve --stdio`
-3. `cmuxd-remote cli <command> [args...]` — relay cmux commands to the local app over the reverse SSH forward
+3. `cmuxd-remote serve --ws --auth-lease-file <path> [--rpc-auth-lease-file <path>] [--listen 127.0.0.1:7777]`
+4. `cmuxd-remote cli <command> [args...]` — relay cmux commands to the local app over the reverse SSH forward
+
+`serve --ws` is explicit opt-in for cloud VM images only. The normal `cmux ssh`
+code path continues to use `serve --stdio` over an SSH exec channel and does not
+open a WebSocket listener.
 
 When invoked as `cmux` (via wrapper/symlink installed during bootstrap), the binary auto-dispatches to the `cli` subcommand. This is busybox-style argv[0] detection.
 
@@ -31,6 +36,42 @@ Current integration in cmux:
 2. Client sends `hello` before enabling remote proxy transport.
 3. Local workspace proxy broker serves SOCKS5 + HTTP CONNECT and tunnels stream traffic through `proxy.*` RPC over `serve --stdio`, using daemon-pushed stream events instead of polling reads.
 4. Daemon status/capabilities are exposed in `workspace.remote.status -> remote.daemon` (including `session.resize.min`).
+
+## Cloud WebSocket PTY transport
+
+The WebSocket PTY transport is locked until the backend writes a short-lived
+lease file. The baked image contains only the daemon binary and service command,
+not user secrets or provider API keys.
+
+Lease file shape:
+
+```json
+{
+  "version": 1,
+  "token_sha256": "<sha256 hex of client attach token>",
+  "expires_at_unix": 1770000000,
+  "session_id": "optional-session-binding",
+  "single_use": true
+}
+```
+
+Client flow:
+
+1. Connect to `/terminal`.
+2. Send a text JSON auth frame first: `{"type":"auth","token":"...","session_id":"...","cols":80,"rows":24}`.
+3. After `{"type":"ready"}`, binary WebSocket frames are terminal input/output.
+4. Text frames after auth are control frames such as `{"type":"resize","cols":120,"rows":40}`.
+
+Security invariants:
+
+1. `serve --ws` fails to start without `--auth-lease-file`.
+2. Missing, expired, wrong-token, or wrong-session leases close with WebSocket
+   policy violation before a PTY is started.
+3. Successful single-use leases are consumed before the shell is spawned, so a
+   replay gets `no active lease`.
+4. Provider traffic auth remains separate. E2B images should be created with
+   `network.allowPublicTraffic: false`, so E2B requires
+   `e2b-traffic-access-token` before the daemon sees the request.
 
 `workspace.remote.configure` contract notes:
 1. `port` / `local_proxy_port` accept integer values and numeric strings; explicit `null` clears each field.

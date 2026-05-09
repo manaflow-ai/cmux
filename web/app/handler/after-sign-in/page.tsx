@@ -1,5 +1,5 @@
 import { cookies } from "next/headers";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { stackServerApp } from "../../lib/stack";
 import { env } from "../../env";
 import { OpenNativeClient } from "./OpenNativeClient";
@@ -7,6 +7,7 @@ import { OpenNativeClient } from "./OpenNativeClient";
 export const dynamic = "force-dynamic";
 
 const NATIVE_SCHEME = "cmux://";
+const NATIVE_SCHEMES = [NATIVE_SCHEME, "cmux-nightly://", "cmux-dev://"];
 
 function findStackCookie(
   cookieStore: { getAll: () => { name: string; value: string }[] },
@@ -72,8 +73,11 @@ type Props = {
 };
 
 export default async function AfterSignInPage({ searchParams: searchParamsPromise }: Props) {
+  const projectId = env.NEXT_PUBLIC_STACK_PROJECT_ID;
+  if (!stackServerApp || !projectId) notFound();
+
   const stackCookies = await cookies();
-  const refreshBaseName = `stack-refresh-${env.NEXT_PUBLIC_STACK_PROJECT_ID}`;
+  const refreshBaseName = `stack-refresh-${projectId}`;
   const rawRefreshCookie = findStackCookie(stackCookies, refreshBaseName);
   const rawAccessCookie = findStackCookie(stackCookies, "stack-access");
   const parsedAccess = decodeAccessCookie(rawAccessCookie);
@@ -111,7 +115,8 @@ export default async function AfterSignInPage({ searchParams: searchParamsPromis
   if (
     refreshToken &&
     accessCookie &&
-    (nativeReturnTo?.startsWith(NATIVE_SCHEME) || nativeReturnTo?.startsWith("cmux-dev://"))
+    nativeReturnTo !== null &&
+    NATIVE_SCHEMES.some((scheme) => nativeReturnTo.startsWith(scheme))
   ) {
     const href = buildNativeHref(nativeReturnTo, refreshToken, accessCookie);
     if (href) return <OpenNativeClient href={href} />;

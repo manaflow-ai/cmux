@@ -53,25 +53,39 @@ final class FileExplorerStoreTests: XCTestCase {
         let description: String
     }
 
-    /// Poll on the main actor until `condition` holds or `timeout` elapses.
-    /// Replaces fixed `Task.sleep` delays that were flaky on slow CI runners
-    /// (warp-macos-15) where the spawned load Task hadn't run inside 100ms.
-    /// Throws on timeout so the test function aborts instead of falling through
-    /// to force-unwraps that would crash the runner.
-    private func waitFor(
+    /// Poll until `condition` holds or `timeout` elapses.
+    /// The timeout runs off the main actor so a wedged main-actor load fails the
+    /// specific test instead of consuming the whole CI job timeout.
+    private nonisolated func waitFor(
         _ description: String,
         timeout: TimeInterval = 5.0,
         file: StaticString = #filePath,
         line: UInt = #line,
-        _ condition: () -> Bool
+        _ condition: @MainActor @escaping @Sendable () -> Bool
     ) async throws {
-        let deadline = Date().addingTimeInterval(timeout)
-        while !condition() {
-            if Date() >= deadline {
-                XCTFail("Timed out waiting for: \(description)", file: file, line: line)
-                throw WaitTimeout(description: description)
+        do {
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                group.addTask {
+                    while !Task.isCancelled {
+                        if await MainActor.run(body: condition) {
+                            return
+                        }
+                        try await Task.sleep(nanoseconds: 10_000_000)
+                    }
+                }
+                group.addTask {
+                    try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                    throw WaitTimeout(description: description)
+                }
+
+                _ = try await group.next()
+                group.cancelAll()
             }
-            try? await Task.sleep(nanoseconds: 10_000_000)
+        } catch {
+            await MainActor.run {
+                XCTFail("Timed out waiting for: \(description)", file: file, line: line)
+            }
+            throw error
         }
     }
 
@@ -259,6 +273,49 @@ final class FileExplorerStoreTests: XCTestCase {
         XCTAssertNotNil(srcNode.children)
     }
 
+    // MARK: - Selection persistence
+
+    func testMultiSelectionKeepsAnchorAndSelectedPaths() {
+        let store = FileExplorerStore()
+        let readme = FileExplorerNode(name: "README.md", path: "/project/README.md", isDirectory: false)
+        let package = FileExplorerNode(name: "Package.swift", path: "/project/Package.swift", isDirectory: false)
+
+        store.select(nodes: [readme, package], anchor: package)
+
+        XCTAssertEqual(store.selectedPath, "/project/Package.swift")
+        XCTAssertEqual(store.selectedPaths, ["/project/README.md", "/project/Package.swift"])
+
+        store.select(node: readme)
+
+        XCTAssertEqual(store.selectedPath, "/project/README.md")
+        XCTAssertEqual(store.selectedPaths, ["/project/README.md"])
+
+        store.select(node: nil)
+
+        XCTAssertNil(store.selectedPath)
+        XCTAssertTrue(store.selectedPaths.isEmpty)
+    }
+
+    func testRestoredMultiSelectionScrollsToAnchorRow() {
+        let exactRows = IndexSet([2, 7, 11])
+
+        XCTAssertEqual(
+            FileExplorerSelectionRestoration.scrollRow(anchorRow: 7, exactRows: exactRows),
+            7
+        )
+        XCTAssertEqual(
+            FileExplorerSelectionRestoration.scrollRow(anchorRow: 4, exactRows: exactRows),
+            2
+        )
+        XCTAssertEqual(
+            FileExplorerSelectionRestoration.scrollRow(anchorRow: nil, exactRows: exactRows),
+            2
+        )
+        XCTAssertNil(
+            FileExplorerSelectionRestoration.scrollRow(anchorRow: nil, exactRows: [])
+        )
+    }
+
     // MARK: - Collapse/Expand
 
     func testCollapseRemovesFromExpandedPaths() {
@@ -277,5 +334,224 @@ final class FileExplorerStoreTests: XCTestCase {
         let node = FileExplorerNode(name: "file.txt", path: "/project/file.txt", isDirectory: false)
         store.expand(node: node)
         XCTAssertFalse(store.isExpanded(node))
+    }
+}
+
+@MainActor
+final class FileSearchControllerTests: XCTestCase {
+    private struct WaitTimeout: Error {}
+
+    func testSearchIncludesDotfilesWithoutSearchingGitInternals() async throws {
+        try XCTSkipUnless(Self.hasRipgrep(), "ripgrep is required for file search behavior tests")
+
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        try "visible needle\n".write(
+            to: rootURL.appendingPathComponent("visible.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "hidden needle\n".write(
+            to: rootURL.appendingPathComponent(".env"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let gitURL = rootURL.appendingPathComponent(".git", isDirectory: true)
+        try FileManager.default.createDirectory(at: gitURL, withIntermediateDirectories: true)
+        try "git needle\n".write(
+            to: gitURL.appendingPathComponent("config"),
+            atomically: true,
+            encoding: .utf8
+        )
+        for generatedDirectoryName in ["node_modules", "dist", "build", "DerivedData"] {
+            let generatedURL = rootURL.appendingPathComponent(generatedDirectoryName, isDirectory: true)
+            try FileManager.default.createDirectory(at: generatedURL, withIntermediateDirectories: true)
+            try "generated needle\n".write(
+                to: generatedURL.appendingPathComponent("generated.txt"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+
+        let controller = FileSearchController()
+        var snapshots: [FileSearchSnapshot] = []
+        controller.onSnapshotChanged = { snapshots.append($0) }
+
+        controller.search(query: "needle", rootPath: rootURL.path, isLocal: true)
+        let finalSnapshot = try await waitForSettledSearchSnapshot { snapshots.last }
+
+        XCTAssertEqual(finalSnapshot.status, .matches)
+        XCTAssertTrue(finalSnapshot.results.contains { $0.relativePath == "visible.txt" })
+        XCTAssertTrue(finalSnapshot.results.contains { $0.relativePath == ".env" })
+        XCTAssertFalse(finalSnapshot.results.contains { $0.relativePath.hasPrefix(".git/") })
+        XCTAssertFalse(finalSnapshot.results.contains { $0.relativePath.hasPrefix("node_modules/") })
+        XCTAssertFalse(finalSnapshot.results.contains { $0.relativePath.hasPrefix("dist/") })
+        XCTAssertFalse(finalSnapshot.results.contains { $0.relativePath.hasPrefix("build/") })
+        XCTAssertFalse(finalSnapshot.results.contains { $0.relativePath.hasPrefix("DerivedData/") })
+    }
+
+    func testSearchRefreshesWhenContentRevisionChanges() async throws {
+        try XCTSkipUnless(Self.hasRipgrep(), "ripgrep is required for file search behavior tests")
+
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+
+        let controller = FileSearchController()
+        var snapshots: [FileSearchSnapshot] = []
+        controller.onSnapshotChanged = { snapshots.append($0) }
+
+        controller.search(query: "needle", rootPath: rootURL.path, isLocal: true, contentRevision: 1)
+        let emptySnapshot = try await waitForSettledSearchSnapshot { snapshots.last }
+        XCTAssertEqual(emptySnapshot.status, .noMatches)
+
+        try "fresh needle\n".write(
+            to: rootURL.appendingPathComponent("fresh.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        controller.search(query: "needle", rootPath: rootURL.path, isLocal: true, contentRevision: 2)
+        let refreshedSnapshot = try await waitForSettledSearchSnapshot { snapshots.last }
+
+        XCTAssertEqual(refreshedSnapshot.status, .matches)
+        XCTAssertEqual(refreshedSnapshot.results.map(\.relativePath), ["fresh.txt"])
+    }
+
+    func testSearchRefreshesSameRequestAfterFileContentsChange() async throws {
+        try XCTSkipUnless(Self.hasRipgrep(), "ripgrep is required for file search behavior tests")
+
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+
+        let fileURL = rootURL.appendingPathComponent("editable.txt")
+        try "old text\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let controller = FileSearchController()
+        var snapshots: [FileSearchSnapshot] = []
+        controller.onSnapshotChanged = { snapshots.append($0) }
+
+        controller.search(query: "needle", rootPath: rootURL.path, isLocal: true, contentRevision: 1)
+        let emptySnapshot = try await waitForSettledSearchSnapshot { snapshots.last }
+        XCTAssertEqual(emptySnapshot.status, .noMatches)
+
+        try "fresh needle\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        controller.search(query: "needle", rootPath: rootURL.path, isLocal: true, contentRevision: 1)
+        let refreshedSnapshot = try await waitForSettledSearchSnapshot { snapshots.last }
+
+        XCTAssertEqual(refreshedSnapshot.status, .matches)
+        XCTAssertEqual(refreshedSnapshot.results.map(\.relativePath), ["editable.txt"])
+    }
+
+    func testTypingBurstDebouncesFindSearches() async throws {
+        let store = FileExplorerStore()
+        let state = FileExplorerState()
+        let searchController = SpyFileSearchController()
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { _ in }
+        )
+        let container = FileExplorerContainerView(
+            coordinator: coordinator,
+            presentation: .find,
+            searchController: searchController
+        )
+        store.provider = MockFileExplorerProvider(homePath: "/tmp")
+        store.setRootPath("/tmp/cmux-find-debounce-test")
+        container.updateHeader(store: store)
+        container.updatePresentation(.find)
+
+        let searchField = try XCTUnwrap(Self.findSearchField(in: container))
+        searchController.searchRequests.removeAll()
+
+        for query in ["p", "pr", "pri", "priv", "priva", "privat", "private"] {
+            searchField.stringValue = query
+            container.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: searchField))
+        }
+
+        try await Task.sleep(nanoseconds: 300_000_000)
+
+        XCTAssertLessThanOrEqual(
+            searchController.searchRequests.count,
+            1,
+            "A burst of typing should coalesce into one ripgrep search per debounce window."
+        )
+        XCTAssertEqual(searchController.searchRequests.last?.query, "private")
+    }
+
+    private func waitForSettledSearchSnapshot(
+        timeout: TimeInterval = 5,
+        _ snapshot: @MainActor @escaping () -> FileSearchSnapshot?
+    ) async throws -> FileSearchSnapshot {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let current = snapshot(), !current.isSearching {
+                return current
+            }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTFail("Timed out waiting for file search to finish")
+        throw WaitTimeout()
+    }
+
+    private static func hasRipgrep() -> Bool {
+        let fileManager = FileManager.default
+        for path in ["/opt/homebrew/bin/rg", "/usr/local/bin/rg", "/usr/bin/rg"] where fileManager.isExecutableFile(atPath: path) {
+            return true
+        }
+        let pathValue = ProcessInfo.processInfo.environment["PATH"] ?? ""
+        for directory in pathValue.split(separator: ":", omittingEmptySubsequences: true) {
+            let path = URL(fileURLWithPath: String(directory)).appendingPathComponent("rg").path
+            if fileManager.isExecutableFile(atPath: path) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func findSearchField(in root: NSView) -> NSSearchField? {
+        if let field = root as? NSSearchField,
+           field.accessibilityIdentifier() == "FileExplorerSearchField" {
+            return field
+        }
+        for subview in root.subviews {
+            if let field = findSearchField(in: subview) {
+                return field
+            }
+        }
+        return nil
+    }
+
+    private final class SpyFileSearchController: FileSearchControlling {
+        struct SearchRequest: Equatable {
+            let query: String
+            let rootPath: String
+            let isLocal: Bool
+            let contentRevision: Int
+        }
+
+        var onSnapshotChanged: ((FileSearchSnapshot) -> Void)?
+        var searchRequests: [SearchRequest] = []
+        var cancelCount = 0
+
+        func search(query rawQuery: String, rootPath: String, isLocal: Bool, contentRevision: Int) {
+            searchRequests.append(SearchRequest(
+                query: rawQuery,
+                rootPath: rootPath,
+                isLocal: isLocal,
+                contentRevision: contentRevision
+            ))
+        }
+
+        func cancel(clear: Bool) {
+            cancelCount += 1
+        }
     }
 }

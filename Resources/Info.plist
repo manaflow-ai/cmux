@@ -49,6 +49,8 @@
 	<string>A program running within cmux would like to use your camera.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>A program running within cmux would like to use Bluetooth to discover passkeys and security keys.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>A program running within cmux would like to use AppleScript.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -141,6 +143,16 @@
 			<string>com.cmux.sidebar-tab-reorder</string>
 			<key>UTTypeDescription</key>
 			<string>cmux Sidebar Tab Reorder</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.cmux.filepreview.transfer</string>
+			<key>UTTypeDescription</key>
+			<string>cmux File Preview Transfer</string>
 			<key>UTTypeConformsTo</key>
 			<array>
 				<string>public.data</string>
