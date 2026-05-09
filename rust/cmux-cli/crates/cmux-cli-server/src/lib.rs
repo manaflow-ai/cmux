@@ -22274,6 +22274,7 @@ async fn compatibility_workspace_remote_reconnect_v2(
     let current = compatibility_workspace_remote_status_for_id(daemon, workspace_id).await?;
     if !compatibility_workspace_remote_is_rust_owned_idle(&current)
         && !compatibility_workspace_remote_is_rust_owned_proxy(&current)
+        && !compatibility_workspace_remote_is_rust_owned_ssh_bootstrap(&current)
     {
         return compatibility_workspace_remote_native_v2(
             daemon,
