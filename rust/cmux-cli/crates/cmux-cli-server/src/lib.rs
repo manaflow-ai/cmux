@@ -22961,11 +22961,7 @@ fn compatibility_workspace_remote_terminal_end_should_preserve_config(
     let Some(object) = remote.as_object() else {
         return false;
     };
-    if object
-        .get("configured_by")
-        .and_then(serde_json::Value::as_str)
-        != Some("cmx-rust")
-    {
+    if !compatibility_workspace_remote_is_rust_owned_ssh_bootstrap(remote) {
         return false;
     }
     if object
