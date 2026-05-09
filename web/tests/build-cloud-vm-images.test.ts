@@ -1,9 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
   cloudAgentToolPackageSpecs,
+  cloudImageSmokeTestCommands,
+  cloudToolInstallCommands,
   freestyleRecoveryWindowStart,
   pinnedNpmPackageVersion,
   positiveIntFromEnv,
+  semverFromEnv,
   waitForFreestyleSnapshotByName,
   waitForRetryInterval,
 } from "../scripts/build-cloud-vm-images";
@@ -69,6 +72,44 @@ describe("Cloud VM image build helpers", () => {
         process.env[key] = previous;
       }
     }
+  });
+
+  test("semver env overrides fail closed when malformed", () => {
+    const key = "CMUX_TEST_SEMVER";
+    const previous = process.env[key];
+    try {
+      delete process.env[key];
+      expect(semverFromEnv(key, "1.2.3")).toBe("1.2.3");
+
+      process.env[key] = "1.2.3-rc.1";
+      expect(semverFromEnv(key, "1.2.3")).toBe("1.2.3-rc.1");
+
+      process.env[key] = "latest";
+      expect(() => semverFromEnv(key, "1.2.3")).toThrow("must be an exact semver");
+    } finally {
+      if (previous === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = previous;
+      }
+    }
+  });
+
+  test("Bun install command is version-pinned and checksum-verified", () => {
+    const bunInstall = cloudToolInstallCommands().find((command) =>
+      command.includes("cmux-bun-install.txt")
+    );
+    expect(bunInstall).toContain("bun-v1.3.13");
+    expect(bunInstall).toContain("SHASUMS256.txt.asc");
+    expect(bunInstall).toContain("sha256sum -c");
+  });
+
+  test("image smoke checks exercise the cmux browser entrypoint without a daemon", () => {
+    const browserSmoke = cloudImageSmokeTestCommands().find((command) =>
+      command.includes("cmux-browser-help.txt")
+    );
+    expect(browserSmoke).toContain("--socket /tmp/cmux-browser-smoke.sock browser");
+    expect(browserSmoke).toContain("requires a subcommand");
   });
 
   test("snapshot recovery window tolerates provider clock skew", () => {

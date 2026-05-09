@@ -992,6 +992,22 @@ func TestParseFlagsRejectsMissingFlagValue(t *testing.T) {
 	}
 }
 
+func TestParseFlagsAllowsSingleDashFlagValue(t *testing.T) {
+	parsed, err := parseFlags(
+		[]string{"--text", "-n", "--command", "-lc echo hi"},
+		[]string{"text", "command"},
+	)
+	if err != nil {
+		t.Fatalf("parseFlags should allow single-dash values: %v", err)
+	}
+	if got := parsed.flags["text"]; got != "-n" {
+		t.Fatalf("expected text -n, got %q", got)
+	}
+	if got := parsed.flags["command"]; got != "-lc echo hi" {
+		t.Fatalf("expected command -lc echo hi, got %q", got)
+	}
+}
+
 func TestCLIHelpFlag(t *testing.T) {
 	code := runCLI([]string{"--help"})
 	if code != 0 {

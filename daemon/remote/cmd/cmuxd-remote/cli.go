@@ -568,7 +568,7 @@ func parseFlags(args []string, keys []string) (parsedFlags, error) {
 		if !allowed[key] {
 			return parsedFlags{}, fmt.Errorf("unknown flag --%s", key)
 		}
-		if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
+		if i+1 >= len(args) || strings.HasPrefix(args[i+1], "--") {
 			return parsedFlags{}, fmt.Errorf("flag --%s requires a value", key)
 		}
 		result.flags[key] = args[i+1]

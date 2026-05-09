@@ -18,12 +18,16 @@ const webRoot = path.resolve(__dirname, "..");
 const repoRoot = path.resolve(webRoot, "..");
 const buildRoot = path.join(webRoot, ".cmux-cloud-build");
 const UTF8_LOCALE = "C.UTF-8";
+const STRICT_SEMVER_RE =
+  /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
 const CLOUD_SHELL_PACKAGES = [
   "bash",
   "ca-certificates",
   "curl",
+  "dirmngr",
   "git",
   "gnupg",
+  "gpg-agent",
   "libssl3t64",
   "locales",
   "openssl",
@@ -33,7 +37,8 @@ const CLOUD_SHELL_PACKAGES = [
   "xz-utils",
 ];
 const PRIMARY_LINUX_USER = "cmux";
-const NODE_MAJOR = (process.env.CMUX_CLOUD_IMAGE_NODE_MAJOR ?? "22").trim() || "22";
+const NODE_MAJOR = String(positiveIntFromEnv("CMUX_CLOUD_IMAGE_NODE_MAJOR", 22));
+const BUN_VERSION = semverFromEnv("CMUX_CLOUD_IMAGE_BUN_VERSION", "1.3.13");
 const FREESTYLE_SNAPSHOT_CREATE_TIMEOUT_MS = positiveIntFromEnv(
   "CMUX_FREESTYLE_SNAPSHOT_CREATE_TIMEOUT_MS",
   20 * 60 * 1000,
@@ -359,7 +364,7 @@ function cloudRootSetupCommands(): string[] {
   ];
 }
 
-function cloudImageSmokeTestCommands(): string[] {
+export function cloudImageSmokeTestCommands(): string[] {
   const agentToolVersionChecks = cloudAgentToolPackageSpecs().flatMap((tool) =>
     tool.binaries.map((binary) => `${binary} --version >/tmp/cmux-${tool.name}-version.txt 2>&1`)
   );
@@ -371,6 +376,7 @@ function cloudImageSmokeTestCommands(): string[] {
     "npm --version >/tmp/cmux-npm-version.txt 2>&1",
     "bun --version >/tmp/cmux-bun-version.txt 2>&1",
     "cmux --help >/tmp/cmux-cli-help.txt 2>&1",
+    "cmux --socket /tmp/cmux-browser-smoke.sock browser >/tmp/cmux-browser-help.txt 2>&1; status=$?; test \"$status\" -eq 2 && grep -q 'requires a subcommand' /tmp/cmux-browser-help.txt",
     "cmuxd-remote version >/tmp/cmuxd-remote-version.txt 2>&1",
     ...agentToolVersionChecks,
   ];
@@ -397,9 +403,6 @@ export function cloudAgentToolPackageSpecs(): CloudAgentToolPackage[] {
   });
 }
 
-const STRICT_SEMVER_RE =
-  /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
-
 export function pinnedNpmPackageVersion(packageSpec: string): string | null {
   const trimmed = packageSpec.trim();
   const versionSeparator = trimmed.startsWith("@")
@@ -411,7 +414,7 @@ export function pinnedNpmPackageVersion(packageSpec: string): string | null {
   return version;
 }
 
-function cloudToolInstallCommands(): string[] {
+export function cloudToolInstallCommands(): string[] {
   const toolPackages = cloudAgentToolPackageSpecs();
   return [
     "install -d -m 0755 /etc/apt/keyrings",
@@ -422,7 +425,7 @@ function cloudToolInstallCommands(): string[] {
     "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends nodejs",
     "npm config set fund false",
     "npm config set audit false",
-    "curl -fsSL https://bun.sh/install | BUN_INSTALL=/usr/local bash >/tmp/cmux-bun-install.txt 2>&1",
+    bunInstallCommand(),
     "ln -sf /usr/local/bin/bun /usr/local/bin/bunx",
     toolPackages.length > 0
       ? `npm install -g --omit=dev --no-audit --fund=false ${toolPackages.map((tool) => shellQuote(tool.packageSpec)).join(" ")} >/tmp/cmux-npm-install.txt 2>&1`
@@ -433,6 +436,29 @@ function cloudToolInstallCommands(): string[] {
 
 function isDisabledValue(value: string): boolean {
   return ["0", "false", "off", "disabled", "none"].includes(value.trim().toLowerCase());
+}
+
+function bunInstallCommand(): string {
+  const tag = `bun-v${BUN_VERSION}`;
+  const commands = [
+    "set -eu",
+    "rm -rf /tmp/cmux-bun-install",
+    "mkdir -p /tmp/cmux-bun-install",
+    "cd /tmp/cmux-bun-install",
+    "arch=\"$(dpkg --print-architecture)\"",
+    "case \"${arch##*-}\" in amd64) build=\"x64-baseline\" ;; arm64) build=\"aarch64\" ;; *) echo \"unsupported architecture: $arch\"; exit 1 ;; esac",
+    `tag=${shellQuote(tag)}`,
+    "release=\"https://github.com/oven-sh/bun/releases/download/$tag\"",
+    "curl -fsSLO --compressed --retry 5 \"$release/bun-linux-$build.zip\"",
+    "for key in F3DCC08A8572C0749B3E18888EAB4D40A7B22B59; do gpg --batch --keyserver hkps://keys.openpgp.org --recv-keys \"$key\" || gpg --batch --keyserver keyserver.ubuntu.com --recv-keys \"$key\"; done",
+    "curl -fsSLO --compressed --retry 5 \"$release/SHASUMS256.txt.asc\"",
+    "gpg --batch --decrypt --output SHASUMS256.txt SHASUMS256.txt.asc",
+    "grep \" bun-linux-$build.zip$\" SHASUMS256.txt | sha256sum -c -",
+    "unzip -q \"bun-linux-$build.zip\"",
+    "install -m 0755 \"bun-linux-$build/bun\" /usr/local/bin/bun",
+    "rm -rf /tmp/cmux-bun-install",
+  ];
+  return `{ ${commands.join(" && ")}; } >/tmp/cmux-bun-install.txt 2>&1`;
 }
 
 function freestylePythonOpenSSLCommands(): string[] {
@@ -540,6 +566,15 @@ export function positiveIntFromEnv(key: string, fallback: number): number {
     throw new Error(`${key} must be a safe positive integer; got ${raw}`);
   }
   return parsed;
+}
+
+export function semverFromEnv(key: string, fallback: string): string {
+  const raw = process.env[key]?.trim();
+  const value = raw || fallback;
+  if (!STRICT_SEMVER_RE.test(value)) {
+    throw new Error(`${key} must be an exact semver version; got ${value}`);
+  }
+  return value;
 }
 
 export function freestyleRecoveryWindowStart(startedAt: Date): string {
