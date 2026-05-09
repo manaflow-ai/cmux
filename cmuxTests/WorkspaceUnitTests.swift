@@ -331,21 +331,21 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
     }
 
     func testRightSidebarAndFindShortcutDefaultsMatchSettingsSurface() {
-        XCTAssertEqual(KeyboardShortcutSettings.Action.focusRightSidebar.label, "Toggle Right Sidebar")
-        XCTAssertEqual(KeyboardShortcutSettings.Action.toggleFileExplorer.label, "Open File Explorer")
+        XCTAssertEqual(KeyboardShortcutSettings.Action.focusRightSidebar.label, "Toggle Right Sidebar Focus")
+        XCTAssertEqual(KeyboardShortcutSettings.Action.toggleFileExplorer.label, "Toggle Right Sidebar")
 
         let toggleFileExplorer = KeyboardShortcutSettings.Action.toggleFileExplorer.defaultShortcut
-        XCTAssertEqual(toggleFileExplorer.key, "e")
+        XCTAssertEqual(toggleFileExplorer.key, "b")
         XCTAssertTrue(toggleFileExplorer.command)
-        XCTAssertTrue(toggleFileExplorer.shift)
-        XCTAssertFalse(toggleFileExplorer.option)
+        XCTAssertFalse(toggleFileExplorer.shift)
+        XCTAssertTrue(toggleFileExplorer.option)
         XCTAssertFalse(toggleFileExplorer.control)
 
         let focusRightSidebar = KeyboardShortcutSettings.Action.focusRightSidebar.defaultShortcut
-        XCTAssertEqual(focusRightSidebar.key, "b")
+        XCTAssertEqual(focusRightSidebar.key, "e")
         XCTAssertTrue(focusRightSidebar.command)
-        XCTAssertFalse(focusRightSidebar.shift)
-        XCTAssertTrue(focusRightSidebar.option)
+        XCTAssertTrue(focusRightSidebar.shift)
+        XCTAssertFalse(focusRightSidebar.option)
         XCTAssertFalse(focusRightSidebar.control)
 
         let findInDirectory = KeyboardShortcutSettings.Action.findInDirectory.defaultShortcut
@@ -391,7 +391,7 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         ]
 
         guard let startIndex = visibleActions.firstIndex(of: .focusRightSidebar) else {
-            XCTFail("Toggle Right Sidebar should be visible in keyboard shortcut settings")
+            XCTFail("Toggle Right Sidebar Focus should be visible in keyboard shortcut settings")
             return
         }
 
