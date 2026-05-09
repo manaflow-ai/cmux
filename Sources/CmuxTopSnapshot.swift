@@ -264,12 +264,19 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
                 return []
             }
 
-            var processes = Array(repeating: kinfo_proc(), count: max(1, (length / stride) + 32))
+            let capacity = max(1, (length / stride) + 32)
+            var processes = Array(repeating: kinfo_proc(), count: capacity)
+            // sysctl uses `oldlenp` as both input (declared buffer size) and
+            // output (bytes actually written). Declare the full allocation —
+            // not the probed size — so the 32-entry slack absorbs process-
+            // table growth between probe and read instead of triggering a
+            // spurious ENOMEM.
+            var bufferLength = capacity * stride
             let result = processes.withUnsafeMutableBufferPointer { buffer in
-                sysctl(&mib, u_int(mib.count), buffer.baseAddress, &length, nil, 0)
+                sysctl(&mib, u_int(mib.count), buffer.baseAddress, &bufferLength, nil, 0)
             }
             if result == 0 {
-                let count = min(processes.count, length / stride)
+                let count = min(processes.count, bufferLength / stride)
                 let sampledProcesses = Array(processes.prefix(count))
                 let activeScopeKeys = Set(sampledProcesses.map { scopeCacheKey(from: $0) })
                 let sampledAtNanoseconds = cpuSampleClockNanoseconds()
