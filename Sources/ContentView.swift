@@ -10809,6 +10809,456 @@ private struct SidebarFooter: View {
     }
 }
 
+private struct SidebarTipsButton: View {
+    private let tipsTitle = String(localized: "tips.tooltip", defaultValue: "Tips")
+    private let buttonSize: CGFloat = 22
+    private let iconSize: CGFloat = 11
+    @ObservedObject private var store = CmuxTipsStore.shared
+    @State private var isPopoverPresented = false
+
+    var body: some View {
+        Button {
+            #if DEBUG
+            cmuxDebugLog("sidebar.tips")
+            #endif
+            isPopoverPresented.toggle()
+        } label: {
+            Image(systemName: "info.circle")
+                .symbolRenderingMode(.monochrome)
+                .font(.system(size: iconSize, weight: .medium))
+                .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                .frame(width: buttonSize, height: buttonSize, alignment: .center)
+        }
+        .buttonStyle(SidebarFooterIconButtonStyle())
+        .frame(width: buttonSize, height: buttonSize, alignment: .center)
+        .background(ArrowlessPopoverAnchor(
+            isPresented: $isPopoverPresented,
+            preferredEdge: .maxY,
+            detachedGap: 4
+        ) {
+            TipsPopoverView(store: store)
+        })
+        .accessibilityElement(children: .ignore)
+        .safeHelp(tipsTitle)
+        .accessibilityLabel(tipsTitle)
+        .accessibilityIdentifier("SidebarTipsButton")
+        .onAppear {
+            store.startSlideshowIfNeeded()
+        }
+    }
+}
+
+private struct CmuxTip: Identifiable, Equatable {
+    let id: String
+    let symbolName: String
+    let title: String
+    let body: String
+}
+
+private struct CmuxTipDefinition {
+    let id: String
+    let symbolName: String
+    let title: () -> String
+    let body: () -> String
+}
+
+private final class CmuxTipsStore: ObservableObject {
+    static let shared = CmuxTipsStore()
+
+    private static let slideshowInterval: TimeInterval = 120
+    private static let maxHistoryCount = 12
+    private static let currentIndexKey = "cmuxTipsCurrentIndex"
+    private static let historyIDsKey = "cmuxTipsHistoryIDs"
+
+    @Published private(set) var currentIndex: Int
+    @Published private(set) var historyIDs: [String]
+
+    private var slideshowCancellable: AnyCancellable?
+
+    private init(defaults: UserDefaults = .standard) {
+        let storedIndex = defaults.object(forKey: Self.currentIndexKey) as? Int
+        let resolvedIndex: Int
+        if let storedIndex, Self.definitions.indices.contains(storedIndex) {
+            resolvedIndex = storedIndex
+        } else {
+            resolvedIndex = Int.random(in: Self.definitions.indices)
+        }
+
+        let knownIDs = Set(Self.definitions.map(\.id))
+        var initialHistory = defaults.stringArray(forKey: Self.historyIDsKey)?
+            .filter { knownIDs.contains($0) } ?? []
+        let currentID = Self.definitions[resolvedIndex].id
+        initialHistory.removeAll { $0 == currentID }
+        initialHistory.append(currentID)
+        currentIndex = resolvedIndex
+        historyIDs = Array(initialHistory.suffix(Self.maxHistoryCount))
+        persist(defaults: defaults)
+    }
+
+    var currentTip: CmuxTip {
+        Self.tip(at: currentIndex)
+    }
+
+    var historyTips: [CmuxTip] {
+        historyIDs.reversed().compactMap(Self.tip(id:))
+    }
+
+    func startSlideshowIfNeeded() {
+        guard slideshowCancellable == nil else { return }
+        slideshowCancellable = Timer.publish(every: Self.slideshowInterval, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in
+                self?.advanceRandom()
+            }
+    }
+
+    func previous() {
+        let nextIndex = (currentIndex + Self.definitions.count - 1) % Self.definitions.count
+        setCurrentIndex(nextIndex)
+    }
+
+    func next() {
+        let nextIndex = (currentIndex + 1) % Self.definitions.count
+        setCurrentIndex(nextIndex)
+    }
+
+    func advanceRandom() {
+        guard Self.definitions.count > 1 else { return }
+        var nextIndex = Int.random(in: Self.definitions.indices)
+        if nextIndex == currentIndex {
+            nextIndex = (nextIndex + 1) % Self.definitions.count
+        }
+        setCurrentIndex(nextIndex)
+    }
+
+    func showTip(id: String) {
+        guard let index = Self.definitions.firstIndex(where: { $0.id == id }) else { return }
+        setCurrentIndex(index)
+    }
+
+    private func setCurrentIndex(_ nextIndex: Int) {
+        guard Self.definitions.indices.contains(nextIndex) else { return }
+        currentIndex = nextIndex
+        recordCurrentTip()
+        persist()
+    }
+
+    private func recordCurrentTip() {
+        let currentID = Self.definitions[currentIndex].id
+        historyIDs.removeAll { $0 == currentID }
+        historyIDs.append(currentID)
+        if historyIDs.count > Self.maxHistoryCount {
+            historyIDs = Array(historyIDs.suffix(Self.maxHistoryCount))
+        }
+    }
+
+    private func persist(defaults: UserDefaults = .standard) {
+        defaults.set(currentIndex, forKey: Self.currentIndexKey)
+        defaults.set(historyIDs, forKey: Self.historyIDsKey)
+    }
+
+    private static func tip(id: String) -> CmuxTip? {
+        guard let index = definitions.firstIndex(where: { $0.id == id }) else { return nil }
+        return tip(at: index)
+    }
+
+    private static func tip(at index: Int) -> CmuxTip {
+        let definition = definitions[index]
+        return CmuxTip(
+            id: definition.id,
+            symbolName: definition.symbolName,
+            title: definition.title(),
+            body: definition.body()
+        )
+    }
+
+    private static func shortcutText(for action: KeyboardShortcutSettings.Action) -> String {
+        KeyboardShortcutSettings.shortcut(for: action).displayString
+    }
+
+    private static let definitions: [CmuxTipDefinition] = [
+        CmuxTipDefinition(
+            id: "commandPalette",
+            symbolName: "command",
+            title: {
+                String(localized: "tips.commandPalette.title", defaultValue: "Open Anything")
+            },
+            body: {
+                let format = String(
+                    localized: "tips.commandPalette.body",
+                    defaultValue: "Press %@ to search commands, workspaces, and surfaces."
+                )
+                return String(
+                    format: format,
+                    shortcutText(for: .commandPalette)
+                )
+            }
+        ),
+        CmuxTipDefinition(
+            id: "newWorkspace",
+            symbolName: "plus.rectangle.on.rectangle",
+            title: {
+                String(localized: "tips.newWorkspace.title", defaultValue: "Start Fresh")
+            },
+            body: {
+                let format = String(
+                    localized: "tips.newWorkspace.body",
+                    defaultValue: "Press %@ to create a workspace without leaving the keyboard."
+                )
+                return String(
+                    format: format,
+                    shortcutText(for: .newTab)
+                )
+            }
+        ),
+        CmuxTipDefinition(
+            id: "splitPane",
+            symbolName: "rectangle.split.2x1",
+            title: {
+                String(localized: "tips.splitPane.title", defaultValue: "Split the Focused Pane")
+            },
+            body: {
+                let format = String(
+                    localized: "tips.splitPane.body",
+                    defaultValue: "Use %@ or %@ to split right or down."
+                )
+                return String(
+                    format: format,
+                    shortcutText(for: .splitRight),
+                    shortcutText(for: .splitDown)
+                )
+            }
+        ),
+        CmuxTipDefinition(
+            id: "notifications",
+            symbolName: "bell",
+            title: {
+                String(localized: "tips.notifications.title", defaultValue: "Catch Up Fast")
+            },
+            body: {
+                let format = String(
+                    localized: "tips.notifications.body",
+                    defaultValue: "Press %@ to show notifications, then %@ to jump to the latest unread item."
+                )
+                return String(
+                    format: format,
+                    shortcutText(for: .showNotifications),
+                    shortcutText(for: .jumpToUnread)
+                )
+            }
+        ),
+        CmuxTipDefinition(
+            id: "shortcutHints",
+            symbolName: "keyboard",
+            title: {
+                String(localized: "tips.shortcutHints.title", defaultValue: "Reveal Shortcut Hints")
+            },
+            body: {
+                String(localized: "tips.shortcutHints.body", defaultValue: "Hold Command over the sidebar or titlebar to reveal available shortcuts.")
+            }
+        ),
+        CmuxTipDefinition(
+            id: "browserSurface",
+            symbolName: "globe",
+            title: {
+                String(localized: "tips.browserSurface.title", defaultValue: "Open a Browser Surface")
+            },
+            body: {
+                let format = String(
+                    localized: "tips.browserSurface.body",
+                    defaultValue: "Press %@ to add a browser where you can inspect and automate pages."
+                )
+                return String(
+                    format: format,
+                    shortcutText(for: .openBrowser)
+                )
+            }
+        ),
+        CmuxTipDefinition(
+            id: "rightSidebar",
+            symbolName: "sidebar.right",
+            title: {
+                String(localized: "tips.rightSidebar.title", defaultValue: "Use the Right Sidebar")
+            },
+            body: {
+                let format = String(
+                    localized: "tips.rightSidebar.body",
+                    defaultValue: "Press %@ to open files, search, sessions, feed, and dock."
+                )
+                return String(
+                    format: format,
+                    shortcutText(for: .toggleFileExplorer)
+                )
+            }
+        ),
+        CmuxTipDefinition(
+            id: "terminalCopyMode",
+            symbolName: "text.viewfinder",
+            title: {
+                String(localized: "tips.terminalCopyMode.title", defaultValue: "Copy From the Terminal")
+            },
+            body: {
+                let format = String(
+                    localized: "tips.terminalCopyMode.body",
+                    defaultValue: "Press %@ to enter terminal copy mode."
+                )
+                return String(
+                    format: format,
+                    shortcutText(for: .toggleTerminalCopyMode)
+                )
+            }
+        ),
+    ]
+}
+
+private struct TipsPopoverView: View {
+    @ObservedObject var store: CmuxTipsStore
+    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+
+    var body: some View {
+        let _ = keyboardShortcutSettingsObserver.revision
+        let currentTip = store.currentTip
+        let historyTips = store.historyTips
+
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Text(String(localized: "tips.title", defaultValue: "Tips"))
+                    .font(.headline)
+                Spacer()
+                tipControlButton(
+                    systemName: "chevron.left",
+                    accessibilityLabel: String(localized: "tips.previous.accessibilityLabel", defaultValue: "Previous tip"),
+                    action: store.previous
+                )
+                tipControlButton(
+                    systemName: "shuffle",
+                    accessibilityLabel: String(localized: "tips.random.accessibilityLabel", defaultValue: "Random tip"),
+                    action: store.advanceRandom
+                )
+                tipControlButton(
+                    systemName: "chevron.right",
+                    accessibilityLabel: String(localized: "tips.next.accessibilityLabel", defaultValue: "Next tip"),
+                    action: store.next
+                )
+            }
+
+            currentTipCard(currentTip)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(String(localized: "tips.history.title", defaultValue: "History"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 6) {
+                        ForEach(historyTips) { tip in
+                            TipsHistoryRow(tip: tip, isCurrent: tip.id == currentTip.id) {
+                                store.showTip(id: tip.id)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 1)
+                }
+                .frame(maxHeight: 210)
+            }
+        }
+        .padding(12)
+        .frame(width: 360)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    private func tipControlButton(
+        systemName: String,
+        accessibilityLabel: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 11, weight: .semibold))
+                .frame(width: 22, height: 22)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(accessibilityLabel)
+        .safeHelp(accessibilityLabel)
+    }
+
+    private func currentTipCard(_ tip: CmuxTip) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: tip.symbolName)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(cmuxAccentColor())
+                .frame(width: 24, height: 24)
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(tip.title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.primary)
+                Text(tip.body)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor))
+        )
+    }
+}
+
+private struct TipsHistoryRow: View, Equatable {
+    let tip: CmuxTip
+    let isCurrent: Bool
+    let onSelect: () -> Void
+
+    static func == (lhs: TipsHistoryRow, rhs: TipsHistoryRow) -> Bool {
+        lhs.tip == rhs.tip && lhs.isCurrent == rhs.isCurrent
+    }
+
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: tip.symbolName)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18, height: 18)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Text(tip.title)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+
+                        if isCurrent {
+                            Text(String(localized: "tips.history.current", defaultValue: "Current"))
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundStyle(cmuxAccentColor())
+                        }
+                    }
+
+                    Text(tip.body)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(isCurrent ? cmuxAccentColor().opacity(0.10) : Color.clear)
+        )
+    }
+}
+
 private struct SidebarFooterButtons: View {
     @ObservedObject var updateViewModel: UpdateViewModel
     @ObservedObject var fileExplorerState: FileExplorerState
@@ -10817,6 +11267,7 @@ private struct SidebarFooterButtons: View {
     var body: some View {
         HStack(spacing: 4) {
             SidebarHelpMenuButton(onSendFeedback: onSendFeedback)
+            SidebarTipsButton()
             UpdatePill(model: updateViewModel)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
