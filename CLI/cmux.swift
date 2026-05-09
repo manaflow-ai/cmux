@@ -2488,32 +2488,24 @@ struct CMUXCLI {
                     print("OK \(vmId)")
                 }
 
-            case "ssh-info", "ssh":
+            case "ssh":
                 guard let vmId = rest.first else {
                     throw CLIError(message: "Usage: cmux \(command) ssh <id>")
                 }
-                let response = try client.sendV2(method: "vm.ssh_info", params: ["id": vmId], responseTimeout: 60)
-                if jsonOutput {
-                    print(jsonString(response))
-                    break
+                let shortId = String(vmId.prefix(8))
+                try vmOpenShell(
+                    id: vmId,
+                    workspaceName: "vm:\(shortId)",
+                    client: client,
+                    jsonOutput: jsonOutput,
+                    idFormat: idFormat
+                )
+
+            case "ssh-info":
+                guard let vmId = rest.first else {
+                    throw CLIError(message: "Usage: cmux \(command) ssh-info <id>")
                 }
-                let host = (response["host"] as? String) ?? "?"
-                let port = (response["port"] as? Int) ?? 22
-                let username = (response["username"] as? String) ?? "?"
-                let cred = (response["credential"] as? [String: Any]) ?? [:]
-                let credKind = (cred["kind"] as? String) ?? "?"
-                let credValue = (cred["value"] as? String) ?? "?"
-                if credKind == "password" {
-                    print("ssh \(username)@\(host) -p \(port)")
-                    print("")
-                    print("  host:      \(host)")
-                    print("  port:      \(port)")
-                    print("  username:  \(username)")
-                    print("  password:  \(credValue)")
-                } else {
-                    print("authorizedKey credential not yet supported by `cmux \(command) ssh`; raw response:")
-                    print(jsonString(response))
-                }
+                try printVMSSHInfo(id: vmId, command: command, client: client, jsonOutput: jsonOutput)
 
             case "ssh-attach":
                 try runVMSSHAttach(commandArgs: rest, client: client)
@@ -5922,6 +5914,31 @@ struct CMUXCLI {
         )
     }
 
+    private func printVMSSHInfo(id vmID: String, command: String, client: SocketClient, jsonOutput: Bool) throws {
+        let response = try client.sendV2(method: "vm.ssh_info", params: ["id": vmID], responseTimeout: 60)
+        if jsonOutput {
+            print(jsonString(response))
+            return
+        }
+        let host = (response["host"] as? String) ?? "?"
+        let port = (response["port"] as? Int) ?? 22
+        let username = (response["username"] as? String) ?? "?"
+        let cred = (response["credential"] as? [String: Any]) ?? [:]
+        let credKind = (cred["kind"] as? String) ?? "?"
+        let credValue = (cred["value"] as? String) ?? "?"
+        if credKind == "password" {
+            print("ssh \(username)@\(host) -p \(port)")
+            print("")
+            print("  host:      \(host)")
+            print("  port:      \(port)")
+            print("  username:  \(username)")
+            print("  password:  \(credValue)")
+        } else {
+            print("authorizedKey credential not yet supported by `cmux \(command) ssh-info`; raw response:")
+            print(jsonString(response))
+        }
+    }
+
     private func runVMSSHAttach(commandArgs: [String], client: SocketClient) throws {
         let (vmIDOpt, remaining) = parseOption(commandArgs, name: "--id")
         if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
@@ -8321,7 +8338,7 @@ struct CMUXCLI {
             """
         case "vm", "cloud":
             return """
-            Usage: cmux \(command) <new|ls|rm|exec|shell|attach|ssh> [args...]
+            Usage: cmux \(command) <new|ls|rm|exec|shell|attach|ssh|ssh-info> [args...]
 
             Manage cloud VMs. `cloud` is an alias for `vm`. Requires `cmux auth login`.
 
@@ -8333,10 +8350,12 @@ struct CMUXCLI {
                                         just print the id and exit (scripting primitive).
               shell <id>                Drop into an interactive shell on an existing VM.
                                         Alias: `attach <id>`.
+              ssh <id>                  Drop into a cmux-managed SSH workspace for an existing
+                                        VM, using the same session path as `cmux ssh`.
+              ssh-info <id>             Print SSH connection details when the VM provider
+                                        exposes SSH.
               rm <id>                   Destroy a VM.
               exec <id> -- <command...> Run a shell command inside the VM and print stdout.
-              ssh <id>                  Print a ready-to-paste SSH one-liner when the VM
-                                        provider exposes SSH.
 
             Env:
               CMUX_VM_API_BASE_URL       Override the backend origin (default: the cmux website).

@@ -23,13 +23,51 @@ const CLOUD_SHELL_PACKAGES = [
   "ca-certificates",
   "curl",
   "git",
+  "gnupg",
   "libssl3t64",
   "locales",
   "openssl",
   "python3",
   "sudo",
+  "unzip",
+  "xz-utils",
 ];
 const PRIMARY_LINUX_USER = "cmux";
+const NODE_MAJOR = (process.env.CMUX_CLOUD_IMAGE_NODE_MAJOR ?? "22").trim() || "22";
+const FREESTYLE_SNAPSHOT_CREATE_TIMEOUT_MS = positiveIntFromEnv(
+  "CMUX_FREESTYLE_SNAPSHOT_CREATE_TIMEOUT_MS",
+  5 * 60 * 1000,
+);
+const FREESTYLE_SNAPSHOT_RECOVERY_TIMEOUT_MS = positiveIntFromEnv(
+  "CMUX_FREESTYLE_SNAPSHOT_RECOVERY_TIMEOUT_MS",
+  10 * 60 * 1000,
+);
+const CLOUD_AGENT_TOOLS = [
+  {
+    name: "claude",
+    envVar: "CMUX_CLOUD_IMAGE_CLAUDE_CODE_NPM_SPEC",
+    packageSpec: "@anthropic-ai/claude-code",
+    binaries: ["claude"],
+  },
+  {
+    name: "opencode",
+    envVar: "CMUX_CLOUD_IMAGE_OPENCODE_NPM_SPEC",
+    packageSpec: "opencode-ai",
+    binaries: ["opencode"],
+  },
+  {
+    name: "codex",
+    envVar: "CMUX_CLOUD_IMAGE_CODEX_NPM_SPEC",
+    packageSpec: "@openai/codex",
+    binaries: ["codex"],
+  },
+  {
+    name: "pi",
+    envVar: "CMUX_CLOUD_IMAGE_PI_NPM_SPEC",
+    packageSpec: "@earendil-works/pi-coding-agent",
+    binaries: ["pi"],
+  },
+] as const;
 
 function argValue(name: string): string | undefined {
   const index = process.argv.indexOf(name);
@@ -65,6 +103,8 @@ const imageMetadata = {
   cmuxdRemoteCommit: await gitRevParse(path.join(repoRoot, "daemon/remote")),
   binarySha256: sha256File(binaryPath),
   builderScriptVersion: sha256File(fileURLToPath(import.meta.url)),
+  nodeMajor: NODE_MAJOR,
+  agentToolPackageSpecs: cloudAgentToolPackageSpecs().map((tool) => tool.packageSpec),
   validationStatus: "passed" as const,
 };
 
@@ -117,6 +157,7 @@ async function buildE2BTemplate(
       forceUpload: true,
       mode: 0o755,
     })
+    .runCmd(cloudToolInstallCommands(), { user: "root" })
     .runCmd(cloudRootSetupCommands(), { user: "root" })
     .runCmd(cloudImageSmokeTestCommands(), { user: "root" })
     .setStartCmd(
@@ -144,7 +185,7 @@ async function buildE2BTemplate(
       builtAt: metadata.builtAt,
       builderScriptVersion: metadata.builderScriptVersion,
       validationStatus: metadata.validationStatus,
-      notes: `binarySha256=${metadata.binarySha256}`,
+      notes: imageNotes(metadata),
     },
   };
 }
@@ -159,19 +200,33 @@ async function buildFreestyleSnapshot(
     throw new Error("FREESTYLE_API_KEY is required to build the Freestyle snapshot");
   }
   const daemonURL = await remoteDaemonBuildURL(tag, daemonPath);
-  const fs = new Freestyle();
+  const fs = new Freestyle({ fetch: fetchWithTimeout(FREESTYLE_SNAPSHOT_CREATE_TIMEOUT_MS) });
   const name = `cmuxd-ws-${tag}`;
-  const result = await fs.vms.snapshots.create({
-    name,
-    template: {
-      baseImage: {
-        dockerfileContent: freestyleBaseDockerfileContent(daemonURL),
+  let result: unknown;
+  try {
+    result = await fs.vms.snapshots.create({
+      name,
+      template: {
+        baseImage: {
+          dockerfileContent: freestyleBaseDockerfileContent(daemonURL),
+        },
+        ports: [{ port: 443, targetPort: 7777 }],
+        discriminator: `cmuxd-ws-${tag}`,
+        skipCache,
       },
-      ports: [{ port: 443, targetPort: 7777 }],
-      discriminator: `cmuxd-ws-${tag}`,
-      skipCache,
-    },
-  });
+    });
+  } catch (err) {
+    const recovered = await waitForFreestyleSnapshotByName(
+      fs,
+      name,
+      FREESTYLE_SNAPSHOT_RECOVERY_TIMEOUT_MS,
+    );
+    if (!recovered) throw err;
+    result = {
+      snapshotId: recovered.snapshotId,
+      recoveredAfterCreateError: errorSummary(err),
+    };
+  }
   const imageId = extractProviderId(result);
   if (!imageId) {
     const keys = result && typeof result === "object"
@@ -193,9 +248,63 @@ async function buildFreestyleSnapshot(
       builtAt: metadata.builtAt,
       builderScriptVersion: metadata.builderScriptVersion,
       validationStatus: metadata.validationStatus,
-      notes: `binarySha256=${metadata.binarySha256}`,
+      notes: imageNotes(metadata),
     },
   };
+}
+
+type FreestyleSnapshotRecord = {
+  readonly snapshotId: string;
+  readonly createdAt?: string;
+  readonly deleted?: boolean | null;
+  readonly failed?: boolean | null;
+  readonly failureReason?: string | null;
+  readonly name?: string | null;
+};
+
+type FreestyleSnapshotListResponse = {
+  readonly snapshots?: readonly FreestyleSnapshotRecord[] | null;
+};
+
+type FreestyleWithInternalApi = Freestyle & {
+  readonly _apiClient: {
+    get(
+      path: "/v1/vms/snapshots",
+      options: { query: { includeDeleted: boolean; includeFailed: boolean } },
+    ): Promise<FreestyleSnapshotListResponse>;
+  };
+};
+
+async function findFreestyleSnapshotByName(
+  fs: Freestyle,
+  name: string,
+): Promise<FreestyleSnapshotRecord | null> {
+  const api = (fs as unknown as FreestyleWithInternalApi)._apiClient;
+  const response = await api.get("/v1/vms/snapshots", {
+    query: { includeDeleted: false, includeFailed: true },
+  });
+  const matches = (response.snapshots ?? [])
+    .filter((snapshot) =>
+      snapshot.name === name &&
+      snapshot.deleted !== true &&
+      snapshot.failed !== true
+    )
+    .sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
+  return matches[0] ?? null;
+}
+
+async function waitForFreestyleSnapshotByName(
+  fs: Freestyle,
+  name: string,
+  timeoutMs: number,
+): Promise<FreestyleSnapshotRecord | null> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const snapshot = await findFreestyleSnapshotByName(fs, name);
+    if (snapshot) return snapshot;
+    await delay(5_000);
+  }
+  return null;
 }
 
 function cloudRootSetupCommands(): string[] {
@@ -206,15 +315,65 @@ function cloudRootSetupCommands(): string[] {
     `chmod 0440 /etc/sudoers.d/90-${PRIMARY_LINUX_USER}-nopasswd`,
     "if id -u user >/dev/null 2>&1; then printf 'user ALL=(ALL) NOPASSWD:ALL\\n' > /etc/sudoers.d/91-user-nopasswd && chmod 0440 /etc/sudoers.d/91-user-nopasswd; fi",
     "mkdir -p /tmp/cmux && chmod 700 /tmp/cmux",
+    "ln -sf /usr/local/bin/cmuxd-remote /usr/local/bin/cmux",
   ];
 }
 
 function cloudImageSmokeTestCommands(): string[] {
+  const agentToolVersionChecks = cloudAgentToolPackageSpecs().flatMap((tool) =>
+    tool.binaries.map((binary) => `${binary} --version >/tmp/cmux-${tool.name}-version.txt 2>&1`)
+  );
   return [
-    "openssl version -a >/tmp/cmux-openssl-version.txt",
+    "openssl version -a >/tmp/cmux-openssl-version.txt 2>&1",
     "python3 -X faulthandler -c 'import ssl; print(ssl.OPENSSL_VERSION)'",
     "python3 -m http.server --help >/dev/null",
+    "node --version >/tmp/cmux-node-version.txt 2>&1",
+    "npm --version >/tmp/cmux-npm-version.txt 2>&1",
+    "bun --version >/tmp/cmux-bun-version.txt 2>&1",
+    "cmux --help >/tmp/cmux-cli-help.txt 2>&1",
+    "cmuxd-remote version >/tmp/cmuxd-remote-version.txt 2>&1",
+    ...agentToolVersionChecks,
   ];
+}
+
+type CloudAgentToolPackage = {
+  readonly name: string;
+  readonly envVar: string;
+  readonly packageSpec: string;
+  readonly binaries: readonly string[];
+};
+
+function cloudAgentToolPackageSpecs(): CloudAgentToolPackage[] {
+  return CLOUD_AGENT_TOOLS.flatMap((tool) => {
+    const raw = process.env[tool.envVar]?.trim();
+    const packageSpec = raw && !isDisabledValue(raw) ? raw : tool.packageSpec;
+    if (isDisabledValue(packageSpec)) return [];
+    return [{ ...tool, packageSpec }];
+  });
+}
+
+function cloudToolInstallCommands(): string[] {
+  const toolPackages = cloudAgentToolPackageSpecs();
+  return [
+    "install -d -m 0755 /etc/apt/keyrings",
+    "rm -f /etc/apt/keyrings/nodesource.gpg",
+    "curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg",
+    `printf '%s\\n' ${shellQuote(`deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_${NODE_MAJOR}.x nodistro main`)} > /etc/apt/sources.list.d/nodesource.list`,
+    "apt-get update",
+    "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends nodejs",
+    "npm config set fund false",
+    "npm config set audit false",
+    "curl -fsSL https://bun.sh/install | BUN_INSTALL=/usr/local bash >/tmp/cmux-bun-install.txt 2>&1",
+    "ln -sf /usr/local/bin/bun /usr/local/bin/bunx",
+    toolPackages.length > 0
+      ? `npm install -g --omit=dev --no-audit --fund=false ${toolPackages.map((tool) => shellQuote(tool.packageSpec)).join(" ")} >/tmp/cmux-npm-install.txt 2>&1`
+      : "true",
+    "rm -rf /root/.npm/_cacache /var/lib/apt/lists/*",
+  ];
+}
+
+function isDisabledValue(value: string): boolean {
+  return ["0", "false", "off", "disabled", "none"].includes(value.trim().toLowerCase());
 }
 
 function freestylePythonOpenSSLCommands(): string[] {
@@ -239,6 +398,7 @@ function freestyleBaseDockerfileContent(daemonURL: string): string {
     `RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ${CLOUD_SHELL_PACKAGES.join(" ")} && rm -rf /var/lib/apt/lists/*`,
     ...freestylePythonOpenSSLCommands().map((command) => `RUN ${command}`),
     `RUN curl -fsSL ${shellQuote(daemonURL)} -o /usr/local/bin/cmuxd-remote && chmod 0755 /usr/local/bin/cmuxd-remote`,
+    ...cloudToolInstallCommands().map((command) => `RUN ${command}`),
     ...cloudRootSetupCommands().map((command) => `RUN ${command}`),
     ...cloudImageSmokeTestCommands().map((command) => `RUN ${command}`),
     "RUN mkdir -p /etc/systemd/system/multi-user.target.wants",
@@ -310,11 +470,46 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
+function positiveIntFromEnv(key: string, fallback: number): number {
+  const raw = process.env[key]?.trim();
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return parsed;
+}
+
+function fetchWithTimeout(timeoutMs: number): typeof fetch {
+  return (input, init) =>
+    fetch(input, {
+      ...(init ?? {}),
+      signal: init?.signal ?? AbortSignal.timeout(timeoutMs),
+    });
+}
+
+function errorSummary(err: unknown): string {
+  if (err instanceof Error) return `${err.name}: ${err.message}`;
+  return String(err);
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function imageNotes(metadata: ImageBuildMetadata): string {
+  return [
+    `binarySha256=${metadata.binarySha256}`,
+    `nodeMajor=${metadata.nodeMajor}`,
+    `agentTools=${metadata.agentToolPackageSpecs.join(",")}`,
+  ].join(" ");
+}
+
 type ImageBuildMetadata = {
   readonly builtAt: string;
   readonly cmuxdRemoteCommit: string;
   readonly binarySha256: string;
   readonly builderScriptVersion: string;
+  readonly nodeMajor: string;
+  readonly agentToolPackageSpecs: readonly string[];
   readonly validationStatus: "passed" | "failed" | "unknown";
 };
 

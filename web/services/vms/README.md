@@ -66,6 +66,20 @@ Active VM limits are enforced inside the same Postgres transaction that inserts 
 Known-good provider images are recorded in `services/vms/images/manifest.json`. Each entry records
 the provider, provider image id, cmux image version, build metadata, and validation status.
 
+Default image policy:
+
+- Production and staging select images with `E2B_CMUXD_WS_TEMPLATE` and
+  `FREESTYLE_SANDBOX_SNAPSHOT`.
+- Local development uses the manifest entry marked `defaultForLocalDev` when the provider env var
+  is unset.
+- The current intended default provider is Freestyle when `CMUX_VM_DEFAULT_PROVIDER=freestyle`; keep
+  E2B enabled as rollback.
+- Baked agent tools are installed at image-build time. They are not auto-updated on VM startup, so
+  startup latency stays bounded and the active image manifest remains the source of truth.
+- To update tool versions, rebuild the provider images and record the new template/snapshot IDs in
+  the manifest. Pin an agent package with `CMUX_CLOUD_IMAGE_<TOOL>_NPM_SPEC` during the image build
+  when reproducibility is more important than latest-at-build-time.
+
 Vercel production, staging, and preview deployments fail closed for VM create if the selected image
 env var is missing or is not listed in the manifest. Local development can use the manifest default
 without setting provider image env vars. Set `CMUX_VM_ALLOW_UNMANIFESTED_IMAGES=1` only for local
@@ -77,6 +91,59 @@ Rollback is an env-only operation:
 2. Set `E2B_CMUXD_WS_TEMPLATE` or `FREESTYLE_SANDBOX_SNAPSHOT` back to that entry's `imageId`.
 3. Redeploy staging, smoke test, then repeat for production.
 4. Keep old provider templates/snapshots until all VMs using them are gone.
+
+## Baked tools and VM-local cmux CLI
+
+`web/scripts/build-cloud-vm-images.ts` installs the shared Cloud VM base layer for both E2B and
+Freestyle:
+
+- Node.js from the configured major line, default `22`.
+- Bun.
+- Claude Code from `@anthropic-ai/claude-code`.
+- OpenCode from `opencode-ai`.
+- Codex CLI from `@openai/codex`.
+- Pi from `@earendil-works/pi-coding-agent`.
+- `cmuxd-remote` as `/usr/local/bin/cmuxd-remote`.
+- `/usr/local/bin/cmux` symlinked to `cmuxd-remote` so the Linux relay CLI is on `PATH`.
+
+The image smoke checks run `node --version`, `npm --version`, `bun --version`, `claude --version`,
+`opencode --version`, `codex --version`, `pi --version`, `cmux --help`, and `cmuxd-remote version`.
+They also keep the existing Python/OpenSSL checks for provider browser proxy support.
+
+Agent package override env vars:
+
+- `CMUX_CLOUD_IMAGE_CLAUDE_CODE_NPM_SPEC`
+- `CMUX_CLOUD_IMAGE_OPENCODE_NPM_SPEC`
+- `CMUX_CLOUD_IMAGE_CODEX_NPM_SPEC`
+- `CMUX_CLOUD_IMAGE_PI_NPM_SPEC`
+
+Set an override to a package spec such as `@openai/codex@0.130.0`. Set it to `none` only for local
+image experiments that intentionally skip a tool.
+
+## Browser automation from Cloud VM SSH
+
+`cmux browser ...` inside a `cmux ssh` or Cloud VM SSH session controls the local cmux browser
+through the authenticated relay. It does not start Chrome inside the VM. This keeps browser UI,
+cookies, profiles, and screenshots on the local Mac while agent computation runs remotely.
+
+The Linux relay CLI supports the common browser automation subcommands: `open`, `navigate`, `back`,
+`forward`, `reload`, `get-url`, `snapshot`, `eval`, `wait`, `click`, `dblclick`, `hover`, `focus`,
+`check`, `uncheck`, `fill`, `type`, `press`, `select`, and `screenshot`. Existing-browser commands
+default to `CMUX_SURFACE_ID`; `open` defaults to `CMUX_WORKSPACE_ID`.
+
+## SSH session lifecycle
+
+`cmux vm ssh <id>` and `cmux vm attach <id>` open a cmux-managed remote workspace. For providers
+that return SSH attach info, the CLI resolves the VM endpoint and then uses the same workspace,
+relay, startup, and session-state path as `cmux ssh`. `cmux vm ssh-info <id>` is the print-only
+debugging command.
+
+Plain `cmux ssh` uses OpenSSH control sockets and `ControlPersist` by default. If the foreground
+SSH process exits after sleep or a network transition, the workspace can defer reconnection until
+OpenSSH confirms the foreground channel is ready again. Cloud VM provider sessions that expose only
+short-lived gateway credentials may still require a fresh attach lease, so Cloud VM terminal panes
+must keep the remote workspace state visible and show the existing disconnect banner rather than
+falling back silently to a local shell.
 
 ## Effect conventions
 
@@ -222,8 +289,13 @@ The dev Postgres port is `CMUX_PORT + 10000`, so `CMUX_PORT=10180` maps to `loca
 | `cmux vm new --workspace`   | yes       | yes |
 | `cmux vm new --detach`      | yes       | yes |
 | `cmux vm attach <id>`       | yes       | yes |
+| `cmux vm ssh <id>`          | yes       | yes |
+| `cmux vm ssh-info <id>`     | legacy SSH info only | legacy SSH info only |
 | `cmux vm exec <id> -- ...`  | yes       | yes |
 | `cmux vm ls / rm`           | yes       | yes |
+
+`cmux vm ssh <id>` is the user-facing interactive alias and opens the same managed workspace path
+as `cmux vm attach <id>`. `cmux vm ssh-info <id>` is print-only for provider SSH debugging.
 
 E2B interactive paths require a cmuxd WebSocket PTY image. The backend writes only a hash of attach tokens to Postgres; raw tokens are returned once to the Mac client.
 

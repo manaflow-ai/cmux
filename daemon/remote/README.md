@@ -104,6 +104,10 @@ The command prints the exact release asset URL, expected SHA-256, local cache st
 
 The `cli` subcommand (or `cmux` wrapper/symlink) connects to the local cmux app through an SSH reverse forward and relays commands. It supports both v1 text protocol and v2 JSON-RPC commands.
 
+Cloud VM images install `/usr/local/bin/cmux` as a symlink to `cmuxd-remote`,
+so `cmux --help` works before a user-specific SSH bootstrap has written
+`~/.cmux/bin/cmux`.
+
 Socket discovery order:
 1. `--socket <path>` flag
 2. `CMUX_SOCKET_PATH` environment variable
@@ -122,3 +126,9 @@ Integration additions for the relay path:
 2. A background `ssh -N -R` process reverse-forwards a TCP port to the authenticated local relay server. The relay address is written to `~/.cmux/socket_addr` on the remote.
 3. Relay startup writes `~/.cmux/relay/<port>.daemon_path` so the wrapper can route each shell to the correct daemon binary when multiple local cmux instances or versions coexist.
 4. Relay startup writes `~/.cmux/relay/<port>.auth` with the relay ID and token needed for HMAC authentication.
+
+Browser relay behavior:
+
+1. `cmux browser ...` inside an SSH session controls the local cmux browser through the authenticated relay, not a browser process inside the VM.
+2. The remote CLI supports the common automation commands: `open`, `navigate`, `back`, `forward`, `reload`, `get-url`, `snapshot`, `eval`, `wait`, `click`, `dblclick`, `hover`, `focus`, `check`, `uncheck`, `fill`, `type`, `press`, `select`, and `screenshot`.
+3. Commands that target an existing browser surface default to `CMUX_SURFACE_ID`; `open` defaults to `CMUX_WORKSPACE_ID` so agents can create a browser pane next to the active SSH terminal.

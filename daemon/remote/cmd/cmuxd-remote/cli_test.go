@@ -801,6 +801,101 @@ func TestCLIBrowserGetURLUsesCurrentMethodAndSurfaceEnv(t *testing.T) {
 	}
 }
 
+func TestCLIBrowserSnapshotUsesSurfaceEnvAndForwardsOptions(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	t.Setenv("CMUX_SURFACE_ID", "env-sf")
+	code := runCLI([]string{
+		"--socket", sockPath, "--json",
+		"browser", "snapshot",
+		"--selector", "main",
+		"--max-depth", "4",
+	})
+	if code != 0 {
+		t.Fatalf("browser snapshot should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "browser.snapshot" {
+			t.Fatalf("expected browser.snapshot, got %v", got)
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["surface_id"]; got != "env-sf" {
+			t.Fatalf("expected surface_id env-sf, got %v", got)
+		}
+		if got := params["selector"]; got != "main" {
+			t.Fatalf("expected selector main, got %v", got)
+		}
+		if got := params["max_depth"]; got != "4" {
+			t.Fatalf("expected max_depth 4, got %v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for browser snapshot request")
+	}
+}
+
+func TestCLIBrowserAutomationPositionals(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	t.Setenv("CMUX_SURFACE_ID", "env-sf")
+	code := runCLI([]string{
+		"--socket", sockPath, "--json",
+		"browser", "fill",
+		"input[name=email]",
+		"dev@example.com",
+	})
+	if code != 0 {
+		t.Fatalf("browser fill should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "browser.fill" {
+			t.Fatalf("expected browser.fill, got %v", got)
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["surface_id"]; got != "env-sf" {
+			t.Fatalf("expected surface_id env-sf, got %v", got)
+		}
+		if got := params["selector"]; got != "input[name=email]" {
+			t.Fatalf("expected selector, got %v", got)
+		}
+		if got := params["text"]; got != "dev@example.com" {
+			t.Fatalf("expected text, got %v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for browser fill request")
+	}
+}
+
+func TestCLIBrowserEvalUsesPositionalScript(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	t.Setenv("CMUX_SURFACE_ID", "env-sf")
+	code := runCLI([]string{
+		"--socket", sockPath, "--json",
+		"browser", "eval",
+		"document.title",
+	})
+	if code != 0 {
+		t.Fatalf("browser eval should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "browser.eval" {
+			t.Fatalf("expected browser.eval, got %v", got)
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["surface_id"]; got != "env-sf" {
+			t.Fatalf("expected surface_id env-sf, got %v", got)
+		}
+		if got := params["script"]; got != "document.title" {
+			t.Fatalf("expected script, got %v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for browser eval request")
+	}
+}
+
 func TestCLINoArgs(t *testing.T) {
 	code := runCLI([]string{})
 	if code != 2 {
