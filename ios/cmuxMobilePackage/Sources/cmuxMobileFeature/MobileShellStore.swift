@@ -1,4 +1,5 @@
 import Foundation
+import CMUXMobileSyncCore
 import Observation
 
 public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
@@ -40,12 +41,25 @@ public struct MobileTerminalPreview: Identifiable, Equatable, Sendable {
 
     public var id: ID
     public var name: String
-    public var lines: [String]
+    public var snapshot: MobileTerminalGhosttySnapshot
+
+    public init(id: ID, name: String, snapshot: MobileTerminalGhosttySnapshot) {
+        self.id = id
+        self.name = name
+        self.snapshot = snapshot
+    }
 
     public init(id: ID, name: String, lines: [String]) {
         self.id = id
         self.name = name
-        self.lines = lines
+        self.snapshot = PreviewMobileHost.snapshot(
+            terminalID: id.rawValue,
+            lines: lines
+        )
+    }
+
+    public var lines: [String] {
+        snapshot.renderedVisibleLines
     }
 }
 
@@ -223,6 +237,28 @@ enum PreviewMobileHost {
                         "Test Suite passed",
                     ]
                 ),
+                MobileTerminalPreview(
+                    id: "terminal-tui",
+                    name: "TUI",
+                    snapshot: snapshot(
+                        terminalID: "terminal-tui",
+                        lines: [
+                            "LAZYGIT",
+                            "files branches log",
+                            "main feat-ios clean",
+                            "q quit",
+                        ],
+                        activeScreen: .alternate,
+                        modes: MobileTerminalGhosttyModes(
+                            bracketedPaste: true,
+                            applicationCursorKeys: true,
+                            applicationKeypad: true,
+                            mouseTracking: true,
+                            cursorVisible: false
+                        ),
+                        streamOffset: 128
+                    )
+                ),
             ]
         ),
         MobileWorkspacePreview(
@@ -240,4 +276,28 @@ enum PreviewMobileHost {
             ]
         ),
     ]
+
+    static func snapshot(
+        terminalID: String,
+        lines: [String],
+        scrollbackLines: [String] = [],
+        activeScreen: MobileTerminalGhosttyScreen = .primary,
+        modes: MobileTerminalGhosttyModes = MobileTerminalGhosttyModes(),
+        streamOffset: UInt64 = 0
+    ) -> MobileTerminalGhosttySnapshot {
+        do {
+            return try MobileTerminalGhosttySnapshot.fixture(
+                terminalID: terminalID,
+                columns: 48,
+                rows: 6,
+                scrollbackLines: scrollbackLines,
+                visibleLines: lines,
+                activeScreen: activeScreen,
+                modes: modes,
+                streamOffset: streamOffset
+            )
+        } catch {
+            preconditionFailure("Invalid mobile terminal preview snapshot: \(error)")
+        }
+    }
 }
