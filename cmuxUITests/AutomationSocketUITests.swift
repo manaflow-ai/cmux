@@ -80,12 +80,12 @@ final class AutomationSocketUITests: XCTestCase {
     }
 
     func testMobileTerminalSnapshotCommandReturnsGhosttySchema() throws {
-        let app = configuredApp(mode: "cmuxOnly")
+        let app = configuredApp(mode: "allowAll")
         addTeardownBlock { app.terminate() }
         launchAndAllowBackground(app, failureMessage: "Expected app to launch for mobile terminal snapshot test")
 
-        guard let resolvedPath = resolveSocketPath(timeout: 5.0) else {
-            XCTFail("Expected control socket to exist")
+        guard let resolvedPath = resolveResponsiveSocketPath(timeout: 8.0) else {
+            XCTFail("Expected control socket to respond to ping")
             return
         }
         socketPath = resolvedPath
@@ -123,6 +123,7 @@ final class AutomationSocketUITests: XCTestCase {
         // Debug launches require a tag outside reload.sh; provide one in UITests so CI
         // does not fail with "Application ... does not have a process ID".
         app.launchEnvironment["CMUX_TAG"] = launchTag
+        app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
         return app
     }
 
@@ -243,6 +244,40 @@ final class AutomationSocketUITests: XCTestCase {
             return resolvedPath
         }
         return resolvedPath
+    }
+
+    private func resolveResponsiveSocketPath(timeout: TimeInterval) -> String? {
+        var resolvedPath: String?
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                let candidates = self.socketCandidates()
+                for candidate in candidates where FileManager.default.fileExists(atPath: candidate) {
+                    if ControlSocketClient(path: candidate, responseTimeout: 1.0).sendLine("ping") == "PONG" {
+                        resolvedPath = candidate
+                        return true
+                    }
+                }
+                return false
+            },
+            object: NSObject()
+        )
+        if XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed {
+            return resolvedPath
+        }
+        return resolvedPath
+    }
+
+    private func socketCandidates() -> [String] {
+        var candidates = [socketPath, "/tmp/cmux-debug-\(launchTag).sock"]
+        if let found = findSocketInTmp() {
+            candidates.append(found)
+        }
+        var unique: [String] = []
+        var seen = Set<String>()
+        for candidate in candidates where seen.insert(candidate).inserted {
+            unique.append(candidate)
+        }
+        return unique
     }
 
     private func findSocketInTmp() -> String? {
