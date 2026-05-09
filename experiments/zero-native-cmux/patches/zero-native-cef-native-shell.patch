@@ -1,5 +1,5 @@
 diff --git a/src/platform/macos/cef_host.mm b/src/platform/macos/cef_host.mm
-index ce9c747..07cb2e2 100644
+index ce9c747..74c1640 100644
 --- a/src/platform/macos/cef_host.mm
 +++ b/src/platform/macos/cef_host.mm
 @@ -29,6 +29,10 @@ @interface ZeroNativeChromiumApplication : NSApplication <CefAppProtocol>
@@ -89,8 +89,8 @@ index ce9c747..07cb2e2 100644
 +
 +static bool ZeroNativeShouldUseHelperLoader(void) {
 +    if (!ZeroNativeIsCefHelperProcess()) return false;
-+    NSString *bundleExtension = [NSBundle mainBundle].bundlePath.pathExtension.lowercaseString ?: @"";
-+    return [bundleExtension isEqualToString:@"app"];
++    NSString *executableName = [NSBundle mainBundle].executablePath.lastPathComponent ?: @"";
++    return [executableName hasSuffix:@" Helper"];
 +}
 +
  static NSRect ZeroNativeConstrainFrame(NSRect frame) {

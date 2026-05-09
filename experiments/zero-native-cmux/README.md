@@ -18,14 +18,9 @@ zig build run
 
 Use `-Dweb-engine=system` to compare against WKWebView. Chromium is the default.
 `setup.sh` applies the local CEF startup and native shell patches before
-installing the CEF runtime.
-
-To build the clickable macOS app bundle:
-
-```bash
-zig build -Dplatform=macos -Dweb-engine=chromium
-node third_party/zero-native/packages/zero-native/bin/zero-native.js package --target macos --output zig-out/package/zero-cmux.app --binary zig-out/bin/zero-cmux --web-engine chromium --cef-dir third_party/cef/macos --signing adhoc
-```
+installing the CEF runtime. The verified path is `zig build run`; packaging the
+Chromium build as a cmd-clickable `.app` still needs Zero Native helper bundle
+work.
 
 ## Test
 
