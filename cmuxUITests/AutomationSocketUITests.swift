@@ -151,6 +151,12 @@ final class AutomationSocketUITests: XCTestCase {
         }
 
         if app.state == .runningForeground || app.state == .runningBackground {
+            if app.state == .runningBackground {
+                XCTExpectFailure("App activation may fail on headless CI runners", options: options) {
+                    app.activate()
+                }
+                _ = app.wait(for: .runningForeground, timeout: 2.0)
+            }
             return
         }
 
