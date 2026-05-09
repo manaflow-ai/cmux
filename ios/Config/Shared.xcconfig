@@ -18,7 +18,7 @@ CURRENT_PROJECT_VERSION = 1
 IPHONEOS_DEPLOYMENT_TARGET = 17.0
 
 // (1 == iPhone, 2 == iPad)
-TARGETED_DEVICE_FAMILY = 1,2 
+TARGETED_DEVICE_FAMILY = 1,2
 
 // ==========================================
 // Info PLIST
