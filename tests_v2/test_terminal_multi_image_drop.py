@@ -210,11 +210,11 @@ def main() -> int:
                 paste_starts = raw_paste.count(b"\x1b[200~")
                 paste_ends = raw_paste.count(b"\x1b[201~")
                 _must(
-                    paste_starts >= 2 and paste_ends >= 2,
-                    f"{payload} drop should arrive as separate bracketed paste transactions; starts={paste_starts} ends={paste_ends} raw={raw_paste!r}",
+                    paste_starts == 1 and paste_ends == 1,
+                    f"{payload} drop should arrive as one bracketed paste transaction; starts={paste_starts} ends={paste_ends} raw={raw_paste!r}",
                 )
 
-        print(f"PASS: local image drop materialized {len(materialized_paths)} image_data images, preserved original file_urls, and used separate paste transactions")
+        print(f"PASS: local image drop materialized {len(materialized_paths)} image_data images, preserved original file_urls, and used one paste transaction")
         return 0
     finally:
         if workspace_ids:
