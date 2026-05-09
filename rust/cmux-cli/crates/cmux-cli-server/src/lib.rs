@@ -22300,14 +22300,17 @@ async fn compatibility_workspace_remote_reconnect_v2(
             .and_then(serde_json::Value::as_u64)
             .is_some()
         && reconnect_relay_config.is_none();
-    if !reconnect_requires_secret_config
-        && let Some(config) = daemon
+    let reconnect_proxy_config = if reconnect_requires_secret_config {
+        None
+    } else {
+        daemon
             .remote_daemon_proxy_configs
             .lock()
             .await
             .get(&workspace_id)
             .cloned()
-    {
+    };
+    if let Some(config) = reconnect_proxy_config {
         let mut remote = current;
         let workspace = daemon
             .workspace_by_id(workspace_id)
@@ -22364,13 +22367,13 @@ async fn compatibility_workspace_remote_reconnect_v2(
         )
         .await;
     }
-    if let Some(mut config) = daemon
+    let ephemeral_config = daemon
         .remote_ephemeral_configs
         .lock()
         .await
         .get(&workspace_id)
-        .cloned()
-    {
+        .cloned();
+    if let Some(mut config) = ephemeral_config {
         if let Some(object) = config.as_object_mut() {
             object.insert("auto_connect".to_string(), serde_json::json!(true));
         }
