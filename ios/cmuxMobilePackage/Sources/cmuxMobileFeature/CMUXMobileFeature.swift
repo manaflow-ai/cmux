@@ -1,4 +1,5 @@
 import Foundation
+import CMUXMobileSyncCore
 import Observation
 import SwiftUI
 
@@ -305,15 +306,20 @@ struct TerminalPreviewSurface: View {
     let terminal: MobileTerminalPreview?
     let workspace: MobileWorkspacePreview
 
+    private var snapshot: MobileTerminalGhosttySnapshot? {
+        terminal?.snapshot
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 6) {
-                ForEach((terminal?.lines ?? []).indices, id: \.self) { index in
-                    Text(terminal?.lines[index] ?? "")
+                ForEach((snapshot?.renderedVisibleLines ?? []).indices, id: \.self) { index in
+                    Text(snapshot?.renderedVisibleLines[index] ?? "")
                         .font(.system(.body, design: .monospaced))
                         .foregroundStyle(index == 0 ? .green : .white)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .textSelection(.enabled)
+                        .accessibilityIdentifier("MobileTerminalRow-\(index)")
                 }
             }
             .padding(16)

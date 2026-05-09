@@ -52,8 +52,8 @@ import Testing
     store.createTerminal()
 
     #expect(store.selectedWorkspace?.id.rawValue == "workspace-main")
-    #expect(store.selectedWorkspace?.terminals.count == 3)
-    #expect(store.selectedTerminalID?.rawValue == "workspace-main-terminal-3")
+    #expect(store.selectedWorkspace?.terminals.count == 4)
+    #expect(store.selectedTerminalID?.rawValue == "workspace-main-terminal-4")
 }
 
 @MainActor
@@ -68,4 +68,17 @@ import Testing
 
     #expect(store.selectedWorkspace?.id.rawValue == "workspace-docs")
     #expect(store.selectedTerminalID?.rawValue == "terminal-notes")
+}
+
+@MainActor
+@Test func previewHostIncludesAlternateScreenSnapshotTerminal() {
+    let store = CMUXMobileShellStore.preview()
+    let workspace = store.workspaces.first { $0.id.rawValue == "workspace-main" }
+    let terminal = workspace?.terminals.first { $0.id.rawValue == "terminal-tui" }
+
+    #expect(terminal?.snapshot.activeScreen == .alternate)
+    #expect(terminal?.snapshot.modes.mouseTracking == true)
+    #expect(terminal?.snapshot.modes.bracketedPaste == true)
+    #expect(terminal?.lines.first == "LAZYGIT")
+    #expect(terminal?.snapshot.streamOffset == 128)
 }

@@ -12,14 +12,19 @@ let package = Package(
             targets: ["cmuxMobileFeature"]
         ),
     ],
+    dependencies: [
+        .package(path: "../../Packages/CMUXMobileSyncCore"),
+    ],
     targets: [
         .target(
-            name: "cmuxMobileFeature"
+            name: "cmuxMobileFeature",
+            dependencies: ["CMUXMobileSyncCore"]
         ),
         .testTarget(
             name: "cmuxMobileFeatureTests",
             dependencies: [
-                "cmuxMobileFeature"
+                "cmuxMobileFeature",
+                "CMUXMobileSyncCore",
             ]
         ),
     ]

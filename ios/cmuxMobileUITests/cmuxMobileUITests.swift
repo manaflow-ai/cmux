@@ -58,6 +58,21 @@ final class cmuxMobileUITests: XCTestCase {
     }
 
     @MainActor
+    func testTerminalDropdownSwitchesToAlternateScreenSnapshot() throws {
+        let app = launchApp()
+        try connect(app)
+
+        app.buttons["MobileTerminalDropdown"].tap()
+        let tuiTerminal = app.buttons["MobileTerminalMenuItem-terminal-tui"]
+        XCTAssertTrue(tuiTerminal.waitForExistence(timeout: 4))
+        tuiTerminal.tap()
+
+        XCTAssertTrue(app.staticTexts["LAZYGIT"].waitForExistence(timeout: 4))
+        XCTAssertTrue(app.staticTexts["files branches log"].exists)
+        XCTAssertTrue(app.staticTexts["q quit"].exists)
+    }
+
+    @MainActor
     func testIPadShowsWorkspaceListAndTerminalTogether() throws {
         guard UIDevice.current.userInterfaceIdiom == .pad else {
             throw XCTSkip("iPad-only split view check")
