@@ -1,0 +1,119 @@
+name: iOS simulator tests
+
+on:
+  pull_request:
+    paths:
+      - "ios/**"
+      - ".github/workflows/test-ios.yml"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch or SHA to test
+        required: false
+        default: ""
+      test_filter:
+        description: "UI test class or class/method, for example cmuxMobileUITests/testSignInPairingAndWorkspaceShell"
+        required: false
+        default: ""
+      device_family:
+        description: "Simulator family"
+        required: false
+        default: "both"
+        type: choice
+        options:
+          - both
+          - iphone
+          - ipad
+
+jobs:
+  ios-simulator:
+    runs-on: macos-26
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        family: [iphone, ipad]
+    steps:
+      - name: Skip unrequested family
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family }}
+        run: |
+          echo "Skipping ${{ matrix.family }}"
+
+      - name: Checkout
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          submodules: false
+
+      - name: Select Xcode
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        run: |
+          set -euo pipefail
+          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
+            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
+          else
+            XCODE_APP="$(ls -d /Applications/Xcode*.app 2>/dev/null | head -n 1 || true)"
+            if [ -z "$XCODE_APP" ]; then
+              echo "No Xcode.app found under /Applications" >&2
+              exit 1
+            fi
+            XCODE_DIR="$XCODE_APP/Contents/Developer"
+          fi
+          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
+          export DEVELOPER_DIR="$XCODE_DIR"
+          xcodebuild -version
+
+      - name: Pick simulator
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        env:
+          DEVICE_FAMILY: ${{ matrix.family }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > /tmp/simulator.env
+          import json
+          import os
+          import subprocess
+
+          family = os.environ["DEVICE_FAMILY"]
+          data = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"]))
+          devices = [
+              device
+              for runtimes in data.get("devices", {}).values()
+              for device in runtimes
+              if device.get("isAvailable", True)
+          ]
+          prefix = "iPad" if family == "ipad" else "iPhone"
+          preferred = ["iPad Pro 13-inch (M4)", "iPad Air 13-inch (M3)"] if family == "ipad" else ["iPhone 17", "iPhone 16"]
+          selected = next((d for name in preferred for d in devices if d.get("name") == name), None)
+          selected = selected or next(d for d in devices if d.get("name", "").startswith(prefix))
+          print(f"SIMULATOR_ID={selected['udid']}")
+          print(f"SIMULATOR_NAME={selected['name']}")
+          PY
+          cat /tmp/simulator.env
+          cat /tmp/simulator.env >> "$GITHUB_ENV"
+
+      - name: Resolve packages
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        run: |
+          xcodebuild -workspace ios/cmuxMobile.xcworkspace \
+            -scheme cmuxMobile \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -derivedDataPath /tmp/cmux-ios-${{ matrix.family }} \
+            -resolvePackageDependencies
+
+      - name: Run iOS simulator tests
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        env:
+          TEST_FILTER: ${{ inputs.test_filter }}
+        run: |
+          set -euo pipefail
+          ONLY_TESTING=()
+          if [ -n "${TEST_FILTER:-}" ]; then
+            ONLY_TESTING=(-only-testing:"$TEST_FILTER")
+          fi
+          xcodebuild -workspace ios/cmuxMobile.xcworkspace \
+            -scheme cmuxMobile \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -derivedDataPath /tmp/cmux-ios-${{ matrix.family }} \
+            test "${ONLY_TESTING[@]}"
