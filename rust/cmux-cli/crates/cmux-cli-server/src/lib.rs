@@ -1561,8 +1561,9 @@ impl Tab {
         // which workspace/tab they live in without walking the socket.
         // `CMUX_*` matches the macOS cmux app's convention so scripts
         // work across both surfaces; `CMX_*` is a cmx-native alias.
-        cmd.env("CMUX_WORKSPACE_ID", workspace_id.to_string());
-        cmd.env("CMUX_TAB_ID", id.to_string());
+        let compatibility_workspace_id = workspace_external_id(workspace_id);
+        cmd.env("CMUX_WORKSPACE_ID", compatibility_workspace_id.clone());
+        cmd.env("CMUX_TAB_ID", compatibility_workspace_id);
         cmd.env("CMUX_PANEL_ID", resolved_external_id.clone());
         cmd.env("CMUX_SURFACE_ID", resolved_external_id.clone());
         cmd.env("CMX_WORKSPACE_ID", workspace_id.to_string());
@@ -2067,8 +2068,9 @@ impl Tab {
             );
         }
         apply_ghostty_shell_environment(&mut cmd, &opts.shell, &opts);
-        cmd.env("CMUX_WORKSPACE_ID", workspace_id.to_string());
-        cmd.env("CMUX_TAB_ID", id.to_string());
+        let compatibility_workspace_id = workspace_external_id(workspace_id);
+        cmd.env("CMUX_WORKSPACE_ID", compatibility_workspace_id.clone());
+        cmd.env("CMUX_TAB_ID", compatibility_workspace_id);
         cmd.env("CMUX_PANEL_ID", self.external_id.clone());
         cmd.env("CMUX_SURFACE_ID", self.external_id.clone());
         cmd.env("CMX_WORKSPACE_ID", workspace_id.to_string());
