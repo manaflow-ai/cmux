@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 import json
+import os
 import select
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -22,6 +24,31 @@ def _must(cond: bool, msg: str) -> None:
 
 def _daemon_module_dir() -> Path:
     return Path(__file__).resolve().parents[1] / "daemon" / "remote"
+
+
+def _daemon_command(build_dir: Path) -> list[str]:
+    explicit = os.environ.get("CMUX_TESTS_V2_CMUXD_REMOTE_BINARY", "").strip()
+    if explicit:
+        binary = Path(explicit)
+        _must(binary.is_file(), f"CMUX_TESTS_V2_CMUXD_REMOTE_BINARY does not exist: {binary}")
+        _must(
+            os.access(binary, os.X_OK),
+            f"CMUX_TESTS_V2_CMUXD_REMOTE_BINARY is not executable: {binary}",
+        )
+        return [str(binary), "serve", "--stdio"]
+
+    daemon_dir = _daemon_module_dir()
+    binary = build_dir / "cmuxd-remote"
+    subprocess.run(
+        ["go", "build", "-o", str(binary), "./cmd/cmuxd-remote"],
+        cwd=str(daemon_dir),
+        check=True,
+    )
+    _must(
+        binary.is_file() and os.access(binary, os.X_OK),
+        f"cmuxd-remote build output is not executable: {binary}",
+    )
+    return [str(binary), "serve", "--stdio"]
 
 
 def _rpc(
@@ -88,15 +115,18 @@ def _assert_effective(resp: dict, want_cols: int, want_rows: int, label: str) ->
 
 
 def main() -> int:
-    if shutil.which("go") is None:
+    explicit_binary = os.environ.get("CMUX_TESTS_V2_CMUXD_REMOTE_BINARY", "").strip()
+    if not explicit_binary and shutil.which("go") is None:
         print("SKIP: go is not available")
         return 0
 
     daemon_dir = _daemon_module_dir()
     _must(daemon_dir.is_dir(), f"Missing daemon module directory: {daemon_dir}")
 
+    temp_dir = tempfile.TemporaryDirectory(prefix="cmuxd-remote-stdio-")
+    daemon_cmd = _daemon_command(Path(temp_dir.name))
     proc = subprocess.Popen(
-        ["go", "run", "./cmd/cmuxd-remote", "serve", "--stdio"],
+        daemon_cmd,
         cwd=str(daemon_dir),
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
@@ -184,6 +214,7 @@ def main() -> int:
                 proc.kill()
             except Exception:
                 pass
+        temp_dir.cleanup()
 
 
 if __name__ == "__main__":
