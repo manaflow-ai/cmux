@@ -5497,6 +5497,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
+    func toggleRightSidebarInActiveMainWindow(preferredWindow: NSWindow? = nil) -> Bool {
+        guard let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow) else {
+            if let fileExplorerState {
+                fileExplorerState.toggle()
+                return true
+            }
+            return false
+        }
+
+        let window = context.window ?? windowForMainWindowId(context.windowId)
+        if let window {
+            setActiveMainWindow(window)
+        }
+
+        guard let state = context.fileExplorerState ?? fileExplorerState else {
+            return false
+        }
+        let wasVisible = state.isVisible
+        state.toggle()
+        if wasVisible && !state.isVisible {
+            _ = context.keyboardFocusCoordinator.restoreTerminalFocusAfterRightSidebarHiddenIfNeeded()
+        }
+        return true
+    }
+
+    @discardableResult
     func restoreTerminalFocusAfterRightSidebarHidden(in window: NSWindow?) -> Bool {
         let context = preferredRegisteredMainWindowContext(preferredWindow: window)
         return context?.keyboardFocusCoordinator.restoreTerminalFocusAfterRightSidebarHiddenIfNeeded() ?? false
@@ -5797,13 +5823,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
-    func toggleRightSidebarVisibilityInActiveMainWindow(preferredWindow: NSWindow? = nil) -> Bool {
+    func toggleRightSidebarKeyboardFocusInActiveMainWindow(preferredWindow: NSWindow? = nil) -> Bool {
         let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow)
 
         guard let context else {
 #if DEBUG
             dlog(
-                "rs.visibility.toggle.abort reason=noContext preferred={\(debugWindowToken(preferredWindow))} " +
+                "rs.focus.toggle.abort reason=noContext preferred={\(debugWindowToken(preferredWindow))} " +
                 "\(debugShortcutRouteSnapshot())"
             )
 #endif
@@ -5813,29 +5839,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         let beforeResponder = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
         dlog(
-            "rs.visibility.toggle.begin preferred={\(debugWindowToken(preferredWindow))} " +
+            "rs.focus.toggle.begin preferred={\(debugWindowToken(preferredWindow))} " +
             "context={\(debugContextToken(context))} targetWin={\(debugWindowToken(window))} " +
             "fr=\(beforeResponder)"
         )
 #endif
-        guard let state = context.fileExplorerState ?? fileExplorerState else {
-            return false
-        }
-
-        if state.isVisible {
-            state.setVisible(false)
-            _ = context.keyboardFocusCoordinator.restoreTerminalFocusAfterRightSidebarHiddenIfNeeded()
-            return true
-        }
-
         if let window {
             mainWindowVisibilityController.focusForInWindowCommand(window, reason: .rightSidebarToggle)
         }
-        let result = context.keyboardFocusCoordinator.focusRightSidebar()
+        let result = context.keyboardFocusCoordinator.toggleRightSidebarOrTerminalFocus()
 #if DEBUG
         let afterResponder = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
         dlog(
-            "rs.visibility.toggle.end result=\(result ? 1 : 0) " +
+            "rs.focus.toggle.end result=\(result ? 1 : 0) " +
             "targetWin={\(debugWindowToken(window))} fr=\(afterResponder)"
         )
 #endif
@@ -11089,15 +11105,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if matchConfiguredShortcut(event: event, action: .toggleFileExplorer) {
             // Escape AppKit's performKeyEquivalent animation context. Without
-            // deferring the reveal, NSAnimationContext implicitly animates the
+            // deferring the toggle, NSAnimationContext implicitly animates the
             // layout change.
             let preferredWindow = mainWindowForShortcutEvent(event) ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
             Task { @MainActor [weak self, weak preferredWindow] in
-                _ = self?.focusRightSidebarInActiveMainWindow(
-                    mode: .files,
-                    focusFirstItem: true,
-                    preferredWindow: preferredWindow
-                )
+                _ = self?.toggleRightSidebarInActiveMainWindow(preferredWindow: preferredWindow)
             }
             return true
         }
@@ -11109,18 +11121,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 ?? NSApp.keyWindow?.firstResponder
                 ?? NSApp.mainWindow?.firstResponder
             dlog(
-                "rs.visibility.toggle.shortcut.begin event=\(NSWindow.keyDescription(event)) " +
+                "rs.focus.toggle.shortcut.begin event=\(NSWindow.keyDescription(event)) " +
                 "preferred={\(debugWindowToken(preferredWindow))} fr=\(beforeResponder.map { String(describing: type(of: $0)) } ?? "nil") " +
                 "\(debugShortcutRouteSnapshot(event: event))"
             )
 #endif
-            let result = toggleRightSidebarVisibilityInActiveMainWindow(preferredWindow: preferredWindow)
+            let result = toggleRightSidebarKeyboardFocusInActiveMainWindow(preferredWindow: preferredWindow)
 #if DEBUG
             let afterResponder = preferredWindow?.firstResponder
                 ?? NSApp.keyWindow?.firstResponder
                 ?? NSApp.mainWindow?.firstResponder
             dlog(
-                "rs.visibility.toggle.shortcut.end result=\(result ? 1 : 0) " +
+                "rs.focus.toggle.shortcut.end result=\(result ? 1 : 0) " +
                 "preferred={\(debugWindowToken(preferredWindow))} fr=\(afterResponder.map { String(describing: type(of: $0)) } ?? "nil") " +
                 "\(debugShortcutRouteSnapshot(event: event))"
             )
