@@ -250,6 +250,32 @@ func TestWebSocketPTYSeedsUTF8LocaleAndTerminalEnv(t *testing.T) {
 	t.Fatalf("timed out waiting for terminal env, got %q", output.String())
 }
 
+func TestDefaultWebSocketPTYEnvIncludesBakedCLIContext(t *testing.T) {
+	t.Setenv("PATH", "/usr/bin:/bin")
+
+	env := envSliceToMap(defaultWebSocketPTYEnv("/bin/bash", wsAuthFrame{
+		WorkspaceID:      "ws-123",
+		SurfaceID:        "sf-456",
+		BackchannelToken: "token-789",
+	}))
+
+	if got := env["PATH"]; !strings.HasPrefix(got, "/usr/local/bin:") {
+		t.Fatalf("PATH = %q, want /usr/local/bin prepended", got)
+	}
+	if env["CMUX_BUNDLED_CLI_PATH"] != "/usr/local/bin/cmux" {
+		t.Fatalf("CMUX_BUNDLED_CLI_PATH = %q", env["CMUX_BUNDLED_CLI_PATH"])
+	}
+	if env["CMUX_WORKSPACE_ID"] != "ws-123" || env["CMUX_TAB_ID"] != "ws-123" {
+		t.Fatalf("workspace env missing: %v", env)
+	}
+	if env["CMUX_SURFACE_ID"] != "sf-456" || env["CMUX_PANEL_ID"] != "sf-456" {
+		t.Fatalf("surface env missing: %v", env)
+	}
+	if env["CMUX_TERMINAL_BACKCHANNEL_TOKEN"] != "token-789" {
+		t.Fatalf("backchannel token env missing: %v", env)
+	}
+}
+
 func dialPTY(t *testing.T, ctx context.Context, serverURL string) *websocket.Conn {
 	t.Helper()
 	wsURL := "ws" + strings.TrimPrefix(serverURL, "http") + "/terminal"
@@ -275,6 +301,17 @@ func sendAuth(t *testing.T, ctx context.Context, conn *websocket.Conn, token, se
 	if err := conn.Write(ctx, websocket.MessageText, payload); err != nil {
 		t.Fatalf("write auth: %v", err)
 	}
+}
+
+func envSliceToMap(values []string) map[string]string {
+	out := make(map[string]string, len(values))
+	for _, value := range values {
+		key, rest, ok := strings.Cut(value, "=")
+		if ok {
+			out[key] = rest
+		}
+	}
+	return out
 }
 
 func writeTestLease(t *testing.T, path, token, sessionID string, singleUse bool, expiresAt time.Time) {

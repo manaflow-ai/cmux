@@ -6,13 +6,13 @@ describe("VM image resolver", () => {
   test("uses manifest local defaults outside deployed runtimes", () => {
     expect(resolveVmImage("e2b", undefined, {})).toMatchObject({
       provider: "e2b",
-      image: "cmuxd-ws:proxy-20260424a",
-      imageVersion: "e2b-proxy-20260424a",
+      image: "cmuxd-ws:cli-20260509a",
+      imageVersion: "e2b-cli-20260509a",
     });
     expect(resolveVmImage("freestyle", undefined, {})).toMatchObject({
       provider: "freestyle",
-      image: "sh-6ch5p9k23xrcx24056n8",
-      imageVersion: "freestyle-rpclease-20260502a",
+      image: "sh-6galq4gnt6qo6lb0xi2b",
+      imageVersion: "freestyle-cli-20260509a",
     });
   });
 
@@ -39,12 +39,12 @@ describe("VM image resolver", () => {
       resolveVmImage("e2b", undefined, {
         VERCEL: "1",
         VERCEL_ENV: "production",
-        E2B_CMUXD_WS_TEMPLATE: "cmuxd-ws:proxy-20260424a",
+        E2B_CMUXD_WS_TEMPLATE: "cmuxd-ws:cli-20260509a",
       }),
     ).toMatchObject({
       provider: "e2b",
-      image: "cmuxd-ws:proxy-20260424a",
-      imageVersion: "e2b-proxy-20260424a",
+      image: "cmuxd-ws:cli-20260509a",
+      imageVersion: "e2b-cli-20260509a",
     });
   });
 

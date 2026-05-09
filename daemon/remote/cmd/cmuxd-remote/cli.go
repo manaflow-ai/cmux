@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -78,6 +79,19 @@ var commands = []commandSpec{
 }
 
 var commandIndex map[string]*commandSpec
+var terminalBackchannelCommands = map[string]struct{}{
+	"new-workspace":    {},
+	"close-workspace":  {},
+	"select-workspace": {},
+	"new-pane":         {},
+	"new-surface":      {},
+	"new-split":        {},
+	"close-surface":    {},
+	"send":             {},
+	"send-key":         {},
+	"notify":           {},
+	"refresh-surfaces": {},
+}
 
 func init() {
 	commandIndex = make(map[string]*commandSpec, len(commands))
@@ -128,11 +142,14 @@ doneFlags:
 	// refreshAddr is set when the address came from socket_addr file (not env/flag),
 	// allowing one stale-address refresh if another workspace has replaced socket_addr.
 	var refreshAddr func() string
-	if socketPath == "" {
+	if socketPath == "" && !isWebSocketRemoteTerminal() {
 		socketPath = readSocketAddrFile()
 		refreshAddr = readSocketAddrFile
 	}
 	if socketPath == "" {
+		if code, handled := runWebSocketTerminalBackchannel(cmdName, cmdArgs, jsonOutput); handled {
+			return code
+		}
 		fmt.Fprintln(os.Stderr, "cmux: CMUX_SOCKET_PATH not set and --socket not provided")
 		return 1
 	}
@@ -214,6 +231,27 @@ func execV1(socketPath string, spec *commandSpec, args []string, refreshAddr fun
 
 // execV2 sends a v2 JSON-RPC request over the socket.
 func execV2(socketPath string, spec *commandSpec, args []string, jsonOutput bool, refreshAddr func() string) int {
+	params, err := paramsForV2Spec(spec, args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cmux: %v\n", err)
+		return 2
+	}
+
+	resp, err := socketRoundTripV2(socketPath, spec.v2Method, params, refreshAddr)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cmux: %v\n", err)
+		return 1
+	}
+
+	if jsonOutput {
+		fmt.Println(resp)
+	} else {
+		fmt.Println(defaultRelayOutput(resp))
+	}
+	return 0
+}
+
+func paramsForV2Spec(spec *commandSpec, args []string) (map[string]any, error) {
 	params := make(map[string]any, len(spec.defaultParams))
 	for key, value := range spec.defaultParams {
 		params[key] = value
@@ -222,8 +260,7 @@ func execV2(socketPath string, spec *commandSpec, args []string, jsonOutput bool
 	if !spec.noParams {
 		parsed, err := parseFlags(args, spec.flagKeys)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "cmux: %v\n", err)
-			return 2
+			return nil, err
 		}
 		// Map flag keys to JSON param keys (e.g. "workspace" → "workspace_id" where appropriate)
 		for _, key := range spec.flagKeys {
@@ -245,18 +282,7 @@ func execV2(socketPath string, spec *commandSpec, args []string, jsonOutput bool
 		applySurfaceEnvFallback(params)
 	}
 
-	resp, err := socketRoundTripV2(socketPath, spec.v2Method, params, refreshAddr)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "cmux: %v\n", err)
-		return 1
-	}
-
-	if jsonOutput {
-		fmt.Println(resp)
-	} else {
-		fmt.Println(defaultRelayOutput(resp))
-	}
-	return 0
+	return params, nil
 }
 
 // runRPC sends an arbitrary JSON-RPC method with optional JSON params.
@@ -285,9 +311,28 @@ func runRPC(socketPath string, args []string, jsonOutput bool, refreshAddr func(
 
 // runBrowserRelay handles "cmux browser <subcommand>" by mapping to browser.* v2 methods.
 func runBrowserRelay(socketPath string, args []string, jsonOutput bool, refreshAddr func() string) int {
-	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "cmux browser: requires a subcommand (open, navigate, back, forward, reload, get-url)")
+	method, params, err := browserRelayRequest(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cmux browser: %v\n", err)
 		return 2
+	}
+
+	resp, err := socketRoundTripV2(socketPath, method, params, refreshAddr)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cmux: %v\n", err)
+		return 1
+	}
+	if jsonOutput {
+		fmt.Println(resp)
+	} else {
+		fmt.Println(defaultRelayOutput(resp))
+	}
+	return 0
+}
+
+func browserRelayRequest(args []string) (string, map[string]any, error) {
+	if len(args) == 0 {
+		return "", nil, errors.New("requires a subcommand (open, navigate, back, forward, reload, get-url)")
 	}
 
 	sub := args[0]
@@ -326,15 +371,13 @@ func runBrowserRelay(socketPath string, args []string, jsonOutput bool, refreshA
 		flagKeys = []string{"surface"}
 		useSurfaceEnv = true
 	default:
-		fmt.Fprintf(os.Stderr, "cmux browser: unknown subcommand %q\n", sub)
-		return 2
+		return "", nil, fmt.Errorf("unknown subcommand %q", sub)
 	}
 
 	params := make(map[string]any)
 	parsed, err := parseFlags(subArgs, flagKeys)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "cmux browser: %v\n", err)
-		return 2
+		return "", nil, err
 	}
 	for _, key := range flagKeys {
 		if val, ok := parsed.flags[key]; ok {
@@ -354,17 +397,90 @@ func runBrowserRelay(socketPath string, args []string, jsonOutput bool, refreshA
 		applySurfaceEnvFallback(params)
 	}
 
-	resp, err := socketRoundTripV2(socketPath, method, params, refreshAddr)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "cmux: %v\n", err)
-		return 1
+	return method, params, nil
+}
+
+func runWebSocketTerminalBackchannel(cmdName string, cmdArgs []string, jsonOutput bool) (int, bool) {
+	if !isWebSocketRemoteTerminal() {
+		return 0, false
 	}
 	if jsonOutput {
-		fmt.Println(resp)
-	} else {
-		fmt.Println(defaultRelayOutput(resp))
+		fmt.Fprintln(os.Stderr, "cmux: --json is not available over the websocket terminal backchannel")
+		return 1, true
 	}
-	return 0
+
+	method, params, err := terminalBackchannelRequest(cmdName, cmdArgs)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cmux: %v\n", err)
+		return 2, true
+	}
+	if method == "" {
+		fmt.Fprintf(os.Stderr, "cmux: command %q requires a socket relay; websocket VM terminal backchannel supports fire-and-forget v2 commands only\n", cmdName)
+		return 1, true
+	}
+	if err := emitTerminalBackchannelRPC(os.Stdout, method, params); err != nil {
+		fmt.Fprintf(os.Stderr, "cmux: %v\n", err)
+		return 1, true
+	}
+	return 0, true
+}
+
+func isWebSocketRemoteTerminal() bool {
+	return strings.TrimSpace(os.Getenv("CMUX_REMOTE_TRANSPORT")) == "ws"
+}
+
+func terminalBackchannelRequest(cmdName string, cmdArgs []string) (string, map[string]any, error) {
+	switch cmdName {
+	case "rpc":
+		if len(cmdArgs) == 0 {
+			return "", nil, errors.New("rpc requires a method name")
+		}
+		method := cmdArgs[0]
+		var params map[string]any
+		if len(cmdArgs) > 1 {
+			if err := json.Unmarshal([]byte(cmdArgs[1]), &params); err != nil {
+				return "", nil, fmt.Errorf("rpc invalid JSON params: %v", err)
+			}
+		}
+		return method, params, nil
+	case "browser":
+		return browserRelayRequest(cmdArgs)
+	default:
+		spec, ok := commandIndex[cmdName]
+		if !ok || spec.proto != protoV2 {
+			return "", nil, nil
+		}
+		if _, ok := terminalBackchannelCommands[cmdName]; !ok {
+			return "", nil, nil
+		}
+		params, err := paramsForV2Spec(spec, cmdArgs)
+		if err != nil {
+			return "", nil, err
+		}
+		return spec.v2Method, params, nil
+	}
+}
+
+func emitTerminalBackchannelRPC(w io.Writer, method string, params map[string]any) error {
+	token := strings.TrimSpace(os.Getenv("CMUX_TERMINAL_BACKCHANNEL_TOKEN"))
+	if token == "" {
+		return errors.New("CMUX_TERMINAL_BACKCHANNEL_TOKEN not set")
+	}
+	payload := map[string]any{
+		"version": 1,
+		"token":   token,
+		"method":  method,
+	}
+	if params != nil {
+		payload["params"] = params
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to encode terminal backchannel payload: %w", err)
+	}
+	encoded := base64.StdEncoding.EncodeToString(data)
+	_, err = fmt.Fprintf(w, "\x1b]777;cmux-rpc;%s\a", encoded)
+	return err
 }
 
 func applyWorkspaceEnvFallback(params map[string]any) {

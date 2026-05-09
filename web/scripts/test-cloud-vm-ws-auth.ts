@@ -306,15 +306,37 @@ async function websocketShellRoundTrip(
   sessionId: string,
 ): Promise<string> {
   const ws = await openWebSocket(url, headers);
-  ws.send(JSON.stringify({ type: "auth", token, session_id: sessionId, cols: 80, rows: 24 }));
+  ws.send(JSON.stringify({
+    type: "auth",
+    token,
+    session_id: sessionId,
+    workspace_id: "ws-smoke",
+    surface_id: "sf-smoke",
+    backchannel_token: "terminal-backchannel-smoke",
+    cols: 80,
+    rows: 24,
+  }));
   const ready = await waitForMessage(ws, (data, isBinary) => !isBinary && data.toString().includes('"ready"'));
   if (!ready.toString().includes('"ready"')) {
     throw new Error(`expected ready frame, got ${ready.toString()}`);
   }
-  ws.send(Buffer.from("printf '%b\\n' '\\103\\115\\125\\130\\137\\103\\114\\117\\125\\104\\137\\127\\123\\137\\117\\113'; exit\r"));
-  const output = await waitForMessage(ws, (data, isBinary) => isBinary && data.toString().includes("CMUX_CLOUD_WS_OK"));
+  const command = [
+    "printf 'CMUX_CLI=%s\\n' \"$(command -v cmux)\"",
+    "cmux --help >/tmp/cmux-help.out 2>&1",
+    "printf 'CMUX_ENV=%s|%s|%s\\n' \"$CMUX_WORKSPACE_ID\" \"$CMUX_SURFACE_ID\" \"${CMUX_TERMINAL_BACKCHANNEL_TOKEN:+set}\"",
+    "cmux notify --title Smoke --body VM",
+    "printf '\\n%b\\n' '\\103\\115\\125\\130\\137\\103\\114\\117\\125\\104\\137\\127\\123\\137\\117\\113'",
+    "exit",
+  ].join("; ");
+  ws.send(Buffer.from(`${command}\r`));
+  const output = await waitForBinaryOutput(ws, (text) =>
+    text.includes("CMUX_CLI=/usr/local/bin/cmux") &&
+      text.includes("CMUX_ENV=ws-smoke|sf-smoke|set") &&
+      text.includes("\x1b]777;cmux-rpc;") &&
+      text.includes("CMUX_CLOUD_WS_OK")
+  );
   ws.close();
-  return output.toString();
+  return output;
 }
 
 async function websocketRPCHello(
@@ -531,6 +553,40 @@ function waitForMessage(
     function onClose(code: number, reason: Buffer) {
       cleanup();
       reject(new Error(`closed before expected message: ${code} ${reason.toString()}`));
+    }
+    function onError(err: Error) {
+      cleanup();
+      reject(err);
+    }
+  });
+}
+
+function waitForBinaryOutput(
+  ws: WebSocket,
+  predicate: (output: string) => boolean,
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let output = "";
+    const timer = setTimeout(() => reject(new Error(`timeout waiting for binary output: ${output}`)), 30_000);
+    ws.on("message", onMessage);
+    ws.once("close", onClose);
+    ws.once("error", onError);
+    function cleanup() {
+      clearTimeout(timer);
+      ws.off("message", onMessage);
+      ws.off("close", onClose);
+      ws.off("error", onError);
+    }
+    function onMessage(data: WebSocket.RawData, isBinary: boolean) {
+      if (!isBinary) return;
+      output += (Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer)).toString();
+      if (!predicate(output)) return;
+      cleanup();
+      resolve(output);
+    }
+    function onClose(code: number, reason: Buffer) {
+      cleanup();
+      reject(new Error(`closed before expected binary output: ${code} ${reason.toString()} output=${output}`));
     }
     function onError(err: Error) {
       cleanup();

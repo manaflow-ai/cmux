@@ -6,7 +6,7 @@
       "version": "e2b-proxy-20260424a",
       "imageId": "cmuxd-ws:proxy-20260424a",
       "envVar": "E2B_CMUXD_WS_TEMPLATE",
-      "defaultForLocalDev": true,
+      "defaultForLocalDev": false,
       "cmuxdRemoteCommit": "pre-manifest",
       "builtAt": "2026-04-24T00:00:00.000Z",
       "builderScriptVersion": "pre-manifest",
@@ -42,12 +42,36 @@
       "version": "freestyle-rpclease-20260502a",
       "imageId": "sh-6ch5p9k23xrcx24056n8",
       "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
-      "defaultForLocalDev": true,
+      "defaultForLocalDev": false,
       "cmuxdRemoteCommit": "c678f473c3d606f697f2607a8216751023808394",
       "builtAt": "2026-05-02T09:32:48.440Z",
       "builderScriptVersion": "3b7bc6901346b7056dc8bcac7ef2ca4300ee1e2001fcbde5ebaaa443a0ed4e59",
       "validationStatus": "passed",
       "notes": "Validated Freestyle WebSocket PTY/RPC and browser proxy smoke. binarySha256=dd8867cf67131a10bf973d4a579938949d7ac5a1ebc3ea591b04ce1c8724705c"
+    },
+    {
+      "provider": "e2b",
+      "version": "e2b-cli-20260509a",
+      "imageId": "cmuxd-ws:cli-20260509a",
+      "envVar": "E2B_CMUXD_WS_TEMPLATE",
+      "defaultForLocalDev": true,
+      "cmuxdRemoteCommit": "77025a9b2fa124d1858235973aa9b7e516875923",
+      "builtAt": "2026-05-09T00:28:49.751Z",
+      "builderScriptVersion": "7ad1f5d0620842665f9c270d0e02a70cdadb73afdd0bdded52e09e680b48c3e0",
+      "validationStatus": "passed",
+      "notes": "Validated baked cmux CLI symlink, WebSocket PTY/RPC, locale, sudo, Python/OpenSSL smoke. binarySha256=fa9af6bff6facb33f9a9aaa22e699dee07dfd1e41eb30c659ccbb0047265cc89"
+    },
+    {
+      "provider": "freestyle",
+      "version": "freestyle-cli-20260509a",
+      "imageId": "sh-6galq4gnt6qo6lb0xi2b",
+      "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
+      "defaultForLocalDev": true,
+      "cmuxdRemoteCommit": "77025a9b2fa124d1858235973aa9b7e516875923",
+      "builtAt": "2026-05-09T00:28:49.751Z",
+      "builderScriptVersion": "7ad1f5d0620842665f9c270d0e02a70cdadb73afdd0bdded52e09e680b48c3e0",
+      "validationStatus": "passed",
+      "notes": "Validated baked cmux CLI symlink, WebSocket PTY/RPC, locale, sudo, Python/OpenSSL smoke. binarySha256=fa9af6bff6facb33f9a9aaa22e699dee07dfd1e41eb30c659ccbb0047265cc89"
     }
   ]
 }

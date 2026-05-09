@@ -39,12 +39,15 @@ type wsLease struct {
 }
 
 type wsAuthFrame struct {
-	Type         string `json:"type"`
-	Token        string `json:"token"`
-	SessionID    string `json:"session_id,omitempty"`
-	AttachmentID string `json:"attachment_id,omitempty"`
-	Cols         int    `json:"cols,omitempty"`
-	Rows         int    `json:"rows,omitempty"`
+	Type             string `json:"type"`
+	Token            string `json:"token"`
+	SessionID        string `json:"session_id,omitempty"`
+	AttachmentID     string `json:"attachment_id,omitempty"`
+	WorkspaceID      string `json:"workspace_id,omitempty"`
+	SurfaceID        string `json:"surface_id,omitempty"`
+	BackchannelToken string `json:"backchannel_token,omitempty"`
+	Cols             int    `json:"cols,omitempty"`
+	Rows             int    `json:"rows,omitempty"`
 }
 
 type wsPTYControlFrame struct {
@@ -175,7 +178,7 @@ func handleWebSocketPTY(w http.ResponseWriter, r *http.Request, cfg wsPTYServerC
 
 	shellPath := resolvePTYShell(cfg.Shell)
 	cmd := exec.Command(shellPath)
-	cmd.Env = defaultWebSocketPTYEnv(shellPath)
+	cmd.Env = defaultWebSocketPTYEnv(shellPath, auth)
 	ptyFile, err := pty.StartWithSize(cmd, &pty.Winsize{
 		Cols: uint16(auth.Cols),
 		Rows: uint16(auth.Rows),
@@ -384,7 +387,7 @@ func handleWebSocketRPC(w http.ResponseWriter, r *http.Request, cfg wsPTYServerC
 	}
 }
 
-func defaultWebSocketPTYEnv(shellPath string) []string {
+func defaultWebSocketPTYEnv(shellPath string, auth wsAuthFrame) []string {
 	env, order := envMapWithOrder(os.Environ())
 	set := func(key, value string) {
 		if _, ok := env[key]; !ok {
@@ -399,10 +402,23 @@ func defaultWebSocketPTYEnv(shellPath string) []string {
 	}
 
 	set("TERM", "xterm-256color")
+	set("PATH", ensurePathEntry(env["PATH"], "/usr/local/bin"))
 	setIfMissing("COLORTERM", "truecolor")
 	setIfMissing("TERM_PROGRAM", "ghostty")
 	setIfMissing("SHELL", shellPath)
 	set("CMUX_REMOTE_TRANSPORT", "ws")
+	set("CMUX_BUNDLED_CLI_PATH", "/usr/local/bin/cmux")
+	if workspaceID := strings.TrimSpace(auth.WorkspaceID); workspaceID != "" {
+		set("CMUX_WORKSPACE_ID", workspaceID)
+		set("CMUX_TAB_ID", workspaceID)
+	}
+	if surfaceID := strings.TrimSpace(auth.SurfaceID); surfaceID != "" {
+		set("CMUX_SURFACE_ID", surfaceID)
+		set("CMUX_PANEL_ID", surfaceID)
+	}
+	if backchannelToken := strings.TrimSpace(auth.BackchannelToken); backchannelToken != "" {
+		set("CMUX_TERMINAL_BACKCHANNEL_TOKEN", backchannelToken)
+	}
 	if !envHasUTF8Locale(env) {
 		set("LANG", "C.UTF-8")
 		set("LC_CTYPE", "C.UTF-8")
@@ -419,6 +435,26 @@ func defaultWebSocketPTYEnv(shellPath string) []string {
 		out = append(out, key+"="+env[key])
 	}
 	return out
+}
+
+func ensurePathEntry(pathValue string, entry string) string {
+	entry = strings.TrimSpace(entry)
+	if entry == "" {
+		return pathValue
+	}
+	parts := strings.Split(pathValue, ":")
+	for _, part := range parts {
+		if part == entry {
+			if strings.TrimSpace(pathValue) == "" {
+				return entry
+			}
+			return pathValue
+		}
+	}
+	if strings.TrimSpace(pathValue) == "" {
+		return entry
+	}
+	return entry + ":" + pathValue
 }
 
 func envMapWithOrder(values []string) (map[string]string, []string) {
