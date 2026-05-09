@@ -29,8 +29,9 @@ final class cmuxMobileUITests: XCTestCase {
         let app = launchApp()
         try connect(app)
 
-        app.buttons["MobileNewWorkspaceButton"].tap()
-        try openSelectedWorkspaceIfNeeded(app)
+        let newWorkspaceButton = app.buttons.matching(identifier: "MobileNewWorkspaceButton").firstMatch
+        XCTAssertTrue(newWorkspaceButton.waitForExistence(timeout: 4))
+        newWorkspaceButton.tap()
         XCTAssertTrue(app.staticTexts["Workspace 3"].waitForExistence(timeout: 4))
         XCTAssertTrue(app.staticTexts["terminal: Terminal 1"].waitForExistence(timeout: 4))
 
@@ -65,7 +66,7 @@ final class cmuxMobileUITests: XCTestCase {
         let app = launchApp()
         try connect(app)
 
-        XCTAssertTrue(app.otherElements["MobileWorkspaceList"].waitForExistence(timeout: 4))
+        XCTAssertTrue(app.descendants(matching: .any)["MobileWorkspaceList"].waitForExistence(timeout: 4))
         XCTAssertTrue(app.staticTexts["cmux-macbook"].waitForExistence(timeout: 4))
         XCTAssertTrue(app.staticTexts["Mobile Sync: enabled"].exists)
     }
