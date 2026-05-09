@@ -9211,7 +9211,7 @@ enum BrowserDataImporter {
             if await setCookie(cookie, in: store) {
                 importedCount += 1
             }
-            if index.isMultiple(of: 50) {
+            if index > 0 && index.isMultiple(of: 50) {
                 await Task.yield()
             }
         }
