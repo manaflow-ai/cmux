@@ -468,15 +468,11 @@ final class WindowBrowserHostView: NSView {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        performHitTest(at: point, currentEvent: NSApp.currentEvent)
-    }
-
-    func performHitTest(at point: NSPoint, currentEvent: NSEvent?) -> NSView? {
         let dividerHit = splitDividerHit(at: point)
         let hostedInspectorHit = dividerHit == nil ? hostedInspectorDividerHit(at: point) : nil
         updateDividerCursor(at: point, dividerHit: dividerHit, hostedInspectorHit: hostedInspectorHit)
 
-        let eventType = currentEvent?.type
+        let eventType = NSApp.currentEvent?.type
         let titlebarPassThrough = shouldPassThroughToTitlebar(at: point)
         let tabStripPassThrough = shouldPassThroughToPaneTabBar(at: point, eventType: eventType)
         let sidebarPassThrough = shouldPassThroughToSidebarResizer(
@@ -539,22 +535,13 @@ final class WindowBrowserHostView: NSView {
             return nil
         }
         // Mirror terminal portal routing: while tab-reorder drags are active,
-        // prefer pane-local drop targets owned by the portal slot. Fall through
-        // to SwiftUI targets only when the browser pane itself is not the target.
+        // pass through to SwiftUI drop targets behind the portal host.
         // Browser hover routing also arrives as cursor/enter events and may not
         // report a pressed-button state, so include that path here.
-        let dragPasteboardTypes = NSPasteboard(name: .drag).types
         if Self.shouldPassThroughToDragTargets(
-            pasteboardTypes: dragPasteboardTypes,
-            eventType: eventType
+            pasteboardTypes: NSPasteboard(name: .drag).types,
+            eventType: NSApp.currentEvent?.type
         ) {
-            if let paneDropTarget = paneDropTargetForDrag(
-                at: point,
-                pasteboardTypes: dragPasteboardTypes,
-                eventType: eventType
-            ) {
-                return paneDropTarget
-            }
             return nil
         }
 
@@ -596,36 +583,6 @@ final class WindowBrowserHostView: NSView {
         )
 #endif
         return hitView === self ? nil : hitView
-    }
-
-    private func paneDropTargetForDrag(
-        at point: NSPoint,
-        pasteboardTypes: [NSPasteboard.PasteboardType]?,
-        eventType: NSEvent.EventType?
-    ) -> BrowserPaneDropTargetView? {
-        guard BrowserPaneDropTargetView.shouldCaptureHitTesting(
-            pasteboardTypes: pasteboardTypes,
-            eventType: eventType
-        ) else {
-            return nil
-        }
-
-        return browserPaneDropTarget(at: point)
-    }
-
-    func browserPaneDropTarget(at point: NSPoint) -> BrowserPaneDropTargetView? {
-        for slot in subviews.reversed() {
-            guard let slot = slot as? WindowBrowserSlotView,
-                  !slot.isHidden,
-                  slot.alphaValue > 0,
-                  slot.frame.contains(point) else { continue }
-            let pointInSlot = slot.convert(point, from: self)
-            if let target = slot.paneDropTargetForDrop(at: pointInSlot) {
-                return target
-            }
-        }
-
-        return nil
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -1459,9 +1416,6 @@ enum BrowserPaneDropRouting {
 }
 
 final class WindowBrowserSlotView: NSView {
-    private static let dropZoneOverlayFadeInAnimationKey = "cmux.browser.dropZoneOverlay.fadeIn"
-    private static let dropZoneOverlayFadeInDuration: CFTimeInterval = 0.25
-
     override var isOpaque: Bool { false }
     override var isHidden: Bool {
         didSet {
@@ -1882,10 +1836,14 @@ final class WindowBrowserSlotView: NSView {
 
         if dropZoneOverlayView.isHidden {
             applyDropZoneOverlayFrame(targetFrame)
-            dropZoneOverlayView.alphaValue = 1
+            dropZoneOverlayView.alphaValue = 0
             dropZoneOverlayView.isHidden = false
             bringInteractionLayersToFrontIfNeeded()
-            animateDropZoneOverlayFadeIn()
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.18
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                dropZoneOverlayView.animator().alphaValue = 1
+            }
             return
         }
 
@@ -1900,30 +1858,6 @@ final class WindowBrowserSlotView: NSView {
                 dropZoneOverlayView.animator().alphaValue = 1
             }
         }
-    }
-
-    private func animateDropZoneOverlayFadeIn() {
-        guard let layer = dropZoneOverlayView.layer else {
-            dropZoneOverlayView.alphaValue = 0
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = Self.dropZoneOverlayFadeInDuration
-                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                dropZoneOverlayView.animator().alphaValue = 1
-            }
-            return
-        }
-
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        layer.opacity = 1
-        CATransaction.commit()
-
-        let animation = CABasicAnimation(keyPath: "opacity")
-        animation.fromValue = 0.0
-        animation.toValue = 1.0
-        animation.duration = Self.dropZoneOverlayFadeInDuration
-        animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        layer.add(animation, forKey: Self.dropZoneOverlayFadeInAnimationKey)
     }
 
     private func interactionLayerPriority(of view: NSView) -> Int {
@@ -3835,7 +3769,14 @@ final class WindowBrowserPortal: NSObject {
     func browserPaneDropTargetAtWindowPoint(_ windowPoint: NSPoint) -> BrowserPaneDropTargetView? {
         guard ensureInstalled() else { return nil }
         let point = hostView.convert(windowPoint, from: nil)
-        return hostView.browserPaneDropTarget(at: point)
+        for subview in hostView.subviews.reversed() {
+            guard let container = subview as? WindowBrowserSlotView else { continue }
+            guard !container.isHidden else { continue }
+            guard container.frame.contains(point) else { continue }
+            let pointInContainer = container.convert(point, from: hostView)
+            return container.paneDropTargetForDrop(at: pointInContainer)
+        }
+        return nil
     }
 }
 

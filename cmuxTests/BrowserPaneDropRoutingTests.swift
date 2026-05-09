@@ -255,54 +255,6 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
         XCTAssertTrue(syntheticTransfer.isFilePreview)
     }
 
-    func testBrowserPortalRoutesTabTransferDragToPaneDropTargetBeforeSwiftUIDropLayer() throws {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        defer {
-            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
-            window.orderOut(nil)
-        }
-
-        let host = WindowBrowserHostView(frame: window.contentView?.bounds ?? NSRect(x: 0, y: 0, width: 360, height: 240))
-        host.autoresizingMask = [.width, .height]
-        window.contentView = host
-
-        let slot = WindowBrowserSlotView(frame: NSRect(x: 20, y: 20, width: 260, height: 160))
-        host.addSubview(slot)
-        slot.setPaneDropContext(BrowserPaneDropContext(
-            workspaceId: UUID(),
-            panelId: UUID(),
-            paneId: PaneID(id: UUID())
-        ))
-        slot.layoutSubtreeIfNeeded()
-
-        let dragPasteboard = NSPasteboard(name: .drag)
-        dragPasteboard.clearContents()
-        dragPasteboard.setString("{}", forType: DragOverlayRoutingPolicy.bonsplitTabTransferType)
-        defer { dragPasteboard.clearContents() }
-
-        let pointInHost = NSPoint(x: slot.frame.midX, y: slot.frame.midY)
-        let dragEvent = try XCTUnwrap(NSEvent.mouseEvent(
-            with: .leftMouseDragged,
-            location: host.convert(pointInHost, to: nil),
-            modifierFlags: [],
-            timestamp: 0,
-            windowNumber: window.windowNumber,
-            context: nil,
-            eventNumber: 1,
-            clickCount: 1,
-            pressure: 1
-        ))
-        let hitView = host.performHitTest(at: pointInHost, currentEvent: dragEvent)
-        let expectedTarget = try XCTUnwrap(slot.paneDropTargetForDrop(at: NSPoint(x: slot.bounds.midX, y: slot.bounds.midY)))
-
-        XCTAssertTrue(hitView === expectedTarget)
-    }
-
     func testBrowserPaneFileDropDefaultUsesHostedWebViewLifecycle() throws {
         let defaults = UserDefaults.standard
         let savedDefaultBehavior = defaults.object(forKey: FileDropBehaviorSettings.defaultBehaviorKey)
