@@ -3841,19 +3841,23 @@ struct CMUXCLI {
             case .both:
                 break
             case .refs:
-                if out["ref"] != nil && out["id"] != nil {
+                if out["ref"] != nil,
+                   out["id"] != nil,
+                   !formattedIDValuesAreEqual(out["id"], out["ref"]) {
                     out.removeValue(forKey: "id")
                 }
                 let keys = Array(out.keys)
                 for key in keys where key.hasSuffix("_id") {
                     let prefix = String(key.dropLast(3))
-                    if out["\(prefix)_ref"] != nil {
+                    if out["\(prefix)_ref"] != nil,
+                       !formattedIDValuesAreEqual(out[key], out["\(prefix)_ref"]) {
                         out.removeValue(forKey: key)
                     }
                 }
                 for key in keys where key.hasSuffix("_ids") {
                     let prefix = String(key.dropLast(4))
-                    if out["\(prefix)_refs"] != nil {
+                    if out["\(prefix)_refs"] != nil,
+                       !formattedIDValuesAreEqual(out[key], out["\(prefix)_refs"]) {
                         out.removeValue(forKey: key)
                     }
                 }
@@ -3883,6 +3887,18 @@ struct CMUXCLI {
         default:
             return object
         }
+    }
+
+    private func formattedIDValuesAreEqual(_ lhs: Any?, _ rhs: Any?) -> Bool {
+        if let lhs = stringFromAny(lhs), let rhs = stringFromAny(rhs) {
+            return lhs == rhs
+        }
+        guard let lhsArray = lhs as? [Any],
+              let rhsArray = rhs as? [Any],
+              lhsArray.count == rhsArray.count else {
+            return false
+        }
+        return zip(lhsArray, rhsArray).allSatisfy { formattedIDValuesAreEqual($0, $1) }
     }
 
     private func intFromAny(_ value: Any?) -> Int? {
