@@ -6,13 +6,13 @@ describe("VM image resolver", () => {
   test("uses manifest local defaults outside deployed runtimes", () => {
     expect(resolveVmImage("e2b", undefined, {})).toMatchObject({
       provider: "e2b",
-      image: "cmuxd-ws:tooling-20260509d",
-      imageVersion: "e2b-tooling-20260509d",
+      image: "cmuxd-ws:tooling-20260509f",
+      imageVersion: "e2b-tooling-20260509f",
     });
     expect(resolveVmImage("freestyle", undefined, {})).toMatchObject({
       provider: "freestyle",
-      image: "sh-17agfasevrc18c8f15nn",
-      imageVersion: "freestyle-tooling-20260509d",
+      image: "sh-w2otfp1g287lzrpuc2gr",
+      imageVersion: "freestyle-tooling-20260509f",
     });
   });
 
