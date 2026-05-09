@@ -9411,8 +9411,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         ) {
         case .insertText(let text):
             return .insertText(text)
-        case .insertTextSegments(let segments):
-            return .insertText(segments.joined())
         case .uploadFiles(let fileURLs, _):
             return .uploadFiles(fileURLs)
         case .reject:
