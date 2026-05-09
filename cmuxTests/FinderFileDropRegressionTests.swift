@@ -20,6 +20,15 @@ final class FinderFileDropRegressionTests: XCTestCase {
         return try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
     }
 
+    private func make1x1TIFF(color: NSColor) throws -> Data {
+        let image = NSImage(size: NSSize(width: 1, height: 1))
+        image.lockFocus()
+        color.setFill()
+        NSRect(x: 0, y: 0, width: 1, height: 1).fill()
+        image.unlockFocus()
+        return try XCTUnwrap(image.tiffRepresentation)
+    }
+
     func testOverlayCapturesFileURLDropsIncludingLocalPaneDrags() {
         XCTAssertTrue(
             DragOverlayRoutingPolicy.shouldCaptureFileDropDestination(
@@ -177,8 +186,8 @@ final class FinderFileDropRegressionTests: XCTestCase {
     func testLegacyFinderFilenameDropPlanInsertsEscapedLocalPath() throws {
         let fileURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("finder legacy \(UUID().uuidString)")
-            .appendingPathExtension("png")
-        try make1x1PNG(color: .systemBlue).write(to: fileURL)
+            .appendingPathExtension("txt")
+        try "plain text".write(to: fileURL, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: fileURL) }
 
         let pasteboard = NSPasteboard(name: .init("cmux-test-legacy-filename-drop-\(UUID().uuidString)"))
@@ -198,6 +207,186 @@ final class FinderFileDropRegressionTests: XCTestCase {
         }
 
         XCTAssertEqual(text, TerminalImageTransferPlanner.escapeForShell(fileURL.path))
+    }
+
+    func testImageFileURLDropInsertsOriginalLocalImagePaths() throws {
+        let imageDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux image file drop \(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: imageDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: imageDirectory) }
+
+        let firstURL = imageDirectory.appendingPathComponent("cmux ssh 2.png")
+        let secondURL = imageDirectory.appendingPathComponent("cmux ssh.png")
+        try make1x1PNG(color: .systemRed).write(to: firstURL)
+        try make1x1PNG(color: .systemGreen).write(to: secondURL)
+
+        let pasteboard = NSPasteboard(name: .init("cmux-test-image-file-url-drop-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        XCTAssertTrue(pasteboard.writeObjects([firstURL as NSURL, secondURL as NSURL]))
+
+        let plan = GhosttyNSView.dropPlanForTesting(
+            pasteboard: pasteboard,
+            isRemoteTerminalSurface: false
+        )
+
+        guard case .insertText(let text) = plan else {
+            return XCTFail("expected original local image path insertion, got \(plan)")
+        }
+
+        XCTAssertEqual(
+            text,
+            [firstURL, secondURL]
+                .map(\.path)
+                .map(TerminalImageTransferPlanner.escapeForShell)
+                .joined(separator: " ")
+        )
+        XCTAssertFalse(text.contains("/clipboard-"))
+    }
+
+    func testImageFileURLDropUploadsOriginalFilesForRemoteTerminal() throws {
+        let imageDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux remote image file drop \(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: imageDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: imageDirectory) }
+
+        let firstURL = imageDirectory.appendingPathComponent("cmux ssh 2.png")
+        let secondURL = imageDirectory.appendingPathComponent("cmux ssh.png")
+        try make1x1PNG(color: .systemRed).write(to: firstURL)
+        try make1x1PNG(color: .systemGreen).write(to: secondURL)
+
+        let pasteboard = NSPasteboard(name: .init("cmux-test-remote-image-file-url-drop-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        XCTAssertTrue(pasteboard.writeObjects([firstURL as NSURL, secondURL as NSURL]))
+
+        let plan = GhosttyNSView.dropPlanForTesting(
+            pasteboard: pasteboard,
+            isRemoteTerminalSurface: true
+        )
+
+        guard case .uploadFiles(let urls) = plan else {
+            return XCTFail("expected remote upload plan, got \(plan)")
+        }
+
+        XCTAssertEqual(urls, [firstURL.standardizedFileURL, secondURL.standardizedFileURL])
+    }
+
+    func testImagePasteboardDropMaterializesEveryImageForLocalInsertion() throws {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-multi-image-local-drop-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        let items = try [
+            makeImagePasteboardItem(color: .systemRed),
+            makeImagePasteboardItem(color: .systemGreen),
+        ]
+        XCTAssertTrue(pasteboard.writeObjects(items))
+
+        let plan = GhosttyNSView.dropPlanForTesting(
+            pasteboard: pasteboard,
+            isRemoteTerminalSurface: false
+        )
+
+        guard case .insertText(let text) = plan else {
+            return XCTFail("expected local image path insertion, got \(plan)")
+        }
+
+        let paths = text
+            .split(separator: " ")
+            .map(String.init)
+        defer {
+            GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles(
+                paths.map { URL(fileURLWithPath: $0) }
+            )
+        }
+
+        XCTAssertEqual(paths.count, 2)
+        XCTAssertTrue(paths.allSatisfy { $0.contains("/clipboard-") && $0.hasSuffix(".png") })
+        XCTAssertTrue(paths.allSatisfy { FileManager.default.fileExists(atPath: $0) })
+    }
+
+    func testImagePasteboardItemWithDirectImageAndRTFDAttachmentMaterializesOnce() throws {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-image-rtfd-duplicate-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        XCTAssertTrue(pasteboard.writeObjects([try makeImagePasteboardItemWithRTFDAttachment(color: .systemRed)]))
+
+        let plan = GhosttyNSView.dropPlanForTesting(
+            pasteboard: pasteboard,
+            isRemoteTerminalSurface: false
+        )
+
+        guard case .insertText(let text) = plan else {
+            return XCTFail("expected local image path insertion, got \(plan)")
+        }
+
+        let paths = text
+            .split(separator: " ")
+            .map(String.init)
+        defer {
+            GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles(
+                paths.map { URL(fileURLWithPath: $0) }
+            )
+        }
+
+        XCTAssertEqual(paths.count, 1)
+        XCTAssertTrue(paths.allSatisfy { $0.contains("/clipboard-") && $0.hasSuffix(".png") })
+        XCTAssertTrue(paths.allSatisfy { FileManager.default.fileExists(atPath: $0) })
+    }
+
+    func testImagePasteboardItemTIFFDropNormalizesToPNGForLocalInsertion() throws {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-image-tiff-normalization-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        let item = NSPasteboardItem()
+        item.setData(try make1x1TIFF(color: .systemBlue), forType: .tiff)
+        XCTAssertTrue(pasteboard.writeObjects([item]))
+
+        let plan = GhosttyNSView.dropPlanForTesting(
+            pasteboard: pasteboard,
+            isRemoteTerminalSurface: false
+        )
+
+        guard case .insertText(let text) = plan else {
+            return XCTFail("expected local image path insertion, got \(plan)")
+        }
+
+        let paths = text
+            .split(separator: " ")
+            .map(String.init)
+        defer {
+            GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles(
+                paths.map { URL(fileURLWithPath: $0) }
+            )
+        }
+
+        XCTAssertEqual(paths.count, 1)
+        XCTAssertTrue(paths[0].contains("/clipboard-"))
+        XCTAssertEqual(URL(fileURLWithPath: paths[0]).pathExtension, "png")
+        let pngSignature = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+        let materializedData = try Data(contentsOf: URL(fileURLWithPath: paths[0]))
+        XCTAssertEqual(Data(materializedData.prefix(pngSignature.count)), pngSignature)
+    }
+
+    func testImagePasteboardDropMaterializesEveryImageForRemoteUpload() throws {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-multi-image-remote-drop-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        let items = try [
+            makeImagePasteboardItem(color: .systemRed),
+            makeImagePasteboardItem(color: .systemGreen),
+        ]
+        XCTAssertTrue(pasteboard.writeObjects(items))
+
+        let plan = GhosttyNSView.dropPlanForTesting(
+            pasteboard: pasteboard,
+            isRemoteTerminalSurface: true
+        )
+
+        guard case .uploadFiles(let urls) = plan else {
+            return XCTFail("expected remote image upload plan, got \(plan)")
+        }
+        defer {
+            GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles(urls)
+        }
+
+        XCTAssertEqual(urls.count, 2)
+        XCTAssertTrue(urls.allSatisfy { $0.lastPathComponent.hasPrefix("clipboard-") && $0.pathExtension == "png" })
+        XCTAssertTrue(urls.allSatisfy { FileManager.default.fileExists(atPath: $0.path) })
     }
 
     func testFileExplorerPathInsertionEscapesMultiplePathsLikeTerminalDrop() {
@@ -403,5 +592,28 @@ final class FinderFileDropRegressionTests: XCTestCase {
             ),
             "Sources/App.swift"
         )
+    }
+
+    private func makeImagePasteboardItem(color: NSColor) throws -> NSPasteboardItem {
+        let item = NSPasteboardItem()
+        item.setData(try make1x1PNG(color: color), forType: .png)
+        return item
+    }
+
+    private func makeImagePasteboardItemWithRTFDAttachment(color: NSColor) throws -> NSPasteboardItem {
+        let imageData = try make1x1PNG(color: color)
+        let wrapper = FileWrapper(regularFileWithContents: imageData)
+        wrapper.preferredFilename = "image.png"
+        let attachment = NSTextAttachment(fileWrapper: wrapper)
+        let attributed = NSAttributedString(attachment: attachment)
+        let rtfdData = try attributed.data(
+            from: NSRange(location: 0, length: attributed.length),
+            documentAttributes: [.documentType: NSAttributedString.DocumentType.rtfd]
+        )
+
+        let item = NSPasteboardItem()
+        item.setData(imageData, forType: .png)
+        item.setData(rtfdData, forType: .rtfd)
+        return item
     }
 }
