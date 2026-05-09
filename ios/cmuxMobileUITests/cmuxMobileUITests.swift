@@ -17,8 +17,7 @@ final class cmuxMobileUITests: XCTestCase {
 
         XCTAssertTrue(app.textFields["MobilePairingCodeField"].waitForExistence(timeout: 4))
         XCTAssertTrue(app.buttons["MobileScanQRCodeButton"].isEnabled)
-        app.textFields["MobilePairingCodeField"].tap()
-        app.textFields["MobilePairingCodeField"].typeText("debug")
+        try typeText("debug", into: app.textFields["MobilePairingCodeField"], in: app)
         app.buttons["MobileConnectButton"].tap()
 
         try openSelectedWorkspaceIfNeeded(app)
@@ -81,8 +80,7 @@ final class cmuxMobileUITests: XCTestCase {
 
         let field = app.textFields["MobileTerminalInputField"]
         XCTAssertTrue(field.waitForExistence(timeout: 4))
-        field.tap()
-        field.typeText("pwd")
+        try typeText("pwd", into: field, in: app)
 
         let sendButton = app.buttons["MobileTerminalSendButton"]
         XCTAssertTrue(sendButton.waitForExistence(timeout: 4))
@@ -106,8 +104,7 @@ final class cmuxMobileUITests: XCTestCase {
 
         let field = app.textFields["MobileTerminalInputField"]
         XCTAssertTrue(field.waitForExistence(timeout: 4))
-        field.tap()
-        field.typeText("echo remote")
+        try typeText("echo remote", into: field, in: app)
 
         let sendButton = app.buttons["MobileTerminalSendButton"]
         XCTAssertTrue(sendButton.waitForExistence(timeout: 4))
@@ -214,9 +211,45 @@ final class cmuxMobileUITests: XCTestCase {
 
         let field = app.textFields["MobilePairingCodeField"]
         XCTAssertTrue(field.waitForExistence(timeout: 4))
-        field.tap()
-        field.typeText(pairingCode)
+        try typeText(pairingCode, into: field, in: app)
         app.buttons["MobileConnectButton"].tap()
+    }
+
+    @MainActor
+    private func typeText(
+        _ text: String,
+        into field: XCUIElement,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        XCTAssertTrue(field.waitForExistence(timeout: 4), file: file, line: line)
+        XCTAssertTrue(focus(field), "Expected field to accept keyboard focus", file: file, line: line)
+        app.typeText(text)
+    }
+
+    @MainActor
+    private func focus(_ field: XCUIElement) -> Bool {
+        for _ in 0..<3 {
+            field.tap()
+            if waitForKeyboardFocus(field, timeout: 1) {
+                return true
+            }
+
+            field.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            if waitForKeyboardFocus(field, timeout: 1) {
+                return true
+            }
+        }
+
+        return waitForKeyboardFocus(field, timeout: 2)
+    }
+
+    @MainActor
+    private func waitForKeyboardFocus(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
+        let predicate = NSPredicate(format: "hasKeyboardFocus == true")
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: element)
+        return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
     }
 
     @MainActor
