@@ -288,10 +288,6 @@ enum TerminalImageTransferPlanner {
         insertedText(forPathStrings: fileURLs.map(\.path))
     }
 
-    private static func isLocalImageFileURL(_ fileURL: URL) -> Bool {
-        GhosttyPasteboardHelper.isLocalImageFileURL(fileURL)
-    }
-
     private static func isRemoteUploadableFileURL(_ fileURL: URL) -> Bool {
         let normalizedFileURL = fileURL.standardizedFileURL
         guard normalizedFileURL.isFileURL,

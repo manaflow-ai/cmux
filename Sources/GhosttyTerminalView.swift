@@ -801,21 +801,6 @@ enum GhosttyPasteboardHelper {
         return FileManager.default.temporaryDirectory.appendingPathComponent(filename)
     }
 
-    static func isLocalImageFileURL(_ fileURL: URL) -> Bool {
-        localImageFileExtension(for: fileURL.standardizedFileURL) != nil
-    }
-
-    private static func localImageFileExtension(for fileURL: URL) -> String? {
-        guard let resourceValues = try? fileURL.resourceValues(forKeys: [.isRegularFileKey]),
-              resourceValues.isRegularFile == true else { return nil }
-
-        let pathExtension = fileURL.pathExtension.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !pathExtension.isEmpty,
-              let type = UTType(filenameExtension: pathExtension),
-              type.conforms(to: .image) else { return nil }
-        return type.preferredFilenameExtension ?? nonEmpty(pathExtension)
-    }
-
     /// Attempts to materialize a decodable pasteboard image into a temporary file.
     /// `rejectedImagePayload` means a real image was found but could not be used,
     /// so callers should not fall back to auxiliary plain text or URLs.
