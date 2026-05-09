@@ -4,8 +4,14 @@ This is a standalone prototype for a cmux-style workbench built on
 `vercel-labs/zero-native`.
 
 The prototype keeps the terminal boundary native: the window is an AppKit split
-owned by the Zero Native host, with a native Ghostty host slot beside a Chromium
-CEF browser view. Chromium owns browser content only.
+owned by the Zero Native host, with a live Ghostty `NSView` surface beside a
+Chromium CEF browser view. Chromium owns browser content only.
+
+The Ghostty side loads the normal Ghostty config files plus cmux's App Support
+config fallback (`com.cmuxterm.app/config.ghostty` or `config`). The Chromium
+side has buttons for an internal DevTools pane and a separate DevTools window.
+Both are normal CEF browser views backed by CEF remote debugging, so they can
+stay open independently.
 
 ## Run
 
@@ -32,6 +38,6 @@ Pass `-Dzero-native-path=<path>` if your Zero Native checkout is elsewhere.
 
 ## Scope
 
-This is an experiment, not part of the shipping cmux app target. The next hard
-step is replacing the native placeholder slot with a live Ghostty `NSView`
-created through `ghostty_surface_new`.
+This is an experiment, not part of the shipping cmux app target. The current
+path runs a live Ghostty surface through `ghostty_surface_new` in the native
+AppKit host while CEF is mounted only into the browser pane.

@@ -59,20 +59,15 @@ fn runMacos(app: zero_native.App, options: RunOptions, init: std.process.Init) !
     );
     defer mac_platform.deinit();
 
-    var trace_sink = StdoutTraceSink{};
     var log_buffers: zero_native.debug.LogPathBuffers = .{};
     const log_setup = zero_native.debug.setupLogging(init.io, init.environ_map, app_info.bundle_id, &log_buffers) catch null;
     if (log_setup) |setup| zero_native.debug.installPanicCapture(init.io, setup.paths);
 
     var file_trace_sink: zero_native.debug.FileTraceSink = undefined;
-    var fanout_sinks: [2]zero_native.trace.Sink = undefined;
-    var fanout_sink: zero_native.debug.FanoutTraceSink = undefined;
-    var runtime_trace_sink = trace_sink.sink();
+    var runtime_trace_sink: ?zero_native.trace.Sink = null;
     if (log_setup) |setup| {
         file_trace_sink = zero_native.debug.FileTraceSink.init(init.io, setup.paths.log_dir, setup.paths.log_file, setup.format);
-        fanout_sinks = .{ trace_sink.sink(), file_trace_sink.sink() };
-        fanout_sink = .{ .sinks = &fanout_sinks };
-        runtime_trace_sink = fanout_sink.sink();
+        runtime_trace_sink = file_trace_sink.sink();
     }
 
     var runtime = zero_native.Runtime.init(.{

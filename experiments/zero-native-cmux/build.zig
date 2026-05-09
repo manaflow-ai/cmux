@@ -155,9 +155,15 @@ fn linkPlatform(
         },
     }
 
+    app_mod.addIncludePath(b.path("../../GhosttyKit.xcframework/macos-arm64_x86_64/Headers"));
+    app_mod.addObjectFile(b.path("../../GhosttyKit.xcframework/macos-arm64_x86_64/ghostty-internal.a"));
     app_mod.linkFramework("AppKit", .{});
     app_mod.linkFramework("Foundation", .{});
+    app_mod.linkFramework("Metal", .{});
+    app_mod.linkFramework("QuartzCore", .{});
+    app_mod.linkFramework("IOSurface", .{});
     app_mod.linkFramework("UniformTypeIdentifiers", .{});
+    app_mod.linkFramework("Carbon", .{});
     app_mod.linkSystemLibrary("c", .{});
 }
 
