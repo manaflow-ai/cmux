@@ -330,6 +330,79 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         XCTAssertFalse(shortcut.control)
     }
 
+    func testRightSidebarAndFindShortcutDefaultsMatchSettingsSurface() {
+        XCTAssertEqual(KeyboardShortcutSettings.Action.focusRightSidebar.label, "Toggle Right Sidebar")
+        XCTAssertEqual(KeyboardShortcutSettings.Action.toggleFileExplorer.label, "Open File Explorer")
+
+        let toggleFileExplorer = KeyboardShortcutSettings.Action.toggleFileExplorer.defaultShortcut
+        XCTAssertEqual(toggleFileExplorer.key, "e")
+        XCTAssertTrue(toggleFileExplorer.command)
+        XCTAssertTrue(toggleFileExplorer.shift)
+        XCTAssertFalse(toggleFileExplorer.option)
+        XCTAssertFalse(toggleFileExplorer.control)
+
+        let focusRightSidebar = KeyboardShortcutSettings.Action.focusRightSidebar.defaultShortcut
+        XCTAssertEqual(focusRightSidebar.key, "b")
+        XCTAssertTrue(focusRightSidebar.command)
+        XCTAssertFalse(focusRightSidebar.shift)
+        XCTAssertTrue(focusRightSidebar.option)
+        XCTAssertFalse(focusRightSidebar.control)
+
+        let findInDirectory = KeyboardShortcutSettings.Action.findInDirectory.defaultShortcut
+        XCTAssertEqual(findInDirectory.key, "f")
+        XCTAssertTrue(findInDirectory.command)
+        XCTAssertTrue(findInDirectory.shift)
+        XCTAssertFalse(findInDirectory.option)
+        XCTAssertFalse(findInDirectory.control)
+    }
+
+    func testRightSidebarModeSwitchesAreNotPublicDefaultShortcuts() {
+        let modeSwitchActions: [KeyboardShortcutSettings.Action] = [
+            .switchRightSidebarToFiles,
+            .switchRightSidebarToFind,
+            .switchRightSidebarToSessions,
+            .switchRightSidebarToFeed,
+            .switchRightSidebarToDock,
+        ]
+
+        for action in modeSwitchActions {
+            XCTAssertTrue(action.defaultShortcut.isUnbound)
+            XCTAssertFalse(action.isPublicShortcutAction)
+            XCTAssertFalse(KeyboardShortcutSettings.publicShortcutActions.contains(action))
+            XCTAssertFalse(KeyboardShortcutSettings.settingsVisibleActions.contains(action))
+        }
+    }
+
+    func testSettingsVisibleShortcutActionsIncludeRemappableExampleShortcuts() {
+        let visibleActions = Set(KeyboardShortcutSettings.settingsVisibleActions)
+
+        XCTAssertTrue(visibleActions.contains(.toggleFileExplorer))
+        XCTAssertTrue(visibleActions.contains(.focusRightSidebar))
+        XCTAssertTrue(visibleActions.contains(.findInDirectory))
+        XCTAssertFalse(visibleActions.contains(.showHideAllWindows))
+    }
+
+    func testSettingsVisibleShortcutActionsColocateRightSidebarFileExplorerAndFindShortcuts() {
+        let visibleActions = KeyboardShortcutSettings.settingsVisibleActions
+        let expectedActions: [KeyboardShortcutSettings.Action] = [
+            .focusRightSidebar,
+            .toggleFileExplorer,
+            .findInDirectory,
+        ]
+
+        guard let startIndex = visibleActions.firstIndex(of: .focusRightSidebar) else {
+            XCTFail("Toggle Right Sidebar should be visible in keyboard shortcut settings")
+            return
+        }
+
+        let endIndex = startIndex + expectedActions.count
+        guard endIndex <= visibleActions.count else {
+            XCTFail("Expected shortcut settings to include the full right-sidebar shortcut run")
+            return
+        }
+        XCTAssertEqual(Array(visibleActions[startIndex..<endIndex]), expectedActions)
+    }
+
     func testMenuItemKeyEquivalentHandlesArrowAndTabKeys() {
         XCTAssertNotNil(StoredShortcut(key: "←", command: true, shift: false, option: false, control: false).menuItemKeyEquivalent)
         XCTAssertNotNil(StoredShortcut(key: "→", command: true, shift: false, option: false, control: false).menuItemKeyEquivalent)

@@ -644,7 +644,7 @@ struct cmuxApp: App {
                 }
             }
 
-            splitCommandButton(title: String(localized: "menu.view.focusRightSidebar", defaultValue: "Focus Right Sidebar"), shortcut: menuShortcut(for: .focusRightSidebar)) {
+            splitCommandButton(title: String(localized: "menu.view.focusRightSidebar", defaultValue: "Toggle Right Sidebar"), shortcut: menuShortcut(for: .focusRightSidebar)) {
                 if AppDelegate.shared?.toggleRightSidebarKeyboardFocusInActiveMainWindow() != true {
                     if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
                         preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
@@ -7066,9 +7066,7 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
-                        let actions = KeyboardShortcutSettings.Action.allCases.filter {
-                            $0 != SystemWideHotkeySettings.action
-                        }
+                        let actions = KeyboardShortcutSettings.settingsVisibleActions
                         ForEach(Array(actions.enumerated()), id: \.element.id) { index, action in
                             ShortcutSettingRow(action: action)
                                 .padding(.horizontal, 14)
