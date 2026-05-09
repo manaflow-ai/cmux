@@ -264,7 +264,7 @@ final class AutomationSocketUITests: XCTestCase {
                 diagnostics.removeAll(keepingCapacity: true)
                 let candidates = self.socketCandidates()
                 for candidate in candidates where FileManager.default.fileExists(atPath: candidate) {
-                    let response = ControlSocketClient(path: candidate, responseTimeout: 1.0).sendLine("ping")
+                    let response = self.socketCommand("ping", at: candidate, responseTimeout: 1.0)
                     diagnostics.append("\(candidate)=\(response ?? "<nil>")")
                     self.lastSocketResolveDiagnostics = diagnostics.joined(separator: " ")
                     if response == "PONG" {
@@ -388,12 +388,53 @@ final class AutomationSocketUITests: XCTestCase {
         ]
         let data = try JSONSerialization.data(withJSONObject: request)
         let line = try XCTUnwrap(String(data: data, encoding: .utf8))
-        guard let response = ControlSocketClient(path: socketPath, responseTimeout: 5.0).sendLine(line) else {
+        guard let response = socketCommand(line, at: socketPath, responseTimeout: 5.0) else {
             return nil
         }
         let responseData = try XCTUnwrap(response.data(using: .utf8))
         let envelope = try XCTUnwrap(JSONSerialization.jsonObject(with: responseData) as? [String: Any])
         return (response, envelope)
+    }
+
+    private func socketCommand(_ command: String, at path: String, responseTimeout: TimeInterval) -> String? {
+        if let response = ControlSocketClient(path: path, responseTimeout: responseTimeout).sendLine(command) {
+            return response
+        }
+        return socketCommandViaNetcat(command, at: path, responseTimeout: responseTimeout)
+    }
+
+    private func socketCommandViaNetcat(_ command: String, at path: String, responseTimeout: TimeInterval) -> String? {
+        let nc = "/usr/bin/nc"
+        guard FileManager.default.isExecutableFile(atPath: nc) else { return nil }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        let timeoutSeconds = max(1, Int(ceil(responseTimeout)))
+        let script = "printf '%s\\n' \(shellSingleQuote(command)) | \(nc) -U \(shellSingleQuote(path)) -w \(timeoutSeconds) 2>/dev/null"
+        process.arguments = ["-lc", script]
+
+        let output = Pipe()
+        process.standardOutput = output
+
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+        process.waitUntilExit()
+
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        guard let text = String(data: data, encoding: .utf8) else { return nil }
+        if let first = text.split(separator: "\n", maxSplits: 1).first {
+            return String(first).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func shellSingleQuote(_ value: String) -> String {
+        if value.isEmpty { return "''" }
+        return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
     }
 
     private final class ControlSocketClient {
