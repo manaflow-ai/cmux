@@ -3791,6 +3791,143 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         )
     }
 
+    func testImmediateExternalGeometrySyncRunsWithoutQueuedTurn() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 700, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let shiftedContainer = NSView(frame: NSRect(x: 40, y: 60, width: 260, height: 180))
+        contentView.addSubview(shiftedContainer)
+        let anchor = NSView(frame: NSRect(x: 0, y: 0, width: 260, height: 180))
+        shiftedContainer.addSubview(anchor)
+        let hosted = surface.hostedView
+        TerminalWindowPortalRegistry.bind(
+            hostedView: hosted,
+            to: anchor,
+            visibleInUI: true,
+            expectedSurfaceId: surface.id,
+            expectedGeneration: surface.portalBindingGeneration()
+        )
+        TerminalWindowPortalRegistry.synchronizeForAnchor(anchor)
+
+        let originalAnchorFrameInWindow = anchor.convert(anchor.bounds, to: nil)
+        shiftedContainer.frame.origin.x += 72
+        contentView.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+
+        TerminalWindowPortalRegistry.synchronizeExternalGeometryImmediately(for: window)
+
+        let shiftedAnchorFrameInWindow = anchor.convert(anchor.bounds, to: nil)
+        let retiredStaleWindowPoint = NSPoint(
+            x: (originalAnchorFrameInWindow.minX + shiftedAnchorFrameInWindow.minX) / 2,
+            y: shiftedAnchorFrameInWindow.midY
+        )
+        let shiftedWindowPoint = NSPoint(
+            x: (originalAnchorFrameInWindow.maxX + shiftedAnchorFrameInWindow.maxX) / 2,
+            y: shiftedAnchorFrameInWindow.midY
+        )
+        XCTAssertNil(
+            TerminalWindowPortalRegistry.terminalViewAtWindowPoint(retiredStaleWindowPoint, in: window),
+            "Immediate external sync should clear the stale portal location before another main-queue turn"
+        )
+        XCTAssertNotNil(
+            TerminalWindowPortalRegistry.terminalViewAtWindowPoint(shiftedWindowPoint, in: window),
+            "Immediate external sync should move the portal-hosted terminal before another main-queue turn"
+        )
+
+        let immediateHostedFrame = hosted.frame
+        drainMainQueue()
+        XCTAssertEqual(hosted.frame.minX, immediateHostedFrame.minX, accuracy: 0.5)
+        XCTAssertEqual(hosted.frame.width, immediateHostedFrame.width, accuracy: 0.5)
+    }
+
+    func testScheduledExternalGeometrySyncSkipsAfterImmediateNoop() throws {
+#if DEBUG
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 700, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let shiftedContainer = NSView(frame: NSRect(x: 40, y: 60, width: 260, height: 180))
+        contentView.addSubview(shiftedContainer)
+        let anchor = NSView(frame: NSRect(x: 0, y: 0, width: 260, height: 180))
+        shiftedContainer.addSubview(anchor)
+        let hosted = surface.hostedView
+        TerminalWindowPortalRegistry.bind(
+            hostedView: hosted,
+            to: anchor,
+            visibleInUI: true,
+            expectedSurfaceId: surface.id,
+            expectedGeneration: surface.portalBindingGeneration()
+        )
+        TerminalWindowPortalRegistry.synchronizeForAnchor(anchor)
+        drainMainQueue()
+        drainMainQueue()
+
+        shiftedContainer.frame.origin.x += 72
+        contentView.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+
+        TerminalWindowPortalRegistry.resetDebugExternalGeometrySyncCounts(for: window)
+        TerminalWindowPortalRegistry.synchronizeExternalGeometryImmediately(for: window)
+        let immediateCounts = try XCTUnwrap(TerminalWindowPortalRegistry.debugExternalGeometrySyncCounts(for: window))
+        XCTAssertEqual(immediateCounts.applied, 1)
+        XCTAssertEqual(immediateCounts.skipped, 0)
+
+        let immediateHostedFrame = hosted.frame
+        TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
+        drainMainQueue()
+        drainMainQueue()
+
+        let scheduledCounts = try XCTUnwrap(TerminalWindowPortalRegistry.debugExternalGeometrySyncCounts(for: window))
+        XCTAssertEqual(
+            scheduledCounts.applied,
+            1,
+            "A stale observer callback after an immediate sidebar sync should not run another full portal reconcile"
+        )
+        XCTAssertGreaterThanOrEqual(scheduledCounts.skipped, 1)
+        XCTAssertEqual(hosted.frame.minX, immediateHostedFrame.minX, accuracy: 0.5)
+        XCTAssertEqual(hosted.frame.width, immediateHostedFrame.width, accuracy: 0.5)
+#else
+        throw XCTSkip("Debug-only portal instrumentation")
+#endif
+    }
+
     func testScheduledExternalGeometrySyncKeepsDragDrivenResizeResponsive() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 700, height: 420),

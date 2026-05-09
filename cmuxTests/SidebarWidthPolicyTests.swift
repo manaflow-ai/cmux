@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import XCTest
 
@@ -62,11 +63,49 @@ final class SidebarWidthPolicyTests: XCTestCase {
         XCTAssertFalse(range.contains(675.9))
         XCTAssertFalse(range.contains(686.1))
     }
+
+    func testLeftSidebarVisibilityTogglePublishesSingleInvalidation() {
+        let state = SidebarState(isVisible: true)
+        var invalidationCount = 0
+        let cancellable = state.objectWillChange.sink {
+            invalidationCount += 1
+        }
+
+        state.toggle()
+
+        withExtendedLifetime(cancellable) {}
+        XCTAssertEqual(invalidationCount, 1)
+    }
+
+    func testRightSidebarVisibilityTogglePublishesSingleInvalidation() {
+        let defaults = UserDefaults.standard
+        let hadStoredVisibility = defaults.object(forKey: "fileExplorer.isVisible") != nil
+        let storedVisibility = defaults.bool(forKey: "fileExplorer.isVisible")
+        defaults.set(true, forKey: "fileExplorer.isVisible")
+        defer {
+            if hadStoredVisibility {
+                defaults.set(storedVisibility, forKey: "fileExplorer.isVisible")
+            } else {
+                defaults.removeObject(forKey: "fileExplorer.isVisible")
+            }
+        }
+
+        let state = FileExplorerState()
+        var invalidationCount = 0
+        let cancellable = state.objectWillChange.sink {
+            invalidationCount += 1
+        }
+
+        state.toggle()
+
+        withExtendedLifetime(cancellable) {}
+        XCTAssertEqual(invalidationCount, 1)
+    }
 }
 
 @MainActor
 final class SidebarVisibilityShortcutTests: XCTestCase {
-    func testEnqueuedLeftSidebarVisibilityShortcutDefersAndTargetsPreferredWindow() async {
+    func testEnqueuedLeftSidebarVisibilityShortcutRunsImmediatelyAndTargetsPreferredWindow() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -92,15 +131,10 @@ final class SidebarVisibilityShortcutTests: XCTestCase {
         appDelegate.enqueueLeftSidebarVisibilityShortcut(preferredWindow: secondWindow)
 
         XCTAssertEqual(appDelegate.sidebarVisibility(windowId: firstWindowId), firstVisibleBefore)
-        XCTAssertEqual(appDelegate.sidebarVisibility(windowId: secondWindowId), secondVisibleBefore)
-
-        await Task.yield()
-
-        XCTAssertEqual(appDelegate.sidebarVisibility(windowId: firstWindowId), firstVisibleBefore)
         XCTAssertEqual(
             appDelegate.sidebarVisibility(windowId: secondWindowId),
             !secondVisibleBefore,
-            "Queued left-sidebar shortcut should still route through the preferred window"
+            "Left-sidebar shortcut should route through the preferred window without a main-actor turn delay"
         )
     }
 

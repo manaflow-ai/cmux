@@ -6,7 +6,6 @@ import SwiftUI
 final class FileExplorerState: ObservableObject {
     private static let modeKey = "rightSidebar.mode"
 
-    @Published private(set) var portalGeometrySyncRevision: UInt64 = 0
     @Published private(set) var isVisible: Bool {
         didSet { UserDefaults.standard.set(isVisible, forKey: "fileExplorer.isVisible") }
     }
@@ -75,7 +74,6 @@ final class FileExplorerState: ObservableObject {
         withTransaction(transaction) {
             isVisible = nextValue
         }
-        portalGeometrySyncRevision &+= 1
     }
 
     private func setMode(_ mode: RightSidebarMode, defaults: UserDefaults = .standard) {

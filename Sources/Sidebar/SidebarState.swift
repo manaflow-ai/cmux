@@ -3,7 +3,6 @@ import CoreGraphics
 import SwiftUI
 
 final class SidebarState: ObservableObject {
-    @Published private(set) var portalGeometrySyncRevision: UInt64 = 0
     @Published private(set) var isVisible: Bool
     @Published var persistedWidth: CGFloat
 
@@ -40,7 +39,6 @@ final class SidebarState: ObservableObject {
         withTransaction(transaction) {
             isVisible = nextValue
         }
-        portalGeometrySyncRevision &+= 1
     }
 }
 

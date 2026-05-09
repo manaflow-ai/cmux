@@ -66,7 +66,7 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
                 windowInLiveResize: false,
                 interactiveGeometryResizeActive: false
             ),
-            "Keyboard sidebar toggles should use coalesced portal sync instead of consuming partial layout frames"
+            "Passive host layout callbacks should use coalesced portal sync instead of consuming partial layout frames"
         )
     }
 

@@ -4,20 +4,14 @@ import SwiftUI
 @MainActor
 extension AppDelegate {
     func enqueueLeftSidebarVisibilityShortcut(preferredWindow: NSWindow?) {
-        Task { @MainActor [weak self, weak preferredWindow] in
-            guard let self else { return }
-            self.performSidebarVisibilityMutationWithoutAnimations {
-                _ = self.toggleSidebarInActiveMainWindow(preferredWindow: preferredWindow)
-            }
+        performSidebarVisibilityMutationWithoutAnimations {
+            _ = toggleSidebarInActiveMainWindow(preferredWindow: preferredWindow)
         }
     }
 
     func enqueueRightSidebarVisibilityShortcut(preferredWindow: NSWindow?) {
-        Task { @MainActor [weak self, weak preferredWindow] in
-            guard let self else { return }
-            self.performSidebarVisibilityMutationWithoutAnimations {
-                _ = self.toggleRightSidebarInActiveMainWindow(preferredWindow: preferredWindow)
-            }
+        performSidebarVisibilityMutationWithoutAnimations {
+            _ = toggleRightSidebarInActiveMainWindow(preferredWindow: preferredWindow)
         }
     }
 

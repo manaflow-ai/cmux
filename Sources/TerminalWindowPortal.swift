@@ -669,9 +669,13 @@ final class WindowTerminalPortal: NSObject {
     private var hasExternalGeometrySyncScheduled = false
     private var pendingExternalGeometrySyncRequiresImmediate = false
     private var externalGeometrySyncGeneration: UInt64 = 0
+    private var scheduledExternalGeometrySyncGeneration: UInt64?
+    private var lastExternalGeometrySnapshot: ExternalGeometrySnapshot?
     private var geometryObservers: [NSObjectProtocol] = []
 #if DEBUG
     private var lastLoggedBonsplitContainerSignature: String?
+    private var debugExternalGeometryApplyCount = 0
+    private var debugExternalGeometryNoopSkipCount = 0
 #endif
 
     private struct Entry {
@@ -680,6 +684,57 @@ final class WindowTerminalPortal: NSObject {
         var visibleInUI: Bool
         var zPriority: Int
         var transientRecoveryRetriesRemaining: Int
+    }
+
+    private struct ExternalGeometrySnapshot {
+        var hostFrame: NSRect
+        var hostBounds: NSRect
+        var entries: [ExternalGeometryEntrySnapshot]
+
+        func isApproximatelyEqual(to other: ExternalGeometrySnapshot) -> Bool {
+            guard WindowTerminalPortal.rectApproximatelyEqual(hostFrame, other.hostFrame),
+                  WindowTerminalPortal.rectApproximatelyEqual(hostBounds, other.hostBounds),
+                  entries.count == other.entries.count else {
+                return false
+            }
+            for (lhs, rhs) in zip(entries, other.entries) {
+                guard lhs.isApproximatelyEqual(to: rhs) else { return false }
+            }
+            return true
+        }
+    }
+
+    private struct ExternalGeometryEntrySnapshot {
+        var hostedId: ObjectIdentifier
+        var anchorId: ObjectIdentifier?
+        var targetFrame: NSRect?
+        var hostedFrame: NSRect
+        var hostedBounds: NSRect
+        var hostedHidden: Bool
+        var visibleInUI: Bool
+        var anchorHidden: Bool
+
+        func isApproximatelyEqual(to other: ExternalGeometryEntrySnapshot) -> Bool {
+            hostedId == other.hostedId &&
+                anchorId == other.anchorId &&
+                rectApproximatelyEqual(targetFrame, other.targetFrame) &&
+                WindowTerminalPortal.rectApproximatelyEqual(hostedFrame, other.hostedFrame) &&
+                WindowTerminalPortal.rectApproximatelyEqual(hostedBounds, other.hostedBounds) &&
+                hostedHidden == other.hostedHidden &&
+                visibleInUI == other.visibleInUI &&
+                anchorHidden == other.anchorHidden
+        }
+
+        private func rectApproximatelyEqual(_ lhs: NSRect?, _ rhs: NSRect?) -> Bool {
+            switch (lhs, rhs) {
+            case (nil, nil):
+                return true
+            case let (lhs?, rhs?):
+                return WindowTerminalPortal.rectApproximatelyEqual(lhs, rhs)
+            default:
+                return false
+            }
+        }
     }
 
     private var entriesByHostedId: [ObjectIdentifier: Entry] = [:]
@@ -778,8 +833,10 @@ final class WindowTerminalPortal: NSObject {
             return
         }
         hasExternalGeometrySyncScheduled = true
+        scheduledExternalGeometrySyncGeneration = generation
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            guard self.scheduledExternalGeometrySyncGeneration == generation else { return }
             let shouldSyncImmediately =
                 forceImmediate ||
                 self.pendingExternalGeometrySyncRequiresImmediate ||
@@ -792,6 +849,7 @@ final class WindowTerminalPortal: NSObject {
                 let wasSuperseded = self.externalGeometrySyncGeneration != generation
                 let followUpRequiresImmediate = self.pendingExternalGeometrySyncRequiresImmediate
                 self.hasExternalGeometrySyncScheduled = false
+                self.scheduledExternalGeometrySyncGeneration = nil
                 self.pendingExternalGeometrySyncRequiresImmediate = false
                 self.synchronizeAllEntriesFromExternalGeometryChange()
                 if wasSuperseded {
@@ -804,6 +862,14 @@ final class WindowTerminalPortal: NSObject {
                 DispatchQueue.main.async(execute: performSync)
             }
         }
+    }
+
+    fileprivate func synchronizeExternalGeometryImmediately() {
+        externalGeometrySyncGeneration &+= 1
+        hasExternalGeometrySyncScheduled = false
+        scheduledExternalGeometrySyncGeneration = nil
+        pendingExternalGeometrySyncRequiresImmediate = false
+        synchronizeAllEntriesFromExternalGeometryChange()
     }
 
     private func synchronizeLayoutHierarchy() {
@@ -846,8 +912,20 @@ final class WindowTerminalPortal: NSObject {
     fileprivate func synchronizeAllEntriesFromExternalGeometryChange() {
         guard ensureInstalled() else { return }
         synchronizeLayoutHierarchy()
+        pruneDeadEntries()
+        if let snapshot = externalGeometrySnapshot(),
+           lastExternalGeometrySnapshot?.isApproximatelyEqual(to: snapshot) == true {
+#if DEBUG
+            debugExternalGeometryNoopSkipCount += 1
+#endif
+            return
+        }
+#if DEBUG
+        debugExternalGeometryApplyCount += 1
+#endif
         synchronizeAllHostedViews(excluding: nil)
         reconcileVisibleHostedViewsAfterGeometrySync(reason: "portal.externalGeometrySync")
+        lastExternalGeometrySnapshot = externalGeometrySnapshot()
     }
 
     private func ensureDividerOverlayOnTop() {
@@ -952,7 +1030,7 @@ final class WindowTerminalPortal: NSObject {
         return false
     }
 
-    private static func rectApproximatelyEqual(_ lhs: NSRect, _ rhs: NSRect, epsilon: CGFloat = 0.01) -> Bool {
+    nonisolated private static func rectApproximatelyEqual(_ lhs: NSRect, _ rhs: NSRect, epsilon: CGFloat = 0.01) -> Bool {
         abs(lhs.origin.x - rhs.origin.x) <= epsilon &&
             abs(lhs.origin.y - rhs.origin.y) <= epsilon &&
             abs(lhs.size.width - rhs.size.width) <= epsilon &&
@@ -976,6 +1054,13 @@ final class WindowTerminalPortal: NSObject {
             width: max(0, snap(rect.size.width)),
             height: max(0, snap(rect.size.height))
         )
+    }
+
+    private static func rectHasFiniteGeometry(_ rect: NSRect) -> Bool {
+        rect.origin.x.isFinite &&
+            rect.origin.y.isFinite &&
+            rect.size.width.isFinite &&
+            rect.size.height.isFinite
     }
 
     private static func isView(_ view: NSView, above reference: NSView, in container: NSView) -> Bool {
@@ -1033,6 +1118,60 @@ final class WindowTerminalPortal: NSObject {
         return TerminalPortalGeometryFramePolicy.portalFrameInWindow(
             anchorFrame: frameInWindow,
             paneContainerFrame: paneContainerFrame
+        )
+    }
+
+    private func targetFrameInHost(for anchorView: NSView, hostBounds: NSRect) -> NSRect? {
+        let frameInWindow = effectiveAnchorFrameInWindow(for: anchorView)
+        let frameInHostRaw = hostView.convert(frameInWindow, from: nil)
+        let frameInHost = Self.pixelSnappedRect(frameInHostRaw, in: hostView)
+        guard Self.rectHasFiniteGeometry(frameInHost) else { return nil }
+
+        let clampedFrame = frameInHost.intersection(hostBounds)
+        if !clampedFrame.isNull, clampedFrame.width > 1, clampedFrame.height > 1 {
+            return clampedFrame
+        }
+        return frameInHost
+    }
+
+    private func externalGeometrySnapshot() -> ExternalGeometrySnapshot? {
+        guard Self.rectHasFiniteGeometry(hostView.frame),
+              Self.rectHasFiniteGeometry(hostView.bounds) else {
+            return nil
+        }
+
+        let sortedHostedIds = entriesByHostedId.keys.sorted {
+            String(describing: $0) < String(describing: $1)
+        }
+        var snapshots: [ExternalGeometryEntrySnapshot] = []
+        snapshots.reserveCapacity(sortedHostedIds.count)
+
+        for hostedId in sortedHostedIds {
+            guard let entry = entriesByHostedId[hostedId],
+                  let hostedView = entry.hostedView else {
+                continue
+            }
+            let anchorView = entry.anchorView
+            let anchorMatchesWindow = anchorView?.window === window
+            let targetFrame = anchorMatchesWindow
+                ? anchorView.flatMap { targetFrameInHost(for: $0, hostBounds: hostView.bounds) }
+                : nil
+            snapshots.append(ExternalGeometryEntrySnapshot(
+                hostedId: hostedId,
+                anchorId: anchorView.map(ObjectIdentifier.init),
+                targetFrame: targetFrame,
+                hostedFrame: hostedView.frame,
+                hostedBounds: hostedView.bounds,
+                hostedHidden: hostedView.isHidden,
+                visibleInUI: entry.visibleInUI,
+                anchorHidden: anchorView.map(Self.isHiddenOrAncestorHidden) ?? true
+            ))
+        }
+
+        return ExternalGeometrySnapshot(
+            hostFrame: hostView.frame,
+            hostBounds: hostView.bounds,
+            entries: snapshots
         )
     }
 
@@ -1235,6 +1374,7 @@ final class WindowTerminalPortal: NSObject {
         // frame remains "stuck" onscreen until the next interaction.
         synchronizeAllHostedViews(excluding: primaryHostedId)
         reconcileVisibleHostedViewsAfterGeometrySync(reason: "portal.anchorGeometrySync")
+        lastExternalGeometrySnapshot = externalGeometrySnapshot()
         scheduleDeferredFullSynchronizeAll()
     }
 
@@ -1677,6 +1817,8 @@ final class WindowTerminalPortal: NSObject {
         let visibleOrphanTerminalSubviewCount: Int
         let staleEntryCount: Int
         let visibleInvalidAnchorEntryCount: Int
+        let externalGeometryApplyCount: Int
+        let externalGeometryNoopSkipCount: Int
     }
 
     func debugStats() -> DebugStats {
@@ -1729,7 +1871,9 @@ final class WindowTerminalPortal: NSObject {
             orphanTerminalSubviewCount: orphanTerminalSubviewCount,
             visibleOrphanTerminalSubviewCount: visibleOrphanTerminalSubviewCount,
             staleEntryCount: staleEntryCount,
-            visibleInvalidAnchorEntryCount: visibleInvalidAnchorEntryCount
+            visibleInvalidAnchorEntryCount: visibleInvalidAnchorEntryCount,
+            externalGeometryApplyCount: debugExternalGeometryApplyCount,
+            externalGeometryNoopSkipCount: debugExternalGeometryNoopSkipCount
         )
     }
 
@@ -1739,6 +1883,15 @@ final class WindowTerminalPortal: NSObject {
 
     func debugHostedSubviewCount() -> Int {
         hostView.subviews.count
+    }
+
+    func resetDebugExternalGeometrySyncCounts() {
+        debugExternalGeometryApplyCount = 0
+        debugExternalGeometryNoopSkipCount = 0
+    }
+
+    func debugExternalGeometrySyncCounts() -> (applied: Int, skipped: Int) {
+        (debugExternalGeometryApplyCount, debugExternalGeometryNoopSkipCount)
     }
 #endif
 
@@ -2029,6 +2182,10 @@ enum TerminalWindowPortalRegistry {
         existingPortal(for: window)?.scheduleExternalGeometrySynchronize(forceImmediate: true)
     }
 
+    static func synchronizeExternalGeometryImmediately(for window: NSWindow) {
+        existingPortal(for: window)?.synchronizeExternalGeometryImmediately()
+    }
+
     static func beginInteractiveGeometryResize() {
         interactiveGeometryResizeCount += 1
     }
@@ -2122,6 +2279,14 @@ enum TerminalWindowPortalRegistry {
         portalsByWindowId.count
     }
 
+    static func resetDebugExternalGeometrySyncCounts(for window: NSWindow) {
+        existingPortal(for: window)?.resetDebugExternalGeometrySyncCounts()
+    }
+
+    static func debugExternalGeometrySyncCounts(for window: NSWindow) -> (applied: Int, skipped: Int)? {
+        existingPortal(for: window)?.debugExternalGeometrySyncCounts()
+    }
+
     static func debugPortalStats() -> [String: Any] {
         var portals: [[String: Any]] = []
         var totals: [String: Int] = [
@@ -2134,6 +2299,8 @@ enum TerminalWindowPortalRegistry {
             "stale_entry_count": 0,
             "visible_invalid_anchor_entry_count": 0,
             "mapped_hosted_count": 0,
+            "external_geometry_apply_count": 0,
+            "external_geometry_noop_skip_count": 0,
         ]
 
         for (windowId, portal) in portalsByWindowId {
@@ -2159,6 +2326,8 @@ enum TerminalWindowPortalRegistry {
                 "visible_orphan_terminal_subview_count": stats.visibleOrphanTerminalSubviewCount,
                 "stale_entry_count": stats.staleEntryCount,
                 "visible_invalid_anchor_entry_count": stats.visibleInvalidAnchorEntryCount,
+                "external_geometry_apply_count": stats.externalGeometryApplyCount,
+                "external_geometry_noop_skip_count": stats.externalGeometryNoopSkipCount,
                 "integrity_ok": integrityOK,
             ])
 
@@ -2171,6 +2340,8 @@ enum TerminalWindowPortalRegistry {
             totals["stale_entry_count", default: 0] += stats.staleEntryCount
             totals["visible_invalid_anchor_entry_count", default: 0] += stats.visibleInvalidAnchorEntryCount
             totals["mapped_hosted_count", default: 0] += mappedHostedCount
+            totals["external_geometry_apply_count", default: 0] += stats.externalGeometryApplyCount
+            totals["external_geometry_noop_skip_count", default: 0] += stats.externalGeometryNoopSkipCount
         }
 
         portals.sort {

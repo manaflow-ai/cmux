@@ -5516,11 +5516,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let state = context.fileExplorerState ?? fileExplorerState else {
             return false
         }
-        let wasVisible = state.isVisible
         state.toggle()
-        if wasVisible && !state.isVisible {
-            _ = context.keyboardFocusCoordinator.restoreTerminalFocusAfterRightSidebarHiddenIfNeeded()
-        }
         return true
     }
 
