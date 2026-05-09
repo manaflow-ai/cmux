@@ -564,15 +564,15 @@ struct TerminalPreviewSurface: View {
     let terminal: MobileTerminalPreview?
     let workspace: MobileWorkspacePreview
 
-    private var snapshot: MobileTerminalGhosttySnapshot? {
-        terminal?.snapshot
+    private var renderedLines: [String] {
+        terminal?.lines ?? []
     }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 6) {
-                ForEach((snapshot?.renderedVisibleLines ?? []).indices, id: \.self) { index in
-                    Text(snapshot?.renderedVisibleLines[index] ?? "")
+                ForEach(renderedLines.indices, id: \.self) { index in
+                    Text(renderedLines[index])
                         .font(.system(.body, design: .monospaced))
                         .foregroundStyle(index == 0 ? .green : .white)
                         .frame(maxWidth: .infinity, alignment: .leading)
