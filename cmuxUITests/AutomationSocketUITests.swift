@@ -81,12 +81,8 @@ final class AutomationSocketUITests: XCTestCase {
 
     func testMobileTerminalSnapshotCommandReturnsGhosttySchema() throws {
         let app = configuredApp(mode: "cmuxOnly")
-        app.launch()
         addTeardownBlock { app.terminate() }
-        XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: 12.0),
-            "Expected app to launch for mobile terminal snapshot test. state=\(app.state.rawValue)"
-        )
+        launchAndAllowBackground(app, failureMessage: "Expected app to launch for mobile terminal snapshot test")
 
         guard let resolvedPath = resolveSocketPath(timeout: 5.0) else {
             XCTFail("Expected control socket to exist")
@@ -140,6 +136,20 @@ final class AutomationSocketUITests: XCTestCase {
             return app.wait(for: .runningForeground, timeout: 6.0)
         }
         return false
+    }
+
+    private func launchAndAllowBackground(_ app: XCUIApplication, failureMessage: String) {
+        let options = XCTExpectedFailure.Options()
+        options.isStrict = false
+        XCTExpectFailure("App activation may fail on headless CI runners", options: options) {
+            app.launch()
+        }
+
+        if app.state == .runningForeground || app.state == .runningBackground {
+            return
+        }
+
+        XCTFail("\(failureMessage). state=\(app.state.rawValue)")
     }
 
     private func requireMobileSyncToggle(app: XCUIApplication) throws -> XCUIElement {
