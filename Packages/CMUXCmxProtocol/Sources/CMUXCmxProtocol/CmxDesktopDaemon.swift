@@ -66,6 +66,15 @@ public actor CmxDesktopDaemon {
         process.standardError = nil
         var processEnvironment = environment ?? ProcessInfo.processInfo.environment
         processEnvironment["CMX_EXIT_WHEN_PARENT_PID_EXITS"] = "\(ProcessInfo.processInfo.processIdentifier)"
+        processEnvironment["CMUX_SOCKET_PATH"] = paths.compatibilitySocketPath
+        let bundledCLIPath = processEnvironment["CMUX_BUNDLED_CLI_PATH"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if bundledCLIPath?.isEmpty != false {
+            let bundledCLIURL = executableURL.deletingLastPathComponent().appendingPathComponent("cmux")
+            if FileManager.default.isExecutableFile(atPath: bundledCLIURL.path) {
+                processEnvironment["CMUX_BUNDLED_CLI_PATH"] = bundledCLIURL.path
+            }
+        }
         process.environment = processEnvironment
         try process.run()
         self.process = process
