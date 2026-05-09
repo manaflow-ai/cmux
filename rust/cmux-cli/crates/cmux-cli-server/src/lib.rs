@@ -5345,6 +5345,7 @@ pub struct Daemon {
     remote_daemon_metadata: remote_daemon_manifest::RemoteDaemonMetadata,
     remote_daemon_proxy_sessions: Mutex<HashMap<u64, remote_daemon_proxy::RemoteDaemonProxyHandle>>,
     remote_daemon_proxy_configs: Mutex<HashMap<u64, remote_daemon_proxy::RemoteDaemonProxyConfig>>,
+    remote_daemon_proxy_heartbeat_sessions: Mutex<HashMap<u64, task::JoinHandle<()>>>,
     remote_ssh_relay_sessions: Mutex<HashMap<u64, remote_ssh_relay::RemoteSshRelayHandle>>,
     remote_ssh_relay_configs: Mutex<HashMap<u64, remote_ssh_relay::RemoteSshRelayConfig>>,
     remote_ssh_port_poll_sessions: Mutex<HashMap<u64, task::JoinHandle<()>>>,
@@ -5744,6 +5745,7 @@ impl Daemon {
             ),
             remote_daemon_proxy_sessions: Mutex::new(HashMap::new()),
             remote_daemon_proxy_configs: Mutex::new(HashMap::new()),
+            remote_daemon_proxy_heartbeat_sessions: Mutex::new(HashMap::new()),
             remote_ssh_relay_sessions: Mutex::new(HashMap::new()),
             remote_ssh_relay_configs: Mutex::new(HashMap::new()),
             remote_ssh_port_poll_sessions: Mutex::new(HashMap::new()),
@@ -6807,6 +6809,14 @@ impl Daemon {
             .remove(&ws_id)
         {
             handle.stop();
+        }
+        if let Some(handle) = self
+            .remote_daemon_proxy_heartbeat_sessions
+            .lock()
+            .await
+            .remove(&ws_id)
+        {
+            handle.abort();
         }
         if let Some(handle) = self.remote_ssh_relay_sessions.lock().await.remove(&ws_id) {
             handle.stop();
@@ -21345,6 +21355,14 @@ async fn compatibility_workspace_remote_stop_daemon_proxy(daemon: &Arc<Daemon>, 
     if let Some(handle) = handle {
         handle.stop();
     }
+    if let Some(handle) = daemon
+        .remote_daemon_proxy_heartbeat_sessions
+        .lock()
+        .await
+        .remove(&workspace_id)
+    {
+        handle.abort();
+    }
 }
 
 async fn compatibility_workspace_remote_stop_ssh_relay(daemon: &Arc<Daemon>, workspace_id: u64) {
@@ -21396,8 +21414,52 @@ async fn compatibility_workspace_remote_start_daemon_proxy(
         failure_rx,
     );
     compatibility_workspace_remote_mark_proxy_connected(params, remote, ready);
+    compatibility_workspace_remote_start_daemon_proxy_heartbeat(daemon, workspace_id).await;
     compatibility_workspace_remote_reset_reconnect_attempts(daemon, workspace_id).await;
     Ok(())
+}
+
+async fn compatibility_workspace_remote_start_daemon_proxy_heartbeat(
+    daemon: &Arc<Daemon>,
+    workspace_id: u64,
+) {
+    if let Some(handle) = daemon
+        .remote_daemon_proxy_heartbeat_sessions
+        .lock()
+        .await
+        .remove(&workspace_id)
+    {
+        handle.abort();
+    }
+
+    let daemon_for_task = daemon.clone();
+    let handle = tokio::spawn(async move {
+        let mut tick = tokio::time::interval(Duration::from_secs(5));
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            tick.tick().await;
+            let Ok(mut remote) =
+                compatibility_workspace_remote_status_for_id(&daemon_for_task, workspace_id).await
+            else {
+                return;
+            };
+            if !compatibility_workspace_remote_is_rust_owned_proxy(&remote) {
+                return;
+            }
+            compatibility_workspace_remote_mark_heartbeat_seen(&mut remote);
+            if compatibility_store_workspace_remote_status(&daemon_for_task, workspace_id, remote)
+                .await
+                .is_err()
+            {
+                return;
+            }
+        }
+    });
+    daemon
+        .remote_daemon_proxy_heartbeat_sessions
+        .lock()
+        .await
+        .insert(workspace_id, handle);
 }
 
 fn compatibility_workspace_remote_spawn_daemon_proxy_failure_monitor(
@@ -21442,6 +21504,14 @@ fn compatibility_workspace_remote_spawn_daemon_proxy_failure_monitor(
                 .remove(&workspace_id)
             {
                 handle.stop();
+            }
+            if let Some(handle) = daemon
+                .remote_daemon_proxy_heartbeat_sessions
+                .lock()
+                .await
+                .remove(&workspace_id)
+            {
+                handle.abort();
             }
             compatibility_workspace_remote_stop_ssh_port_poll(&daemon, workspace_id).await;
             if let Some(handle) = daemon
@@ -21510,6 +21580,14 @@ fn compatibility_workspace_remote_spawn_ssh_relay_failure_monitor(
                 .remove(&workspace_id)
             {
                 handle.stop();
+            }
+            if let Some(handle) = daemon
+                .remote_daemon_proxy_heartbeat_sessions
+                .lock()
+                .await
+                .remove(&workspace_id)
+            {
+                handle.abort();
             }
             return;
         }
@@ -21847,6 +21925,25 @@ fn compatibility_workspace_remote_mark_proxy_connected(
         "local_proxy_port".to_string(),
         serde_json::json!(ready.local_port),
     );
+}
+
+fn compatibility_workspace_remote_mark_heartbeat_seen(remote: &mut serde_json::Value) {
+    let count = remote
+        .get("heartbeat")
+        .and_then(|heartbeat| heartbeat.get("count"))
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0)
+        .saturating_add(1);
+    if let Some(object) = remote.as_object_mut() {
+        object.insert(
+            "heartbeat".to_string(),
+            serde_json::json!({
+                "count": count,
+                "last_seen_at": compatibility_feed_rfc3339(now_unix_millis()),
+                "age_seconds": 0,
+            }),
+        );
+    }
 }
 
 fn compatibility_workspace_remote_mark_proxy_error(remote: &mut serde_json::Value, detail: &str) {
