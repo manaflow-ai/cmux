@@ -158,16 +158,11 @@ struct RightSidebarPanelView: View {
     @State private var closeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @StateObject private var dockStore = DockControlsStore()
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
-    @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey)
-    private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
-    @AppStorage(ShortcutHintDebugSettings.rightSidebarCloseHintXKey)
-    private var closeShortcutHintXOffset = ShortcutHintDebugSettings.defaultRightSidebarCloseHintX
-    @AppStorage(ShortcutHintDebugSettings.rightSidebarCloseHintYKey)
-    private var closeShortcutHintYOffset = ShortcutHintDebugSettings.defaultRightSidebarCloseHintY
-    @AppStorage(ShortcutHintDebugSettings.rightSidebarFocusHintXKey)
-    private var focusShortcutHintXOffset = ShortcutHintDebugSettings.defaultRightSidebarFocusHintX
-    @AppStorage(ShortcutHintDebugSettings.rightSidebarFocusHintYKey)
-    private var focusShortcutHintYOffset = ShortcutHintDebugSettings.defaultRightSidebarFocusHintY
+    private let alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
+    private let closeShortcutHintXOffset = ShortcutHintDebugSettings.defaultRightSidebarCloseHintX
+    private let closeShortcutHintYOffset = ShortcutHintDebugSettings.defaultRightSidebarCloseHintY
+    private let focusShortcutHintXOffset = ShortcutHintDebugSettings.defaultRightSidebarFocusHintX
+    private let focusShortcutHintYOffset = ShortcutHintDebugSettings.defaultRightSidebarFocusHintY
     @AppStorage(RightSidebarBetaFeatureSettings.feedEnabledKey)
     private var feedEnabled = RightSidebarBetaFeatureSettings.defaultFeedEnabled
     @AppStorage(RightSidebarBetaFeatureSettings.dockEnabledKey)

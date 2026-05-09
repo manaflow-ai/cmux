@@ -305,7 +305,7 @@ final class TitlebarShortcutHintsUITests: XCTestCase {
     }
 
     func testTitlebarShortcutHintsAlignWithoutShiftingControls() {
-        let baselineApp = launchApp(alwaysShowHints: false)
+        let baselineApp = launchApp()
         XCTAssertTrue(waitForWindowCount(atLeast: 1, app: baselineApp, timeout: 8.0))
 
         let baselineToggle = baselineApp.buttons["titlebarControl.toggleSidebar"]
@@ -322,7 +322,7 @@ final class TitlebarShortcutHintsUITests: XCTestCase {
 
         baselineApp.terminate()
 
-        let hintedApp = launchApp(alwaysShowHints: true)
+        let hintedApp = launchApp()
         XCTAssertTrue(waitForWindowCount(atLeast: 1, app: hintedApp, timeout: 8.0))
 
         let hintedToggle = hintedApp.buttons["titlebarControl.toggleSidebar"]
@@ -367,12 +367,9 @@ final class TitlebarShortcutHintsUITests: XCTestCase {
         }
     }
 
-    private func launchApp(alwaysShowHints: Bool) -> XCUIApplication {
+    private func launchApp() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
-        app.launchArguments += ["-shortcutHintAlwaysShow", alwaysShowHints ? "YES" : "NO"]
-        app.launchArguments += ["-shortcutHintTitlebarXOffset", "4"]
-        app.launchArguments += ["-shortcutHintTitlebarYOffset", "0"]
         app.launch()
 
         _ = pollUntil(timeout: 2.0) {

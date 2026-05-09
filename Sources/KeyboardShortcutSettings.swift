@@ -163,7 +163,7 @@ enum KeyboardShortcutSettings {
             case .equalizeSplits: return String(localized: "shortcut.equalizeSplits.label", defaultValue: "Equalize Splits")
             case .splitBrowserRight: return String(localized: "shortcut.splitBrowserRight.label", defaultValue: "Split Browser Right")
             case .splitBrowserDown: return String(localized: "shortcut.splitBrowserDown.label", defaultValue: "Split Browser Down")
-            case .toggleFileExplorer: return String(localized: "shortcut.toggleFileExplorer.label", defaultValue: "Toggle File Explorer")
+            case .toggleFileExplorer: return String(localized: "shortcut.toggleFileExplorer.label", defaultValue: "Toggle Right Sidebar")
             case .saveFilePreview: return String(localized: "shortcut.saveFilePreview.label", defaultValue: "Save File Preview")
             case .openBrowser: return String(localized: "shortcut.openBrowser.label", defaultValue: "Open Browser")
             case .focusBrowserAddressBar: return String(localized: "command.browserFocusAddressBar.title", defaultValue: "Focus Address Bar")

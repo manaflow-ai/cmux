@@ -432,13 +432,13 @@ struct TitlebarControlsView: View {
     let visibilityMode: TitlebarControlsVisibilityMode
     @ObservedObject private var popoverVisibilityState = NotificationsPopoverVisibilityState.shared
     @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
-    @AppStorage(ShortcutHintDebugSettings.titlebarHintXKey) private var titlebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultTitlebarHintX
-    @AppStorage(ShortcutHintDebugSettings.titlebarHintYKey) private var titlebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultTitlebarHintY
-    @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey) private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
     @State private var shortcutRefreshTick = 0
     @State private var isHoveringControls = false
     @State private var hostWindowNumber: Int?
     @StateObject private var modifierKeyMonitor = TitlebarShortcutHintModifierMonitor()
+    private let titlebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultTitlebarHintX
+    private let titlebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultTitlebarHintY
+    private let alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
     private let titlebarHintRightSafetyShift: CGFloat = 10
     private let titlebarHintBaseXShift: CGFloat = -10
 
