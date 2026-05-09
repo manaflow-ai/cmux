@@ -355,10 +355,7 @@ enum TerminalImageTransferPlanner {
         if !urls.isEmpty {
             return urls
         }
-        if let imageURL = GhosttyPasteboardHelper.saveImageFileURLIfNeeded(from: pasteboard, assumeNoText: true) {
-            return [imageURL]
-        }
-        return []
+        return GhosttyPasteboardHelper.saveImageFileURLsIfNeeded(from: pasteboard, assumeNoText: true)
     }
 
     private static func fileURLs(from pasteboard: NSPasteboard) -> [URL] {
