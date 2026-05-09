@@ -1411,6 +1411,68 @@ private final class GhosttySurfaceCallbackContext {
     }
 }
 
+/// Coalesces OSC 0/1/2 title-change callbacks into one main-thread notification
+/// post per surface per runloop tick. Ghostty fires SET_TITLE on the I/O thread
+/// once per escape sequence; a process emitting `\e]0;...\a` in a tight loop
+/// previously scheduled a `DispatchQueue.main.async` and a multi-observer
+/// NotificationCenter fan-out per call, saturating the main thread and starving
+/// scroll/render frames.
+private final class TitleNotificationCoalescer {
+    private struct Key: Hashable {
+        let tabId: UUID
+        let surfaceId: UUID
+    }
+
+    private struct Pending {
+        weak var surfaceView: GhosttyNSView?
+        var title: String
+    }
+
+    private let lock = NSLock()
+    private var pending: [Key: Pending] = [:]
+    private var drainScheduled = false
+
+    func record(tabId: UUID, surfaceId: UUID, title: String, surfaceView: GhosttyNSView) {
+        lock.lock()
+        pending[Key(tabId: tabId, surfaceId: surfaceId)] = Pending(
+            surfaceView: surfaceView,
+            title: title
+        )
+        let needsSchedule = !drainScheduled
+        if needsSchedule {
+            drainScheduled = true
+        }
+        lock.unlock()
+
+        if needsSchedule {
+            DispatchQueue.main.async { [weak self] in
+                self?.drain()
+            }
+        }
+    }
+
+    private func drain() {
+        lock.lock()
+        let drained = pending
+        pending.removeAll(keepingCapacity: true)
+        drainScheduled = false
+        lock.unlock()
+
+        for (key, entry) in drained {
+            guard let surfaceView = entry.surfaceView else { continue }
+            NotificationCenter.default.post(
+                name: .ghosttyDidSetTitle,
+                object: surfaceView,
+                userInfo: [
+                    GhosttyNotificationKey.tabId: key.tabId,
+                    GhosttyNotificationKey.surfaceId: key.surfaceId,
+                    GhosttyNotificationKey.title: entry.title,
+                ]
+            )
+        }
+    }
+}
+
 // Minimal Ghostty wrapper for terminal rendering
 // This uses libghostty (GhosttyKit.xcframework) for actual terminal emulation
 
@@ -1438,6 +1500,7 @@ class GhosttyApp {
     /// pending tick on the main queue at any time.
     private var _tickScheduled = false
     private let _tickLock = NSLock()
+    private let titleNotificationCoalescer = TitleNotificationCoalescer()
     private(set) var defaultBackgroundColor: NSColor = .windowBackgroundColor
     private(set) var defaultBackgroundOpacity: Double = 1.0
     private(set) var defaultBackgroundBlur: GhosttyBackgroundBlur = .disabled
@@ -3641,17 +3704,12 @@ class GhosttyApp {
                 .flatMap { String(cString: $0) } ?? ""
             if let tabId = surfaceView.tabId,
                let surfaceId = surfaceView.terminalSurface?.id {
-                DispatchQueue.main.async {
-                    NotificationCenter.default.post(
-                        name: .ghosttyDidSetTitle,
-                        object: surfaceView,
-                        userInfo: [
-                            GhosttyNotificationKey.tabId: tabId,
-                            GhosttyNotificationKey.surfaceId: surfaceId,
-                            GhosttyNotificationKey.title: title,
-                        ]
-                    )
-                }
+                titleNotificationCoalescer.record(
+                    tabId: tabId,
+                    surfaceId: surfaceId,
+                    title: title,
+                    surfaceView: surfaceView
+                )
             }
             return true
         case GHOSTTY_ACTION_PWD:
