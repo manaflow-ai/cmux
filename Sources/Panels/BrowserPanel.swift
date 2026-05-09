@@ -455,7 +455,7 @@ final class BrowserProfileStore: ObservableObject {
             return nil
         }
         let removed = profiles.remove(at: index)
-        let historyURL = historyFileURL(for: id)
+        let historyDirectoryURL = historyFileURL(for: id)?.deletingLastPathComponent()
         dataStores.removeValue(forKey: id)
         historyStores.removeValue(forKey: id)
         if lastUsedProfileID == id {
@@ -463,8 +463,10 @@ final class BrowserProfileStore: ObservableObject {
             defaults.set(lastUsedProfileID.uuidString, forKey: Self.lastUsedProfileDefaultsKey)
         }
         persist()
-        if let historyURL {
-            try? FileManager.default.removeItem(at: historyURL.deletingLastPathComponent())
+        if let historyDirectoryURL {
+            Task.detached(priority: .utility) {
+                try? FileManager.default.removeItem(at: historyDirectoryURL)
+            }
         }
         return removed
     }
@@ -472,18 +474,28 @@ final class BrowserProfileStore: ObservableObject {
     func clearProfileData(id: UUID) async -> BrowserProfileClearOutcome? {
         guard let profile = profileDefinition(id: id) else { return nil }
         let store = websiteDataStore(for: id)
+        let historyURL = historyFileURL(for: id)
+        historyStore(for: id).clearHistoryWithoutLoadingPersistedFile()
         let dataTypes = WKWebsiteDataStore.allWebsiteDataTypes()
         await withCheckedContinuation { continuation in
             store.removeData(ofTypes: dataTypes, modifiedSince: .distantPast) {
                 continuation.resume()
             }
         }
-        historyStore(for: id).clearHistory()
+        if let historyURL {
+            await Self.removeItemIfExists(at: historyURL)
+        }
         return BrowserProfileClearOutcome(
             profile: profile,
             clearedWebsiteDataTypes: Array(dataTypes).sorted(),
             clearedHistory: true
         )
+    }
+
+    private nonisolated static func removeItemIfExists(at url: URL) async {
+        await Task.detached(priority: .utility) {
+            try? FileManager.default.removeItem(at: url)
+        }.value
     }
 
     func noteUsed(_ id: UUID) {
@@ -1376,6 +1388,13 @@ final class BrowserHistoryStore: ObservableObject {
         entries = []
         guard let fileURL else { return }
         try? FileManager.default.removeItem(at: fileURL)
+    }
+
+    func clearHistoryWithoutLoadingPersistedFile() {
+        saveTask?.cancel()
+        saveTask = nil
+        didLoad = true
+        entries = []
     }
 
     @discardableResult
