@@ -248,10 +248,9 @@ The app has a **Debug** menu in the macOS menu bar (only in DEBUG builds). Use i
 
 ## Testing policy
 
-**Never run tests against the user's local cmux instance or default socket.** Use isolated tagged builds, isolated sockets, and remote runners.
+**Never run tests against the user's local cmux instance or default socket.** Use isolated tagged builds and isolated sockets.
 
-- **E2E / UI tests:** during iteration, prefer the AWS M4 Pro Mac runner (`ssh cmux-aws-m4pro`) described in cmuxterm-hq `AGENTS.md`. Use `gh workflow run test-e2e.yml` only for the final merge gate or when the AWS Mac is unavailable.
-- **Unit tests:** `xcodebuild -scheme cmux-unit` is safe (no app launch), but prefer CI
+- **Unit tests:** `xcodebuild -scheme cmux-unit` is safe because it does not launch the app.
 - **Python socket tests (tests_v2/):** these connect to a running cmux instance's socket. Never launch an untagged `cmux DEV.app` to run them. If you must test locally, use a tagged build's socket (`/tmp/cmux-debug-<tag>.sock`) with `CMUX_SOCKET_PATH=/tmp/cmux-debug-<tag>.sock`
 - **Never `open` an untagged `cmux DEV.app`** from DerivedData. It conflicts with the user's running debug instance.
 
