@@ -9,9 +9,10 @@ Chromium CEF browser view. Chromium owns browser content only.
 
 The Ghostty side loads the normal Ghostty config files plus cmux's App Support
 config fallback (`com.cmuxterm.app/config.ghostty` or `config`). The Chromium
-side has buttons for an internal DevTools pane and a separate DevTools window.
-Both are normal CEF browser views backed by CEF remote debugging, so they can
-stay open independently.
+side has a vertical workspace rail, horizontal browser tabs per workspace,
+buttons for an internal DevTools pane, and a separate DevTools window. DevTools
+surfaces are normal CEF browser views backed by CEF remote debugging, so they
+can stay open independently.
 
 ## Run
 

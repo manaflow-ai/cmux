@@ -1,5 +1,5 @@
 diff --git a/src/platform/macos/cef_host.mm b/src/platform/macos/cef_host.mm
-index ce9c747..b0fe294 100644
+index ce9c747..9aec1ae 100644
 --- a/src/platform/macos/cef_host.mm
 +++ b/src/platform/macos/cef_host.mm
 @@ -2,12 +2,21 @@
@@ -314,7 +314,7 @@ index ce9c747..b0fe294 100644
  } // namespace
  
  @implementation ZeroNativeChromiumApplication
-@@ -305,20 +527,612 @@ - (void)sendEvent:(NSEvent *)event {
+@@ -305,20 +527,860 @@ - (void)sendEvent:(NSEvent *)event {
  
  @end
  
@@ -751,10 +751,57 @@ index ce9c747..b0fe294 100644
 +    (void)processAlive;
 +}
 +
++@interface ZeroNativeCmuxBrowserTab : NSObject
++@property(nonatomic, copy) NSString *title;
++@property(nonatomic, copy) NSString *url;
+++ (instancetype)tabWithTitle:(NSString *)title url:(NSString *)url;
++@end
++
++@implementation ZeroNativeCmuxBrowserTab
++
+++ (instancetype)tabWithTitle:(NSString *)title url:(NSString *)url {
++    ZeroNativeCmuxBrowserTab *tab = [[ZeroNativeCmuxBrowserTab alloc] init];
++    tab.title = title.length > 0 ? title : @"Tab";
++    tab.url = url.length > 0 ? url : @"about:blank";
++    return tab;
++}
++
++@end
++
++@interface ZeroNativeCmuxWorkspace : NSObject
++@property(nonatomic, copy) NSString *title;
++@property(nonatomic, strong) NSColor *accentColor;
++@property(nonatomic, strong) NSMutableArray<ZeroNativeCmuxBrowserTab *> *tabs;
++@property(nonatomic, assign) NSInteger activeTabIndex;
+++ (instancetype)workspaceWithTitle:(NSString *)title color:(NSColor *)color tabs:(NSArray<ZeroNativeCmuxBrowserTab *> *)tabs;
++@end
++
++@implementation ZeroNativeCmuxWorkspace
++
+++ (instancetype)workspaceWithTitle:(NSString *)title color:(NSColor *)color tabs:(NSArray<ZeroNativeCmuxBrowserTab *> *)tabs {
++    ZeroNativeCmuxWorkspace *workspace = [[ZeroNativeCmuxWorkspace alloc] init];
++    workspace.title = title.length > 0 ? title : @"Workspace";
++    workspace.accentColor = color ?: NSColor.controlAccentColor;
++    workspace.tabs = [[NSMutableArray alloc] initWithArray:tabs ?: @[]];
++    if (workspace.tabs.count == 0) {
++        [workspace.tabs addObject:[ZeroNativeCmuxBrowserTab tabWithTitle:@"Home" url:@"https://zero-native.dev"]];
++    }
++    workspace.activeTabIndex = 0;
++    return workspace;
++}
++
++@end
++
 +@interface ZeroNativeCmuxWorkbenchView : NSView
 +@property(nonatomic, weak) id<ZeroNativeCmuxWorkbenchHost> host;
 +@property(nonatomic, assign) uint64_t windowId;
 +@property(nonatomic, assign) BOOL internalDevToolsVisible;
++@property(nonatomic, assign) NSInteger activeWorkspaceIndex;
++@property(nonatomic, strong) NSMutableArray<ZeroNativeCmuxWorkspace *> *workspaces;
++@property(nonatomic, strong) NSMutableArray<NSButton *> *workspaceButtons;
++@property(nonatomic, strong) NSMutableArray<NSButton *> *tabButtons;
++@property(nonatomic, strong) NSView *workspaceRail;
++@property(nonatomic, strong) NSView *tabStrip;
 +@property(nonatomic, strong) ZeroNativeCmuxGhosttySlotView *terminalSlot;
 +@property(nonatomic, strong) NSView *browserPane;
 +@property(nonatomic, strong) NSView *browserContainer;
@@ -765,6 +812,8 @@ index ce9c747..b0fe294 100644
 +@property(nonatomic, strong) NSButton *devToolsButton;
 +@property(nonatomic, strong) NSButton *devToolsWindowButton;
 +@property(nonatomic, strong) NSButton *addTerminalButton;
++@property(nonatomic, strong) NSButton *addWorkspaceButton;
++@property(nonatomic, strong) NSButton *addTabButton;
 +- (void)setBrowserURLString:(NSString *)urlString;
 +@end
 +
@@ -776,6 +825,33 @@ index ce9c747..b0fe294 100644
 +
 +    self.wantsLayer = YES;
 +    self.layer.backgroundColor = [NSColor separatorColor].CGColor;
++
++    _workspaces = [[NSMutableArray alloc] initWithArray:@[
++        [ZeroNativeCmuxWorkspace workspaceWithTitle:@"Main"
++                                             color:[NSColor colorWithCalibratedRed:0.18 green:0.52 blue:0.98 alpha:1.0]
++                                              tabs:@[
++            [ZeroNativeCmuxBrowserTab tabWithTitle:@"zero-native" url:@"https://zero-native.dev"],
++            [ZeroNativeCmuxBrowserTab tabWithTitle:@"GitHub" url:@"https://github.com/vercel-labs/zero-native"],
++        ]],
++        [ZeroNativeCmuxWorkspace workspaceWithTitle:@"Agents"
++                                             color:[NSColor colorWithCalibratedRed:0.40 green:0.78 blue:0.48 alpha:1.0]
++                                              tabs:@[
++            [ZeroNativeCmuxBrowserTab tabWithTitle:@"cmux" url:@"https://cmux.com"],
++        ]],
++        [ZeroNativeCmuxWorkspace workspaceWithTitle:@"Ops"
++                                             color:[NSColor colorWithCalibratedRed:0.96 green:0.58 blue:0.25 alpha:1.0]
++                                              tabs:@[
++            [ZeroNativeCmuxBrowserTab tabWithTitle:@"Vercel" url:@"https://vercel.com"],
++        ]],
++    ]];
++    _workspaceButtons = [[NSMutableArray alloc] init];
++    _tabButtons = [[NSMutableArray alloc] init];
++    _activeWorkspaceIndex = 0;
++
++    _workspaceRail = [[NSView alloc] initWithFrame:NSZeroRect];
++    _workspaceRail.wantsLayer = YES;
++    _workspaceRail.layer.backgroundColor = [NSColor colorWithCalibratedWhite:0.12 alpha:1.0].CGColor;
++    [self addSubview:_workspaceRail];
 +
 +    _terminalSlot = [[ZeroNativeCmuxGhosttySlotView alloc] initWithFrame:NSZeroRect];
 +    [self addSubview:_terminalSlot];
@@ -789,6 +865,11 @@ index ce9c747..b0fe294 100644
 +    _browserContainer.wantsLayer = YES;
 +    _browserContainer.layer.backgroundColor = NSColor.whiteColor.CGColor;
 +    [_browserPane addSubview:_browserContainer];
++
++    _tabStrip = [[NSView alloc] initWithFrame:NSZeroRect];
++    _tabStrip.wantsLayer = YES;
++    _tabStrip.layer.backgroundColor = [NSColor colorWithCalibratedWhite:0.15 alpha:1.0].CGColor;
++    [_browserPane addSubview:_tabStrip];
 +
 +    _devToolsContainer = [[NSView alloc] initWithFrame:NSZeroRect];
 +    _devToolsContainer.hidden = YES;
@@ -825,22 +906,38 @@ index ce9c747..b0fe294 100644
 +    _addTerminalButton.bezelStyle = NSBezelStyleRounded;
 +    [_browserPane addSubview:_addTerminalButton];
 +
++    _addWorkspaceButton = [NSButton buttonWithTitle:@"+" target:self action:@selector(addWorkspace:)];
++    _addWorkspaceButton.bezelStyle = NSBezelStyleRounded;
++    [_workspaceRail addSubview:_addWorkspaceButton];
++
++    _addTabButton = [NSButton buttonWithTitle:@"+" target:self action:@selector(addBrowserTab:)];
++    _addTabButton.bezelStyle = NSBezelStyleRounded;
++    [_tabStrip addSubview:_addTabButton];
++
++    [self rebuildWorkspaceButtons];
++    [self rebuildTabButtons];
++    [self updateChromeFromActiveTabNavigating:NO];
++
 +    return self;
 +}
 +
 +- (void)layout {
 +    [super layout];
 +
++    const CGFloat workspaceWidth = 148.0;
 +    const CGFloat minTerminalWidth = 320.0;
 +    const CGFloat maxTerminalFraction = 0.48;
-+    CGFloat terminalWidth = floor(self.bounds.size.width * 0.38);
-+    terminalWidth = MAX(minTerminalWidth, MIN(terminalWidth, floor(self.bounds.size.width * maxTerminalFraction)));
-+    if (self.bounds.size.width < 760) terminalWidth = floor(self.bounds.size.width * 0.42);
++    CGFloat contentWidth = MAX(0, self.bounds.size.width - workspaceWidth - 1);
++    CGFloat terminalWidth = floor(contentWidth * 0.36);
++    terminalWidth = MAX(minTerminalWidth, MIN(terminalWidth, floor(contentWidth * maxTerminalFraction)));
++    if (contentWidth < 760) terminalWidth = floor(contentWidth * 0.42);
 +
-+    self.terminalSlot.frame = NSMakeRect(0, 0, terminalWidth, self.bounds.size.height);
-+    self.browserPane.frame = NSMakeRect(terminalWidth + 1, 0, self.bounds.size.width - terminalWidth - 1, self.bounds.size.height);
++    self.workspaceRail.frame = NSMakeRect(0, 0, workspaceWidth, self.bounds.size.height);
++    self.terminalSlot.frame = NSMakeRect(workspaceWidth + 1, 0, terminalWidth, self.bounds.size.height);
++    self.browserPane.frame = NSMakeRect(workspaceWidth + terminalWidth + 2, 0, MAX(0, contentWidth - terminalWidth - 1), self.bounds.size.height);
 +
 +    const CGFloat chromeHeight = 40.0;
++    const CGFloat tabHeight = 34.0;
 +    const CGFloat padding = 8.0;
 +    self.titleLabel.frame = NSMakeRect(padding, self.browserPane.bounds.size.height - 28, 70, 20);
 +
@@ -858,7 +955,25 @@ index ce9c747..b0fe294 100644
 +    self.devToolsWindowButton.frame = NSMakeRect(NSMaxX(self.devToolsButton.frame) + padding, fieldY - 1, devToolsWindowWidth, 26);
 +    self.addTerminalButton.frame = NSMakeRect(NSMaxX(self.devToolsWindowButton.frame) + padding, fieldY - 1, newTerminalWidth, 26);
 +
-+    CGFloat contentHeight = MAX(0, self.browserPane.bounds.size.height - chromeHeight);
++    self.tabStrip.frame = NSMakeRect(0, self.browserPane.bounds.size.height - chromeHeight - tabHeight, self.browserPane.bounds.size.width, tabHeight);
++    CGFloat tabX = padding;
++    CGFloat tabY = 4.0;
++    CGFloat maxTabWidth = MAX(96.0, floor((self.tabStrip.bounds.size.width - padding * 4 - 34.0) / MAX(1, self.tabButtons.count)));
++    CGFloat tabWidth = MIN(150.0, maxTabWidth);
++    for (NSButton *button in self.tabButtons) {
++        button.frame = NSMakeRect(tabX, tabY, tabWidth, 26);
++        tabX += tabWidth + 6.0;
++    }
++    self.addTabButton.frame = NSMakeRect(tabX, tabY, 30.0, 26.0);
++
++    CGFloat workspaceY = self.workspaceRail.bounds.size.height - 42.0;
++    for (NSButton *button in self.workspaceButtons) {
++        button.frame = NSMakeRect(10.0, workspaceY, self.workspaceRail.bounds.size.width - 20.0, 30.0);
++        workspaceY -= 36.0;
++    }
++    self.addWorkspaceButton.frame = NSMakeRect(10.0, MAX(10.0, workspaceY), self.workspaceRail.bounds.size.width - 20.0, 28.0);
++
++    CGFloat contentHeight = MAX(0, self.browserPane.bounds.size.height - chromeHeight - tabHeight);
 +    if (self.internalDevToolsVisible) {
 +        CGFloat devToolsHeight = MAX(220.0, floor(contentHeight * 0.42));
 +        devToolsHeight = MIN(devToolsHeight, MAX(0, contentHeight - 160.0));
@@ -876,10 +991,24 @@ index ce9c747..b0fe294 100644
 +- (void)setBrowserURLString:(NSString *)urlString {
 +    if (urlString.length == 0) return;
 +    self.addressField.stringValue = urlString;
++    ZeroNativeCmuxBrowserTab *tab = [self activeBrowserTab];
++    if (tab) {
++        tab.url = urlString;
++        tab.title = [self titleForURLString:urlString fallback:tab.title];
++        [self rebuildTabButtons];
++        [self setNeedsLayout:YES];
++    }
 +}
 +
 +- (void)go:(id)sender {
 +    (void)sender;
++    ZeroNativeCmuxBrowserTab *tab = [self activeBrowserTab];
++    if (tab) {
++        tab.url = self.addressField.stringValue;
++        tab.title = [self titleForURLString:self.addressField.stringValue fallback:tab.title];
++        [self rebuildTabButtons];
++        [self setNeedsLayout:YES];
++    }
 +    [self.host navigateNativeBrowserToString:self.addressField.stringValue windowId:self.windowId];
 +}
 +
@@ -905,6 +1034,125 @@ index ce9c747..b0fe294 100644
 +    [self.host openNativeBrowserWindowDevToolsForWindowId:self.windowId];
 +}
 +
++- (ZeroNativeCmuxWorkspace *)activeWorkspace {
++    if (self.workspaces.count == 0) return nil;
++    self.activeWorkspaceIndex = MAX(0, MIN(self.activeWorkspaceIndex, (NSInteger)self.workspaces.count - 1));
++    return self.workspaces[(NSUInteger)self.activeWorkspaceIndex];
++}
++
++- (ZeroNativeCmuxBrowserTab *)activeBrowserTab {
++    ZeroNativeCmuxWorkspace *workspace = [self activeWorkspace];
++    if (!workspace) return nil;
++    if (workspace.tabs.count == 0) {
++        [workspace.tabs addObject:[ZeroNativeCmuxBrowserTab tabWithTitle:@"Home" url:@"https://zero-native.dev"]];
++    }
++    workspace.activeTabIndex = MAX(0, MIN(workspace.activeTabIndex, (NSInteger)workspace.tabs.count - 1));
++    return workspace.tabs[(NSUInteger)workspace.activeTabIndex];
++}
++
++- (NSString *)titleForURLString:(NSString *)urlString fallback:(NSString *)fallback {
++    NSURL *url = [NSURL URLWithString:urlString ?: @""];
++    NSString *host = url.host;
++    if (host.length == 0) return fallback.length > 0 ? fallback : @"Tab";
++    if ([host hasPrefix:@"www."]) host = [host substringFromIndex:4];
++    NSArray<NSString *> *parts = [host componentsSeparatedByString:@"."];
++    NSString *title = parts.count > 0 ? parts.firstObject : host;
++    return title.length > 0 ? title.capitalizedString : (fallback.length > 0 ? fallback : @"Tab");
++}
++
++- (void)rebuildWorkspaceButtons {
++    for (NSButton *button in self.workspaceButtons) {
++        [button removeFromSuperview];
++    }
++    [self.workspaceButtons removeAllObjects];
++
++    for (NSUInteger index = 0; index < self.workspaces.count; index += 1) {
++        ZeroNativeCmuxWorkspace *workspace = self.workspaces[index];
++        NSButton *button = [NSButton buttonWithTitle:workspace.title target:self action:@selector(workspaceButton:)];
++        button.bezelStyle = NSBezelStyleTexturedRounded;
++        button.buttonType = NSButtonTypeToggle;
++        button.tag = (NSInteger)index;
++        button.state = index == (NSUInteger)self.activeWorkspaceIndex ? NSControlStateValueOn : NSControlStateValueOff;
++        button.contentTintColor = index == (NSUInteger)self.activeWorkspaceIndex ? workspace.accentColor : NSColor.labelColor;
++        [self.workspaceRail addSubview:button];
++        [self.workspaceButtons addObject:button];
++    }
++}
++
++- (void)rebuildTabButtons {
++    for (NSButton *button in self.tabButtons) {
++        [button removeFromSuperview];
++    }
++    [self.tabButtons removeAllObjects];
++
++    ZeroNativeCmuxWorkspace *workspace = [self activeWorkspace];
++    for (NSUInteger index = 0; index < workspace.tabs.count; index += 1) {
++        ZeroNativeCmuxBrowserTab *tab = workspace.tabs[index];
++        NSButton *button = [NSButton buttonWithTitle:tab.title target:self action:@selector(tabButton:)];
++        button.bezelStyle = NSBezelStyleTexturedRounded;
++        button.buttonType = NSButtonTypeToggle;
++        button.tag = (NSInteger)index;
++        button.state = index == (NSUInteger)workspace.activeTabIndex ? NSControlStateValueOn : NSControlStateValueOff;
++        [self.tabStrip addSubview:button];
++        [self.tabButtons addObject:button];
++    }
++}
++
++- (void)updateChromeFromActiveTabNavigating:(BOOL)navigate {
++    ZeroNativeCmuxBrowserTab *tab = [self activeBrowserTab];
++    if (!tab) return;
++    self.addressField.stringValue = tab.url;
++    if (navigate) [self.host navigateNativeBrowserToString:tab.url windowId:self.windowId];
++}
++
++- (void)workspaceButton:(NSButton *)sender {
++    if (sender.tag < 0 || sender.tag >= (NSInteger)self.workspaces.count) return;
++    self.activeWorkspaceIndex = sender.tag;
++    [self rebuildWorkspaceButtons];
++    [self rebuildTabButtons];
++    [self updateChromeFromActiveTabNavigating:YES];
++    [self setNeedsLayout:YES];
++    [self layoutSubtreeIfNeeded];
++}
++
++- (void)tabButton:(NSButton *)sender {
++    ZeroNativeCmuxWorkspace *workspace = [self activeWorkspace];
++    if (!workspace || sender.tag < 0 || sender.tag >= (NSInteger)workspace.tabs.count) return;
++    workspace.activeTabIndex = sender.tag;
++    [self rebuildTabButtons];
++    [self updateChromeFromActiveTabNavigating:YES];
++    [self setNeedsLayout:YES];
++    [self layoutSubtreeIfNeeded];
++}
++
++- (void)addWorkspace:(id)sender {
++    (void)sender;
++    NSUInteger number = self.workspaces.count + 1;
++    NSString *title = [NSString stringWithFormat:@"Space %lu", (unsigned long)number];
++    ZeroNativeCmuxWorkspace *workspace = [ZeroNativeCmuxWorkspace workspaceWithTitle:title
++                                                                              color:NSColor.controlAccentColor
++                                                                               tabs:@[
++        [ZeroNativeCmuxBrowserTab tabWithTitle:@"Home" url:@"https://zero-native.dev"],
++    ]];
++    [self.workspaces addObject:workspace];
++    self.activeWorkspaceIndex = (NSInteger)self.workspaces.count - 1;
++    [self rebuildWorkspaceButtons];
++    [self rebuildTabButtons];
++    [self updateChromeFromActiveTabNavigating:YES];
++    [self setNeedsLayout:YES];
++}
++
++- (void)addBrowserTab:(id)sender {
++    (void)sender;
++    ZeroNativeCmuxWorkspace *workspace = [self activeWorkspace];
++    if (!workspace) return;
++    [workspace.tabs addObject:[ZeroNativeCmuxBrowserTab tabWithTitle:@"New" url:@"https://zero-native.dev"]];
++    workspace.activeTabIndex = (NSInteger)workspace.tabs.count - 1;
++    [self rebuildTabButtons];
++    [self updateChromeFromActiveTabNavigating:YES];
++    [self setNeedsLayout:YES];
++}
++
 +@end
 +
  @interface ZeroNativeChromiumWindowDelegate : NSObject <NSWindowDelegate>
@@ -928,7 +1176,7 @@ index ce9c747..b0fe294 100644
  @property(nonatomic, strong) NSMutableDictionary<NSNumber *, NSString *> *windowLabels;
  @property(nonatomic, strong) NSMutableDictionary<NSNumber *, NSString *> *fallbackURLs;
  @property(nonatomic, strong) NSTimer *timer;
-@@ -335,10 +1149,13 @@ @interface ZeroNativeChromiumHost : NSObject
+@@ -335,10 +1397,13 @@ @interface ZeroNativeChromiumHost : NSObject
  @property(nonatomic) CefRefPtr<CefBrowser> browser;
  @property(nonatomic, assign) std::map<uint64_t, CefRefPtr<ZeroNativeCefClient>> *cefClients;
  @property(nonatomic, assign) std::map<uint64_t, CefRefPtr<CefBrowser>> *browsers;
@@ -943,7 +1191,7 @@ index ce9c747..b0fe294 100644
  - (void)configureApplication;
  - (void)buildMenuBar;
  - (NSMenuItem *)menuItem:(NSString *)title action:(SEL)action key:(NSString *)key modifiers:(NSEventModifierFlags)modifiers;
-@@ -360,6 +1177,17 @@ - (BOOL)isInternalURL:(NSURL *)url;
+@@ -360,6 +1425,17 @@ - (BOOL)isInternalURL:(NSURL *)url;
  - (BOOL)allowsNavigationURL:(NSURL *)url;
  - (BOOL)openExternalURLIfAllowed:(NSURL *)url;
  - (void)setBrowser:(CefRefPtr<CefBrowser>)browser windowId:(uint64_t)windowId;
@@ -961,7 +1209,7 @@ index ce9c747..b0fe294 100644
  - (NSString *)fallbackURLForWindowId:(uint64_t)windowId;
  - (NSString *)bridgeOriginForWindowId:(uint64_t)windowId sourceURL:(NSString *)sourceURL;
  - (void)receiveBridgePayload:(NSString *)payload origin:(NSString *)origin windowId:(uint64_t)windowId;
-@@ -391,11 +1219,16 @@ - (void)windowWillClose:(NSNotification *)notification {
+@@ -391,11 +1467,16 @@ - (void)windowWillClose:(NSNotification *)notification {
      (void)notification;
      [self.host emitWindowFrameForWindowId:self.windowId open:NO];
      NSNumber *key = @(self.windowId);
@@ -978,7 +1226,7 @@ index ce9c747..b0fe294 100644
      [self.host.windowLabels removeObjectForKey:key];
      [self.host.fallbackURLs removeObjectForKey:key];
      if (self.host.browsers) self.host.browsers->erase(self.windowId);
-@@ -410,7 +1243,7 @@ - (void)windowWillClose:(NSNotification *)notification {
+@@ -410,7 +1491,7 @@ - (void)windowWillClose:(NSNotification *)notification {
  
  @implementation ZeroNativeChromiumHost
  
@@ -987,7 +1235,7 @@ index ce9c747..b0fe294 100644
      self = [super init];
      if (!self) return nil;
  
-@@ -418,16 +1251,22 @@ - (instancetype)initWithAppName:(NSString *)appName title:(NSString *)title widt
+@@ -418,16 +1499,22 @@ - (instancetype)initWithAppName:(NSString *)appName title:(NSString *)title widt
      ensureCefInitialized();
      [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
      self.appName = appName.length > 0 ? appName : @"zero-native";
@@ -1010,7 +1258,7 @@ index ce9c747..b0fe294 100644
      self.allowedNavigationOrigins = @[ @"zero://app", @"zero://inline" ];
      self.allowedExternalURLs = @[];
      self.externalLinkAction = 0;
-@@ -519,6 +1358,8 @@ - (void)reload:(id)sender {
+@@ -519,6 +1606,8 @@ - (void)reload:(id)sender {
  - (void)dealloc {
      delete self.cefClients;
      delete self.browsers;
@@ -1019,7 +1267,7 @@ index ce9c747..b0fe294 100644
  }
  
  - (BOOL)createWindowWithId:(uint64_t)windowId title:(NSString *)title label:(NSString *)label x:(double)x y:(double)y width:(double)width height:(double)height restoreFrame:(BOOL)restoreFrame makeMain:(BOOL)makeMain {
-@@ -536,9 +1377,21 @@ - (BOOL)createWindowWithId:(uint64_t)windowId title:(NSString *)title label:(NSS
+@@ -536,9 +1625,21 @@ - (BOOL)createWindowWithId:(uint64_t)windowId title:(NSString *)title label:(NSS
      [window setTitle:title.length > 0 ? title : @"zero-native"];
      if (!restoreFrame) [window center];
  
@@ -1044,7 +1292,7 @@ index ce9c747..b0fe294 100644
  
      ZeroNativeChromiumWindowDelegate *delegate = [[ZeroNativeChromiumWindowDelegate alloc] init];
      delegate.host = self;
-@@ -548,6 +1401,7 @@ - (BOOL)createWindowWithId:(uint64_t)windowId title:(NSString *)title label:(NSS
+@@ -548,6 +1649,7 @@ - (BOOL)createWindowWithId:(uint64_t)windowId title:(NSString *)title label:(NSS
  
      self.windows[key] = window;
      self.browserContainers[key] = browserContainer;
@@ -1052,7 +1300,7 @@ index ce9c747..b0fe294 100644
      self.delegates[key] = delegate;
      self.windowLabels[key] = label.length > 0 ? label : (makeMain ? @"main" : @"");
      (*self.cefClients)[windowId] = client;
-@@ -601,14 +1455,16 @@ - (void)runWithCallback:(zero_native_appkit_event_callback_t)callback context:(v
+@@ -601,14 +1703,16 @@ - (void)runWithCallback:(zero_native_appkit_event_callback_t)callback context:(v
      [self.window makeKeyAndOrderFront:nil];
      [NSApp activateIgnoringOtherApps:YES];
  
@@ -1072,7 +1320,7 @@ index ce9c747..b0fe294 100644
      [NSApp run];
      shutdownCefIfNeeded();
  }
-@@ -702,9 +1558,9 @@ - (void)loadSource:(NSString *)source kind:(NSInteger)kind assetRoot:(NSString *
+@@ -702,9 +1806,9 @@ - (void)loadSource:(NSString *)source kind:(NSInteger)kind assetRoot:(NSString *
      NSString *bridgeOrigin = nil;
      NSString *internalURLPrefix = nil;
      if (kind == 0) {
@@ -1084,7 +1332,7 @@ index ce9c747..b0fe294 100644
      } else if (kind == 2) {
          NSString *resolvedRoot = ZeroNativeResolvedAssetRoot(assetRoot ?: @"");
          NSString *assetEntry = entry.length > 0 ? entry : @"index.html";
-@@ -726,11 +1582,17 @@ - (void)loadSource:(NSString *)source kind:(NSInteger)kind assetRoot:(NSString *
+@@ -726,11 +1830,17 @@ - (void)loadSource:(NSString *)source kind:(NSInteger)kind assetRoot:(NSString *
      } else {
          [self.internalURLPrefixes removeObjectForKey:key];
      }
@@ -1102,7 +1350,7 @@ index ce9c747..b0fe294 100644
      NSView *container = self.browserContainers[@(windowId)] ?: self.browserContainer;
      CefRefPtr<CefBrowser> browser;
      if (self.browsers) {
-@@ -738,7 +1600,11 @@ - (void)loadSource:(NSString *)source kind:(NSInteger)kind assetRoot:(NSString *
+@@ -738,7 +1848,11 @@ - (void)loadSource:(NSString *)source kind:(NSInteger)kind assetRoot:(NSString *
          if (browser_it != self.browsers->end()) browser = browser_it->second;
      }
      if (browser) {
@@ -1115,7 +1363,7 @@ index ce9c747..b0fe294 100644
          return;
      }
  
-@@ -769,6 +1635,7 @@ - (BOOL)allowsNavigationURL:(NSURL *)url {
+@@ -769,6 +1883,7 @@ - (BOOL)allowsNavigationURL:(NSURL *)url {
      NSString *scheme = url.scheme.lowercaseString ?: @"";
      if (scheme.length == 0 || [scheme isEqualToString:@"about"]) return YES;
      if ([self isInternalURL:url]) return YES;
@@ -1123,7 +1371,7 @@ index ce9c747..b0fe294 100644
      return ZeroNativePolicyListMatches(self.allowedNavigationOrigins, url);
  }
  
-@@ -784,6 +1651,217 @@ - (void)setBrowser:(CefRefPtr<CefBrowser>)browser windowId:(uint64_t)windowId {
+@@ -784,6 +1899,217 @@ - (void)setBrowser:(CefRefPtr<CefBrowser>)browser windowId:(uint64_t)windowId {
      if (windowId == 1) self.browser = browser;
  }
  
@@ -1341,7 +1589,7 @@ index ce9c747..b0fe294 100644
  - (NSString *)fallbackURLForWindowId:(uint64_t)windowId {
      return self.fallbackURLs[@(windowId)];
  }
-@@ -882,6 +1960,11 @@ static BOOL ZeroNativePolicyListMatches(NSArray<NSString *> *values, NSURL *url)
+@@ -882,6 +2208,11 @@ static BOOL ZeroNativePolicyListMatches(NSArray<NSString *> *values, NSURL *url)
  
  void ZeroNativeCefClient::OnAfterCreated(CefRefPtr<CefBrowser> browser) {
      [host_ setBrowser:browser windowId:window_id_];
@@ -1353,7 +1601,7 @@ index ce9c747..b0fe294 100644
  }
  
  void ZeroNativeCefClient::OnLoadError(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, ErrorCode errorCode, const CefString& errorText, const CefString& failedUrl) {
-@@ -904,7 +1987,10 @@ static BOOL ZeroNativePolicyListMatches(NSArray<NSString *> *values, NSURL *url)
+@@ -904,7 +2235,10 @@ static BOOL ZeroNativePolicyListMatches(NSArray<NSString *> *values, NSURL *url)
      std::string url = request ? request->GetURL().ToString() : std::string();
      NSString *urlString = [[NSString alloc] initWithBytes:url.data() length:url.size() encoding:NSUTF8StringEncoding] ?: @"";
      NSURL *nsURL = [NSURL URLWithString:urlString];
@@ -1365,7 +1613,7 @@ index ce9c747..b0fe294 100644
      if ([host_ openExternalURLIfAllowed:nsURL]) return true;
      return true;
  }
-@@ -923,19 +2009,41 @@ static BOOL ZeroNativePolicyListMatches(NSArray<NSString *> *values, NSURL *url)
+@@ -923,19 +2257,41 @@ static BOOL ZeroNativePolicyListMatches(NSArray<NSString *> *values, NSURL *url)
      return true;
  }
  
