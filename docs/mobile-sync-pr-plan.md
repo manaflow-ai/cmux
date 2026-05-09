@@ -15,6 +15,19 @@ Goal: ship iOS and iPadOS support as a sequence of production-ready PRs. The iOS
 - Resize follows tmux semantics: every active attachment votes its size, and the smallest columns and rows win. Votes are removed immediately when an attachment disconnects or leaves a terminal.
 - macOS shows the remotely constrained active terminal area while iOS is attached.
 
+## Self-Verification Policy
+
+Every phase must leave behind evidence that can be rerun by another engineer. A phase is not merge-ready until its smallest useful automated checks pass locally, the relevant hosted simulator or macOS E2E checks pass in GitHub Actions, and one manual probe covers the real product path when automation cannot exercise it yet.
+
+Verification should use production code paths by default. Debug-only loopback, fake clients, and fixtures are allowed only when the behavior is impossible to exercise in CI, and each debug path must be guarded out of release builds or require an explicit test launch flag.
+
+Each phase PR should include:
+- A behavior-level unit or package test for pure logic.
+- A Mac integration or hosted XCUITest that exercises the real app process.
+- An iPhone and iPad simulator check for any iOS-facing UI or protocol change.
+- A tagged macOS reload, plus tagged iOS simulator reload when shared runtime or iOS code changes.
+- A short PR comment or description section listing commands, workflow run URLs, and any manual probe result.
+
 ## Phase 1: Tailscale-Only Opt-In Control Plane
 
 Build the production gate before any live terminal control.
