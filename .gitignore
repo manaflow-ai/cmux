@@ -48,3 +48,6 @@ tests/visual_report.html
 # Local scratch (screenshots, etc.)
 tmp/
 tmp-*/
+
+# Local Zero Native experiment dependencies
+experiments/zero-native-cmux/third_party/

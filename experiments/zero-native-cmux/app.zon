@@ -1,0 +1,21 @@
+.{
+    .id = "com.cmux.zero-native",
+    .name = "zero-cmux",
+    .display_name = "cmux Zero Native",
+    .version = "0.1.0",
+    .icons = .{},
+    .platforms = .{ "macos" },
+    .permissions = .{ "window" },
+    .capabilities = .{ "webview", "js_bridge" },
+    .security = .{
+        .navigation = .{
+            .allowed_origins = .{ "zero://inline", "zero://app", "https://zero-native.dev" },
+            .external_links = .{ .action = "deny" },
+        },
+    },
+    .web_engine = "chromium",
+    .cef = .{ .dir = "third_party/cef/macos", .auto_install = false },
+    .windows = .{
+        .{ .label = "main", .title = "cmux Zero Native", .width = 1240, .height = 780, .restore_state = true },
+    },
+}
