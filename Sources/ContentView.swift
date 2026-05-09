@@ -9067,7 +9067,7 @@ private struct SidebarTabItemSettingsSnapshot: Equatable {
     init(defaults: UserDefaults = .standard) {
         sidebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultSidebarHintX
         sidebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultSidebarHintY
-        alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
+        alwaysShowShortcutHints = ShortcutHintDebugSettings.alwaysShowHints()
         showsGitBranch = Self.bool(defaults: defaults, key: "sidebarShowGitBranch", defaultValue: true)
         usesVerticalBranchLayout = SidebarBranchLayoutSettings.usesVerticalLayout(defaults: defaults)
         showsGitBranchIcon = Self.bool(defaults: defaults, key: "sidebarShowGitBranchIcon", defaultValue: false)
@@ -9790,7 +9790,7 @@ enum ShortcutHintDebugSettings {
     static let defaultRightSidebarCloseHintY = 3.3
     static let defaultRightSidebarFocusHintX = -1.6
     static let defaultRightSidebarFocusHintY = 1.7
-    static let defaultAlwaysShowHints = true
+    static let defaultAlwaysShowHints = false
     static let defaultShowHintsOnCommandHold = true
     static let defaultShowHintsOnControlHold = true
 
@@ -9798,6 +9798,12 @@ enum ShortcutHintDebugSettings {
 
     static func clamped(_ value: Double) -> Double {
         min(max(value, offsetRange.lowerBound), offsetRange.upperBound)
+    }
+
+    static func alwaysShowHints(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        defaultAlwaysShowHints || environment["CMUX_UI_TEST_SHORTCUT_HINTS_ALWAYS_SHOW"] == "1"
     }
 
     static func showHintsOnCommandHoldEnabled(defaults: UserDefaults = .standard) -> Bool {

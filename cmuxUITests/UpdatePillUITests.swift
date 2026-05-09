@@ -376,6 +376,7 @@ final class TitlebarShortcutHintsUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH"] = dataPath
+        app.launchEnvironment["CMUX_UI_TEST_SHORTCUT_HINTS_ALWAYS_SHOW"] = "1"
         app.launchArguments += ["-workspacePresentationMode", "standard"]
         let options = XCTExpectedFailure.Options()
         options.isStrict = false

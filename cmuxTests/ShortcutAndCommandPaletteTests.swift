@@ -1345,9 +1345,18 @@ final class ShortcutHintDebugSettingsTests: XCTestCase {
         XCTAssertEqual(ShortcutHintDebugSettings.defaultRightSidebarCloseHintY, 3.3)
         XCTAssertEqual(ShortcutHintDebugSettings.defaultRightSidebarFocusHintX, -1.6)
         XCTAssertEqual(ShortcutHintDebugSettings.defaultRightSidebarFocusHintY, 1.7)
-        XCTAssertTrue(ShortcutHintDebugSettings.defaultAlwaysShowHints)
+        XCTAssertFalse(ShortcutHintDebugSettings.defaultAlwaysShowHints)
         XCTAssertTrue(ShortcutHintDebugSettings.defaultShowHintsOnCommandHold)
         XCTAssertTrue(ShortcutHintDebugSettings.defaultShowHintsOnControlHold)
+    }
+
+    func testAlwaysShowHintsIsOnlyEnabledForUITests() {
+        XCTAssertFalse(ShortcutHintDebugSettings.alwaysShowHints(environment: [:]))
+        XCTAssertTrue(
+            ShortcutHintDebugSettings.alwaysShowHints(
+                environment: ["CMUX_UI_TEST_SHORTCUT_HINTS_ALWAYS_SHOW": "1"]
+            )
+        )
     }
 
     func testShowHintsOnCommandHoldIsHardcodedEnabled() {

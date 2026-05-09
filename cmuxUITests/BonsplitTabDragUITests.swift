@@ -181,7 +181,7 @@ final class BonsplitTabDragUITests: XCTestCase {
     }
 
     func testRightSidebarCloseButtonLivesInsideSidebarChrome() {
-        let (app, dataPath) = launchConfiguredApp(showRightSidebar: true)
+        let (app, dataPath) = launchConfiguredApp(showRightSidebar: true, alwaysShowShortcutHints: true)
 
         XCTAssertTrue(
             ensureForegroundAfterLaunch(app, timeout: launchTimeout),
@@ -638,6 +638,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         startWithHiddenSidebar: Bool = false,
         presentationMode: WorkspacePresentationMode = .minimal,
         showRightSidebar: Bool = false,
+        alwaysShowShortcutHints: Bool = false,
         windowSize: String? = nil
     ) -> (XCUIApplication, String) {
         let app = XCUIApplication()
@@ -655,6 +656,9 @@ final class BonsplitTabDragUITests: XCTestCase {
         }
         if showRightSidebar {
             app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR"] = "1"
+        }
+        if alwaysShowShortcutHints {
+            app.launchEnvironment["CMUX_UI_TEST_SHORTCUT_HINTS_ALWAYS_SHOW"] = "1"
         }
         app.launchArguments += ["-workspacePresentationMode", presentationMode.rawValue]
         let options = XCTExpectedFailure.Options()

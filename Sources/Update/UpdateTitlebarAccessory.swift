@@ -438,7 +438,7 @@ struct TitlebarControlsView: View {
     @StateObject private var modifierKeyMonitor = TitlebarShortcutHintModifierMonitor()
     private let titlebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultTitlebarHintX
     private let titlebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultTitlebarHintY
-    private let alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
+    private let alwaysShowShortcutHints = ShortcutHintDebugSettings.alwaysShowHints()
     private let titlebarHintRightSafetyShift: CGFloat = 10
     private let titlebarHintBaseXShift: CGFloat = -10
 
