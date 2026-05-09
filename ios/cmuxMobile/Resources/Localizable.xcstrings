@@ -1,0 +1,132 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "mobile.pairing.codePlaceholder" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Pairing code" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ペアリングコード" } }
+      }
+    },
+    "mobile.pairing.connect" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Connect" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "接続" } }
+      }
+    },
+    "mobile.pairing.navigationTitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Pairing" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ペアリング" } }
+      }
+    },
+    "mobile.pairing.scan" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Scan QR Code" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "QR コードをスキャン" } }
+      }
+    },
+    "mobile.pairing.subtitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Scan the QR from `cmux ios`, or enter a debug pairing code in Simulator." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "`cmux ios` の QR をスキャンするか、Simulator でデバッグ用ペアリングコードを入力します。" } }
+      }
+    },
+    "mobile.pairing.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Pair with Mac" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Mac とペアリング" } }
+      }
+    },
+    "mobile.preview.terminalNameFormat" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Terminal %d" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ターミナル %d" } }
+      }
+    },
+    "mobile.preview.workspaceNameFormat" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Workspace %d" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ワークスペース %d" } }
+      }
+    },
+    "mobile.signIn.button" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Sign In" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "サインイン" } }
+      }
+    },
+    "mobile.signIn.subtitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Sign in to connect to your Mac workspaces." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "サインインして Mac のワークスペースに接続します。" } }
+      }
+    },
+    "mobile.signIn.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "cmux" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "cmux" } }
+      }
+    },
+    "mobile.signOut" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Sign Out" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "サインアウト" } }
+      }
+    },
+    "mobile.terminal.new" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "New Terminal" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "新規ターミナル" } }
+      }
+    },
+    "mobile.terminal.select" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Terminal" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ターミナル" } }
+      }
+    },
+    "mobile.workspace.emptyTitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No Workspace" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ワークスペースなし" } }
+      }
+    },
+    "mobile.workspace.new" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "New Workspace" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "新規ワークスペース" } }
+      }
+    },
+    "mobile.workspace.terminalCountFormat" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%d terminals" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%d 個のターミナル" } }
+      }
+    },
+    "mobile.workspaces.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Workspaces" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ワークスペース" } }
+      }
+    }
+  },
+  "version" : "1.0"
+}
