@@ -285,7 +285,7 @@ struct RightSidebarPanelView: View {
             if showsShortcutHint {
                 ShortcutHintPill(shortcut: shortcut, fontSize: 9, emphasis: 1.05)
                     .fixedSize(horizontal: true, vertical: false)
-                    .offset(y: -18)
+                    .offset(y: -3)
                     .shortcutHintTransition()
                     .accessibilityIdentifier("rightSidebarCloseShortcutHint")
                     .allowsHitTesting(false)
