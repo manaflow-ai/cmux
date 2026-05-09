@@ -272,14 +272,16 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "u", command: true, shift: true, option: false, control: false)
             case .focusRightSidebar:
                 return StoredShortcut(key: "e", command: true, shift: true, option: false, control: false)
-            case .switchRightSidebarToFiles,
-                 .switchRightSidebarToFind,
-                 .switchRightSidebarToSessions,
-                 .switchRightSidebarToFeed,
-                 .switchRightSidebarToDock:
-                // Legacy cmux.json bindings still resolve, but these mode
-                // switches do not ship as public default shortcuts.
-                return .unbound
+            case .switchRightSidebarToFiles:
+                return StoredShortcut(key: "1", command: false, shift: false, option: false, control: true)
+            case .switchRightSidebarToFind:
+                return StoredShortcut(key: "2", command: false, shift: false, option: false, control: true)
+            case .switchRightSidebarToSessions:
+                return StoredShortcut(key: "3", command: false, shift: false, option: false, control: true)
+            case .switchRightSidebarToFeed:
+                return StoredShortcut(key: "4", command: false, shift: false, option: false, control: true)
+            case .switchRightSidebarToDock:
+                return StoredShortcut(key: "5", command: false, shift: false, option: false, control: true)
             case .triggerFlash:
                 return StoredShortcut(key: "h", command: true, shift: true, option: false, control: false)
             case .nextSidebarTab:
