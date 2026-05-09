@@ -49,11 +49,11 @@ def _wait_for_materialized_paths(client: cmux, surface_id: str, expected_count: 
     last = ""
     while time.time() < deadline:
         last = client.read_terminal_text(surface_id)
-        search_text = last.replace("\r", "").replace("\n", "")
         paths: list[str] = []
-        for match in pattern.findall(search_text):
-            if match not in paths:
-                paths.append(match)
+        for line in last.replace("\r", "").splitlines():
+            for match in pattern.findall(line):
+                if match not in paths:
+                    paths.append(match)
         if len(paths) >= expected_count:
             return paths[:expected_count]
         time.sleep(0.2)

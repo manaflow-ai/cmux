@@ -286,8 +286,8 @@ def main() -> int:
             for remote_path in remote_paths
         ]
         _must(
-            remote_shas == local_shas,
-            f"Uploaded file hashes mismatch local={local_shas} remote={remote_shas} paths={remote_paths}",
+            sorted(remote_shas) == sorted(local_shas),
+            f"Uploaded file hashes mismatch local={sorted(local_shas)} remote={sorted(remote_shas)} paths={remote_paths}",
         )
         print(f"PASS: ssh image drop uploaded {len(remote_paths)} files: {', '.join(remote_paths)}")
         return 0

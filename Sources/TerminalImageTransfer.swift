@@ -18,6 +18,7 @@ enum TerminalImageTransferTarget: Equatable {
 
 enum TerminalImageTransferPlan: Equatable {
     case insertText(String)
+    case insertTextSegments([String])
     case uploadFiles([URL], TerminalRemoteUploadTarget)
     case reject
 }
@@ -211,6 +212,9 @@ enum TerminalImageTransferPlanner {
 
         switch target {
         case .local:
+            if fileURLs.allSatisfy(isLocalImageFileURL) {
+                return .insertTextSegments(insertedTextSegments(forFileURLs: fileURLs))
+            }
             return .insertText(insertedText(forFileURLs: fileURLs))
         case .remote(let remoteTarget):
             guard fileURLs.allSatisfy(isRemoteUploadableFileURL) else {
@@ -255,6 +259,14 @@ enum TerminalImageTransferPlanner {
             }
             insertText(text)
             return operation
+        case .insertTextSegments(let segments):
+            if let operation, !operation.finish() {
+                return operation
+            }
+            for segment in segments where !segment.isEmpty {
+                insertText(segment)
+            }
+            return operation
         case .uploadFiles(let fileURLs, .workspaceRemote):
             let operation = operation ?? TerminalImageTransferOperation()
             uploadWorkspaceRemote(fileURLs, operation) { result in
@@ -286,6 +298,20 @@ enum TerminalImageTransferPlanner {
 
     static func insertedText(forFileURLs fileURLs: [URL]) -> String {
         insertedText(forPathStrings: fileURLs.map(\.path))
+    }
+
+    private static func insertedTextSegments(forFileURLs fileURLs: [URL]) -> [String] {
+        fileURLs
+            .map(\.path)
+            .map(escapeForShell)
+            .enumerated()
+            .map { index, text in
+                index == 0 ? text : " " + text
+            }
+    }
+
+    private static func isLocalImageFileURL(_ fileURL: URL) -> Bool {
+        GhosttyPasteboardHelper.isLocalImageFileURL(fileURL)
     }
 
     private static func isRemoteUploadableFileURL(_ fileURL: URL) -> Bool {
@@ -355,10 +381,7 @@ enum TerminalImageTransferPlanner {
         if !urls.isEmpty {
             return urls
         }
-        if let imageURL = GhosttyPasteboardHelper.saveImageFileURLIfNeeded(from: pasteboard, assumeNoText: true) {
-            return [imageURL]
-        }
-        return []
+        return GhosttyPasteboardHelper.saveImageFileURLsIfNeeded(from: pasteboard, assumeNoText: true)
     }
 
     private static func fileURLs(from pasteboard: NSPasteboard) -> [URL] {

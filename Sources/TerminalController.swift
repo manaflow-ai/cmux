@@ -12433,6 +12433,10 @@ class TerminalController {
             case terminal
             case textDestination
         }
+        enum TerminalFileDropSimulationPayload {
+            case fileURLs
+            case imageData
+        }
         let simulationRoute: TerminalFileDropSimulationRoute
         switch route {
         case "terminal", "direct":
@@ -12442,6 +12446,20 @@ class TerminalController {
         default:
             return .err(code: "invalid_params", message: "Unknown route", data: [
                 "route": route
+            ])
+        }
+        let payload = (v2String(params, "payload") ?? "file_urls")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let simulationPayload: TerminalFileDropSimulationPayload
+        switch payload {
+        case "file", "files", "file_url", "file_urls":
+            simulationPayload = .fileURLs
+        case "image", "image_data", "images":
+            simulationPayload = .imageData
+        default:
+            return .err(code: "invalid_params", message: "Unknown payload", data: [
+                "payload": payload
             ])
         }
 
@@ -12455,11 +12473,21 @@ class TerminalController {
 
             switch simulationRoute {
             case .terminal:
-                let handled = panel.hostedView.debugSimulateFileDrop(paths: paths)
+                let handled = panel.hostedView.debugSimulateFileDrop(
+                    paths: paths,
+                    asImageData: simulationPayload == .imageData
+                )
                 result = handled
-                    ? .ok(["handled": true, "route": "terminal"])
+                    ? .ok(["handled": true, "route": "terminal", "payload": payload])
                     : .err(code: "internal_error", message: "Terminal drop simulation failed", data: nil)
             case .textDestination:
+                guard simulationPayload == .fileURLs else {
+                    result = .err(code: "invalid_params", message: "Image data payload requires terminal route", data: [
+                        "route": route,
+                        "payload": payload
+                    ])
+                    return
+                }
                 guard let workspace = tabManager.tabs.first(where: { $0.id == panel.workspaceId }) else {
                     result = .err(code: "not_found", message: "Workspace not found", data: [
                         "workspace_id": panel.workspaceId.uuidString
@@ -12475,7 +12503,7 @@ class TerminalController {
                     window: panel.hostedView.window
                 )
                 result = handled
-                    ? .ok(["handled": true, "route": "text_destination"])
+                    ? .ok(["handled": true, "route": "text_destination", "payload": payload])
                     : .err(code: "internal_error", message: "Text destination drop simulation failed", data: nil)
             }
         }
