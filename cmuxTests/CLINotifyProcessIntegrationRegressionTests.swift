@@ -312,4 +312,147 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testBrowserProfilesListRoutesToSocketMethod() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("browser-profile-list")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            XCTAssertEqual(method, "browser.profiles.list")
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "current_profile_id": "52B43C05-4A1D-45D3-8FD5-9EF94952E445",
+                    "profiles": [[
+                        "id": "52B43C05-4A1D-45D3-8FD5-9EF94952E445",
+                        "name": "Default",
+                        "slug": "default",
+                        "built_in_default": true,
+                        "current": true,
+                    ]],
+                ]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["browser", "profiles", "list"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.contains("default\tDefault\t52B43C05-4A1D-45D3-8FD5-9EF94952E445"), result.stdout)
+        XCTAssertTrue(
+            state.commands.contains { $0.contains(#""method":"browser.profiles.list""#) },
+            "Expected browser profiles list to call browser.profiles.list, saw \(state.commands)"
+        )
+    }
+
+    func testBrowserProfilesCreateClearAndDeleteRouteToSocketMethods() throws {
+        let cliPath = try bundledCLIPath()
+        let cases: [(name: String, arguments: [String], expectedMethod: String, expectedParam: String, responseResult: [String: Any])] = [
+            (
+                "create",
+                ["browser", "profiles", "add", "Agent Smoke"],
+                "browser.profiles.create",
+                #""name":"Agent Smoke""#,
+                [
+                    "created": true,
+                    "profile": [
+                        "id": "11111111-1111-1111-1111-111111111111",
+                        "name": "Agent Smoke",
+                        "slug": "agent-smoke",
+                        "built_in_default": false,
+                        "current": true,
+                    ],
+                ]
+            ),
+            (
+                "clear",
+                ["browser", "profiles", "clear", "Agent Smoke"],
+                "browser.profiles.clear",
+                #""profile":"Agent Smoke""#,
+                ["cleared": true, "count": 1, "profiles": []]
+            ),
+            (
+                "delete",
+                ["browser", "profiles", "delete", "Agent Smoke"],
+                "browser.profiles.delete",
+                #""profile":"Agent Smoke""#,
+                [
+                    "deleted": true,
+                    "profile": [
+                        "id": "11111111-1111-1111-1111-111111111111",
+                        "name": "Agent Smoke",
+                        "slug": "agent-smoke",
+                        "built_in_default": false,
+                        "current": false,
+                    ],
+                ]
+            ),
+        ]
+
+        for testCase in cases {
+            let socketPath = makeSocketPath("browser-profile-\(testCase.name)")
+            let listenerFD = try bindUnixSocket(at: socketPath)
+            let state = MockSocketServerState()
+
+            defer {
+                Darwin.close(listenerFD)
+                unlink(socketPath)
+            }
+
+            let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+                guard let payload = self.jsonObject(line),
+                      let id = payload["id"] as? String,
+                      let method = payload["method"] as? String else {
+                    return self.malformedRequestResponse(raw: line)
+                }
+
+                XCTAssertEqual(method, testCase.expectedMethod)
+                XCTAssertTrue(line.contains(testCase.expectedParam), line)
+                return self.v2Response(id: id, ok: true, result: testCase.responseResult)
+            }
+
+            var environment = ProcessInfo.processInfo.environment
+            environment["CMUX_SOCKET_PATH"] = socketPath
+            environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: testCase.arguments,
+                environment: environment,
+                timeout: 5
+            )
+
+            wait(for: [serverHandled], timeout: 5)
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertEqual(result.status, 0, result.stderr)
+            XCTAssertTrue(
+                state.commands.contains { $0.contains(#""method":"\#(testCase.expectedMethod)""#) },
+                "Expected \(testCase.expectedMethod), saw \(state.commands)"
+            )
+        }
+    }
+
 }

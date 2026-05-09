@@ -351,6 +351,23 @@ struct BrowserProfileDefinition: Codable, Hashable, Identifiable, Sendable {
     }
 }
 
+struct BrowserProfileClearOutcome: Sendable {
+    let profile: BrowserProfileDefinition
+    let clearedWebsiteDataTypes: [String]
+    let clearedHistory: Bool
+
+    var socketPayload: [String: Any] {
+        [
+            "id": profile.id.uuidString,
+            "name": profile.displayName,
+            "slug": profile.slug,
+            "built_in_default": profile.isBuiltInDefault,
+            "cleared_website_data_types": clearedWebsiteDataTypes,
+            "cleared_history": clearedHistory,
+        ]
+    }
+}
+
 @MainActor
 final class BrowserProfileStore: ObservableObject {
     static let shared = BrowserProfileStore()
@@ -430,6 +447,43 @@ final class BrowserProfileStore: ObservableObject {
     func canRenameProfile(id: UUID) -> Bool {
         guard let profile = profileDefinition(id: id) else { return false }
         return !profile.isBuiltInDefault
+    }
+
+    func deleteProfile(id: UUID) -> BrowserProfileDefinition? {
+        guard let index = profiles.firstIndex(where: { $0.id == id }),
+              !profiles[index].isBuiltInDefault else {
+            return nil
+        }
+        let removed = profiles.remove(at: index)
+        let historyURL = historyFileURL(for: id)
+        dataStores.removeValue(forKey: id)
+        historyStores.removeValue(forKey: id)
+        if lastUsedProfileID == id {
+            lastUsedProfileID = Self.builtInDefaultProfileID
+            defaults.set(lastUsedProfileID.uuidString, forKey: Self.lastUsedProfileDefaultsKey)
+        }
+        persist()
+        if let historyURL {
+            try? FileManager.default.removeItem(at: historyURL.deletingLastPathComponent())
+        }
+        return removed
+    }
+
+    func clearProfileData(id: UUID) async -> BrowserProfileClearOutcome? {
+        guard let profile = profileDefinition(id: id) else { return nil }
+        let store = websiteDataStore(for: id)
+        let dataTypes = WKWebsiteDataStore.allWebsiteDataTypes()
+        await withCheckedContinuation { continuation in
+            store.removeData(ofTypes: dataTypes, modifiedSince: .distantPast) {
+                continuation.resume()
+            }
+        }
+        historyStore(for: id).clearHistory()
+        return BrowserProfileClearOutcome(
+            profile: profile,
+            clearedWebsiteDataTypes: Array(dataTypes).sorted(),
+            clearedHistory: true
+        )
     }
 
     func noteUsed(_ id: UUID) {
@@ -8219,7 +8273,7 @@ enum BrowserImportPlanResolver {
     }
 }
 
-enum BrowserImportAutomationError: LocalizedError {
+enum BrowserImportAutomationError: LocalizedError, CustomStringConvertible {
     case noBrowsers
     case browserNotFound(String)
     case noProfiles(String)
@@ -8242,6 +8296,205 @@ enum BrowserImportAutomationError: LocalizedError {
         case .destinationProfileCreationFailed(let name):
             return "Failed to create cmux browser profile '\(name)'"
         }
+    }
+
+    var description: String {
+        errorDescription ?? "Browser import failed"
+    }
+}
+
+enum BrowserProfileAutomationError: LocalizedError, CustomStringConvertible {
+    case missingName
+    case missingProfile
+    case profileNotFound(String)
+    case profileCreationFailed(String)
+    case profileRenameFailed(String)
+    case cannotDeleteDefaultProfile
+    case profileDeleteFailed(String)
+    case profileClearFailed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .missingName:
+            return "Missing browser profile name"
+        case .missingProfile:
+            return "Missing browser profile"
+        case .profileNotFound(let query):
+            return "No cmux browser profile matches '\(query)'"
+        case .profileCreationFailed(let name):
+            return "Failed to create cmux browser profile '\(name)'"
+        case .profileRenameFailed(let name):
+            return "Failed to rename cmux browser profile to '\(name)'"
+        case .cannotDeleteDefaultProfile:
+            return "The default browser profile cannot be deleted"
+        case .profileDeleteFailed(let name):
+            return "Failed to delete cmux browser profile '\(name)'"
+        case .profileClearFailed(let name):
+            return "Failed to clear cmux browser profile '\(name)'"
+        }
+    }
+
+    var description: String {
+        errorDescription ?? "Browser profile command failed"
+    }
+}
+
+enum BrowserProfileAutomation {
+    static func list(params _: [String: Any]) async throws -> [String: Any] {
+        await MainActor.run {
+            let store = BrowserProfileStore.shared
+            return [
+                "current_profile_id": store.effectiveLastUsedProfileID.uuidString,
+                "profiles": store.profiles.map { profilePayload($0, currentProfileID: store.effectiveLastUsedProfileID) },
+            ]
+        }
+    }
+
+    static func create(params: [String: Any]) async throws -> [String: Any] {
+        let name = try requiredString(params, keys: ["name"])
+        return try await MainActor.run {
+            guard let profile = BrowserProfileStore.shared.createProfile(named: name) else {
+                throw BrowserProfileAutomationError.profileCreationFailed(name)
+            }
+            return [
+                "created": true,
+                "profile": profilePayload(profile, currentProfileID: BrowserProfileStore.shared.effectiveLastUsedProfileID),
+            ]
+        }
+    }
+
+    static func rename(params: [String: Any]) async throws -> [String: Any] {
+        let query = try requiredString(params, keys: ["profile", "id", "name"])
+        let newName = try requiredString(params, keys: ["new_name", "to"])
+        return try await MainActor.run {
+            let store = BrowserProfileStore.shared
+            guard let profile = resolveProfile(query, profiles: store.profiles) else {
+                throw BrowserProfileAutomationError.profileNotFound(query)
+            }
+            let oldName = profile.displayName
+            guard store.renameProfile(id: profile.id, to: newName),
+                  let renamed = store.profileDefinition(id: profile.id) else {
+                throw BrowserProfileAutomationError.profileRenameFailed(newName)
+            }
+            return [
+                "renamed": true,
+                "old_name": oldName,
+                "profile": profilePayload(renamed, currentProfileID: store.effectiveLastUsedProfileID),
+            ]
+        }
+    }
+
+    static func clear(params: [String: Any]) async throws -> [String: Any] {
+        let targets = try await targetProfiles(params: params, allowAll: true)
+        var clearedProfiles: [[String: Any]] = []
+        for profile in targets {
+            guard let outcome = await BrowserProfileStore.shared.clearProfileData(id: profile.id) else {
+                throw BrowserProfileAutomationError.profileClearFailed(profile.displayName)
+            }
+            clearedProfiles.append(outcome.socketPayload)
+        }
+        return [
+            "cleared": true,
+            "count": clearedProfiles.count,
+            "profiles": clearedProfiles,
+        ]
+    }
+
+    static func delete(params: [String: Any]) async throws -> [String: Any] {
+        let query = try requiredString(params, keys: ["profile", "id", "name"])
+        let profile = try await MainActor.run {
+            let profiles = BrowserProfileStore.shared.profiles
+            guard let profile = resolveProfile(query, profiles: profiles) else {
+                throw BrowserProfileAutomationError.profileNotFound(query)
+            }
+            guard !profile.isBuiltInDefault else {
+                throw BrowserProfileAutomationError.cannotDeleteDefaultProfile
+            }
+            return profile
+        }
+
+        _ = await BrowserProfileStore.shared.clearProfileData(id: profile.id)
+        return try await MainActor.run {
+            guard let deleted = BrowserProfileStore.shared.deleteProfile(id: profile.id) else {
+                throw BrowserProfileAutomationError.profileDeleteFailed(profile.displayName)
+            }
+            return [
+                "deleted": true,
+                "profile": profilePayload(deleted, currentProfileID: BrowserProfileStore.shared.effectiveLastUsedProfileID),
+            ]
+        }
+    }
+
+    @MainActor
+    private static func targetProfiles(params: [String: Any], allowAll: Bool) throws -> [BrowserProfileDefinition] {
+        let store = BrowserProfileStore.shared
+        if allowAll, boolParam(params, keys: ["all", "all_profiles"]) {
+            return store.profiles
+        }
+        let query = try requiredString(params, keys: ["profile", "id", "name"])
+        guard let profile = resolveProfile(query, profiles: store.profiles) else {
+            throw BrowserProfileAutomationError.profileNotFound(query)
+        }
+        return [profile]
+    }
+
+    private static func profilePayload(_ profile: BrowserProfileDefinition, currentProfileID: UUID) -> [String: Any] {
+        [
+            "id": profile.id.uuidString,
+            "name": profile.displayName,
+            "slug": profile.slug,
+            "built_in_default": profile.isBuiltInDefault,
+            "current": profile.id == currentProfileID,
+        ]
+    }
+
+    private static func resolveProfile(
+        _ query: String,
+        profiles: [BrowserProfileDefinition]
+    ) -> BrowserProfileDefinition? {
+        let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return nil }
+        if let uuid = UUID(uuidString: normalized),
+           let profile = profiles.first(where: { $0.id == uuid }) {
+            return profile
+        }
+        if let profile = profiles.first(where: {
+            $0.slug.localizedCaseInsensitiveCompare(normalized) == .orderedSame ||
+                $0.displayName.localizedCaseInsensitiveCompare(normalized) == .orderedSame
+        }) {
+            return profile
+        }
+        return nil
+    }
+
+    private static func requiredString(_ params: [String: Any], keys: [String]) throws -> String {
+        for key in keys {
+            if let value = params[key] as? String {
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty { return trimmed }
+            }
+        }
+        if keys.contains("profile") || keys.contains("id") {
+            throw BrowserProfileAutomationError.missingProfile
+        }
+        throw BrowserProfileAutomationError.missingName
+    }
+
+    private static func boolParam(_ params: [String: Any], keys: [String]) -> Bool {
+        for key in keys {
+            if let value = params[key] as? Bool {
+                return value
+            }
+            if let value = params[key] as? String {
+                switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+                case "1", "true", "yes", "on":
+                    return true
+                default:
+                    continue
+                }
+            }
+        }
+        return false
     }
 }
 

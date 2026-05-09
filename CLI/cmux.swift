@@ -6906,7 +6906,7 @@ struct CMUXCLI {
         var surfaceRaw = surfaceOpt
         var args = argsWithoutSurfaceFlag
 
-        let verbsWithoutSurface: Set<String> = ["open", "open-split", "new", "identify", "import"]
+        let verbsWithoutSurface: Set<String> = ["open", "open-split", "new", "identify", "import", "profile", "profiles"]
         if surfaceRaw == nil, let first = args.first {
             if !first.hasPrefix("-") && !verbsWithoutSurface.contains(first.lowercased()) {
                 surfaceRaw = first
@@ -7046,6 +7046,40 @@ struct CMUXCLI {
             return 0
         }
 
+        func stringPayloadValue(_ value: Any?) -> String? {
+            (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        func browserProfileLine(_ raw: Any) -> String? {
+            guard let profile = raw as? [String: Any],
+                  let name = stringPayloadValue(profile["name"]),
+                  let slug = stringPayloadValue(profile["slug"]),
+                  let id = stringPayloadValue(profile["id"]) else {
+                return nil
+            }
+            var markers: [String] = []
+            if (profile["current"] as? Bool) == true {
+                markers.append("current")
+            }
+            if (profile["built_in_default"] as? Bool) == true {
+                markers.append("default")
+            }
+            let suffix = markers.isEmpty ? "" : " (\(markers.joined(separator: ", ")))"
+            return "\(slug)\t\(name)\t\(id)\(suffix)"
+        }
+
+        func printBrowserProfiles(_ payload: [String: Any]) {
+            guard let profiles = payload["profiles"] as? [Any], !profiles.isEmpty else {
+                print("No browser profiles")
+                return
+            }
+            for profile in profiles {
+                if let line = browserProfileLine(profile) {
+                    print(line)
+                }
+            }
+        }
+
         if subcommand == "identify" {
             let surface = try normalizeSurfaceHandle(surfaceRaw, client: client, allowFocused: true)
             var payload = try client.sendV2(method: "system.identify")
@@ -7059,6 +7093,109 @@ struct CMUXCLI {
                 payload["browser"] = browser
             }
             output(payload, fallback: "OK")
+            return
+        }
+
+        if subcommand == "profile" || subcommand == "profiles" {
+            let profileVerb = subArgs.first?.lowercased() ?? "list"
+            let profileArgs = subArgs.first != nil ? Array(subArgs.dropFirst()) : []
+            let normalizedVerb: String
+            switch profileVerb {
+            case "ls":
+                normalizedVerb = "list"
+            case "add", "new":
+                normalizedVerb = "create"
+            case "remove", "rm":
+                normalizedVerb = "delete"
+            default:
+                normalizedVerb = profileVerb
+            }
+
+            switch normalizedVerb {
+            case "list":
+                let payload = try client.sendV2(method: "browser.profiles.list")
+                if effectiveJSONOutput {
+                    print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
+                } else {
+                    printBrowserProfiles(payload)
+                }
+            case "create":
+                let (nameOpt, remaining) = parseOption(profileArgs, name: "--name")
+                let name = nameOpt ?? nonFlagArgs(remaining).joined(separator: " ")
+                guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    throw CLIError(message: "browser profiles add requires a name")
+                }
+                let payload = try client.sendV2(method: "browser.profiles.create", params: ["name": name])
+                if effectiveJSONOutput {
+                    print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
+                } else if let profileDict = payload["profile"] as? [String: Any],
+                          let profile = browserProfileLine(profileDict) {
+                    print("Created browser profile \(profile)")
+                } else {
+                    print("Created browser profile")
+                }
+            case "rename":
+                let (profileOpt, rem1) = parseOption(profileArgs, name: "--profile")
+                let (nameOpt, rem2) = parseOption(rem1, name: "--name")
+                let positional = nonFlagArgs(rem2)
+                let profile = profileOpt ?? positional.first
+                let newName = nameOpt ?? (positional.count > 1 ? positional.dropFirst().joined(separator: " ") : nil)
+                guard let profile, !profile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    throw CLIError(message: "browser profiles rename requires a profile")
+                }
+                guard let newName, !newName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    throw CLIError(message: "browser profiles rename requires a new name")
+                }
+                let payload = try client.sendV2(
+                    method: "browser.profiles.rename",
+                    params: ["profile": profile, "new_name": newName]
+                )
+                if effectiveJSONOutput {
+                    print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
+                } else if let renamed = stringPayloadValue((payload["profile"] as? [String: Any])?["name"]) {
+                    print("Renamed browser profile to \(renamed).")
+                } else {
+                    print("Renamed browser profile.")
+                }
+            case "clear":
+                let (profileOpt, rem1) = parseOption(profileArgs, name: "--profile")
+                let positional = nonFlagArgs(rem1)
+                var params: [String: Any] = [:]
+                if hasFlag(profileArgs, name: "--all") {
+                    params["all"] = true
+                } else if let profile = profileOpt ?? positional.first {
+                    params["profile"] = profile
+                } else {
+                    throw CLIError(message: "browser profiles clear requires a profile or --all")
+                }
+                let payload = try client.sendV2(method: "browser.profiles.clear", params: params, responseTimeout: 120)
+                if effectiveJSONOutput {
+                    print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
+                } else {
+                    let count = intPayloadValue(payload["count"])
+                    print("Cleared \(count) browser profile\(count == 1 ? "" : "s").")
+                }
+            case "delete":
+                let (profileOpt, rem1) = parseOption(profileArgs, name: "--profile")
+                let profile = profileOpt ?? nonFlagArgs(rem1).first
+                guard let profile, !profile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    throw CLIError(message: "browser profiles delete requires a profile")
+                }
+                let payload = try client.sendV2(
+                    method: "browser.profiles.delete",
+                    params: ["profile": profile],
+                    responseTimeout: 120
+                )
+                if effectiveJSONOutput {
+                    print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
+                } else if let deleted = stringPayloadValue((payload["profile"] as? [String: Any])?["name"]) {
+                    print("Deleted browser profile \(deleted).")
+                } else {
+                    print("Deleted browser profile.")
+                }
+            default:
+                throw CLIError(message: "Unsupported browser profiles subcommand: \(profileVerb)")
+            }
             return
         }
 
@@ -9830,6 +9967,7 @@ struct CMUXCLI {
               frame <main|selector> [--selector <css>]
               dialog <accept|dismiss> [text]
               download [wait] [--path <path>] [--timeout-ms <ms>|--timeout <seconds>]
+              profiles <list|add|rename|clear|delete> [...]
               import cookies [--interactive|--non-interactive] [--from <browser>] [--profile <name>] [--all-profiles] [--to-profile <name|uuid>] [--domain <domain>]
               cookies <get|set|clear> [--name <name>] [--value <value>] [--url <url>] [--domain <domain>] [--path <path>] [--expires <unix>] [--secure] [--all]
               storage <local|session> <get|set|clear> [...]
@@ -20613,6 +20751,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           browser frame <selector|main>
           browser dialog <accept|dismiss> [text]
           browser download [wait] [--path <path>] [--timeout-ms <ms>]
+          browser profiles <list|add|rename|clear|delete> [...]
           browser import cookies [...]
           browser cookies <get|set|clear> [...]
           browser storage <local|session> <get|set|clear> [...]

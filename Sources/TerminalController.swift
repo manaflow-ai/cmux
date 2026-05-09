@@ -1483,6 +1483,11 @@ class TerminalController {
         "feed.permission.reply",
         "feed.question.reply",
         "feed.exit_plan.reply",
+        "browser.profiles.list",
+        "browser.profiles.create",
+        "browser.profiles.rename",
+        "browser.profiles.clear",
+        "browser.profiles.delete",
         "browser.import.cookies",
         "system.top",
     ]
@@ -1565,6 +1570,26 @@ class TerminalController {
             return v2Result(id: request.id, v2FeedQuestionReply(params: request.params))
         case "feed.exit_plan.reply":
             return v2Result(id: request.id, v2FeedExitPlanReply(params: request.params))
+        case "browser.profiles.list":
+            return v2VmCall(id: request.id, timeoutSeconds: 30) {
+                try await BrowserProfileAutomation.list(params: request.params)
+            }
+        case "browser.profiles.create":
+            return v2VmCall(id: request.id, timeoutSeconds: 30) {
+                try await BrowserProfileAutomation.create(params: request.params)
+            }
+        case "browser.profiles.rename":
+            return v2VmCall(id: request.id, timeoutSeconds: 30) {
+                try await BrowserProfileAutomation.rename(params: request.params)
+            }
+        case "browser.profiles.clear":
+            return v2VmCall(id: request.id, timeoutSeconds: 120) {
+                try await BrowserProfileAutomation.clear(params: request.params)
+            }
+        case "browser.profiles.delete":
+            return v2VmCall(id: request.id, timeoutSeconds: 120) {
+                try await BrowserProfileAutomation.delete(params: request.params)
+            }
         case "browser.import.cookies":
             return v2VmCall(id: request.id, timeoutSeconds: 10 * 60) {
                 let outcome = try await BrowserImportAutomation.importCookies(params: request.params)
