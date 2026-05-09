@@ -1153,6 +1153,28 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         )
     }
 
+    func testModeShortcutUsesSettingsFileBindings() throws {
+        let settingsFileURL = try XCTUnwrap(temporaryDirectoryURL)
+            .appendingPathComponent("cmux.json", isDirectory: false)
+        try """
+        {
+          "shortcuts": {
+            "switchRightSidebarToFiles": "ctrl+8"
+          }
+        }
+        """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+        KeyboardShortcutSettings.settingsFileStore.reload()
+        KeyboardShortcutSettings.notifySettingsFileDidChange()
+
+        XCTAssertEqual(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "8", modifiers: [.control], keyCode: 28)),
+            .files
+        )
+        XCTAssertNil(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "1", modifiers: [.control], keyCode: 18))
+        )
+    }
+
     func testFocusRightSidebarShortcutCanBeOverwrittenForHintRendering() {
         let customShortcut = StoredShortcut(
             key: "e",
