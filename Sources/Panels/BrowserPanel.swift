@@ -456,6 +456,7 @@ final class BrowserProfileStore: ObservableObject {
         }
         let removed = profiles.remove(at: index)
         let historyDirectoryURL = historyFileURL(for: id)?.deletingLastPathComponent()
+        historyStores[id]?.cancelPendingSaves()
         dataStores.removeValue(forKey: id)
         historyStores.removeValue(forKey: id)
         if lastUsedProfileID == id {
@@ -1395,6 +1396,11 @@ final class BrowserHistoryStore: ObservableObject {
         saveTask = nil
         didLoad = true
         entries = []
+    }
+
+    func cancelPendingSaves() {
+        saveTask?.cancel()
+        saveTask = nil
     }
 
     @discardableResult
@@ -8303,22 +8309,58 @@ enum BrowserImportAutomationError: LocalizedError, CustomStringConvertible {
     var errorDescription: String? {
         switch self {
         case .noBrowsers:
-            return "No importable browsers found"
+            return String(
+                localized: "browser.import.automation.error.noBrowsers",
+                defaultValue: "No importable browsers found"
+            )
         case .browserNotFound(let query):
-            return "No importable browser matches '\(query)'"
+            return String.localizedStringWithFormat(
+                String(
+                    localized: "browser.import.automation.error.browserNotFound",
+                    defaultValue: "No importable browser matches '%@'"
+                ),
+                query
+            )
         case .noProfiles(let browserName):
-            return "No source profiles found for \(browserName)"
+            return String.localizedStringWithFormat(
+                String(
+                    localized: "browser.import.automation.error.noProfiles",
+                    defaultValue: "No source profiles found for %@"
+                ),
+                browserName
+            )
         case .sourceProfileNotFound(let query):
-            return "No source profile matches '\(query)'"
+            return String.localizedStringWithFormat(
+                String(
+                    localized: "browser.import.automation.error.sourceProfileNotFound",
+                    defaultValue: "No source profile matches '%@'"
+                ),
+                query
+            )
         case .destinationProfileNotFound(let query):
-            return "No cmux browser profile matches '\(query)'"
+            return String.localizedStringWithFormat(
+                String(
+                    localized: "browser.import.automation.error.destinationProfileNotFound",
+                    defaultValue: "No cmux browser profile matches '%@'"
+                ),
+                query
+            )
         case .destinationProfileCreationFailed(let name):
-            return "Failed to create cmux browser profile '\(name)'"
+            return String.localizedStringWithFormat(
+                String(
+                    localized: "browser.import.automation.error.destinationProfileCreationFailed",
+                    defaultValue: "Failed to create cmux browser profile '%@'"
+                ),
+                name
+            )
         }
     }
 
     var description: String {
-        errorDescription ?? "Browser import failed"
+        errorDescription ?? String(
+            localized: "browser.import.automation.error.fallback",
+            defaultValue: "Browser import failed"
+        )
     }
 }
 
@@ -8326,36 +8368,114 @@ enum BrowserProfileAutomationError: LocalizedError, CustomStringConvertible {
     case missingName
     case missingProfile
     case profileNotFound(String)
+    case ambiguousProfile(String)
     case profileCreationFailed(String)
     case profileRenameFailed(String)
     case cannotDeleteDefaultProfile
+    case profileInUse(String, Int)
     case profileDeleteFailed(String)
     case profileClearFailed(String)
 
     var errorDescription: String? {
         switch self {
         case .missingName:
-            return "Missing browser profile name"
+            return String(
+                localized: "browser.profile.automation.error.missingName",
+                defaultValue: "Missing browser profile name"
+            )
         case .missingProfile:
-            return "Missing browser profile"
+            return String(
+                localized: "browser.profile.automation.error.missingProfile",
+                defaultValue: "Missing browser profile"
+            )
         case .profileNotFound(let query):
-            return "No cmux browser profile matches '\(query)'"
+            return String.localizedStringWithFormat(
+                String(
+                    localized: "browser.profile.automation.error.profileNotFound",
+                    defaultValue: "No cmux browser profile matches '%@'"
+                ),
+                query
+            )
+        case .ambiguousProfile(let query):
+            return String.localizedStringWithFormat(
+                String(
+                    localized: "browser.profile.automation.error.ambiguousProfile",
+                    defaultValue: "Multiple cmux browser profiles match '%@'. Use the profile ID instead."
+                ),
+                query
+            )
         case .profileCreationFailed(let name):
-            return "Failed to create cmux browser profile '\(name)'"
+            return String.localizedStringWithFormat(
+                String(
+                    localized: "browser.profile.automation.error.profileCreationFailed",
+                    defaultValue: "Failed to create cmux browser profile '%@'"
+                ),
+                name
+            )
         case .profileRenameFailed(let name):
-            return "Failed to rename cmux browser profile to '\(name)'"
+            return String.localizedStringWithFormat(
+                String(
+                    localized: "browser.profile.automation.error.profileRenameFailed",
+                    defaultValue: "Failed to rename cmux browser profile to '%@'"
+                ),
+                name
+            )
         case .cannotDeleteDefaultProfile:
-            return "The default browser profile cannot be deleted"
+            return String(
+                localized: "browser.profile.automation.error.cannotDeleteDefaultProfile",
+                defaultValue: "The default browser profile cannot be deleted"
+            )
+        case .profileInUse(let name, let count):
+            return String.localizedStringWithFormat(
+                String(
+                    localized: "browser.profile.automation.error.profileInUse",
+                    defaultValue: "Cannot delete cmux browser profile '%@' while %d browser panel(s) are using it"
+                ),
+                name,
+                count
+            )
         case .profileDeleteFailed(let name):
-            return "Failed to delete cmux browser profile '\(name)'"
+            return String.localizedStringWithFormat(
+                String(
+                    localized: "browser.profile.automation.error.profileDeleteFailed",
+                    defaultValue: "Failed to delete cmux browser profile '%@'"
+                ),
+                name
+            )
         case .profileClearFailed(let name):
-            return "Failed to clear cmux browser profile '\(name)'"
+            return String.localizedStringWithFormat(
+                String(
+                    localized: "browser.profile.automation.error.profileClearFailed",
+                    defaultValue: "Failed to clear cmux browser profile '%@'"
+                ),
+                name
+            )
         }
     }
 
     var description: String {
-        errorDescription ?? "Browser profile command failed"
+        errorDescription ?? String(
+            localized: "browser.profile.automation.error.fallback",
+            defaultValue: "Browser profile command failed"
+        )
     }
+}
+
+private func browserAutomationBoolParam(_ params: [String: Any], keys: [String]) -> Bool {
+    for key in keys {
+        if let value = params[key] as? Bool {
+            return value
+        }
+        if let value = params[key] as? String {
+            switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "1", "true", "yes", "on":
+                return true
+            default:
+                continue
+            }
+        }
+    }
+    return false
 }
 
 enum BrowserProfileAutomation {
@@ -8387,7 +8507,7 @@ enum BrowserProfileAutomation {
         let newName = try requiredString(params, keys: ["new_name", "to"])
         return try await MainActor.run {
             let store = BrowserProfileStore.shared
-            guard let profile = resolveProfile(query, profiles: store.profiles) else {
+            guard let profile = try resolveProfile(query, profiles: store.profiles) else {
                 throw BrowserProfileAutomationError.profileNotFound(query)
             }
             let oldName = profile.displayName
@@ -8423,11 +8543,15 @@ enum BrowserProfileAutomation {
         let query = try requiredString(params, keys: ["profile", "id", "name"])
         let profile = try await MainActor.run {
             let profiles = BrowserProfileStore.shared.profiles
-            guard let profile = resolveProfile(query, profiles: profiles) else {
+            guard let profile = try resolveProfile(query, profiles: profiles) else {
                 throw BrowserProfileAutomationError.profileNotFound(query)
             }
             guard !profile.isBuiltInDefault else {
                 throw BrowserProfileAutomationError.cannotDeleteDefaultProfile
+            }
+            let livePanelCount = liveBrowserPanelCount(profileID: profile.id)
+            guard livePanelCount == 0 else {
+                throw BrowserProfileAutomationError.profileInUse(profile.displayName, livePanelCount)
             }
             return profile
         }
@@ -8447,11 +8571,11 @@ enum BrowserProfileAutomation {
     @MainActor
     private static func targetProfiles(params: [String: Any], allowAll: Bool) throws -> [BrowserProfileDefinition] {
         let store = BrowserProfileStore.shared
-        if allowAll, boolParam(params, keys: ["all", "all_profiles"]) {
+        if allowAll, browserAutomationBoolParam(params, keys: ["all", "all_profiles"]) {
             return store.profiles
         }
         let query = try requiredString(params, keys: ["profile", "id", "name"])
-        guard let profile = resolveProfile(query, profiles: store.profiles) else {
+        guard let profile = try resolveProfile(query, profiles: store.profiles) else {
             throw BrowserProfileAutomationError.profileNotFound(query)
         }
         return [profile]
@@ -8470,20 +8594,21 @@ enum BrowserProfileAutomation {
     private static func resolveProfile(
         _ query: String,
         profiles: [BrowserProfileDefinition]
-    ) -> BrowserProfileDefinition? {
+    ) throws -> BrowserProfileDefinition? {
         let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else { return nil }
         if let uuid = UUID(uuidString: normalized),
            let profile = profiles.first(where: { $0.id == uuid }) {
             return profile
         }
-        if let profile = profiles.first(where: {
+        let matches = profiles.filter {
             $0.slug.localizedCaseInsensitiveCompare(normalized) == .orderedSame ||
                 $0.displayName.localizedCaseInsensitiveCompare(normalized) == .orderedSame
-        }) {
-            return profile
         }
-        return nil
+        if matches.count > 1 {
+            throw BrowserProfileAutomationError.ambiguousProfile(query)
+        }
+        return matches.first
     }
 
     private static func requiredString(_ params: [String: Any], keys: [String]) throws -> String {
@@ -8499,21 +8624,20 @@ enum BrowserProfileAutomation {
         throw BrowserProfileAutomationError.missingName
     }
 
-    private static func boolParam(_ params: [String: Any], keys: [String]) -> Bool {
-        for key in keys {
-            if let value = params[key] as? Bool {
-                return value
-            }
-            if let value = params[key] as? String {
-                switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-                case "1", "true", "yes", "on":
-                    return true
-                default:
-                    continue
+    @MainActor
+    private static func liveBrowserPanelCount(profileID: UUID) -> Int {
+        guard let app = AppDelegate.shared else { return 0 }
+        return app.mainWindowContexts.values.reduce(0) { contextCount, context in
+            contextCount + context.tabManager.tabs.reduce(0) { workspaceCount, workspace in
+                workspaceCount + workspace.panels.values.reduce(0) { panelCount, panel in
+                    guard let browserPanel = panel as? BrowserPanel,
+                          browserPanel.profileID == profileID else {
+                        return panelCount
+                    }
+                    return panelCount + 1
                 }
             }
         }
-        return false
     }
 }
 
@@ -8571,12 +8695,16 @@ enum BrowserImportAutomation {
         params: [String: Any]
     ) throws -> InstalledBrowserCandidate {
         guard let query = stringParam(params, keys: ["browser", "from", "source"]) else {
-            return browsers.sorted { lhs, rhs in
+            let sortedBrowsers = browsers.sorted { lhs, rhs in
                 if lhs.detectionScore != rhs.detectionScore {
                     return lhs.detectionScore > rhs.detectionScore
                 }
                 return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
-            }.first!
+            }
+            guard let browser = sortedBrowsers.first else {
+                throw BrowserImportAutomationError.noBrowsers
+            }
+            return browser
         }
 
         guard let browser = browsers.first(where: { matchesBrowser($0, query: query) }) else {
@@ -8593,7 +8721,7 @@ enum BrowserImportAutomation {
             throw BrowserImportAutomationError.noProfiles(browser.displayName)
         }
 
-        if boolParam(params, keys: ["all_profiles", "all_source_profiles"]) {
+        if browserAutomationBoolParam(params, keys: ["all_profiles", "all_source_profiles"]) {
             return browser.profiles
         }
 
@@ -8638,7 +8766,7 @@ enum BrowserImportAutomation {
             return profile.id
         }
 
-        guard boolParam(params, keys: ["create_destination_profile", "create_profile"]) else {
+        guard browserAutomationBoolParam(params, keys: ["create_destination_profile", "create_profile"]) else {
             throw BrowserImportAutomationError.destinationProfileNotFound(query)
         }
 
@@ -8702,22 +8830,6 @@ enum BrowserImportAutomation {
         return result
     }
 
-    private static func boolParam(_ params: [String: Any], keys: [String]) -> Bool {
-        for key in keys {
-            if let value = params[key] as? Bool {
-                return value
-            }
-            if let value = params[key] as? String {
-                switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-                case "1", "true", "yes", "on":
-                    return true
-                default:
-                    continue
-                }
-            }
-        }
-        return false
-    }
 }
 
 #if canImport(CommonCrypto) && canImport(Security)
@@ -9640,12 +9752,11 @@ enum BrowserDataImporter {
         return importedCount
     }
 
+    @MainActor
     private static func setCookie(_ cookie: HTTPCookie, in store: WKHTTPCookieStore) async -> Bool {
         await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .utility).async {
-                store.setCookie(cookie) {
-                    continuation.resume(returning: true)
-                }
+            store.setCookie(cookie) {
+                continuation.resume(returning: true)
             }
         }
     }

@@ -7021,12 +7021,17 @@ struct CMUXCLI {
             values.filter { !$0.hasPrefix("-") }
         }
 
-        func optionValues(_ values: [String], names: Set<String>) -> [String] {
+        func optionValues(_ values: [String], names: Set<String>) throws -> [String] {
             var result: [String] = []
             var index = 0
             while index < values.count {
                 let value = values[index]
-                if names.contains(value), index + 1 < values.count {
+                if names.contains(value) {
+                    guard index + 1 < values.count,
+                          !values[index + 1].hasPrefix("-"),
+                          !names.contains(values[index + 1]) else {
+                        throw CLIError(message: "\(value) requires a value")
+                    }
                     result.append(values[index + 1])
                     index += 2
                     continue
@@ -7036,8 +7041,8 @@ struct CMUXCLI {
             return result
         }
 
-        func firstOptionValue(_ values: [String], names: Set<String>) -> String? {
-            optionValues(values, names: names).first
+        func firstOptionValue(_ values: [String], names: Set<String>) throws -> String? {
+            try optionValues(values, names: names).first
         }
 
         func intPayloadValue(_ value: Any?) -> Int {
@@ -7123,7 +7128,7 @@ struct CMUXCLI {
                 let (nameOpt, remaining) = parseOption(profileArgs, name: "--name")
                 let name = nameOpt ?? nonFlagArgs(remaining).joined(separator: " ")
                 guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                    throw CLIError(message: "browser profiles add requires a name")
+                    throw CLIError(message: "browser profiles \(profileVerb) requires a name")
                 }
                 let payload = try client.sendV2(method: "browser.profiles.create", params: ["name": name])
                 if effectiveJSONOutput {
@@ -7141,10 +7146,10 @@ struct CMUXCLI {
                 let profile = profileOpt ?? positional.first
                 let newName = nameOpt ?? (positional.count > 1 ? positional.dropFirst().joined(separator: " ") : nil)
                 guard let profile, !profile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                    throw CLIError(message: "browser profiles rename requires a profile")
+                    throw CLIError(message: "browser profiles \(profileVerb) requires a profile")
                 }
                 guard let newName, !newName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                    throw CLIError(message: "browser profiles rename requires a new name")
+                    throw CLIError(message: "browser profiles \(profileVerb) requires a new name")
                 }
                 let payload = try client.sendV2(
                     method: "browser.profiles.rename",
@@ -7166,7 +7171,7 @@ struct CMUXCLI {
                 } else if let profile = profileOpt ?? positional.first {
                     params["profile"] = profile
                 } else {
-                    throw CLIError(message: "browser profiles clear requires a profile or --all")
+                    throw CLIError(message: "browser profiles \(profileVerb) requires a profile or --all")
                 }
                 let payload = try client.sendV2(method: "browser.profiles.clear", params: params, responseTimeout: 120)
                 if effectiveJSONOutput {
@@ -7179,7 +7184,7 @@ struct CMUXCLI {
                 let (profileOpt, rem1) = parseOption(profileArgs, name: "--profile")
                 let profile = profileOpt ?? nonFlagArgs(rem1).first
                 guard let profile, !profile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                    throw CLIError(message: "browser profiles delete requires a profile")
+                    throw CLIError(message: "browser profiles \(profileVerb) requires a profile")
                 }
                 let payload = try client.sendV2(
                     method: "browser.profiles.delete",
@@ -7273,17 +7278,17 @@ struct CMUXCLI {
                 (!forceInteractive && Self.isCodingAgentEnvironment(ProcessInfo.processInfo.environment))
 
             var params: [String: Any] = shouldRunNonInteractive ? ["scope": "cookiesOnly"] : [:]
-            if let browser = firstOptionValue(importArgs, names: ["--from", "--browser", "--source"]) {
+            if let browser = try firstOptionValue(importArgs, names: ["--from", "--browser", "--source"]) {
                 params["browser"] = browser
             }
-            let sourceProfiles = optionValues(importArgs, names: ["--profile", "--source-profile"])
+            let sourceProfiles = try optionValues(importArgs, names: ["--profile", "--source-profile"])
             if !sourceProfiles.isEmpty {
                 params["source_profiles"] = sourceProfiles
             }
-            if let destination = firstOptionValue(importArgs, names: ["--to", "--to-profile", "--destination-profile"]) {
+            if let destination = try firstOptionValue(importArgs, names: ["--to", "--to-profile", "--destination-profile"]) {
                 params["destination_profile"] = destination
             }
-            let domainFilters = optionValues(importArgs, names: ["--domain", "--domains"])
+            let domainFilters = try optionValues(importArgs, names: ["--domain", "--domains"])
             if !domainFilters.isEmpty {
                 params["domain_filters"] = domainFilters
             }
@@ -10023,7 +10028,7 @@ struct CMUXCLI {
               dialog <accept|dismiss> [text]
               download [wait] [--path <path>] [--timeout-ms <ms>|--timeout <seconds>]
               profiles <list|add|rename|clear|delete> [...]
-              import [--interactive|--non-interactive] [--from <browser>] [--profile <name>] [--all-profiles] [--to-profile <name|uuid>] [--domain <domain>]
+              import [--interactive|--non-interactive|-y|--yes] [--from <browser>] [--profile <name>] [--all-profiles] [--to-profile <name|uuid>] [--create-profile] [--domain <domain>]
               cookies <get|set|clear> [--name <name>] [--value <value>] [--url <url>] [--domain <domain>] [--path <path>] [--expires <unix>] [--secure] [--all]
               storage <local|session> <get|set|clear> [...]
               tab <new|list|switch|close|<index>> [...]
