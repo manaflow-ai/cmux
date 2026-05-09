@@ -2394,6 +2394,10 @@ class TerminalController {
         case "mobile_sync.status":
             return v2Ok(id: id, result: self.v2MobileSyncStatus(params: params))
 #if DEBUG
+        case "debug.mobile_sync.set_fake_remote_size":
+            return v2Result(id: id, self.v2DebugMobileSyncSetFakeRemoteSize(params: params))
+        case "debug.mobile_sync.clear_fake_remote_size":
+            return v2Result(id: id, self.v2DebugMobileSyncClearFakeRemoteSize(params: params))
         case "debug.session_snapshot_benchmark":
             return v2Result(id: id, self.v2DebugSessionSnapshotBenchmark(params: params))
         case "debug.session_snapshot_seed_scrollback":
@@ -3028,6 +3032,8 @@ class TerminalController {
             "debug.bonsplit_underflow.reset",
             "debug.empty_panel.count",
             "debug.empty_panel.reset",
+            "debug.mobile_sync.set_fake_remote_size",
+            "debug.mobile_sync.clear_fake_remote_size",
             "debug.notification.focus",
             "debug.flash.count",
             "debug.flash.reset",
@@ -3052,6 +3058,109 @@ class TerminalController {
         let manager = v2ResolveTabManager(params: params)
         return MobileSyncStatusBuilder.status(tabManager: manager).socketPayload
     }
+
+#if DEBUG
+    private func v2DebugMobileSyncSetFakeRemoteSize(params: [String: Any]) -> V2CallResult {
+        guard let surfaceId = v2UUID(params, "surface_id") ?? v2UUID(params, "tab_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
+        }
+        guard let columns = v2StrictInt(params, "columns"), columns > 0,
+              let rows = v2StrictInt(params, "rows"), rows > 0 else {
+            return .err(
+                code: "invalid_params",
+                message: "columns and rows must be positive integers",
+                data: ["surface_id": surfaceId.uuidString]
+            )
+        }
+
+        let kindRaw = v2String(params, "surface_kind") ?? v2String(params, "kind")
+        let surfaceKind: TerminalAttachmentSurfaceKind
+        if let kindRaw {
+            guard let parsed = TerminalAttachmentSurfaceKind(rawValue: kindRaw) else {
+                return .err(
+                    code: "invalid_params",
+                    message: "Invalid surface_kind",
+                    data: ["surface_kind": kindRaw]
+                )
+            }
+            surfaceKind = parsed
+        } else {
+            surfaceKind = .iPad
+        }
+
+        var result: V2CallResult = .err(
+            code: "not_found",
+            message: "Surface not found",
+            data: ["surface_id": surfaceId.uuidString]
+        )
+
+        v2MainSync {
+            guard let surface = TerminalSurfaceRegistry.shared.surface(id: surfaceId) else {
+                return
+            }
+            let currentLocalSize = surface.currentTerminalGridSize()
+            let fallbackLocalColumns = columns < Int.max ? columns + 1 : columns
+            let fallbackLocalRows = rows < Int.max ? rows + 1 : rows
+            let localColumns = v2StrictInt(params, "local_columns")
+                ?? currentLocalSize?.columns
+                ?? fallbackLocalColumns
+            let localRows = v2StrictInt(params, "local_rows")
+                ?? currentLocalSize?.rows
+                ?? fallbackLocalRows
+            guard let localSize = TerminalGridSize(
+                validatingColumns: localColumns,
+                rows: localRows
+            ) else {
+                result = .err(
+                    code: "invalid_params",
+                    message: "local_columns and local_rows must be positive integers",
+                    data: ["surface_id": surfaceId.uuidString]
+                )
+                return
+            }
+            let snapshot = TerminalSizeOverlaySnapshot(
+                localSize: localSize,
+                effectiveSize: TerminalGridSize(columns: columns, rows: rows),
+                surfaceKind: surfaceKind,
+                deviceName: v2RawString(params, "device_name")?.trimmingCharacters(in: .whitespacesAndNewlines),
+                activeAttachmentCount: 1
+            )
+            surface.setMobileSizeOverlaySnapshot(snapshot)
+            var payload = snapshot.socketPayload
+            payload["surface_id"] = surfaceId.uuidString
+            payload["surface_ref"] = v2Ref(kind: .surface, uuid: surfaceId)
+            result = .ok(payload)
+        }
+
+        return result
+    }
+
+    private func v2DebugMobileSyncClearFakeRemoteSize(params: [String: Any]) -> V2CallResult {
+        guard let surfaceId = v2UUID(params, "surface_id") ?? v2UUID(params, "tab_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
+        }
+
+        var result: V2CallResult = .err(
+            code: "not_found",
+            message: "Surface not found",
+            data: ["surface_id": surfaceId.uuidString]
+        )
+
+        v2MainSync {
+            guard let surface = TerminalSurfaceRegistry.shared.surface(id: surfaceId) else {
+                return
+            }
+            surface.setMobileSizeOverlaySnapshot(nil)
+            result = .ok([
+                "surface_id": surfaceId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                "visible": false,
+            ])
+        }
+
+        return result
+    }
+#endif
 
     private func v2Identify(params: [String: Any]) -> [String: Any] {
         guard let tabManager = v2ResolveTabManager(params: params) else {

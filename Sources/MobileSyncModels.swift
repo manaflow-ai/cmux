@@ -1,4 +1,5 @@
 import Darwin
+import CoreGraphics
 import Foundation
 
 nonisolated struct MobileWorkspaceID: Hashable, Sendable, Codable, CustomStringConvertible {
@@ -214,6 +215,90 @@ nonisolated struct TerminalSizeDecision: Equatable, Sendable {
 
     var isRemotelyConstrained: Bool {
         columnSourceAttachmentID != nil || rowSourceAttachmentID != nil
+    }
+}
+
+nonisolated struct TerminalSizeOverlaySnapshot: Equatable, Sendable, Codable {
+    let localSize: TerminalGridSize
+    let effectiveSize: TerminalGridSize
+    let surfaceKind: TerminalAttachmentSurfaceKind
+    let deviceName: String?
+    let activeAttachmentCount: Int
+
+    var isRemotelyConstrained: Bool {
+        activeAttachmentCount > 0 &&
+            (effectiveSize.columns < localSize.columns || effectiveSize.rows < localSize.rows)
+    }
+
+    var socketPayload: [String: Any] {
+        [
+            "visible": isRemotelyConstrained,
+            "local": [
+                "columns": localSize.columns,
+                "rows": localSize.rows,
+            ],
+            "effective": [
+                "columns": effectiveSize.columns,
+                "rows": effectiveSize.rows,
+            ],
+            "surface_kind": surfaceKind.rawValue,
+            "device_name": deviceName ?? NSNull(),
+            "active_attachment_count": activeAttachmentCount,
+        ]
+    }
+}
+
+nonisolated struct TerminalSizeOverlayGeometry: Equatable, Sendable {
+    let containerRect: CGRect
+    let activeRect: CGRect
+    let isVisible: Bool
+
+    static let hidden = TerminalSizeOverlayGeometry(
+        containerRect: .zero,
+        activeRect: .zero,
+        isVisible: false
+    )
+
+    static func resolve(
+        containerSize: CGSize,
+        cellSize: CGSize,
+        snapshot: TerminalSizeOverlaySnapshot?
+    ) -> TerminalSizeOverlayGeometry {
+        guard let snapshot,
+              snapshot.isRemotelyConstrained,
+              containerSize.width > 0,
+              containerSize.height > 0 else {
+            return .hidden
+        }
+
+        let localColumns = max(snapshot.localSize.columns, 1)
+        let localRows = max(snapshot.localSize.rows, 1)
+        let resolvedCellWidth = cellSize.width > 0
+            ? cellSize.width
+            : containerSize.width / CGFloat(localColumns)
+        let resolvedCellHeight = cellSize.height > 0
+            ? cellSize.height
+            : containerSize.height / CGFloat(localRows)
+        let activeWidth = min(
+            containerSize.width,
+            max(1, CGFloat(snapshot.effectiveSize.columns) * resolvedCellWidth)
+        )
+        let activeHeight = min(
+            containerSize.height,
+            max(1, CGFloat(snapshot.effectiveSize.rows) * resolvedCellHeight)
+        )
+        let activeRect = CGRect(
+            x: 0,
+            y: max(0, containerSize.height - activeHeight),
+            width: activeWidth,
+            height: activeHeight
+        )
+
+        return TerminalSizeOverlayGeometry(
+            containerRect: CGRect(origin: .zero, size: containerSize),
+            activeRect: activeRect,
+            isVisible: activeWidth < containerSize.width || activeHeight < containerSize.height
+        )
     }
 }
 

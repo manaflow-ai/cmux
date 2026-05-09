@@ -107065,6 +107065,48 @@
         }
       }
     },
+    "terminal.mobileSizeOverlay.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Sized for %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ 用にサイズ調整" } }
+      }
+    },
+    "terminal.mobileSizeOverlay.device.mac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Mac" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Mac" } }
+      }
+    },
+    "terminal.mobileSizeOverlay.device.iPhone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "iPhone" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "iPhone" } }
+      }
+    },
+    "terminal.mobileSizeOverlay.device.iPad": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "iPad" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "iPad" } }
+      }
+    },
+    "terminal.mobileSizeOverlay.device.simulator": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Simulator" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Simulator" } }
+      }
+    },
+    "terminal.mobileSizeOverlay.device.unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "device" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "デバイス" } }
+      }
+    },
     "settings.account.error.missingAccessToken": {
       "extractionState": "manual",
       "localizations": {
