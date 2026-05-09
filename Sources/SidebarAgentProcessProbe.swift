@@ -140,8 +140,10 @@ nonisolated enum SidebarAgentProcessProbe {
 
     private static func bsdInfo(for pid: pid_t) -> proc_bsdinfo? {
         var info = proc_bsdinfo()
-        let expectedSize = MemoryLayout<proc_bsdinfo>.size
-        let size = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, Int32(expectedSize))
+        guard let expectedSize = Int32(exactly: MemoryLayout<proc_bsdinfo>.size) else {
+            return nil
+        }
+        let size = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, expectedSize)
         return size == expectedSize ? info : nil
     }
 }
