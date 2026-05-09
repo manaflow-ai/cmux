@@ -2064,6 +2064,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var sessionAutosaveTimer: DispatchSourceTimer?
     private var sessionAutosaveTickInFlight = false
     private var sessionAutosaveDeferredRetryPending = false
+    /// Tracks whether the last successfully persisted snapshot had real content,
+    /// so a subsequent "trivial" snapshot (1 default workspace, no state) can't
+    /// silently wipe a richer prior session after a hard crash.
+    private var lastPersistedSnapshotIsNonTrivial = false
     private var socketListenerHealthTimer: DispatchSourceTimer?
     private var socketListenerHealthCheckInFlight = false
     private static let socketListenerHealthCheckInterval: DispatchTimeInterval = .seconds(2)
@@ -2423,7 +2427,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !didPrepareStartupSessionSnapshot else { return }
         didPrepareStartupSessionSnapshot = true
         guard SessionRestorePolicy.shouldAttemptRestore() else { return }
-        startupSessionSnapshot = SessionPersistenceStore.load()
+        let loaded = SessionPersistenceStore.load()
+        startupSessionSnapshot = loaded
+        lastPersistedSnapshotIsNonTrivial = !Self.isTrivialSnapshot(loaded)
     }
 
     private func persistedWindowGeometry(
@@ -2958,9 +2964,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] _ in
+            // Set synchronously so SwiftUI's WindowGroup teardown during logout
+            // sees isTerminatingApp=true and skips the unregister-time
+            // removeWhenEmpty save that would otherwise wipe the snapshot.
+            self?.isTerminatingApp = true
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                self.isTerminatingApp = true
                 _ = self.saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
             }
         }
@@ -3207,6 +3216,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         !isTerminatingApp
     }
 
+    /// A snapshot is "trivial" when it looks indistinguishable from a fresh
+    /// launch: at most one window, with at most one workspace, with no custom
+    /// state. We use this as the no-overwrite shield so a hard crash that
+    /// briefly leaves cmux in default state can't wipe a richer prior session.
+    nonisolated static func isTrivialSnapshot(_ snapshot: AppSessionSnapshot?) -> Bool {
+        guard let snapshot else { return true }
+        guard snapshot.windows.count <= 1 else { return false }
+        guard let window = snapshot.windows.first else { return true }
+        return isTrivialWindow(window)
+    }
+
+    nonisolated static func isTrivialWindow(_ window: SessionWindowSnapshot) -> Bool {
+        let workspaces = window.tabManager.workspaces
+        guard workspaces.count <= 1 else { return false }
+        guard let workspace = workspaces.first else { return true }
+        return isTrivialWorkspace(workspace)
+    }
+
+    nonisolated static func isTrivialWorkspace(_ workspace: SessionWorkspaceSnapshot) -> Bool {
+        if workspace.panels.count > 1 { return false }
+        if let title = workspace.customTitle, !title.isEmpty { return false }
+        if workspace.customColor != nil { return false }
+        if workspace.isPinned { return false }
+        if !workspace.statusEntries.isEmpty { return false }
+        if !workspace.logEntries.isEmpty { return false }
+        if workspace.progress != nil { return false }
+        if workspace.gitBranch != nil { return false }
+        return true
+    }
+
     nonisolated static func shouldRemoveSnapshotWhenNoWindowsRemainOnWindowUnregister(
         isTerminatingApp: Bool
     ) -> Bool {
@@ -3387,6 +3426,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) {
         guard snapshot != nil || removeWhenEmpty || persistedGeometryData != nil else { return }
 
+        let willPersistSnapshot = snapshot != nil || removeWhenEmpty
+        let newIsTrivial = Self.isTrivialSnapshot(snapshot)
+        let blockSnapshotPersist = willPersistSnapshot
+            && newIsTrivial
+            && lastPersistedSnapshotIsNonTrivial
+
+#if DEBUG
+        if blockSnapshotPersist {
+            dlog("session.save.skipped reason=trivial_overwrite_protect removeWhenEmpty=\(removeWhenEmpty ? 1 : 0)")
+        }
+#endif
+
         let writeBlock = {
             if let persistedGeometryData {
                 UserDefaults.standard.set(
@@ -3394,6 +3445,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     forKey: Self.persistedWindowGeometryDefaultsKey
                 )
             }
+            if blockSnapshotPersist { return }
             if let snapshot {
                 _ = SessionPersistenceStore.save(snapshot)
             } else if removeWhenEmpty {
@@ -3405,6 +3457,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             writeBlock()
         } else {
             sessionPersistenceQueue.async(execute: writeBlock)
+        }
+
+        if willPersistSnapshot && !blockSnapshotPersist {
+            lastPersistedSnapshotIsNonTrivial = !newIsTrivial
         }
     }
 
