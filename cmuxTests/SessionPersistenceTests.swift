@@ -759,6 +759,26 @@ final class SessionPersistenceTests: XCTestCase {
             ),
             "a missing transcript should NOT be filtered out — let Claude error if it's truly broken at resume"
         )
+
+        // Same setup verifies the higher-level `claudeAgentIsRestorable`
+        // helper that both the load loop and `Workspace.createPanel` route
+        // through. Non-Claude agents bypass the filter entirely.
+        let env: [String: String] = ["CLAUDE_CONFIG_DIR": tmp.path]
+        XCTAssertTrue(
+            RestorableAgentSessionIndex.claudeAgentIsRestorable(
+                kind: .codex, sessionId: metadataOnlyId, cwd: cwd, environment: env),
+            "non-Claude agents bypass the Claude-specific filter"
+        )
+        XCTAssertFalse(
+            RestorableAgentSessionIndex.claudeAgentIsRestorable(
+                kind: .claude, sessionId: metadataOnlyId, cwd: cwd, environment: env),
+            "metadata-only Claude transcripts must be filtered by the helper"
+        )
+        XCTAssertTrue(
+            RestorableAgentSessionIndex.claudeAgentIsRestorable(
+                kind: .claude, sessionId: realSessionId, cwd: cwd, environment: env),
+            "Claude transcripts with conversation events should pass"
+        )
     }
 
     @MainActor

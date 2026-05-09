@@ -565,15 +565,16 @@ struct RestorableAgentSessionIndex: Sendable {
                 // contains metadata events (e.g. `/rename` immediately after
                 // SessionStart, before the user typed anything) with
                 // "No conversation found with session ID …". Drop those hook
-                // records so cmux doesn't auto-resume them.
-                if kind == .claude,
-                   let cwd = record.cwd,
-                   !claudeTranscriptHasConversation(
-                       cwd: cwd,
-                       sessionId: normalizedSessionId,
-                       claudeConfigDir: claudeConfigDir(in: record.launchCommand?.environment),
-                       fileManager: fileManager
-                   ) {
+                // records so cmux doesn't auto-resume them. Same helper is
+                // reused by `Workspace.createPanel` for snapshots already
+                // embedded in `SessionPanelSnapshot.terminal.agent`.
+                if !claudeAgentIsRestorable(
+                    kind: kind,
+                    sessionId: normalizedSessionId,
+                    cwd: record.cwd,
+                    environment: record.launchCommand?.environment,
+                    fileManager: fileManager
+                ) {
                     continue
                 }
 
@@ -601,7 +602,7 @@ struct RestorableAgentSessionIndex: Sendable {
 
         var byPanelId: [UUID: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] = [:]
         for (key, value) in resolved {
-            if let existing = byPanelId[key.panelId], existing.updatedAt >= value.updatedAt {
+            if let existing = byPanelId[key.panelId], existing.updatedAt > value.updatedAt {
                 continue
             }
             byPanelId[key.panelId] = value
@@ -697,6 +698,31 @@ struct RestorableAgentSessionIndex: Sendable {
             return true
         }
         return false
+    }
+
+    /// Single eligibility check shared by the load loop and `Workspace.createPanel`
+    /// for whether a candidate Claude/agent session can be auto-resumed.
+    /// Non-Claude agents pass through (they don't share Claude's metadata-only
+    /// failure mode). Empty/missing cwd fails open — let Claude itself produce
+    /// the canonical error if it's truly broken at resume time. Centralising
+    /// here keeps both surfaces in sync if Claude's transcript rules change.
+    static func claudeAgentIsRestorable(
+        kind: RestorableAgentKind,
+        sessionId: String,
+        cwd: String?,
+        environment: [String: String]?,
+        fileManager: FileManager = .default
+    ) -> Bool {
+        guard kind == .claude else { return true }
+        guard let cwd, !cwd.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return true
+        }
+        return claudeTranscriptHasConversation(
+            cwd: cwd,
+            sessionId: sessionId,
+            claudeConfigDir: claudeConfigDir(in: environment),
+            fileManager: fileManager
+        )
     }
 
     private static func lineDeclaresConversationEvent(_ line: Data) -> Bool {
