@@ -3202,9 +3202,10 @@ struct ContentView: View {
             window.isRestorable = false
             setMinimalModeSidebarTitlebarControlsAvailable(sidebarState.isVisible, in: window)
             window.titlebarAppearsTransparent = true
-            // Keep background dragging disabled so app content gestures remain
-            // independent, but keep the window itself movable for macOS tiling
-            // and third-party window managers.
+            // Keep background dragging disabled so app content gestures and
+            // minimal-mode titlebar controls still receive clicks, while the
+            // window itself stays movable for macOS tiling and third-party
+            // window managers.
             window.isMovableByWindowBackground = false
             window.isMovable = true
             window.styleMask.insert(.fullSizeContentView)
@@ -14626,11 +14627,13 @@ private struct DetachedFolderDragIcon: NSViewRepresentable {
     }
 }
 
+@MainActor
 private final class DetachedFolderDragIconHostView: NSView {
     var directory: String
     private var childWindow: NSPanel?
     private var iconView: DraggableFolderNSView?
     private var observers: [NSObjectProtocol] = []
+    private weak var observedParentWindow: NSWindow?
 
     init(directory: String) {
         self.directory = directory
@@ -14642,7 +14645,9 @@ private final class DetachedFolderDragIconHostView: NSView {
     }
 
     deinit {
-        tearDownDetachedIcon()
+        MainActor.assumeIsolated {
+            tearDownDetachedIcon()
+        }
     }
 
     override var intrinsicContentSize: NSSize {
@@ -14715,7 +14720,9 @@ private final class DetachedFolderDragIconHostView: NSView {
     }
 
     private func installParentWindowObservers(_ parentWindow: NSWindow) {
-        guard observers.isEmpty else { return }
+        guard observedParentWindow !== parentWindow || observers.isEmpty else { return }
+        removeParentWindowObservers()
+
         let center = NotificationCenter.default
         let names: [Notification.Name] = [
             NSWindow.didMoveNotification,
@@ -14725,9 +14732,12 @@ private final class DetachedFolderDragIconHostView: NSView {
         ]
         observers = names.map { name in
             center.addObserver(forName: name, object: parentWindow, queue: .main) { [weak self] _ in
-                self?.syncDetachedIconFrame()
+                MainActor.assumeIsolated {
+                    self?.syncDetachedIconFrame()
+                }
             }
         }
+        observedParentWindow = parentWindow
     }
 
     private func syncDetachedIconFrame() {
@@ -14743,11 +14753,16 @@ private final class DetachedFolderDragIconHostView: NSView {
         }
     }
 
-    private func tearDownDetachedIcon() {
+    private func removeParentWindowObservers() {
         for observer in observers {
             NotificationCenter.default.removeObserver(observer)
         }
         observers.removeAll()
+        observedParentWindow = nil
+    }
+
+    private func tearDownDetachedIcon() {
+        removeParentWindowObservers()
         if let childWindow {
             childWindow.parent?.removeChildWindow(childWindow)
             childWindow.orderOut(nil)
@@ -14770,6 +14785,7 @@ private struct DraggableFolderIconRepresentable: NSViewRepresentable {
     }
 }
 
+@MainActor
 final class DraggableFolderNSView: NSView, NSDraggingSource {
     private final class FolderIconImageView: NSImageView {
         override var mouseDownCanMoveWindow: Bool { false }
@@ -14777,10 +14793,6 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
 
     var directory: String
     private var imageView: FolderIconImageView!
-    private var previousWindowMovableState: Bool?
-    private weak var suppressedWindow: NSWindow?
-    private var hasActiveDragSession = false
-    private var didArmWindowDragSuppression = false
 
     private func formatPoint(_ point: NSPoint) -> String {
         String(format: "(%.1f,%.1f)", point.x, point.y)
@@ -14833,8 +14845,6 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
     }
 
     func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
-        hasActiveDragSession = false
-        restoreWindowMovableStateIfNeeded()
         #if DEBUG
         let nowMovable = window.map { String($0.isMovable) } ?? "nil"
         let windowOrigin = window.map { formatPoint($0.frame.origin) } ?? "nil"
@@ -14848,23 +14858,19 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
         #if DEBUG
         let hitDesc = hit.map { String(describing: type(of: $0)) } ?? "nil"
         let imageHit = (hit === imageView)
-        let wasMovable = previousWindowMovableState.map(String.init) ?? "nil"
         let nowMovable = window.map { String($0.isMovable) } ?? "nil"
-        cmuxDebugLog("folder.hitTest point=\(formatPoint(point)) hit=\(hitDesc) imageViewHit=\(imageHit) returning=DraggableFolderNSView wasMovable=\(wasMovable) nowMovable=\(nowMovable)")
+        cmuxDebugLog("folder.hitTest point=\(formatPoint(point)) hit=\(hitDesc) imageViewHit=\(imageHit) returning=DraggableFolderNSView nowMovable=\(nowMovable)")
         #endif
         return self
     }
 
     override func mouseDown(with event: NSEvent) {
-        maybeDisableWindowDraggingEarly(trigger: "mouseDown")
-        hasActiveDragSession = false
         #if DEBUG
         let localPoint = convert(event.locationInWindow, from: nil)
         let responderDesc = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-        let wasMovable = previousWindowMovableState.map(String.init) ?? "nil"
         let nowMovable = window.map { String($0.isMovable) } ?? "nil"
         let windowOrigin = window.map { formatPoint($0.frame.origin) } ?? "nil"
-        cmuxDebugLog("folder.mouseDown dir=\(directory) point=\(formatPoint(localPoint)) firstResponder=\(responderDesc) wasMovable=\(wasMovable) nowMovable=\(nowMovable) windowOrigin=\(windowOrigin)")
+        cmuxDebugLog("folder.mouseDown dir=\(directory) point=\(formatPoint(localPoint)) firstResponder=\(responderDesc) nowMovable=\(nowMovable) windowOrigin=\(windowOrigin)")
         #endif
         let fileURL = URL(fileURLWithPath: directory)
         let draggingItem = NSDraggingItem(pasteboardWriter: fileURL as NSURL)
@@ -14874,7 +14880,6 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
         draggingItem.setDraggingFrame(bounds, contents: iconImage)
 
         let session = beginDraggingSession(with: [draggingItem], event: event, source: self)
-        hasActiveDragSession = true
         #if DEBUG
         let itemCount = session.draggingPasteboard.pasteboardItems?.count ?? 0
         cmuxDebugLog("folder.dragStart dir=\(directory) pasteboardItems=\(itemCount)")
@@ -14883,9 +14888,6 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
 
     override func mouseUp(with event: NSEvent) {
         super.mouseUp(with: event)
-        // Always restore suppression on mouse-up; drag-session callbacks can be
-        // skipped for non-started drags, which would otherwise leave suppression stuck.
-        restoreWindowMovableStateIfNeeded()
     }
 
     override func rightMouseDown(with event: NSEvent) {
@@ -14954,59 +14956,6 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
         // Open "Computer" view in Finder (shows all volumes)
         NSWorkspace.shared.open(URL(fileURLWithPath: "/", isDirectory: true))
     }
-
-    private func restoreWindowMovableStateIfNeeded() {
-        guard didArmWindowDragSuppression || previousWindowMovableState != nil else { return }
-        let targetWindow = suppressedWindow ?? window
-        let depthAfter = endWindowDragSuppression(window: targetWindow)
-        restoreWindowDragging(window: targetWindow, previousMovableState: previousWindowMovableState)
-        self.previousWindowMovableState = nil
-        self.suppressedWindow = nil
-        self.didArmWindowDragSuppression = false
-        #if DEBUG
-        let nowMovable = targetWindow.map { String($0.isMovable) } ?? "nil"
-        cmuxDebugLog("folder.dragSuppression restore depth=\(depthAfter) nowMovable=\(nowMovable)")
-        #endif
-    }
-
-    private func maybeDisableWindowDraggingEarly(trigger: String) {
-        guard !didArmWindowDragSuppression else { return }
-        guard let eventType = NSApp.currentEvent?.type,
-              eventType == .leftMouseDown || eventType == .leftMouseDragged else {
-            return
-        }
-        guard let currentWindow = window else { return }
-
-        didArmWindowDragSuppression = true
-        suppressedWindow = currentWindow
-        let suppressionDepth = beginWindowDragSuppression(window: currentWindow) ?? 0
-        if currentWindow.isMovable {
-            previousWindowMovableState = temporarilyDisableWindowDragging(window: currentWindow)
-        } else {
-            previousWindowMovableState = nil
-        }
-        #if DEBUG
-        let wasMovable = previousWindowMovableState.map(String.init) ?? "nil"
-        let nowMovable = String(currentWindow.isMovable)
-        cmuxDebugLog(
-            "folder.dragSuppression trigger=\(trigger) event=\(eventType) depth=\(suppressionDepth) wasMovable=\(wasMovable) nowMovable=\(nowMovable)"
-        )
-        #endif
-    }
-}
-
-func temporarilyDisableWindowDragging(window: NSWindow?) -> Bool? {
-    guard let window else { return nil }
-    let wasMovable = window.isMovable
-    if wasMovable {
-        window.isMovable = false
-    }
-    return wasMovable
-}
-
-func restoreWindowDragging(window: NSWindow?, previousMovableState: Bool?) {
-    guard let window, let previousMovableState else { return }
-    window.isMovable = previousMovableState
 }
 
 /// Wrapper view that tries NSGlassEffectView (macOS 26+) when available or requested
