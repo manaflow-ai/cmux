@@ -1455,6 +1455,9 @@ enum BrowserPaneDropRouting {
 }
 
 final class WindowBrowserSlotView: NSView {
+    private static let dropZoneOverlayFadeInAnimationKey = "cmux.browser.dropZoneOverlay.fadeIn"
+    private static let dropZoneOverlayFadeInDuration: CFTimeInterval = 0.25
+
     override var isOpaque: Bool { false }
     override var isHidden: Bool {
         didSet {
@@ -1875,14 +1878,10 @@ final class WindowBrowserSlotView: NSView {
 
         if dropZoneOverlayView.isHidden {
             applyDropZoneOverlayFrame(targetFrame)
-            dropZoneOverlayView.alphaValue = 0
+            dropZoneOverlayView.alphaValue = 1
             dropZoneOverlayView.isHidden = false
             bringInteractionLayersToFrontIfNeeded()
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.18
-                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                dropZoneOverlayView.animator().alphaValue = 1
-            }
+            animateDropZoneOverlayFadeIn()
             return
         }
 
@@ -1897,6 +1896,30 @@ final class WindowBrowserSlotView: NSView {
                 dropZoneOverlayView.animator().alphaValue = 1
             }
         }
+    }
+
+    private func animateDropZoneOverlayFadeIn() {
+        guard let layer = dropZoneOverlayView.layer else {
+            dropZoneOverlayView.alphaValue = 0
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = Self.dropZoneOverlayFadeInDuration
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                dropZoneOverlayView.animator().alphaValue = 1
+            }
+            return
+        }
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.opacity = 1
+        CATransaction.commit()
+
+        let animation = CABasicAnimation(keyPath: "opacity")
+        animation.fromValue = 0.0
+        animation.toValue = 1.0
+        animation.duration = Self.dropZoneOverlayFadeInDuration
+        animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        layer.add(animation, forKey: Self.dropZoneOverlayFadeInAnimationKey)
     }
 
     private func interactionLayerPriority(of view: NSView) -> Int {
