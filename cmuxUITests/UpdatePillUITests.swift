@@ -370,6 +370,7 @@ final class TitlebarShortcutHintsUITests: XCTestCase {
     private func launchApp() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchArguments += ["-workspacePresentationMode", "standard"]
         app.launch()
 
         _ = pollUntil(timeout: 2.0) {
