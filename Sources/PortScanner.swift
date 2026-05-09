@@ -4,7 +4,9 @@ import Foundation
 ///
 /// Each shell sends a lightweight `report_tty` + `ports_kick` over the socket.
 /// PortScanner coalesces kicks across all panels, then runs a single
-/// `ps -t <ttys>` + `lsof -p <pids>` covering every panel that needs scanning.
+/// libproc sweep (TTY→pids + per-pid listening TCP ports) covering every
+/// panel that needs scanning. See `ProcessScanner` for the subprocess-free
+/// replacements for `ps -t` / `ps -ax` / `lsof -iTCP -sTCP:LISTEN`.
 ///
 /// Kick → coalesce → burst flow:
 /// 1. `kick()` adds panel to `pendingKicks` set
@@ -534,80 +536,25 @@ final class PortScanner: @unchecked Sendable {
     }
 
     private func runPS(ttyList: String) -> [Int: String] {
-        // `ps -t tty1,tty2,... -o pid=,tty=` — targeted scan, much cheaper than -ax.
-        guard let output = Self.captureStandardOutput(
-            executablePath: "/bin/ps",
-            arguments: ["-t", ttyList, "-o", "pid=,tty="]
-        ) else {
-            return [:]
-        }
-
-        var mapping: [Int: String] = [:]
-        for line in output.split(separator: "\n") {
-            let parts = line.split(whereSeparator: \.isWhitespace)
-            guard parts.count >= 2,
-                  let pid = Int(parts[0]) else { continue }
-            mapping[pid] = String(parts[1])
-        }
-        return mapping
+        // Subprocess-free replacement for `ps -t <ttys> -o pid=,tty=`. Every
+        // exec() was logged by endpoint-security tools (FortiDLP, CrowdStrike),
+        // and the burst/agent rescan path ran this many thousands of times a
+        // day per workspace. See `ProcessScanner`.
+        ProcessScanner.pidsByTTY(ttyList: ttyList)
     }
 
     private func runAllProcesses() -> [Int: Int] {
-        guard let output = Self.captureStandardOutput(
-            executablePath: "/bin/ps",
-            arguments: ["-ax", "-o", "pid=,ppid="]
-        ) else {
-            return [:]
-        }
-
-        var mapping: [Int: Int] = [:]
-        for line in output.split(separator: "\n") {
-            let parts = line.split(whereSeparator: \.isWhitespace)
-            guard parts.count >= 2,
-                  let pid = Int(parts[0]),
-                  let parentPid = Int(parts[1]) else { continue }
-            mapping[pid] = parentPid
-        }
-        return mapping
+        // Subprocess-free replacement for `ps -ax -o pid=,ppid=`.
+        ProcessScanner.parentByPid()
     }
 
     private func runLsof(pidsCsv: String) -> [Int: Set<Int>] {
-        // `lsof -nP -a -p <pids> -iTCP -sTCP:LISTEN -F pn`
-        guard let output = Self.captureStandardOutput(
-            executablePath: "/usr/sbin/lsof",
-            arguments: ["-nP", "-a", "-p", pidsCsv, "-iTCP", "-sTCP:LISTEN", "-Fpn"]
-        ) else {
-            return [:]
-        }
-
-        // Parse lsof -F output: lines starting with 'p' = PID, 'n' = name (host:port).
-        var result: [Int: Set<Int>] = [:]
-        var currentPid: Int?
-        for line in output.split(separator: "\n") {
-            guard let first = line.first else { continue }
-            switch first {
-            case "p":
-                currentPid = Int(line.dropFirst())
-            case "n":
-                guard let pid = currentPid else { continue }
-                var name = String(line.dropFirst())
-                // Strip remote endpoint if present.
-                if let arrowIdx = name.range(of: "->") {
-                    name = String(name[..<arrowIdx.lowerBound])
-                }
-                // Port is after the last colon.
-                if let colonIdx = name.lastIndex(of: ":") {
-                    let portStr = name[name.index(after: colonIdx)...]
-                    // Strip anything non-numeric.
-                    let cleaned = portStr.prefix(while: \.isNumber)
-                    if let port = Int(cleaned), port > 0, port <= 65535 {
-                        result[pid, default: []].insert(port)
-                    }
-                }
-            default:
-                break
-            }
-        }
-        return result
+        // Subprocess-free replacement for
+        // `lsof -nP -a -p <pids> -iTCP -sTCP:LISTEN -Fpn`.
+        let pids = pidsCsv
+            .split(separator: ",", omittingEmptySubsequences: true)
+            .compactMap { Int($0) }
+        guard !pids.isEmpty else { return [:] }
+        return ProcessScanner.listeningTCPPorts(forPIDs: pids)
     }
 }
