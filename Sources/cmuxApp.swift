@@ -7323,6 +7323,9 @@ struct SettingsView: View {
                     \.settingsSearchHighlightState,
                     SettingsSearchHighlightState(anchorID: highlightedSearchAnchorID, token: searchHighlightToken, startedAt: searchHighlightStartedAt)
                 )
+                .onReceive(NotificationCenter.default.publisher(for: SettingsNavigationRequest.notificationName)) { notification in
+                    handleSettingsNavigation(notification, proxy: proxy)
+                }
             }
         .toggleStyle(.switch)
         .onAppear {
@@ -7353,9 +7356,6 @@ struct SettingsView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
             reloadWorkspaceTabColorSettings()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: SettingsNavigationRequest.notificationName)) { notification in
-            handleSettingsNavigation(notification, proxy: proxy)
         }
         .confirmationDialog(
             String(localized: "settings.browser.history.clearDialog.title", defaultValue: "Clear browser history?"),
