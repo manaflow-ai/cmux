@@ -13335,29 +13335,41 @@ struct GhosttyTerminalView: NSViewRepresentable {
             host.onDidMoveToWindow = { [weak host, weak hostedView, weak coordinator] in
                 guard let host, let hostedView, let coordinator else { return }
                 guard coordinator.attachGeneration == generation else { return }
-                guard terminalSurface.claimPortalHost(
-                    hostId: ObjectIdentifier(host),
-                    paneId: paneId,
-                    instanceSerial: host.instanceSerial,
-                    inWindow: host.window != nil,
-                    bounds: host.bounds,
-                    reason: "didMoveToWindow"
-                ) else { return }
                 guard host.window != nil else { return }
                 guard portalBindingStillLive() else { return }
-                TerminalWindowPortalRegistry.bind(
-                    hostedView: hostedView,
-                    to: host,
-                    visibleInUI: coordinator.desiredIsVisibleInUI,
-                    zPriority: coordinator.desiredPortalZPriority,
-                    expectedSurfaceId: portalExpectedSurfaceId,
-                    expectedGeneration: portalExpectedGeneration
-                )
-                coordinator.lastBoundHostId = ObjectIdentifier(host)
-                coordinator.lastSynchronizedHostGeometryRevision = host.geometryRevision
-                hostedView.setVisibleInUI(coordinator.desiredIsVisibleInUI)
-                hostedView.setActive(coordinator.desiredIsActive)
-                hostedView.setNotificationRing(visible: coordinator.desiredShowsUnreadNotificationRing)
+                // Defer to next RunLoop iteration to avoid re-entrant view
+                // hierarchy modification during AppKit's _setWindow:
+                // propagation. viewDidMoveToWindow fires inside _setWindow:'s
+                // recursive traversal; calling addSubview() synchronously
+                // corrupts AppKit's internal state (crash: EXC_BREAKPOINT in
+                // insertObject:atIndex:).
+                DispatchQueue.main.async { [weak host, weak hostedView, weak coordinator] in
+                    guard let host, let hostedView, let coordinator else { return }
+                    guard coordinator.attachGeneration == generation else { return }
+                    guard terminalSurface.claimPortalHost(
+                        hostId: ObjectIdentifier(host),
+                        paneId: paneId,
+                        instanceSerial: host.instanceSerial,
+                        inWindow: host.window != nil,
+                        bounds: host.bounds,
+                        reason: "didMoveToWindow"
+                    ) else { return }
+                    guard host.window != nil else { return }
+                    guard portalBindingStillLive() else { return }
+                    TerminalWindowPortalRegistry.bind(
+                        hostedView: hostedView,
+                        to: host,
+                        visibleInUI: coordinator.desiredIsVisibleInUI,
+                        zPriority: coordinator.desiredPortalZPriority,
+                        expectedSurfaceId: portalExpectedSurfaceId,
+                        expectedGeneration: portalExpectedGeneration
+                    )
+                    coordinator.lastBoundHostId = ObjectIdentifier(host)
+                    coordinator.lastSynchronizedHostGeometryRevision = host.geometryRevision
+                    hostedView.setVisibleInUI(coordinator.desiredIsVisibleInUI)
+                    hostedView.setActive(coordinator.desiredIsActive)
+                    hostedView.setNotificationRing(visible: coordinator.desiredShowsUnreadNotificationRing)
+                }
             }
             host.onGeometryChanged = { [weak host, weak hostedView, weak coordinator] in
                 guard let host, let hostedView, let coordinator else { return }
