@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import CMUXMobileSyncCore
 import CMUXWorkstream
 import Foundation
 import Bonsplit
@@ -73,6 +74,8 @@ class TerminalController {
     private nonisolated static let socketProbePollRetryBackoffUs: useconds_t = 50_000
     private nonisolated static let socketClientWriteTimeout: TimeInterval = 5
     private nonisolated static let socketListenerFailureCaptureCooldown: TimeInterval = 60
+    private nonisolated static let mobileSnapshotDefaultScrollbackRows = 2_000
+    private nonisolated static let mobileSnapshotMaxScrollbackRows = 10_000
     private nonisolated static let socketListenerFailureCaptureLock = NSLock()
     private nonisolated(unsafe) static var socketListenerFailureLastCapturedAt: [String: Date] = [:]
     private nonisolated static let unixSocketPathMaxLength: Int = {
@@ -515,36 +518,6 @@ class TerminalController {
             return url.path
         }
         return trimmed
-    }
-
-    nonisolated static func normalizedExportedScreenPath(_ raw: String?) -> String? {
-        guard let raw else { return nil }
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        if let url = URL(string: trimmed),
-           url.isFileURL,
-           !url.path.isEmpty {
-            return url.path
-        }
-        return trimmed.hasPrefix("/") ? trimmed : nil
-    }
-
-    nonisolated static func shouldRemoveExportedScreenFile(
-        fileURL: URL,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory
-    ) -> Bool {
-        let standardizedFile = fileURL.standardizedFileURL
-        let temporary = temporaryDirectory.standardizedFileURL
-        return standardizedFile.path.hasPrefix(temporary.path + "/")
-    }
-
-    nonisolated static func shouldRemoveExportedScreenDirectory(
-        fileURL: URL,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory
-    ) -> Bool {
-        let directory = fileURL.deletingLastPathComponent().standardizedFileURL
-        let temporary = temporaryDirectory.standardizedFileURL
-        return directory.path.hasPrefix(temporary.path + "/")
     }
 
     nonisolated static func parseReportedShellActivityState(
@@ -2428,6 +2401,8 @@ class TerminalController {
             return v2Ok(id: id, result: self.v2MobileSyncEnable(params: params))
         case "mobile_sync.disable":
             return v2Ok(id: id, result: self.v2MobileSyncDisable(params: params))
+        case "mobile_sync.terminal_snapshot":
+            return v2Result(id: id, self.v2MobileSyncTerminalSnapshot(params: params))
 #if DEBUG
         case "debug.mobile_sync.set_fake_remote_size":
             return v2Result(id: id, self.v2DebugMobileSyncSetFakeRemoteSize(params: params))
@@ -2875,6 +2850,7 @@ class TerminalController {
             "mobile_sync.status",
             "mobile_sync.enable",
             "mobile_sync.disable",
+            "mobile_sync.terminal_snapshot",
             "auth.login",
             "auth.status",
             "auth.begin_sign_in",
@@ -7072,41 +7048,174 @@ class TerminalController {
         return result
     }
 
-    private func readTerminalTextBase64(terminalPanel: TerminalPanel, includeScrollback: Bool = false, lineLimit: Int? = nil) -> String {
-        guard let surface = terminalPanel.surface.surface else { return "ERROR: Terminal surface not found" }
+    private func v2MobileSyncTerminalSnapshot(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
 
-        func readSelectionText(pointTag: ghostty_point_tag_e) -> String? {
-            let topLeft = ghostty_point_s(
-                tag: pointTag,
-                coord: GHOSTTY_POINT_COORD_TOP_LEFT,
-                x: 0,
-                y: 0
+        let requestedScrollbackRows = v2Int(params, "max_scrollback_rows")
+            ?? v2Int(params, "scrollback_rows")
+            ?? v2Int(params, "lines")
+            ?? Self.mobileSnapshotDefaultScrollbackRows
+        guard requestedScrollbackRows > 0 else {
+            return .err(code: "invalid_params", message: "max_scrollback_rows must be greater than 0", data: nil)
+        }
+        guard requestedScrollbackRows <= Self.mobileSnapshotMaxScrollbackRows else {
+            return .err(
+                code: "invalid_params",
+                message: "max_scrollback_rows must be at most \(Self.mobileSnapshotMaxScrollbackRows)",
+                data: ["max_scrollback_rows": Self.mobileSnapshotMaxScrollbackRows]
             )
-            let bottomRight = ghostty_point_s(
-                tag: pointTag,
-                coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
-                x: 0,
-                y: 0
-            )
-            let selection = ghostty_selection_s(
-                top_left: topLeft,
-                bottom_right: bottomRight,
-                rectangle: false
-            )
+        }
 
-            var text = ghostty_text_s()
-            guard ghostty_surface_read_text(surface, selection, &text) else {
-                return nil
-            }
-            defer {
-                ghostty_surface_free_text(surface, &text)
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to read terminal snapshot", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
             }
 
-            guard let ptr = text.text, text.text_len > 0 else {
-                return ""
+            let surfaceId: UUID?
+            if params["surface_id"] != nil {
+                surfaceId = v2UUID(params, "surface_id")
+                guard surfaceId != nil else {
+                    result = .err(code: "not_found", message: "Surface not found for the given surface_id", data: nil)
+                    return
+                }
+            } else {
+                surfaceId = ws.focusedPanelId
             }
-            let rawData = Data(bytes: ptr, count: Int(text.text_len))
-            return String(decoding: rawData, as: UTF8.self)
+            guard let surfaceId else {
+                result = .err(code: "not_found", message: "No focused surface", data: nil)
+                return
+            }
+            guard let terminalPanel = ws.terminalPanel(for: surfaceId) else {
+                result = .err(code: "invalid_params", message: "Surface is not a terminal", data: ["surface_id": surfaceId.uuidString])
+                return
+            }
+
+            do {
+                let snapshot = try mobileTerminalGhosttySnapshot(
+                    terminalPanel: terminalPanel,
+                    maxScrollbackRows: requestedScrollbackRows
+                )
+                let encoded = try snapshot.encodedValidatedJSON()
+                guard let snapshotObject = try JSONSerialization.jsonObject(with: encoded) as? [String: Any] else {
+                    result = .err(code: "internal_error", message: "Failed to encode terminal snapshot", data: nil)
+                    return
+                }
+                let windowId = v2ResolveWindowId(tabManager: tabManager)
+                result = .ok([
+                    "snapshot": snapshotObject,
+                    "snapshot_base64": encoded.base64EncodedString(),
+                    "schema_version": MobileTerminalGhosttySnapshot.currentSchemaVersion,
+                    "max_scrollback_rows": requestedScrollbackRows,
+                    "active_screen_source": "primary_until_ghostty_exposes_active_screen",
+                    "workspace_id": ws.id.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                    "surface_id": surfaceId.uuidString,
+                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                    "window_id": v2OrNull(windowId?.uuidString),
+                    "window_ref": v2Ref(kind: .window, uuid: windowId)
+                ])
+            } catch {
+                result = .err(
+                    code: "internal_error",
+                    message: "Failed to build terminal snapshot: \(error.localizedDescription)",
+                    data: nil
+                )
+            }
+        }
+        return result
+    }
+
+    private func mobileTerminalGhosttySnapshot(
+        terminalPanel: TerminalPanel,
+        maxScrollbackRows: Int
+    ) throws -> MobileTerminalGhosttySnapshot {
+        guard let surface = terminalPanel.surface.liveSurfaceForGhosttyAccess(reason: "mobileSync.terminalSnapshot") else {
+            throw MobileTerminalSnapshotExportError.surfaceUnavailable
+        }
+        let surfaceSize = ghostty_surface_size(surface)
+        let columns = Int(surfaceSize.columns)
+        let rows = Int(surfaceSize.rows)
+        guard columns > 0, rows > 0 else {
+            throw MobileTerminalSnapshotExportError.invalidGridSize
+        }
+        guard let viewportText = readGhosttySelectionText(surface: surface, pointTag: GHOSTTY_POINT_VIEWPORT) else {
+            throw MobileTerminalSnapshotExportError.viewportUnavailable
+        }
+        let scrollbackText = readGhosttySelectionText(surface: surface, pointTag: GHOSTTY_POINT_SURFACE) ?? ""
+        return try MobileTerminalGhosttySnapshot.fromGhosttyText(
+            terminalID: terminalPanel.id.uuidString,
+            columns: columns,
+            rows: rows,
+            scrollbackText: scrollbackText,
+            viewportText: viewportText,
+            maxScrollbackRows: maxScrollbackRows,
+            activeScreen: .primary,
+            streamOffset: 0
+        )
+    }
+
+    private enum MobileTerminalSnapshotExportError: LocalizedError {
+        case surfaceUnavailable
+        case invalidGridSize
+        case viewportUnavailable
+
+        var errorDescription: String? {
+            switch self {
+            case .surfaceUnavailable:
+                return "Terminal surface is unavailable"
+            case .invalidGridSize:
+                return "Terminal grid size is invalid"
+            case .viewportUnavailable:
+                return "Terminal viewport is unavailable"
+            }
+        }
+    }
+
+    private func readGhosttySelectionText(surface: ghostty_surface_t, pointTag: ghostty_point_tag_e) -> String? {
+        let topLeft = ghostty_point_s(
+            tag: pointTag,
+            coord: GHOSTTY_POINT_COORD_TOP_LEFT,
+            x: 0,
+            y: 0
+        )
+        let bottomRight = ghostty_point_s(
+            tag: pointTag,
+            coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
+            x: 0,
+            y: 0
+        )
+        let selection = ghostty_selection_s(
+            top_left: topLeft,
+            bottom_right: bottomRight,
+            rectangle: false
+        )
+
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_text(surface, selection, &text) else {
+            return nil
+        }
+        defer {
+            ghostty_surface_free_text(surface, &text)
+        }
+
+        guard let ptr = text.text, text.text_len > 0 else {
+            return ""
+        }
+        let rawData = Data(bytes: ptr, count: Int(text.text_len))
+        return String(decoding: rawData, as: UTF8.self)
+    }
+
+    private func readTerminalText(
+        terminalPanel: TerminalPanel,
+        includeScrollback: Bool = false,
+        lineLimit: Int? = nil
+    ) -> String? {
+        guard let surface = terminalPanel.surface.liveSurfaceForGhosttyAccess(reason: "terminalController.readTerminalText") else {
+            return nil
         }
 
         var output: String
@@ -7116,11 +7225,11 @@ class TerminalController {
                 return (lines, text.utf8.count)
             }
 
-            // Read all available regions and pick the most complete candidate.
+            // Read all available Ghostty regions and pick the most complete candidate.
             // Different point tags can lose different rows around resize/reflow boundaries.
-            let screen = readSelectionText(pointTag: GHOSTTY_POINT_SCREEN)
-            let history = readSelectionText(pointTag: GHOSTTY_POINT_SURFACE)
-            let active = readSelectionText(pointTag: GHOSTTY_POINT_ACTIVE)
+            let screen = readGhosttySelectionText(surface: surface, pointTag: GHOSTTY_POINT_SCREEN)
+            let history = readGhosttySelectionText(surface: surface, pointTag: GHOSTTY_POINT_SURFACE)
+            let active = readGhosttySelectionText(surface: surface, pointTag: GHOSTTY_POINT_ACTIVE)
 
             var candidates: [String] = []
             if let screen {
@@ -7137,21 +7246,20 @@ class TerminalController {
                 candidates.append(merged)
             }
 
-            if let best = candidates.max(by: { lhs, rhs in
+            guard let best = candidates.max(by: { lhs, rhs in
                 let left = candidateScore(lhs)
                 let right = candidateScore(rhs)
                 if left.lines != right.lines {
                     return left.lines < right.lines
                 }
                 return left.bytes < right.bytes
-            }) {
-                output = best
-            } else {
-                return "ERROR: Failed to read terminal text"
+            }) else {
+                return nil
             }
+            output = best
         } else {
-            guard let viewport = readSelectionText(pointTag: GHOSTTY_POINT_VIEWPORT) else {
-                return "ERROR: Failed to read terminal text"
+            guard let viewport = readGhosttySelectionText(surface: surface, pointTag: GHOSTTY_POINT_VIEWPORT) else {
+                return nil
             }
             output = viewport
         }
@@ -7159,96 +7267,20 @@ class TerminalController {
         if let lineLimit {
             output = tailTerminalLines(output, maxLines: lineLimit)
         }
+        return output
+    }
+
+    private func readTerminalTextBase64(terminalPanel: TerminalPanel, includeScrollback: Bool = false, lineLimit: Int? = nil) -> String {
+        guard let output = readTerminalText(
+            terminalPanel: terminalPanel,
+            includeScrollback: includeScrollback,
+            lineLimit: lineLimit
+        ) else {
+            return "ERROR: Failed to read terminal text"
+        }
 
         let base64 = output.data(using: .utf8)?.base64EncodedString() ?? ""
         return "OK \(base64)"
-    }
-
-    private struct PasteboardItemSnapshot {
-        let representations: [(type: NSPasteboard.PasteboardType, data: Data)]
-    }
-
-    private func snapshotPasteboardItems(_ pasteboard: NSPasteboard) -> [PasteboardItemSnapshot] {
-        guard let items = pasteboard.pasteboardItems else { return [] }
-        return items.map { item in
-            let representations = item.types.compactMap { type -> (type: NSPasteboard.PasteboardType, data: Data)? in
-                guard let data = item.data(forType: type) else { return nil }
-                return (type: type, data: data)
-            }
-            return PasteboardItemSnapshot(representations: representations)
-        }
-    }
-
-    private func restorePasteboardItems(
-        _ snapshots: [PasteboardItemSnapshot],
-        to pasteboard: NSPasteboard
-    ) {
-        _ = pasteboard.clearContents()
-        guard !snapshots.isEmpty else { return }
-
-        let restoredItems = snapshots.compactMap { snapshot -> NSPasteboardItem? in
-            guard !snapshot.representations.isEmpty else { return nil }
-            let item = NSPasteboardItem()
-            for representation in snapshot.representations {
-                item.setData(representation.data, forType: representation.type)
-            }
-            return item
-        }
-        guard !restoredItems.isEmpty else { return }
-        _ = pasteboard.writeObjects(restoredItems)
-    }
-
-    private func readGeneralPasteboardString(_ pasteboard: NSPasteboard) -> String? {
-        if let urls = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL],
-           let firstURL = urls.first,
-           firstURL.isFileURL {
-            return firstURL.path
-        }
-        if let value = pasteboard.string(forType: .string) {
-            return value
-        }
-        return pasteboard.string(forType: NSPasteboard.PasteboardType("public.utf8-plain-text"))
-    }
-
-    private func readTerminalTextFromVTExportForSnapshot(
-        terminalPanel: TerminalPanel,
-        lineLimit: Int?
-    ) -> String? {
-        let pasteboard = NSPasteboard.general
-        let snapshot = snapshotPasteboardItems(pasteboard)
-        defer {
-            restorePasteboardItems(snapshot, to: pasteboard)
-        }
-
-        let initialChangeCount = pasteboard.changeCount
-        guard terminalPanel.performBindingAction("write_screen_file:copy,vt") else {
-            return nil
-        }
-        guard pasteboard.changeCount != initialChangeCount else {
-            return nil
-        }
-        guard let exportedPath = Self.normalizedExportedScreenPath(readGeneralPasteboardString(pasteboard)) else {
-            return nil
-        }
-
-        let fileURL = URL(fileURLWithPath: exportedPath)
-        defer {
-            if Self.shouldRemoveExportedScreenFile(fileURL: fileURL) {
-                try? FileManager.default.removeItem(at: fileURL)
-                if Self.shouldRemoveExportedScreenDirectory(fileURL: fileURL) {
-                    try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent())
-                }
-            }
-        }
-
-        guard let data = try? Data(contentsOf: fileURL),
-              var output = String(data: data, encoding: .utf8) else {
-            return nil
-        }
-        if let lineLimit {
-            output = tailTerminalLines(output, maxLines: lineLimit)
-        }
-        return output
     }
 
     func readTerminalTextForSnapshot(
@@ -7256,29 +7288,11 @@ class TerminalController {
         includeScrollback: Bool = false,
         lineLimit: Int? = nil
     ) -> String? {
-        if includeScrollback,
-           let vtOutput = readTerminalTextFromVTExportForSnapshot(
-               terminalPanel: terminalPanel,
-               lineLimit: lineLimit
-           ) {
-            return vtOutput
-        }
-
-        let response = readTerminalTextBase64(
+        readTerminalText(
             terminalPanel: terminalPanel,
             includeScrollback: includeScrollback,
             lineLimit: lineLimit
         )
-        guard response.hasPrefix("OK ") else { return nil }
-        let base64 = String(response.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
-        if base64.isEmpty {
-            return ""
-        }
-        guard let data = Data(base64Encoded: base64),
-              let decoded = String(data: data, encoding: .utf8) else {
-            return nil
-        }
-        return decoded
     }
 
     func readTerminalTextForSessionSnapshot(
