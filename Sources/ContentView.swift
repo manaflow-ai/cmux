@@ -14711,7 +14711,8 @@ private final class DetachedFolderDragIconHostView: NSView {
         panel.ignoresMouseEvents = false
         panel.isMovable = false
         panel.isMovableByWindowBackground = false
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.collectionBehavior = [.fullScreenAuxiliary]
+        panel.identifier = NSUserInterfaceItemIdentifier("cmux.folderDragIcon")
         parentWindow.addChildWindow(panel, ordered: .above)
         self.childWindow = panel
         self.iconView = iconView
