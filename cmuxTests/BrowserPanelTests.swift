@@ -2007,6 +2007,12 @@ final class WindowBrowserSlotViewTests: XCTestCase {
         RunLoop.current.run(until: Date().addingTimeInterval(0.25))
     }
 
+    private func opacityAnimation(in view: NSView) -> CABasicAnimation? {
+        view.layer?.animationKeys()?
+            .compactMap { view.layer?.animation(forKey: $0) as? CABasicAnimation }
+            .first { $0.keyPath == "opacity" }
+    }
+
     func testDropZoneOverlayStaysAboveContentWithoutBlockingHits() {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
         let slot = WindowBrowserSlotView(frame: container.bounds)
@@ -2037,6 +2043,30 @@ final class WindowBrowserSlotViewTests: XCTestCase {
         slot.setDropZoneOverlay(zone: nil)
         advanceAnimations()
         XCTAssertTrue(overlay.isHidden, "Clearing the drop zone should hide the overlay")
+    }
+
+    func testDropZoneOverlayFadesInWhenShown() {
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        let slot = WindowBrowserSlotView(frame: container.bounds)
+        container.addSubview(slot)
+
+        slot.setDropZoneOverlay(zone: .left)
+        container.layoutSubtreeIfNeeded()
+
+        guard let overlay = container.subviews.first(where: {
+            $0 !== slot && String(describing: type(of: $0)).contains("BrowserDropZoneOverlayView")
+        }) else {
+            XCTFail("Expected browser slot drop-zone overlay")
+            return
+        }
+
+        guard let animation = opacityAnimation(in: overlay) else {
+            XCTFail("Showing the portal drop overlay should install an opacity animation")
+            return
+        }
+        XCTAssertEqual((animation.fromValue as? NSNumber)?.doubleValue ?? -1, 0, accuracy: 0.001)
+        XCTAssertEqual((animation.toValue as? NSNumber)?.doubleValue ?? -1, 1, accuracy: 0.001)
+        XCTAssertGreaterThanOrEqual(animation.duration, 0.2)
     }
 
     func testTopDropZoneOverlayUsesFullBrowserContentHeight() {
