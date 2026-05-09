@@ -13,11 +13,18 @@ final class AutomationSocketUITests: XCTestCase {
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
+        XCUIApplication().terminate()
         socketPath = "/tmp/cmux-debug-\(UUID().uuidString).sock"
         lastSocketResolveDiagnostics = ""
         resetSocketDefaults()
         resetMobileSyncDefaults()
         removeSocketFile()
+    }
+
+    override func tearDown() {
+        XCUIApplication().terminate()
+        removeSocketFile()
+        super.tearDown()
     }
 
     func testSocketToggleDisablesAndEnables() {
@@ -51,6 +58,7 @@ final class AutomationSocketUITests: XCTestCase {
 
     func testMobileSyncSettingsTogglePersists() throws {
         let app = configuredApp(mode: "cmuxOnly")
+        addTeardownBlock { app.terminate() }
         app.launchEnvironment["CMUX_UI_TEST_SHOW_SETTINGS"] = "1"
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launch()
@@ -66,6 +74,7 @@ final class AutomationSocketUITests: XCTestCase {
         app.terminate()
 
         let relaunchedApp = configuredApp(mode: "cmuxOnly")
+        addTeardownBlock { relaunchedApp.terminate() }
         relaunchedApp.launchEnvironment["CMUX_UI_TEST_SHOW_SETTINGS"] = "1"
         relaunchedApp.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         relaunchedApp.launch()
@@ -73,8 +82,6 @@ final class AutomationSocketUITests: XCTestCase {
             ensureForegroundAfterLaunch(relaunchedApp, timeout: 12.0),
             "Expected app to relaunch for mobile sync Settings test. state=\(relaunchedApp.state.rawValue)"
         )
-        addTeardownBlock { relaunchedApp.terminate() }
-
         let persistedToggle = try requireMobileSyncToggle(app: relaunchedApp)
         XCTAssertTrue(toggleIsOn(persistedToggle), "Mobile sync setting should persist across launch")
         persistedToggle.click()
@@ -403,6 +410,7 @@ final class AutomationSocketUITests: XCTestCase {
 
     private func removeSocketFile() {
         try? FileManager.default.removeItem(atPath: socketPath)
+        try? FileManager.default.removeItem(atPath: "/tmp/cmux-debug-\(launchTag).sock")
     }
 
     private func waitForV2Result(
