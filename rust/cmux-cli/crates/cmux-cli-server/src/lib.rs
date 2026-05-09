@@ -23672,13 +23672,19 @@ async fn compatibility_browser_tab_list_v2(
         .enumerate()
         .map(|(index, surface)| compatibility_browser_tab_json(&surface, index, &snapshot))
         .collect::<Vec<_>>();
-    let focused_browser_ref = compatibility_current_browser_surface_ref(&snapshot);
+    let focused_browser = compatibility_current_browser_surface(&snapshot);
+    let focused_browser_id = focused_browser
+        .as_ref()
+        .map(|surface| compat_tab_id(surface.tab));
+    let focused_browser_ref = focused_browser
+        .as_ref()
+        .map(|surface| compat_tab_ref(surface.tab));
     Ok(serde_json::json!({
         "window_id": window_ref.clone(),
         "window_ref": window_ref,
         "workspace_id": workspace_ref.clone(),
         "workspace_ref": workspace_ref,
-        "surface_id": focused_browser_ref,
+        "surface_id": focused_browser_id,
         "surface_ref": focused_browser_ref,
         "tabs": tabs,
     }))
@@ -23978,11 +23984,20 @@ fn compatibility_browser_tab_json(
     browser_index: usize,
     snapshot: &NativeSnapshot,
 ) -> serde_json::Value {
+    let surface_id = compat_tab_id(surface.tab);
     let surface_ref = compat_tab_ref(surface.tab);
+    let tab_ref = compat_tab_handle_ref(surface.tab);
     let browser = surface.tab.browser.as_ref();
     serde_json::json!({
-        "id": surface_ref.clone(),
-        "ref": surface_ref,
+        "id": surface_id.clone(),
+        "ref": surface_ref.clone(),
+        "surface_id": surface_id.clone(),
+        "surface_ref": surface_ref,
+        "tab_id": surface_id,
+        "tab_ref": tab_ref,
+        "numericId": surface.tab.id,
+        "numericSurfaceId": surface.tab.id,
+        "numericTabId": surface.tab.id,
         "index": browser_index,
         "title": surface.tab.title,
         "url": browser.and_then(|browser| browser.url.clone()).unwrap_or_default(),
@@ -24248,12 +24263,17 @@ async fn compatibility_resolve_tab_context_from_snapshot_surface(
 }
 
 fn compatibility_current_browser_surface_ref(snapshot: &NativeSnapshot) -> Option<String> {
+    compatibility_current_browser_surface(snapshot).map(|surface| compat_tab_ref(surface.tab))
+}
+
+fn compatibility_current_browser_surface(
+    snapshot: &NativeSnapshot,
+) -> Option<CompatibilitySurfaceEntry<'_>> {
     compatibility_surface_entries(snapshot)
         .into_iter()
         .find(|surface| {
             surface.tab.id == snapshot.focused_tab_id && surface.tab.kind == NativeTabKind::Browser
         })
-        .map(|surface| compat_tab_ref(surface.tab))
 }
 
 async fn compatibility_tab_id_from_args(
