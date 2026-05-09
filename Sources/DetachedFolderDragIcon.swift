@@ -175,6 +175,9 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
 
     var directory: String
     private var imageView: FolderIconImageView!
+    private var pendingDragEvent: NSEvent?
+    private var pendingDragStartPoint: NSPoint?
+    private let dragStartThresholdSquared: CGFloat = 9
 
     private func formatPoint(_ point: NSPoint) -> String {
         String(format: "(%.1f,%.1f)", point.x, point.y)
@@ -251,11 +254,13 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
 
     override func mouseDown(with event: NSEvent) {
         if event.modifierFlags.contains(.control) {
+            clearPendingDrag()
             showPathMenu()
             return
         }
 
         if event.clickCount == 2 {
+            clearPendingDrag()
             NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: directory)
             return
         }
@@ -267,6 +272,35 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
         let windowOrigin = window.map { formatPoint($0.frame.origin) } ?? "nil"
         cmuxDebugLog("folder.mouseDown dirBytes=\(directory.utf8.count) point=\(formatPoint(localPoint)) firstResponder=\(responderDesc) nowMovable=\(nowMovable) windowOrigin=\(windowOrigin)")
         #endif
+
+        pendingDragEvent = event
+        pendingDragStartPoint = convert(event.locationInWindow, from: nil)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let dragStartPoint = pendingDragStartPoint else { return }
+
+        let currentPoint = convert(event.locationInWindow, from: nil)
+        let deltaX = currentPoint.x - dragStartPoint.x
+        let deltaY = currentPoint.y - dragStartPoint.y
+        guard (deltaX * deltaX) + (deltaY * deltaY) >= dragStartThresholdSquared else { return }
+
+        let dragEvent = pendingDragEvent ?? event
+        clearPendingDrag()
+        beginFolderDrag(with: dragEvent)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        clearPendingDrag()
+        super.mouseUp(with: event)
+    }
+
+    private func clearPendingDrag() {
+        pendingDragEvent = nil
+        pendingDragStartPoint = nil
+    }
+
+    private func beginFolderDrag(with event: NSEvent) {
         let fileURL = URL(fileURLWithPath: directory)
         let draggingItem = NSDraggingItem(pasteboardWriter: fileURL as NSURL)
 
@@ -281,11 +315,8 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
         #endif
     }
 
-    override func mouseUp(with event: NSEvent) {
-        super.mouseUp(with: event)
-    }
-
     override func rightMouseDown(with event: NSEvent) {
+        clearPendingDrag()
         showPathMenu()
     }
 
@@ -352,7 +383,7 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
     }
 
     @objc private func openComputer(_ sender: NSMenuItem) {
-        // Open "Computer" view in Finder (shows all volumes)
+        // Open the root filesystem entry represented by the bottom path item.
         NSWorkspace.shared.open(URL(fileURLWithPath: "/", isDirectory: true))
     }
 }
