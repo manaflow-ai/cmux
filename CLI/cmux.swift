@@ -7200,24 +7200,79 @@ struct CMUXCLI {
         }
 
         if subcommand == "import" {
-            let kind = subArgs.first?.lowercased() ?? ""
-            guard kind == "cookie" || kind == "cookies" else {
-                throw CLIError(message: "browser import requires a data type: cookies")
+            let importArgs = subArgs
+            let importValueOptions: Set<String> = [
+                "--from",
+                "--browser",
+                "--source",
+                "--profile",
+                "--source-profile",
+                "--to",
+                "--to-profile",
+                "--destination-profile",
+                "--domain",
+                "--domains",
+            ]
+            let importFlags: Set<String> = [
+                "--interactive",
+                "--non-interactive",
+                "--noninteractive",
+                "--yes",
+                "-y",
+                "--all-profiles",
+                "--create-profile",
+                "--create-destination-profile",
+            ]
+            func importPositionals(_ values: [String]) -> [String] {
+                var result: [String] = []
+                var index = 0
+                var pastTerminator = false
+                while index < values.count {
+                    let value = values[index]
+                    if pastTerminator {
+                        result.append(value)
+                        index += 1
+                        continue
+                    }
+                    if value == "--" {
+                        pastTerminator = true
+                        index += 1
+                        continue
+                    }
+                    if importValueOptions.contains(value) {
+                        index += index + 1 < values.count ? 2 : 1
+                        continue
+                    }
+                    if importFlags.contains(value) || value.hasPrefix("-") {
+                        index += 1
+                        continue
+                    }
+                    result.append(value)
+                    index += 1
+                }
+                return result
             }
-            let importArgs = Array(subArgs.dropFirst())
+            let unsupportedPositionals = importPositionals(importArgs)
+            if let first = unsupportedPositionals.first {
+                let normalized = first.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                if normalized == "cookie" || normalized == "cookies" {
+                    throw CLIError(message: "browser import no longer takes a data type; use 'cmux browser import'")
+                }
+                throw CLIError(message: "browser import does not accept positional arguments")
+            }
             let forceInteractive = hasFlag(importArgs, name: "--interactive")
             let forceNonInteractive = hasFlag(importArgs, name: "--non-interactive") ||
                 hasFlag(importArgs, name: "--noninteractive") ||
                 hasFlag(importArgs, name: "--yes") ||
                 hasFlag(importArgs, name: "-y")
             if forceInteractive && forceNonInteractive {
-                throw CLIError(message: "browser import cookies cannot use both --interactive and --non-interactive")
+                throw CLIError(message: "browser import cannot use both --interactive and --non-interactive")
             }
 
             let shouldRunNonInteractive = forceNonInteractive ||
                 (!forceInteractive && Self.isCodingAgentEnvironment(ProcessInfo.processInfo.environment))
 
-            var params: [String: Any] = ["scope": "cookiesOnly"]
+            var params: [String: Any] = shouldRunNonInteractive ? ["scope": "cookiesOnly"] : [:]
             if let browser = firstOptionValue(importArgs, names: ["--from", "--browser", "--source"]) {
                 params["browser"] = browser
             }
@@ -9968,7 +10023,7 @@ struct CMUXCLI {
               dialog <accept|dismiss> [text]
               download [wait] [--path <path>] [--timeout-ms <ms>|--timeout <seconds>]
               profiles <list|add|rename|clear|delete> [...]
-              import cookies [--interactive|--non-interactive] [--from <browser>] [--profile <name>] [--all-profiles] [--to-profile <name|uuid>] [--domain <domain>]
+              import [--interactive|--non-interactive] [--from <browser>] [--profile <name>] [--all-profiles] [--to-profile <name|uuid>] [--domain <domain>]
               cookies <get|set|clear> [--name <name>] [--value <value>] [--url <url>] [--domain <domain>] [--path <path>] [--expires <unix>] [--secure] [--all]
               storage <local|session> <get|set|clear> [...]
               tab <new|list|switch|close|<index>> [...]
@@ -20752,7 +20807,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           browser dialog <accept|dismiss> [text]
           browser download [wait] [--path <path>] [--timeout-ms <ms>]
           browser profiles <list|add|rename|clear|delete> [...]
-          browser import cookies [...]
+          browser import [...]
           browser cookies <get|set|clear> [...]
           browser storage <local|session> <get|set|clear> [...]
           browser tab <new|list|switch|close|<index>> [...]

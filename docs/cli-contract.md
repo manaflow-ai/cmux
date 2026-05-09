@@ -244,7 +244,7 @@ Browser subcommands:
 | `browser dialog` | Accept or dismiss dialogs. |
 | `browser download` | Wait for or save downloads. |
 | `browser profiles` | List, add, rename, clear, or delete cmux browser profiles. |
-| `browser import cookies` | Import cookies from detected local browser profiles. Defaults to non-interactive mode in coding-agent environments; pass `--interactive` to open the import wizard. |
+| `browser import` | Open the browser import wizard. In detected coding-agent environments, defaults to non-interactive cookie import; pass `--interactive` to force the wizard. |
 | `browser cookies` | Get, set, or clear cookies. |
 | `browser storage` | Get, set, or clear local/session storage. |
 | `browser tab` | Create, list, switch, or close browser tabs. |

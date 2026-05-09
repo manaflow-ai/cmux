@@ -176,7 +176,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
-    func testBrowserImportCookiesDefaultsNonInteractiveInCodingAgent() throws {
+    func testBrowserImportDefaultsNonInteractiveInCodingAgent() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("browser-import-agent")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -224,7 +224,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 "--json",
                 "browser",
                 "import",
-                "cookies",
                 "--from",
                 "Chrome",
                 "--profile",
@@ -253,7 +252,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
-    func testBrowserImportCookiesUsesInteractiveDialogOutsideCodingAgent() throws {
+    func testBrowserImportUsesInteractiveDialogOutsideCodingAgent() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("browser-import-human")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -273,8 +272,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
             XCTAssertEqual(method, "browser.import.dialog")
             let params = payload["params"] as? [String: Any] ?? [:]
-            XCTAssertEqual(params["scope"] as? String, "cookiesOnly")
-            return self.v2Response(id: id, ok: true, result: ["opened": true, "scope": "cookiesOnly"])
+            XCTAssertNil(params["scope"])
+            return self.v2Response(id: id, ok: true, result: ["opened": true])
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -296,7 +295,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["browser", "import", "cookies"],
+            arguments: ["browser", "import"],
             environment: environment,
             timeout: 5
         )
