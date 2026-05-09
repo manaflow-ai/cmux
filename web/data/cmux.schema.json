@@ -762,6 +762,7 @@
               "equalizeSplits",
               "splitBrowserRight",
               "splitBrowserDown",
+              "toggleFileExplorer",
               "saveFilePreview",
               "openBrowser",
               "focusBrowserAddressBar",
