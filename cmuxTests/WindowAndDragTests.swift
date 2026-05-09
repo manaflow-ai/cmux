@@ -1442,7 +1442,8 @@ final class WindowDragHandleHitTests: XCTestCase {
             titlebarHeight: 36,
             workspaceId: nil,
             onResumeSession: nil,
-            onOpenFilePreview: { _ in }
+            onOpenFilePreview: { _ in },
+            onClose: {}
         )
         let hostingView = NSHostingView(rootView: rootView)
         hostingView.frame = window.contentRect(forFrameRect: window.frame)
@@ -1467,7 +1468,7 @@ final class WindowDragHandleHitTests: XCTestCase {
             return
         }
 
-        let emptyModeBarPoint = dragHandle.convert(emptyModeBarLocalPoint, to: nil)
+        let emptyModeBarPoint = dragHandle.convert(emptyModeBarLocalPoint, to: nil as NSView?)
         guard let event = NSEvent.mouseEvent(
             with: .leftMouseDown,
             location: emptyModeBarPoint,
