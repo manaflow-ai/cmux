@@ -642,7 +642,7 @@ struct cmuxApp: App {
                 }
             }
 
-            splitCommandButton(title: String(localized: "menu.view.focusRightSidebar", defaultValue: "Focus Right Sidebar"), shortcut: menuShortcut(for: .focusRightSidebar)) {
+            splitCommandButton(title: String(localized: "menu.view.focusRightSidebar", defaultValue: "Toggle Right Sidebar"), shortcut: menuShortcut(for: .focusRightSidebar)) {
                 if AppDelegate.shared?.toggleRightSidebarKeyboardFocusInActiveMainWindow() != true {
                     if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
                         preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
@@ -6524,7 +6524,7 @@ struct SettingsView: View {
                             Text(String(localized: "settings.browser.httpAllowlist", defaultValue: "HTTP Hosts Allowed in Embedded Browser"))
                                 .font(.system(size: 13, weight: .semibold))
 
-                            Text(String(localized: "settings.browser.httpAllowlist.description", defaultValue: "Controls which HTTP (non-HTTPS) hosts can open in cmux without a warning prompt. Defaults include localhost, 127.0.0.1, ::1, 0.0.0.0, and *.localtest.me."))
+                            Text(String(localized: "settings.browser.httpAllowlist.description", defaultValue: "Controls which HTTP (non-HTTPS) hosts can open in cmux without a warning prompt. Defaults include localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, and *.localtest.me."))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
 
@@ -6544,7 +6544,7 @@ struct SettingsView: View {
 
                             ViewThatFits(in: .horizontal) {
                                 HStack(alignment: .center, spacing: 10) {
-                                    Text(String(localized: "settings.browser.httpAllowlist.hint", defaultValue: "One host or wildcard per line (for example: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."))
+                                    Text(String(localized: "settings.browser.httpAllowlist.hint", defaultValue: "One host or wildcard per line (for example: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."))
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                         .fixedSize(horizontal: false, vertical: true)
@@ -6561,7 +6561,7 @@ struct SettingsView: View {
                                 }
 
                                 VStack(alignment: .leading, spacing: 8) {
-                                    Text(String(localized: "settings.browser.httpAllowlist.hint", defaultValue: "One host or wildcard per line (for example: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."))
+                                    Text(String(localized: "settings.browser.httpAllowlist.hint", defaultValue: "One host or wildcard per line (for example: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."))
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
 
@@ -6736,9 +6736,7 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
-                        let actions = KeyboardShortcutSettings.Action.allCases.filter {
-                            $0 != SystemWideHotkeySettings.action
-                        }
+                        let actions = KeyboardShortcutSettings.settingsVisibleActions
                         ForEach(Array(actions.enumerated()), id: \.element.id) { index, action in
                             ShortcutSettingRow(action: action)
                                 .padding(.horizontal, 14)

@@ -114,7 +114,7 @@ enum SettingsSearchAliasIndex {
     ]
 
     private static var keyboardShortcutActionAliases: String {
-        KeyboardShortcutSettings.Action.allCases.map(\.label).joined(separator: " ")
+        KeyboardShortcutSettings.settingsVisibleActions.map(\.label).joined(separator: " ")
     }
 
     private static func localized(_ key: StaticString, defaultValue: String.LocalizationValue) -> String {
