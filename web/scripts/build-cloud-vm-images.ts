@@ -302,6 +302,8 @@ export async function findFreestyleSnapshotByName(
   notBefore: string,
   signal: AbortSignal,
 ): Promise<FreestyleSnapshotRecord | null> {
+  // Freestyle#fetch is the SDK API transport. It wraps the configured fetch and
+  // injects auth headers before the request reaches the network.
   const response = await fs.fetch(freestyleSnapshotListURL(), {
     method: "GET",
     signal,

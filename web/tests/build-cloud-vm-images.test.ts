@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { Freestyle } from "freestyle";
 import {
   cloudAgentToolPackageSpecs,
   cloudImageSmokeTestCommands,
   cloudToolInstallCommands,
+  findFreestyleSnapshotByName,
   freestyleRecoveryWindowStart,
   pinnedNpmPackageVersion,
   positiveIntFromEnv,
@@ -174,6 +176,41 @@ describe("Cloud VM image build helpers", () => {
     );
 
     expect(recovered).toBeNull();
+  });
+
+  test("snapshot recovery uses Freestyle authenticated fetch transport", async () => {
+    const name = "cmuxd-ws-auth";
+    let requestUrl = "";
+    let requestHeaders = new Headers();
+    const freestyle = new Freestyle({
+      apiKey: "fs_test_key",
+      fetch: async (input, init) => {
+        requestUrl = String(input);
+        requestHeaders = new Headers(init?.headers);
+        return new Response(JSON.stringify({
+          snapshots: [
+            {
+              snapshotId: "sh-auth",
+              name,
+              state: "ready",
+              createdAt: "2026-05-09T05:00:00.000Z",
+            },
+          ],
+        }));
+      },
+    });
+
+    const recovered = await findFreestyleSnapshotByName(
+      freestyle,
+      name,
+      "2026-05-09T04:30:00.000Z",
+      new AbortController().signal,
+    );
+
+    expect(recovered?.snapshotId).toBe("sh-auth");
+    expect(requestUrl).toStartWith("https://api.freestyle.sh/v1/vms/snapshots");
+    expect(requestHeaders.get("authorization")).toBe("Bearer fs_test_key");
+    expect(requestHeaders.get("x-freestyle-sdk")).toBeTruthy();
   });
 
   test("retry waits are abortable", async () => {
