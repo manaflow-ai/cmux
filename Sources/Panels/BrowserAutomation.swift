@@ -260,6 +260,10 @@ enum BrowserProfileAutomation {
 
         _ = await BrowserProfileStore.shared.clearProfileData(id: profile.id)
         return try await MainActor.run {
+            let livePanelCount = liveBrowserPanelCount(profileID: profile.id)
+            guard livePanelCount == 0 else {
+                throw BrowserProfileAutomationError.profileInUse(profile.displayName, livePanelCount)
+            }
             guard let deleted = BrowserProfileStore.shared.deleteProfile(id: profile.id) else {
                 throw BrowserProfileAutomationError.profileDeleteFailed(profile.displayName)
             }
