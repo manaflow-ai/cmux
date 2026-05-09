@@ -64,6 +64,37 @@ import Testing
     #expect(snapshot.streamOffset == 9001)
 }
 
+@Test func ghosttyTextBuilderSplitsVisibleAndScrollbackRows() throws {
+    let snapshot = try MobileTerminalGhosttySnapshot.fromGhosttyText(
+        terminalID: "terminal-1",
+        columns: 10,
+        rows: 3,
+        scrollbackText: "history one\nhistory two\n",
+        viewportText: "visible one\nvisible two\nprompt"
+    )
+
+    #expect(snapshot.scrollbackRows.map(\.trimmedPlainText) == ["history on", "history tw"])
+    #expect(snapshot.renderedVisibleLines == ["visible on", "visible tw", "prompt"])
+    #expect(snapshot.activeScreen == .primary)
+}
+
+@Test func ghosttyTextBuilderPadsVisibleRowsAndLimitsScrollback() throws {
+    let snapshot = try MobileTerminalGhosttySnapshot.fromGhosttyText(
+        terminalID: "terminal-2",
+        columns: 8,
+        rows: 4,
+        scrollbackText: "old\nmiddle\nnew",
+        viewportText: "prompt\n",
+        maxScrollbackRows: 2,
+        activeScreen: .alternate
+    )
+
+    #expect(snapshot.scrollbackRows.map(\.trimmedPlainText) == ["middle", "new"])
+    #expect(snapshot.renderedVisibleLines == ["prompt", "", "", ""])
+    #expect(snapshot.activeScreen == .alternate)
+    #expect(snapshot.cursor.row == 3)
+}
+
 @Test func renderedLinesPreserveLeadingWhitespace() throws {
     let snapshot = try MobileTerminalGhosttySnapshot.fixture(
         terminalID: "terminal-indented",

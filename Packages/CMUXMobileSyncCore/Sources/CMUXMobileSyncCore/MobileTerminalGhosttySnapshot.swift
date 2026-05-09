@@ -291,6 +291,42 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
         )
     }
 
+    public static func fromGhosttyText(
+        terminalID: String,
+        columns: Int,
+        rows: Int,
+        scrollbackText: String?,
+        viewportText: String,
+        maxScrollbackRows: Int? = nil,
+        activeScreen: MobileTerminalGhosttyScreen = .primary,
+        modes: MobileTerminalGhosttyModes = MobileTerminalGhosttyModes(),
+        cursor: MobileTerminalGhosttyCursor? = nil,
+        streamOffset: UInt64 = 0,
+        generatedAt: Date = Date()
+    ) throws -> MobileTerminalGhosttySnapshot {
+        let visibleLines = terminalLines(from: viewportText)
+        var scrollbackLines = terminalLines(from: scrollbackText ?? "")
+        if let maxScrollbackRows {
+            scrollbackLines = Array(scrollbackLines.suffix(max(0, maxScrollbackRows)))
+        }
+        let resolvedCursor = cursor ?? MobileTerminalGhosttyCursor(
+            column: 0,
+            row: max(0, rows - 1),
+            isVisible: modes.cursorVisible
+        )
+        return try MobileTerminalGhosttySnapshot(
+            terminalID: terminalID,
+            gridSize: MobileTerminalGridSize(columns: columns, rows: rows),
+            activeScreen: activeScreen,
+            scrollbackRows: scrollbackLines.map { row(from: $0, columns: columns) },
+            visibleRows: paddedRows(lines: visibleLines, columns: columns, rows: rows),
+            cursor: resolvedCursor,
+            modes: modes,
+            streamOffset: streamOffset,
+            generatedAt: generatedAt
+        )
+    }
+
     private enum RowKind {
         case scrollback
         case visible
@@ -335,6 +371,15 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
             cells.append(.blank)
         }
         return MobileTerminalGhosttyRow(cells: cells)
+    }
+
+    private static func terminalLines(from text: String) -> [String] {
+        guard !text.isEmpty else { return [] }
+        var lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        if text.hasSuffix("\n"), lines.last == "" {
+            lines.removeLast()
+        }
+        return lines
     }
 }
 
