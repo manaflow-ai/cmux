@@ -4,6 +4,7 @@ import Darwin
 
 final class AutomationSocketUITests: XCTestCase {
     private var socketPath = ""
+    private var lastSocketResolveDiagnostics = ""
     private let defaultsDomain = "com.cmuxterm.app.debug"
     private let modeKey = "socketControlMode"
     private let legacyKey = "socketControlEnabled"
@@ -13,6 +14,7 @@ final class AutomationSocketUITests: XCTestCase {
         super.setUp()
         continueAfterFailure = false
         socketPath = "/tmp/cmux-debug-\(UUID().uuidString).sock"
+        lastSocketResolveDiagnostics = ""
         resetSocketDefaults()
         resetMobileSyncDefaults()
         removeSocketFile()
@@ -85,7 +87,7 @@ final class AutomationSocketUITests: XCTestCase {
         launchAndAllowBackground(app, failureMessage: "Expected app to launch for mobile terminal snapshot test")
 
         guard let resolvedPath = resolveResponsiveSocketPath(timeout: 8.0) else {
-            XCTFail("Expected control socket to respond to ping")
+            XCTFail("Expected control socket to respond to ping. \(lastSocketResolveDiagnostics)")
             return
         }
         socketPath = resolvedPath
@@ -119,6 +121,8 @@ final class AutomationSocketUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments += ["-\(modeKey)", mode]
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
+        app.launchEnvironment["CMUX_SOCKET_MODE"] = mode
         app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
         // Debug launches require a tag outside reload.sh; provide one in UITests so CI
         // does not fail with "Application ... does not have a process ID".
@@ -248,14 +252,25 @@ final class AutomationSocketUITests: XCTestCase {
 
     private func resolveResponsiveSocketPath(timeout: TimeInterval) -> String? {
         var resolvedPath: String?
+        var diagnostics: [String] = []
         let expectation = XCTNSPredicateExpectation(
             predicate: NSPredicate { _, _ in
+                diagnostics.removeAll(keepingCapacity: true)
                 let candidates = self.socketCandidates()
                 for candidate in candidates where FileManager.default.fileExists(atPath: candidate) {
-                    if ControlSocketClient(path: candidate, responseTimeout: 1.0).sendLine("ping") == "PONG" {
+                    let response = ControlSocketClient(path: candidate, responseTimeout: 1.0).sendLine("ping")
+                    diagnostics.append("\(candidate)=\(response ?? "<nil>")")
+                    self.lastSocketResolveDiagnostics = diagnostics.joined(separator: " ")
+                    if response == "PONG" {
                         resolvedPath = candidate
                         return true
                     }
+                }
+                if diagnostics.isEmpty {
+                    let existingCandidates = candidates.map { candidate in
+                        "\(candidate)=exists:\(FileManager.default.fileExists(atPath: candidate) ? "1" : "0")"
+                    }
+                    self.lastSocketResolveDiagnostics = existingCandidates.joined(separator: " ")
                 }
                 return false
             },
