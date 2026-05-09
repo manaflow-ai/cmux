@@ -306,7 +306,8 @@ final class AutomationSocketUITests: XCTestCase {
         var lastEnvelope: [String: Any]?
         var lastRaw: String?
         while Date() < deadline {
-            if let (raw, envelope) = try? sendV2Request(method: method, params: params) {
+            if let response = try sendV2Request(method: method, params: params) {
+                let (raw, envelope) = response
                 lastRaw = raw
                 lastEnvelope = envelope
                 if envelope["ok"] as? Bool == true,
@@ -323,7 +324,7 @@ final class AutomationSocketUITests: XCTestCase {
     private func sendV2Request(
         method: String,
         params: [String: Any]
-    ) throws -> (raw: String, envelope: [String: Any]) {
+    ) throws -> (raw: String, envelope: [String: Any])? {
         let request: [String: Any] = [
             "id": method,
             "method": method,
@@ -331,10 +332,9 @@ final class AutomationSocketUITests: XCTestCase {
         ]
         let data = try JSONSerialization.data(withJSONObject: request)
         let line = try XCTUnwrap(String(data: data, encoding: .utf8))
-        let response = try XCTUnwrap(
-            ControlSocketClient(path: socketPath, responseTimeout: 5.0).sendLine(line),
-            "Expected socket response for \(method)"
-        )
+        guard let response = ControlSocketClient(path: socketPath, responseTimeout: 5.0).sendLine(line) else {
+            return nil
+        }
         let responseData = try XCTUnwrap(response.data(using: .utf8))
         let envelope = try XCTUnwrap(JSONSerialization.jsonObject(with: responseData) as? [String: Any])
         return (response, envelope)
