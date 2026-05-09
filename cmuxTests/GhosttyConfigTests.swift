@@ -1107,6 +1107,26 @@ final class RemoteLoopbackHTTPRequestRewriterTests: XCTestCase {
         XCTAssertTrue(text.contains("Access-Control-Allow-Origin: http://api.cmux-loopback.localtest.me:3000"))
         XCTAssertTrue(text.contains("Set-Cookie: sid=1; Domain=api.cmux-loopback.localtest.me; Path=/"))
     }
+
+    func testRewritesLeadingDotLoopbackCookieDomainsBackToAliasDomains() {
+        let original = Data(
+            (
+                "HTTP/1.1 200 OK\r\n" +
+                "Set-Cookie: root=1; Domain=.localhost; Path=/\r\n" +
+                "Set-Cookie: api=1; Domain=.api.localhost; Path=/\r\n" +
+                "\r\n"
+            ).utf8
+        )
+
+        let rewritten = RemoteLoopbackHTTPResponseRewriter.rewriteIfNeeded(
+            data: original,
+            aliasHost: "cmux-loopback.localtest.me"
+        )
+
+        let text = String(decoding: rewritten, as: UTF8.self)
+        XCTAssertTrue(text.contains("Set-Cookie: root=1; Domain=.cmux-loopback.localtest.me; Path=/"))
+        XCTAssertTrue(text.contains("Set-Cookie: api=1; Domain=.api.cmux-loopback.localtest.me; Path=/"))
+    }
 }
 
 
