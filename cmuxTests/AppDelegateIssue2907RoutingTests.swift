@@ -96,6 +96,7 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertTrue(methods.contains("mobile_sync.status"))
         XCTAssertTrue(methods.contains("mobile_sync.enable"))
         XCTAssertTrue(methods.contains("mobile_sync.disable"))
+        XCTAssertTrue(methods.contains("mobile_sync.terminal_snapshot"))
 
         let status = try v2Result(method: "mobile_sync.status")
         XCTAssertEqual(status["enabled"] as? Bool, false)
