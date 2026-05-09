@@ -699,6 +699,18 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertNil(index.snapshot(workspaceId: regeneratedWorkspaceId, panelId: UUID()))
     }
 
+    @MainActor
+    func testMarkRestorableAgentSessionEndedNoopsWithoutEntry() {
+        // The CLI calls Workspace.markRestorableAgentSessionEnded for any panel
+        // whose agent SessionEnd hook fires, including panels that never had a
+        // restored snapshot (fresh sessions started in this lifetime). Make
+        // sure the call is safe — no crash, no spurious side effects.
+        let workspace = Workspace(title: "Tests")
+        workspace.markRestorableAgentSessionEnded(panelId: UUID())
+        // No assertion needed beyond "did not crash"; the method is called
+        // from a sidebar mutation closure and must tolerate missing entries.
+    }
+
     func testResolvedWindowFramePrefersSavedDisplayIdentity() {
         let savedFrame = SessionRectSnapshot(x: 1_200, y: 100, width: 600, height: 400)
         let savedDisplay = SessionDisplaySnapshot(

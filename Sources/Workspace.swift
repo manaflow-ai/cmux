@@ -8455,6 +8455,25 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    /// Mark the restorable agent for `panelId` as ended, so the next snapshot
+    /// save does not embed it. Called when an agent's hook reports SessionEnd
+    /// (claude exits, codex resume completes, etc.). Without this, the agent
+    /// persists in `restoredAgentSnapshotsByPanelId` after the underlying
+    /// session has been consumed from disk, and the next cmux launch tries to
+    /// resume a session that no longer exists.
+    func markRestorableAgentSessionEnded(panelId: UUID) {
+        guard let restored = restoredAgentSnapshotsByPanelId[panelId] else { return }
+        invalidatedRestoredAgentFingerprintsByPanelId[panelId] = TabManager.restorableAgentSnapshotFingerprint(restored)
+        restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
+        restoredAgentAutoResumePendingPanelIds.remove(panelId)
+#if DEBUG
+        cmuxDebugLog(
+            "session.restore.agent.session-ended panel=\(panelId.uuidString.prefix(5)) " +
+            "kind=\(restored.kind.rawValue) session=\(restored.sessionId.prefix(8))"
+        )
+#endif
+    }
+
     func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {
         guard panels[panelId] != nil else { return }
         let previousState = panelShellActivityStates[panelId] ?? .unknown

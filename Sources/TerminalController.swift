@@ -2127,6 +2127,9 @@ class TerminalController {
         case "clear_agent_pid":
             return clearAgentPID(args)
 
+        case "agent_session_ended":
+            return agentSessionEnded(args)
+
         case "clear_meta":
             return clearMeta(args)
 
@@ -16331,6 +16334,33 @@ class TerminalController {
                 return
             }
             tab.recordAgentPID(key: key, pid: pid, panelId: panelResolution.panelId)
+        }
+        return "OK"
+    }
+
+    /// Mark the restorable agent for a panel as ended so the next session
+    /// snapshot save does not embed it. Usage:
+    ///   agent_session_ended --tab=<workspaceId> --surface=<panelUUID>
+    /// Called by `cmux claude-hook session-end` (and other agents' SessionEnd
+    /// hooks) once the on-disk hook record has been consumed. Without this,
+    /// `Workspace.restoredAgentSnapshotsByPanelId` keeps the post-restoration
+    /// snapshot in memory after the agent exits, and the next cmux launch
+    /// auto-resumes a session that was already finished.
+    private func agentSessionEnded(_ args: String) -> String {
+        let parsed = parseOptions(args)
+        let targetResolution = parseSidebarMutationTabTarget(options: parsed.options)
+        guard let target = targetResolution.target else {
+            return targetResolution.error ?? "ERROR: No tab selected"
+        }
+        guard let surfaceRaw = parsed.options["surface"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !surfaceRaw.isEmpty else {
+            return "ERROR: Usage: agent_session_ended --tab=<id> --surface=<panel-uuid>"
+        }
+        guard let panelId = UUID(uuidString: surfaceRaw) else {
+            return "ERROR: --surface must be a UUID, got: \(surfaceRaw)"
+        }
+        scheduleSidebarMutation(target: target) { _, tab in
+            tab.markRestorableAgentSessionEnded(panelId: panelId)
         }
         return "OK"
     }
